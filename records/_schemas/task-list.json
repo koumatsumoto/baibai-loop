@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task-list.json",
+  "title": "Operational task list",
+  "description": "運用 task の現在状態の正本。遷移履歴は git history が持つため、この document は current state のみを保持する。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "tasks"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Task" }
+    }
+  },
+  "$defs": {
+    "Task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "title", "kind", "status", "due_date", "created_at"],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "pattern": "^task-[0-9]{8}-[a-z0-9][a-z0-9-]*$",
+          "description": "task-YYYYMMDD-<slug>。YYYYMMDD は due_date"
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["earnings-review", "ops", "follow-up", "other"] },
+        "status": { "enum": ["open", "done", "dropped"] },
+        "ticker": { "type": ["string", "null"], "pattern": "^[0-9]{4}[A-Z0-9]?$" },
+        "due_date": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "event_label": { "type": ["string", "null"] },
+        "event_date": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "body_md": { "type": ["string", "null"], "description": "Load-bearing question・primary sources・close condition の要約" },
+        "related_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "関連 record の repo 相対 path、または出典 URL"
+        },
+        "created_at": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "closed_at": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+      }
+    }
+  }
+}

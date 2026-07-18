@@ -1,9 +1,9 @@
 ---
 title: "タスク runbook"
-summary: "GitHub issue で決算後確認などの運用タスクを管理するための入口。"
+summary: "records/05-task/tasks.yaml で決算後確認などの運用タスクを管理するための入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-14
+last_reviewed: 2026-07-18
 related_docs:
   - "../workflow/research.md"
   - "../workflow/position.md"
@@ -11,116 +11,66 @@ related_docs:
 
 # タスク runbook
 
-GitHub issue は、決算後確認など「将来の特定イベント後に実行する作業」の運用タスク一覧として使います。triggerの選択と全体導線は[`decision-cycle.md`](./decision-cycle.md)を正本とし、投資判断の正本はrecordsに残します。issueには実行漏れを防ぐための期限、確認項目、更新先を記録します。
+運用 task の正本は [`records/05-task/tasks.yaml`](../../records/05-task/tasks.yaml) です。決算後確認など、将来の特定 event や日付で実行する作業の current state を一つの一覧で管理します。trigger の選択と全体導線は [`decision-cycle.md`](./decision-cycle.md) を正本とし、投資判断と注文状態はそれぞれ canonical records と human-confirmed ledger に残します。
+
+GitHub Issue は task 管理には使わず、feature、bug、基盤改善、PR delivery などの開発作業に使います。task の状態遷移履歴は Git が持つため、`tasks.yaml` は current state だけを保持します。
 
 ## 対象
 
-次のいずれかに該当する場合、タスク issue を作成または既存タスク issue に紐づけます。
+次のいずれかに該当する作業を task record にします。
 
-- `judgment.recommendation: defer` のdecision packetで、再確認すべきイベントを特定した。
+- `judgment.recommendation: defer` の decision packet で、再確認する event が特定されている。
 - 既存保有に、決算発表後の holding review 更新がある。
-- screening / research の途中で「YYYY-MM-DD の決算後に確認」のような実行日付きの判断待ちが発生した。
+- screening / research の途中で、実行日付きの判断待ちが発生した。
+- 注文期限や人間入力の到来後に実行する運用確認がある。
 
-単なる調査メモ、将来いつか確認する改善案、screening rule 改訂案はこの runbook の対象外です。別途 follow-up issue として扱います。
+単なる調査メモ、日付のない改善案、screening rule の改訂案は対象外です。方法改善は improvement loop の開発 Issue で扱います。
 
 ## 粒度
 
-- 同じ期限日、同じタスク種別、同じ領域の未保有候補は、原則 1 issue にまとめます。
-- 既存保有、売買判断が絡むもの、高重要候補、確認項目が大きく異なるものは個別 issue にします。
-- 既に同じ期限日のタスク issue がある場合は、新規作成前にその issue へ追記できるか確認します。
-- 重複 issue を見つけた場合は、残す issue に内容を移し、重複側に移管先をコメントして close します。
+- 同じ期限日、同じ task 種別、同じ領域の未保有候補は、原則一つにまとめます。
+- 既存保有、売買判断が絡むもの、高重要候補、確認項目が大きく異なるものは個別 task にします。
+- 新規追加前に `task_id`、期限、ticker、確認内容を照合し、既存 task へ統合できないか確認します。
+- `task_id` は `task-YYYYMMDD-<slug>` とし、`YYYYMMDD` を `due_date` と一致させます。
 
-<a id="open-issue-lifecycle"></a>
+field の型・必須項目・enum は [`records/_schemas/task-list.json`](../../records/_schemas/task-list.json) を正本とします。task 間で `task_id` は一意でなければなりません。
 
-## Open dated Issue の lifecycle
+## Status
 
-resume時は、期限、注文、次eventのいずれかを持つopenなdated trade/task Issueを一覧し、各Issueのcurrent load-bearing question、expected destination、close conditionをcanonical recordsとledgerへ照合します。未完了の人間確認や将来triggerを失わず、Issueだけに残った判断をcanonical stateと誤認しないための監査です。
+- `open`: 実行条件の到来待ち、または作業が未完了。
+- `done`: load-bearing question への判断と必要な canonical 更新が完了。
+- `dropped`: current canonical state では task の問いが成立しない、または実行不要。
 
-照合対象は次のとおりです。
+`done` / `dropped` へ変更するときは `closed_at` を設定します。遷移配列や別の監査 metadata は追加しません。判断が変わった理由は対象の decision packet、holding review、ledger などの正本へ書き、task には current state と参照だけを残します。
 
-- due event/date、ticker、current question、関連proposal/packet/holding review、expected destination
-- canonical decision packet、holding review、portfolio ledgerのcurrent stateとsource/hash
-- broker操作が関係する場合、人間が報告した`open / filled / cancelled / expired`と各statusの必須情報
+## Task の内容
 
-Issue、canonical record、ledgerの間で対象、数量、注文状態、判断、更新先のいずれかが矛盾する場合はstopします。矛盾している入力、判断への影響、解除に必要な人間入力をIssueへコメントし、records更新、ledger更新、Issue closeを推定で進めません。
+`body_md` には次だけを短く記載します。
 
-broker状態は人間の報告だけを事実入力とします。期日を過ぎたこと、ledgerにreservationがないこと、proposalの判断が現在と合わないことだけから`filled / cancelled / expired`を推定しません。人間のstatus報告がないIssueでは注文状態を変えず、照合結果と必要な報告をコメントします。
+- load-bearing question: 何を確認できれば判断が変わるか。
+- primary sources: company IR、TDnet、EDINET、JPX、人間確認済み ledger など。
+- expected destination: decision packet、holding review、ledger などの更新先。
+- close condition: task を `done` または `dropped` にできる条件。
 
-監査後はIssueを次のいずれかとして扱います。
+`related_refs` には関連 record の repository 相対 path または出典 URL を置きます。逐次の作業ログや進行経緯は task record に複製しません。
 
-- **`complete`**: load-bearing questionへの判断が確定し、必要なcanonical recordまたはledger更新が完了している。更新不要ならcurrent canonical stateで解決できることを確認し、current decisionとその理由をコメントしてcloseします。該当canonical recordが存在する場合はpath/hashも示します。
-- **`current-question-invalid`**: Issueのload-bearing questionがcurrent canonical stateでは成立しない。current canonical stateまたは判断根拠への参照と、そのquestionを維持しない理由をコメントしてcloseします。該当canonical recordが存在する場合はpath/hashも示します。別のtriggerや判断が残る場合は既存Issueへ移すか新しいIssueに分割し、移管先と理由をコメントします。
-- **`living`**: 次に判断できるdated triggerまたは人間入力が未到来である。次のtrigger/date、openのまま残す理由、その時点で必要な一次sourceまたは人間入力をコメントしてopenを維持します。
-- **`blocked`**: canonical inputsに矛盾または不足がある。該当入力、判断への影響、解除に必要な人間入力をコメントしてopenを維持します。
+## Resume checkpoint
 
-close、分割、継続のコメントは現在の正本、現在の判断、その判断を支える理由を示します。Issue本文を判断の正本にせず、投資判断と注文状態はそれぞれcanonical recordsと人間確認済みledgerに残します。
+resume 時は `status: open` の task を `due_date` 昇順で確認し、各 task を current canonical records と ledger に照合します。
 
-## Issue タイトル
+1. `due_date` / `event_date`、ticker、load-bearing question、expected destination を読む。
+2. current decision packet、holding review、portfolio ledger、人間が報告した broker status と照合する。
+3. 入力が一致し、trigger が到来した task を一件選ぶ。一次 IR の公表日程は実行時に再確認する。
+4. 必要な canonical record を更新・検証し、人間確認後に task の current state を更新する。
 
-タイトルは日付で検索・一覧しやすい形にします。
+task、canonical record、ledger の対象、数量、注文状態、判断、更新先が矛盾する場合は停止します。矛盾している入力、判断への影響、解除に必要な人間入力を確認し、推定で task や ledger を終端状態へ進めません。
 
-```text
-task: YYYY-MM-DD <対象>を<イベント>後に確認する
+broker 状態は人間の報告だけを事実入力とします。期日経過や reservation の不在だけから `filled / cancelled / expired` を推定しません。
+
+## Validation
+
+task を追加・変更したら、schema と `task_id` 一意性を検証します。
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target task-list
 ```
-
-例:
-
-- `task: 2026-05-12 3964 オークネットを Q1 後に確認する`
-- `task: 2026-05-15 決算後に 6310 / 6835 / 7613 を確認する`
-- `task: 2026-05-15 9470 学研HDを FY2026 Q2 後に保有レビューする`
-
-期限は title と issue body に書きます。`due:YYYY-MM-DD` のような日付 label は作りません。
-
-## ラベル
-
-決算後確認タスクでは、必要最小限の label だけを使います。
-
-- `follow-up`
-- `task:earnings-review`
-- `area:screening`
-
-`task:earnings-review` は、決算発表後に確認する投資調査タスクを表します。`area:screening` は screening 起点の候補確認や、その候補から発生した既存保有 review に使います。
-
-## 本文テンプレート
-
-```markdown
-## Trigger
-
-- due event / date:
-- ticker / name:
-- related proposal / packet / holding review:
-
-## Load-bearing question
-
-- このeventで何が確認できれば判断が変わるか:
-- 現在blocked/deferの理由:
-
-## Primary sources
-
-- company IR / TDnet / EDINET / JPX:
-- 対象期、公表予定日:
-
-## Expected destination
-
-- decision packet / holding review / ledger（必要なものだけ）:
-
-## Close condition
-
-- current lifecycle: living / complete / current-question-invalid / blocked
-- complete時のcurrent canonical state、判断、該当recordがある場合はpath/hash:
-- current-question-invalid時のcurrent canonical stateまたは判断根拠、close理由、該当recordがある場合はpath/hash、必要なら移管先:
-- living時のnext dated trigger/dateとopenのまま残す理由:
-- blocked時の矛盾・不足inputと解除条件:
-```
-
-## 完了時
-
-resume時の監査とIssueのclose/分割/継続判定は[`Open dated Issue の lifecycle`](#open-issue-lifecycle)に従います。
-
-1. 会社の一次 IR を確認する。
-2. issue の確認項目に沿って判断を決める。
-3. 必要なdecision packet、holding review、ledgerだけを更新する。
-4. issueにcurrent canonical stateと1〜3行の判断結果をコメントする。canonical recordを更新または参照した場合はpath/hashも示し、判断本文を複製しない。
-5. タスクが完了したら issue を close する。
-
-canonical recordを更新する判断はrecordsへ戻し、recordを作らない正常終了はcurrent canonical stateと判断根拠への参照をissueへ残す。issue本文だけに新しいcanonical判断を作らない。
