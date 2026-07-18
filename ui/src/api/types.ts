@@ -1,0 +1,149 @@
+export interface HoldingView {
+  ticker: string
+  company_name: string | null
+  sector: string
+  quantity: number
+  deployed_cost_yen: number
+  market_price_yen: string
+  market_price_as_of: string
+  market_value_yen: number
+  unrealized_pnl_yen: number
+  unrealized_pnl_pct: number
+  fair_value_yen: number | null
+  fv_gap_pct: number | null
+  latest_packet_path: string | null
+  recommendation: string | null
+}
+
+export interface ReservationView {
+  reservation_id: string
+  ticker: string
+  sector: string
+  remaining_quantity: number
+  price_guard_yen: string
+  reserved_yen: number
+  expires_at: string
+}
+
+export interface WarningView {
+  code: string
+  scope: string
+  key: string
+  actual_pct: number
+  warning_pct: number
+  overridden: boolean
+}
+
+export interface TaskView {
+  task_id: string
+  title: string
+  kind: string
+  status: string
+  ticker: string | null
+  due_date: string
+  event_label: string | null
+  event_date: string | null
+  overdue: boolean
+}
+
+export interface DashboardView {
+  generated_at: string
+  ledger_exists: boolean
+  ledger_error: string | null
+  ledger_as_of: string | null
+  ledger_stale: boolean
+  total_capital_yen: number | null
+  available_cash_yen: number | null
+  reserved_cash_yen: number | null
+  holdings_market_value_yen: number | null
+  deployed_cost_yen: number | null
+  cash_pct: number | null
+  reserved_pct: number | null
+  deployed_pct: number | null
+  holdings: HoldingView[]
+  reservations: ReservationView[]
+  warnings: WarningView[]
+  open_tasks: TaskView[]
+  next_task: TaskView | null
+  next_event: TaskView | null
+  tasks_exist: boolean
+  research_load_errors: string[]
+}
+
+export interface ScreeningRunView {
+  run_id: string
+  run_date: string
+  asof_date: string
+  universe_size: number
+  candidate_count: number
+  source_path: string
+}
+
+export interface CandidateRowView {
+  ticker: string
+  name: string | null
+  sector_33: string | null
+  market_cap_oku: number | null
+  avg_turnover_oku: number | null
+  per_trailing: number | null
+  per_forward: number | null
+  pbr: number | null
+  ev_ebitda: number | null
+  p_s: number | null
+  pcfr: number | null
+  dividend_yield: number | null
+  er_annual: number | null
+  er_reversion_annual: number | null
+  er_carry_annual: number | null
+  net_cash_to_market_cap: number | null
+  fcf_yield: number | null
+  ocf_yield: number | null
+  equity_ratio: number | null
+  price_change_20d: number | null
+  gap_from_52w_low: number | null
+  next_earnings_date: string | null
+  held: boolean
+  has_research: boolean
+}
+
+export interface ScreeningView {
+  run: ScreeningRunView | null
+  rows: CandidateRowView[]
+}
+
+export interface ResearchRevisionView {
+  as_of: string
+  packet_path: string
+  recommendation: string
+  confidence: string | null
+  current_fair_value_yen: number | null
+  model_version: string | null
+  review_path: string | null
+}
+
+export interface ScenarioView {
+  name: string
+  horizon_years: number
+}
+
+export interface PacketDetailView {
+  revision: ResearchRevisionView
+  entry_price_basis_yen: number | null
+  required_5y_base_cagr_pct: number | null
+  permanent_loss_risk_count: number
+  scenarios: ScenarioView[]
+  permanent_loss_conclusion: string | null
+  strongest_countercase: string | null
+  sizing_action: string | null
+}
+
+export interface SecurityDetailView {
+  ticker: string
+  company_name: string | null
+  sector: string | null
+  holding: HoldingView | null
+  revisions: ResearchRevisionView[]
+  latest_packet: PacketDetailView | null
+  candidate_row: CandidateRowView | null
+  candidate_run: ScreeningRunView | null
+}
