@@ -33,6 +33,13 @@ from baibai_engine.market.sqlite import (
     range_covered,
 )
 from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
+from baibai_engine.position.drafts import (
+    HumanEvent,
+    apply_draft,
+    build_event_draft,
+    load_draft,
+    write_draft,
+)
 from baibai_engine.position.holding_review import (
     HoldingReviewDocument,
     HoldingReviewError,
@@ -42,11 +49,16 @@ from baibai_engine.position.holding_review import (
     validate_holding_review_sources,
 )
 from baibai_engine.position.ledger import (
+    ConfirmedTaxEvent,
+    ContributionEvent,
+    CostEvent,
     ExecutionEvent,
+    IncomeEvent,
     MarketPrice,
     PortfolioLedgerDocument,
     PortfolioLedgerError,
     ReservationEvent,
+    WithdrawalEvent,
     load_portfolio_ledger,
     load_portfolio_ledger_with_sha256,
     reconcile_portfolio,
@@ -54,7 +66,14 @@ from baibai_engine.position.ledger import (
     snapshot_to_payload,
 )
 from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
+from baibai_engine.position.outcome_store import (
+    PortfolioOutcomePublication,
+    PortfolioOutcomeStore,
+)
 from baibai_engine.position.result_recording import ResultRecordingError, record_result
+from baibai_engine.position.result_service import build_result_draft
+from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
+from baibai_engine.proposals.store import ProposalStoreService
 from baibai_engine.research.holding_review_builder import (
     build_holding_review,
     validate_holding_review_scalars,
@@ -111,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     outcome_parser.add_argument("--root", type=Path, default=Path.cwd())
+    outcome_parser.add_argument("--db", type=Path)
     outcome_parser.add_argument(
         "--ledger", type=Path, default=Path("records/04-position/portfolio-ledger.yaml")
     )
@@ -177,7 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="turn a human-reported open/filled/cancelled/expired result into a ledger draft",
     )
     result_parser.add_argument("--root", type=Path, default=Path.cwd())
-    result_parser.add_argument("--ledger", type=Path, required=True)
+    result_parser.add_argument("--ledger", type=Path)
+    result_parser.add_argument("--db", type=Path)
     result_parser.add_argument("--proposal-ref", required=True)
     result_parser.add_argument(
         "--status", choices=("open", "filled", "cancelled", "expired"), required=True
@@ -194,6 +215,27 @@ def build_parser() -> argparse.ArgumentParser:
     result_parser.add_argument("--expires-at", type=_datetime_argument)
     result_parser.add_argument("--approved-at", type=_datetime_argument)
     result_parser.add_argument("--out", type=Path, required=True)
+    apply_parser = subparsers.add_parser(
+        "apply-draft", help="apply a source-bound ledger draft after explicit human confirmation"
+    )
+    apply_parser.add_argument("draft", type=Path)
+    apply_parser.add_argument("--db", type=Path)
+    apply_parser.add_argument("--confirmed", action="store_true")
+    event_parser = subparsers.add_parser(
+        "event-draft", help="build a draft for one human-reported cash event"
+    )
+    event_parser.add_argument(
+        "--type",
+        choices=("contribution", "withdrawal", "income", "cost", "tax_confirmed"),
+        required=True,
+    )
+    event_parser.add_argument("--event-id", required=True)
+    event_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    event_parser.add_argument("--amount-yen", type=int, required=True)
+    event_parser.add_argument("--ticker")
+    event_parser.add_argument("--kind")
+    event_parser.add_argument("--db", type=Path)
+    event_parser.add_argument("--out", type=Path, required=True)
     return parser
 
 
@@ -235,6 +277,28 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         )
     if args.command == "record-result":
         return _run_record_result(args, now=now)
+    if args.command == "apply-draft":
+        try:
+            result = apply_draft(
+                LedgerStoreService(args.db),
+                load_draft(args.draft),
+                human_confirmed=args.confirmed,
+            )
+        except (OSError, ValueError, LedgerConflictError, PortfolioLedgerError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        yaml.safe_dump(
+            {
+                "status": "applied",
+                "append_head": result.append_head,
+                "event_ids": list(result.event_ids),
+            },
+            sys.stdout,
+            sort_keys=False,
+        )
+        return 0
+    if args.command == "event-draft":
+        return _run_event_draft(args)
     if args.command == "outcome":
         ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
         benchmark_path = (
@@ -248,8 +312,52 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             if args.out is None
             else (args.out if args.out.is_absolute() else args.root / args.out)
         )
-        return _run_outcome(ledger_path, benchmark_path, sqlite_path, out_path)
+        return _run_outcome(
+            ledger_path,
+            benchmark_path,
+            sqlite_path,
+            out_path,
+            db_path=args.db,
+        )
     raise AssertionError(f"unreachable command: {args.command!r}")
+
+
+def _run_event_draft(args: argparse.Namespace) -> int:
+    common = {
+        "event_id": args.event_id,
+        "type": args.type,
+        "occurred_at": args.occurred_at,
+        "amount_yen": args.amount_yen,
+    }
+    try:
+        event: HumanEvent
+        if args.type == "contribution":
+            event = ContributionEvent.model_validate(common)
+        elif args.type == "withdrawal":
+            event = WithdrawalEvent.model_validate(common)
+        elif args.type == "income":
+            event = IncomeEvent.model_validate(
+                {**common, "ticker": args.ticker, "income_kind": args.kind}
+            )
+        elif args.type == "cost":
+            event = CostEvent.model_validate(
+                {**common, "ticker": args.ticker, "cost_kind": args.kind}
+            )
+        else:
+            event = ConfirmedTaxEvent.model_validate(
+                {**common, "ticker": args.ticker, "tax_kind": args.kind}
+            )
+        draft = build_event_draft(LedgerStoreService(args.db), event)
+        write_draft(args.out, draft)
+    except (OSError, ValueError, LedgerConflictError, PortfolioLedgerError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    yaml.safe_dump(
+        {"status": "draft_created", "output": str(args.out), "event_id": args.event_id},
+        sys.stdout,
+        sort_keys=False,
+    )
+    return 0
 
 
 def _run_ledger(path: Path) -> int:
@@ -288,7 +396,12 @@ def _run_ledger(path: Path) -> int:
 
 
 def _run_outcome(
-    ledger_path: Path, benchmark_path: Path, sqlite_path: Path, out_path: Path | None
+    ledger_path: Path,
+    benchmark_path: Path,
+    sqlite_path: Path,
+    out_path: Path | None,
+    *,
+    db_path: Path | None = None,
 ) -> int:
     """Emit a source-bound TWR result without fetching market data at runtime."""
 
@@ -297,7 +410,7 @@ def _run_outcome(
     except BenchmarkObservationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    if not ledger_path.is_file():
+    if db_path is None and not ledger_path.is_file():
         payload = {
             "schema_version": 1,
             "kind": "portfolio_outcome",
@@ -312,8 +425,12 @@ def _run_outcome(
         yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
         return 0
     try:
-        ledger = load_portfolio_ledger(ledger_path)
-    except PortfolioLedgerError as error:
+        ledger = (
+            LedgerStoreService(db_path).load()
+            if db_path is not None
+            else load_portfolio_ledger(ledger_path)
+        )
+    except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     calendar_days = read_market_calendar(
@@ -349,16 +466,37 @@ def _run_outcome(
             market_fingerprint = _market_data_fingerprint(bars)
     payload.update(
         benchmark_id=benchmark.benchmark_id,
-        benchmark_observation_ref=str(benchmark_path),
-        benchmark_observation_sha256=_sha256(benchmark_path),
-        ledger_ref=str(ledger_path),
-        ledger_sha256=_sha256(ledger_path),
         market_data_ref=str(sqlite_path),
         market_data_sha256=_sha256(sqlite_path) if sqlite_path.is_file() else None,
         market_data_coverage_start_date=benchmark.period_start_date.isoformat(),
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
         market_data_fingerprint=market_fingerprint,
     )
+    if db_path is not None:
+        payload["benchmark_observation"] = benchmark.model_dump(mode="json")
+        outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
+        try:
+            PortfolioOutcomeStore(db_path).publish(
+                PortfolioOutcomePublication(
+                    outcome_id=outcome_id,
+                    horizon=benchmark.horizon,
+                    period_start_date=benchmark.period_start_date.isoformat(),
+                    period_end_date=benchmark.period_end_date.isoformat(),
+                    status=str(payload["status"]),
+                    payload=payload,
+                )
+            )
+        except (ValueError, sqlite3.Error) as error:
+            print(f"error: failed to publish portfolio outcome: {error}", file=sys.stderr)
+            return 2
+        payload["outcome_id"] = outcome_id
+    else:
+        payload.update(
+            benchmark_observation_ref=str(benchmark_path),
+            benchmark_observation_sha256=_sha256(benchmark_path),
+            ledger_ref=str(ledger_path),
+            ledger_sha256=_sha256(ledger_path),
+        )
     yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
     if out_path is not None:
         if out_path.exists():
@@ -505,6 +643,49 @@ def _run_holding_review_build(
 
 
 def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int:
+    if args.db is not None:
+        try:
+            draft, event_ids = build_result_draft(
+                LedgerStoreService(args.db),
+                ProposalStoreService(args.db),
+                proposal_id=args.proposal_ref,
+                status=args.status,
+                occurred_at=args.occurred_at,
+                ticker=args.ticker,
+                quantity=args.quantity,
+                price_yen=args.price_yen,
+                reservation_id=args.reservation_id,
+                order_id=args.order_id,
+                sector=args.sector,
+                common_factors=tuple(sorted(set(args.common_factor))),
+                price_guard_yen=args.price_guard_yen,
+                expires_at=args.expires_at,
+                approved_at=args.approved_at,
+                now=now,
+            )
+            if draft is not None:
+                db_output_path = _draft_output_path(args.root, args.out, label="ledger draft")
+                write_draft(db_output_path, draft)
+            else:
+                db_output_path = None
+        except (OSError, PortfolioLedgerError, ResultRecordingError, ValueError) as error:
+            print(f"error: failed to build broker result draft: {error}", file=sys.stderr)
+            return 2
+        yaml.safe_dump(
+            {
+                "status": "draft_created" if draft is not None else "no_change",
+                "proposal_id": args.proposal_ref,
+                "output": None if db_output_path is None else str(db_output_path),
+                "event_ids": list(event_ids),
+            },
+            sys.stdout,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+        return 0
+    if args.ledger is None:
+        print("error: record-result requires --db", file=sys.stderr)
+        return 2
     ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
     try:
         ledger, source_sha256 = load_portfolio_ledger_with_sha256(ledger_path)

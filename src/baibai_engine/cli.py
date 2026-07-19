@@ -20,7 +20,17 @@ def _usage() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine")
     parser.add_argument(
         "domain",
-        choices=("screening", "macro", "position", "research", "task", "validate", "db"),
+        choices=(
+            "screening",
+            "macro",
+            "operation",
+            "position",
+            "proposal",
+            "research",
+            "task",
+            "validate",
+            "db",
+        ),
     )
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     return parser
@@ -41,6 +51,14 @@ def _delegate(domain: str, arguments: list[str]) -> int:
         return main(arguments)
     if domain == "position":
         from baibai_engine.position.cli import main
+
+        return main(arguments)
+    if domain == "operation":
+        from baibai_engine.operation.cli import main
+
+        return main(arguments)
+    if domain == "proposal":
+        from baibai_engine.proposals.cli import main
 
         return main(arguments)
     if domain == "validate":
@@ -91,6 +109,13 @@ def _db_main(argv: list[str]) -> int:
         "--position-source",
         type=Path,
         default=Path("records/04-position"),
+    )
+    import_ledger = subparsers.add_parser("import-ledger")
+    import_ledger.add_argument("--db", type=Path)
+    import_ledger.add_argument(
+        "--source",
+        type=Path,
+        default=Path("records/04-position/portfolio-ledger.yaml"),
     )
     args = parser.parse_args(argv)
     try:
@@ -155,6 +180,30 @@ def _db_main(argv: list[str]) -> int:
                         "reviews_unchanged": result.reviews_unchanged,
                         "holding_reviews_inserted": result.holding_reviews_inserted,
                         "holding_reviews_unchanged": result.holding_reviews_unchanged,
+                    },
+                    sort_keys=False,
+                )
+            )
+            return 0
+        if args.command == "import-ledger":
+            from baibai_engine.position.importer import import_and_check_ledger
+
+            ledger_result, parity = import_and_check_ledger(args.source, db_path=args.db)
+            print(
+                yaml.safe_dump(
+                    {
+                        "source": str(args.source),
+                        "events_inserted": ledger_result.events_inserted,
+                        "events_unchanged": ledger_result.events_unchanged,
+                        "prices_inserted": ledger_result.prices_inserted,
+                        "prices_unchanged": ledger_result.prices_unchanged,
+                        "meta_inserted": ledger_result.meta_inserted,
+                        "meta_unchanged": ledger_result.meta_unchanged,
+                        "event_order_matches": parity.event_order_matches,
+                        "snapshot_matches": parity.snapshot_matches,
+                        "market_prices_match": parity.market_prices_match,
+                        "overrides_match": parity.overrides_match,
+                        "meta_matches": parity.meta_matches,
                     },
                     sort_keys=False,
                 )

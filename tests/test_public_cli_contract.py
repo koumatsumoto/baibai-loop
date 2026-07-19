@@ -501,6 +501,8 @@ def test_position_cli_exposes_human_result_and_holding_build_subcommands() -> No
     assert len(subactions) == 1
     assert set(subactions[0].choices) == {
         "ledger",
+        "apply-draft",
+        "event-draft",
         "outcome",
         "holding-review",
         "holding-review-build",

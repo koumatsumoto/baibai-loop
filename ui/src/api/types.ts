@@ -70,6 +70,45 @@ export interface DashboardView {
   research_load_errors: string[]
 }
 
+export interface OperationSessionView {
+  operation_id: string
+  session_kind: string
+  status: string
+  as_of: string
+  ticker: string | null
+  started_at: string
+  completed_at: string | null
+  payload: Record<string, unknown>
+}
+
+export interface ProposalView {
+  proposal_id: string
+  ticker: string
+  packet_id: string
+  review_id: string
+  created_at: string
+  status: 'pending' | 'approved' | 'deferred' | 'rejected'
+  decided_at: string | null
+  payload: Record<string, unknown>
+}
+
+export interface PortfolioOutcomeView {
+  outcome_id: string
+  horizon: string
+  period_start_date: string
+  period_end_date: string
+  status: string
+  reason: string | null
+  portfolio_twr_pct: number | null
+  benchmark_cumulative_return_pct: number | null
+}
+
+export interface ProgramStateView {
+  operations: OperationSessionView[]
+  proposals: ProposalView[]
+  outcomes: PortfolioOutcomeView[]
+}
+
 export interface ScreeningRunView {
   run_id: string
   run_date: string

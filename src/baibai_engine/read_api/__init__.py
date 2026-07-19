@@ -21,6 +21,9 @@ from .macro import (
     macro_context_payload,
     macro_indicator_series,
 )
+from .operations import list_operation_sessions, operation_session
+from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
+from .proposals import list_proposal_payloads
 from .research import (
     list_holding_review_payloads,
     list_holding_review_publications,
@@ -48,6 +51,9 @@ __all__ = [
     "list_holding_review_payloads",
     "list_holding_review_publications",
     "list_macro_context_payloads",
+    "list_operation_sessions",
+    "list_portfolio_outcome_payloads",
+    "list_proposal_payloads",
     "list_research_packet_payloads",
     "list_research_packet_publications",
     "list_research_review_payloads",
@@ -58,6 +64,8 @@ __all__ = [
     "load_portfolio_ledger",
     "macro_context_payload",
     "macro_indicator_series",
+    "operation_session",
+    "portfolio_ledger_document",
     "reconcile_portfolio",
     "research_packet_payload",
     "research_packet_publication",

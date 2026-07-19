@@ -79,6 +79,45 @@ class DashboardView(BaseModel):
     research_load_errors: list[str]
 
 
+class OperationSessionView(BaseModel):
+    operation_id: str
+    session_kind: str
+    status: str
+    as_of: date
+    ticker: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    payload: dict[str, object]
+
+
+class ProposalView(BaseModel):
+    proposal_id: str
+    ticker: str
+    packet_id: str
+    review_id: str
+    created_at: datetime
+    status: str
+    decided_at: datetime | None
+    payload: dict[str, object]
+
+
+class PortfolioOutcomeView(BaseModel):
+    outcome_id: str
+    horizon: str
+    period_start_date: date
+    period_end_date: date
+    status: str
+    reason: str | None = None
+    portfolio_twr_pct: float | None = None
+    benchmark_cumulative_return_pct: float | None = None
+
+
+class ProgramStateView(BaseModel):
+    operations: list[OperationSessionView]
+    proposals: list[ProposalView]
+    outcomes: list[PortfolioOutcomeView]
+
+
 class ScreeningRunView(BaseModel):
     run_id: str
     run_date: date

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -304,6 +305,8 @@ def _event_suffix(proposal_ref: str, status: str, ticker: str, occurred_at: date
 
 
 def _validate_proposal_ref(value: str) -> None:
+    if re.fullmatch(r"prop-[0-9]{8}-[0-9A-Z]{4,5}-[0-9]+", value):
+        return
     parsed = urlparse(value)
     if parsed.scheme != "https" or parsed.netloc != "github.com" or "/issues/" not in parsed.path:
         raise ResultRecordingError("proposal_ref must be an HTTPS GitHub Issue URL")

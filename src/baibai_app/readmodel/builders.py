@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from baibai_app.sources.db_sources import DbCandidatesSource, DbMacroSource
+from baibai_app.sources.db_sources import DbCandidatesSource, DbMacroSource, DbProgramSource
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
@@ -35,7 +35,11 @@ from .models import (
     MacroSeriesView,
     MacroSizingCautionView,
     MacroView,
+    OperationSessionView,
     PacketDetailView,
+    PortfolioOutcomeView,
+    ProgramStateView,
+    ProposalView,
     ResearchRevisionView,
     ReservationView,
     ReviewedShortlistEntryView,
@@ -72,6 +76,14 @@ _METRIC_FIELDS = (
     "ocf_yield",
     "equity_ratio",
 )
+
+
+def build_program_state(source: DbProgramSource) -> ProgramStateView:
+    return ProgramStateView(
+        operations=[OperationSessionView.model_validate(item) for item in source.operations()],
+        proposals=[ProposalView.model_validate(item) for item in source.proposals()],
+        outcomes=[PortfolioOutcomeView.model_validate(item) for item in source.outcomes()],
+    )
 
 
 def build_dashboard(

@@ -20,20 +20,56 @@ from baibai_app.sources.types import (
     TaskRecord,
 )
 from baibai_engine.read_api import (
+    PortfolioSnapshot,
     latest_macro_context_payload,
     list_holding_review_publications,
     list_macro_context_payloads,
+    list_operation_sessions,
+    list_portfolio_outcome_payloads,
+    list_proposal_payloads,
     list_research_packet_publications,
     list_research_review_publications,
     list_reviewed_shortlist_payloads,
     list_task_payloads,
     macro_indicator_series,
+    portfolio_ledger_document,
+    reconcile_portfolio,
     research_packet_publication,
     screening_run_payload,
     screening_run_payloads,
     screening_selection_payloads,
     task_store_exists,
 )
+
+
+class DbLedgerSource:
+    def __init__(self, db_path: Path) -> None:
+        self._path = db_path.resolve()
+
+    def exists(self) -> bool:
+        return portfolio_ledger_document(self._path) is not None
+
+    def snapshot(self) -> PortfolioSnapshot:
+        document = portfolio_ledger_document(self._path)
+        if document is None:
+            raise ValueError("portfolio ledger has not been initialized")
+        return reconcile_portfolio(document)
+
+
+class DbProgramSource:
+    """Read proposal, operation, and outcome state for the cockpit."""
+
+    def __init__(self, db_path: Path) -> None:
+        self._path = db_path.resolve()
+
+    def operations(self) -> list[dict[str, object]]:
+        return list_operation_sessions(self._path)
+
+    def proposals(self) -> list[dict[str, object]]:
+        return list_proposal_payloads(self._path)
+
+    def outcomes(self) -> list[dict[str, object]]:
+        return list_portfolio_outcome_payloads(self._path)
 
 
 class DbResearchSource:
@@ -74,9 +110,7 @@ class DbResearchSource:
         return PacketDetail(
             revision=revision,
             entry_price_basis_yen=_optional_float(estimates.get("entry_price_basis_yen")),
-            required_5y_base_cagr_pct=_optional_float(
-                estimates.get("required_5y_base_cagr_pct")
-            ),
+            required_5y_base_cagr_pct=_optional_float(estimates.get("required_5y_base_cagr_pct")),
             permanent_loss_risk_count=len(risks),
             scenarios=tuple(
                 ScenarioSummary(
@@ -85,9 +119,7 @@ class DbResearchSource:
                 )
                 for item in scenarios
             ),
-            permanent_loss_conclusion=_optional_text(
-                judgment.get("permanent_loss_conclusion")
-            ),
+            permanent_loss_conclusion=_optional_text(judgment.get("permanent_loss_conclusion")),
             strongest_countercase=_optional_text(judgment.get("strongest_countercase")),
             sizing_action=_optional_text(judgment.get("sizing_action")),
         )

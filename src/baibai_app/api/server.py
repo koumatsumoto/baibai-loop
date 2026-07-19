@@ -16,19 +16,25 @@ from fastapi.staticfiles import StaticFiles
 from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
+    build_program_state,
     build_screening,
     build_security_detail,
 )
-from baibai_app.readmodel.models import DashboardView, MacroView, ScreeningView, SecurityDetailView
+from baibai_app.readmodel.models import (
+    DashboardView,
+    MacroView,
+    ProgramStateView,
+    ScreeningView,
+    SecurityDetailView,
+)
 from baibai_app.sources.db_sources import (
     DbCandidatesSource,
+    DbLedgerSource,
     DbMacroSource,
+    DbProgramSource,
     DbResearchSource,
     DbTaskSource,
     load_macro_dashboard_config,
-)
-from baibai_app.sources.yaml_sources import (
-    YamlLedgerSource,
 )
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -36,11 +42,12 @@ _JST = ZoneInfo("Asia/Tokyo")
 
 @dataclass(frozen=True, slots=True)
 class _Sources:
-    ledger: YamlLedgerSource
+    ledger: DbLedgerSource
     research: DbResearchSource
     tasks: DbTaskSource
     candidates: DbCandidatesSource
     macro: DbMacroSource
+    program: DbProgramSource
 
 
 def create_app(root: Path) -> FastAPI:
@@ -94,6 +101,10 @@ def create_app(root: Path) -> FastAPI:
     ) -> MacroView:
         return build_macro(sources.macro, as_of=as_of or datetime.now(_JST).date())
 
+    @app.get("/api/program", response_model=ProgramStateView)
+    def program(sources: _SourceDependency) -> ProgramStateView:
+        return build_program_state(sources.program)
+
     @app.get("/api/securities/{ticker}", response_model=SecurityDetailView)
     def security_detail(
         ticker: str,
@@ -129,7 +140,7 @@ def create_app(root: Path) -> FastAPI:
 def _build_sources(request: Request) -> _Sources:
     root: Path = request.app.state.root
     return _Sources(
-        ledger=YamlLedgerSource(root),
+        ledger=DbLedgerSource(root / "data/app/baibai.sqlite"),
         research=DbResearchSource(root / "data/app/baibai.sqlite"),
         tasks=DbTaskSource(root / "data/app/baibai.sqlite"),
         candidates=DbCandidatesSource(
@@ -141,6 +152,7 @@ def _build_sources(request: Request) -> _Sources:
             root / "data/indicators/macro.sqlite",
             request.app.state.macro_groups,
         ),
+        program=DbProgramSource(root / "data/app/baibai.sqlite"),
     )
 
 

@@ -1139,9 +1139,7 @@ def promote(
     if result.decision_readiness != "ready":
         raise OpportunityDataError(f"packet is not decision-ready: {list(result.errors)}")
 
-    legacy_review_name = (
-        f"{document.input_snapshot.as_of:%Y-%m-%d}-{ticker}-decision-review.yaml"
-    )
+    legacy_review_name = f"{document.input_snapshot.as_of:%Y-%m-%d}-{ticker}-decision-review.yaml"
     # The legacy ref remains part of the packet payload and core hash. Canonical
     # source binding is the DB packet_id FK; the field is retained as migrated data.
     if document.independent_review_ref != legacy_review_name:
