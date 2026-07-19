@@ -72,11 +72,9 @@ def test_research_import_requires_ledger_and_leaves_no_rows(tmp_path: Path) -> N
             source_root=ROOT,
         )
     with sqlite3.connect(db) as connection:
-        tables = {
-            str(row[0])
-            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")
-        }
-    assert not tables.intersection({"research_packet", "research_review", "holding_review"})
+        assert connection.execute("SELECT count(*) FROM research_packet").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM research_review").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM holding_review").fetchone()[0] == 0
 
 
 def test_runner_canonicalizes_holding_review_sources_and_is_idempotent(tmp_path: Path) -> None:
