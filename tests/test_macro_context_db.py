@@ -53,7 +53,7 @@ def _document(
                 }
             ],
             "sizing_cautions": [],
-            "research_questions": [],
+            "research_questions": ["割引率上昇は5年評価を変えるか"],
             "refresh_triggers": ["次回会合"],
             "changes_since_previous": [],
         }
@@ -114,5 +114,41 @@ def test_explicit_future_context_is_rejected(tmp_path: Path) -> None:
 def test_document_rejects_invalid_canonical_fields(change: dict[str, str]) -> None:
     payload = _document().payload()
     payload.update(change)
+    with pytest.raises(ValidationError):
+        MacroContextDocument.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload["inputs"]["articles"][0].__setitem__(
+            "published_at", "2026-07-19T12:00:00"
+        ),
+        lambda payload: payload.__setitem__("inputs", {"articles": [], "indicator_series": []}),
+        lambda payload: payload.__setitem__("research_questions", []),
+        lambda payload: payload["inputs"].__setitem__(
+            "indicator_series",
+            [
+                {
+                    "input_id": "unknown-series",
+                    "provider": "test",
+                    "series_id": "not.registered",
+                    "window": "1y",
+                    "observation_as_of": "2026-07-19",
+                    "published_at": "2026-07-19T12:00:00+09:00",
+                    "accessed_at": "2026-07-19T12:00:00+09:00",
+                    "status": "ok",
+                    "used_for": "検証",
+                }
+            ],
+        ),
+    ],
+)
+def test_document_rejects_retired_validator_bypass(
+    mutate: object,
+) -> None:
+    payload = _document().payload()
+    assert callable(mutate)
+    mutate(payload)
     with pytest.raises(ValidationError):
         MacroContextDocument.model_validate(payload)

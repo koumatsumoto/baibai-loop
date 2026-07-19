@@ -21,7 +21,7 @@ last_reviewed: 2026-07-14
 | 決算後に保有を見直す | [`decision-cycle#earnings-and-material-event-path`](./operations/decision-cycle.md#earnings-and-material-event-path) | [`research`](./workflow/research.md)、[`position`](./workflow/position.md)、[`holding review`](./reference/holding-review.md) | 全銘柄screening |
 | 年次結果を確認する | [`decision-cycle#annual-outcome-path`](./operations/decision-cycle.md#annual-outcome-path) | [`position`](./workflow/position.md)、[`estimate calibration`](./reference/estimate-calibration.md) | 新規候補selection |
 | 見積り方法を改善する | [`improvement-loop`](./operations/improvement-loop.md) | [`estimate calibration`](./reference/estimate-calibration.md)、対象workflow | 個別proposal手順 |
-| CLI/schemaを変更する | [`architecture`](./architecture.md) | 対象reference、[`testing`](./reference/testing-and-validation.md) | operation Issueの過去log |
+| CLI/modelを変更する | [`architecture`](./architecture.md) | 対象reference、[`testing`](./reference/testing-and-validation.md) | completed operation session |
 | 初めてrepoを触る | [`doctrine`](./doctrine.md) → [`architecture`](./architecture.md) | 対象cycleとlocal skill | 全records |
 
 ## Docs layers
@@ -33,7 +33,7 @@ last_reviewed: 2026-07-14
 | operations | [`operations/`](./operations/) | 今のtriggerをどの順で完了するか |
 | workflow | [`workflow/`](./workflow/) | 工程がinputをoutputへどう変換するか |
 | reference | [`reference/`](./reference/) | artifact、式、error/warningの意味 |
-| machine contract | `records/_schemas/*.json`、public `--help` | field/type/enum/optionの厳密な形 |
+| machine contract | DB constraint、engine model、public `--help` | field/type/enum/optionの厳密な形 |
 | AI execution | [`.agents/skills/`](../.agents/skills/) | この依頼で何を読み、どこまで実行するか |
 
 `.agents/skills`がcanonicalで、`.claude/skills`は同じdirectoryへのrelative symlinkである。skillはtriggerとroutingだけを持ち、policy、schema、完全手順の別正本を作らない。

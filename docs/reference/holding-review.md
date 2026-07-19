@@ -20,9 +20,9 @@ Holding review は、保有 1 件の売買判断を **thesis health** と **税�
 
 売却の主因は **thesis break（事業毀損）** で、これは優先売却候補になる。**フェアバリュー到達は review trigger であって自動の全売りではない**。**価格下落そのものは売却理由にしない**。
 
-holding reviewは`ledger`、holding decision packet、候補packetを`ref + sha256`で必須参照する。review scalarはsource artifactと切り離して信頼しない。
+holding reviewはDB ledger、holding decision packet、候補packetをimmutable IDで必須参照する。review scalarはsource entityと切り離して信頼しない。
 
-`holding-review-build`はholding packetの隣接`independent_review_ref`をpath-confinedに読み、packet/review readinessとhashを確認してからledgerと結合する。load-bearing scalarはsourceから生成し、運用担当が手入力で変更しない。
+`holding-review-build`はpacket IDからpacket/review readinessを確認してDB ledgerと結合する。load-bearing scalarはsourceから生成し、運用担当が手入力で変更しない。
 
 ## Inputs
 
@@ -32,7 +32,7 @@ holding reviewは`ledger`、holding decision packet、候補packetを`ref + sha2
 | `valuation_review` | 現値・FV・`current_price_yen >= fair_value_yen` から再計算した review trigger |
 | `replacement_comparison` | 現保有と候補の 5 年期待総合リターン、確定/推定の exit 税、機会費用 edge |
 | `add_context` | 押し目買増しの現値・最大許容価格・available cash・concentration 判定（任意） |
-| `sources` | ledgerとcurrent/candidate decision packetのimmutable ref/hash。validatorはhash driftをrejectする |
+| `sources` | ledgerとcurrent/candidate decision packetのimmutable ID。publish serviceはrevision driftをrejectする |
 
 `thesis_health.permanent_loss_axes` は `funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting` の 7 軸を各 1 回ちょうど持つ。1 つでも欠けると review は `incomplete` になる。`permanent_loss_conclusion` は **verified な adverse 軸**があるとき `elevated`、partially verified / unverified な adverse を含むとき `unknown`、それ以外は `acceptable` とする。`elevated` だけが全株 exit の条件であり、未確認の懸念で税負担を伴う全株売却を断定しない。
 
@@ -70,12 +70,12 @@ replacement_edge = switch_terminal - hold_terminal
 ## Commands
 
 ```bash
-uv run baibai-engine position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof ASOF_DATE --out .cache/position/ASOF_DATE-market-price-ledger.yaml
-uv run baibai-engine research holding-prepare --asof ASOF_DATE --ledger records/04-position/portfolio-ledger.yaml --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
+uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite --sqlite data/screening/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
+uv run baibai-engine position apply-draft /tmp/market-price-draft.yaml --db data/app/baibai.sqlite --confirmed
 uv run baibai-engine research packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
-uv run baibai-engine position holding-review-build --packet .cache/opportunity/ASOF_DATE/holding-XXXX/XXXX/packet-draft.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
+uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --packet-id PACKET_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
 uv run baibai-engine position holding-review --root . --input .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
-uv run baibai-engine position holding-review publish .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml --root . --packet-id PACKET_ID
+uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --packet-id PACKET_ID
 ```
 
 `ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger hashに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。`packet-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。buildはpacket/review missing、hash drift、packetとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致、source path escapeで停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --root . --input`がsourceからscalarを再構築して照合する。人間が確認したdraftだけをcanonical `packet_id`へ束縛してpublishする。完全な手順は[`../operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)を正本とする。

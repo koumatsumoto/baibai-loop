@@ -28,7 +28,7 @@ macro context、ledger、予算はscreening rankを変更しない。後段のco
 
 対象は東証Prime/Standard/Growthの普通株を基本とし、厳密なeligible universe、流動性、上場期間、業種相対ruleはversioned screening rulesを正本とする。ASOFは最新完全営業日。future dataとASOF後の開示を混ぜない。
 
-historical backfill以外で`--allow-stale-jpx`を通常使用しない。ASOF、rules path/hash、SQLite coverage、output pathをoperation Issueへ残す。
+historical backfill以外で`--allow-stale-jpx`を通常使用しない。ASOF、rules、SQLite coverage、run revision IDをoperation sessionへ残す。
 
 ## Cache coverage and refresh
 

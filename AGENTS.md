@@ -8,8 +8,8 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 - 構造・repository map・CLI/SQLite 契約: [`docs/architecture.md`](./docs/architecture.md)
 - 資本・ポジション管理: [`docs/portfolio-management.md`](./docs/portfolio-management.md)
 - 各工程の手順: [`docs/workflow/README.md`](./docs/workflow/README.md)
-- data sources / validation / Python 基盤: [`docs/reference/README.md`](./docs/reference/README.md)
-- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / thesis / validator を編集する前に該当節のチェックリストを 1 周すること
+- data sources / write-time validation / Python 基盤: [`docs/reference/README.md`](./docs/reference/README.md)
+- **失敗パターンと再発防止**: [`docs/anti-patterns.md`](./docs/anti-patterns.md) — 過去の PR レビューで繰り返し指摘された類型集。macro context / research / write-time validation を編集する前に該当節のチェックリストを 1 周すること
 
 ## 運用の 2 サイクル（作業の入口）
 
@@ -26,23 +26,23 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 改善提案とreview指摘は、冒頭に`価値tier: Tn — <直接的な成果への因果経路>`を1行で宣言する。tierの定義、複数効果の扱い、T4の採用条件はdoctrineを正本とし、同じ定義をこの文書へ複写しない。
 
-効果に見合う最小で可逆なsurfaceを選ぶ。初期サンプルや単発用途は`tools/`、既存output、operation Issueから始め、反復利用と効果を確認してからstable CLI、schema、subsystemへ昇格する。将来の利用を仮定した未使用拡張、汎用化、永続stateは持ち込まない。
+効果に見合う最小で可逆なsurfaceを選ぶ。初期サンプルや単発用途は`tools/`、既存output、operation sessionから始め、反復利用と効果を確認してからstable CLI、model、subsystemへ昇格する。将来の利用を仮定した未使用拡張、汎用化、永続stateは持ち込まない。
 
 実装後のreviewでも効果対複雑性を再判定する。釣り合わない場合は一般化を削る、surfaceを縮小する、またはnon-adoptionとする。correctnessとsafetyに必要な検証・防御は「複雑だから」という理由で削らず、効果核を守る最小構成へ置く。
 
 ## サブシステム索引
 
-サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造（8 package・10 import-linter contract）は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
+サブシステム名（macro / screening / research / position など）を指定されたら、この表で src / store / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
 
-| subsystem | src | records | CLI | 品質改善計器 |
+| subsystem | src | store | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_engine/macro/` | `data/app/baibai.sqlite`（context）+ `data/indicators/macro.sqlite`（series） | `baibai-engine macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
 | screening | `src/baibai_engine/screening/` | `data/screening/runs.sqlite`（machine）+ `data/app/baibai.sqlite`（reviewed shortlist）+ `records/_config/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| thesis | `src/baibai_engine/research/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` / validation | decision packet + planning-only limit + holding-review composition |
-| position | `src/baibai_engine/position/` | `records/04-position/` | `baibai-engine position` (`ledger` / `record-result` / `holding-review-build` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
+| research | `src/baibai_engine/research/` | `data/app/baibai.sqlite` + `records/_playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | decision packet + planning-only limit + holding-review composition |
+| position | `src/baibai_engine/position/` | `data/app/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
+| operation / proposal | `src/baibai_engine/operation/`, `src/baibai_engine/proposals/` | `data/app/baibai.sqlite` | `baibai-engine operation` / `baibai-engine proposal` | current workspace + immutable final result / trade decision current state |
 | market | `src/baibai_engine/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
-| validation | `src/baibai_engine/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-engine validate` | records 公開言語の検証器（CI gate） |
 | task | `src/baibai_engine/tasks/` | `data/app/baibai.sqlite` | `baibai-engine task` | current task state |
 | app | `src/baibai_app/` | application DBほかdomain storeをread-only合成 | `baibai-app` | 運用cockpitのread model / local API |
 
@@ -77,24 +77,23 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/workflow/macro.md`](./docs/workflow/macro.md)
-- thesis 編集時: [`docs/workflow/research.md`](./docs/workflow/research.md)
+- research 編集時: [`docs/workflow/research.md`](./docs/workflow/research.md)
 
 メタ運用 (失敗パターンの再発防止):
 - 同じ failure mode を 2 回以上 PR review で指摘されたら、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の該当節を強化する
-- 新 validator rule を追加するときは、anti-patterns.md AP-08 のチェックリストを必ず更新して次回 review で同じ穴が再発しないように記録する
+- 新しい write-time validation rule を追加するときは、anti-patterns.md AP-08 のチェックリストを必ず更新して次回 review で同じ穴が再発しないように記録する
 - 一次情報 (Tier 1) が継続的に取得困難な指標は [`docs/reference/data-sources.md`](./docs/reference/data-sources.md) §「一次統計の数値で Tier 1 取得が困難な場合の Tier 2 例外運用」に従い、`status: failed` Tier 1 と `status: ok` Tier 2 を併記する
 - Python 構文を review で指摘する前に、必ず [`pyproject.toml`](./pyproject.toml) の `requires-python` / Ruff `target-version` と [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §3 を確認する。この repo は Python 3.14 固定だが、Ruff は `target-version = "py313"` にして PEP 758 の `except T1, T2:` へ自動整形されないようにしている。複数例外捕捉は必ず `except (T1, T2):` と書く
 
 ## 事実と分析の分離
 
-screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・reviewed shortlistと`records/03-thesis/`はjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
+screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・reviewed shortlist・research recordはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
 ## 検証
 
-records / schema の変更を加えたら、コミット前に最低限以下を通す。
+application data のmodel / write pathを変更したら、コミット前に最低限以下を通す。
 
 ```bash
-uv run baibai-engine validate
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy

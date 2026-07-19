@@ -36,10 +36,10 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
     PortfolioSnapshot,
-    load_portfolio_ledger_with_sha256,
     reconcile_portfolio,
 )
 from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.position.store import LedgerStoreService
 
 from .close_source import (
     PreviousClose,
@@ -145,7 +145,7 @@ def prepare_workspace(
     *,
     asof: date,
     selection_output: Path,
-    ledger: Path,
+    db_path: Path | None,
     workspace: Path,
     force: bool = False,
 ) -> PrepareResult:
@@ -158,7 +158,7 @@ def prepare_workspace(
     selection = _load_mapping(selection_output, label="selection output")
     audit_pool = _dict_list(selection.get("audit_pool"))
     _validate_selection_estimate_asof(selection=selection, audit_pool=audit_pool, asof=asof)
-    snapshot = _load_snapshot(ledger)
+    snapshot, append_head = _load_snapshot(db_path)
 
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists() and not force:
@@ -198,8 +198,8 @@ def prepare_workspace(
                 "sha256": _sha256_file(selection_output),
             },
             "ledger": {
-                "path": ledger.as_posix(),
-                "sha256": _sha256_file(ledger),
+                "entity_id": "portfolio-ledger",
+                "append_head": append_head,
             },
         },
         "rules": {
@@ -220,7 +220,7 @@ def prepare_workspace(
 def prepare_holding_workspace(
     *,
     asof: date,
-    ledger: Path,
+    db_path: Path | None,
     ticker: str,
     workspace: Path,
     force: bool = False,
@@ -232,7 +232,7 @@ def prepare_holding_workspace(
     selected ticker keep the existing packet/review/promotion gates usable
     without weakening the normal opportunity-selection contract.
     """
-    snapshot, ledger_sha256 = _load_snapshot_with_sha256(ledger)
+    snapshot, append_head = _load_snapshot(db_path)
     holding = next((item for item in snapshot.holdings if item.ticker == ticker), None)
     if holding is None:
         raise OpportunityDataError(
@@ -281,8 +281,8 @@ def prepare_holding_workspace(
         "tool_version": TOOL_VERSION,
         "inputs": {
             "ledger": {
-                "path": ledger.as_posix(),
-                "sha256": ledger_sha256,
+                "entity_id": "portfolio-ledger",
+                "append_head": append_head,
             }
         },
         "rules": {},
@@ -526,7 +526,7 @@ def _status_payload(
     }
 
 
-def _verify_external_inputs(manifest: Mapping[str, object]) -> None:
+def _verify_external_inputs(manifest: Mapping[str, object], *, db_path: Path | None = None) -> None:
     inputs = manifest.get("inputs")
     if not isinstance(inputs, Mapping):
         raise OpportunityDataError("manifest is missing external input hashes")
@@ -542,6 +542,23 @@ def _verify_external_inputs(manifest: Mapping[str, object]) -> None:
         input_ref = inputs.get(name)
         if not isinstance(input_ref, Mapping):
             raise OpportunityDataError(f"manifest is missing input hash: {name}")
+        if name == "ledger":
+            entity_id = input_ref.get("entity_id")
+            expected_head = input_ref.get("append_head")
+            if entity_id != "portfolio-ledger" or not isinstance(expected_head, int):
+                raise OpportunityDataError("manifest ledger revision is invalid")
+            if db_path is not None:
+                try:
+                    current_head = LedgerStoreService(db_path).append_head()
+                except (OSError, RuntimeError, ValueError) as error:
+                    raise OpportunityDataError(
+                        f"cannot read canonical ledger revision: {error}"
+                    ) from error
+                if current_head != expected_head:
+                    raise OpportunityConflictError(
+                        "canonical ledger changed since workspace prepare (append head drift)"
+                    )
+            continue
         path_value = input_ref.get("path")
         expected = input_ref.get("sha256")
         if not isinstance(path_value, str) or not isinstance(expected, str):
@@ -1080,7 +1097,7 @@ def promote(
     path confinement. Reusing an immutable ID with different content is rejected.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest)
+    _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
     comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
     if _string_or_none(comparison.get("selected_ticker")) != ticker:
@@ -1176,7 +1193,7 @@ def promote(
 def plan_limit(
     *,
     packet: Path,
-    ledger: Path,
+    db_path: Path | None,
     sqlite_path: Path,
     target_session: date,
     budget_min_yen: int,
@@ -1219,7 +1236,7 @@ def plan_limit(
     if close_decimal is not None and close_decimal > max_price:
         defer_reasons.append("close_above_max_acceptable_price")
 
-    snapshot, source_ledger_sha256 = _load_snapshot_with_sha256(ledger)
+    snapshot, source_append_head = _load_snapshot(db_path)
     portfolio_annotations = _portfolio_annotations(snapshot, ticker=ticker)
     if any(reservation.ticker == ticker for reservation in snapshot.active_reservations):
         defer_reasons.append("active_reservation_exists")
@@ -1245,7 +1262,8 @@ def plan_limit(
         "budget_min_yen": budget_min_yen,
         "budget_max_yen": budget_max_yen,
         "portfolio_annotations": portfolio_annotations,
-        "source_ledger_sha256": source_ledger_sha256,
+        "source_ledger_entity": "portfolio-ledger",
+        "source_ledger_append_head": source_append_head,
         "expires_at": expires_at.isoformat(),
     }
 
@@ -1488,15 +1506,11 @@ def _portfolio_exposure(
 # --------------------------------------------------------------------------- #
 
 
-def _load_snapshot(ledger: Path) -> PortfolioSnapshot:
-    snapshot, _source_sha256 = _load_snapshot_with_sha256(ledger)
-    return snapshot
-
-
-def _load_snapshot_with_sha256(ledger: Path) -> tuple[PortfolioSnapshot, str]:
+def _load_snapshot(db_path: Path | None) -> tuple[PortfolioSnapshot, int]:
     try:
-        document, source_sha256 = load_portfolio_ledger_with_sha256(ledger)
-        return reconcile_portfolio(document), source_sha256
+        service = LedgerStoreService(db_path)
+        document, append_head = service.load_with_head()
+        return reconcile_portfolio(document), append_head
     except (OSError, ValueError) as error:
         raise OpportunityDataError(f"cannot reconcile ledger: {error}") from error
 

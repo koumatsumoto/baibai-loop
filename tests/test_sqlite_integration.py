@@ -21,11 +21,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.cli import ProviderBundle, run_command
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
-from baibai_engine.screening.render import build_output_path
+from baibai_engine.screening.run_store import ScreeningRunReader
 from baibai_engine.screening.sqlite_cache import open_connection
 from tests.helpers.screening_sqlite import add_source_coverage
 
@@ -344,10 +343,13 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                     now=datetime(asof.year, asof.month, asof.day, 9, 0, tzinfo=JST),
                 )
 
-                output_path = build_output_path(asof)
+                publication = ScreeningRunReader(
+                    workspace / "data" / "screening" / "runs.sqlite"
+                ).latest_run()
                 self.assertIn(exit_code, (0, 2))
-                self.assertTrue(output_path.exists(), "screening YAML should be written")
-                payload = safe_load(output_path.read_text(encoding="utf-8"))
+                self.assertIsNotNone(publication, "screening run should be published")
+                assert publication is not None
+                payload = publication.payload
                 self.assertEqual(payload["asof_date"], asof.isoformat())
                 self.assertEqual(payload["run_id"], f"screening-{asof:%Y%m%d}")
             finally:

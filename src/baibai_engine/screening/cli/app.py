@@ -133,20 +133,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="published macro context ID (default: latest eligible context)",
     )
     select_parser.add_argument(
-        "--macro-context",
-        help=(
-            "optional macro context path to summarize (default: latest "
-            "records/01-macro-context/<YYYY>/<MM>/macro-context-*.yaml on or before asof)"
-        ),
-    )
-    select_parser.add_argument(
-        "--candidates",
-        help=(
-            "candidates YAML path to rank (default: "
-            "records/02-candidates/<YYYY>/<MM>/<YYYY-MM-DD>.yaml)"
-        ),
-    )
-    select_parser.add_argument(
         "--top",
         type=int,
         default=10,
@@ -212,14 +198,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
     profile_parser.add_argument(
-        "--candidates-root",
-        default="records/02-candidates",
-        help="root of recorded candidates YAML (default: records/02-candidates)",
+        "--runs-db",
+        help="screening run store path",
     )
     profile_parser.add_argument(
-        "--root",
-        default=".",
-        help="repository root for records lookups (default: current directory)",
+        "--app-db",
+        help="application DB path",
+    )
+    profile_parser.add_argument(
+        "--run-revision-id",
+        help="explicit screening run revision (default: greatest eligible as-of)",
     )
 
     calibration_build_parser = subparsers.add_parser(
@@ -332,13 +320,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "select":
-        # select reads existing candidates YAML, macro context YAML, and the
-        # local rule config for output parameters; no provider credentials are
-        # needed.
+        # select reads immutable run/context publications and local rule config;
+        # no provider credentials are needed.
         return select_command(
             asof_date=_parse_iso_date(args.asof),
-            candidates_path=Path(args.candidates) if args.candidates else None,
-            macro_context_path=Path(args.macro_context) if args.macro_context else None,
             top=args.top,
             rules=load_screening_rules(Path(args.rules_path)),
             profile=args.profile,
@@ -364,14 +349,14 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "ticker-profile":
-        # ticker-profile reads the SQLite store and recorded output only; no
-        # provider credentials are needed.
+        # ticker-profile reads the SQLite stores only; no provider credentials are needed.
         return ticker_profile_command(
             ticker=args.ticker,
             asof=args.asof,
             sqlite_path=Path(args.sqlite_path),
-            candidates_root=Path(args.candidates_root),
-            records_root=Path(args.root) / "records",
+            runs_db_path=Path(args.runs_db) if args.runs_db else Path("data/screening/runs.sqlite"),
+            app_db_path=Path(args.app_db) if args.app_db else Path("data/app/baibai.sqlite"),
+            run_revision_id=args.run_revision_id,
         )
 
     if args.command == "market-snapshot":

@@ -13,7 +13,7 @@ related_docs:
 
 # Portfolio management
 
-この文書は資本とpositionの運用方針を定める。個別銘柄のFV、entry、limit、exitはdecision packet、proposal、holding reviewで判断する。機械contractはversioned configとschemaを正本とし、数値fieldをここへ網羅転記しない。
+この文書は資本とpositionの運用方針を定める。個別銘柄のFV、entry、limit、exitはdecision packet、proposal、holding reviewで判断する。機械contractはversioned config、engine model、DB constraintを正本とし、数値fieldをここへ網羅転記しない。
 
 ## Purpose and boundary
 
@@ -47,7 +47,7 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 
 ## Human-confirmed portfolio state
 
-canonical ledgerはrepository内で確認済みのcash、holding、reservation、execution、releaseを表す。broker残高を自動取得・推定・完全照合するものではない。
+application DBのcanonical ledgerはrepository運用で確認済みのcash、holding、reservation、execution、releaseを表す。broker残高を自動取得・推定・完全照合するものではない。
 
 | human report | ledger action |
 | --- | --- |
@@ -56,19 +56,19 @@ canonical ledgerはrepository内で確認済みのcash、holding、reservation�
 | `cancelled` | remaining reservation release draft |
 | no report | no change |
 
-`record-result`はcanonicalを直接書き換えず、source hash付きlocal draftを作る。差分とvalidationを確認して反映する。精密なbroker会計、二重注文検出、注文監視を投資判断より優先しない。
+`record-result`はcanonicalを直接書き換えず、current append headに束縛したlocal draftを作る。差分を確認し、人間確認後の`apply-draft --confirmed`でtransaction内再検証して反映する。精密なbroker会計、二重注文検出、注文監視を投資判断より優先しない。
 
 ## Reservation and warnings
 
 reservationは`quantity * price_guard`をcashから引き当て、partial fill後はremaining quantityだけを残す。cancel/expireはrelease eventで明示する。これはrepository snapshotを再計算するための最小状態で、自動broker lifecycleではない。
 
-cash、ticker/sector/common-factor concentration、dry powderはwarning。warningは人間判断を禁止せず、投資価値rankを変更しない。受け入れる場合のoverride contractはledger schema/referenceを正本とする。
+cash、ticker/sector/common-factor concentration、dry powderはwarning。warningは人間判断を禁止せず、投資価値rankを変更しない。受け入れる場合のoverride contractはledger model/referenceを正本とする。
 
 ## Parallel research and serial capital reservation
 
 人間がprimary-research setを複数選んだ場合、企業別researchと独立reviewはticker別laneで並行できる。並行調査は候補比較の時間を短縮するためのもので、資本を先回りして複数銘柄へ予約する許可ではない。
 
-proposalとreservationは投資価値rank順に1件ずつ進める。各`plan-limit`は出力の`source_ledger_sha256`を現在のcanonical ledgerと照合し、人間の注文結果と必要なledger更新を完了してから次の候補を最新ledgerで再計算する。同じ更新前snapshotから複数proposalを作らないため、先行注文のreserved cashとconcentrationが後続proposalのwarningへ反映される。
+proposalとreservationは投資価値rank順に1件ずつ進める。各`plan-limit`はcurrent DB snapshotへ束縛し、人間の注文結果と必要なledger更新を完了してから次の候補を最新ledgerで再計算する。同じ更新前snapshotから複数proposalを作らないため、先行注文のreserved cashとconcentrationが後続proposalのwarningへ反映される。
 
 ## Holding discipline
 
@@ -95,4 +95,4 @@ FV到達はreview triggerで、自動売却ではない。含み損は単独のe
 - e2e運用: [`operations/decision-cycle.md`](./operations/decision-cycle.md)
 - ledger式とerror/warning: [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md)
 - holding action: [`reference/holding-review.md`](./reference/holding-review.md)
-- 機械的なcap/lot/warning値: `src/baibai_engine/position/policy.py`と対応validator
+- 機械的なcap/lot/warning値: `src/baibai_engine/position/policy.py`とwrite-time validation

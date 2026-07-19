@@ -9,8 +9,25 @@ import yaml
 from tools.limit_outcome import build_parser, main
 
 from baibai_engine.market.sqlite import open_connection
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.position.store import LedgerStoreService
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
+
+
+def _app_db(tmp_path: Path, ledger_path: Path = FIXTURE) -> Path:
+    path = tmp_path / "app.sqlite"
+    document = load_portfolio_ledger(ledger_path)
+    document = document.model_copy(
+        update={
+            "market_prices": tuple(
+                price.model_copy(update={"source_kind": "licensed_dataset"})
+                for price in document.market_prices
+            )
+        }
+    )
+    LedgerStoreService(path).import_document(document)
+    return path
 
 
 def test_limit_outcome_keeps_the_initial_contract_fixed() -> None:
@@ -87,10 +104,11 @@ def _run(
     reservation_id: str = "reservation-2331-first",
 ) -> tuple[int, dict[str, object]]:
     market = sqlite_path or tmp_path / "market.sqlite"
+    app_db = _app_db(tmp_path, ledger_path)
     exit_code = main(
         [
-            "--ledger",
-            str(ledger_path),
+            "--db",
+            str(app_db),
             "--reservation-id",
             reservation_id,
             "--sqlite-path",
@@ -124,8 +142,8 @@ def test_limit_outcome_reports_touch_without_inferring_fill(
         "sources",
     }
     assert set(payload["sources"]) == {
-        "ledger_ref",
-        "ledger_sha256",
+        "ledger_entity",
+        "ledger_append_head",
         "market_data_ref",
         "selected_rows_sha256",
         "market_hash_basis",
@@ -196,7 +214,6 @@ def test_limit_outcome_marks_non_expiry_terminal_reason_not_eligible(
     ledger_path.write_text(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-
     exit_code, payload = _run(
         tmp_path,
         capsys,
@@ -229,12 +246,13 @@ def test_limit_outcome_rejects_asof_before_cancelled_release(
     ledger_path.write_text(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
+    app_db = _app_db(tmp_path, ledger_path)
 
     assert (
         main(
             [
-                "--ledger",
-                str(ledger_path),
+                "--db",
+                str(app_db),
                 "--reservation-id",
                 "reservation-8929-pending",
                 "--sqlite-path",
@@ -293,11 +311,12 @@ def test_limit_outcome_does_not_skip_a_missing_post_expiry_bar(
 def test_limit_outcome_rejects_asof_before_confirmed_expiry(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    app_db = _app_db(tmp_path)
     assert (
         main(
             [
-                "--ledger",
-                str(FIXTURE),
+                "--db",
+                str(app_db),
                 "--reservation-id",
                 "reservation-2331-first",
                 "--sqlite-path",
@@ -314,11 +333,12 @@ def test_limit_outcome_rejects_asof_before_confirmed_expiry(
 def test_limit_outcome_rejects_asof_before_submission_for_pending_reservation(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    app_db = _app_db(tmp_path)
     assert (
         main(
             [
-                "--ledger",
-                str(FIXTURE),
+                "--db",
+                str(app_db),
                 "--reservation-id",
                 "reservation-8929-pending",
                 "--sqlite-path",
@@ -423,12 +443,13 @@ def test_limit_outcome_rejects_schema_valid_but_invalid_ledger_state(
     ledger_path.write_text(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
+    app_db = _app_db(tmp_path, ledger_path)
 
     assert (
         main(
             [
-                "--ledger",
-                str(ledger_path),
+                "--db",
+                str(app_db),
                 "--reservation-id",
                 "reservation-2331-first",
                 "--sqlite-path",
@@ -448,14 +469,14 @@ def test_limit_outcome_is_read_only_and_source_bound(
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path)
     before = sqlite_path.read_bytes()
-    directory_before = set(tmp_path.iterdir())
-
     exit_code, payload = _run(tmp_path, capsys, sqlite_path=sqlite_path)
+    directory_before = set(tmp_path.iterdir())
 
     assert exit_code == 0
     assert sqlite_path.read_bytes() == before
     assert set(tmp_path.iterdir()) == directory_before
-    assert payload["sources"]["ledger_sha256"] == hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+    assert payload["sources"]["ledger_entity"] == "portfolio-ledger"
+    assert payload["sources"]["ledger_append_head"] == 11
     fingerprint = payload["sources"]["selected_rows_sha256"]
     assert isinstance(fingerprint, str)
     assert len(fingerprint) == 64

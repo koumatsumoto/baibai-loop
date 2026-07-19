@@ -7,7 +7,6 @@ import pytest
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.ledger import PortfolioLedgerError, load_portfolio_ledger
 from baibai_engine.validation.cli import main as validation_main
 from baibai_engine.validation.ledger import discover_ledger_files, validate_ledger_file
@@ -130,16 +129,6 @@ def test_validation_cli_includes_ledger_target(
     _write(root / "records/04-position/portfolio-ledger.yaml", _raw())
 
     assert validation_main(["--root", str(root), "--target", "ledger"]) == 0
-
-
-def test_position_cli_emits_read_only_reconciled_snapshot(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert position_main(["ledger", "--root", str(ROOT), "--ledger", str(FIXTURE)]) == 0
-    output = yaml.safe_load(capsys.readouterr().out)
-    assert output["available_cash_yen"] == 10_080_500
-    assert output["reserved_cash_yen"] == 119_000
-    assert output["portfolio_scope"] == "repository_only"
 
 
 def test_duplicate_event_id_fails_schema_semantics(tmp_path: Path) -> None:

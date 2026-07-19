@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+
+from baibai_engine.macro.indicators.definitions import load_definitions
 
 
 class _StrictModel(BaseModel):
@@ -23,6 +26,13 @@ class ArticleInput(_StrictModel):
     status: Literal["ok", "failed"]
     used_for: str = Field(min_length=1)
 
+    @field_validator("published_at", "accessed_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("macro input datetime must include a timezone")
+        return value
+
 
 class IndicatorSeriesInput(_StrictModel):
     input_id: str = Field(min_length=1)
@@ -34,6 +44,13 @@ class IndicatorSeriesInput(_StrictModel):
     accessed_at: datetime
     status: Literal["ok", "failed"]
     used_for: str = Field(min_length=1)
+
+    @field_validator("published_at", "accessed_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("macro input datetime must include a timezone")
+        return value
 
 
 class MacroInputs(_StrictModel):
@@ -90,6 +107,10 @@ class MacroContextDocument(_StrictModel):
             if indicator.input_id in statuses:
                 raise ValueError(f"input_id must be unique: {indicator.input_id}")
             statuses[indicator.input_id] = indicator.status
+            if indicator.series_id not in _registered_series_ids():
+                raise ValueError(f"unregistered macro series_id: {indicator.series_id}")
+        if not statuses:
+            raise ValueError("at least one macro input is required")
         if not self.material_deltas and not self.sizing_cautions:
             raise ValueError("a material delta or sizing caution is required")
         for delta in self.material_deltas:
@@ -111,10 +132,22 @@ class MacroContextDocument(_StrictModel):
         ):
             if any(not value.strip() for value in values):
                 raise ValueError(f"{field_name} values must be non-empty")
+        if not self.research_questions:
+            raise ValueError("at least one research question is required")
         return self
 
     def payload(self) -> dict[str, object]:
         return self.model_dump(mode="json")
+
+
+@lru_cache(maxsize=1)
+def _registered_series_ids() -> frozenset[str]:
+    definitions = load_definitions()
+    return frozenset(
+        identifier
+        for series in definitions.series
+        for identifier in (series.series_id, *series.aliases)
+    )
 
 
 __all__ = ["MacroContextDocument"]

@@ -429,7 +429,7 @@ export function DashboardPage() {
             <Badge variant="secondary">{data.open_tasks.length} open</Badge>
           </CardHeader>
           {!data.tasks_exist ? (
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">task record 未作成（records/05-task/tasks.yaml）</CardContent>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">task はまだ登録されていません</CardContent>
           ) : data.open_tasks.length === 0 ? (
             <CardContent className="py-8 text-center text-sm text-muted-foreground">open task はありません。</CardContent>
           ) : (

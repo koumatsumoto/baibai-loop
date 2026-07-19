@@ -19,6 +19,8 @@ import yaml
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import open_connection
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.close_source import (
     _EXPECTED_MARKET_SCHEMA_VERSION,
     resolve_holding_close_on_basis,
@@ -46,6 +48,27 @@ TARGET_SESSION = "2026-07-13"
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
+
+
+def _app_db(tmp_path: Path, ledger_path: Path = LEDGER_FIXTURE) -> Path:
+    name = "app.sqlite" if ledger_path == LEDGER_FIXTURE else f"app-{ledger_path.stem}.sqlite"
+    path = tmp_path / name
+    document = load_portfolio_ledger(ledger_path)
+    document = document.model_copy(
+        update={
+            "market_prices": tuple(
+                price.model_copy(update={"source_kind": "licensed_dataset"})
+                for price in document.market_prices
+            )
+        }
+    )
+    LedgerStoreService(path).import_document(document)
+    return path
+
+
+def _assert_no_research_packets(db_path: Path) -> None:
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM research_packet").fetchone() == (0,)
 
 
 def _seed_bars(
@@ -117,9 +140,11 @@ def _ledger_with_observed_at(
                 "expires_at": "2026-07-31T15:30:00+09:00",
             }
         )
-    path = tmp_path / "test-ledger.yaml"
-    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
-    return path
+    source = tmp_path / "test-ledger.yaml"
+    source.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    return _app_db(tmp_path, source)
 
 
 def _write_selection(
@@ -219,8 +244,8 @@ def _prepared_workspace(
                 "2026-07-03",
                 "--selection-output",
                 str(selection),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--workspace",
                 str(workspace),
             ]
@@ -236,13 +261,15 @@ def _prepared_workspace(
     return workspace
 
 
-def _ledger_with_market_price_date(path: Path, observed_on: date) -> None:
+def _ledger_with_market_price_date(path: Path, observed_on: date) -> Path:
     payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
     payload["market_prices"][0]["observed_at"] = f"{observed_on.isoformat()}T15:30:00+09:00"
-    path.write_text(
+    source = path.with_suffix(".yaml")
+    source.write_text(
         yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
+    return _app_db(path.parent, source)
 
 
 def _ready_packet_and_review() -> tuple[dict[str, object], dict[str, object], str]:
@@ -487,8 +514,8 @@ def test_prepare_empty_audit_pool_is_no_actionable_bargain(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ],
@@ -504,15 +531,14 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    ledger = tmp_path / "ledger.yaml"
-    _ledger_with_market_price_date(ledger, date(2026, 7, 10))
+    ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
     workspace = tmp_path / "holding-ws"
     code, payload = _run(
         [
             "holding-prepare",
             "--asof",
             "2026-07-10",
-            "--ledger",
+            "--db",
             str(ledger),
             "--ticker",
             "2331",
@@ -565,8 +591,8 @@ def test_holding_prepare_rejects_ticker_without_open_holding(
             "holding-prepare",
             "--asof",
             "2026-07-11",
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--ticker",
             ticker,
             "--workspace",
@@ -579,40 +605,10 @@ def test_holding_prepare_rejects_ticker_without_open_holding(
     assert not (tmp_path / "holding-ws").exists()
 
 
-def test_holding_workspace_detects_ledger_hash_drift(
+def test_holding_workspace_binds_canonical_ledger_revision(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    ledger.write_bytes(LEDGER_FIXTURE.read_bytes())
-    workspace = tmp_path / "holding-ws"
-    assert (
-        opportunity_main(
-            [
-                "holding-prepare",
-                "--asof",
-                "2026-07-11",
-                "--ledger",
-                str(ledger),
-                "--ticker",
-                "2331",
-                "--workspace",
-                str(workspace),
-            ]
-        )
-        == 0
-    )
-    capsys.readouterr()
-    ledger.write_text(ledger.read_text(encoding="utf-8") + "\n", encoding="utf-8")
-
-    assert opportunity_main(["status", "--workspace", str(workspace)]) == 4
-    assert "input hash drift" in capsys.readouterr().err
-
-
-def test_holding_workspace_uses_exact_byte_hash_for_crlf_ledger(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ledger = tmp_path / "ledger-crlf.yaml"
-    ledger.write_bytes(LEDGER_FIXTURE.read_bytes().replace(b"\n", b"\r\n"))
+    ledger = _app_db(tmp_path)
     workspace = tmp_path / "holding-ws"
 
     assert (
@@ -621,7 +617,7 @@ def test_holding_workspace_uses_exact_byte_hash_for_crlf_ledger(
                 "holding-prepare",
                 "--asof",
                 "2026-07-11",
-                "--ledger",
+                "--db",
                 str(ledger),
                 "--ticker",
                 "2331",
@@ -633,7 +629,10 @@ def test_holding_workspace_uses_exact_byte_hash_for_crlf_ledger(
     )
     capsys.readouterr()
     manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest["inputs"]["ledger"]["sha256"] == hashlib.sha256(ledger.read_bytes()).hexdigest()
+    assert manifest["inputs"]["ledger"] == {
+        "entity_id": "portfolio-ledger",
+        "append_head": LedgerStoreService(ledger).append_head(),
+    }
     assert opportunity_main(["status", "--workspace", str(workspace)]) == 0
 
 
@@ -645,8 +644,8 @@ def test_holding_prepare_requires_same_day_market_price(
             "holding-prepare",
             "--asof",
             "2026-07-10",
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--ticker",
             "2331",
             "--workspace",
@@ -682,8 +681,8 @@ def test_prepare_derives_shortlist_slots_from_selection_output(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ],
@@ -717,8 +716,8 @@ def test_prepare_rejects_invalid_research_selection_target_max(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ]
@@ -909,8 +908,8 @@ def test_packet_scaffold_confines_research_lane_to_direct_ticker_child(
                 "2026-07-03",
                 "--selection-output",
                 str(selection_output),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--workspace",
                 str(workspace),
             ]
@@ -963,8 +962,8 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
                 "2026-07-03",
                 "--selection-output",
                 str(selection_output),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--workspace",
                 str(workspace),
             ]
@@ -1006,10 +1005,10 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
         manifest["inputs"]["selection_output"]["sha256"]
         == hashlib.sha256(selection_output.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
     )
-    assert (
-        manifest["inputs"]["ledger"]["sha256"]
-        == hashlib.sha256(LEDGER_FIXTURE.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
-    )
+    assert manifest["inputs"]["ledger"] == {
+        "entity_id": "portfolio-ledger",
+        "append_head": LedgerStoreService(_app_db(tmp_path)).append_head(),
+    }
     assert (workspace / "manifest.yaml").read_bytes() == manifest_before
     first_packet = safe_load((workspace / "2331" / "packet-draft.yaml").read_text("utf-8"))
     second_packet_path = workspace / "8929" / "packet-draft.yaml"
@@ -1405,8 +1404,8 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ],
@@ -1448,8 +1447,7 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-09", 990.0, 1.0)])
-    ledger = tmp_path / "ledger.yaml"
-    _ledger_with_market_price_date(ledger, date(2026, 7, 10))
+    ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
     workspace = tmp_path / "holding-ws"
     assert (
         opportunity_main(
@@ -1457,7 +1455,7 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
                 "holding-prepare",
                 "--asof",
                 "2026-07-10",
-                "--ledger",
+                "--db",
                 str(ledger),
                 "--ticker",
                 "2331",
@@ -1651,7 +1649,7 @@ def test_review_scaffold_goes_stale_when_packet_hash_changes(
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not (tmp_path / "app.sqlite").exists()
+    _assert_no_research_packets(tmp_path / "app.sqlite")
 
 
 def test_promote_refuses_when_checklist_pending(
@@ -1680,7 +1678,46 @@ def test_promote_refuses_when_checklist_pending(
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not db_path.exists()
+    _assert_no_research_packets(db_path)
+
+
+def test_promote_rejects_canonical_ledger_append_head_drift(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    _fill_ready_workspace(workspace)
+    db_path = tmp_path / "app.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO ledger_event(
+                append_seq, event_id, occurred_at, same_instant_order,
+                event_type, ticker, proposal_id, payload
+            )
+            SELECT max(append_seq) + 1, 'drift-test', '2099-01-01T00:00:00+00:00',
+                   0, event_type, ticker, NULL, payload
+            FROM ledger_event
+            """
+        )
+
+    code = opportunity_main(
+        [
+            "promote",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--db",
+            str(db_path),
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 4
+    assert "append head drift" in capsys.readouterr().err
+    _assert_no_research_packets(db_path)
 
 
 def test_promote_rejects_non_complete_checklist_status(
@@ -1710,7 +1747,7 @@ def test_promote_rejects_non_complete_checklist_status(
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not db_path.exists()
+    _assert_no_research_packets(db_path)
 
 
 @pytest.mark.parametrize(
@@ -1762,7 +1799,7 @@ def test_promote_rejects_packet_identity_tampering(
         == 3
     )
     assert error_text in capsys.readouterr().err
-    assert not db_path.exists()
+    _assert_no_research_packets(db_path)
 
 
 def test_promote_ready_publishes_atomic_packet_and_review(
@@ -1860,9 +1897,7 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     assert round(float(result.screening_fv_revision_pct), 4) == -0.1746
 
 
-def test_promote_retry_is_idempotent(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_promote_retry_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
@@ -1936,8 +1971,8 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -1956,8 +1991,9 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     review = packet.with_name("2026-07-03-2331-decision-review.yaml")
     assert payload["independent_review_ref"] == str(review)
     assert payload["independent_review_sha256"] == hashlib.sha256(review.read_bytes()).hexdigest()
+    assert payload["source_ledger_entity"] == "portfolio-ledger"
     assert (
-        payload["source_ledger_sha256"] == hashlib.sha256(LEDGER_FIXTURE.read_bytes()).hexdigest()
+        payload["source_ledger_append_head"] == LedgerStoreService(_app_db(tmp_path)).append_head()
     )
     assert payload["portfolio_exposure"]["ledger_fallback_tickers"] == ["2331"]
     assert payload["portfolio_exposure"]["holding_valuation_status"] == (
@@ -1985,7 +2021,7 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2032,7 +2068,7 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2071,7 +2107,7 @@ def test_plan_limit_active_candidate_reservation_defers_without_second_order(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2116,7 +2152,7 @@ def test_plan_limit_counts_same_scope_reservation_and_order_once(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2164,7 +2200,7 @@ def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2206,7 +2242,7 @@ def test_plan_limit_discloses_other_ticker_with_missing_common_factor_coverage(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2240,7 +2276,7 @@ def test_plan_limit_falls_back_when_revalued_holding_is_not_whole_yen(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2271,8 +2307,8 @@ def test_plan_limit_close_above_max_defers(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2300,8 +2336,8 @@ def test_plan_limit_zero_close_defers_without_crashing(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2325,8 +2361,8 @@ def test_plan_limit_corporate_action_defers(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2350,8 +2386,8 @@ def test_plan_limit_missing_adjustment_factor_defers(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2377,8 +2413,8 @@ def test_plan_limit_single_lot_above_budget_max_still_proposes_with_warning(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2409,8 +2445,8 @@ def test_plan_limit_quantity_never_overshoots_budget_max(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2441,8 +2477,8 @@ def test_plan_limit_budget_and_warnings_do_not_change_limit_or_status(
                 "plan-limit",
                 "--packet",
                 str(packet),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--sqlite-path",
                 str(sqlite_path),
                 "--target-session",
@@ -2472,8 +2508,8 @@ def test_plan_limit_is_deterministic_across_clocks(
         "plan-limit",
         "--packet",
         str(packet),
-        "--ledger",
-        str(LEDGER_FIXTURE),
+        "--db",
+        str(_app_db(tmp_path)),
         "--sqlite-path",
         str(sqlite_path),
         "--target-session",

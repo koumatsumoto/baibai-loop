@@ -24,10 +24,10 @@ from baibai_engine.market.sqlite import (
 from baibai_engine.position.ledger import (
     PortfolioLedgerError,
     ReservationEvent,
-    load_portfolio_ledger,
     replay_events_through,
     reservation_snapshots,
 )
+from baibai_engine.position.store import LedgerConflictError, LedgerSchemaError, LedgerStoreService
 from baibai_engine.read_api import (
     list_research_packet_publications,
     list_research_review_publications,
@@ -40,6 +40,9 @@ from baibai_engine.research.decision_packet import (
 
 _GAP_QUANTUM = Decimal("0.000001")
 _ADJUSTMENT_FACTOR_ABS_TOLERANCE = 1e-12
+_MIN_UTC = datetime.min.replace(tzinfo=UTC)
+
+
 class ResearchPriceWatchError(ValueError):
     """Raised when the watch cannot be produced without inventing facts."""
 
@@ -48,7 +51,7 @@ class ResearchPriceWatchError(ValueError):
 class _PacketCandidate:
     packet_id: str | Path
     document: DecisionPacketDocument
-    published_at: datetime = datetime.min.replace(tzinfo=UTC)
+    published_at: datetime = _MIN_UTC
     review: IndependentReview | None = None
 
 
@@ -82,7 +85,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--db", type=Path, default=Path("data/app/baibai.sqlite"))
-    parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--sqlite-path", type=Path, required=True)
     parser.add_argument("--asof", type=_date_argument, required=True)
     return parser
@@ -93,12 +95,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         payload = build_watch(
             app_db_path=args.db,
-            ledger_path=args.ledger,
             sqlite_path=args.sqlite_path,
             asof=args.asof,
         )
     except (
         PortfolioLedgerError,
+        LedgerConflictError,
+        LedgerSchemaError,
         ResearchPriceWatchError,
         SQLiteSchemaError,
         OSError,
@@ -113,7 +116,6 @@ def main(argv: list[str] | None = None) -> int:
 def build_watch(
     *,
     app_db_path: Path,
-    ledger_path: Path,
     sqlite_path: Path,
     asof: date,
 ) -> dict[str, object]:
@@ -129,7 +131,7 @@ def build_watch(
         if candidate.document.judgment.recommendation == "reject"
     )
 
-    ledger = load_portfolio_ledger(ledger_path)
+    ledger = LedgerStoreService(app_db_path).load()
     state = replay_events_through(ledger.events, ledger.as_of)
     held_tickers = {
         ticker for ticker, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots)

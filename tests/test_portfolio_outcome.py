@@ -2,7 +2,6 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-import yaml
 
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.jpx_total_return import BenchmarkObservation
@@ -198,7 +197,7 @@ def test_after_close_internal_cashflow_rolls_past_that_close() -> None:
     assert result.confirmed_tax_yen == 0
 
 
-def test_outcome_cli_reports_activation_pending_without_legacy_inference(
+def test_outcome_cli_requires_an_imported_application_db_ledger(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     observation = tmp_path / "topix.yaml"
@@ -209,7 +208,5 @@ def test_outcome_cli_reports_activation_pending_without_legacy_inference(
         encoding="utf-8",
     )
 
-    assert main(["outcome", "--root", str(tmp_path), "--benchmark-observation", "topix.yaml"]) == 0
-    payload = yaml.safe_load(capsys.readouterr().out)
-    assert payload["status"] == "unresolved"
-    assert payload["reason"] == "activation_pending"
+    assert main(["outcome", "--root", str(tmp_path), "--benchmark-observation", "topix.yaml"]) == 2
+    assert "ledger has not been imported" in capsys.readouterr().err

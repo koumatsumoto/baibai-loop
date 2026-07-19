@@ -13,6 +13,8 @@ from baibai_engine.position.holding_review import (
     evaluate_holding_review,
     validate_holding_review_sources,
 )
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     IndependentReview,
@@ -20,6 +22,7 @@ from baibai_engine.research.decision_packet import (
     independent_review_hash,
 )
 from baibai_engine.research.holding_review_builder import build_holding_review
+from baibai_engine.research.store import ResearchStoreService
 
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
 
@@ -246,7 +249,7 @@ def test_cli_flags_inconsistent_draft(tmp_path: Path, capsys: pytest.CaptureFixt
     draft.write_text(yaml.safe_dump(raw), encoding="utf-8")
     exit_code = main(["holding-review", "--root", str(tmp_path), "--input", "bad-review.yaml"])
     assert exit_code == 2
-    assert "load-bearing values differ" in capsys.readouterr().err
+    assert "disagrees with computed" in capsys.readouterr().err
 
 
 def test_source_hash_mismatch_rejects_review() -> None:
@@ -353,16 +356,32 @@ def test_holding_review_build_cli_writes_a_validated_draft(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _write_current_builder_sources(tmp_path)
+    db_path = tmp_path / "app.sqlite"
+    packet = yaml.safe_load(tmp_path.joinpath("packets/2331-decision.yaml").read_text())
+    review = yaml.safe_load(tmp_path.joinpath("packets/2331-decision-review.yaml").read_text())
+    packet_id = "packet-20260703-2331-r1"
+    ResearchStoreService(db_path).publish_packet_with_review(packet_id, packet, review)
+    ledger = load_portfolio_ledger(tmp_path / "ledger.yaml")
+    LedgerStoreService(db_path).import_document(
+        ledger.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in ledger.market_prices
+                )
+            }
+        )
+    )
     output = tmp_path / "review.yaml"
     exit_code = main(
         [
             "holding-review-build",
             "--root",
             str(tmp_path),
-            "--packet",
-            "packets/2331-decision.yaml",
-            "--ledger",
-            "ledger.yaml",
+            "--db",
+            str(db_path),
+            "--packet-id",
+            packet_id,
             "--position-id",
             "position-2331",
             "--out",

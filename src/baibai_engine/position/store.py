@@ -52,10 +52,16 @@ class LedgerStoreService:
         self._db_path = db_path
 
     def load(self) -> PortfolioLedgerDocument:
+        document, _append_head_value = self.load_with_head()
+        return document
+
+    def load_with_head(self) -> tuple[PortfolioLedgerDocument, int]:
+        """Read one replay document and its physical append head consistently."""
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             _require_schema(connection)
-            return _load_document(connection)
+            connection.execute("BEGIN")
+            return _load_document(connection), _append_head(connection)
 
     def append_head(self) -> int:
         initialize_database(self._db_path)
@@ -65,6 +71,7 @@ class LedgerStoreService:
 
     def import_document(self, document: PortfolioLedgerDocument) -> LedgerImportResult:
         """Create missing legacy rows, accepting only byte-stable canonical matches."""
+        _require_canonical_prices(document)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             _require_schema(connection)
@@ -92,6 +99,8 @@ class LedgerStoreService:
         Existing events are immutable. A past-time event is physically appended and
         receives the last ordinal at that instant; only the replay view is reordered.
         """
+        _require_canonical_prices(expected_document)
+        _require_canonical_prices(replacement)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             _require_schema(connection)
@@ -413,7 +422,14 @@ def _load_document(connection: sqlite3.Connection) -> PortfolioLedgerDocument:
         json.loads(str(row[0]))
         for row in connection.execute("SELECT payload FROM ledger_market_price ORDER BY ticker ASC")
     ]
-    return PortfolioLedgerDocument.model_validate(raw)
+    document = PortfolioLedgerDocument.model_validate(raw)
+    _require_canonical_prices(document)
+    return document
+
+
+def _require_canonical_prices(document: PortfolioLedgerDocument) -> None:
+    if any(price.source_kind == "test_fixture" for price in document.market_prices):
+        raise LedgerConflictError("canonical application DB cannot use test_fixture prices")
 
 
 __all__ = [

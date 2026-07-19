@@ -55,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_parser.add_argument("--asof", required=True, help="workspace as-of date (YYYY-MM-DD)")
     prepare_parser.add_argument("--selection-output", required=True, type=Path)
-    prepare_parser.add_argument("--ledger", required=True, type=Path)
+    prepare_parser.add_argument("--db", type=Path)
     prepare_parser.add_argument("--workspace", required=True, type=Path)
     prepare_parser.add_argument(
         "--force", action="store_true", help="rebuild an existing local workspace"
@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     holding_prepare_parser.add_argument(
         "--asof", required=True, help="workspace as-of date (YYYY-MM-DD)"
     )
-    holding_prepare_parser.add_argument("--ledger", required=True, type=Path)
+    holding_prepare_parser.add_argument("--db", type=Path)
     holding_prepare_parser.add_argument("--ticker", required=True)
     holding_prepare_parser.add_argument("--workspace", required=True, type=Path)
     holding_prepare_parser.add_argument(
@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
         "plan-limit", help="derive a planning-only limit/defer from the previous-day raw close"
     )
     plan_parser.add_argument("--packet", required=True, type=Path)
-    plan_parser.add_argument("--ledger", required=True, type=Path)
+    plan_parser.add_argument("--db", type=Path)
     plan_parser.add_argument("--sqlite-path", required=True, type=Path)
     plan_parser.add_argument("--target-session", required=True)
     plan_parser.add_argument("--budget-min-yen", type=int, default=200000)
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 prepared = prepare_workspace(
                     asof=_parse_date(args.asof),
                     selection_output=args.selection_output,
-                    ledger=args.ledger,
+                    db_path=args.db,
                     workspace=args.workspace,
                     force=args.force,
                 )
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             case "holding-prepare":
                 prepared = prepare_holding_workspace(
                     asof=_parse_date(args.asof),
-                    ledger=args.ledger,
+                    db_path=args.db,
                     ticker=args.ticker,
                     workspace=args.workspace,
                     force=args.force,
@@ -204,7 +204,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             case "plan-limit":
                 payload = plan_limit(
                     packet=args.packet,
-                    ledger=args.ledger,
+                    db_path=args.db,
                     sqlite_path=args.sqlite_path,
                     target_session=_parse_date(args.target_session),
                     budget_min_yen=args.budget_min_yen,

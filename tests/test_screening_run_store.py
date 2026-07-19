@@ -371,3 +371,44 @@ def test_run_rejects_invalid_evidence_summary(tmp_path: Path) -> None:
     payload["evidence_hits_summary"] = {"cheap": -1}
     with pytest.raises(ValueError, match="non-negative integers"):
         ScreeningRunStore(tmp_path / "runs.sqlite").publish_run(payload)
+
+
+@pytest.mark.parametrize("field", ["run_date", "asof_date", "run_at", "run_id", "candidates"])
+def test_run_rejects_missing_retired_schema_root_fields(tmp_path: Path, field: str) -> None:
+    payload = _run()
+    del payload[field]
+
+    with pytest.raises(ValueError, match=field):
+        ScreeningRunStore(tmp_path / "runs.sqlite").publish_run(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("playbook_id", None, "playbook_id"),
+        ("sizing_eligible", 1, "sizing_eligible must be boolean"),
+    ],
+)
+def test_run_rejects_missing_or_mistyped_evidence_fields(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    payload = _run()
+    candidate = dict(payload["candidates"][0])  # type: ignore[index]
+    evidence_hit: dict[str, object] = {
+        "name": "evidence",
+        "playbook_id": "playbook",
+        "source_status": "ok",
+        "sizing_eligible": True,
+    }
+    if value is None:
+        del evidence_hit[field]
+    else:
+        evidence_hit[field] = value
+    candidate["evidence_hits"] = [evidence_hit]
+    payload["candidates"] = [candidate]
+
+    with pytest.raises(ValueError, match=message):
+        ScreeningRunStore(tmp_path / "runs.sqlite").publish_run(payload)

@@ -37,7 +37,7 @@ Candidate YAMLはlocalで再生成する探索成果物であり、decision pack
 
 Selectionから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したselection outputのaudit rowから転記し、編集可能なshortlistや表示用percent・丸め済みFVから逆算しない。selection、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無い旧selectionやFV欠損を推測で埋めず、bridge telemetryの欠損だけでresearch・promotionを停止しない。
 
-外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはpacketと同じtickerを明示し、source/fact/scenarioがpacket as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。canonical filenameの日付・tickerもsnapshotと一致させる。HTML、PR body、proposal Issueは説明・リンクにとどめ、判断入力の正本を複製しない。
+外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはpacketと同じtickerを明示し、source/fact/scenarioがpacket as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。HTML、PR body、operation sessionは説明・ID参照にとどめ、判断入力の正本を複製しない。
 
 ## Scenario arithmetic
 
@@ -106,7 +106,7 @@ common-factor exposureは、選定銘柄にpacketの現行classification、そ�
 
 proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-engine research evaluate --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
 
-`plan-limit`出力は説明用pathに加え、`decision_packet_sha256`、`decision_packet_core_sha256`、`independent_review_sha256`、`source_ledger_sha256`を持つ。統合reportやIssue checkpointはこのhashでpacket / review / ledger snapshotへのbindingを確認し、path文字列だけで同一性を判断しない。packet、review、ledgerのいずれかが変わったら旧proposalはstaleで、再計算する。
+`plan-limit`出力はproposal作成用のephemeral inputである。`proposal create --packet-id`はimmutable packet/review IDとcurrent DB ledgerからplanning-limitを再検証する。`approve`時にも同じ条件を再計算し、packet、price、quantity、expiry、ledgerのいずれかが変わっていればno-writeで新proposalを要求する。
 
 ## Permanent-loss axes
 
@@ -131,8 +131,7 @@ hashとrun metadataが保証するのはartifactの整合性であり、reviewer
 ## Commands
 
 ```bash
-uv run baibai-engine research evaluate records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml
+uv run baibai-engine research evaluate /tmp/packet-draft.yaml
 uv run baibai-engine research status --workspace .cache/opportunity/YYYY-MM-DD
 uv run baibai-engine research plan-limit --help
-uv run baibai-engine validate --target decision-packet
 ```

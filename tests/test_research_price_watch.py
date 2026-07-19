@@ -19,6 +19,8 @@ from tools.research_price_watch import (
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite import open_connection
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_packet import (
     decision_packet_core_hash,
     independent_review_hash,
@@ -183,14 +185,22 @@ def _run(
     db_path = tmp_path / "app.sqlite"
     if source.is_dir():
         import_research_records(source, tmp_path / "no-position-records", db_path=db_path)
+        document = load_portfolio_ledger(ledger)
+        document = document.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in document.market_prices
+                )
+            }
+        )
+        LedgerStoreService(db_path).import_document(document)
     else:
         db_path = tmp_path / "missing-app.sqlite"
     exit_code = main(
         [
             "--db",
             str(db_path),
-            "--ledger",
-            str(ledger),
             "--sqlite-path",
             str(market),
             "--asof",
@@ -205,9 +215,7 @@ def _run(
 def test_cli_contract_has_only_explicit_inputs() -> None:
     help_text = build_parser().format_help()
 
-    assert all(
-        option in help_text for option in ("--db", "--ledger", "--sqlite-path", "--asof")
-    )
+    assert all(option in help_text for option in ("--db", "--sqlite-path", "--asof"))
     assert "--write" not in help_text
 
 

@@ -20,9 +20,9 @@ opportunity pathでprimary-research setを調査した後、各銘柄の詳細�
 | `findings.yaml` | ユーザー指定質問への回答、事業model、成長の質、domain固有分析、未開示事項、monitoring | ephemeral content input |
 | `report-review-attempt-N.yaml` | 上記軽量入力への独立content reviewと入力hash | ephemeral review gate |
 | `research-decision-report.html` | review済み内容の人間向けprojection | ephemeral display |
-| operation Issueのreview bundle | manifest、findings、comparison、全lane packet、proposal、report reviewのreview済み内容 | persistent session checkpoint |
+| operation session artifact | manifest、findings、comparison、non-promoted packet、report reviewのreview済みsnapshot | persistent current/final session payload |
 
-HTMLへ数値や結論を手入力しない。rendererは既存artifactをjoinするだけであり、packet / review / proposal / ledger / operation Issueを置き換えない。
+HTMLへ数値や結論を手入力しない。rendererは既存artifactをjoinするだけであり、packet / review / proposal / ledger / operation sessionを置き換えない。
 
 ## `findings.yaml` の責務
 
@@ -92,7 +92,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.research_decision_report.rende
 no actionable bargainでは`--proposal`を省略する。selected tickerがあればproposalは必須で、rendererは次をfail closedで照合する。
 
 - selected ticker、packet raw/core hash、independent review hash
-- workspace manifestのledger hashとproposalの`source_ledger_sha256`
+- proposalのpacket IDとcurrent ledgerへ再検証可能なplanning input
 - target sessionとproposal expiry
 - `planned_limit`のportfolio exposureの共通as-of、円額、prospective比率、warning閾値、holding valuation status、ledger fallback / common-factor coverage warning
 - reviewが束縛したmanifest / findings / comparison / 全packet / proposal hash
@@ -103,6 +103,6 @@ comparisonの5年base CAGR / FV / FV gapはpacketから再計算し、proposal�
 
 ## Storage and checkpoint
 
-workspace上のfindings、comparison、non-promoted packet、proposal、report review、HTMLは`.cache`配下のephemeral artifactでcommitしない。ただしcache削除後も何をreviewしたか復元できるよう、`conclusion: pass`後、HTML生成前または同時に、manifest、findings、research-comparison、全shortlistのpacket-draft、proposal（no actionable bargainでは省略）、report-reviewの**内容そのもの**をreview bundleとして残す。promote済みselected packet/reviewはcanonical GitHub pathとhashをbundle summaryから参照し、同じ内容をIssueへ複製しない。その他のYAMLはGitHubの1 comment上限を超えない単位で`gh issue comment --body-file <path>`によりoperation Issueの別commentへ置き、summary checkpointにartifact名、SHA-256、comment URLまたはcanonical pathを対応付ける。repository visibilityと保存対象を外部書き込み前に確認し、local pathとhashだけでは完了にしない。
+workspace上のfindings、comparison、non-promoted packet、proposal input、report review、HTMLは`.cache`配下のephemeral artifactでcommitしない。reviewがpassしたら、canonical homeを持たないnon-promoted laneと統合contentだけをoperation sessionの`artifacts`へsnapshotとして保存する。promote済みpacket/reviewと作成済みproposalはIDと1〜3行の結果だけを`canonical_refs`へ置き、payloadを複製しない。
 
-operation Issueのbundleはsession checkpointであり、投資判断のcanonical recordを置き換えない。選択laneはpromote済みpacket/reviewをrecordsの正本とし、非選択laneと統合contentは後日の比較・監査・再reviewに必要なreview時点snapshotとしてIssueへ保持する。HTMLの内容は保存せず再生成する。broker操作とledger更新は人間の結果報告後だけ行う。
+operation sessionはcurrent checkpointとcomplete時のfinal recordであり、checkpoint履歴や監査logではない。HTMLは保存せず再生成する。broker操作とledger更新は人間の結果報告後だけ行う。

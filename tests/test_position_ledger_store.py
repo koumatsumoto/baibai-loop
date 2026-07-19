@@ -11,6 +11,7 @@ from baibai_engine.appdb.write import initialize_database
 from baibai_engine.position.importer import import_and_check_ledger
 from baibai_engine.position.ledger import (
     ContributionEvent,
+    PortfolioLedgerDocument,
     ReservationEvent,
     load_portfolio_ledger,
 )
@@ -24,7 +25,7 @@ def _create_schema(path: Path) -> None:
     initialize_database(path)
 
 
-@pytest.mark.parametrize("source_path", [FIXTURE, CANONICAL])
+@pytest.mark.parametrize("source_path", [CANONICAL])
 def test_document_import_is_exact_idempotent_and_has_full_parity(
     tmp_path: Path, source_path: Path
 ) -> None:
@@ -65,7 +66,7 @@ def test_document_import_is_exact_idempotent_and_has_full_parity(
 def test_import_conflict_rolls_back_all_missing_rows(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _create_schema(path)
-    source = load_portfolio_ledger(FIXTURE)
+    source = _store_fixture()
     service = LedgerStoreService(path)
     service.import_document(source)
     with sqlite3.connect(path) as connection:
@@ -87,7 +88,7 @@ def test_import_conflict_rolls_back_all_missing_rows(tmp_path: Path) -> None:
 def test_late_event_is_physically_appended_but_replayed_by_time(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _create_schema(path)
-    source = load_portfolio_ledger(FIXTURE)
+    source = _store_fixture()
     service = LedgerStoreService(path)
     service.import_document(source)
     head = service.append_head()
@@ -132,7 +133,7 @@ def test_late_event_is_physically_appended_but_replayed_by_time(tmp_path: Path) 
 def test_new_same_instant_event_gets_tail_ordinal(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _create_schema(path)
-    source = load_portfolio_ledger(FIXTURE)
+    source = _store_fixture()
     service = LedgerStoreService(path)
     service.import_document(source)
     same_at = source.events[2].occurred_at
@@ -157,7 +158,6 @@ def test_new_same_instant_event_gets_tail_ordinal(tmp_path: Path) -> None:
         expected_document=source,
         replacement=replacement,
     )
-
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT same_instant_order FROM ledger_event WHERE event_id = ?",
@@ -168,7 +168,7 @@ def test_new_same_instant_event_gets_tail_ordinal(tmp_path: Path) -> None:
 def test_stale_apply_and_event_rewrite_are_no_write(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _create_schema(path)
-    source = load_portfolio_ledger(FIXTURE)
+    source = _store_fixture()
     service = LedgerStoreService(path)
     service.import_document(source)
     changed_event = source.events[1].model_copy(update={"event_id": "rewritten"})
@@ -194,7 +194,7 @@ def test_stale_apply_and_event_rewrite_are_no_write(tmp_path: Path) -> None:
 def test_proposal_id_is_relational_only_for_db_native_reference(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _create_schema(path)
-    source = load_portfolio_ledger(FIXTURE)
+    source = _store_fixture()
     service = LedgerStoreService(path)
     service.import_document(source)
     with sqlite3.connect(path) as connection:
@@ -242,7 +242,6 @@ def test_proposal_id_is_relational_only_for_db_native_reference(tmp_path: Path) 
         expected_document=source,
         replacement=replacement,
     )
-
     with sqlite3.connect(path) as connection:
         assert (
             connection.execute(
@@ -259,3 +258,28 @@ def test_proposal_id_is_relational_only_for_db_native_reference(tmp_path: Path) 
             ).fetchone()[0]
             == 0
         )
+
+
+def test_canonical_store_rejects_test_fixture_prices_without_write(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _create_schema(path)
+
+    with pytest.raises(LedgerConflictError, match="test_fixture"):
+        LedgerStoreService(path).import_document(load_portfolio_ledger(FIXTURE))
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT count(*) FROM ledger_event").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM ledger_market_price").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM ledger_meta").fetchone()[0] == 0
+
+
+def _store_fixture() -> PortfolioLedgerDocument:
+    source = load_portfolio_ledger(FIXTURE)
+    return source.model_copy(
+        update={
+            "market_prices": tuple(
+                price.model_copy(update={"source_kind": "licensed_dataset"})
+                for price in source.market_prices
+            )
+        }
+    )

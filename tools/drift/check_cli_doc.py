@@ -7,7 +7,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-_COMMAND = re.compile(r"\bbaibai-loop(?:-[a-z]+)+\b")
+_COMMAND = re.compile(r"\bbaibai-(?:engine|app)\b")
 
 
 def check(root: Path) -> list[str]:
@@ -15,9 +15,7 @@ def check(root: Path) -> list[str]:
         tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
     )
     document = (root / "docs" / "architecture.md").read_text(encoding="utf-8")
-    start = document.index("### CLI")
-    end = document.index("### Schema", start)
-    documented = set(_COMMAND.findall(document[start:end]))
+    documented = set(_COMMAND.findall(document))
     missing = sorted(scripts - documented)
     phantom = sorted(documented - scripts)
     errors = [f"docs/architecture.md: missing CLI {name}" for name in missing]

@@ -46,7 +46,7 @@ _QuotedDumper.add_representer(QuotedString, _quoted_scalar_representer)
 
 def build_output_path(asof_date: date) -> Path:
     return (
-        Path("records/02-candidates")
+        Path(".cache/screening/exports")
         / f"{asof_date:%Y}"
         / f"{asof_date:%m}"
         / f"{asof_date:%Y-%m-%d}.yaml"

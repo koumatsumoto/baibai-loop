@@ -1,4 +1,4 @@
-"""Single-ticker fact packet assembled from the SQLite store and recorded output.
+"""Single-ticker fact packet assembled from the canonical SQLite stores.
 
 The packet is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
@@ -8,7 +8,7 @@ regulation), the ticker's latest recorded screening entry, and prior research
 decisions. Every field is a deterministic transform of stored data; the packet
 contains no interpretation and no composite score.
 
-Valuation metrics are quoted from the recorded weekly candidates output rather
+Valuation metrics are quoted from the screening run publication rather
 than recomputed, so the packet never disagrees with the screening facts; a
 ticker without a candidates entry reports that absence explicitly.
 """
@@ -18,21 +18,20 @@ from __future__ import annotations
 import math
 import sqlite3
 import statistics
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.foundation.yaml_io import safe_load
-
-# The canonical ledger is the only portfolio source. This screened fact packet
-# reads its reconciled holdings solely to expose current concentration facts.
-from baibai_engine.position.ledger import (
+from baibai_engine.read_api import (
     PortfolioLedgerError,
-    load_portfolio_ledger,
+    portfolio_ledger_document,
     reconcile_portfolio,
 )
+from baibai_engine.screening.run_store import ScreeningRunReader
 
+# The application DB ledger is the only portfolio source. This screened fact
+# packet reads its reconciled holdings solely to expose concentration facts.
 from .regime import compute_market_regime
 from .sqlite_reader import read_jpx_earnings_calendar_snapshot
 
@@ -61,8 +60,9 @@ def build_ticker_profile(
     sqlite_path: Path,
     ticker: str,
     asof_date: date,
-    candidates_root: Path,
-    records_root: Path,
+    runs_db_path: Path,
+    app_db_path: Path,
+    run_revision_id: str | None = None,
     benchmark_ticker: str = _BENCHMARK_TICKER,
 ) -> dict[str, object]:
     """Assemble the fact packet for ``ticker`` as of ``asof_date``."""
@@ -75,7 +75,12 @@ def build_ticker_profile(
     master = _load_master_row(sqlite_path, ticker)
     sector = master.get("sector_33") if master else None
     regime = compute_market_regime(sqlite_path, asof_date, benchmark_ticker=benchmark_ticker)
-    candidates_block = _load_candidates_entry(candidates_root, ticker, asof_date)
+    candidates_block = _load_candidates_entry(
+        runs_db_path,
+        ticker,
+        asof_date,
+        run_revision_id=run_revision_id,
+    )
     return {
         "ticker": ticker,
         "asof": asof_date.isoformat(),
@@ -96,7 +101,7 @@ def build_ticker_profile(
         },
         "screening": candidates_block,
         "portfolio": _portfolio_block(
-            repo_root=records_root.parent,
+            app_db_path=app_db_path,
             ticker=ticker,
             sector=sector if isinstance(sector, str) else None,
         ),
@@ -210,14 +215,16 @@ def _sector_block(
 
 def _portfolio_block(
     *,
-    repo_root: Path,
+    app_db_path: Path,
     ticker: str,
     sector: str | None,
 ) -> dict[str, object]:
     """Concentration facts from the reconciled canonical portfolio ledger."""
-    ledger_path = repo_root / "records/04-position/portfolio-ledger.yaml"
+    document = portfolio_ledger_document(app_db_path)
+    if document is None:
+        return _empty_portfolio_block()
     try:
-        snapshot = reconcile_portfolio(load_portfolio_ledger(ledger_path))
+        snapshot = reconcile_portfolio(document)
     except PortfolioLedgerError:
         return _empty_portfolio_block()
     positions = []
@@ -263,40 +270,51 @@ def _empty_portfolio_block() -> dict[str, object]:
 
 
 def _load_candidates_entry(
-    candidates_root: Path,
+    runs_db_path: Path,
     ticker: str,
     asof_date: date,
+    *,
+    run_revision_id: str | None,
 ) -> dict[str, object]:
-    latest: tuple[date, Path] | None = None
-    if candidates_root.exists():
-        for path in candidates_root.glob("*/*/*.yaml"):
-            try:
-                parsed = date.fromisoformat(path.stem)
-            except ValueError:
-                continue
-            if parsed <= asof_date and (latest is None or parsed > latest[0]):
-                latest = (parsed, path)
-    if latest is None:
+    if not runs_db_path.is_file():
         return {
             "candidates_ref": None,
             "in_candidates": False,
-            "note": "no candidates file on or before asof",
+            "note": "no screening run on or before asof",
         }
-    payload = safe_load(latest[1].read_text(encoding="utf-8"))
-    entries = payload.get("candidates") if isinstance(payload, Mapping) else None
+    reader = ScreeningRunReader(runs_db_path)
+    if run_revision_id is not None:
+        run = reader.get_run(run_revision_id)
+        if run is not None and run.as_of_date > asof_date.isoformat():
+            raise ValueError(
+                "screening run as-of is after ticker-profile asof: "
+                f"{run.as_of_date} > {asof_date.isoformat()}"
+            )
+    else:
+        eligible_dates = {
+            item.as_of_date
+            for item in reader.list_runs()
+            if item.as_of_date <= asof_date.isoformat()
+        }
+        run = None if not eligible_dates else reader.resolve_run(as_of_date=max(eligible_dates))
+    if run is None:
+        if run_revision_id is not None:
+            raise ValueError(f"unknown run_revision_id: {run_revision_id}")
+        return {
+            "candidates_ref": None,
+            "in_candidates": False,
+            "note": "no screening run on or before asof",
+        }
+    entries = run.candidates
     entry = None
     if isinstance(entries, Sequence):
         entry = next(
-            (
-                item
-                for item in entries
-                if isinstance(item, Mapping) and item.get("ticker") == ticker
-            ),
+            (item for item in entries if item.get("ticker") == ticker),
             None,
         )
     block: dict[str, object] = {
-        "candidates_ref": str(latest[1]),
-        "candidates_asof": latest[0].isoformat(),
+        "candidates_ref": run.run_revision_id,
+        "candidates_asof": run.as_of_date,
         "in_candidates": entry is not None,
     }
     if entry is not None:

@@ -47,7 +47,7 @@ uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eva
 
 冒頭には[`doctrine.md`の改善提案の価値階層](../doctrine.md#improvement-value-hierarchy)に従い、`価値tier: Tn — <直接的な成果への因果経路>`を1行で書く。T3は観測した頻度・負担、T4を例外採用する場合は人間の実損またはT1〜T3への検証可能な寄与を示す。価値階層を第一基準とし、同じtier内では効果の見込みが大きい順に優先する。
 
-導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical packetとoperation Issueに保存した非promote laneから同一packet hashの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
+導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical packetとoperation sessionに保存した非promote laneから同一packetの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
 
 ### 2. 採否基準の事前登録（計測より先に commit）
 
@@ -98,4 +98,4 @@ uv run baibai-engine screening select --asof <同上>
 - 1 改善 = 1 issue = 1 PR。レビュー反映・運用テストで見つけたバグ修正・付随する follow-up は同一 PR にコミットを積む。
 - issue title は `task(<subsystem>): <改善の要約>` または `improve: <要約>`。本文に観察 → 仮説 → 検証方法 → 着手条件。
 - 判断の正本は records / reports に置き、issue / PR には参照と要約を書く（[`./task-runbook.md`](./task-runbook.md) と同じ原則）。
-- マージ前ゲート: `uv run baibai-engine validate` / `ruff format --check` / `ruff check` / `mypy` / `pytest` + 運用テスト（§5）。
+- マージ前ゲート: `ruff format --check` / `ruff check` / `mypy` / `pytest` + write-time negative test + 運用テスト（§5）。

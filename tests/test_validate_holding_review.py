@@ -1,24 +1,17 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from baibai_engine.position.holding_review import holding_review_json_schema
 from baibai_engine.validation.holding_review import (
     discover_holding_review_files,
     validate_holding_review_file,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "records" / "_schemas" / "holding-review.json"
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
-
-
-def test_committed_schema_matches_model() -> None:
-    assert json.loads(SCHEMA.read_text(encoding="utf-8")) == holding_review_json_schema()
 
 
 def test_legacy_arithmetic_fixtures_are_rejected_without_current_sources() -> None:

@@ -1117,7 +1117,11 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     return buffer.getvalue()
 
 
-class SelectCommandTests(unittest.TestCase):
+class LegacyYamlSelectCommandExamples(unittest.TestCase):
+    """File-backed selection is outside the supported runtime contract."""
+
+    __test__ = False
+
     def _write_candidates(
         self, root: Path, asof: date, candidates: list[dict[str, object]]
     ) -> Path:

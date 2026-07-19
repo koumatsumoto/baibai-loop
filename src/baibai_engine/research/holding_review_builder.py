@@ -48,7 +48,7 @@ def build_holding_review_from_db(
     """Build a draft from canonical packet revisions and the current ledger head."""
     initialize_database(db_path)
     ledger_service = LedgerStoreService(db_path)
-    ledger = ledger_service.load()
+    ledger, ledger_append_head = ledger_service.load_with_head()
     with closing(connect_rw(db_path)) as connection:
         packet = _load_ready_db_packet(connection, holding_packet_id)
         candidate = (
@@ -64,7 +64,7 @@ def build_holding_review_from_db(
         sources={
             "ledger": {
                 "entity_id": "portfolio-ledger",
-                "append_head": ledger_service.append_head(),
+                "append_head": ledger_append_head,
             },
             "holding_packet": {"entity_id": holding_packet_id, "append_head": None},
             "candidate_packet": (

@@ -14,4 +14,4 @@
 
 ## Output check
 
-source selectionへ束縛したreviewed shortlistがapplication DBにpublishされ、resume checkpoint、一次source、packet/review ID、review済みcompact bundle、統合content review hash、review済みHTML path、proposalまたは`no actionable bargain / defer`が揃っていれば完了。AIはbroker操作へ進まない。
+source selectionへ束縛したreviewed shortlistがapplication DBにpublishされ、operation sessionのcurrent payload、一次source、packet/review ID、review済みcompact bundle、統合content review、review済みHTML path、proposal IDまたは`no actionable bargain / defer`が揃っていれば完了。AIはbroker操作へ進まない。

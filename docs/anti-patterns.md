@@ -131,19 +131,18 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 ### 根本原因
 - field 名から意味を「だろう」で推測する
-- schema JSON / 実装コードを読み直さない
+- engine model / 実装コードを読み直さない
 - 既存サンプルとの diff を意識しない
 
 ### 再発防止チェックリスト
 
 - [ ] candidates / macro context / research の field を新規に解釈・記述する前に、対応する
-      JSON schema (`records/_schemas/*.json`) を読み返したか
+      engine modelとpublic CLI contractを読み返したか
 - [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`src/baibai_engine/screening/`)
       で計算ロジックを確認したか
-- [ ] 既存ファイル (candidates、macro context、research) のサンプル形式に
-      従っているか、独自構造を勝手に追加していないか
-- [ ] `additionalProperties: false` の object に独自 key を追加していないか
-- [ ] holding review / portfolio outcomeがledger・decision packet・benchmark observationのref/hashを検証し、scalarやsource hashのdriftを通していないか
+- [ ] DB publication viewとmodelに従い、独自構造を勝手に追加していないか
+- [ ] `extra: forbid` の model に独自 key を追加していないか
+- [ ] holding review / portfolio outcomeがledger・decision packet・benchmark observationのimmutable IDとscalar driftを検証しているか
 
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 
@@ -187,7 +186,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] `inputs`のinput_id、`material_deltas` / `sizing_cautions` のsource_ids、statusを照合したか
 - [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
 - [ ] material deltaが個別仮説に影響する場合だけ、decision packetの判断と反証にsource付きで接続したか
-- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-engine validate` を実行したか
+- [ ] **機械化チェック**: macro context publishのmodel / source / future / stale negative testを実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -240,7 +239,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] decision packetは`input_snapshot`、判断時`market_price`、valuation factを欠くと`incomplete`になる
   - [ ] snapshot sourceのticker不一致、未来as-of/retrieval、未知source ID、不正unit/typeを拒否する
   - [ ] source retrievalとmarket price observationがAI proposal時刻より後なら拒否する
-  - [ ] canonical decision filenameの日付・tickerがsnapshot identityと一致する
+  - [ ] canonical packet ID、ticker、as-ofがsnapshot identityと一致する
   - [ ] AI value captureはsourceを持ち、`not_material`ならrole/decision weightを持たず、`disrupted`ならstructural_decline riskと根拠が接続する
   - [ ] `entry_price_basis: observed_market_price`はsnapshotの判断時priceと一致する
   - [ ] execution policyはstale / historical / synthetic quote、max price超過、cash / dry-powder不足を`defer`にし、全orderがboard lot・合法tick・max priceを守る
@@ -253,12 +252,12 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
-  - [ ] schema 管理している **nested object** が未知 field を許していないか
+  - [ ] model 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
-- [ ] human result CLIを変更する場合、報告なしでno write、proposal/approval URL必須、missing fieldの質問、canonical非上書き、source hash drift拒否をcontract testで確認したか
+- [ ] human result CLIを変更する場合、報告なしでno write、approved proposal ID必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
 - [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
 - [ ] 統合reportはHTMLをreview対象にせず、findings / comparison / packet / proposalへ別roleのcontent reviewを行い、manifest・全packet raw/core・proposal hashの変更をstaleとして拒否するか
 - [ ] `planned_limit / defer / no actionable bargain`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか

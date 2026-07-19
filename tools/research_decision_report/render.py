@@ -324,6 +324,12 @@ def _verify_manifest_inputs(manifest: Mapping[str, object]) -> None:
         value = inputs.get(name)
         if not isinstance(value, Mapping):
             raise ReportError(f"workspace manifest is missing input hash: {name}")
+        if name == "ledger":
+            if value.get("entity_id") != "portfolio-ledger" or not isinstance(
+                value.get("append_head"), int
+            ):
+                raise ReportError("workspace manifest ledger revision is invalid")
+            continue
         path_value = value.get("path")
         expected = value.get("sha256")
         if not isinstance(path_value, str) or not isinstance(expected, str):
@@ -787,9 +793,13 @@ def _validate_proposal(
         raise ReportError("proposal independent_review_sha256 does not match selected review")
     inputs = manifest.get("inputs")
     ledger = inputs.get("ledger") if isinstance(inputs, Mapping) else None
-    ledger_sha = ledger.get("sha256") if isinstance(ledger, Mapping) else None
-    if proposal.get("source_ledger_sha256") != ledger_sha:
-        raise ReportError("proposal source_ledger_sha256 does not match workspace ledger")
+    ledger_entity = ledger.get("entity_id") if isinstance(ledger, Mapping) else None
+    ledger_head = ledger.get("append_head") if isinstance(ledger, Mapping) else None
+    if (
+        proposal.get("source_ledger_entity") != ledger_entity
+        or proposal.get("source_ledger_append_head") != ledger_head
+    ):
+        raise ReportError("proposal ledger revision does not match workspace ledger")
     expires_at = proposal.get("expires_at")
     try:
         expires_at_value = datetime.fromisoformat(str(expires_at))

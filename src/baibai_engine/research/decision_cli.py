@@ -11,8 +11,12 @@ import yaml
 
 from baibai_engine.position.ledger import (
     PortfolioLedgerError,
-    load_portfolio_ledger,
     reconcile_portfolio,
+)
+from baibai_engine.position.store import (
+    LedgerConflictError,
+    LedgerSchemaError,
+    LedgerStoreService,
 )
 
 from .decision_packet import (
@@ -41,9 +45,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         help="provider-neutral quote, portfolio, quantity, and expiry input YAML",
     )
     parser.add_argument(
-        "--ledger",
+        "--db",
         type=Path,
-        help="canonical ledger YAML required with --execution-input",
+        help="application DB path; BAIBAI_DB is used when omitted",
     )
     args = parser.parse_args(argv)
     try:
@@ -53,14 +57,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         result = evaluate_decision_packet(document, review=review)
         payload = result_to_payload(result)
         if args.execution_input is not None:
-            if args.ledger is None:
-                raise ExecutionPolicyError("--execution-input requires --ledger")
             policy_input = load_execution_policy_input(args.execution_input)
             require_current_execution_input(
                 policy_input,
                 now=now or datetime.now(tz=policy_input.evaluated_at.tzinfo),
             )
-            snapshot = reconcile_portfolio(load_portfolio_ledger(args.ledger))
+            snapshot = reconcile_portfolio(LedgerStoreService(args.db).load())
             canonical_portfolio = portfolio_input_from_snapshot(
                 snapshot,
                 ticker=policy_input.ticker,
@@ -75,7 +77,13 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             policy_input = policy_input.model_copy(update={"portfolio": canonical_portfolio})
             proposal = evaluate_execution_policy(document, result, policy_input)
             payload["execution_proposal"] = execution_proposal_to_payload(proposal)
-    except (DecisionPacketError, ExecutionPolicyError, PortfolioLedgerError) as error:
+    except (
+        DecisionPacketError,
+        ExecutionPolicyError,
+        LedgerConflictError,
+        LedgerSchemaError,
+        PortfolioLedgerError,
+    ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     yaml.safe_dump(

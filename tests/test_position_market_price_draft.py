@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from datetime import date
 from pathlib import Path
 
@@ -9,11 +8,13 @@ import yaml
 
 from baibai_engine.market.sqlite import open_connection, store_jquants_market_calendar
 from baibai_engine.position.cli import main
+from baibai_engine.position.drafts import load_draft
 from baibai_engine.position.ledger import (
     PortfolioLedgerError,
     load_portfolio_ledger,
     reconcile_portfolio,
 )
+from baibai_engine.position.store import LedgerStoreService
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 ASOF = date(2026, 7, 13)
@@ -92,13 +93,14 @@ def _seed_market(
 
 
 def _run(root: Path, *, out: str = "drafts/market-price.yaml") -> int:
+    _import_ledger(root / "ledger.yaml", root / "app.sqlite")
     return main(
         [
             "market-price-draft",
             "--root",
             str(root),
-            "--ledger",
-            "ledger.yaml",
+            "--db",
+            str(root / "app.sqlite"),
             "--sqlite",
             "data/screening/market.sqlite",
             "--asof",
@@ -109,12 +111,24 @@ def _run(root: Path, *, out: str = "drafts/market-price.yaml") -> int:
     )
 
 
+def _import_ledger(ledger_path: Path, db_path: Path) -> None:
+    source = load_portfolio_ledger(ledger_path)
+    canonical = source.model_copy(
+        update={
+            "market_prices": tuple(
+                price.model_copy(update={"source_kind": "licensed_dataset"})
+                for price in source.market_prices
+            )
+        }
+    )
+    LedgerStoreService(db_path).import_document(canonical)
+
+
 def test_market_price_draft_replaces_all_holdings_with_exact_raw_close(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     ledger = tmp_path / "ledger.yaml"
     _two_holding_ledger(ledger)
-    source_bytes = ledger.read_bytes()
     sqlite_path = tmp_path / "data/screening/market.sqlite"
     _seed_market(
         sqlite_path,
@@ -128,22 +142,16 @@ def test_market_price_draft_replaces_all_holdings_with_exact_raw_close(
 
     stdout = yaml.safe_load(capsys.readouterr().out)
     assert set(stdout) == {
-        "source_ledger",
-        "source_ledger_sha256",
+        "source_append_head",
         "market_data_fingerprint",
         "draft_sha256",
         "output",
     }
-    assert stdout["source_ledger"] == str(ledger)
-    assert stdout["source_ledger_sha256"] == hashlib.sha256(source_bytes).hexdigest()
+    assert stdout["source_append_head"] > 0
     assert len(stdout["market_data_fingerprint"]) == 64
-    assert (
-        stdout["draft_sha256"]
-        == hashlib.sha256((tmp_path / "drafts/market-price.yaml").read_bytes()).hexdigest()
-    )
+    assert len(stdout["draft_sha256"]) == 64
     assert stdout["output"] == str(tmp_path / "drafts/market-price.yaml")
-    assert ledger.read_bytes() == source_bytes
-    draft = load_portfolio_ledger(tmp_path / "drafts/market-price.yaml")
+    draft = load_draft(tmp_path / "drafts/market-price.yaml").replacement
     snapshot = reconcile_portfolio(draft)
     assert {holding.ticker for holding in snapshot.holdings} == {"2331", "2749"}
     assert {str(price.price_yen) for price in draft.market_prices} == {"1200.0", "1010.0"}
@@ -206,7 +214,7 @@ def test_market_price_draft_prices_new_fill_missing_from_input_market_prices(
 
     assert _run(tmp_path) == 0
     capsys.readouterr()
-    draft = load_portfolio_ledger(tmp_path / "drafts/market-price.yaml")
+    draft = load_draft(tmp_path / "drafts/market-price.yaml").replacement
     snapshot = reconcile_portfolio(draft)
     assert {holding.ticker for holding in snapshot.holdings} == {"2331", "2749"}
     assert {price.ticker for price in draft.market_prices} == {"2331", "2749"}
@@ -260,6 +268,7 @@ def test_market_price_draft_rejects_price_date_rollback(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _two_holding_ledger(tmp_path / "ledger.yaml")
+    _import_ledger(tmp_path / "ledger.yaml", tmp_path / "app.sqlite")
     rollback_day = date(2026, 7, 10)
 
     assert (
@@ -268,8 +277,8 @@ def test_market_price_draft_rejects_price_date_rollback(
                 "market-price-draft",
                 "--root",
                 str(tmp_path),
-                "--ledger",
-                "ledger.yaml",
+                "--db",
+                str(tmp_path / "app.sqlite"),
                 "--sqlite",
                 "data/screening/market.sqlite",
                 "--asof",

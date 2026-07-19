@@ -10,7 +10,12 @@ import pytest
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.position.ledger import PortfolioLedgerDocument, reconcile_portfolio
+from baibai_engine.position.ledger import (
+    PortfolioLedgerDocument,
+    load_portfolio_ledger,
+    reconcile_portfolio,
+)
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_cli import main as decision_cli_main
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
@@ -44,6 +49,22 @@ def _raw(path: Path) -> dict[str, object]:
     raw = safe_load(path.read_text(encoding="utf-8"))
     assert isinstance(raw, dict)
     return copy.deepcopy(raw)
+
+
+def _app_db(tmp_path: Path) -> Path:
+    path = tmp_path / "app.sqlite"
+    document = load_portfolio_ledger(LEDGER)
+    LedgerStoreService(path).import_document(
+        document.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in document.market_prices
+                )
+            }
+        )
+    )
+    return path
 
 
 def _policy(raw: dict[str, object] | None = None) -> ExecutionPolicyInput:
@@ -466,10 +487,11 @@ def test_not_filled_outcome_requires_same_ticker_basis_and_corporate_action_chec
 
 
 def test_decision_cli_includes_execution_proposal_when_input_is_supplied(
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(POLICY), "--ledger", str(LEDGER)],
+        [str(PACKET), "--execution-input", str(POLICY), "--db", str(_app_db(tmp_path))],
         now=EVALUATED_AT,
     )
 
@@ -481,10 +503,11 @@ def test_decision_cli_includes_execution_proposal_when_input_is_supplied(
 
 
 def test_decision_cli_rejects_a_historical_execution_input(
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(POLICY), "--ledger", str(LEDGER)],
+        [str(PACKET), "--execution-input", str(POLICY), "--db", str(_app_db(tmp_path))],
         now=datetime.fromisoformat("2026-07-11T10:07:00+09:00"),
     )
 
@@ -503,7 +526,7 @@ def test_decision_cli_rejects_an_execution_input_that_has_already_expired(
     )
 
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(input_path), "--ledger", str(LEDGER)],
+        [str(PACKET), "--execution-input", str(input_path), "--db", str(_app_db(tmp_path))],
         now=datetime.fromisoformat("2026-07-11T10:03:00+09:00"),
     )
 
@@ -512,12 +535,16 @@ def test_decision_cli_rejects_an_execution_input_that_has_already_expired(
 
 
 def test_decision_cli_rejects_execution_input_without_a_canonical_ledger(
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    exit_code = decision_cli_main([str(PACKET), "--execution-input", str(POLICY)])
+    exit_code = decision_cli_main(
+        [str(PACKET), "--execution-input", str(POLICY), "--db", str(tmp_path / "missing.sqlite")],
+        now=EVALUATED_AT,
+    )
 
     assert exit_code == 2
-    assert "requires --ledger" in capsys.readouterr().err
+    assert "ledger has not been imported" in capsys.readouterr().err
 
 
 def test_decision_cli_rejects_hand_edited_cash_that_differs_from_ledger(
@@ -533,7 +560,7 @@ def test_decision_cli_rejects_hand_edited_cash_that_differs_from_ledger(
     )
 
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(input_path), "--ledger", str(LEDGER)],
+        [str(PACKET), "--execution-input", str(input_path), "--db", str(_app_db(tmp_path))],
         now=EVALUATED_AT,
     )
 

@@ -1,4 +1,4 @@
-"""Command-line entry for repository portfolio records.
+"""Command-line entry for application-DB portfolio records.
 
 Composes ledger, holding-review, and outcome inputs. This entry point owns
 SQLite composition while position core modules remain free of screening
@@ -62,8 +62,6 @@ from baibai_engine.position.ledger import (
     PortfolioLedgerError,
     ReservationEvent,
     WithdrawalEvent,
-    load_portfolio_ledger,
-    load_portfolio_ledger_with_sha256,
     reconcile_portfolio,
     replay_events_through,
     snapshot_to_payload,
@@ -73,15 +71,11 @@ from baibai_engine.position.outcome_store import (
     PortfolioOutcomePublication,
     PortfolioOutcomeStore,
 )
-from baibai_engine.position.result_recording import ResultRecordingError, record_result
+from baibai_engine.position.result_recording import ResultRecordingError
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
 from baibai_engine.proposals.store import ProposalStoreService
-from baibai_engine.research.holding_review_builder import (
-    build_holding_review,
-    build_holding_review_from_db,
-    validate_holding_review_scalars,
-)
+from baibai_engine.research.holding_review_builder import build_holding_review_from_db
 
 
 def _datetime_argument(value: str) -> datetime:
@@ -116,17 +110,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     ledger_parser = subparsers.add_parser(
         "ledger",
-        description="Reconcile the repository-only portfolio ledger and emit a YAML snapshot.",
+        description="Reconcile the application-DB portfolio ledger and emit a YAML snapshot.",
         help="reconcile available cash, reservations, holdings, income, costs, and warnings",
     )
-    ledger_parser.add_argument("--root", type=Path, default=Path.cwd())
     ledger_parser.add_argument("--db", type=Path)
-    ledger_parser.add_argument(
-        "--ledger",
-        type=Path,
-        default=Path("records/04-position/portfolio-ledger.yaml"),
-        help="ledger YAML path, relative to --root unless absolute",
-    )
     outcome_parser = subparsers.add_parser(
         "outcome",
         help=(
@@ -136,9 +123,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     outcome_parser.add_argument("--root", type=Path, default=Path.cwd())
     outcome_parser.add_argument("--db", type=Path)
-    outcome_parser.add_argument(
-        "--ledger", type=Path, default=Path("records/04-position/portfolio-ledger.yaml")
-    )
     outcome_parser.add_argument("--benchmark-observation", type=Path, required=True)
     outcome_parser.add_argument(
         "--sqlite",
@@ -149,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_parser.add_argument(
         "--out",
         type=Path,
-        help="write a new canonical outcome YAML; existing paths are never overwritten",
+        help="write an optional outcome YAML export; existing paths are never overwritten",
     )
     holding_review_parser = subparsers.add_parser(
         "holding-review",
@@ -183,12 +167,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="build a holding review draft from a ready packet, its review, and the ledger",
     )
     holding_build_parser.add_argument("--root", type=Path, default=Path.cwd())
-    holding_build_parser.add_argument("--packet", type=Path)
-    holding_build_parser.add_argument("--ledger", type=Path)
     holding_build_parser.add_argument("--db", type=Path)
-    holding_build_parser.add_argument("--packet-id")
+    holding_build_parser.add_argument("--packet-id", required=True)
     holding_build_parser.add_argument("--position-id", required=True)
-    holding_build_parser.add_argument("--candidate-packet", type=Path)
     holding_build_parser.add_argument("--candidate-packet-id")
     holding_build_parser.add_argument("--out", type=Path, required=True)
     market_price_parser = subparsers.add_parser(
@@ -196,7 +177,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="build a new ledger draft with exact same-day raw closes for all open holdings",
     )
     market_price_parser.add_argument("--root", type=Path, default=Path.cwd())
-    market_price_parser.add_argument("--ledger", type=Path)
     market_price_parser.add_argument("--db", type=Path)
     market_price_parser.add_argument("--sqlite", type=Path, required=True)
     market_price_parser.add_argument("--asof", type=_date_argument, required=True)
@@ -206,7 +186,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="turn a human-reported open/filled/cancelled/expired result into a ledger draft",
     )
     result_parser.add_argument("--root", type=Path, default=Path.cwd())
-    result_parser.add_argument("--ledger", type=Path)
     result_parser.add_argument("--db", type=Path)
     result_parser.add_argument("--proposal-ref", required=True)
     result_parser.add_argument(
@@ -278,14 +257,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "ledger":
-        if args.db is not None:
-            try:
-                return _emit_ledger(LedgerStoreService(args.db).load())
-            except (LedgerConflictError, PortfolioLedgerError) as error:
-                print(f"error: {error}", file=sys.stderr)
-                return 2
-        ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
-        return _run_ledger(ledger_path)
+        try:
+            return _emit_ledger(LedgerStoreService(args.db).load())
+        except (LedgerConflictError, PortfolioLedgerError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
     if args.command == "holding-review":
         if args.operation == "publish":
             if args.draft is None or args.packet_id is None:
@@ -301,36 +277,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         input_path = args.input if args.input.is_absolute() else args.root / args.input
         return _run_holding_review(input_path, root=args.root)
     if args.command == "holding-review-build":
-        if args.db is not None:
-            if args.packet_id is None:
-                print("error: DB holding-review-build requires --packet-id", file=sys.stderr)
-                return 2
-            return _run_holding_review_build_db(
-                db_path=args.db,
-                packet_id=args.packet_id,
-                candidate_packet_id=args.candidate_packet_id,
-                position_id=args.position_id,
-                root=args.root,
-                out=args.out,
-            )
-        if args.packet is None or args.ledger is None:
-            print("error: holding-review-build requires --db", file=sys.stderr)
-            return 2
-        return _run_holding_review_build(
-            root=args.root,
-            packet=args.packet,
-            ledger=args.ledger,
+        return _run_holding_review_build_db(
+            db_path=args.db,
+            packet_id=args.packet_id,
+            candidate_packet_id=args.candidate_packet_id,
             position_id=args.position_id,
-            candidate_packet=args.candidate_packet,
+            root=args.root,
             out=args.out,
         )
     if args.command == "market-price-draft":
-        if args.db is None and args.ledger is None:
-            print("error: market-price-draft requires --db", file=sys.stderr)
-            return 2
         return _run_market_price_draft(
             root=args.root,
-            ledger=args.ledger,
             sqlite_path=args.sqlite,
             asof=args.asof,
             out=args.out,
@@ -365,7 +322,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if args.command == "meta-draft":
         return _run_meta_draft(args)
     if args.command == "outcome":
-        ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
         benchmark_path = (
             args.benchmark_observation
             if args.benchmark_observation.is_absolute()
@@ -378,7 +334,6 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             else (args.out if args.out.is_absolute() else args.root / args.out)
         )
         return _run_outcome(
-            ledger_path,
             benchmark_path,
             sqlite_path,
             out_path,
@@ -474,15 +429,6 @@ def _run_meta_draft(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_ledger(path: Path) -> int:
-    try:
-        document = load_portfolio_ledger(path)
-    except PortfolioLedgerError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    return _emit_ledger(document)
-
-
 def _emit_ledger(document: PortfolioLedgerDocument) -> int:
     try:
         snapshot = reconcile_portfolio(document)
@@ -518,7 +464,6 @@ def _emit_ledger(document: PortfolioLedgerDocument) -> int:
 
 
 def _run_outcome(
-    ledger_path: Path,
     benchmark_path: Path,
     sqlite_path: Path,
     out_path: Path | None,
@@ -532,26 +477,8 @@ def _run_outcome(
     except BenchmarkObservationError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    if db_path is None and not ledger_path.is_file():
-        payload = {
-            "schema_version": 1,
-            "kind": "portfolio_outcome",
-            "status": "unresolved",
-            "reason": "activation_pending",
-            "benchmark_id": benchmark.benchmark_id,
-            "horizon": benchmark.horizon,
-        }
-        if out_path is not None:
-            print("error: activation_pending outcome cannot be persisted", file=sys.stderr)
-            return 2
-        yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
-        return 0
     try:
-        ledger = (
-            LedgerStoreService(db_path).load()
-            if db_path is not None
-            else load_portfolio_ledger(ledger_path)
-        )
+        ledger = LedgerStoreService(db_path).load()
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -594,36 +521,28 @@ def _run_outcome(
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
         market_data_fingerprint=market_fingerprint,
     )
-    if db_path is not None:
-        payload["benchmark_observation"] = benchmark.model_dump(mode="json")
-        outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
-        try:
-            PortfolioOutcomeStore(db_path).publish(
-                PortfolioOutcomePublication(
-                    outcome_id=outcome_id,
-                    horizon=benchmark.horizon,
-                    period_start_date=benchmark.period_start_date.isoformat(),
-                    period_end_date=benchmark.period_end_date.isoformat(),
-                    status=str(payload["status"]),
-                    payload=payload,
-                )
+    payload["benchmark_observation"] = benchmark.model_dump(mode="json")
+    outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
+    if out_path is not None and out_path.exists():
+        print(f"error: refusing to overwrite existing outcome: {out_path}", file=sys.stderr)
+        return 2
+    try:
+        PortfolioOutcomeStore(db_path).publish(
+            PortfolioOutcomePublication(
+                outcome_id=outcome_id,
+                horizon=benchmark.horizon,
+                period_start_date=benchmark.period_start_date.isoformat(),
+                period_end_date=benchmark.period_end_date.isoformat(),
+                status=str(payload["status"]),
+                payload=payload,
             )
-        except (ValueError, sqlite3.Error) as error:
-            print(f"error: failed to publish portfolio outcome: {error}", file=sys.stderr)
-            return 2
-        payload["outcome_id"] = outcome_id
-    else:
-        payload.update(
-            benchmark_observation_ref=str(benchmark_path),
-            benchmark_observation_sha256=_sha256(benchmark_path),
-            ledger_ref=str(ledger_path),
-            ledger_sha256=_sha256(ledger_path),
         )
+    except (ValueError, sqlite3.Error) as error:
+        print(f"error: failed to publish portfolio outcome: {error}", file=sys.stderr)
+        return 2
+    payload["outcome_id"] = outcome_id
     yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
     if out_path is not None:
-        if out_path.exists():
-            print(f"error: refusing to overwrite existing outcome: {out_path}", file=sys.stderr)
-            return 2
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(
             yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
@@ -669,7 +588,6 @@ def _run_holding_review(path: Path, *, root: Path) -> int:
         return 2
     try:
         validate_holding_review_sources(document, root=root)
-        validate_holding_review_scalars(document, root=root)
     except HoldingReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -724,49 +642,9 @@ def _run_holding_review_publish(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_holding_review_build(
-    *,
-    root: Path,
-    packet: Path,
-    ledger: Path,
-    position_id: str,
-    candidate_packet: Path | None,
-    out: Path,
-) -> int:
-    try:
-        output_path = _draft_output_path(root, out, label="holding review")
-    except ValueError as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    try:
-        document = build_holding_review(
-            root=root,
-            ledger_ref=ledger,
-            holding_packet_ref=packet,
-            position_id=position_id,
-            candidate_packet_ref=candidate_packet,
-        )
-        result = evaluate_holding_review(document)
-    except (HoldingReviewError, PortfolioLedgerError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    if result.errors:
-        for finding in result.errors:
-            print(f"error: {finding}", file=sys.stderr)
-        return 2
-    payload = document.model_dump(mode="json")
-    try:
-        _write_yaml_exclusive(output_path, payload)
-    except OSError as error:
-        print(f"error: failed to write holding review draft: {error}", file=sys.stderr)
-        return 2
-    yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
-    return 0
-
-
 def _run_holding_review_build_db(
     *,
-    db_path: Path,
+    db_path: Path | None,
     packet_id: str,
     candidate_packet_id: str | None,
     position_id: str,
@@ -794,55 +672,11 @@ def _run_holding_review_build_db(
 
 
 def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int:
-    if args.db is not None:
-        try:
-            draft, event_ids = build_result_draft(
-                LedgerStoreService(args.db),
-                ProposalStoreService(args.db),
-                proposal_id=args.proposal_ref,
-                status=args.status,
-                occurred_at=args.occurred_at,
-                ticker=args.ticker,
-                quantity=args.quantity,
-                price_yen=args.price_yen,
-                reservation_id=args.reservation_id,
-                order_id=args.order_id,
-                sector=args.sector,
-                common_factors=tuple(sorted(set(args.common_factor))),
-                price_guard_yen=args.price_guard_yen,
-                expires_at=args.expires_at,
-                approved_at=args.approved_at,
-                now=now,
-            )
-            if draft is not None:
-                db_output_path = _draft_output_path(args.root, args.out, label="ledger draft")
-                write_draft(db_output_path, draft)
-            else:
-                db_output_path = None
-        except (OSError, PortfolioLedgerError, ResultRecordingError, ValueError) as error:
-            print(f"error: failed to build broker result draft: {error}", file=sys.stderr)
-            return 2
-        yaml.safe_dump(
-            {
-                "status": "draft_created" if draft is not None else "no_change",
-                "proposal_id": args.proposal_ref,
-                "output": None if db_output_path is None else str(db_output_path),
-                "event_ids": list(event_ids),
-            },
-            sys.stdout,
-            sort_keys=False,
-            allow_unicode=True,
-        )
-        return 0
-    if args.ledger is None:
-        print("error: record-result requires --db", file=sys.stderr)
-        return 2
-    ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
     try:
-        ledger, source_sha256 = load_portfolio_ledger_with_sha256(ledger_path)
-        result = record_result(
-            ledger,
-            proposal_ref=args.proposal_ref,
+        draft, event_ids = build_result_draft(
+            LedgerStoreService(args.db),
+            ProposalStoreService(args.db),
+            proposal_id=args.proposal_ref,
             status=args.status,
             occurred_at=args.occurred_at,
             ticker=args.ticker,
@@ -857,24 +691,20 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
             approved_at=args.approved_at,
             now=now,
         )
-    except (PortfolioLedgerError, ResultRecordingError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 2
-    output_path: Path | None = None
-    if result.changed:
-        try:
+        if draft is not None:
             output_path = _draft_output_path(args.root, args.out, label="ledger draft")
-            _write_yaml_exclusive(output_path, result.document.model_dump(mode="json"))
-        except (OSError, ValueError) as error:
-            print(f"error: failed to write ledger draft: {error}", file=sys.stderr)
-            return 2
+            write_draft(output_path, draft)
+        else:
+            output_path = None
+    except (OSError, PortfolioLedgerError, ResultRecordingError, ValueError) as error:
+        print(f"error: failed to build broker result draft: {error}", file=sys.stderr)
+        return 2
     yaml.safe_dump(
         {
-            "status": "draft_created" if result.changed else "no_change",
-            "source_ledger": str(ledger_path),
-            "source_ledger_sha256": source_sha256,
-            "output": str(output_path) if output_path is not None else None,
-            "event_ids": list(result.event_ids),
+            "status": "draft_created" if draft is not None else "no_change",
+            "proposal_id": args.proposal_ref,
+            "output": None if output_path is None else str(output_path),
+            "event_ids": list(event_ids),
         },
         sys.stdout,
         sort_keys=False,
@@ -890,26 +720,18 @@ class _MarketPriceDraftError(ValueError):
 def _run_market_price_draft(
     *,
     root: Path,
-    ledger: Path | None,
     sqlite_path: Path,
     asof: date,
     out: Path,
     db_path: Path | None = None,
 ) -> int:
-    ledger_path = None if ledger is None else (ledger if ledger.is_absolute() else root / ledger)
     resolved_sqlite = sqlite_path if sqlite_path.is_absolute() else root / sqlite_path
     try:
         output_path = _draft_output_path(root, out, label="market price ledger draft")
         sqlite_ref = _repository_source_ref(root, resolved_sqlite)
-        if db_path is None:
-            assert ledger_path is not None
-            document, source_sha256 = load_portfolio_ledger_with_sha256(ledger_path)
-            expected_head = None
-        else:
-            service = LedgerStoreService(db_path)
-            document = service.load()
-            source_sha256 = None
-            expected_head = service.append_head()
+        service = LedgerStoreService(db_path)
+        document = service.load()
+        expected_head = service.append_head()
         state = replay_events_through(document.events, document.as_of)
         tickers = tuple(
             sorted(
@@ -949,22 +771,18 @@ def _run_market_price_draft(
         payload["market_prices"] = [price.model_dump(mode="json") for price in prices]
         draft = PortfolioLedgerDocument.model_validate(payload)
         reconcile_portfolio(draft)
-        if db_path is None:
-            _write_yaml_exclusive(output_path, draft.model_dump(mode="json"))
-        else:
-            from baibai_engine.position.drafts import LedgerDraft
+        from baibai_engine.position.drafts import LedgerDraft
 
-            assert expected_head is not None
-            write_draft(
-                output_path,
-                LedgerDraft(
-                    kind="market-price",
-                    expected_head=expected_head,
-                    source=document,
-                    replacement=draft,
-                    confirmation_required=True,
-                ),
-            )
+        write_draft(
+            output_path,
+            LedgerDraft(
+                kind="market-price",
+                expected_head=expected_head,
+                source=document,
+                replacement=draft,
+                confirmation_required=True,
+            ),
+        )
         draft_sha256 = _sha256(output_path)
     except (OSError, PortfolioLedgerError, sqlite3.Error, ValueError) as error:
         print(f"error: failed to build market price ledger draft: {error}", file=sys.stderr)
@@ -972,8 +790,7 @@ def _run_market_price_draft(
 
     yaml.safe_dump(
         {
-            "source_ledger": None if ledger_path is None else str(ledger_path),
-            "source_ledger_sha256": source_sha256,
+            "source_append_head": expected_head,
             "market_data_fingerprint": _exact_raw_close_fingerprint(rows, asof=asof),
             "draft_sha256": draft_sha256,
             "output": str(output_path),

@@ -29,9 +29,9 @@ from baibai_engine.position.ledger import (
     PortfolioLedgerError,
     ReleaseEvent,
     ReservationEvent,
-    load_portfolio_ledger_with_sha256,
     replay_events_through,
 )
+from baibai_engine.position.store import LedgerConflictError, LedgerSchemaError, LedgerStoreService
 
 _JST = ZoneInfo("Asia/Tokyo")
 _JPX_SESSION_CLOSE = time(15, 30)
@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
             "price observations. Never infer a fill or write canonical records."
         ),
     )
-    parser.add_argument("--ledger", type=Path, required=True)
+    parser.add_argument("--db", type=Path)
     parser.add_argument("--reservation-id", required=True)
     parser.add_argument(
         "--sqlite-path",
@@ -99,11 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    ledger_path = args.ledger
     sqlite_path = args.sqlite_path
     market_fingerprint: str | None = None
     try:
-        ledger, ledger_sha256 = load_portfolio_ledger_with_sha256(ledger_path)
+        service = LedgerStoreService(args.db)
+        ledger, ledger_append_head = service.load_with_head()
         target, terminal = _evaluate_ledger_state(
             ledger,
             reservation_id=args.reservation_id,
@@ -128,12 +128,18 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 market_fingerprint = snapshot.fingerprint_sha256
                 payload = _observe(target, snapshot)
-    except (PortfolioLedgerError, _LimitOutcomeError, OSError) as error:
+    except (
+        LedgerConflictError,
+        LedgerSchemaError,
+        PortfolioLedgerError,
+        _LimitOutcomeError,
+        OSError,
+    ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     payload["sources"] = {
-        "ledger_ref": str(ledger_path),
-        "ledger_sha256": ledger_sha256,
+        "ledger_entity": "portfolio-ledger",
+        "ledger_append_head": ledger_append_head,
         "market_data_ref": str(sqlite_path),
         "selected_rows_sha256": market_fingerprint,
         "market_hash_basis": _MARKET_HASH_BASIS,

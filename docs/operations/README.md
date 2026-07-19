@@ -17,4 +17,4 @@ operationは「いつ・どの順で完了するか」を持つ。各工程のin
 | 将来の決算・event後に再確認 | [`task-runbook.md`](./task-runbook.md) | application DBのopen taskからcanonical entityへ反映 |
 | source/coverage/validator/CLI failure | [`incident-runbook.md`](./incident-runbook.md) | safe stop、復旧条件、escalation |
 
-投資判断の正本はrecords、session checkpointはoperation Issueに置く。同じ判断本文をIssueとrecordsへ複製しない。
+投資判断の正本はapplication DB、current workspaceとfinal resultはoperation sessionに置く。canonical entityはIDだけを参照し、同じ判断本文を複製しない。

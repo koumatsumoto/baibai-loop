@@ -30,7 +30,7 @@ class ScreeningRenderTests(unittest.TestCase):
     def test_build_output_path_uses_asof_date(self) -> None:
         self.assertEqual(
             build_output_path(date(2026, 4, 24)),
-            Path("records/02-candidates/2026/04/2026-04-24.yaml"),
+            Path(".cache/screening/exports/2026/04/2026-04-24.yaml"),
         )
 
     def test_normalize_ticker_supports_alpha_numeric_codes(self) -> None:

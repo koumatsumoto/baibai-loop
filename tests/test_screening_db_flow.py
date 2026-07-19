@@ -28,7 +28,6 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
         assert (
             select_command(
                 asof_date=date.fromisoformat(run.as_of_date),
-                macro_context_path=None,
                 top=10,
                 run_revision_id=run.run_revision_id,
                 runs_db_path=runs_path,
@@ -96,7 +95,6 @@ def test_select_rejects_unknown_run_revision(app_records_root: Path) -> None:
     assert (
         select_command(
             asof_date=date(2026, 7, 8),
-            macro_context_path=None,
             top=10,
             run_revision_id="run-revision-missing",
             runs_db_path=app_records_root / "data/screening/runs.sqlite",
@@ -123,7 +121,6 @@ def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous
     assert (
         select_command(
             asof_date=date.fromisoformat(current.as_of_date),
-            macro_context_path=None,
             top=10,
             run_revision_id=current.run_revision_id,
             runs_db_path=runs_path,
@@ -135,7 +132,6 @@ def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous
     assert (
         select_command(
             asof_date=date.fromisoformat(current.as_of_date),
-            macro_context_path=None,
             top=10,
             run_revision_id=current.run_revision_id,
             runs_db_path=runs_path,
