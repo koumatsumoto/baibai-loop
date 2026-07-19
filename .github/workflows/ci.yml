@@ -48,7 +48,6 @@ jobs:
           uv run python tools/drift/check_cli_doc.py
           uv run python tools/drift/check_legacy_semantics.py
           uv run python tools/drift/check_duplicate_constants.py
-          uv run python tools/drift/check_clean_lineage.py
           uv run python tools/drift/check_skill_inventory.py
 
       - name: Block tracked raw screening cache

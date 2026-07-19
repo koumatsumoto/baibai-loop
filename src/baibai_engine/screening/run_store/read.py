@@ -153,12 +153,13 @@ class ScreeningRunReader:
             parameters.append(profile)
         where = "" if not clauses else " WHERE " + " AND ".join(clauses)
         with closing(self._connect()) as connection:
+            # The optional clauses are fixed above and every value is bound.
             rows = connection.execute(
                 """
                 SELECT s.*, r.asof_date
                 FROM screening_selection AS s
                 JOIN screening_run AS r USING (run_revision_id)
-                """
+                """  # nosec B608
                 + where
                 + " ORDER BY r.asof_date DESC, s.created_at DESC, s.selection_id DESC",
                 parameters,

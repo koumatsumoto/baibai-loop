@@ -103,12 +103,15 @@ def _db_main(argv: list[str]) -> int:
                 "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
                 "ORDER BY name"
             ).fetchall()
-            counts = {
-                str(row[0]): int(
-                    connection.execute(f'SELECT count(*) FROM "{row[0]}"').fetchone()[0]
-                )
-                for row in tables
-            }
+            counts: dict[str, int] = {}
+            for row in tables:
+                table = str(row[0])
+                quoted_table = table.replace('"', '""')
+                # SQLite identifiers cannot be bound; the schema name is escaped above.
+                count = connection.execute(
+                    f'SELECT count(*) FROM "{quoted_table}"'  # nosec B608
+                ).fetchone()[0]
+                counts[table] = int(count)
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         print(
             yaml.safe_dump(

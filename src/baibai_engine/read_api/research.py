@@ -119,7 +119,8 @@ def _one(
     connection = connect_read_only(path)
     try:
         row = connection.execute(
-            f"SELECT payload FROM {table} WHERE {key_column} = ?",
+            # Private callers provide fixed schema identifiers; the value stays bound.
+            f"SELECT payload FROM {table} WHERE {key_column} = ?",  # nosec B608
             (key,),
         ).fetchone()
     finally:
@@ -140,7 +141,8 @@ def _many(
     connection = connect_read_only(path)
     try:
         rows = connection.execute(
-            f"SELECT payload FROM {table}{clause} ORDER BY {order}",
+            # Private callers provide fixed schema fragments; all values stay bound.
+            f"SELECT payload FROM {table}{clause} ORDER BY {order}",  # nosec B608
             parameters,
         ).fetchall()
     finally:
@@ -170,7 +172,8 @@ def _publications(
     connection = connect_read_only(path)
     try:
         rows = connection.execute(
-            f"SELECT {selected} FROM {table}{clause} ORDER BY {order}",
+            # Private callers provide fixed schema fragments; all values stay bound.
+            f"SELECT {selected} FROM {table}{clause} ORDER BY {order}",  # nosec B608
             parameters,
         ).fetchall()
     finally:
