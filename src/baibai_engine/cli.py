@@ -20,7 +20,7 @@ def _usage() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine")
     parser.add_argument(
         "domain",
-        choices=("screening", "macro", "position", "research", "validate", "db"),
+        choices=("screening", "macro", "position", "research", "task", "validate", "db"),
     )
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     return parser
@@ -43,6 +43,10 @@ def _delegate(domain: str, arguments: list[str]) -> int:
         from baibai_engine.validation.cli import main
 
         return main(arguments)
+    if domain == "task":
+        from baibai_engine.tasks.cli import main
+
+        return main(arguments)
     if domain == "research":
         if arguments and arguments[0] == "evaluate":
             from baibai_engine.research.decision_cli import main
@@ -62,6 +66,9 @@ def _db_main(argv: list[str]) -> int:
     for command in ("init", "backup", "info"):
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--db", type=Path)
+    import_tasks = subparsers.add_parser("import-tasks")
+    import_tasks.add_argument("--db", type=Path)
+    import_tasks.add_argument("--source", type=Path, default=Path("records/05-task/tasks.yaml"))
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
@@ -72,6 +79,21 @@ def _db_main(argv: list[str]) -> int:
             target = backup_database(args.db)
             payload = {"path": None if target is None else str(target), "status": "ok"}
             print(yaml.safe_dump(payload))
+            return 0
+        if args.command == "import-tasks":
+            from baibai_engine.tasks.importer import import_task_file
+
+            inserted, unchanged = import_task_file(args.source, db_path=args.db)
+            print(
+                yaml.safe_dump(
+                    {
+                        "source": str(args.source),
+                        "inserted": inserted,
+                        "unchanged": unchanged,
+                    },
+                    sort_keys=False,
+                )
+            )
             return 0
         path = database_path(args.db)
         if not path.exists():

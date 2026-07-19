@@ -17,11 +17,11 @@ from baibai_app.readmodel.builders import (
     build_security_detail,
 )
 from baibai_app.readmodel.models import DashboardView, ScreeningView, SecurityDetailView
+from baibai_app.sources.db_sources import DbTaskSource
 from baibai_app.sources.yaml_sources import (
     YamlCandidatesSource,
     YamlLedgerSource,
     YamlResearchSource,
-    YamlTaskSource,
 )
 
 
@@ -29,7 +29,7 @@ from baibai_app.sources.yaml_sources import (
 class _Sources:
     ledger: YamlLedgerSource
     research: YamlResearchSource
-    tasks: YamlTaskSource
+    tasks: DbTaskSource
     candidates: YamlCandidatesSource
 
 
@@ -103,7 +103,7 @@ def _build_sources(request: Request) -> _Sources:
     return _Sources(
         ledger=YamlLedgerSource(root),
         research=YamlResearchSource(root),
-        tasks=YamlTaskSource(root),
+        tasks=DbTaskSource(root / "data/app/baibai.sqlite"),
         candidates=YamlCandidatesSource(root),
     )
 

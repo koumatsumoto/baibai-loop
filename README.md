@@ -116,4 +116,4 @@ UV_CACHE_DIR=/tmp/uv-cache uv run lint-imports
 
 ## Issues
 
-feature、bug、基盤改善、PR delivery は[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。運用 task の正本は `records/05-task/tasks.yaml` です。
+feature、bug、基盤改善、PR deliveryは[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。運用taskの正本はapplication DBで、`baibai-engine task`から操作します。

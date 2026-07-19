@@ -23,6 +23,28 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=2,
+        statements=(
+            """
+            CREATE TABLE task (
+                task_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL CHECK (status IN ('open', 'done', 'dropped')),
+                kind TEXT NOT NULL CHECK (
+                    kind IN ('earnings-review', 'ops', 'follow-up', 'other')
+                ),
+                ticker TEXT,
+                due_date TEXT NOT NULL,
+                event_date TEXT,
+                created_at TEXT NOT NULL,
+                closed_at TEXT,
+                payload TEXT NOT NULL CHECK (json_valid(payload))
+            ) STRICT
+            """,
+            "CREATE INDEX task_status_due_idx ON task(status, due_date, task_id)",
+            "CREATE INDEX task_ticker_idx ON task(ticker) WHERE ticker IS NOT NULL",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version

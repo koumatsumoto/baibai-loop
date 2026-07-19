@@ -24,3 +24,6 @@ __all__ = [
     "YamlResearchSource",
     "YamlTaskSource",
 ]
+from .db_sources import DbTaskSource
+
+__all__ = ["DbTaskSource"]

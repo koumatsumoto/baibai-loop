@@ -224,6 +224,20 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "tasks only depends on application database and foundation"
+type = "forbidden"
+source_modules = ["baibai_engine.tasks"]
+forbidden_modules = [
+  "baibai_engine.market",
+  "baibai_engine.macro",
+  "baibai_engine.screening",
+  "baibai_engine.position",
+  "baibai_engine.research",
+  "baibai_engine.validation",
+  "baibai_engine.read_api",
+]
+
+[[tool.importlinter.contracts]]
 name = "market data layer only depends on foundation"
 type = "forbidden"
 source_modules = ["baibai_engine.market"]
@@ -284,6 +298,7 @@ forbidden_modules = [
   "baibai_engine.macro",
   "baibai_engine.market",
   "baibai_engine.screening",
+  "baibai_engine.tasks",
   "baibai_engine.validation",
 ]
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from baibai_app.sources.db_sources import DbTaskSource
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
@@ -14,6 +15,7 @@ from baibai_app.sources.yaml_sources import (
     YamlResearchSource,
     YamlTaskSource,
 )
+from baibai_engine.tasks.importer import import_task_file
 
 
 class LedgerSourceContract:
@@ -95,6 +97,15 @@ class TaskSourceContract:
 class TestYamlTaskSource(TaskSourceContract):
     def make_source(self, root: Path) -> TaskSource:
         return YamlTaskSource(root)
+
+
+class TestDbTaskSource(TaskSourceContract):
+    def make_source(self, root: Path) -> TaskSource:
+        db_path = root / "data/app/baibai.sqlite"
+        source = root / "records/05-task/tasks.yaml"
+        if source.is_file():
+            import_task_file(source, db_path=db_path)
+        return DbTaskSource(db_path)
 
 
 class CandidatesSourceContract:

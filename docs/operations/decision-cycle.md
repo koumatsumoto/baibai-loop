@@ -40,7 +40,7 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。dirtyなら所有者と目的を理解するまでrecordを更新しない。
 2. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。`event_annotations`のmigration eventはcanonical stateの初期化記録で、人間報告後のbroker resultではないため、当月の新規注文・約定件数へ数えない。
-3. [`records/05-task/tasks.yaml`](../../records/05-task/tasks.yaml) の open task を due date 順に一覧し、[`task-runbook.md`](./task-runbook.md#resume-checkpoint)に従って current question、expected destination、close condition を canonical records と ledger へ照合する。task、canonical record、ledger が矛盾する場合は推定で進めない。
+3. `uv run baibai-engine task list --status open`でopen taskをdue date順に一覧し、[`task-runbook.md`](./task-runbook.md#resume-checkpoint)に従ってcurrent question、expected destination、close conditionをcanonical entityとledgerへ照合する。task、canonical entity、ledgerが矛盾する場合は推定で進めない。
 4. triggerを1件選び、対応するoperation Issueへ同じsessionのcheckpointを集約する。
 5. このtriggerで使うpublic commandの`--help`とrequired inputを確認する。
 
@@ -301,7 +301,7 @@ human-confirmed release前、必要な期限後session未到来は`pending`、ca
 
 ## Earnings and material-event path
 
-1. [`records/05-task/tasks.yaml`](../../records/05-task/tasks.yaml) の open task と対象 ticker を確認する。
+1. `uv run baibai-engine task list --status open`でopen taskと対象tickerを確認する。
    JPX の決算発表予定は日付確認の補助事実であり、通知や自動 trigger ではない。実施時は一次 IR で発表を確認する。
 2. 最新完全営業日の全保有raw closeからledger draftを作り、source hash、全ticker同日、raw/unadjusted basisを確認する。人間が確認したdraftだけをcanonical ledgerへcopyし、ledger validationを通す。
 3. canonical ledgerのopen holdingを起点に1銘柄固定workspaceを作る。

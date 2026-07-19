@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.tasks.importer import import_task_file
+
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
@@ -37,6 +39,7 @@ def app_records_root(tmp_path: Path) -> Path:
         thesis_dir / "2026-07-14-2331-decision-review.yaml",
     )
     (task_dir / "tasks.yaml").write_text(_TASKS, encoding="utf-8")
+    import_task_file(task_dir / "tasks.yaml", db_path=root / "data/app/baibai.sqlite")
     (candidates_dir / "2026-07-01.yaml").write_text(
         _CANDIDATES.replace("2026-07-08", "2026-07-01"), encoding="utf-8"
     )
