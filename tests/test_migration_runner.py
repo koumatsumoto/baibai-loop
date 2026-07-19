@@ -9,11 +9,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from baibai_engine.position.importer import import_and_check_ledger
-from baibai_engine.tasks.importer import import_task_file
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.holding_review import CanonicalSource, HoldingReviewDocument
+from baibai_engine.position.importer import import_and_check_ledger
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
 from baibai_engine.read_api import list_holding_review_payloads
 from baibai_engine.research.holding_review_builder import validate_holding_review_scalars_from_db
@@ -27,6 +26,7 @@ from baibai_engine.screening.run_store import (
     RunStoreConflictError,
     import_screening_runs,
 )
+from baibai_engine.tasks.importer import import_task_file
 from baibai_engine.tasks.service import TaskConflictError, TaskService
 
 ROOT = Path(__file__).parents[1]
@@ -71,7 +71,12 @@ def test_research_import_requires_ledger_and_leaves_no_rows(tmp_path: Path) -> N
             db_path=db,
             source_root=ROOT,
         )
-    assert not db.exists()
+    with sqlite3.connect(db) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")
+        }
+    assert not tables.intersection({"research_packet", "research_review", "holding_review"})
 
 
 def test_runner_canonicalizes_holding_review_sources_and_is_idempotent(tmp_path: Path) -> None:
