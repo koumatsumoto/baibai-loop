@@ -13,6 +13,7 @@ import yaml
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.holding_review import CanonicalSource, HoldingReviewDocument
 from baibai_engine.position.importer import import_and_check_ledger
+from baibai_engine.position.ledger import load_portfolio_ledger
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
 from baibai_engine.read_api import list_holding_review_payloads
 from baibai_engine.research.holding_review_builder import validate_holding_review_scalars_from_db
@@ -115,7 +116,7 @@ def test_ledger_conflict_rolls_back_missing_rows(tmp_path: Path) -> None:
     source_path = ROOT / "records/04-position/portfolio-ledger.yaml"
     import_and_check_ledger(source_path, db_path=db)
     service = LedgerStoreService(db)
-    source = service.read_document()
+    source = load_portfolio_ledger(source_path)
     with sqlite3.connect(db) as connection:
         connection.execute(
             "UPDATE ledger_event SET payload = json_set(payload, '$.amount_yen', 1) "
