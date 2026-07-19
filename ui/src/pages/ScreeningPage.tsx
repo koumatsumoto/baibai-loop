@@ -1,13 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowDown, ArrowUp, ArrowUpDown, ChartNoAxesCombined, Search } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type { CandidateRowView, ScreeningView } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { PctBadge } from '../components/PctBadge'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Checkbox } from '../components/ui/checkbox'
+import { Input } from '../components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
+import { cn } from '../lib/utils'
+import { tradingViewChartUrl } from '../lib/trading-view'
 
 type SortDirection = 'asc' | 'desc'
 type SortKey = keyof CandidateRowView
+
+const ALL_SECTORS = '__all__'
 
 function numericFilter(value: string) {
   if (value.trim() === '') return null
@@ -43,11 +56,69 @@ function SortHeader({
   right?: boolean
 }) {
   const active = column === sortKey
-  return <th className={right ? 'right' : undefined}><button className={active ? 'sort-button active' : 'sort-button'} type="button" onClick={() => onSort(column)}>{label}<span>{active ? direction === 'asc' ? '↑' : '↓' : '↕'}</span></button></th>
+  const Icon = active ? direction === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown
+  return (
+    <TableHead aria-sort={active ? direction === 'asc' ? 'ascending' : 'descending' : undefined} className={cn(right && 'text-right')}>
+      <Button
+        className={cn('-mx-2 text-muted-foreground', right && 'ml-auto -mr-2', active && 'text-foreground')}
+        onClick={() => onSort(column)}
+        size="xs"
+        type="button"
+        variant="ghost"
+      >
+        {label}<Icon aria-hidden="true" />
+      </Button>
+    </TableHead>
+  )
 }
 
 function Metric({ value, digits = 2 }: { value: number | null; digits?: number }) {
-  return value === null ? <span className="muted">—</span> : <span className="numeric">{value.toLocaleString('ja-JP', { maximumFractionDigits: digits })}</span>
+  return value === null
+    ? <span className="text-muted-foreground">—</span>
+    : <span className="font-mono tabular-nums">{value.toLocaleString('ja-JP', { maximumFractionDigits: digits })}</span>
+}
+
+function TradingViewButton({ ticker }: { ticker: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button asChild size="icon-sm" variant="ghost">
+          <a
+            aria-label={`${ticker} の TradingView チャートを開く`}
+            href={tradingViewChartUrl(ticker)}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <ChartNoAxesCombined aria-hidden="true" />
+          </a>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>TradingView でチャートを開く</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function PageState({ title, message }: { title: string; message: string }) {
+  return (
+    <>
+      <AppShell />
+      <main className="mx-auto grid min-h-[60vh] max-w-5xl place-items-center px-6 text-center">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{message}</h1>
+        </div>
+      </main>
+    </>
+  )
+}
+
+function FilterField({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <label className={cn('grid gap-1.5', className)}>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  )
 }
 
 export function ScreeningPage() {
@@ -98,56 +169,132 @@ export function ScreeningPage() {
     }
   }
 
-  if (error) return <><AppShell /><main className="page page--message"><p className="eyebrow">READ ERROR</p><h1>Screening</h1><p>{error}</p></main></>
-  if (!data) return <><AppShell /><main className="page page--loading"><p className="eyebrow">SCREENING</p><h1>候補を読み込み中…</h1></main></>
-  if (!data.run) return <><AppShell /><main className="page page--message"><p className="eyebrow">SCREENING</p><h1>実行結果がありません</h1><p>screening 実行結果がありません（records/02-candidates が空）</p></main></>
+  if (error) return <PageState message={error} title="Screening read error" />
+  if (!data) return <PageState message="候補を読み込んでいます…" title="Screening" />
+  if (!data.run) return <PageState message="screening 実行結果がありません（records/02-candidates が空）" title="Screening" />
 
   const visibleRows = showAll ? rows : rows.slice(0, 500)
+
   return (
     <>
       <AppShell />
-      <main className="page data-page">
-        <section className="data-heading">
-          <div><p className="eyebrow">LATEST SCREENING</p><h1>候補を、比較する。</h1></div>
-          <dl className="run-facts"><div><dt>RUN</dt><dd>{data.run.run_date}</dd></div><div><dt>AS OF</dt><dd>{data.run.asof_date}</dd></div><div><dt>UNIVERSE</dt><dd>{data.run.universe_size.toLocaleString('ja-JP')}</dd></div><div><dt>CANDIDATES</dt><dd>{data.run.candidate_count.toLocaleString('ja-JP')}</dd></div></dl>
-        </section>
-        <p className="source-path">{data.run.source_path}</p>
+      <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Screening</h1>
+            <p className="mt-1 text-sm text-muted-foreground">最新の候補を比較・絞り込み</p>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
+            {[
+              ['RUN', data.run.run_date],
+              ['AS OF', data.run.asof_date],
+              ['UNIVERSE', data.run.universe_size.toLocaleString('ja-JP')],
+              ['CANDIDATES', data.run.candidate_count.toLocaleString('ja-JP')],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</dt>
+                <dd className="mt-1 font-mono text-sm font-medium tabular-nums">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </header>
 
-        <section className="filters" aria-label="screening filters">
-          <label className="filter-wide"><span>銘柄</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ticker 前方一致 / 銘柄名" /></label>
-          <label><span>sector</span><select value={sector} onChange={(event) => setSector(event.target.value)}><option value="">すべて</option>{sectors.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>PER ≤</span><input inputMode="decimal" value={perMax} onChange={(event) => setPerMax(event.target.value)} placeholder="無条件" /></label>
-          <label><span>PBR ≤</span><input inputMode="decimal" value={pbrMax} onChange={(event) => setPbrMax(event.target.value)} placeholder="無条件" /></label>
-          <label><span>配当 ≥ %</span><input inputMode="decimal" value={dividendMin} onChange={(event) => setDividendMin(event.target.value)} placeholder="無条件" /></label>
-          <label className="check-filter"><input type="checkbox" checked={heldOnly} onChange={(event) => setHeldOnly(event.target.checked)} /><span>保有のみ</span></label>
-          <label className="check-filter"><input type="checkbox" checked={researchOnly} onChange={(event) => setResearchOnly(event.target.checked)} /><span>research 有り</span></label>
-        </section>
+        <Card className="gap-4 py-5 shadow-sm">
+          <CardHeader className="px-5 sm:px-6">
+            <CardTitle className="text-base">フィルター</CardTitle>
+            <CardDescription>銘柄・sector・主要指標で候補を絞り込みます</CardDescription>
+          </CardHeader>
+          <CardContent className="grid items-end gap-3 px-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-[1.5fr_1.1fr_repeat(3,minmax(100px,.55fr))]">
+            <FilterField label="銘柄">
+              <div className="relative">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input className="pl-8" onChange={(event) => setQuery(event.target.value)} placeholder="ticker 前方一致 / 銘柄名" type="search" value={query} />
+              </div>
+            </FilterField>
+            <FilterField label="sector">
+              <Select onValueChange={(value) => setSector(value === ALL_SECTORS ? '' : value)} value={sector || ALL_SECTORS}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_SECTORS}>すべて</SelectItem>
+                  {sectors.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </FilterField>
+            <FilterField label="PER ≤"><Input inputMode="decimal" onChange={(event) => setPerMax(event.target.value)} placeholder="無条件" value={perMax} /></FilterField>
+            <FilterField label="PBR ≤"><Input inputMode="decimal" onChange={(event) => setPbrMax(event.target.value)} placeholder="無条件" value={pbrMax} /></FilterField>
+            <FilterField label="配当 ≥ %"><Input inputMode="decimal" onChange={(event) => setDividendMin(event.target.value)} placeholder="無条件" value={dividendMin} /></FilterField>
+          </CardContent>
+          <CardContent className="flex flex-wrap gap-5 border-t px-5 pt-4 sm:px-6">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <Checkbox checked={heldOnly} onCheckedChange={(checked) => setHeldOnly(checked === true)} />
+              保有のみ
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <Checkbox checked={researchOnly} onCheckedChange={(checked) => setResearchOnly(checked === true)} />
+              research 有り
+            </label>
+          </CardContent>
+        </Card>
 
-        <div className="results-line"><strong>{rows.length.toLocaleString('ja-JP')} 件</strong><span>default: E[r] 降順 / null は末尾</span>{!showAll && rows.length > 500 && <span>先頭 500 件を表示</span>}</div>
-        <div className="table-wrap screening-table"><table><thead><tr>
-          <SortHeader label="ticker" column="ticker" sortKey={sortKey} direction={direction} onSort={onSort} />
-          <SortHeader label="name" column="name" sortKey={sortKey} direction={direction} onSort={onSort} />
-          <SortHeader label="sector" column="sector_33" sortKey={sortKey} direction={direction} onSort={onSort} />
-          <SortHeader label="時価総額(億)" column="market_cap_oku" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="PER" column="per_trailing" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="PER(F)" column="per_forward" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="PBR" column="pbr" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="配当" column="dividend_yield" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="E[r]" column="er_annual" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="Net cash" column="net_cash_to_market_cap" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="FCF yield" column="fcf_yield" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="20d" column="price_change_20d" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="52w low" column="gap_from_52w_low" sortKey={sortKey} direction={direction} onSort={onSort} right />
-          <SortHeader label="決算予定" column="next_earnings_date" sortKey={sortKey} direction={direction} onSort={onSort} />
-          <SortHeader label="保有" column="held" sortKey={sortKey} direction={direction} onSort={onSort} />
-          <SortHeader label="research" column="has_research" sortKey={sortKey} direction={direction} onSort={onSort} />
-        </tr></thead><tbody>{visibleRows.map((row) => <tr key={row.ticker}>
-          <td><Link className="ticker-link" to={`/securities/${row.ticker}`}>{row.ticker}</Link></td><td>{row.name ?? '—'}</td><td>{row.sector_33 ?? '—'}</td>
-          <td className="right"><Metric value={row.market_cap_oku} digits={0} /></td><td className="right"><Metric value={row.per_trailing} /></td><td className="right"><Metric value={row.per_forward} /></td><td className="right"><Metric value={row.pbr} /></td>
-          <td className="right"><PctBadge value={row.dividend_yield} fraction /></td><td className="right"><PctBadge value={row.er_annual} fraction /></td><td className="right"><PctBadge value={row.net_cash_to_market_cap} fraction /></td><td className="right"><PctBadge value={row.fcf_yield} fraction /></td><td className="right"><PctBadge value={row.price_change_20d} fraction /></td><td className="right"><PctBadge value={row.gap_from_52w_low} fraction /></td>
-          <td>{row.next_earnings_date ?? '—'}</td><td><span className={row.held ? 'flag flag--on' : 'flag'}>{row.held ? '保有' : '—'}</span></td><td><span className={row.has_research ? 'flag flag--on' : 'flag'}>{row.has_research ? '有' : '—'}</span></td>
-        </tr>)}</tbody></table></div>
-        {!showAll && rows.length > 500 && <button className="show-all" type="button" onClick={() => setShowAll(true)}>全 {rows.length.toLocaleString('ja-JP')} 件を表示</button>}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <strong className="text-sm text-foreground">{rows.length.toLocaleString('ja-JP')} 件</strong>
+          <span>default: E[r] 降順 / null は末尾</span>
+          {!showAll && rows.length > 500 && <span>先頭 500 件を表示</span>}
+          <code className="ml-auto hidden max-w-md truncate font-mono lg:block" title={data.run.source_path}>{data.run.source_path}</code>
+        </div>
+
+        <Card className="overflow-hidden py-0 shadow-sm">
+          <Table className="min-w-[1780px] text-xs">
+            <TableHeader className="bg-muted/70">
+              <TableRow className="hover:bg-transparent">
+                <SortHeader column="ticker" direction={direction} label="ticker" onSort={onSort} sortKey={sortKey} />
+                <SortHeader column="name" direction={direction} label="name" onSort={onSort} sortKey={sortKey} />
+                <SortHeader column="sector_33" direction={direction} label="sector" onSort={onSort} sortKey={sortKey} />
+                <SortHeader column="market_cap_oku" direction={direction} label="時価総額(億)" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="per_trailing" direction={direction} label="PER" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="per_forward" direction={direction} label="PER(F)" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="pbr" direction={direction} label="PBR" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="dividend_yield" direction={direction} label="配当" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="er_annual" direction={direction} label="E[r]" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="net_cash_to_market_cap" direction={direction} label="Net cash" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="fcf_yield" direction={direction} label="FCF yield" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="price_change_20d" direction={direction} label="20d" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="gap_from_52w_low" direction={direction} label="52w low" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="next_earnings_date" direction={direction} label="決算予定" onSort={onSort} sortKey={sortKey} />
+                <SortHeader column="held" direction={direction} label="保有" onSort={onSort} sortKey={sortKey} />
+                <SortHeader column="has_research" direction={direction} label="research" onSort={onSort} sortKey={sortKey} />
+                <TableHead className="w-12"><span className="sr-only">チャート</span></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleRows.map((row) => (
+                <TableRow key={row.ticker}>
+                  <TableCell><Link className="font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${row.ticker}`}>{row.ticker}</Link></TableCell>
+                  <TableCell className="max-w-52 truncate font-medium" title={row.name ?? undefined}>{row.name ?? '—'}</TableCell>
+                  <TableCell className="max-w-40 truncate text-muted-foreground" title={row.sector_33 ?? undefined}>{row.sector_33 ?? '—'}</TableCell>
+                  <TableCell className="text-right"><Metric digits={0} value={row.market_cap_oku} /></TableCell>
+                  <TableCell className="text-right"><Metric value={row.per_trailing} /></TableCell>
+                  <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
+                  <TableCell className="text-right"><Metric value={row.pbr} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.dividend_yield} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.er_annual} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.net_cash_to_market_cap} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.fcf_yield} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.price_change_20d} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.gap_from_52w_low} /></TableCell>
+                  <TableCell className="font-mono tabular-nums">{row.next_earnings_date ?? '—'}</TableCell>
+                  <TableCell>{row.held ? <Badge variant="secondary">保有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
+                  <TableCell>{row.has_research ? <Badge variant="outline">有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
+                  <TableCell><TradingViewButton ticker={row.ticker} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+
+        {!showAll && rows.length > 500 && (
+          <Button className="mx-auto" onClick={() => setShowAll(true)} type="button" variant="outline">全 {rows.length.toLocaleString('ja-JP')} 件を表示</Button>
+        )}
       </main>
     </>
   )
