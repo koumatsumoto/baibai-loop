@@ -120,9 +120,9 @@ def test_ledger_conflict_rolls_back_missing_rows(tmp_path: Path) -> None:
     with sqlite3.connect(db) as connection:
         connection.execute(
             "UPDATE ledger_event SET payload = json_set(payload, '$.amount_yen', 1) "
-            "WHERE append_seq = 1"
+            "WHERE append_seq = 2"
         )
-        connection.execute("DELETE FROM ledger_event WHERE append_seq = 2")
+        connection.execute("DELETE FROM ledger_event WHERE append_seq = 1")
 
     with pytest.raises(LedgerConflictError, match="conflicts"):
         service.import_document(source)
@@ -130,6 +130,9 @@ def test_ledger_conflict_rolls_back_missing_rows(tmp_path: Path) -> None:
         assert (
             connection.execute("SELECT count(*) FROM ledger_event").fetchone()[0]
             == len(source.events) - 1
+        )
+        assert (
+            connection.execute("SELECT 1 FROM ledger_event WHERE append_seq = 1").fetchone() is None
         )
 
 
@@ -139,12 +142,13 @@ def test_task_conflict_rolls_back_new_row(tmp_path: Path) -> None:
     import_task_file(source_path, db_path=db)
     raw = yaml.safe_load(source_path.read_text(encoding="utf-8"))
     raw["tasks"][0]["title"] = "conflict"
-    raw["tasks"].append(
+    raw["tasks"].insert(
+        0,
         {
             **raw["tasks"][0],
             "task_id": "task-20260719-new-task",
             "title": "new row that must roll back",
-        }
+        },
     )
     conflict = tmp_path / "tasks.yaml"
     conflict.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
@@ -170,7 +174,7 @@ def test_screening_conflict_rolls_back_new_run(tmp_path: Path) -> None:
     import_screening_runs(source_root, db_path=db)
     second["universe_size"] = 2
     second_path.write_text(yaml.safe_dump(second), encoding="utf-8")
-    third_path = source / "third.yaml"
+    third_path = source / "00-new.yaml"
     third_path.write_text(
         yaml.safe_dump(_screening_run(as_of="2026-07-09", run_at="2026-07-10T01:00:00+09:00")),
         encoding="utf-8",
@@ -180,6 +184,12 @@ def test_screening_conflict_rolls_back_new_run(tmp_path: Path) -> None:
         import_screening_runs(source_root, db_path=db)
     with sqlite3.connect(db) as connection:
         assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 2
+        assert (
+            connection.execute(
+                "SELECT 1 FROM screening_run WHERE asof_date = '2026-07-09'"
+            ).fetchone()
+            is None
+        )
 
 
 def test_research_conflict_rolls_back_new_packet(tmp_path: Path) -> None:
