@@ -8,7 +8,7 @@ last_reviewed: 2026-07-12
 
 # Reference
 
-referenceは「artifact・式・error/warningは何を意味するか」を持つ。e2e順序は[`operations`](../operations/)、工程内の変換は[`workflow`](../workflow/)、field/type/enumはJSON schema、CLI optionはpublic `--help`を正本とする。
+referenceは「artifact・式・error/warningは何を意味するか」を持つ。e2e順序は[`operations`](../operations/)、工程内の変換は[`workflow`](../workflow/)、field/type/enumはDB constraintとengine model、CLI optionはpublic `--help`を正本とする。
 
 | 調べたいこと | reference |
 | --- | --- |
@@ -22,7 +22,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | valuation指標 | [`valuation-metrics.md`](./valuation-metrics.md) |
 | screening CLI、SQLite、provider | [`screening-runtime.md`](./screening-runtime.md) |
 | source tierと取得失敗 | [`data-sources.md`](./data-sources.md) |
-| schema、validator、docs/skill drift | [`testing-and-validation.md`](./testing-and-validation.md) |
+| model、write-time validation、docs/skill drift | [`testing-and-validation.md`](./testing-and-validation.md) |
 | Python、dependency、quality gate、CI | [`python-foundation.md`](./python-foundation.md) |
 
 referenceは運用sessionの進捗やIssue固有の作業履歴を持たない。

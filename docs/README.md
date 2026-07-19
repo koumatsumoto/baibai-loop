@@ -8,7 +8,7 @@ last_reviewed: 2026-07-14
 
 # Baibai-Loop docs
 
-このportalは「何を知りたいか」から唯一の正本へ案内する。operationはいつ・どの順に動くか、workflowは各工程が入力を成果物へどう変換するか、referenceはartifact・式・errorの意味、schemaとpublic `--help`は厳密な機械契約を持つ。上位docへ下位仕様を複製しない。
+このportalは「何を知りたいか」から唯一の正本へ案内する。operationはいつ・どの順に動くか、workflowは各工程が入力を成果物へどう変換するか、referenceはartifact・式・errorの意味、DB constraint・engine model・public `--help`は厳密な機械契約を持つ。上位docへ下位仕様を複製しない。
 
 日常運用は[`operations/decision-cycle.md`](./operations/decision-cycle.md)から始める。個別workflow/referenceから読み始めてtrigger、人間境界、記録先を推測しない。基盤の方法変更は[`operations/improvement-loop.md`](./operations/improvement-loop.md)から始め、個別銘柄判断と混ぜない。
 
@@ -45,12 +45,12 @@ last_reviewed: 2026-07-14
 | 投資価値の優先順位、永久損失、5年評価 | [`doctrine.md`](./doctrine.md) |
 | 追加資金・注文額目安・資本warning | [`portfolio-management.md`](./portfolio-management.md) |
 | AI・人間・broker責務 | [`doctrine.md`](./doctrine.md) |
-| trigger、e2e順序、checkpoint、Issue log | [`operations/decision-cycle.md`](./operations/decision-cycle.md) |
+| trigger、e2e順序、operation checkpoint | [`operations/decision-cycle.md`](./operations/decision-cycle.md) |
 | subsystem input/output/failure | 各[`workflow`](./workflow/) |
 | packetの式、lineage、review binding | [`reference/decision-packet.md`](./reference/decision-packet.md) |
 | ledger event/snapshot/reconciliation | [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) |
 | holding action contract | [`reference/holding-review.md`](./reference/holding-review.md) |
-| field/type/enum | JSON schema |
+| field/type/enum | DB constraint、engine model |
 | CLI option/default | public `--help` |
 | skill trigger/routing | `.agents/skills/<name>/SKILL.md` |
 
@@ -64,7 +64,7 @@ last_reviewed: 2026-07-14
 | screening/selection/SQLite | `workflow/screening.md`、`reference/screening-runtime.md`、architecture CLI表 |
 | decision packet/review/opportunity | `workflow/research.md`、`reference/decision-packet.md`、decision-cycle recipe |
 | ledger/result/holding/outcome | `workflow/position.md`、対応reference、decision-cycle human-result/holding節 |
-| schema/validator/CI | `reference/testing-and-validation.md`、`reference/python-foundation.md` |
+| model/write-time validation/CI | `reference/testing-and-validation.md`、`reference/python-foundation.md` |
 | local skill | AGENTS skill表、canonical skill、Claude symlink、skill inventory gate |
 
 ## 文書共通contract
@@ -72,6 +72,6 @@ last_reviewed: 2026-07-14
 - active docは`title / summary / doc_type / status / last_reviewed`を持つ。
 - `last_reviewed`は本文、link、public CLIを実際に照合した日。
 - 実行手順を持つleaf operation/workflow/referenceは、適用可能なfailure、validation、relatedを末尾に置く。portal/index、思想文書、用語・式だけのreferenceは適用外である。
-- schema fieldを網羅転記せず、意味・計算式・設計理由だけを書く。
+- model fieldを網羅転記せず、意味・計算式・設計理由だけを書く。
 - 現状とWHYを現在形で書き、Issue/PR由来、旧→新の変遷、進捗TODOを成果物本文に混ぜない。
 - `doctrine.md#vocabulary`、`doctrine.md#fact-analysis-separation`とdecision-cycleの主要anchorを維持する。
