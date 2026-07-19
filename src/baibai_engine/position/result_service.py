@@ -80,7 +80,7 @@ def build_result_draft(
             expected_head=ledger_service.append_head(),
             source=source,
             replacement=result.document,
-            human_reported=True,
+            confirmation_required=True,
         ),
         result.event_ids,
     )

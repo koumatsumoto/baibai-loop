@@ -260,14 +260,23 @@ class SourceArtifact(BaseModel):
     sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
+class CanonicalSource(BaseModel):
+    """A revision binding to an entity in the application DB."""
+
+    model_config = _CONFIG
+
+    entity_id: Annotated[str, Field(min_length=1)]
+    append_head: Annotated[int, Field(ge=0)] | None = None
+
+
 class HoldingReviewSources(BaseModel):
     """Inputs that bind every load-bearing review value to current artifacts."""
 
     model_config = _CONFIG
 
-    ledger: SourceArtifact
-    holding_packet: SourceArtifact
-    candidate_packet: SourceArtifact | None = None
+    ledger: SourceArtifact | CanonicalSource
+    holding_packet: SourceArtifact | CanonicalSource
+    candidate_packet: SourceArtifact | CanonicalSource | None = None
 
 
 class HoldingReviewDocument(BaseModel):
@@ -382,6 +391,8 @@ def validate_holding_review_sources(document: HoldingReviewDocument, *, root: Pa
     )
     for name, binding in bindings:
         if binding is None:
+            continue
+        if isinstance(binding, CanonicalSource):
             continue
         candidate = Path(binding.ref)
         path = candidate if candidate.is_absolute() else root / candidate

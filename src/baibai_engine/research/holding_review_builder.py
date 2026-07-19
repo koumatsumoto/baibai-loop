@@ -8,22 +8,72 @@ decision packet, without introducing a reverse position-to-thesis dependency.
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
+from contextlib import closing
 from decimal import Decimal
 from pathlib import Path
 
+from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.position.holding_review import (
+    CanonicalSource,
     HoldingReviewDocument,
     HoldingReviewError,
+    SourceArtifact,
     evaluate_holding_review,
 )
-from baibai_engine.position.ledger import load_portfolio_ledger, reconcile_portfolio
+from baibai_engine.position.ledger import (
+    PortfolioLedgerDocument,
+    load_portfolio_ledger,
+    reconcile_portfolio,
+)
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketError,
+    IndependentReview,
     evaluate_decision_packet,
     load_decision_packet,
     load_independent_review,
 )
+
+
+def build_holding_review_from_db(
+    *,
+    db_path: Path | None,
+    holding_packet_id: str,
+    position_id: str,
+    candidate_packet_id: str | None = None,
+) -> HoldingReviewDocument:
+    """Build a draft from canonical packet revisions and the current ledger head."""
+    initialize_database(db_path)
+    ledger_service = LedgerStoreService(db_path)
+    ledger = ledger_service.load()
+    with closing(connect_rw(db_path)) as connection:
+        packet = _load_ready_db_packet(connection, holding_packet_id)
+        candidate = (
+            None
+            if candidate_packet_id is None
+            else _load_ready_db_packet(connection, candidate_packet_id)
+        )
+    return _compose_holding_review(
+        ledger=ledger,
+        packet=packet,
+        candidate=candidate,
+        position_id=position_id,
+        sources={
+            "ledger": {
+                "entity_id": "portfolio-ledger",
+                "append_head": ledger_service.append_head(),
+            },
+            "holding_packet": {"entity_id": holding_packet_id, "append_head": None},
+            "candidate_packet": (
+                None
+                if candidate_packet_id is None
+                else {"entity_id": candidate_packet_id, "append_head": None}
+            ),
+        },
+    )
 
 
 def build_holding_review(
@@ -46,6 +96,33 @@ def build_holding_review(
     holding_path = _resolve(root, holding_packet_ref)
     ledger = load_portfolio_ledger(ledger_path)
     packet = _load_ready_packet(holding_path)
+    candidate = None
+    candidate_source = None
+    if candidate_packet_ref is not None:
+        candidate_path = _resolve(root, candidate_packet_ref)
+        candidate = _load_ready_packet(candidate_path)
+        candidate_source = _source_ref(root, candidate_path)
+    return _compose_holding_review(
+        ledger=ledger,
+        packet=packet,
+        candidate=candidate,
+        position_id=position_id,
+        sources={
+            "ledger": _source_ref(root, ledger_path),
+            "holding_packet": _source_ref(root, holding_path),
+            "candidate_packet": candidate_source,
+        },
+    )
+
+
+def _compose_holding_review(
+    *,
+    ledger: PortfolioLedgerDocument,
+    packet: DecisionPacketDocument,
+    candidate: DecisionPacketDocument | None,
+    position_id: str,
+    sources: dict[str, object],
+) -> HoldingReviewDocument:
     snapshot = reconcile_portfolio(ledger)
     holding = next(
         (item for item in snapshot.holdings if item.ticker == packet.input_snapshot.ticker),
@@ -64,22 +141,14 @@ def build_holding_review(
             "holding packet market price does not match ledger unadjusted close"
         )
     current_cagr = _base_5y_cagr(packet)
-    sources: dict[str, object] = {
-        "ledger": _source_ref(root, ledger_path),
-        "holding_packet": _source_ref(root, holding_path),
-        "candidate_packet": None,
-    }
     replacement: dict[str, object] = {"status": "no_candidate"}
-    if candidate_packet_ref is not None:
-        candidate_path = _resolve(root, candidate_packet_ref)
-        candidate = _load_ready_packet(candidate_path)
+    if candidate is not None:
         if candidate.input_snapshot.as_of != as_of:
             raise HoldingReviewError(
                 "candidate packet as_of must equal the holding market-price observation date"
             )
         if candidate.input_snapshot.ticker == holding.ticker:
             raise HoldingReviewError("replacement candidate ticker must differ from holding ticker")
-        sources["candidate_packet"] = _source_ref(root, candidate_path)
         exit_tax: dict[str, object]
         if ledger.estimated_exit_tax_rate_bps is None:
             exit_tax = {"tax_basis": "unknown"}
@@ -146,15 +215,20 @@ def build_holding_review(
 def validate_holding_review_scalars(document: HoldingReviewDocument, *, root: Path) -> None:
     """Ensure persisted load-bearing review fields equal a fresh source rebuild."""
 
+    ledger_source = document.sources.ledger
+    packet_source = document.sources.holding_packet
+    candidate_source = document.sources.candidate_packet
+    if not isinstance(ledger_source, SourceArtifact) or not isinstance(
+        packet_source, SourceArtifact
+    ):
+        raise HoldingReviewError("file holding review requires file source bindings")
+    if candidate_source is not None and not isinstance(candidate_source, SourceArtifact):
+        raise HoldingReviewError("candidate packet must use a file source binding")
     rebuilt = build_holding_review(
         root=root,
-        ledger_ref=Path(document.sources.ledger.ref),
-        holding_packet_ref=Path(document.sources.holding_packet.ref),
-        candidate_packet_ref=(
-            None
-            if document.sources.candidate_packet is None
-            else Path(document.sources.candidate_packet.ref)
-        ),
+        ledger_ref=Path(ledger_source.ref),
+        holding_packet_ref=Path(packet_source.ref),
+        candidate_packet_ref=(None if candidate_source is None else Path(candidate_source.ref)),
         position_id=document.position_id,
     )
     fields = (
@@ -169,6 +243,44 @@ def validate_holding_review_scalars(document: HoldingReviewDocument, *, root: Pa
     actual = document.model_dump(mode="json", include=set(fields))
     if actual != expected:
         raise HoldingReviewError("holding review load-bearing values differ from source rebuild")
+
+
+def validate_holding_review_scalars_from_db(
+    document: HoldingReviewDocument,
+    *,
+    db_path: Path | None,
+) -> None:
+    ledger_source = document.sources.ledger
+    packet_source = document.sources.holding_packet
+    candidate_source = document.sources.candidate_packet
+    if not isinstance(ledger_source, CanonicalSource) or not isinstance(
+        packet_source, CanonicalSource
+    ):
+        raise HoldingReviewError("DB holding review requires canonical source bindings")
+    if ledger_source.entity_id != "portfolio-ledger" or ledger_source.append_head is None:
+        raise HoldingReviewError("holding review ledger binding is incomplete")
+    if LedgerStoreService(db_path).append_head() != ledger_source.append_head:
+        raise HoldingReviewError("holding review ledger source changed after draft build")
+    if candidate_source is not None and not isinstance(candidate_source, CanonicalSource):
+        raise HoldingReviewError("candidate packet must use a canonical source binding")
+    rebuilt = build_holding_review_from_db(
+        db_path=db_path,
+        holding_packet_id=packet_source.entity_id,
+        candidate_packet_id=(None if candidate_source is None else candidate_source.entity_id),
+        position_id=document.position_id,
+    )
+    fields = {
+        "as_of",
+        "ticker",
+        "thesis_health",
+        "valuation_review",
+        "replacement_comparison",
+        "action",
+    }
+    if document.model_dump(mode="json", include=fields) != rebuilt.model_dump(
+        mode="json", include=fields
+    ):
+        raise HoldingReviewError("holding review load-bearing values differ from DB rebuild")
 
 
 def _load_ready_packet(path: Path) -> DecisionPacketDocument:
@@ -188,6 +300,28 @@ def _load_ready_packet(path: Path) -> DecisionPacketDocument:
         review = load_independent_review(review_path)
     except DecisionPacketError as error:
         raise HoldingReviewError(f"failed to load independent review: {error}") from error
+    result = evaluate_decision_packet(packet, review=review)
+    if result.errors or result.decision_readiness != "ready":
+        raise HoldingReviewError(
+            "decision packet is not ready for holding review: " + "; ".join(result.errors)
+        )
+    return packet
+
+
+def _load_ready_db_packet(connection: sqlite3.Connection, packet_id: str) -> DecisionPacketDocument:
+    packet_row = connection.execute(
+        "SELECT payload FROM research_packet WHERE packet_id = ?", (packet_id,)
+    ).fetchone()
+    if packet_row is None:
+        raise HoldingReviewError(f"unknown research packet: {packet_id}")
+    review_rows = connection.execute(
+        "SELECT payload FROM research_review WHERE packet_id = ? ORDER BY reviewed_at DESC",
+        (packet_id,),
+    ).fetchall()
+    if len(review_rows) != 1:
+        raise HoldingReviewError("holding review requires exactly one independent review")
+    packet = DecisionPacketDocument.model_validate(json.loads(str(packet_row["payload"])))
+    review = IndependentReview.model_validate(json.loads(str(review_rows[0]["payload"])))
     result = evaluate_decision_packet(packet, review=review)
     if result.errors or result.decision_readiness != "ready":
         raise HoldingReviewError(

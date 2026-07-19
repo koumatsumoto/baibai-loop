@@ -11,6 +11,7 @@ from pathlib import Path
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.holding_review import (
     HoldingReviewDocument,
+    SourceArtifact,
     validate_holding_review_sources,
 )
 from baibai_engine.research.decision_packet import (
@@ -145,16 +146,22 @@ def _holding_publications(
         sources,
         key=lambda item: (item[2].as_of, item[2].ticker, item[0].as_posix()),
     ):
+        holding_source = document.sources.holding_packet
+        candidate_source = document.sources.candidate_packet
+        if not isinstance(holding_source, SourceArtifact) or (
+            candidate_source is not None and not isinstance(candidate_source, SourceArtifact)
+        ):
+            raise ValueError(f"legacy holding review has non-file sources: {path}")
         packet_id = _unique_hash_binding(
             by_file_hash,
-            document.sources.holding_packet.sha256,
+            holding_source.sha256,
             label=f"holding review {path}",
         )
         candidate_packet_id = None
-        if document.sources.candidate_packet is not None:
+        if candidate_source is not None:
             candidate_packet_id = _unique_hash_binding(
                 by_file_hash,
-                document.sources.candidate_packet.sha256,
+                candidate_source.sha256,
                 label=f"holding review candidate {path}",
             )
         stamp = document.as_of.strftime("%Y%m%d")

@@ -35,7 +35,7 @@ class LedgerDraft(BaseModel):
     expected_head: int = Field(ge=0)
     source: PortfolioLedgerDocument
     replacement: PortfolioLedgerDocument
-    human_reported: bool
+    confirmation_required: bool = True
 
 
 def build_event_draft(
@@ -56,7 +56,7 @@ def build_event_draft(
         expected_head=service.append_head(),
         source=source,
         replacement=replacement,
-        human_reported=True,
+        confirmation_required=True,
     )
 
 
@@ -80,7 +80,7 @@ def build_override_draft(
         expected_head=service.append_head(),
         source=source,
         replacement=replacement,
-        human_reported=True,
+        confirmation_required=True,
     )
 
 
@@ -106,7 +106,7 @@ def build_meta_draft(
         expected_head=service.append_head(),
         source=source,
         replacement=replacement,
-        human_reported=True,
+        confirmation_required=True,
     )
 
 
@@ -129,8 +129,8 @@ def apply_draft(
 ) -> LedgerApplyResult:
     if not human_confirmed:
         raise ValueError("ledger draft apply requires explicit human confirmation")
-    if not draft.human_reported:
-        raise ValueError("ledger draft does not contain a human-reported action")
+    if not draft.confirmation_required:
+        raise ValueError("ledger draft is not eligible for explicit apply")
     reconcile_portfolio(draft.replacement)
     return service.apply_document(
         expected_head=draft.expected_head,

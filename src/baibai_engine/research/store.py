@@ -14,7 +14,9 @@ from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.holding_review import (
+    CanonicalSource,
     HoldingReviewDocument,
+    SourceArtifact,
     evaluate_holding_review,
     validate_holding_review_sources,
 )
@@ -24,7 +26,10 @@ from baibai_engine.research.decision_packet import (
     IndependentReview,
     evaluate_decision_packet,
 )
-from baibai_engine.research.holding_review_builder import validate_holding_review_scalars
+from baibai_engine.research.holding_review_builder import (
+    validate_holding_review_scalars,
+    validate_holding_review_scalars_from_db,
+)
 
 _REVIEW_REQUIRED = "buy recommendation requires an independent second-pass review"
 
@@ -152,13 +157,19 @@ class ResearchStoreService:
             holding_review_id, packet_id, payload, candidate_packet_id
         )
         document = _validate_holding_document(payload)
+        canonical_sources = isinstance(document.sources.ledger, CanonicalSource)
+        if canonical_sources:
+            validate_holding_review_scalars_from_db(document, db_path=self._db_path)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                validate_holding_review_sources(document, root=root)
-                validate_holding_review_scalars(document, root=root)
-                _validate_holding_source_revisions(connection, publication, document, root=root)
+                if canonical_sources:
+                    _validate_canonical_holding_sources(connection, publication, document)
+                else:
+                    validate_holding_review_sources(document, root=root)
+                    validate_holding_review_scalars(document, root=root)
+                    _validate_holding_source_revisions(connection, publication, document, root=root)
                 _insert_holding_review(connection, publication, document)
                 connection.commit()
             except BaseException:
@@ -391,13 +402,17 @@ def _validate_holding_source_revisions(
     *,
     root: Path,
 ) -> None:
+    holding_source = document.sources.holding_packet
+    candidate_source = document.sources.candidate_packet
+    if not isinstance(holding_source, SourceArtifact) or (
+        candidate_source is not None and not isinstance(candidate_source, SourceArtifact)
+    ):
+        raise ResearchValidationError("legacy holding review sources must be file artifacts")
     bindings = (
-        (publication.packet_id, document.sources.holding_packet.ref, "holding"),
+        (publication.packet_id, holding_source.ref, "holding"),
         (
             publication.candidate_packet_id,
-            None
-            if document.sources.candidate_packet is None
-            else document.sources.candidate_packet.ref,
+            None if candidate_source is None else candidate_source.ref,
             "candidate",
         ),
     )
@@ -417,6 +432,34 @@ def _validate_holding_source_revisions(
             != evaluate_decision_packet(source).packet_sha256
         ):
             raise ResearchConflictError(f"{label} source targets a different packet revision")
+
+
+def _validate_canonical_holding_sources(
+    connection: sqlite3.Connection,
+    publication: HoldingReviewPublication,
+    document: HoldingReviewDocument,
+) -> None:
+    ledger_source = document.sources.ledger
+    packet_source = document.sources.holding_packet
+    candidate_source = document.sources.candidate_packet
+    if not isinstance(ledger_source, CanonicalSource) or not isinstance(
+        packet_source, CanonicalSource
+    ):
+        raise ResearchConflictError("holding review canonical bindings are incomplete")
+    current_head = int(
+        connection.execute("SELECT coalesce(max(append_seq), 0) FROM ledger_event").fetchone()[0]
+    )
+    if ledger_source.entity_id != "portfolio-ledger" or ledger_source.append_head != current_head:
+        raise ResearchConflictError("holding review ledger revision changed")
+    if packet_source.entity_id != publication.packet_id:
+        raise ResearchConflictError("holding review packet revision binding differs")
+    if candidate_source is None:
+        if publication.candidate_packet_id is not None:
+            raise ResearchConflictError("candidate packet revision binding is missing")
+    elif not isinstance(candidate_source, CanonicalSource) or (
+        candidate_source.entity_id != publication.candidate_packet_id
+    ):
+        raise ResearchConflictError("candidate packet revision binding differs")
 
 
 def _unique(label: str, values: Sequence[str]) -> None:
