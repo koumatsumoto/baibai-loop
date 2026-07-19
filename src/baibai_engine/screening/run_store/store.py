@@ -7,7 +7,7 @@ import os
 import re
 import sqlite3
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -116,6 +116,30 @@ class ScreeningRunStore:
             except BaseException:
                 connection.rollback()
                 raise
+
+    def import_runs(self, payloads: Iterable[Mapping[str, object]]) -> tuple[int, int]:
+        """Create-only, all-transaction import used by the final migration runner."""
+        prepared = [_prepare_run(payload) for payload in payloads]
+        identities = [(item.public_run_id, item.run_at) for item in prepared]
+        if len(identities) != len(set(identities)):
+            raise RunStoreConflictError("run import identities must be unique")
+        initialize_run_store(self._path)
+        inserted = 0
+        unchanged = 0
+        with closing(connect_rw(self._path)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for item in prepared:
+                    result = self._publish_run_in_transaction(connection, item)
+                    if result.inserted:
+                        inserted += 1
+                    else:
+                        unchanged += 1
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        return inserted, unchanged
 
     def publish_selection(
         self,

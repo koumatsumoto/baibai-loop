@@ -34,13 +34,6 @@ def _raw(name: str) -> dict[str, Any]:
     return yaml.safe_load((FIXTURES / name).read_text(encoding="utf-8"))
 
 
-def test_file_source_binding_is_rejected() -> None:
-    raw = _raw("underwater-hold.yaml")
-    raw["sources"]["ledger"] = {"ref": "records/ledger.yaml", "sha256": "0" * 64}
-    with pytest.raises(ValueError, match="entity_id"):
-        HoldingReviewDocument.model_validate(raw)
-
-
 def test_broken_thesis_is_priority_exit() -> None:
     result = evaluate_holding_review(_load("thesis-break.yaml"))
     assert result.computed_action == "exit"

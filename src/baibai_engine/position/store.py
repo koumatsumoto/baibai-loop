@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import Counter
 from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
@@ -26,6 +27,16 @@ class LedgerConflictError(ValueError):
 
 class LedgerSchemaError(RuntimeError):
     """The application DB has not received the ledger migration."""
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerImportResult:
+    events_inserted: int
+    events_unchanged: int
+    prices_inserted: int
+    prices_unchanged: int
+    meta_inserted: int
+    meta_unchanged: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +68,24 @@ class LedgerStoreService:
         with closing(connect_rw(self._db_path)) as connection:
             _require_schema(connection)
             return _append_head(connection)
+
+    def import_document(self, document: PortfolioLedgerDocument) -> LedgerImportResult:
+        """Create missing legacy rows, accepting only byte-stable canonical matches."""
+        _require_canonical_prices(document)
+        initialize_database(self._db_path)
+        with closing(connect_rw(self._db_path)) as connection:
+            _require_schema(connection)
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                result = _import_document(connection, document)
+                # Reconstruct through the same DB view used by production reads.
+                if _load_document(connection) != document:
+                    raise LedgerConflictError("imported ledger does not equal the source document")
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        return result
 
     def apply_document(
         self,
@@ -161,6 +190,126 @@ def _event_ticker(event: LedgerEvent) -> str | None:
 def _event_proposal_id(event: LedgerEvent) -> str | None:
     reference = getattr(event, "decision_reference", None)
     return reference if isinstance(reference, str) and reference.startswith("prop-") else None
+
+
+def _same_instant_orders(events: Sequence[LedgerEvent]) -> list[int]:
+    seen: Counter[str] = Counter()
+    orders: list[int] = []
+    for event in events:
+        occurred_at = _utc_text(event.occurred_at)
+        orders.append(seen[occurred_at])
+        seen[occurred_at] += 1
+    return orders
+
+
+def _import_document(
+    connection: sqlite3.Connection, document: PortfolioLedgerDocument
+) -> LedgerImportResult:
+    event_inserted = event_unchanged = price_inserted = price_unchanged = 0
+    orders = _same_instant_orders(document.events)
+    source_event_ids = {event.event_id for event in document.events}
+    stored_event_ids = {
+        str(row[0]) for row in connection.execute("SELECT event_id FROM ledger_event")
+    }
+    extras = stored_event_ids - source_event_ids
+    if extras:
+        raise LedgerConflictError(f"DB contains events absent from import: {sorted(extras)}")
+    for append_seq, (event, same_order) in enumerate(
+        zip(document.events, orders, strict=True), start=1
+    ):
+        values = _event_values(append_seq, event, same_order)
+        row = connection.execute(
+            """
+            SELECT append_seq, event_id, occurred_at, same_instant_order,
+                   event_type, ticker, proposal_id, payload
+            FROM ledger_event WHERE event_id = ?
+            """,
+            (event.event_id,),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                """
+                INSERT INTO ledger_event(
+                    append_seq, event_id, occurred_at, same_instant_order,
+                    event_type, ticker, proposal_id, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            event_inserted += 1
+        elif tuple(row) == values:
+            event_unchanged += 1
+        else:
+            raise LedgerConflictError(f"ledger event conflicts: {event.event_id}")
+
+    source_tickers = {price.ticker for price in document.market_prices}
+    stored_tickers = {
+        str(row[0]) for row in connection.execute("SELECT ticker FROM ledger_market_price")
+    }
+    extra_tickers = stored_tickers - source_tickers
+    if extra_tickers:
+        raise LedgerConflictError(
+            f"DB contains market prices absent from import: {sorted(extra_tickers)}"
+        )
+    for price in document.market_prices:
+        values = _price_values(price)
+        row = connection.execute(
+            """
+            SELECT ticker, observed_at, price_yen, source_kind, price_basis,
+                   source_ref, payload
+            FROM ledger_market_price WHERE ticker = ?
+            """,
+            (price.ticker,),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                """
+                INSERT INTO ledger_market_price(
+                    ticker, observed_at, price_yen, source_kind, price_basis,
+                    source_ref, payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            price_inserted += 1
+        elif tuple(row) == values:
+            price_unchanged += 1
+        else:
+            raise LedgerConflictError(f"market price conflicts: {price.ticker}")
+
+    meta_values = _meta_values(document)
+    meta_row = connection.execute(
+        """
+        SELECT singleton, schema_version, portfolio_scope, as_of,
+               estimated_exit_tax_rate_bps, estimated_exit_tax_basis, payload
+        FROM ledger_meta WHERE singleton = 1
+        """
+    ).fetchone()
+    if meta_row is None:
+        connection.execute(
+            """
+            INSERT INTO ledger_meta(
+                singleton, schema_version, portfolio_scope, as_of,
+                estimated_exit_tax_rate_bps, estimated_exit_tax_basis, payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            meta_values,
+        )
+        meta_inserted = 1
+        meta_unchanged = 0
+    elif tuple(meta_row) == meta_values:
+        meta_inserted = 0
+        meta_unchanged = 1
+    else:
+        raise LedgerConflictError("ledger meta conflicts")
+    return LedgerImportResult(
+        event_inserted,
+        event_unchanged,
+        price_inserted,
+        price_unchanged,
+        meta_inserted,
+        meta_unchanged,
+    )
 
 
 def _event_values(
@@ -294,6 +443,7 @@ def _require_canonical_prices(document: PortfolioLedgerDocument) -> None:
 __all__ = [
     "LedgerApplyResult",
     "LedgerConflictError",
+    "LedgerImportResult",
     "LedgerSchemaError",
     "LedgerStoreService",
 ]

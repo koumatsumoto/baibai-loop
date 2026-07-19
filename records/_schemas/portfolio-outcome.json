@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "portfolio-outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "kind", "status", "reason", "horizon", "period_start_date", "period_end_date",
+    "benchmark_id", "benchmark_observation_ref", "benchmark_observation_sha256", "ledger_ref", "ledger_sha256", "market_data_ref", "market_data_sha256", "market_data_coverage_start_date", "market_data_coverage_end_date", "market_data_fingerprint"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "portfolio_outcome"},
+    "status": {"enum": ["resolved", "unresolved"]},
+    "reason": {"anyOf": [{"enum": ["activation_pending", "insufficient_portfolio_history", "benchmark_unavailable", "basis_mismatch", "missing_market_price", "corporate_action_unresolved", "zero_or_negative_nav"]}, {"type": "null"}]},
+    "horizon": {"enum": ["1y", "3y", "5y"]},
+    "period_start_date": {"type": "string", "format": "date"},
+    "period_end_date": {"type": "string", "format": "date"},
+    "benchmark_id": {"const": "jpx-topix-gross-total-return"},
+    "benchmark_observation_ref": {"type": "string", "minLength": 1},
+    "benchmark_observation_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "ledger_ref": {"type": "string", "minLength": 1},
+    "ledger_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "market_data_ref": {"type": "string", "minLength": 1},
+    "market_data_sha256": {"type": ["string", "null"]},
+    "market_data_coverage_start_date": {"type": "string", "format": "date"},
+    "market_data_coverage_end_date": {"type": "string", "format": "date"},
+    "market_data_fingerprint": {"type": ["string", "null"]},
+    "portfolio_twr_pct": {"type": ["number", "null"]},
+    "benchmark_cumulative_return_pct": {"type": ["number", "null"]},
+    "excess_percentage_points": {"type": ["number", "null"]},
+    "portfolio_annualized_return_pct": {"type": ["number", "null"]},
+    "benchmark_annualized_return_pct": {"type": ["number", "null"]},
+    "ending_cash_yen": {"type": ["integer", "null"]},
+    "ending_reserved_cash_yen": {"type": ["integer", "null"]},
+    "ending_holdings_market_value_yen": {"type": ["integer", "null"]},
+    "confirmed_income_yen": {"type": ["integer", "null"]},
+    "confirmed_cost_yen": {"type": ["integer", "null"]},
+    "confirmed_tax_yen": {"type": ["integer", "null"]},
+    "estimated_exit_tax_yen": {"type": ["integer", "null"]},
+    "estimated_exit_tax_status": {"enum": ["estimated", "unknown"]},
+    "open_tickers": {"type": "array", "items": {"type": "string", "pattern": "^[0-9A-Z]{4}$"}},
+    "closed_tickers": {"type": "array", "items": {"type": "string", "pattern": "^[0-9A-Z]{4}$"}}
+  },
+  "allOf": [
+    {"if": {"properties": {"status": {"const": "resolved"}}}, "then": {"required": ["portfolio_twr_pct", "benchmark_cumulative_return_pct", "excess_percentage_points", "portfolio_annualized_return_pct", "ending_cash_yen", "ending_reserved_cash_yen", "ending_holdings_market_value_yen", "confirmed_income_yen", "confirmed_cost_yen", "confirmed_tax_yen", "estimated_exit_tax_yen", "estimated_exit_tax_status", "open_tickers", "closed_tickers"], "properties": {"reason": {"type": "null"}, "portfolio_twr_pct": {"type": "number"}, "benchmark_cumulative_return_pct": {"type": "number"}, "excess_percentage_points": {"type": "number"}, "portfolio_annualized_return_pct": {"type": "number"}, "ending_cash_yen": {"type": "integer"}, "ending_reserved_cash_yen": {"type": "integer"}, "ending_holdings_market_value_yen": {"type": "integer"}, "confirmed_income_yen": {"type": "integer"}, "confirmed_cost_yen": {"type": "integer"}, "confirmed_tax_yen": {"type": "integer"}, "estimated_exit_tax_status": {"enum": ["estimated", "unknown"]}, "open_tickers": {"type": "array"}, "closed_tickers": {"type": "array"}, "market_data_sha256": {"type": "string"}, "market_data_fingerprint": {"type": "string"}}}},
+    {"if": {"properties": {"status": {"const": "unresolved"}}}, "then": {"properties": {"reason": {"type": "string"}}}}
+  ]
+}

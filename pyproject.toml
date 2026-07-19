@@ -18,6 +18,7 @@ dependencies = [
   "pyyaml>=6.0.0",
   "requests>=2.34.2",
   "xlrd>=2.0.0",
+  "jsonschema>=4.21.0",
   "fastapi>=0.139.2",
   "uvicorn>=0.51.0",
 ]
@@ -48,6 +49,7 @@ test = [
 typing = [
   "mypy>=2.2.0",
   "pandas-stubs>=3.0.3.260530",
+  "types-jsonschema>=4.26.0.20260518",
   "types-pyyaml>=6.0.12.20260518",
   "types-requests>=2.33.0.20260712",
 ]
@@ -174,19 +176,22 @@ paths_to_mutate = ["src/baibai_engine", "src/baibai_app"]
 tests_dir = "tests"
 runner = "python -m pytest -q -m 'not slow and not integration'"
 
-# Import-direction contracts encode the subsystem dependency DAG
-# (macro / screening / position / research / shared) so a structural edit that
-# reintroduces a cross-subsystem edge fails CI rather than passing every other gate.
+# Import-direction contracts. These encode the subsystem dependency DAG
+# (macro / screening / position / thesis / shared / validation) so a relabel that
+# silently reintroduces a cross-subsystem edge fails CI rather than passing
+# every other gate. Contracts are tightened as the reorg lands; this baseline
+# captures the invariants that already hold and must keep holding.
 [tool.importlinter]
 root_packages = ["baibai_engine", "baibai_app"]
 
 [[tool.importlinter.contracts]]
-name = "macro layer stays independent of screening/position"
+name = "macro layer stays independent of screening/position/validation"
 type = "forbidden"
 source_modules = ["baibai_engine.macro"]
 forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.position",
+  "baibai_engine.validation",
 ]
 
 [[tool.importlinter.contracts]]
@@ -198,6 +203,7 @@ forbidden_modules = [
   "baibai_engine.macro",
   "baibai_engine.position",
   "baibai_engine.market",
+  "baibai_engine.validation",
   "baibai_engine.appdb",
   "baibai_engine.read_api",
   "baibai_engine.research",
@@ -213,6 +219,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.position",
   "baibai_engine.research",
+  "baibai_engine.validation",
   "baibai_engine.read_api",
 ]
 
@@ -226,6 +233,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.position",
   "baibai_engine.research",
+  "baibai_engine.validation",
   "baibai_engine.read_api",
 ]
 
@@ -237,6 +245,7 @@ forbidden_modules = [
   "baibai_engine.screening",
   "baibai_engine.macro",
   "baibai_engine.position",
+  "baibai_engine.validation",
 ]
 
 [[tool.importlinter.contracts]]
@@ -260,7 +269,8 @@ ignore_imports = [
 name = "research is the top-level domain engine (lower layers do not import it)"
 type = "forbidden"
 # Research composes decision packets with portfolio state. Forbid reverse edges
-# to keep the DAG acyclic.
+# to keep the DAG acyclic; validation is intentionally excluded because it
+# drives domain validation through the public entry surfaces.
 source_modules = [
   "baibai_engine.foundation",
   "baibai_engine.market",
@@ -284,14 +294,32 @@ name = "research only composes foundation and position domains"
 type = "forbidden"
 # Current research behavior is decision composition plus portfolio-aware execution
 # and holding-review construction.  It has no direct macro, market, screening,
-# dependency; keep that surface narrow.
+# or validation dependency; keep that surface narrow.
 source_modules = ["baibai_engine.research"]
 forbidden_modules = [
   "baibai_engine.macro",
   "baibai_engine.market",
   "baibai_engine.screening",
   "baibai_engine.tasks",
+  "baibai_engine.validation",
 ]
+
+[[tool.importlinter.contracts]]
+name = "validation imports domain contexts only through their entry surface"
+type = "forbidden"
+# validation is the records public-language checker: it walks records, owns
+# ValidationFinding + the _schemas shape checks + cross-record referential
+# checks, and calls each domain context's validation entry (position via
+# decision_register / policy, research via validation.cli). Its own modules must
+# not reach into the macro / market / screening peers; those are consumed only
+# transitively through research/position, so only direct edges are forbidden.
+source_modules = ["baibai_engine.validation"]
+forbidden_modules = [
+  "baibai_engine.macro",
+  "baibai_engine.market",
+  "baibai_engine.screening",
+]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "app is never imported by the engine"
@@ -305,6 +333,7 @@ source_modules = [
   "baibai_engine.screening",
   "baibai_engine.position",
   "baibai_engine.research",
+  "baibai_engine.validation",
 ]
 forbidden_modules = ["baibai_app"]
 
@@ -320,6 +349,7 @@ forbidden_modules = [
   "baibai_engine.position",
   "baibai_engine.research",
   "baibai_engine.screening",
+  "baibai_engine.validation",
 ]
 allow_indirect_imports = true
 
@@ -336,4 +366,5 @@ forbidden_modules = [
   "baibai_engine.research.decision_cli",
   "baibai_engine.research.opportunity_cli",
   "baibai_engine.screening.cli",
+  "baibai_engine.validation.cli",
 ]

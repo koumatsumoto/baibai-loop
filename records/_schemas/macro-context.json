@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "macro-context",
+  "title": "Macro Material Delta Context",
+  "description": "Schema for records/01-macro-context/**/*.yaml.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "context_id",
+    "as_of",
+    "valid_until",
+    "published_at",
+    "summary",
+    "inputs",
+    "material_deltas",
+    "sizing_cautions",
+    "research_questions",
+    "refresh_triggers",
+    "changes_since_previous"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "kind": {"const": "macro-context"},
+    "context_id": {"type": "string", "pattern": "^macro-context-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+$"},
+    "as_of": {"type": "string", "format": "date"},
+    "valid_until": {"type": "string", "format": "date"},
+    "published_at": {"type": "string", "format": "date-time"},
+    "summary": {"type": "string", "minLength": 1},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["articles", "indicator_series"],
+      "properties": {
+        "articles": {"type": "array", "items": {"$ref": "#/$defs/ArticleInput"}},
+        "indicator_series": {"type": "array", "items": {"$ref": "#/$defs/IndicatorSeriesInput"}}
+      }
+    },
+    "material_deltas": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/MaterialDelta"}
+    },
+    "sizing_cautions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/SizingCaution"}
+    },
+    "research_questions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "refresh_triggers": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "changes_since_previous": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "ArticleInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_id", "source", "title", "url", "published_at", "accessed_at", "status", "used_for"],
+      "properties": {
+        "input_id": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "url": {"type": "string", "format": "uri"},
+        "published_at": {"type": "string", "format": "date-time"},
+        "accessed_at": {"type": "string", "format": "date-time"},
+        "status": {"enum": ["ok", "failed"]},
+        "used_for": {"type": "string", "minLength": 1}
+      }
+    },
+    "IndicatorSeriesInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_id", "provider", "series_id", "window", "observation_as_of", "published_at", "accessed_at", "status", "used_for"],
+      "properties": {
+        "input_id": {"type": "string", "minLength": 1},
+        "provider": {"type": "string", "minLength": 1},
+        "series_id": {"type": "string", "minLength": 1},
+        "window": {"type": "string", "minLength": 1},
+        "observation_as_of": {"type": "string", "format": "date"},
+        "published_at": {"type": "string", "format": "date-time"},
+        "accessed_at": {"type": "string", "format": "date-time"},
+        "status": {"enum": ["ok", "failed"]},
+        "used_for": {"type": "string", "minLength": 1}
+      }
+    },
+    "MaterialDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "direction", "materiality", "summary", "used_for", "source_ids"],
+      "properties": {
+        "channel": {"enum": ["discount_rate", "demand", "funding", "common_tail"]},
+        "direction": {"enum": ["supportive", "adverse", "mixed"]},
+        "materiality": {"enum": ["low", "medium", "high"]},
+        "summary": {"type": "string", "minLength": 1},
+        "used_for": {"type": "string", "minLength": 1},
+        "source_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "SizingCaution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "summary", "source_ids"],
+      "properties": {
+        "severity": {"enum": ["low", "medium", "high"]},
+        "summary": {"type": "string", "minLength": 1},
+        "source_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

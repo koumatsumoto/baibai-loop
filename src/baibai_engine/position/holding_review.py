@@ -15,6 +15,7 @@ estimated tax split rather than modelling any account tax engine.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -250,6 +251,15 @@ class ReduceContext(BaseModel):
     concentration_exceeded: bool
 
 
+class SourceArtifact(BaseModel):
+    """Immutable reference to a source artifact used by a review draft."""
+
+    model_config = _CONFIG
+
+    ref: Annotated[str, Field(min_length=1)]
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
 class CanonicalSource(BaseModel):
     """A revision binding to an entity in the application DB."""
 
@@ -264,9 +274,9 @@ class HoldingReviewSources(BaseModel):
 
     model_config = _CONFIG
 
-    ledger: CanonicalSource
-    holding_packet: CanonicalSource
-    candidate_packet: CanonicalSource | None = None
+    ledger: SourceArtifact | CanonicalSource
+    holding_packet: SourceArtifact | CanonicalSource
+    candidate_packet: SourceArtifact | CanonicalSource | None = None
 
 
 class HoldingReviewDocument(BaseModel):
@@ -343,6 +353,15 @@ class HoldingReviewResult:
     warnings: tuple[str, ...]
 
 
+def holding_review_json_schema() -> dict[str, object]:
+    schema = HoldingReviewDocument.model_json_schema()
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "holding-review",
+        **schema,
+    }
+
+
 def load_holding_review(path: Path) -> HoldingReviewDocument:
     try:
         raw = safe_load(path.read_text(encoding="utf-8"))
@@ -354,6 +373,34 @@ def load_holding_review(path: Path) -> HoldingReviewDocument:
         return HoldingReviewDocument.model_validate(raw)
     except ValidationError as error:
         raise HoldingReviewError(str(error)) from error
+
+
+def validate_holding_review_sources(document: HoldingReviewDocument, *, root: Path) -> None:
+    """Reject source drift before a review's scalar inputs can be trusted.
+
+    The calculation contract remains intentionally small, but it never treats a
+    copied price, fair value, or risk axis as sufficient evidence. This boundary
+    verifies that the reviewed artifacts are the exact files named by the draft.
+    Detailed source-to-scalar construction is performed by the review builder.
+    """
+
+    bindings = (
+        ("ledger", document.sources.ledger),
+        ("holding_packet", document.sources.holding_packet),
+        ("candidate_packet", document.sources.candidate_packet),
+    )
+    for name, binding in bindings:
+        if binding is None:
+            continue
+        if isinstance(binding, CanonicalSource):
+            continue
+        candidate = Path(binding.ref)
+        path = candidate if candidate.is_absolute() else root / candidate
+        if not path.is_file():
+            raise HoldingReviewError(f"{name} source is missing: {binding.ref}")
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != binding.sha256:
+            raise HoldingReviewError(f"{name} source hash mismatch: {binding.ref}")
 
 
 def evaluate_holding_review(document: HoldingReviewDocument) -> HoldingReviewResult:

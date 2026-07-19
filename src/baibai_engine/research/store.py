@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date
@@ -12,9 +12,13 @@ from typing import cast
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.holding_review import (
+    CanonicalSource,
     HoldingReviewDocument,
+    SourceArtifact,
     evaluate_holding_review,
+    validate_holding_review_sources,
 )
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
@@ -22,7 +26,10 @@ from baibai_engine.research.decision_packet import (
     IndependentReview,
     evaluate_decision_packet,
 )
-from baibai_engine.research.holding_review_builder import validate_holding_review_scalars_from_db
+from baibai_engine.research.holding_review_builder import (
+    validate_holding_review_scalars,
+    validate_holding_review_scalars_from_db,
+)
 
 _REVIEW_REQUIRED = "buy recommendation requires an independent second-pass review"
 
@@ -54,6 +61,16 @@ class HoldingReviewPublication:
     packet_id: str
     payload: Mapping[str, object]
     candidate_packet_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchImportResult:
+    packets_inserted: int
+    packets_unchanged: int
+    reviews_inserted: int
+    reviews_unchanged: int
+    holding_reviews_inserted: int
+    holding_reviews_unchanged: int
 
 
 class ResearchStoreService:
@@ -132,25 +149,83 @@ class ResearchStoreService:
         packet_id: str,
         payload: Mapping[str, object],
         *,
+        root: Path,
         candidate_packet_id: str | None = None,
     ) -> HoldingReviewDocument:
-        """Recheck canonical DB revision bindings inside the write transaction."""
+        """Recheck current file sources and DB revision bindings inside the write transaction."""
         publication = HoldingReviewPublication(
             holding_review_id, packet_id, payload, candidate_packet_id
         )
         document = _validate_holding_document(payload)
-        validate_holding_review_scalars_from_db(document, db_path=self._db_path)
+        canonical_sources = isinstance(document.sources.ledger, CanonicalSource)
+        if canonical_sources:
+            validate_holding_review_scalars_from_db(document, db_path=self._db_path)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                _validate_canonical_holding_sources(connection, publication, document)
+                if canonical_sources:
+                    _validate_canonical_holding_sources(connection, publication, document)
+                else:
+                    validate_holding_review_sources(document, root=root)
+                    validate_holding_review_scalars(document, root=root)
+                    _validate_holding_source_revisions(connection, publication, document, root=root)
                 _insert_holding_review(connection, publication, document)
                 connection.commit()
             except BaseException:
                 connection.rollback()
                 raise
         return document
+
+    def import_publications(
+        self,
+        *,
+        packets: Sequence[PacketPublication],
+        reviews: Sequence[ReviewPublication],
+        holding_reviews: Sequence[HoldingReviewPublication],
+    ) -> ResearchImportResult:
+        """Import a legacy domain snapshot in one create-only transaction."""
+        _unique("packet_id", [item.packet_id for item in packets])
+        _unique("review_id", [str(item.payload.get("review_id", "")) for item in reviews])
+        _unique("holding_review_id", [item.holding_review_id for item in holding_reviews])
+        validated_packets = [
+            (*_validate_packet(item, allow_review_required=True), item) for item in packets
+        ]
+        validated_reviews = [
+            (IndependentReview.model_validate(item.payload), item) for item in reviews
+        ]
+        validated_holding = [
+            (_validate_holding_document(item.payload), item) for item in holding_reviews
+        ]
+        review_packet_ids = {item.packet_id for item in reviews}
+        for _packet, result, publication in validated_packets:
+            if (
+                result.errors == (_REVIEW_REQUIRED,)
+                and publication.packet_id not in review_packet_ids
+            ):
+                raise ResearchValidationError(
+                    f"buy packet has no imported independent review: {publication.packet_id}"
+                )
+        initialize_database(self._db_path)
+        counts = [0, 0, 0, 0, 0, 0]
+        with closing(connect_rw(self._db_path)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for packet, _result, packet_publication in validated_packets:
+                    counts[0 if _insert_packet(connection, packet_publication, packet) else 1] += 1
+                for review, review_publication in validated_reviews:
+                    counts[2 if _insert_review(connection, review_publication, review) else 3] += 1
+                for document, holding_publication in validated_holding:
+                    counts[
+                        4
+                        if _insert_holding_review(connection, holding_publication, document)
+                        else 5
+                    ] += 1
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        return ResearchImportResult(*counts)
 
 
 def _validate_packet(
@@ -320,6 +395,45 @@ def _insert_holding_review(
     return True
 
 
+def _validate_holding_source_revisions(
+    connection: sqlite3.Connection,
+    publication: HoldingReviewPublication,
+    document: HoldingReviewDocument,
+    *,
+    root: Path,
+) -> None:
+    holding_source = document.sources.holding_packet
+    candidate_source = document.sources.candidate_packet
+    if not isinstance(holding_source, SourceArtifact) or (
+        candidate_source is not None and not isinstance(candidate_source, SourceArtifact)
+    ):
+        raise ResearchValidationError("legacy holding review sources must be file artifacts")
+    bindings = (
+        (publication.packet_id, holding_source.ref, "holding"),
+        (
+            publication.candidate_packet_id,
+            None if candidate_source is None else candidate_source.ref,
+            "candidate",
+        ),
+    )
+    for packet_id, ref, label in bindings:
+        if packet_id is None or ref is None:
+            continue
+        row = _packet_row(connection, packet_id)
+        canonical = DecisionPacketDocument.model_validate_json(str(row["payload"]))
+        source_path = Path(ref)
+        resolved = source_path if source_path.is_absolute() else root / source_path
+        raw = safe_load(resolved.read_text(encoding="utf-8"))
+        if not isinstance(raw, Mapping):
+            raise ResearchValidationError(f"{label} packet source must be a mapping")
+        source = DecisionPacketDocument.model_validate(raw)
+        if (
+            evaluate_decision_packet(canonical).packet_sha256
+            != evaluate_decision_packet(source).packet_sha256
+        ):
+            raise ResearchConflictError(f"{label} source targets a different packet revision")
+
+
 def _validate_canonical_holding_sources(
     connection: sqlite3.Connection,
     publication: HoldingReviewPublication,
@@ -328,6 +442,10 @@ def _validate_canonical_holding_sources(
     ledger_source = document.sources.ledger
     packet_source = document.sources.holding_packet
     candidate_source = document.sources.candidate_packet
+    if not isinstance(ledger_source, CanonicalSource) or not isinstance(
+        packet_source, CanonicalSource
+    ):
+        raise ResearchConflictError("holding review canonical bindings are incomplete")
     current_head = int(
         connection.execute("SELECT coalesce(max(append_seq), 0) FROM ledger_event").fetchone()[0]
     )
@@ -338,14 +456,22 @@ def _validate_canonical_holding_sources(
     if candidate_source is None:
         if publication.candidate_packet_id is not None:
             raise ResearchConflictError("candidate packet revision binding is missing")
-    elif candidate_source.entity_id != publication.candidate_packet_id:
+    elif not isinstance(candidate_source, CanonicalSource) or (
+        candidate_source.entity_id != publication.candidate_packet_id
+    ):
         raise ResearchConflictError("candidate packet revision binding differs")
+
+
+def _unique(label: str, values: Sequence[str]) -> None:
+    if any(not value for value in values) or len(values) != len(set(values)):
+        raise ResearchConflictError(f"{label} must be non-empty and unique in import input")
 
 
 __all__ = [
     "HoldingReviewPublication",
     "PacketPublication",
     "ResearchConflictError",
+    "ResearchImportResult",
     "ResearchStoreService",
     "ResearchValidationError",
     "ReviewPublication",

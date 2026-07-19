@@ -28,6 +28,7 @@ def _usage() -> argparse.ArgumentParser:
             "proposal",
             "research",
             "task",
+            "validate",
             "db",
         ),
     )
@@ -60,6 +61,10 @@ def _delegate(domain: str, arguments: list[str]) -> int:
         from baibai_engine.proposals.cli import main
 
         return main(arguments)
+    if domain == "validate":
+        from baibai_engine.validation.cli import main
+
+        return main(arguments)
     if domain == "task":
         from baibai_engine.tasks.cli import main
 
@@ -83,6 +88,35 @@ def _db_main(argv: list[str]) -> int:
     for command in ("init", "backup", "info"):
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--db", type=Path)
+    import_tasks = subparsers.add_parser("import-tasks")
+    import_tasks.add_argument("--db", type=Path)
+    import_tasks.add_argument("--source", type=Path, default=Path("records/05-task/tasks.yaml"))
+    import_screening = subparsers.add_parser("import-screening")
+    import_screening.add_argument("--runs-db", type=Path)
+    import_screening.add_argument(
+        "--source",
+        type=Path,
+        default=Path("records/02-candidates"),
+    )
+    import_research = subparsers.add_parser("import-research")
+    import_research.add_argument("--db", type=Path)
+    import_research.add_argument(
+        "--research-source",
+        type=Path,
+        default=Path("records/03-thesis"),
+    )
+    import_research.add_argument(
+        "--position-source",
+        type=Path,
+        default=Path("records/04-position"),
+    )
+    import_ledger = subparsers.add_parser("import-ledger")
+    import_ledger.add_argument("--db", type=Path)
+    import_ledger.add_argument(
+        "--source",
+        type=Path,
+        default=Path("records/04-position/portfolio-ledger.yaml"),
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
@@ -93,6 +127,87 @@ def _db_main(argv: list[str]) -> int:
             target = backup_database(args.db)
             payload = {"path": None if target is None else str(target), "status": "ok"}
             print(yaml.safe_dump(payload))
+            return 0
+        if args.command == "import-tasks":
+            from baibai_engine.tasks.importer import import_task_file
+
+            inserted, unchanged = import_task_file(args.source, db_path=args.db)
+            print(
+                yaml.safe_dump(
+                    {
+                        "source": str(args.source),
+                        "inserted": inserted,
+                        "unchanged": unchanged,
+                    },
+                    sort_keys=False,
+                )
+            )
+            return 0
+        if args.command == "import-screening":
+            from baibai_engine.screening.run_store import import_screening_runs
+
+            inserted, unchanged = import_screening_runs(
+                args.source,
+                db_path=args.runs_db,
+            )
+            print(
+                yaml.safe_dump(
+                    {
+                        "source": str(args.source),
+                        "inserted": inserted,
+                        "unchanged": unchanged,
+                    },
+                    sort_keys=False,
+                )
+            )
+            return 0
+        if args.command == "import-research":
+            from baibai_engine.research.importer import import_research_records
+
+            result = import_research_records(
+                args.research_source,
+                args.position_source,
+                db_path=args.db,
+            )
+            print(
+                yaml.safe_dump(
+                    {
+                        "research_source": str(args.research_source),
+                        "position_source": str(args.position_source),
+                        "packets_inserted": result.packets_inserted,
+                        "packets_unchanged": result.packets_unchanged,
+                        "reviews_inserted": result.reviews_inserted,
+                        "reviews_unchanged": result.reviews_unchanged,
+                        "holding_reviews_inserted": result.holding_reviews_inserted,
+                        "holding_reviews_unchanged": result.holding_reviews_unchanged,
+                    },
+                    sort_keys=False,
+                )
+            )
+            return 0
+        if args.command == "import-ledger":
+            from baibai_engine.position.importer import import_and_check_ledger
+
+            ledger_result, parity = import_and_check_ledger(args.source, db_path=args.db)
+            print(
+                yaml.safe_dump(
+                    {
+                        "source": str(args.source),
+                        "events_inserted": ledger_result.events_inserted,
+                        "events_unchanged": ledger_result.events_unchanged,
+                        "prices_inserted": ledger_result.prices_inserted,
+                        "prices_unchanged": ledger_result.prices_unchanged,
+                        "meta_inserted": ledger_result.meta_inserted,
+                        "meta_unchanged": ledger_result.meta_unchanged,
+                        "event_order_matches": parity.event_order_matches,
+                        "snapshot_matches": parity.snapshot_matches,
+                        "market_prices_match": parity.market_prices_match,
+                        "overrides_match": parity.overrides_match,
+                        "meta_matches": parity.meta_matches,
+                    },
+                    sort_keys=False,
+                )
+            )
             return 0
         path = database_path(args.db)
         if not path.exists():

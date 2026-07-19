@@ -64,6 +64,18 @@ jobs:
           uv run coverage report -m
           uv run coverage xml
 
+      - name: Validate artefacts
+        run: uv run baibai-engine validate
+
+      - name: Validate clean checkout lineage
+        run: |
+          checkout="$(mktemp -d)"
+          git archive HEAD | tar -x -C "$checkout"
+          (
+            cd "$checkout"
+            uv run --frozen baibai-engine validate
+          )
+
       - name: Build package
         run: uv build --wheel
 

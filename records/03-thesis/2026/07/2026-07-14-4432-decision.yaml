@@ -1,0 +1,464 @@
+schema_version: 2
+input_snapshot:
+  snapshot_version: 1
+  producer_model_version: holding-research-v1
+  ticker: '4432'
+  company_name: ウイングアーク１ｓｔ
+  sector: 情報・通信業
+  common_factors:
+  - acquisition-integration
+  - enterprise-dx
+  - recurring-software
+  as_of: '2026-07-14'
+  sources:
+  - source_id: market_close
+    ticker: '4432'
+    source_tier: local_data
+    provider: jquants
+    dataset: jquants_daily_bars
+    retrieved_at: '2026-07-14T15:30:00+09:00'
+    as_of: '2026-07-14'
+    used_for: 2026-07-14の未調整終値とcorporate action basis確認
+  - source_id: fy2027_q1_results
+    ticker: '4432'
+    source_tier: primary
+    ref: https://ssl4.eir-parts.net/doc/4432/tdnet/2851146/00.pdf
+    retrieved_at: '2026-07-15T23:10:00+09:00'
+    as_of: '2026-05-31'
+    used_for: FY2027 Q1の損益、財政状態、cash flow、株式数、通期予想
+  - source_id: fy2027_q1_presentation
+    ticker: '4432'
+    source_tier: primary
+    ref: https://ssl4.eir-parts.net/doc/4432/ir_material_for_fiscal_ym/208572/00.pdf
+    retrieved_at: '2026-07-15T23:10:00+09:00'
+    as_of: '2026-05-31'
+    used_for: 契約区分・solution別売上、cost、会社見通し、governanceと事業KPI
+  - source_id: fy2026_annual_report
+    ticker: '4432'
+    source_tier: primary
+    ref: https://disclosure2dl.edinet-fsa.go.jp/searchdocument/pdf/S100Y628.pdf
+    retrieved_at: '2026-07-15T21:34:24+09:00'
+    as_of: '2026-02-28'
+    used_for: FY2026親会社帰属利益、顧客集中、借入条件、減損test、契約負債と残存履行義務
+  - source_id: treasury_share_resolution
+    ticker: '4432'
+    source_tier: primary
+    ref: https://ssl4.eir-parts.net/doc/4432/tdnet/2851149/00.pdf
+    retrieved_at: '2026-07-15T23:10:00+09:00'
+    as_of: '2026-07-14'
+    used_for: 自己株式取得上限、取得期間、2026-06-30株式数
+  - source_id: shareholder_benefit_resolution
+    ticker: '4432'
+    source_tier: primary
+    ref: https://ssl4.eir-parts.net/doc/4432/tdnet/2851151/00.pdf
+    retrieved_at: '2026-07-15T23:10:00+09:00'
+    as_of: '2026-07-14'
+    used_for: 株主優待の対象、費用吸収に関する会社説明、初回基準日
+  facts:
+  - fact_id: market_price_close
+    fact_kind: market_price
+    value: 2741.0
+    unit: JPY_per_share
+    as_of: '2026-07-14'
+    source_ids:
+    - market_close
+    observed_at: '2026-07-14T15:30:00+09:00'
+    price_basis: last_close_unadjusted
+  - fact_id: trailing-per-derived-at-close
+    fact_kind: valuation_metric
+    value: 14.6573984448
+    unit: ratio
+    as_of: '2026-07-14'
+    source_ids:
+    - market_close
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - treasury_share_resolution
+  - fact_id: fy2026-owner-profit
+    fact_kind: net_income_attributable_to_owners
+    value: 6500158000
+    unit: JPY
+    as_of: '2026-02-28'
+    source_ids:
+    - fy2026_annual_report
+  - fact_id: net-shares-at-2026-06-30
+    fact_kind: shares_outstanding
+    value: 34759360
+    unit: shares
+    as_of: '2026-06-30'
+    source_ids:
+    - fy2027_q1_results
+    - treasury_share_resolution
+  - fact_id: fy2026-contract-liability-rpo
+    fact_kind: other
+    value: 8091691000
+    unit: JPY
+    as_of: '2026-02-28'
+    source_ids:
+    - fy2026_annual_report
+  - fact_id: fy2026-impairment-headroom
+    fact_kind: other
+    value: 89666000000
+    unit: JPY
+    as_of: '2026-02-28'
+    source_ids:
+    - fy2026_annual_report
+  - fact_id: fy2027-q1-revenue
+    fact_kind: other
+    value: 7806371000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-q1-operating-profit
+    fact_kind: other
+    value: 2167136000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-q1-owner-profit
+    fact_kind: other
+    value: 1559205000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-q1-recurring-revenue
+    fact_kind: other
+    value: 5509000000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_presentation
+  - fact_id: fy2027-q1-recurring-ratio
+    fact_kind: other
+    value: 70.6
+    unit: percent
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_presentation
+  - fact_id: fy2027-q1-maintenance-retention
+    fact_kind: other
+    value: 90.2
+    unit: percent
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_presentation
+  - fact_id: fy2027-q1-cash
+    fact_kind: other
+    value: 15320856000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-q1-interest-bearing-borrowings
+    fact_kind: other
+    value: 7118836000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-q1-operating-cash-flow
+    fact_kind: other
+    value: 4084976000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-q1-contract-liabilities
+    fact_kind: other
+    value: 10056848000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-q1-goodwill-and-intangibles
+    fact_kind: other
+    value: 44195888000
+    unit: JPY
+    as_of: '2026-05-31'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-guidance-owner-profit
+    fact_kind: other
+    value: 7420000000
+    unit: JPY
+    as_of: '2026-07-14'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: fy2027-guidance-dividend-per-share
+    fact_kind: other
+    value: 108
+    unit: JPY_per_share
+    as_of: '2026-07-14'
+    source_ids:
+    - fy2027_q1_results
+  - fact_id: buyback-maximum-shares
+    fact_kind: other
+    value: 1200000
+    unit: shares
+    as_of: '2026-07-14'
+    source_ids:
+    - treasury_share_resolution
+derived:
+  metrics:
+  - metric_id: normalized-eps
+    value: 187.0045363321
+    unit: JPY_per_share
+    as_of: '2026-06-30'
+    formula: ratio
+    formula_version: ratio-v1
+    input_fact_ids:
+    - fy2026-owner-profit
+    - net-shares-at-2026-06-30
+    assumption: FY2026親会社帰属利益6,500,158,000円を2026-06-30の発行済株式35,035,470株から直接自己株式228,712株とEPS上の自己株式に含まれるBIP信託47,398株を控除した34,759,360株で除した。Q1会社予想7.42十億円は未達リスクを含むため起点利益に使わない。
+    source_ids:
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - treasury_share_resolution
+estimates:
+  model_version: wingarc-long-horizon-scenario-v1
+  market_price_fact_id: market_price_close
+  entry_price_basis_yen: 2741.0
+  entry_price_basis: observed_market_price
+  entry_price_source_ids:
+  - market_close
+  entry_price_assumption: 2026-07-14の未調整終値。adjustment factorは1.0で、価格basisを変えるcorporate actionは未解決でない。
+  required_5y_base_cagr_pct: 8.0
+  current_fair_value_yen: 3093
+  valuation_model_version: five-year-base-required-return-v1
+  fair_value_source_ids:
+  - fy2026_annual_report
+  - fy2027_q1_results
+  - fy2027_q1_presentation
+  - treasury_share_resolution
+  deep_discount_bps: null
+  scenarios:
+  - horizon_years: 3
+    name: bear
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy2026-owner-profit
+    starting_earnings_yen: 6500158000
+    annual_earnings_growth_pct: 0.0
+    starting_share_count_fact_id: net-shares-at-2026-06-30
+    starting_share_count: 34759360
+    annual_share_count_change_pct: 0.0
+    terminal_valuation_multiple: 10.0
+    cumulative_dividend_per_share_yen: 300
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 6500158000.0
+    claimed_terminal_share_count: 34759360.0
+    claimed_terminal_price_yen: 1870.0454
+    claimed_total_return_cagr_pct: -7.49
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: wingarc-long-horizon-scenario-v1
+    assumption: Q1のmargin低下、SVF license減、保守継続率低下が続き、NEXを除くorganic recurring成長が鈍化する。自己株式取得は未実行として株数減を置かず、10倍までde-rateする。
+    source_ids:
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - fy2027_q1_presentation
+    - treasury_share_resolution
+  - horizon_years: 3
+    name: base
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy2026-owner-profit
+    starting_earnings_yen: 6500158000
+    annual_earnings_growth_pct: 8.0
+    starting_share_count_fact_id: net-shares-at-2026-06-30
+    starting_share_count: 34759360
+    annual_share_count_change_pct: -0.5
+    terminal_valuation_multiple: 14.0
+    cumulative_dividend_per_share_yen: 330
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 8188327034.496
+    claimed_terminal_share_count: 34240572.2071
+    claimed_terminal_price_yen: 3347.975
+    claimed_total_return_cagr_pct: 10.3
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: wingarc-long-horizon-scenario-v1
+    assumption: recurring売上の二桁成長は続くが、営業marginはFY2027会社予想ほど急回復せず、親会社帰属利益は8%成長に留まる。buyback枠は一部だけ実行され、株数は年0.5%減る。
+    source_ids:
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - fy2027_q1_presentation
+    - treasury_share_resolution
+  - horizon_years: 3
+    name: bull
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy2026-owner-profit
+    starting_earnings_yen: 6500158000
+    annual_earnings_growth_pct: 13.0
+    starting_share_count_fact_id: net-shares-at-2026-06-30
+    starting_share_count: 34759360
+    annual_share_count_change_pct: -1.0
+    terminal_valuation_multiple: 18.0
+    cumulative_dividend_per_share_yen: 360
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 9379058477.726
+    claimed_terminal_share_count: 33726972.2486
+    claimed_terminal_price_yen: 5005.5798
+    claimed_total_return_cagr_pct: 25.09
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: wingarc-long-horizon-scenario-v1
+    assumption: SVF licenseのQ2回復、cloud・subscription成長、公共とAI/data事業の拡大が同時に進み、会社予想に近い利益成長と継続的な自己株式取得が実現する。
+    source_ids:
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - fy2027_q1_presentation
+    - treasury_share_resolution
+  - horizon_years: 5
+    name: bear
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy2026-owner-profit
+    starting_earnings_yen: 6500158000
+    annual_earnings_growth_pct: 0.0
+    starting_share_count_fact_id: net-shares-at-2026-06-30
+    starting_share_count: 34759360
+    annual_share_count_change_pct: 0.0
+    terminal_valuation_multiple: 10.0
+    cumulative_dividend_per_share_yen: 500
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 6500158000.0
+    claimed_terminal_share_count: 34759360.0
+    claimed_terminal_price_yen: 1870.0454
+    claimed_total_return_cagr_pct: -2.87
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: wingarc-long-horizon-scenario-v1
+    assumption: acquisition寄与を除く成長が止まり、保守継続率低下とlegacy license縮小をcloudが補えない。goodwill・無形資産の減損と10倍へのde-rateを置き、buybackは未実行とする。
+    source_ids:
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - fy2027_q1_presentation
+    - treasury_share_resolution
+  - horizon_years: 5
+    name: base
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy2026-owner-profit
+    starting_earnings_yen: 6500158000
+    annual_earnings_growth_pct: 8.0
+    starting_share_count_fact_id: net-shares-at-2026-06-30
+    starting_share_count: 34759360
+    annual_share_count_change_pct: -0.5
+    terminal_valuation_multiple: 14.0
+    cumulative_dividend_per_share_yen: 600
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 9550864653.0361
+    claimed_terminal_share_count: 33899022.4993
+    claimed_terminal_price_yen: 3944.4236
+    claimed_total_return_cagr_pct: 10.64
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: wingarc-long-horizon-scenario-v1
+    assumption: recurring mixの上昇と高いcash conversionが8%利益成長を支えるが、NEX除外organic cloud growth、contract別margin、NRR・churn、CAC/paybackの非開示とQ2 license回復hurdleを考慮し、会社予想14.2%を外挿しない。buybackは潜在stock optionと株式報酬を保守的に相殺して年0.5%のnet株数減だけを置く。
+    source_ids:
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - fy2027_q1_presentation
+    - treasury_share_resolution
+  - horizon_years: 5
+    name: bull
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: fy2026-owner-profit
+    starting_earnings_yen: 6500158000
+    annual_earnings_growth_pct: 13.0
+    starting_share_count_fact_id: net-shares-at-2026-06-30
+    starting_share_count: 34759360
+    annual_share_count_change_pct: -1.0
+    terminal_valuation_multiple: 18.0
+    cumulative_dividend_per_share_yen: 650
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 11976119770.2083
+    claimed_terminal_share_count: 33055805.5009
+    claimed_terminal_price_yen: 6521.4008
+    claimed_total_return_cagr_pct: 21.21
+    as_of: '2026-07-14'
+    unit: JPY_per_share_total_return
+    model_version: wingarc-long-horizon-scenario-v1
+    assumption: cloud、subscription、公共、AI/data機能が既存顧客baseへcross-sellされ、利益は会社予想に近い13%で複利成長する。buybackと株式報酬を合わせたnet株数は年1%減る。
+    source_ids:
+    - fy2026_annual_report
+    - fy2027_q1_results
+    - fy2027_q1_presentation
+    - treasury_share_resolution
+permanent_loss_risks:
+- axis: funding_liquidity
+  assessment: acceptable
+  evidence_status: verified
+  summary: 2026年5月末cashは15.321十億円、借入控除後net cashは8.202十億円、Q1営業CFは4.085十億円で短期資金枯渇を示さない。buyback上限3十億円とM&A方針を合わせたcash消費は継続監視する。
+  as_of: '2026-05-31'
+  source_ids:
+  - fy2027_q1_results
+  - treasury_share_resolution
+- axis: debt_repayment
+  assessment: acceptable
+  evidence_status: verified
+  summary: 借入平均利率は1.30%、2027年から2031年まで各年度1.429十億円返済、最終返済は2031年2月。純資産75%以上・2期連続営業損失なしのcovenantに報告日現在抵触せず、2026年5月末cash15.321十億円が借入7.119十億円を上回る。
+  as_of: '2026-05-31'
+  source_ids:
+  - fy2026_annual_report
+  - fy2027_q1_results
+- axis: cash_flow
+  assessment: acceptable
+  evidence_status: verified
+  summary: FY2026の契約負債・残存履行義務は8.092十億円（1年以内6.419十億円、1年超1.673十億円）。Q1営業CF4.085十億円と単純cash capex0.216十億円は資金創出を示すが、売掛債権減少1.431十億円と契約負債増加1.965十億円への依存が大きく、年率換算しない。
+  as_of: '2026-05-31'
+  source_ids:
+  - fy2026_annual_report
+  - fy2027_q1_results
+- axis: dilution
+  assessment: acceptable
+  evidence_status: partially_verified
+  summary: 2026-06-30のEPS用net sharesは発行済35,035,470株から直接自己株228,712株とBIP信託47,398株を控除した34,759,360株。最大1.2百万株・3.45%の自己株式取得枠は潜在stock option204,400株・0.6%を上回るが、取得は未実行で将来の株式報酬付与を含むnet減少を確定事実にしない。
+  as_of: '2026-07-14'
+  source_ids:
+  - fy2026_annual_report
+  - fy2027_q1_results
+  - treasury_share_resolution
+- axis: customer_concentration
+  assessment: acceptable
+  evidence_status: partially_verified
+  summary: FY2026に売上10%以上の顧客はなく、最大記載先NECは2.061十億円・売上の6.66%で、単一顧客集中は観測されない。一方、会計上の顧客は販売partner中心で、業界・公共案件・channel/platform別の集中は未開示である。
+  as_of: '2026-02-28'
+  source_ids:
+  - fy2026_annual_report
+- axis: structural_decline
+  assessment: acceptable
+  evidence_status: partially_verified
+  summary: FY2026契約継続率は93.4%。Q1 recurring売上は17.8%増、比率70.6%、cloudは37.9%増で全社の構造衰退は観測されない。ただし期間・分母の異なるQ1保守継続率は90.2%、license/serviceは12.9%減、cloud増分の約66%は子会社等でorganic成長は未解決である。
+  as_of: '2026-05-31'
+  source_ids:
+  - fy2026_annual_report
+  - fy2027_q1_results
+  - fy2027_q1_presentation
+- axis: governance_accounting
+  assessment: acceptable
+  evidence_status: verified
+  summary: DE事業CGUの減損testは割引率7.6%、永久成長率1.5%、回収可能価額headroom89.666十億円で、break-even感応度は割引率+13.5ptまたは将来CF-65.9%。Q1時点goodwill・無形資産44.196十億円は資本の96.9%と大きいが、開示感応度では直ちに減損へ至る余力不足を示さない。
+  as_of: '2026-02-28'
+  source_ids:
+  - fy2026_annual_report
+judgment:
+  recommendation: defer
+  proposed_at: '2026-07-15T23:15:26+09:00'
+  confidence: medium
+  permanent_loss_conclusion: acceptable
+  strongest_countercase: FY2026は契約継続率93.4%、Q1 recurring売上17.8%増、減損headroom89.666十億円、売上10%以上の顧客なしと長期耐性を支える一次情報がある。一方、Q1 cloud増分の約66%は子会社等、SVF license/serviceは26.0%減、期間・分母の異なる保守継続率は90.2%、人件費と外注費の伸びも売上を上回った。会社予想達成にはQ2売上8.824十億円、EBITDA3.025十億円が必要で、NEX除外organic成長、contract別margin、NRR・churn、CAC/paybackは未開示である。したがって保有thesisは維持できるが、追加購入では8%利益成長と14倍terminalを同時に置くbaseをQ2前に強く確信しない。
+  sizing_action: none
+  ai_value_capture:
+    assessment_status: not_material
+    roles: []
+    competitive_advantage: neutral
+    pricing_power: unknown
+    capex_burden: neutral
+    customer_bargaining_power: unknown
+    value_capture_conclusion: uncertain
+    decision_weight: none
+    rationale: 会社はAIを製品機能と開発効率化へ使い、Claudeを400名超へ付与したと説明するが、AI起点の売上、gross margin、retention、価格改定は分離開示しない。5年baseはrecurring contractとcash conversionで組み、AI寄与を採用理由にしない。
+    source_ids:
+    - fy2027_q1_presentation
+independent_review_ref: 2026-07-14-4432-decision-review.yaml

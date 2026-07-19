@@ -27,6 +27,7 @@ from baibai_engine.position.policy import PORTFOLIO_POLICY, PolicyConfig
 
 _MODEL_CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
 _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
+CANONICAL_LEDGER_FILENAME = "portfolio-ledger.yaml"
 
 
 class PortfolioLedgerError(ValueError):
@@ -427,7 +428,26 @@ def load_portfolio_ledger_with_sha256(path: Path) -> tuple[PortfolioLedgerDocume
         document = PortfolioLedgerDocument.model_validate(raw)
     except ValidationError as error:
         raise PortfolioLedgerError(str(error)) from error
+    _reject_test_prices_in_canonical(document, path)
     return document, hashlib.sha256(source).hexdigest()
+
+
+def _reject_test_prices_in_canonical(document: PortfolioLedgerDocument, path: Path) -> None:
+    if path.name == CANONICAL_LEDGER_FILENAME and any(
+        price.source_kind == "test_fixture" for price in document.market_prices
+    ):
+        raise PortfolioLedgerError("canonical portfolio ledger cannot use test_fixture prices")
+
+
+def portfolio_ledger_json_schema() -> dict[str, object]:
+    """Return the public JSON Schema written under records/_schemas."""
+
+    schema = PortfolioLedgerDocument.model_json_schema()
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "portfolio-ledger",
+        **schema,
+    }
 
 
 def replay_events_through(
