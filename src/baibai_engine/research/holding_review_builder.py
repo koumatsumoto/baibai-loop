@@ -15,7 +15,6 @@ from pathlib import Path
 
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.position.holding_review import (
-    CanonicalSource,
     HoldingReviewDocument,
     HoldingReviewError,
     evaluate_holding_review,
@@ -172,16 +171,10 @@ def validate_holding_review_scalars_from_db(
     ledger_source = document.sources.ledger
     packet_source = document.sources.holding_packet
     candidate_source = document.sources.candidate_packet
-    if not isinstance(ledger_source, CanonicalSource) or not isinstance(
-        packet_source, CanonicalSource
-    ):
-        raise HoldingReviewError("DB holding review requires canonical source bindings")
     if ledger_source.entity_id != "portfolio-ledger" or ledger_source.append_head is None:
         raise HoldingReviewError("holding review ledger binding is incomplete")
     if LedgerStoreService(db_path).append_head() != ledger_source.append_head:
         raise HoldingReviewError("holding review ledger source changed after draft build")
-    if candidate_source is not None and not isinstance(candidate_source, CanonicalSource):
-        raise HoldingReviewError("candidate packet must use a canonical source binding")
     rebuilt = build_holding_review_from_db(
         db_path=db_path,
         holding_packet_id=packet_source.entity_id,

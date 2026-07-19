@@ -13,7 +13,6 @@ from typing import cast
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.position.holding_review import (
-    CanonicalSource,
     HoldingReviewDocument,
     evaluate_holding_review,
 )
@@ -329,10 +328,6 @@ def _validate_canonical_holding_sources(
     ledger_source = document.sources.ledger
     packet_source = document.sources.holding_packet
     candidate_source = document.sources.candidate_packet
-    if not isinstance(ledger_source, CanonicalSource) or not isinstance(
-        packet_source, CanonicalSource
-    ):
-        raise ResearchConflictError("holding review canonical bindings are incomplete")
     current_head = int(
         connection.execute("SELECT coalesce(max(append_seq), 0) FROM ledger_event").fetchone()[0]
     )
@@ -343,9 +338,7 @@ def _validate_canonical_holding_sources(
     if candidate_source is None:
         if publication.candidate_packet_id is not None:
             raise ResearchConflictError("candidate packet revision binding is missing")
-    elif not isinstance(candidate_source, CanonicalSource) or (
-        candidate_source.entity_id != publication.candidate_packet_id
-    ):
+    elif candidate_source.entity_id != publication.candidate_packet_id:
         raise ResearchConflictError("candidate packet revision binding differs")
 
 
