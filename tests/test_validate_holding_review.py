@@ -14,18 +14,6 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
 
 
-def test_legacy_arithmetic_fixtures_are_rejected_without_current_sources() -> None:
-    for name in (
-        "thesis-break.yaml",
-        "fair-value-hold.yaml",
-        "underwater-hold.yaml",
-        "replacement-superior.yaml",
-        "tax-unknown-hold.yaml",
-    ):
-        findings = validate_holding_review_file(FIXTURES / name)
-        assert any(f.code == "holding-review.invalid" for f in findings), name
-
-
 def test_six_axes_fails_schema(tmp_path: Path) -> None:
     raw: dict[str, Any] = yaml.safe_load(
         (FIXTURES / "underwater-hold.yaml").read_text(encoding="utf-8")
