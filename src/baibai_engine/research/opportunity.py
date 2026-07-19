@@ -208,7 +208,7 @@ def prepare_workspace(
         },
     }
     _write_workspace_file(manifest_path, manifest)
-    _write_status(workspace)
+    _write_status(workspace, db_path=db_path)
     return PrepareResult(
         workspace=workspace,
         actionable=bool(annotated),
@@ -288,7 +288,7 @@ def prepare_holding_workspace(
         "rules": {},
     }
     _write_workspace_file(manifest_path, manifest)
-    _write_status(workspace)
+    _write_status(workspace, db_path=db_path)
     return PrepareResult(
         workspace=workspace,
         actionable=True,
@@ -354,20 +354,20 @@ def _research_comparison(
 # --------------------------------------------------------------------------- #
 
 
-def _write_status(workspace: Path) -> dict[str, object]:
-    status = compute_status(workspace)
+def _write_status(workspace: Path, *, db_path: Path | None) -> dict[str, object]:
+    status = compute_status(workspace, db_path=db_path)
     write_text_atomic(workspace / "status.yaml", _dump_yaml(status))
     return status
 
 
-def compute_status(workspace: Path) -> dict[str, object]:
+def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str, object]:
     """Read the workspace and report completion, drift, and the next command.
 
     External inputs remain bound to their prepare-time hashes. Operator-authored
     drafts are editable, but their structure and lineage must remain consistent.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest)
+    _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
 
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
@@ -547,17 +547,16 @@ def _verify_external_inputs(manifest: Mapping[str, object], *, db_path: Path | N
             expected_head = input_ref.get("append_head")
             if entity_id != "portfolio-ledger" or not isinstance(expected_head, int):
                 raise OpportunityDataError("manifest ledger revision is invalid")
-            if db_path is not None:
-                try:
-                    current_head = LedgerStoreService(db_path).append_head()
-                except (OSError, RuntimeError, ValueError) as error:
-                    raise OpportunityDataError(
-                        f"cannot read canonical ledger revision: {error}"
-                    ) from error
-                if current_head != expected_head:
-                    raise OpportunityConflictError(
-                        "canonical ledger changed since workspace prepare (append head drift)"
-                    )
+            try:
+                current_head = LedgerStoreService(db_path).append_head()
+            except (OSError, RuntimeError, ValueError) as error:
+                raise OpportunityDataError(
+                    f"cannot read canonical ledger revision: {error}"
+                ) from error
+            if current_head != expected_head:
+                raise OpportunityConflictError(
+                    "canonical ledger changed since workspace prepare (append head drift)"
+                )
             continue
         path_value = input_ref.get("path")
         expected = input_ref.get("sha256")
@@ -680,6 +679,7 @@ def scaffold_packet(
     sqlite_path: Path,
     target_session: date,
     retrieved_at: datetime,
+    db_path: Path | None = None,
     force: bool = False,
 ) -> dict[str, object]:
     """Write a packet-draft with observed price facts and a pending checklist.
@@ -689,7 +689,7 @@ def scaffold_packet(
     series). An unresolved corporate action blocks the corporate-action check.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest)
+    _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
     _require_primary_research_ticker(workspace, ticker)
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
@@ -1013,7 +1013,9 @@ def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
 # --------------------------------------------------------------------------- #
 
 
-def scaffold_review(*, workspace: Path, ticker: str, force: bool = False) -> dict[str, object]:
+def scaffold_review(
+    *, workspace: Path, ticker: str, db_path: Path | None = None, force: bool = False
+) -> dict[str, object]:
     """Write a review-draft bound to the current packet core hash.
 
     The review author is a distinct role from the packet author; this scaffold only
@@ -1021,7 +1023,7 @@ def scaffold_review(*, workspace: Path, ticker: str, force: bool = False) -> dic
     bound ``reviewed_packet_sha256`` is what lets ``promote`` detect a stale review.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
-    _verify_external_inputs(manifest)
+    _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
     _require_primary_research_ticker(workspace, ticker)
     ticker_dir = _research_lane_dir(workspace, ticker)

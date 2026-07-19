@@ -78,11 +78,13 @@ def build_parser() -> argparse.ArgumentParser:
         "status", help="report workspace completion, drift, and the next command"
     )
     status_parser.add_argument("--workspace", required=True, type=Path)
+    status_parser.add_argument("--db", type=Path)
 
     packet_parser = subparsers.add_parser(
         "packet-scaffold", help="scaffold a packet draft with the previous-day raw close"
     )
     packet_parser.add_argument("--workspace", required=True, type=Path)
+    packet_parser.add_argument("--db", type=Path)
     packet_parser.add_argument("--ticker", required=True)
     packet_parser.add_argument("--sqlite-path", required=True, type=Path)
     packet_parser.add_argument(
@@ -97,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
         "review-scaffold", help="scaffold an independent review draft bound to the packet hash"
     )
     review_parser.add_argument("--workspace", required=True, type=Path)
+    review_parser.add_argument("--db", type=Path)
     review_parser.add_argument("--ticker", required=True)
     review_parser.add_argument("--force", action="store_true")
 
@@ -166,7 +169,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     out,
                 )
             case "status":
-                _emit(compute_status(args.workspace), out)
+                _emit(compute_status(args.workspace, db_path=args.db), out)
             case "packet-scaffold":
                 _emit(
                     scaffold_packet(
@@ -175,13 +178,19 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         sqlite_path=args.sqlite_path,
                         target_session=_parse_date(args.target_session),
                         retrieved_at=resolved_now,
+                        db_path=args.db,
                         force=args.force,
                     ),
                     out,
                 )
             case "review-scaffold":
                 _emit(
-                    scaffold_review(workspace=args.workspace, ticker=args.ticker, force=args.force),
+                    scaffold_review(
+                        workspace=args.workspace,
+                        ticker=args.ticker,
+                        db_path=args.db,
+                        force=args.force,
+                    ),
                     out,
                 )
             case "promote":

@@ -11,6 +11,7 @@ import yaml
 from baibai_engine.position.cli import build_parser as position_parser
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.ledger import PortfolioLedgerDocument, load_portfolio_ledger
+from baibai_engine.position.outcome_store import PortfolioOutcomeStore
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
@@ -24,7 +25,6 @@ DECISION_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
 LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 BENCHMARK_FIXTURE = ROOT / "tests/fixtures/benchmark-observation/topix-1y.yaml"
 EXECUTION_INPUT_FIXTURE = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
-HOLDING_REVIEW_FIXTURE = ROOT / "tests/fixtures/holding-review/replacement-superior.yaml"
 RULES_PATH = ROOT / "records/_config/screening-rules/2026-07-06T000000+0900.yaml"
 
 
@@ -304,11 +304,11 @@ def test_outcome_cli_emits_stable_market_unavailable_shape(
         "market_data_coverage_start_date",
         "market_data_coverage_end_date",
         "market_data_fingerprint",
-        "outcome_id",
     }
     assert payload["status"] == "unresolved"
     assert payload["reason"] == "benchmark_unavailable"
     assert payload["market_data_sha256"] is None
+    assert PortfolioOutcomeStore(db_path).list() == ()
 
 
 def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]) -> None:
@@ -424,35 +424,6 @@ def test_decision_cli_emits_execution_proposal_shape(
         "dry_powder_after_execution_yen",
         "largest_warning",
         "detail",
-    }
-
-
-def test_holding_review_cli_emits_stable_yaml_shape(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert position_main(["holding-review", "--input", str(HOLDING_REVIEW_FIXTURE)]) == 0
-    payload = _payload(capsys.readouterr().out)
-
-    assert set(payload) == {
-        "as_of",
-        "position_id",
-        "ticker",
-        "review_status",
-        "recorded_action",
-        "computed_action",
-        "permanent_loss_conclusion",
-        "replacement",
-        "valuation_review",
-        "note",
-    }
-    replacement = payload["replacement"]
-    assert isinstance(replacement, dict)
-    assert set(replacement) == {
-        "status",
-        "edge_yen",
-        "tax_basis",
-        "breakeven_exit_tax_rate_bps",
-        "edge_at_zero_tax_yen",
     }
 
 

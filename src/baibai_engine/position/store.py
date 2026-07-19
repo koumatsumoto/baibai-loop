@@ -139,6 +139,14 @@ class LedgerStoreService:
         )
 
 
+def load_ledger_in_transaction(
+    connection: sqlite3.Connection,
+) -> tuple[PortfolioLedgerDocument, int]:
+    """Read the canonical ledger through an existing application-DB transaction."""
+    _require_schema(connection)
+    return _load_document(connection), _append_head(connection)
+
+
 def _require_schema(connection: sqlite3.Connection) -> None:
     found = {
         str(row[0])

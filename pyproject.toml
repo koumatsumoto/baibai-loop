@@ -261,7 +261,9 @@ source_modules = ["baibai_engine.screening"]
 forbidden_modules = ["baibai_engine.position"]
 # ticker_profile reads position only through the query-only read_api facade.
 # Direct screening -> position imports remain forbidden.
-allow_indirect_imports = true
+ignore_imports = [
+  "baibai_engine.screening.ticker_profile -> baibai_engine.read_api.position",
+]
 
 [[tool.importlinter.contracts]]
 name = "research is the top-level domain engine (lower layers do not import it)"
@@ -283,10 +285,9 @@ ignore_imports = [
   # remain independent of research.
   "baibai_engine.position.cli -> baibai_engine.research.holding_review_builder",
   "baibai_engine.position.cli -> baibai_engine.research.store",
+  "baibai_engine.position.cli -> baibai_engine.proposals.store",
+  "baibai_engine.position.result_service -> baibai_engine.proposals.store",
 ]
-# Proposal policy is composed below position through the proposal service; only
-# direct lower-layer imports of research are forbidden.
-allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "research only composes foundation and position domains"

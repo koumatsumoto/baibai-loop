@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -15,14 +15,13 @@ from baibai_engine.position.drafts import apply_draft, load_draft
 from baibai_engine.position.ledger import load_portfolio_ledger, reconcile_portfolio
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.proposals.store import ProposalStoreService
-from baibai_engine.research.execution_policy import ExecutionPolicyInput
+from baibai_engine.proposals.store import PlannedLimitInput, ProposalStoreService
+from baibai_engine.research.opportunity import plan_limit
 from baibai_engine.research.store import ResearchStoreService
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
 REVIEW = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
-POLICY = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 PACKET_ID = "packet-20260711-2331-r1"
 CREATED_AT = datetime.fromisoformat("2026-07-11T10:02:00+09:00")
@@ -50,11 +49,32 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
         )
     )
     proposals = ProposalStoreService(db)
-    snapshot = reconcile_portfolio(ledger.load())
+    document, append_head = ledger.load_with_head()
+    snapshot = reconcile_portfolio(document)
+    market = tmp_path / "market.sqlite"
+    with sqlite3.connect(market) as connection:
+        connection.execute("PRAGMA user_version = 12")
+        connection.execute(
+            "CREATE TABLE jquants_daily_bars "
+            "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"
+        )
+        connection.execute("INSERT INTO jquants_daily_bars VALUES ('2331', '2026-07-10', 1000, 1)")
+    planned = PlannedLimitInput.model_validate(
+        plan_limit(
+            packet=PACKET,
+            db_path=db,
+            sqlite_path=market,
+            target_session=date(2026, 7, 13),
+            budget_min_yen=200_000,
+            budget_max_yen=300_000,
+            now=CREATED_AT,
+        )
+    )
     proposal = proposals.create(
         PACKET_ID,
-        ExecutionPolicyInput.model_validate(_raw(POLICY)),
+        planned,
         snapshot,
+        snapshot_append_head=append_head,
         created_at=CREATED_AT,
     )
     proposals.decide(
@@ -62,6 +82,7 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
         "approve",
         decided_at=CREATED_AT + timedelta(minutes=1),
         snapshot=snapshot,
+        snapshot_append_head=append_head,
     )
     return ledger, proposals, proposal.proposal_id
 

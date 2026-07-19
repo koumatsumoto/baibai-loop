@@ -8,16 +8,15 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+from pydantic import ValidationError
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import PortfolioLedgerError, reconcile_portfolio
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
-from baibai_engine.research.execution_policy import (
-    ExecutionPolicyError,
-    load_execution_policy_input,
-)
 
 from .store import (
+    PlannedLimitInput,
     ProposalConflictError,
     ProposalNotFoundError,
     ProposalRecord,
@@ -53,14 +52,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     current_time = now or datetime.now(JST)
     try:
         if args.command == "create":
-            execution_input = load_execution_policy_input(args.input)
-            snapshot = reconcile_portfolio(LedgerStoreService(args.db).load())
+            raw_input = safe_load(args.input.read_text(encoding="utf-8"))
+            planned_limit = PlannedLimitInput.model_validate(raw_input)
+            document, append_head = LedgerStoreService(args.db).load_with_head()
+            snapshot = reconcile_portfolio(document)
             _emit(
                 _public(
                     service.create(
                         args.packet_id,
-                        execution_input,
+                        planned_limit,
                         snapshot,
+                        snapshot_append_head=append_head,
                         created_at=current_time,
                     )
                 )
@@ -70,11 +72,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         elif args.command == "show":
             _emit(_public(service.get(args.proposal_id)))
         elif args.command == "decide":
-            approval_snapshot = (
-                reconcile_portfolio(LedgerStoreService(args.db).load())
-                if args.decision == "approve"
-                else None
-            )
+            if args.decision == "approve":
+                approval_document, approval_head = LedgerStoreService(args.db).load_with_head()
+                approval_snapshot = reconcile_portfolio(approval_document)
+            else:
+                approval_snapshot = None
+                approval_head = None
             _emit(
                 _public(
                     service.decide(
@@ -82,6 +85,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         args.decision,
                         decided_at=current_time,
                         snapshot=approval_snapshot,
+                        snapshot_append_head=approval_head,
                     )
                 )
             )
@@ -89,12 +93,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             raise AssertionError(f"unreachable proposal command: {args.command}")
     except (
         OSError,
-        ExecutionPolicyError,
         LedgerConflictError,
         PortfolioLedgerError,
         ProposalConflictError,
         ProposalNotFoundError,
         ProposalValidationError,
+        ValidationError,
         ValueError,
     ) as error:
         print(f"error: {error}", file=sys.stderr)

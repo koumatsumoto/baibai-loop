@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
+from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.drafts import apply_draft, build_event_draft
 from baibai_engine.position.importer import import_ledger_file
 from baibai_engine.position.ledger import ContributionEvent
@@ -29,6 +31,7 @@ def _database(tmp_path: Path) -> Path:
 
 def test_db_holding_review_build_and_publish_recheck_canonical_revisions(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     db = _database(tmp_path)
     document = build_holding_review_from_db(
@@ -71,3 +74,10 @@ def test_db_holding_review_build_and_publish_recheck_canonical_revisions(
             stale.model_dump(mode="json"),
             root=ROOT,
         )
+
+    draft = tmp_path / "stale-holding-review.yaml"
+    draft.write_text(
+        yaml.safe_dump(stale.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
+    )
+    assert position_main(["holding-review", "--db", str(db), "--input", str(draft)]) == 2
+    assert "source changed" in capsys.readouterr().err

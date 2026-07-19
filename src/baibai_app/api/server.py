@@ -50,7 +50,12 @@ class _Sources:
     program: DbProgramSource
 
 
-def create_app(root: Path) -> FastAPI:
+def create_app(
+    root: Path,
+    *,
+    db_path: Path | None = None,
+    runs_db_path: Path | None = None,
+) -> FastAPI:
     """Create the local-only read API for one repository root."""
 
     resolved_root = root.resolve()
@@ -65,6 +70,10 @@ def create_app(root: Path) -> FastAPI:
         allowed_hosts=["127.0.0.1", "localhost"],
     )
     app.state.root = resolved_root
+    app.state.db_path = (db_path or resolved_root / "data/app/baibai.sqlite").resolve()
+    app.state.runs_db_path = (
+        runs_db_path or resolved_root / "data/screening/runs.sqlite"
+    ).resolve()
     app.state.macro_groups = load_macro_dashboard_config(
         resolved_root / "records/_config/macro-dashboard.yaml"
     )
@@ -139,20 +148,22 @@ def create_app(root: Path) -> FastAPI:
 
 def _build_sources(request: Request) -> _Sources:
     root: Path = request.app.state.root
+    db_path: Path = request.app.state.db_path
+    runs_db_path: Path = request.app.state.runs_db_path
     return _Sources(
-        ledger=DbLedgerSource(root / "data/app/baibai.sqlite"),
-        research=DbResearchSource(root / "data/app/baibai.sqlite"),
-        tasks=DbTaskSource(root / "data/app/baibai.sqlite"),
+        ledger=DbLedgerSource(db_path),
+        research=DbResearchSource(db_path),
+        tasks=DbTaskSource(db_path),
         candidates=DbCandidatesSource(
-            root / "data/screening/runs.sqlite",
-            root / "data/app/baibai.sqlite",
+            runs_db_path,
+            db_path,
         ),
         macro=DbMacroSource(
-            root / "data/app/baibai.sqlite",
+            db_path,
             root / "data/indicators/macro.sqlite",
             request.app.state.macro_groups,
         ),
-        program=DbProgramSource(root / "data/app/baibai.sqlite"),
+        program=DbProgramSource(db_path),
     )
 
 

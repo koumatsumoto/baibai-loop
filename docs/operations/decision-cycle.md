@@ -62,8 +62,8 @@ uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml
 uv run baibai-engine research prepare --asof YYYY-MM-DD --selection-output /tmp/selection.yaml --db data/app/baibai.sqlite --workspace .cache/opportunity/YYYY-MM-DD
 uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --db data/app/baibai.sqlite
 uv run baibai-engine research plan-limit --packet .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
-uv run baibai-engine proposal create --packet-id PACKET_ID --input /tmp/proposal-input.yaml
-uv run baibai-engine proposal decide PROPOSAL_ID --decision approve
+uv run baibai-engine proposal --db data/app/baibai.sqlite create --packet-id PACKET_ID --input /tmp/proposal-input.yaml
+uv run baibai-engine proposal --db data/app/baibai.sqlite decide PROPOSAL_ID --decision approve
 ```
 
 `approve`時はcurrent DBのpacket、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。

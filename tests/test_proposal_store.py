@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import sqlite3
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -14,18 +14,22 @@ from baibai_engine.position.ledger import (
     PortfolioSnapshot,
     reconcile_portfolio,
 )
+from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.proposals.cli import main as proposal_main
 from baibai_engine.proposals.store import (
+    PlannedLimitInput,
     ProposalConflictError,
+    ProposalRecord,
     ProposalStoreService,
     ProposalValidationError,
 )
-from baibai_engine.research.execution_policy import ExecutionPolicyInput
+from baibai_engine.research.opportunity import plan_limit
+from baibai_engine.research.opportunity_cli import main as research_main
 from baibai_engine.research.store import ResearchStoreService
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
 REVIEW = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
-POLICY = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 PACKET_ID = "packet-20260711-2331-r1"
 CREATED_AT = datetime.fromisoformat("2026-07-11T10:02:00+09:00")
@@ -46,46 +50,74 @@ def _database(path: Path, *, with_review: bool = True) -> None:
         packet["judgment"]["recommendation"] = "defer"  # type: ignore[index]
         packet["judgment"]["sizing_action"] = "none"  # type: ignore[index]
         service.publish_packet(PACKET_ID, packet)
+    ledger = PortfolioLedgerDocument.model_validate(_raw(LEDGER))
+    LedgerStoreService(path).import_document(
+        ledger.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in ledger.market_prices
+                )
+            }
+        )
+    )
 
 
-def _policy() -> ExecutionPolicyInput:
-    return ExecutionPolicyInput.model_validate(_raw(POLICY))
+def _planned(path: Path) -> PlannedLimitInput:
+    market = path.with_name("market.sqlite")
+    with sqlite3.connect(market) as connection:
+        connection.execute("PRAGMA user_version = 12")
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS jquants_daily_bars "
+            "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"
+        )
+        connection.execute("DELETE FROM jquants_daily_bars")
+        connection.execute("INSERT INTO jquants_daily_bars VALUES ('2331', '2026-07-10', 1000, 1)")
+    return PlannedLimitInput.model_validate(
+        plan_limit(
+            packet=PACKET,
+            db_path=path,
+            sqlite_path=market,
+            target_session=date(2026, 7, 13),
+            budget_min_yen=200_000,
+            budget_max_yen=300_000,
+            now=CREATED_AT,
+        )
+    )
 
 
 def _snapshot() -> PortfolioSnapshot:
     return reconcile_portfolio(PortfolioLedgerDocument.model_validate(_raw(LEDGER)))
 
 
-def test_create_uses_db_packet_review_and_replaces_caller_portfolio(tmp_path: Path) -> None:
-    path = tmp_path / "app.sqlite"
-    _database(path)
-    raw = _raw(POLICY)
-    portfolio = raw["portfolio"]
-    assert isinstance(portfolio, dict)
-    portfolio["available_cash_yen"] = 1
-    portfolio["board_lot"] = 1
-    portfolio["adv_participation_warning_pct"] = 99.0
-    proposal = ProposalStoreService(path).create(
+def _current_snapshot(path: Path) -> PortfolioSnapshot:
+    return reconcile_portfolio(LedgerStoreService(path).load())
+
+
+def _create(service: ProposalStoreService, path: Path) -> ProposalRecord:
+    return service.create(
         PACKET_ID,
-        ExecutionPolicyInput.model_validate(raw),
-        _snapshot(),
+        _planned(path),
+        _current_snapshot(path),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
         created_at=CREATED_AT,
     )
+
+
+def test_create_uses_db_packet_review_and_current_planning_limit(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _database(path)
+    proposal = _create(ProposalStoreService(path), path)
 
     assert proposal.proposal_id == "prop-20260711-2331-1"
     assert proposal.status == "pending"
     assert proposal.packet_id == PACKET_ID
     assert proposal.review_id == "review-2331-20260703"
-    stored_input = proposal.payload["execution_input"]
+    stored_input = proposal.payload["planned_limit"]
     assert isinstance(stored_input, dict)
-    stored_portfolio = stored_input["portfolio"]
-    assert isinstance(stored_portfolio, dict)
-    assert stored_portfolio["available_cash_yen"] == _snapshot().available_cash_yen
-    assert stored_portfolio["board_lot"] == 100
-    assert stored_portfolio["adv_participation_warning_pct"] == 5.0
+    assert stored_input["source_ledger_append_head"] == LedgerStoreService(path).append_head()
     generated = proposal.payload["execution_proposal"]
     assert isinstance(generated, dict)
-    assert generated["recommended_tactic"] == "buy_now"
     assert generated["orders"]
 
 
@@ -93,8 +125,8 @@ def test_internal_ids_are_allocated_without_collision_under_write_lock(tmp_path:
     path = tmp_path / "app.sqlite"
     _database(path)
     service = ProposalStoreService(path)
-    first = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
-    second = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
+    first = _create(service, path)
+    second = _create(service, path)
 
     assert first.proposal_id == "prop-20260711-2331-1"
     assert second.proposal_id == "prop-20260711-2331-2"
@@ -107,8 +139,9 @@ def test_create_requires_one_matching_ready_buy_review_without_write(tmp_path: P
     with pytest.raises(ProposalValidationError, match="exactly one review"):
         ProposalStoreService(path).create(
             PACKET_ID,
-            _policy(),
+            _planned(path),
             _snapshot(),
+            snapshot_append_head=LedgerStoreService(path).append_head(),
             created_at=CREATED_AT,
         )
 
@@ -120,7 +153,7 @@ def test_human_decision_can_move_between_non_approved_current_states(tmp_path: P
     path = tmp_path / "app.sqlite"
     _database(path)
     service = ProposalStoreService(path)
-    proposal = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
+    proposal = _create(service, path)
 
     deferred = service.decide(
         proposal.proposal_id,
@@ -142,7 +175,7 @@ def test_decision_time_cannot_move_backwards(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
     service = ProposalStoreService(path)
-    proposal = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
+    proposal = _create(service, path)
     service.decide(
         proposal.proposal_id,
         "defer",
@@ -165,13 +198,14 @@ def test_approve_recalculates_and_accepts_an_unchanged_current_snapshot(tmp_path
     path = tmp_path / "app.sqlite"
     _database(path)
     service = ProposalStoreService(path)
-    proposal = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
+    proposal = _create(service, path)
 
     approved = service.decide(
         proposal.proposal_id,
         "approve",
         decided_at=CREATED_AT + timedelta(minutes=1),
-        snapshot=_snapshot(),
+        snapshot=_current_snapshot(path),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
     )
 
     assert approved.status == "approved"
@@ -181,8 +215,11 @@ def test_approve_rejects_planning_limit_drift_without_write(tmp_path: Path) -> N
     path = tmp_path / "app.sqlite"
     _database(path)
     service = ProposalStoreService(path)
-    proposal = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
-    changed = replace(_snapshot(), available_cash_yen=_snapshot().available_cash_yen - 100_000)
+    proposal = _create(service, path)
+    current_snapshot = _current_snapshot(path)
+    changed = replace(
+        current_snapshot, available_cash_yen=current_snapshot.available_cash_yen - 100_000
+    )
 
     with pytest.raises(ProposalConflictError, match="create a new proposal"):
         service.decide(
@@ -190,6 +227,27 @@ def test_approve_rejects_planning_limit_drift_without_write(tmp_path: Path) -> N
             "approve",
             decided_at=CREATED_AT + timedelta(minutes=1),
             snapshot=changed,
+            snapshot_append_head=LedgerStoreService(path).append_head(),
+        )
+
+    assert service.get(proposal.proposal_id).status == "pending"
+
+
+def test_approve_rejects_changed_market_close_without_write(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _database(path)
+    service = ProposalStoreService(path)
+    proposal = _create(service, path)
+    with sqlite3.connect(tmp_path / "market.sqlite") as connection:
+        connection.execute("UPDATE jquants_daily_bars SET close = 999 WHERE ticker = '2331'")
+
+    with pytest.raises(ProposalConflictError, match="planning price differs"):
+        service.decide(
+            proposal.proposal_id,
+            "approve",
+            decided_at=CREATED_AT + timedelta(minutes=1),
+            snapshot=_current_snapshot(path),
+            snapshot_append_head=LedgerStoreService(path).append_head(),
         )
 
     assert service.get(proposal.proposal_id).status == "pending"
@@ -199,7 +257,7 @@ def test_approve_requires_current_input_and_snapshot_without_write(tmp_path: Pat
     path = tmp_path / "app.sqlite"
     _database(path)
     service = ProposalStoreService(path)
-    proposal = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
+    proposal = _create(service, path)
 
     with pytest.raises(ProposalValidationError, match="current DB-derived"):
         service.decide(
@@ -212,7 +270,7 @@ def test_approve_requires_current_input_and_snapshot_without_write(tmp_path: Pat
             proposal.proposal_id,
             "approve",
             decided_at=CREATED_AT + timedelta(minutes=10),
-            snapshot=_snapshot(),
+            snapshot=_current_snapshot(path),
         )
 
     assert service.get(proposal.proposal_id).status == "pending"
@@ -224,12 +282,21 @@ def test_ledger_reference_locks_decision_and_approved_is_not_redecidable(
     path = tmp_path / "app.sqlite"
     _database(path)
     service = ProposalStoreService(path)
-    first = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
+    first = _create(service, path)
+    second = _create(service, path)
     service.decide(
         first.proposal_id,
         "approve",
         decided_at=CREATED_AT + timedelta(minutes=1),
-        snapshot=_snapshot(),
+        snapshot=_current_snapshot(path),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
+    )
+    service.decide(
+        second.proposal_id,
+        "approve",
+        decided_at=CREATED_AT + timedelta(minutes=1),
+        snapshot=_current_snapshot(path),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
     )
     with sqlite3.connect(path) as connection:
         connection.execute(
@@ -250,16 +317,57 @@ def test_ledger_reference_locks_decision_and_approved_is_not_redecidable(
         )
     assert service.get(first.proposal_id).status == "approved"
 
-    second = service.create(PACKET_ID, _policy(), _snapshot(), created_at=CREATED_AT)
-    service.decide(
-        second.proposal_id,
-        "approve",
-        decided_at=CREATED_AT + timedelta(minutes=1),
-        snapshot=_snapshot(),
-    )
     with pytest.raises(ProposalConflictError, match="cannot be re-decided"):
         service.decide(
             second.proposal_id,
             "defer",
             decided_at=CREATED_AT + timedelta(minutes=2),
         )
+
+
+def test_plan_limit_output_creates_proposal_through_public_clis(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    _database(db)
+    market = tmp_path / "market.sqlite"
+    with sqlite3.connect(market) as connection:
+        connection.execute("PRAGMA user_version = 12")
+        connection.execute(
+            "CREATE TABLE jquants_daily_bars "
+            "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"
+        )
+        connection.execute("INSERT INTO jquants_daily_bars VALUES ('2331', '2026-07-10', 1000, 1)")
+    output = tmp_path / "planned-limit.yaml"
+
+    assert (
+        research_main(
+            [
+                "plan-limit",
+                "--packet",
+                str(PACKET),
+                "--db",
+                str(db),
+                "--sqlite-path",
+                str(market),
+                "--target-session",
+                "2026-07-13",
+                "--output",
+                str(output),
+            ],
+            now=CREATED_AT,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (
+        proposal_main(
+            ["--db", str(db), "create", "--packet-id", PACKET_ID, "--input", str(output)],
+            now=CREATED_AT,
+        )
+        == 0
+    )
+    created = safe_load(capsys.readouterr().out)
+    assert isinstance(created, dict)
+    assert created["status"] == "pending"
+    assert created["payload"]["planned_limit"]["source_ledger_append_head"] == 11

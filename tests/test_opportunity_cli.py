@@ -50,6 +50,11 @@ TARGET_SESSION = "2026-07-13"
 # --------------------------------------------------------------------------- #
 
 
+@pytest.fixture(autouse=True)
+def _configured_application_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("BAIBAI_DB", str(tmp_path / "app.sqlite"))
+
+
 def _app_db(tmp_path: Path, ledger_path: Path = LEDGER_FIXTURE) -> Path:
     name = "app.sqlite" if ledger_path == LEDGER_FIXTURE else f"app-{ledger_path.stem}.sqlite"
     path = tmp_path / name
@@ -566,6 +571,8 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
                 "packet-scaffold",
                 "--workspace",
                 str(workspace),
+                "--db",
+                str(ledger),
                 "--ticker",
                 "2331",
                 "--sqlite-path",
@@ -633,7 +640,7 @@ def test_holding_workspace_binds_canonical_ledger_revision(
         "entity_id": "portfolio-ledger",
         "append_head": LedgerStoreService(ledger).append_head(),
     }
-    assert opportunity_main(["status", "--workspace", str(workspace)]) == 0
+    assert opportunity_main(["status", "--workspace", str(workspace), "--db", str(ledger)]) == 0
 
 
 def test_holding_prepare_requires_same_day_market_price(
@@ -1472,6 +1479,8 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
             "packet-scaffold",
             "--workspace",
             str(workspace),
+            "--db",
+            str(ledger),
             "--ticker",
             "2331",
             "--sqlite-path",

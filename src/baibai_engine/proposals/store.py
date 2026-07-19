@@ -7,31 +7,139 @@ import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
-from baibai_engine.position.ledger import PortfolioSnapshot
+from baibai_engine.foundation.time import JST
+from baibai_engine.position.ledger import PortfolioSnapshot, reconcile_portfolio
+from baibai_engine.position.store import load_ledger_in_transaction
+from baibai_engine.research.close_source import resolve_previous_business_day_close
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     IndependentReview,
     evaluate_decision_packet,
 )
-from baibai_engine.research.execution_policy import (
-    ExecutionPolicyError,
-    ExecutionPolicyInput,
-    evaluate_execution_policy,
-    execution_proposal_to_payload,
-    portfolio_input_from_snapshot,
-    require_current_execution_input,
+from baibai_engine.research.execution_policy import ExecutionPolicyError, max_acceptable_price
+from baibai_engine.research.opportunity import (
+    BOARD_LOT,
+    PLANNING_TICK_SIZE_YEN,
+    _portfolio_annotations,
+    _portfolio_exposure,
+    _portfolio_warnings,
 )
 
 ProposalStatus = Literal["pending", "approved", "deferred", "rejected"]
 ProposalDecision = Literal["approve", "defer", "reject"]
+
+_MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
+
+
+class PlannedExposureRow(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    key: Annotated[str, Field(min_length=1)]
+    current_and_reserved_yen: Annotated[int, Field(ge=0)]
+    prospective_yen: Annotated[int, Field(gt=0)]
+    prospective_pct: Annotated[float, Field(ge=0)]
+    warning_pct: Annotated[float, Field(gt=0, le=100)]
+
+
+class PlannedPortfolioExposure(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    price_as_of: date
+    price_basis: Literal["last_close_unadjusted"]
+    total_capital_yen: Annotated[int, Field(gt=0)]
+    holding_valuation_status: Literal["same_asof_raw_close", "mixed_with_ledger_fallback"]
+    ledger_fallback_tickers: tuple[str, ...]
+    common_factor_empty_tickers: tuple[str, ...]
+    ticker: PlannedExposureRow
+    sector: PlannedExposureRow
+    common_factors: tuple[PlannedExposureRow, ...]
+
+    @field_validator("price_as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return date.fromisoformat(value) if isinstance(value, str) else cast(date, value)
+
+    @field_validator(
+        "ledger_fallback_tickers", "common_factor_empty_tickers", "common_factors", mode="before"
+    )
+    @classmethod
+    def _parse_tuple(cls, value: object) -> object:
+        return tuple(value) if isinstance(value, list) else value
+
+
+class PlannedLimitInput(BaseModel):
+    """Strict form of the ephemeral ``research plan-limit`` output."""
+
+    model_config = _MODEL_CONFIG
+
+    status: Literal["planned_limit"]
+    ticker: Annotated[str, Field(pattern=r"^[0-9A-Z]{4}$")]
+    decision_packet_ref: Annotated[str, Field(min_length=1)]
+    decision_packet_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    decision_packet_core_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    independent_review_ref: Annotated[str, Field(min_length=1)]
+    independent_review_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    price_as_of: date
+    price_basis: Literal["last_close_unadjusted"]
+    source_ref: Annotated[str, Field(min_length=1)]
+    close_yen: Decimal
+    max_acceptable_price_yen: Decimal
+    board_lot: Annotated[int, Field(gt=0)]
+    budget_min_yen: Annotated[int, Field(gt=0)]
+    budget_max_yen: Annotated[int, Field(gt=0)]
+    portfolio_annotations: tuple[str, ...]
+    source_ledger_entity: Literal["portfolio-ledger"]
+    source_ledger_append_head: Annotated[int, Field(ge=0)]
+    expires_at: datetime
+    limit_price_yen: Decimal
+    quantity: Annotated[int, Field(gt=0)]
+    notional_yen: Annotated[int, Field(gt=0)]
+    portfolio_exposure: PlannedPortfolioExposure
+    warnings: tuple[str, ...]
+    defer_reasons: tuple[()]
+
+    @field_validator("price_as_of", mode="before")
+    @classmethod
+    def _parse_date(cls, value: object) -> date:
+        return date.fromisoformat(value) if isinstance(value, str) else cast(date, value)
+
+    @field_validator("expires_at", mode="before")
+    @classmethod
+    def _parse_datetime(cls, value: object) -> datetime:
+        parsed = datetime.fromisoformat(value) if isinstance(value, str) else cast(datetime, value)
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("expires_at must include a timezone")
+        return parsed
+
+    @field_validator("portfolio_annotations", "warnings", "defer_reasons", mode="before")
+    @classmethod
+    def _parse_tuple(cls, value: object) -> object:
+        return tuple(value) if isinstance(value, list) else value
+
+    @model_validator(mode="after")
+    def _coherent_order(self) -> PlannedLimitInput:
+        if self.budget_min_yen > self.budget_max_yen:
+            raise ValueError("budget_min_yen must not exceed budget_max_yen")
+        if self.board_lot != BOARD_LOT or self.quantity % self.board_lot:
+            raise ValueError("quantity must use the canonical board lot")
+        if self.close_yen != self.limit_price_yen:
+            raise ValueError("limit_price_yen must equal the raw close")
+        if self.limit_price_yen > self.max_acceptable_price_yen:
+            raise ValueError("limit price exceeds max acceptable price")
+        if self.limit_price_yen * self.quantity != self.notional_yen:
+            raise ValueError("notional_yen does not match price and quantity")
+        if self.expires_at.astimezone(JST).timetz().replace(tzinfo=None) != time(15, 30):
+            raise ValueError("expires_at must be the target session close")
+        return self
 
 
 class ProposalValidationError(ValueError):
@@ -67,9 +175,10 @@ class ProposalStoreService:
     def create(
         self,
         packet_id: str,
-        execution_input: ExecutionPolicyInput,
+        planned_limit: PlannedLimitInput,
         snapshot: PortfolioSnapshot,
         *,
+        snapshot_append_head: int,
         created_at: datetime,
     ) -> ProposalRecord:
         """Create one pending proposal from an immutable ready packet and current ledger."""
@@ -79,23 +188,25 @@ class ProposalStoreService:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 packet, review = _ready_packet_and_review(connection, packet_id)
-                effective_input = _input_with_snapshot(execution_input, snapshot)
-                require_current_execution_input(effective_input, now=created_at)
-                proposal = evaluate_execution_policy(
-                    packet,
-                    evaluate_decision_packet(packet, review=review),
-                    effective_input,
+                _validate_planned_limit(
+                    connection,
+                    planned_limit,
+                    packet=packet,
+                    review=review,
+                    snapshot=snapshot,
+                    snapshot_append_head=snapshot_append_head,
+                    now=created_at,
                 )
                 proposal_id = _allocate_proposal_id(
                     connection,
-                    ticker=proposal.ticker,
+                    ticker=planned_limit.ticker,
                     created_at=created_at,
                 )
                 payload: dict[str, object] = {
                     "packet_id": packet_id,
                     "review_id": review.review_id,
-                    "execution_input": effective_input.model_dump(mode="python"),
-                    "execution_proposal": execution_proposal_to_payload(proposal),
+                    "planned_limit": planned_limit.model_dump(mode="python"),
+                    "execution_proposal": _execution_proposal(planned_limit),
                 }
                 connection.execute(
                     """
@@ -106,7 +217,7 @@ class ProposalStoreService:
                     """,
                     (
                         proposal_id,
-                        proposal.ticker,
+                        planned_limit.ticker,
                         packet_id,
                         review.review_id,
                         created_at.isoformat(),
@@ -130,6 +241,7 @@ class ProposalStoreService:
         *,
         decided_at: datetime,
         snapshot: PortfolioSnapshot | None = None,
+        snapshot_append_head: int | None = None,
     ) -> ProposalRecord:
         """Record a human report, revalidating an approval against current DB state."""
         _require_aware(decided_at, "decided_at")
@@ -159,7 +271,7 @@ class ProposalStoreService:
                 if current == "approved":
                     raise ProposalConflictError("approved proposal cannot be re-decided")
                 if target == "approved":
-                    if snapshot is None:
+                    if snapshot is None or snapshot_append_head is None:
                         raise ProposalValidationError(
                             "approval requires a current DB-derived portfolio snapshot"
                         )
@@ -167,6 +279,7 @@ class ProposalStoreService:
                         connection,
                         row,
                         snapshot=snapshot,
+                        snapshot_append_head=snapshot_append_head,
                         decided_at=decided_at,
                     )
                 connection.execute(
@@ -254,49 +367,142 @@ def _ready_packet_and_review(
     return packet, review
 
 
-def _input_with_snapshot(
-    execution_input: ExecutionPolicyInput,
-    snapshot: PortfolioSnapshot,
-) -> ExecutionPolicyInput:
-    portfolio = portfolio_input_from_snapshot(
-        snapshot,
-        ticker=execution_input.ticker,
-        sector=execution_input.sector,
-        common_factors=execution_input.common_factors,
-        spread_warning_bps=execution_input.portfolio.spread_warning_bps,
-    )
-    return execution_input.model_copy(update={"portfolio": portfolio})
-
-
 def _revalidate_approval(
     connection: sqlite3.Connection,
     row: sqlite3.Row,
     *,
     snapshot: PortfolioSnapshot,
+    snapshot_append_head: int,
     decided_at: datetime,
 ) -> None:
     payload = _payload(row)
-    raw_input = payload.get("execution_input")
-    saved_proposal = payload.get("execution_proposal")
-    if not isinstance(raw_input, Mapping) or not isinstance(saved_proposal, Mapping):
+    raw_input = payload.get("planned_limit")
+    if not isinstance(raw_input, Mapping):
         raise ProposalConflictError("stored proposal payload is incomplete")
-    execution_input = ExecutionPolicyInput.model_validate(raw_input)
-    effective_input = _input_with_snapshot(execution_input, snapshot)
-    require_current_execution_input(effective_input, now=decided_at)
+    planned_limit = PlannedLimitInput.model_validate(raw_input)
     packet, review = _ready_packet_and_review(
         connection,
         str(row["packet_id"]),
         review_id=str(row["review_id"]),
     )
-    regenerated = execution_proposal_to_payload(
-        evaluate_execution_policy(
-            packet,
-            evaluate_decision_packet(packet, review=review),
-            effective_input,
+    _validate_planned_limit(
+        connection,
+        planned_limit,
+        packet=packet,
+        review=review,
+        snapshot=snapshot,
+        snapshot_append_head=snapshot_append_head,
+        now=decided_at,
+    )
+
+
+def _validate_planned_limit(
+    connection: sqlite3.Connection,
+    planned: PlannedLimitInput,
+    *,
+    packet: DecisionPacketDocument,
+    review: IndependentReview,
+    snapshot: PortfolioSnapshot,
+    snapshot_append_head: int,
+    now: datetime,
+) -> None:
+    """Rebuild the load-bearing planning result from canonical current sources."""
+    result = evaluate_decision_packet(packet, review=review, now=now)
+    if result.packet_sha256 != planned.decision_packet_core_sha256:
+        raise ProposalConflictError("current packet differs; create a new proposal")
+    if review.reviewed_packet_sha256 != result.packet_sha256:
+        raise ProposalConflictError("current review differs; create a new proposal")
+    if packet.input_snapshot.ticker != planned.ticker:
+        raise ProposalConflictError("current packet ticker differs; create a new proposal")
+
+    current_document, current_head = load_ledger_in_transaction(connection)
+    if (
+        snapshot_append_head != current_head
+        or planned.source_ledger_append_head != current_head
+        or reconcile_portfolio(current_document) != snapshot
+    ):
+        raise ProposalConflictError("current ledger differs; create a new proposal")
+    if planned.expires_at <= now:
+        raise ProposalConflictError("planning limit has expired; create a new proposal")
+    if any(item.ticker == planned.ticker for item in snapshot.active_reservations):
+        raise ProposalConflictError(
+            "current ledger has an active reservation; create a new proposal"
+        )
+
+    suffix = ":jquants_daily_bars"
+    if not planned.source_ref.endswith(suffix):
+        raise ProposalValidationError("source_ref must identify jquants_daily_bars")
+    market_path = Path(planned.source_ref.removesuffix(suffix))
+    target_session = planned.expires_at.astimezone(JST).date()
+    price = resolve_previous_business_day_close(
+        sqlite_path=market_path,
+        ticker=planned.ticker,
+        target_session=target_session,
+    )
+    if price is None or price.corporate_action_unresolved:
+        raise ProposalConflictError("current planning price is unavailable; create a new proposal")
+    close = Decimal(str(price.close_yen))
+    expected_max = max_acceptable_price(packet, tick_size_yen=PLANNING_TICK_SIZE_YEN)
+    if (
+        price.price_as_of != planned.price_as_of
+        or close != planned.close_yen
+        or expected_max != planned.max_acceptable_price_yen
+        or close > expected_max
+    ):
+        raise ProposalConflictError("current planning price differs; create a new proposal")
+
+    lot_notional = close * BOARD_LOT
+    expected_warnings: list[str] = []
+    if lot_notional <= planned.budget_max_yen:
+        expected_quantity = max(int(planned.budget_max_yen // lot_notional), 1) * BOARD_LOT
+    else:
+        expected_quantity = BOARD_LOT
+        expected_warnings.append("budget_guide_exceeded")
+    expected_notional = close * expected_quantity
+    if expected_notional < planned.budget_min_yen:
+        expected_warnings.append("budget_guide_under")
+    if expected_quantity != planned.quantity or int(expected_notional) != planned.notional_yen:
+        raise ProposalConflictError("current planning quantity differs; create a new proposal")
+
+    expected_exposure, exposure_warnings, total_capital = _portfolio_exposure(
+        snapshot,
+        sqlite_path=market_path,
+        price_as_of=price.price_as_of,
+        ticker=planned.ticker,
+        sector=packet.input_snapshot.sector,
+        common_factors=packet.input_snapshot.common_factors,
+        order_notional_yen=planned.notional_yen,
+    )
+    expected_warnings.extend(
+        _portfolio_warnings(
+            snapshot,
+            notional_yen=expected_notional,
+            total_capital_yen=total_capital,
         )
     )
-    if canonical_json(regenerated) != canonical_json(saved_proposal):
-        raise ProposalConflictError("current planning-limit result differs; create a new proposal")
+    expected_warnings.extend(exposure_warnings)
+    if (
+        PlannedPortfolioExposure.model_validate(expected_exposure) != planned.portfolio_exposure
+        or tuple(expected_warnings) != planned.warnings
+        or tuple(_portfolio_annotations(snapshot, ticker=planned.ticker))
+        != planned.portfolio_annotations
+    ):
+        raise ProposalConflictError("current portfolio constraints differ; create a new proposal")
+
+
+def _execution_proposal(planned: PlannedLimitInput) -> dict[str, object]:
+    """Expose the approved order shape consumed by the human-result boundary."""
+    return {
+        "ticker": planned.ticker,
+        "orders": [
+            {
+                "tactic": "limit",
+                "quantity": planned.quantity,
+                "limit_price_yen": planned.limit_price_yen,
+                "expires_at": planned.expires_at,
+            }
+        ],
+    }
 
 
 def _allocate_proposal_id(

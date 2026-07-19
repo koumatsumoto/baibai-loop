@@ -9,8 +9,21 @@ from contextlib import closing
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.position.ledger import (
+    PortfolioLedgerDocument,
+    PortfolioLedgerError,
+    PortfolioSnapshot,
+    reconcile_portfolio,
+)
 from baibai_engine.read_api.sqlite import connect_read_only
+
+__all__ = [
+    "PortfolioLedgerError",
+    "PortfolioSnapshot",
+    "list_portfolio_outcome_payloads",
+    "portfolio_ledger_document",
+    "reconcile_portfolio",
+]
 
 
 def list_portfolio_outcome_payloads(db_path: Path) -> list[dict[str, object]]:

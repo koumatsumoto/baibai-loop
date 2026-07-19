@@ -217,41 +217,6 @@ def test_stale_evidence_warns() -> None:
     assert any("days old" in warning for warning in result.warnings)
 
 
-def test_cli_recomputes_action_from_source_bound_draft(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    _write_current_builder_sources(tmp_path)
-    document = build_holding_review(
-        root=tmp_path,
-        ledger_ref=Path("ledger.yaml"),
-        holding_packet_ref=Path("packets/2331-decision.yaml"),
-        position_id="position-2331",
-    )
-    tmp_path.joinpath("review.yaml").write_text(
-        yaml.safe_dump(document.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
-    )
-    exit_code = main(["holding-review", "--root", str(tmp_path), "--input", "review.yaml"])
-    assert exit_code == 0
-    payload = yaml.safe_load(capsys.readouterr().out)
-    assert payload["computed_action"] == "hold"
-
-
-def test_cli_flags_inconsistent_draft(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _write_current_builder_sources(tmp_path)
-    raw = build_holding_review(
-        root=tmp_path,
-        ledger_ref=Path("ledger.yaml"),
-        holding_packet_ref=Path("packets/2331-decision.yaml"),
-        position_id="position-2331",
-    ).model_dump(mode="json")
-    raw["action"] = "reduce"
-    draft = tmp_path / "bad-review.yaml"
-    draft.write_text(yaml.safe_dump(raw), encoding="utf-8")
-    exit_code = main(["holding-review", "--root", str(tmp_path), "--input", "bad-review.yaml"])
-    assert exit_code == 2
-    assert "disagrees with computed" in capsys.readouterr().err
-
-
 def test_source_hash_mismatch_rejects_review() -> None:
     document = _load("underwater-hold.yaml")
     validate_holding_review_sources(document, root=Path.cwd())

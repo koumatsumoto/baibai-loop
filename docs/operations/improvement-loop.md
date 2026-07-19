@@ -70,7 +70,7 @@ uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eva
 
 ```bash
 uv run baibai-engine screening run --asof <最新の完全営業日>
-uv run baibai-engine screening select --asof <同上>
+uv run baibai-engine screening select --asof <同上> --run-revision-id <run revision ID>
 ```
 
 - 変更前後の select 上位の差分を確認し、意図した挙動（例: E[r] 降順の成立・value-trap 形の脱落）を実銘柄で確認する。

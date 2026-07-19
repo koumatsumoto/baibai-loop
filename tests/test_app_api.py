@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -36,6 +37,18 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         fallback = client.get("/securities/2331")
         assert fallback.status_code == 200
         assert "ui/ を build" in fallback.text
+
+
+def test_api_reads_the_explicit_application_database(app_records_root: Path) -> None:
+    default_db = app_records_root / "data/app/baibai.sqlite"
+    alternate_db = app_records_root / "alternate.sqlite"
+    shutil.copy2(default_db, alternate_db)
+    default_db.unlink()
+
+    with TestClient(
+        create_app(app_records_root, db_path=alternate_db), base_url="http://127.0.0.1"
+    ) as client:
+        assert client.get("/api/dashboard").json()["total_capital_yen"] == 10_419_500
 
 
 def test_api_returns_404_for_unknown_security_and_api_route(app_records_root: Path) -> None:

@@ -75,7 +75,10 @@ from baibai_engine.position.result_recording import ResultRecordingError
 from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
 from baibai_engine.proposals.store import ProposalStoreService
-from baibai_engine.research.holding_review_builder import build_holding_review_from_db
+from baibai_engine.research.holding_review_builder import (
+    build_holding_review_from_db,
+    validate_holding_review_scalars_from_db,
+)
 
 
 def _datetime_argument(value: str) -> datetime:
@@ -275,7 +278,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             print("error: holding-review validation requires --input", file=sys.stderr)
             return 2
         input_path = args.input if args.input.is_absolute() else args.root / args.input
-        return _run_holding_review(input_path, root=args.root)
+        return _run_holding_review(input_path, root=args.root, db_path=args.db)
     if args.command == "holding-review-build":
         return _run_holding_review_build_db(
             db_path=args.db,
@@ -526,21 +529,22 @@ def _run_outcome(
     if out_path is not None and out_path.exists():
         print(f"error: refusing to overwrite existing outcome: {out_path}", file=sys.stderr)
         return 2
-    try:
-        PortfolioOutcomeStore(db_path).publish(
-            PortfolioOutcomePublication(
-                outcome_id=outcome_id,
-                horizon=benchmark.horizon,
-                period_start_date=benchmark.period_start_date.isoformat(),
-                period_end_date=benchmark.period_end_date.isoformat(),
-                status=str(payload["status"]),
-                payload=payload,
+    if payload["status"] == "resolved":
+        try:
+            PortfolioOutcomeStore(db_path).publish(
+                PortfolioOutcomePublication(
+                    outcome_id=outcome_id,
+                    horizon=benchmark.horizon,
+                    period_start_date=benchmark.period_start_date.isoformat(),
+                    period_end_date=benchmark.period_end_date.isoformat(),
+                    status="resolved",
+                    payload=payload,
+                )
             )
-        )
-    except (ValueError, sqlite3.Error) as error:
-        print(f"error: failed to publish portfolio outcome: {error}", file=sys.stderr)
-        return 2
-    payload["outcome_id"] = outcome_id
+        except (ValueError, sqlite3.Error) as error:
+            print(f"error: failed to publish portfolio outcome: {error}", file=sys.stderr)
+            return 2
+        payload["outcome_id"] = outcome_id
     yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -580,7 +584,7 @@ def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _run_holding_review(path: Path, *, root: Path) -> int:
+def _run_holding_review(path: Path, *, root: Path, db_path: Path | None) -> int:
     try:
         document = load_holding_review(path)
     except HoldingReviewError as error:
@@ -588,6 +592,7 @@ def _run_holding_review(path: Path, *, root: Path) -> int:
         return 2
     try:
         validate_holding_review_sources(document, root=root)
+        validate_holding_review_scalars_from_db(document, db_path=db_path)
     except HoldingReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
