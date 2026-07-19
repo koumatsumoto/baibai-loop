@@ -57,7 +57,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 - 割安な優良銘柄を **長期で積み立て**、thesis health と税引後の代替期待値で保有を見直す裁量支援基盤。日本の個別株のみ（ETF / 投資信託 / 海外株は扱わない）。買い建てのみ・現物のみ。
 - Markdown / YAML と Git を正本にする。ただし週次 screen output（candidates YAML）は再生成可能な L2 機械出力として local store に置き git に積まない。
 - 成果物の機械契約は `records/_schemas/*.json` を正本（contract-of-record）にする。
-- **構造としての非目標**：MCP / API server・第三者向けサービング・**固定期間の review gate**。戦略上の非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
+- **構造としての非目標**：MCP・第三者向けサービング・remote deployment・**固定期間の review gate**。戦略上の非目標（ML スコアリング・短期 forward-backtest・自動発注・口座 / 税制モデル化）は [`doctrine.md`](./doctrine.md) §8 を参照。
 
 <a id="repository-map"></a>
 
@@ -74,7 +74,8 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `docs/` | 思想・構造・工程手順・参照情報 |
 | `records/` | 運用成果物と運用支援 asset |
 | `data/` | screening / macro 指標の local SQLite store（git 管理外、正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)） |
-| `src/baibai_loop/` | 7 subsystem package の実装 |
+| `src/baibai_loop/` | 8 subsystem package の実装 |
+| `ui/` | read-only 運用 UI（Vite + React + TypeScript） |
 | `tests/` | CLI・provider・schema・validator・position tracking の automated tests |
 | `.github/` | CI、security audit、Dependabot |
 | `.agents/skills/` | repository-local AI skillのcanonical behavior asset |
@@ -84,7 +85,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 ### Source subsystems
 
-`src/baibai_loop/` は 7 package に分かれ、依存方向は import-linter（8 contract、`pyproject.toml [tool.importlinter]`）で固定する。
+`src/baibai_loop/` は 8 package に分かれ、依存方向は import-linter（10 contract、`pyproject.toml [tool.importlinter]`）で固定する。
 
 | package | 責務 | CLI |
 | --- | --- | --- |
@@ -95,8 +96,9 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `thesis/` | decision packet評価、opportunity authoring、planning-only limit、packetとledgerからのholding review合成 | `baibai-loop-opportunity` / `baibai-loop-decision` |
 | `position/` | human-confirmed portfolio ledger・holding review・JPX total-return outcome | `baibai-loop-position` |
 | `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
+| `app/` | records の domain read API を UI 専用 read model へ合成する read-only application 層 | `baibai-loop-app serve` |
 
-依存方向は`foundation ← market ← {screening, position} ← thesis`（`A ← B`＝BがAをimport）。thesisはpositionのledger/review計算を使う。domain moduleのpositionはthesisをimportしない。例外はpublic `position.cli`だけで、holding-review buildのcomposition boundaryとしてthesis builderを呼ぶ。macroは独立枝、validationはentry surface経由でdomainを駆動する。
+domain の依存方向は`foundation ← market ← {screening, position} ← thesis`（`A ← B`＝BがAをimport）。app は `{foundation, position, thesis}` の read API と records を合成し、他 package から import されない。thesisはpositionのledger/review計算を使う。domain moduleのpositionはthesisをimportしない。例外はpublic `position.cli`だけで、holding-review buildのcomposition boundaryとしてthesis builderを呼ぶ。macroは独立枝、validationはentry surface経由でdomainを駆動する。
 
 ### Records
 
@@ -106,6 +108,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `records/02-candidates/` | fact | candidates YAML（git 追跡しない local store） |
 | `records/03-thesis/` | judgment | decision packetと独立review YAML |
 | `records/04-position/` | execution/holding | canonical portfolio ledger、holding review、portfolio outcome YAML |
+| `records/05-task/` | operation | 運用 task の current state を持つ canonical task list YAML |
 
 通常の record は出来事ごとの成果物（event artifact）として path 自体を正本にし、更新され続ける「最新一覧」の index は持たない。
 
@@ -151,6 +154,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 | `baibai-loop-position holding-review --root --input` | CLI composition | source hashとsource再構築scalarを照合し、thesis health・税引後代替・`hold / add / reduce / exit`を再計算 |
 | `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
 | `baibai-loop-opportunity` | `thesis/` | screening起点の`prepare`、open holding起点の1銘柄固定`holding-prepare`、status / packet-scaffold / review-scaffold / promote と、前営業日 raw close からの planning-only `plan-limit`（promote だけが canonical packet/review を書く） |
+| `baibai-loop-app serve` | `app/` | records を request ごとに読む 127.0.0.1 固定の read-only API と運用 UI を配信 |
 
 ### Schema and validation
 
@@ -160,7 +164,7 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 
 | workflow | trigger | gate |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | pull request / main push | `uv sync`, Ruff format/check, mypy, tracked raw screening cache block, pytest coverage, `baibai-loop-validation`, build |
+| `.github/workflows/ci.yml` | pull request / main push | Python の `uv sync`、Ruff、mypy、import contracts、drift gates、pytest coverage、records validation、wheel buildと、frontend の `npm ci` / build |
 | `.github/workflows/security.yml` | pull request / main push / weekly | Bandit, pip-audit |
 
 Python runtime・dependency・quality gate の詳細は [`reference/python-foundation.md`](./reference/python-foundation.md)。
@@ -176,6 +180,8 @@ AI / スクリプトが利用する安定化対象は次の5面。Python内部AP
 - **契約 5：skill inventory** — `.agents/skills`の3 canonical skillと`.claude` symlink parity。
 
 AI の利用モデル：L1/L2 は SQL 直接発行と CLI 出力で自由に読み、observedはsource、derivedはformula、estimateはmodel versionとassumptionへ遡れる形で書く（AP-01）。L3 は下書きまで（最終採用判定は人間）。スコアとestimateは売買判定ではない。
+
+`app` の read model JSON は bundled UI 専用の暫定 surface であり、安定契約ではない。storage を DB 正本へ移す設計では source implementation と read model 契約をあわせて再定義する。
 
 ## Docs sections
 

@@ -32,7 +32,7 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 ## サブシステム索引
 
-サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造（7 package・8 import-linter contract）は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
+サブシステム名（macro / screening / thesis / position など）を指定されたら、この表で src / records / CLI / 品質改善計器を引いて着手する。各工程の詳細は [`docs/workflow/`](./docs/workflow/)、依存構造（8 package・10 import-linter contract）は [`docs/architecture.md#repository-map`](./docs/architecture.md#repository-map) を正本とする。
 
 | subsystem | src | records | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
@@ -43,6 +43,7 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
+| app | `src/baibai_loop/app/` | `records/05-task/`（ほか domain records を read-only 合成） | `baibai-loop-app` | 運用 cockpit の read model / local API |
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイ（[`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md)）で見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善である。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
 

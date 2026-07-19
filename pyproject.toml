@@ -19,6 +19,8 @@ dependencies = [
   "requests>=2.34.2",
   "xlrd>=2.0.0",
   "jsonschema>=4.21.0",
+  "fastapi>=0.139.2",
+  "uvicorn>=0.51.0",
 ]
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
@@ -33,6 +35,7 @@ baibai-loop-position = "baibai_loop.position.cli:main"
 baibai-loop-macro = "baibai_loop.macro.indicators.cli:main"
 baibai-loop-decision = "baibai_loop.thesis.decision_cli:main"
 baibai-loop-opportunity = "baibai_loop.thesis.opportunity_cli:main"
+baibai-loop-app = "baibai_loop.app.cli:main"
 
 [dependency-groups]
 dev = [
@@ -43,6 +46,7 @@ dev = [
 ]
 test = [
   "coverage[toml]>=7.15.0",
+  "httpx2>=2.7.0",
   "hypothesis>=6.156.6",
   "pytest>=9.1.1",
   "pytest-mock>=3.15.0",
@@ -287,3 +291,27 @@ forbidden_modules = [
   "baibai_loop.screening",
 ]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "app is the top-level read composition surface (no package imports it)"
+type = "forbidden"
+# app composes domain read APIs into local UI read models. Reverse imports
+# would make UI iteration ripple into domain packages and obstruct a storage swap.
+source_modules = [
+  "baibai_loop.foundation",
+  "baibai_loop.market",
+  "baibai_loop.macro",
+  "baibai_loop.screening",
+  "baibai_loop.position",
+  "baibai_loop.thesis",
+  "baibai_loop.validation",
+]
+forbidden_modules = ["baibai_loop.app"]
+
+[[tool.importlinter.contracts]]
+name = "app does not depend on macro or validation"
+type = "forbidden"
+# v1 reads ledger, thesis, candidates, and task artifacts; macro has no UI
+# surface and validation is a CI gate rather than an application data API.
+source_modules = ["baibai_loop.app"]
+forbidden_modules = ["baibai_loop.macro", "baibai_loop.validation"]

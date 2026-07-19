@@ -26,6 +26,7 @@ from .ledger import discover_ledger_files, validate_ledger_file
 from .macro_context import discover_macro_context_files, validate_macro_context_file
 from .policy import validate_policy_file
 from .portfolio_outcome import discover_portfolio_outcome_files, validate_portfolio_outcome_file
+from .task_list import discover_task_list_files, validate_task_list_file
 
 type ValidationTarget = Literal[
     "macro-context",
@@ -36,6 +37,7 @@ type ValidationTarget = Literal[
     "holding-review",
     "benchmark-observation",
     "portfolio-outcome",
+    "task-list",
 ]
 _TARGETS: tuple[ValidationTarget, ...] = (
     "macro-context",
@@ -46,6 +48,7 @@ _TARGETS: tuple[ValidationTarget, ...] = (
     "holding-review",
     "benchmark-observation",
     "portfolio-outcome",
+    "task-list",
 )
 
 MACRO_CONTEXT_ROOT = Path("records/01-macro-context")
@@ -54,6 +57,7 @@ CANDIDATES_ROOT = Path("records/02-candidates")
 THESIS_ROOT = Path("records/03-thesis")
 POSITION_ROOT = Path("records/04-position")
 BENCHMARK_ROOT = POSITION_ROOT / "benchmarks"
+TASK_ROOT = Path("records/05-task")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -145,6 +149,8 @@ def _discover(root: Path, target: ValidationTarget) -> list[Path]:
             return discover_benchmark_observation_files(root / BENCHMARK_ROOT)
         case "portfolio-outcome":
             return discover_portfolio_outcome_files(root / POSITION_ROOT)
+        case "task-list":
+            return discover_task_list_files(root / TASK_ROOT)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 
@@ -167,6 +173,8 @@ def _validate(target: ValidationTarget, path: Path) -> list[ValidationFinding]:
             return validate_benchmark_observation_file(path)
         case "portfolio-outcome":
             return validate_portfolio_outcome_file(path)
+        case "task-list":
+            return validate_task_list_file(path)
         case _ as unhandled:  # pragma: no cover
             assert_never(unhandled)
 

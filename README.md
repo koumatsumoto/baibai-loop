@@ -39,6 +39,19 @@ AIは提案までを担当し、人間だけが`approve / defer / reject`とbrok
 
 個別銘柄の判断と基盤方法の改善を同じ作業に混ぜません。日常運用で見つけた基盤不備はIssue化し、improvement loopへ渡します。
 
+## Read-only 運用 UI
+
+frontend を build して local cockpit を起動します。
+
+```bash
+cd ui
+npm run build
+cd ..
+uv run baibai-loop-app serve
+```
+
+ブラウザで `http://127.0.0.1:8712` を開きます。UI と API は records を read-only で参照し、task や portfolio を更新しません。
+
 ## Three layers
 
 | layer | 内容 | 例 |
@@ -103,4 +116,4 @@ UV_CACHE_DIR=/tmp/uv-cache uv run lint-imports
 
 ## Issues
 
-改善点・未解決課題は[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。
+feature、bug、基盤改善、PR delivery は[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。運用 task の正本は `records/05-task/tasks.yaml` です。
