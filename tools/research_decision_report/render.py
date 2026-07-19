@@ -23,10 +23,10 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from baibai_loop.foundation.filesystem import write_text_atomic
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.position.policy import PORTFOLIO_POLICY
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.foundation.filesystem import write_text_atomic
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.position.policy import PORTFOLIO_POLICY
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketError,
     FiveYearBaseBreakEvenResult,
@@ -34,8 +34,8 @@ from baibai_loop.thesis.decision_packet import (
     evaluate_decision_packet,
     load_decision_packet,
 )
-from baibai_loop.thesis.execution_policy import ExecutionPolicyError, max_acceptable_price
-from baibai_loop.thesis.opportunity import BOARD_LOT, PLANNING_TICK_SIZE_YEN
+from baibai_engine.research.execution_policy import ExecutionPolicyError, max_acceptable_price
+from baibai_engine.research.opportunity import BOARD_LOT, PLANNING_TICK_SIZE_YEN
 
 TRADINGVIEW = "https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A{ticker}"
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")

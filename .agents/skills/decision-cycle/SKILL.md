@@ -32,7 +32,7 @@ schema fieldやCLI optionはskillから推測しない。JSON schemaとpublic `-
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。
 2. triggerを1件選び、operation Issueへcheckpointを集約する。
-3. `uv run baibai-loop-position ledger`でholding、active reservation、cash、warningを読む。
+3. `uv run baibai-engine position ledger`でholding、active reservation、cash、warningを読む。
 4. triggerで使うpublic commandの`--help`とrequired inputを確認する。
 
 dirty worktreeの所有不明、public command不明、入力矛盾では停止する。coverageとmacro freshnessは、それらを使うopportunity/holding/outcome pathだけで確認する。`pending-result`を無関係なmarket/macro不足で止めない。推測でrecordを作らず、command、error、判断への影響、必要inputを残す。

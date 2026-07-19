@@ -95,4 +95,4 @@ FV到達はreview triggerで、自動売却ではない。含み損は単独のe
 - e2e運用: [`operations/decision-cycle.md`](./operations/decision-cycle.md)
 - ledger式とerror/warning: [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md)
 - holding action: [`reference/holding-review.md`](./reference/holding-review.md)
-- 機械的なcap/lot/warning値: `src/baibai_loop/position/policy.py`と対応validator
+- 機械的なcap/lot/warning値: `src/baibai_engine/position/policy.py`と対応validator

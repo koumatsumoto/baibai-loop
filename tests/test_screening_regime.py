@@ -6,7 +6,7 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_loop.screening.regime import (
+from baibai_engine.screening.regime import (
     MarketRegime,
     classify_market_regime,
     compute_market_regime,

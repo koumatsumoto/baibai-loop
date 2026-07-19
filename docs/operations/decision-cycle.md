@@ -39,7 +39,7 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 ## Resume checkpoint
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。dirtyなら所有者と目的を理解するまでrecordを更新しない。
-2. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。`event_annotations`のmigration eventはcanonical stateの初期化記録で、人間報告後のbroker resultではないため、当月の新規注文・約定件数へ数えない。
+2. `UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger`でcanonical holdings、active reservations、cash、warningsを読む。warningはannotationでありrankingを変更しない。`event_annotations`のmigration eventはcanonical stateの初期化記録で、人間報告後のbroker resultではないため、当月の新規注文・約定件数へ数えない。
 3. [`records/05-task/tasks.yaml`](../../records/05-task/tasks.yaml) の open task を due date 順に一覧し、[`task-runbook.md`](./task-runbook.md#resume-checkpoint)に従って current question、expected destination、close condition を canonical records と ledger へ照合する。task、canonical record、ledger が矛盾する場合は推定で進めない。
 4. triggerを1件選び、対応するoperation Issueへ同じsessionのcheckpointを集約する。
 5. このtriggerで使うpublic commandの`--help`とrequired inputを確認する。
@@ -57,7 +57,7 @@ Baibai-Loopの日常運用は「最もお買い得な日本株を見つけ、人
 ### OP1 Cache coverage
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
 ```
 
 - pass: exit 0、必要sourceがASOFをcoverする。
@@ -65,17 +65,17 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening verify-cache-coverage --
 - refreshが必要な場合だけ次を実行し、再度coverageを単独確認する。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening bootstrap-cache --asof YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening extract-edinet-metrics --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening bootstrap-cache --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD
 ```
 
 ### OP2 Screening and audit pool
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening run --asof YYYY-MM-DD --output-path /tmp/candidates-YYYY-MM-DD.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening select --asof YYYY-MM-DD --candidates /tmp/candidates-YYYY-MM-DD.yaml --detail full --audit-top 20 --output-path /tmp/selection-YYYY-MM-DD.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity prepare --asof YYYY-MM-DD --selection-output /tmp/selection-YYYY-MM-DD.yaml --ledger records/04-position/portfolio-ledger.yaml --workspace .cache/opportunity/YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening run --asof YYYY-MM-DD --output-path /tmp/candidates-YYYY-MM-DD.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening select --asof YYYY-MM-DD --candidates /tmp/candidates-YYYY-MM-DD.yaml --detail full --audit-top 20 --output-path /tmp/selection-YYYY-MM-DD.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research prepare --asof YYYY-MM-DD --selection-output /tmp/selection-YYYY-MM-DD.yaml --ledger records/04-position/portfolio-ledger.yaml --workspace .cache/opportunity/YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research status --workspace .cache/opportunity/YYYY-MM-DD
 ```
 
 確認するものは`audit_pool`最大20件、production `recommendations`、holding/reservation annotation、workspace hash、`next_command`。`recommendations`はrulesの通常表示capを適用した機械出力で、OP3のhuman-review shortlistではない。candidate/audit poolは探索用で、buy候補やcanonical judgmentではない。
@@ -117,8 +117,8 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --sele
 ### OP5 Per-lane packet and research scaffold
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research packet-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research status --workspace .cache/opportunity/YYYY-MM-DD
 ```
 
 `packet-scaffold`は`selection.yaml.shortlist`に含まれるtickerだけを受け入れる。primary-research setの各tickerについて実行し、生成されたlane内の`research-checklist.yaml`を一次sourceで`complete / blocked`にする。screening E[r]とFV baselineはestimateとしてselection snapshotから機械転記し、observed factへ変換しない。blockedを推定で埋めない。packetのobserved/derived/estimate/judgmentを区別し、scenario算術を機械再計算する。他laneのdraftをcopyまたは上書きしない。
@@ -126,11 +126,11 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .ca
 ### OP6 Independent review and promotion
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-decision .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --output-dir records/03-thesis/YYYY/MM
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target decision-packet
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research evaluate .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research review-scaffold --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research status --workspace .cache/opportunity/YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --output-dir records/03-thesis/YYYY/MM
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target decision-packet
 ```
 
 reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行できる。reviewerは最初のcommandが返す5年base break-evenと観測multipleを、[`workflow/research.md#independent-review`](../workflow/research.md#independent-review)のfield対応で既存research checklistへ記録してからreview draftを完成させる。`proposal_changed=true`なら該当laneのpacketへ戻り、packet hash変更後の旧reviewを使わない。
@@ -140,7 +140,7 @@ reviewはpacket authorと別roleがlaneごとに行い、複数laneを並行で�
 ### OP7 Planning-only limit
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity plan-limit --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --budget-min-yen 200000 --budget-max-yen 300000 --output .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research plan-limit --packet records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --budget-min-yen 200000 --budget-max-yen 300000 --output .cache/opportunity/YYYY-MM-DD/XXXX/proposal.yaml
 ```
 
 `planned_limit`は前営業日終値、max acceptable price、board lotから作る。終値が上限超過、corporate action unresolved、packet/review not readyは`defer`。1単元が30万円を超えても自動棄却せず、超過をwarningとして表示する。同一tickerのactive reservationがある場合は、元注文の再表示と追加注文を機械的に区別できないため`active_reservation_exists`で`defer`する。human resultで約定またはreleaseをledgerに反映するまで新規注文を作らない。
@@ -200,25 +200,25 @@ review済みの提案または注文なし結論と、人間の`approve / defer 
 例: open。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status open --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --ticker XXXX --quantity 100 --sector SECTOR --price-guard-yen 1000 --expires-at YYYY-MM-DDT15:30:00+09:00 --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-open-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status open --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --ticker XXXX --quantity 100 --sector SECTOR --price-guard-yen 1000 --expires-at YYYY-MM-DDT15:30:00+09:00 --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-open-ledger.yaml
 ```
 
 例: filled（active reservationあり）。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status filled --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --ticker XXXX --quantity 100 --price-yen 990 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-filled-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status filled --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --ticker XXXX --quantity 100 --price-yen 990 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-filled-ledger.yaml
 ```
 
 例: cancelled。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status cancelled --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-cancelled-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status cancelled --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-cancelled-ledger.yaml
 ```
 
 例: expired。brokerで未約定のまま期限到来したことを人間が確認してから実行し、時刻や状態を自動推定しない。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status expired --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-expired-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position record-result --ledger records/04-position/portfolio-ledger.yaml --proposal-ref https://github.com/OWNER/REPO/issues/NNN#issuecomment-NNN --status expired --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --reservation-id RESERVATION_ID --out .cache/ledger/YYYY-MM-DDTHHMMSS-XXXX-expired-ledger.yaml
 ```
 
 `YYYY-MM-DDTHHMMSS`は報告時刻、`XXXX`はticker（cancelled/expiredではreservationのticker）へ置換する。各reportで別file名を使い、既存draftを再利用しない。同一reportを再実行してcanonicalに既に同じeventがある場合、CLIは既存`--out`より先にidempotencyを確認し、fileを書かず`status: no_change`を返す。
@@ -242,7 +242,7 @@ sha256sum records/04-position/portfolio-ledger.yaml
 
 ```bash
 git diff --no-index -- records/04-position/portfolio-ledger.yaml .cache/ledger/UNIQUE-RESULT-ledger.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/ledger/UNIQUE-RESULT-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger --ledger .cache/ledger/UNIQUE-RESULT-ledger.yaml
 ```
 
 `git diff --no-index`のexit 1は「期待した差分あり」を表し、この場合は失敗ではない。追加されたeventが人間報告と一致し、既存eventの削除・改変がなく、cash、reservation、holding quantityが説明可能ならpass。不明な差分、未来時刻、proposal不一致、reconciliation errorはstopして人間へ質問する。
@@ -251,9 +251,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/le
 
 ```bash
 sha256sum .cache/ledger/UNIQUE-FILLED-ledger.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position market-price-draft --root . --ledger .cache/ledger/UNIQUE-FILLED-ledger.yaml --sqlite data/screening/market.sqlite --asof YYYY-MM-DD --out .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position market-price-draft --root . --ledger .cache/ledger/UNIQUE-FILLED-ledger.yaml --sqlite data/screening/market.sqlite --asof YYYY-MM-DD --out .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
 sha256sum .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger --ledger .cache/position/YYYY-MM-DD-market-price-after-fill-ledger.yaml
 ```
 
 このcompositionでは、(1) current canonical hashと`record-result`の`source_ledger_sha256`、(2) filled中間draftのbyte hashと`market-price-draft`の`source_ledger_sha256`、(3) 最終draftのbyte hashと`draft_sha256`を順に完全一致させる。open holdingは中間ledgerの`as_of`までevent replayして決め、価格は指定した最新完全営業日の同日raw/unadjusted closeを使う。このため価格観測時刻が当日のfillより前でも、eventを巻き戻さず全open holdingを評価できる。価格不足以外のreconciliation error、hash不一致、raw close欠損では停止する。人間確認後にcanonicalへ反映するのは、reconciliationを通った最終draftだけである。
@@ -274,8 +274,8 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/po
 ```bash
 sha256sum records/04-position/portfolio-ledger.yaml
 cp .cache/ledger/UNIQUE-RESULT-ledger.yaml records/04-position/portfolio-ledger.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target ledger
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger
 git diff -- records/04-position/portfolio-ledger.yaml
 ```
 
@@ -311,17 +311,17 @@ human-confirmed release前、必要な期限後session未到来は`pending`、ca
 ここでも`ASOF_DATE`は価格draftに使う最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionを表す。`packet-scaffold`が解決するraw close日は`ASOF_DATE`と一致しなければならない。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof ASOF_DATE --out .cache/position/ASOF_DATE-market-price-ledger.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger --ledger .cache/position/ASOF_DATE-market-price-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof ASOF_DATE --out .cache/position/ASOF_DATE-market-price-ledger.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger --ledger .cache/position/ASOF_DATE-market-price-ledger.yaml
 git diff --no-index records/04-position/portfolio-ledger.yaml .cache/position/ASOF_DATE-market-price-ledger.yaml
 cp .cache/position/ASOF_DATE-market-price-ledger.yaml records/04-position/portfolio-ledger.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target ledger
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity holding-prepare --asof ASOF_DATE --ledger records/04-position/portfolio-ledger.yaml --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-opportunity promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --output-dir records/03-thesis/YYYY/MM
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review-build --packet records/03-thesis/YYYY/MM/ASOF_DATE-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review --root . --input .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research holding-prepare --asof ASOF_DATE --ledger records/04-position/portfolio-ledger.yaml --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --ticker XXXX --output-dir records/03-thesis/YYYY/MM
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position holding-review-build --packet records/03-thesis/YYYY/MM/ASOF_DATE-XXXX-decision.yaml --ledger records/04-position/portfolio-ledger.yaml --position-id POSITION_ID --out .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position holding-review --root . --input .cache/holding-review/ASOF_DATE-XXXX-attempt-N-review.yaml
 ```
 
 `market-price-draft`は指定日のJ-Quants raw closeが全open holdingで同日に揃い、既存のopen holding price日を巻き戻さない場合だけ新規draftを作る。canonical ledgerを上書きせず、adjusted closeで補完しない。copy直前にstdoutのsource ledger hashが現在のcanonical ledgerと一致し、draftのbyte hashがstdoutの`draft_sha256`と一致することを確認する。どちらかが異なればcopyせず再生成する。market row fingerprintも確認し、人間確認なしにcanonicalへcopyしない。`holding-prepare`はcanonical ledgerに実在し、market-price observationの日付が`--asof`と一致するopen holdingだけを受け入れ、audit pool、shortlist、selected tickerをその1銘柄に固定する。通常のopportunity `prepare`とprimary-research set gateは変更しない。
@@ -331,7 +331,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position holding-review --root . -
 ```bash
 mkdir -p records/04-position/YYYY/MM
 cp .cache/holding-review/YYYY-MM-DD-XXXX-attempt-N-review.yaml records/04-position/YYYY/MM/CANONICAL_REVIEW.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target holding-review
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target holding-review
 git diff -- records/04-position/YYYY/MM/CANONICAL_REVIEW.yaml
 ```
 
@@ -376,8 +376,8 @@ human-review shortlist checkpointだけ8〜10件の比較表と非選択理由�
 ## Validation
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger
 ```
 
 ## Related

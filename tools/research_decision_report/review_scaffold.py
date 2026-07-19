@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from baibai_loop.foundation.filesystem import write_text_atomic
+from baibai_engine.foundation.filesystem import write_text_atomic
 
 from .render import (
     _REVIEW_CHECK_IDS,

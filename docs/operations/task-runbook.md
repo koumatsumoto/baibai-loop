@@ -72,5 +72,5 @@ broker 状態は人間の報告だけを事実入力とします。期日経過�
 task を追加・変更したら、schema と `task_id` 一意性を検証します。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target task-list
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target task-list
 ```

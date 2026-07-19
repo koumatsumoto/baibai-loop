@@ -14,8 +14,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
-from baibai_loop.screening.sqlite_cache import (
+from baibai_engine.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
+from baibai_engine.screening.sqlite_cache import (
     open_connection,
     store_jquants_daily_bars,
     store_jquants_master,

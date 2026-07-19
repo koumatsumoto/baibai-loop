@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.position.cli import main as position_main
-from baibai_loop.position.ledger import PortfolioLedgerError, load_portfolio_ledger
-from baibai_loop.validation.cli import main as validation_main
-from baibai_loop.validation.ledger import discover_ledger_files, validate_ledger_file
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.position.cli import main as position_main
+from baibai_engine.position.ledger import PortfolioLedgerError, load_portfolio_ledger
+from baibai_engine.validation.cli import main as validation_main
+from baibai_engine.validation.ledger import discover_ledger_files, validate_ledger_file
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"

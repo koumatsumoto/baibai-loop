@@ -74,7 +74,7 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 | `docs/` | 思想・構造・工程手順・参照情報 |
 | `records/` | 運用成果物と運用支援 asset |
 | `data/` | screening / macro 指標の local SQLite store（git 管理外、正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)） |
-| `src/baibai_loop/` | 8 subsystem package の実装 |
+| `src/baibai_engine/` | 8 subsystem package の実装 |
 | `ui/` | read-only 運用 UI（Vite + React + TypeScript） |
 | `tests/` | CLI・provider・schema・validator・position tracking の automated tests |
 | `.github/` | CI、security audit、Dependabot |
@@ -85,18 +85,18 @@ L2の「分析」は決定論的な機械処理だが、出力がすべて事実
 
 ### Source subsystems
 
-`src/baibai_loop/` は 8 package に分かれ、依存方向は import-linter（10 contract、`pyproject.toml [tool.importlinter]`）で固定する。
+`src/baibai_engine/` は 8 package に分かれ、依存方向は import-linter（10 contract、`pyproject.toml [tool.importlinter]`）で固定する。
 
 | package | 責務 | CLI |
 | --- | --- | --- |
 | `foundation/` | 共有 primitive（日付・env・filesystem・yaml）。他 subsystem を import しない import sink | — |
 | `market/` | 価格・market calendar の data-access 層（J-Quants）。`foundation` のみに依存 | — |
-| `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-loop-macro` |
-| `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-loop-screening` |
-| `thesis/` | decision packet評価、opportunity authoring、planning-only limit、packetとledgerからのholding review合成 | `baibai-loop-opportunity` / `baibai-loop-decision` |
-| `position/` | human-confirmed portfolio ledger・holding review・JPX total-return outcome | `baibai-loop-position` |
-| `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-loop-validation` |
-| `app/` | records の domain read API を UI 専用 read model へ合成する read-only application 層 | `baibai-loop-app serve` |
+| `macro/` | macro 環境分析（`context` ＋ `indicators` data 層）。screening / position / validation から独立 | `baibai-engine macro` |
+| `screening/` | universe → 機械スクリーニング（valuation ranking）→ candidates 生成、selection | `baibai-engine screening` |
+| `thesis/` | decision packet評価、opportunity authoring、planning-only limit、packetとledgerからのholding review合成 | `baibai-engine research` / `baibai-engine research evaluate` |
+| `position/` | human-confirmed portfolio ledger・holding review・JPX total-return outcome | `baibai-engine position` |
+| `validation/` | records（公開言語）の検証 dispatcher。domain は entry surface 経由でのみ参照 | `baibai-engine validate` |
+| `app/` | records の domain read API を UI 専用 read model へ合成する read-only application 層 | `baibai-app serve` |
 
 domain の依存方向は`foundation ← market ← {screening, position} ← thesis`（`A ← B`＝BがAをimport）。app は `{foundation, position, thesis}` の read API と records を合成し、他 package から import されない。thesisはpositionのledger/review計算を使う。domain moduleのpositionはthesisをimportしない。例外はpublic `position.cli`だけで、holding-review buildのcomposition boundaryとしてthesis builderを呼ぶ。macroは独立枝、validationはentry surface経由でdomainを駆動する。
 
@@ -135,30 +135,30 @@ Automation は人間の投資判断を置き換えず、fact snapshot 生成・s
 
 | command | 実装領域 | 責務 |
 | --- | --- | --- |
-| `baibai-loop-screening bootstrap-cache --asof` | `screening/` | screening run に必要な J-Quants / EDINET / JPX window を SQLite 正本へ補完 |
-| `baibai-loop-screening extract-edinet-metrics --asof` | `screening/` | EDINET CSV から TTM metrics を抽出し SQLite へ保存 |
-| `baibai-loop-screening verify-cache-coverage --asof` | `screening/` | SQLite が screening run の必須入力を満たすか read-only 検証 |
-| `baibai-loop-screening run --asof` | `screening/` | 完全性検証済み SQLite から candidates YAML を生成 |
-| `baibai-loop-screening select --asof --macro-context` | `screening/` | E[r]順でresearch候補をtriageし、macro contextを任意のwarningとして併記 |
-| `baibai-loop-screening ticker-profile --ticker` | `screening/` | 個別銘柄の事実 packet（全上場対応） |
-| `baibai-loop-screening market-snapshot` | `screening/` | regime 履歴・sector 集計（macro context の機械入力） |
-| `baibai-loop-screening calibration-build --start --end` | `screening/` | 見積り較正の point-in-time 月次 panel + forward return を local store へ構築（cache のみ） |
-| `baibai-loop-screening calibration-evaluate` | `screening/` | versioned calibration cohort の coverage・診断 metric・authority decision を YAML 出力 |
-| `baibai-loop-macro` | `macro/` | 指標 series を provenance 付きで取得・cache |
-| `baibai-loop-validation` | `validation/` | records と schema の整合を検証 |
-| `baibai-loop-position outcome` | `position/` | ledger TWRをJPX TOPIX配当込み公式期間returnと比較 |
-| `baibai-loop-position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
-| `baibai-loop-position market-price-draft` | CLI composition | 全open holdingの指定日raw closeからsource-bound ledger draftを新規作成 |
-| `baibai-loop-position record-result` | `position/` | 人間のopen/filled/cancelled/expired報告からvalidated ledger draftを生成 |
-| `baibai-loop-position holding-review-build` | CLI composition | ready packet/reviewとledgerからholding review draftを生成 |
-| `baibai-loop-position holding-review --root --input` | CLI composition | source hashとsource再構築scalarを照合し、thesis health・税引後代替・`hold / add / reduce / exit`を再計算 |
-| `baibai-loop-decision <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
-| `baibai-loop-opportunity` | `thesis/` | screening起点の`prepare`、open holding起点の1銘柄固定`holding-prepare`、status / packet-scaffold / review-scaffold / promote と、前営業日 raw close からの planning-only `plan-limit`（promote だけが canonical packet/review を書く） |
-| `baibai-loop-app serve` | `app/` | records を request ごとに読む 127.0.0.1 固定の read-only API と運用 UI を配信 |
+| `baibai-engine screening bootstrap-cache --asof` | `screening/` | screening run に必要な J-Quants / EDINET / JPX window を SQLite 正本へ補完 |
+| `baibai-engine screening extract-edinet-metrics --asof` | `screening/` | EDINET CSV から TTM metrics を抽出し SQLite へ保存 |
+| `baibai-engine screening verify-cache-coverage --asof` | `screening/` | SQLite が screening run の必須入力を満たすか read-only 検証 |
+| `baibai-engine screening run --asof` | `screening/` | 完全性検証済み SQLite から candidates YAML を生成 |
+| `baibai-engine screening select --asof --macro-context` | `screening/` | E[r]順でresearch候補をtriageし、macro contextを任意のwarningとして併記 |
+| `baibai-engine screening ticker-profile --ticker` | `screening/` | 個別銘柄の事実 packet（全上場対応） |
+| `baibai-engine screening market-snapshot` | `screening/` | regime 履歴・sector 集計（macro context の機械入力） |
+| `baibai-engine screening calibration-build --start --end` | `screening/` | 見積り較正の point-in-time 月次 panel + forward return を local store へ構築（cache のみ） |
+| `baibai-engine screening calibration-evaluate` | `screening/` | versioned calibration cohort の coverage・診断 metric・authority decision を YAML 出力 |
+| `baibai-engine macro` | `macro/` | 指標 series を provenance 付きで取得・cache |
+| `baibai-engine validate` | `validation/` | records と schema の整合を検証 |
+| `baibai-engine position outcome` | `position/` | ledger TWRをJPX TOPIX配当込み公式期間returnと比較 |
+| `baibai-engine position ledger` | `position/` | repo内portfolioのcash、reservation、保有、income、cost、taxを再計算 |
+| `baibai-engine position market-price-draft` | CLI composition | 全open holdingの指定日raw closeからsource-bound ledger draftを新規作成 |
+| `baibai-engine position record-result` | `position/` | 人間のopen/filled/cancelled/expired報告からvalidated ledger draftを生成 |
+| `baibai-engine position holding-review-build` | CLI composition | ready packet/reviewとledgerからholding review draftを生成 |
+| `baibai-engine position holding-review --root --input` | CLI composition | source hashとsource再構築scalarを照合し、thesis health・税引後代替・`hold / add / reduce / exit`を再計算 |
+| `baibai-engine research evaluate <packet>` | `thesis/` | decision packetのscenario、証拠、独立reviewをread-only再計算 |
+| `baibai-engine research` | `thesis/` | screening起点の`prepare`、open holding起点の1銘柄固定`holding-prepare`、status / packet-scaffold / review-scaffold / promote と、前営業日 raw close からの planning-only `plan-limit`（promote だけが canonical packet/review を書く） |
+| `baibai-app serve` | `app/` | records を request ごとに読む 127.0.0.1 固定の read-only API と運用 UI を配信 |
 
 ### Schema and validation
 
-`records/_schemas/` が validator の input schema、`src/baibai_loop/validation/` が schema だけでは表現しにくい cross-file validation、`tests/test_validate_*.py` が validator の期待挙動を固定する（正本は [`reference/testing-and-validation.md`](./reference/testing-and-validation.md)）。
+`records/_schemas/` が validator の input schema、`src/baibai_engine/validation/` が schema だけでは表現しにくい cross-file validation、`tests/test_validate_*.py` が validator の期待挙動を固定する（正本は [`reference/testing-and-validation.md`](./reference/testing-and-validation.md)）。
 
 ### CI
 
@@ -173,7 +173,7 @@ Python runtime・dependency・quality gate の詳細は [`reference/python-found
 
 AI / スクリプトが利用する安定化対象は次の5面。Python内部APIと`.cache/`中間物は安定契約ではない。
 
-- **契約 1：CLI の YAML 出力** — `run`（candidatesのobserved / derived / estimate）・`select`（recommendations + diagnostics）・`ticker-profile`・`market-snapshot`・`baibai-loop-macro`。field の追加は随時、既存 field の名前と意味は黙って変えない。人間向け整形は stdout サマリに分離する。
+- **契約 1：CLI の YAML 出力** — `run`（candidatesのobserved / derived / estimate）・`select`（recommendations + diagnostics）・`ticker-profile`・`market-snapshot`・`baibai-engine macro`。field の追加は随時、既存 field の名前と意味は黙って変えない。人間向け整形は stdout サマリに分離する。
 - **契約 2：SQLite schema**（`data/screening/market.sqlite`） — 対象は全上場銘柄、`PRAGMA user_version` で版管理、破壊的変更は version bump + rebuild（migration しない）。**AI は読み取り専用で SQL を直接発行してよく、書き込みは CLI（bootstrap / extract / run）経由に限る**。主要テーブルは `jquants_daily_bars` / `jquants_fin_summaries` / `jquants_master_snapshots` / `edinet_metrics` / `jpx_regulation_flags`、定義の正本は [`reference/screening-runtime.md`](./reference/screening-runtime.md)。
 - **契約 3：JSON schemaとcanonical path** — recordsのshape、required、enumと保存先。
 - **契約 4：docs anchor** — doctrineの語彙/fact境界、decision-cycleの主要trigger path。

@@ -82,7 +82,7 @@ schemaの7軸を全件評価する。
 - dividendをterminal priceとreturnへ二重計上しない。
 - FV、entry price、required 5y CAGRのsource/as-ofを固定する。
 - E[r]とscreening FV anchorはestimateで、個別FVの代替ではない。
-- `baibai-loop-decision`の5年base break-evenを使い、terminal multipleとearnings growthが要求CAGRまで持つ余裕を確認する。
+- `baibai-engine research evaluate`の5年base break-evenを使い、terminal multipleとearnings growthが要求CAGRまで持つ余裕を確認する。
 
 Research FV確定時、screening FV anchorとの差率を`(research_fv / screening_fv_anchor - 1) * 100`で機械計算する。
 主要説明要因を`earnings_normalization / growth / shares / multiple / dividend / required_return / other`から1つ選び、noteは1〜2行に限定する。
@@ -119,7 +119,7 @@ raw candidate YAML、SQLite path依存、検索snippet、fixture copyをcanonica
 
 packet authorと別roleが、候補抜け、一次source、scenario算術、永久損失7軸、countercase、代替候補、portfolio annotation、limit/quantityを再確認する。reviewはpacketを直接編集せず、decision-review draftだけを返す。
 
-5年baseのreviewでは`baibai-loop-decision <packet>`を実行する。reviewerは既存の`scenario.base_3y_5y` checkをいったん`pending`へ戻し、次を記録・確認した後だけ`complete`へ戻す。
+5年baseのreviewでは`baibai-engine research evaluate <packet>`を実行する。reviewerは既存の`scenario.base_3y_5y` checkをいったん`pending`へ戻し、次を記録・確認した後だけ`complete`へ戻す。
 
 - base / break-even terminal multipleと、その差であるdownside buffer
 - base / break-even annual earnings growthと、その差であるdownside buffer（percentage points）
@@ -164,8 +164,8 @@ promotionはpacket/review/hash/schema/pathが一致するときだけ行う。te
 ## Validation
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-decision records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target decision-packet
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research evaluate records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target decision-packet
 ```
 
 ## Related

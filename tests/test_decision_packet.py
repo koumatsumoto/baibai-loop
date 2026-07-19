@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.thesis.decision_cli import main as decision_main
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.research.decision_cli import main as decision_main
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketError,
     DecisionPacketResult,
@@ -25,8 +25,8 @@ from baibai_loop.thesis.decision_packet import (
     load_independent_review,
     result_to_payload,
 )
-from baibai_loop.validation.cli import main as validation_main
-from baibai_loop.validation.decision_packet import validate_decision_packet_file
+from baibai_engine.validation.cli import main as validation_main
+from baibai_engine.validation.decision_packet import validate_decision_packet_file
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"

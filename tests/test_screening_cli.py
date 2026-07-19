@@ -18,46 +18,46 @@ from unittest.mock import patch
 
 import yaml
 
-from baibai_loop.foundation.yaml_io import safe_load
+from baibai_engine.foundation.yaml_io import safe_load
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.foundation.time import JST
-from baibai_loop.screening import cli as screening_cli
-from baibai_loop.screening.cli import (
+from baibai_engine.foundation.time import JST
+from baibai_engine.screening import cli as screening_cli
+from baibai_engine.screening.cli import (
     ProviderBundle,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     run_command,
     select_command,
 )
-from baibai_loop.screening.cli.run import _index_next_earnings
-from baibai_loop.screening.config import ScreeningConfig
-from baibai_loop.screening.providers import JQuantsProvider
-from baibai_loop.screening.providers.edinet import (
+from baibai_engine.screening.cli.run import _index_next_earnings
+from baibai_engine.screening.config import ScreeningConfig
+from baibai_engine.screening.providers import JQuantsProvider
+from baibai_engine.screening.providers.edinet import (
     EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
 )
-from baibai_loop.screening.providers.jpx import (
+from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
-from baibai_loop.screening.providers.jquants import (
+from baibai_engine.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
 )
-from baibai_loop.screening.render import build_output_path
-from baibai_loop.screening.rule_config import load_screening_rules
-from baibai_loop.screening.schema import SecurityMaster, TTMQuality
-from baibai_loop.screening.sqlite_cache import store_edinet_metrics
-from baibai_loop.screening.sqlite_reader import read_edinet_metrics
+from baibai_engine.screening.render import build_output_path
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.schema import SecurityMaster, TTMQuality
+from baibai_engine.screening.sqlite_cache import store_edinet_metrics
+from baibai_engine.screening.sqlite_reader import read_edinet_metrics
 
 
 @dataclass

@@ -4,8 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from baibai_loop.app.api.server import create_app
-from baibai_loop.app.cli import main
+from baibai_app.api.server import create_app
+from baibai_app.cli import main
 
 
 def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None:
@@ -49,7 +49,7 @@ def test_api_rejects_non_loopback_host(app_records_root: Path) -> None:
 
 
 def test_cli_rejects_wrong_root_without_starting_server(tmp_path: Path, mocker) -> None:
-    run = mocker.patch("baibai_loop.app.cli.uvicorn.run")
+    run = mocker.patch("baibai_app.cli.uvicorn.run")
 
     assert main(["serve", "--root", str(tmp_path)]) == 1
     run.assert_not_called()
@@ -57,7 +57,7 @@ def test_cli_rejects_wrong_root_without_starting_server(tmp_path: Path, mocker) 
 
 def test_cli_binds_uvicorn_to_loopback(app_records_root: Path, mocker) -> None:
     (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    run = mocker.patch("baibai_loop.app.cli.uvicorn.run")
+    run = mocker.patch("baibai_app.cli.uvicorn.run")
 
     assert main(["serve", "--root", str(app_records_root), "--port", "9012"]) == 0
 

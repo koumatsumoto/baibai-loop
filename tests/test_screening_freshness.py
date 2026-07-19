@@ -12,12 +12,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.screening.freshness import (
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
 )
-from baibai_loop.screening.schema import FinancialSnapshot
+from baibai_engine.screening.schema import FinancialSnapshot
 
 
 def _financial(source_submit_datetime: str | None = "2025-10-15 12:00") -> FinancialSnapshot:

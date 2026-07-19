@@ -66,7 +66,7 @@ jobs:
           uv run coverage xml
 
       - name: Validate artefacts
-        run: uv run baibai-loop-validation
+        run: uv run baibai-engine validate
 
       - name: Validate clean checkout lineage
         run: |
@@ -74,7 +74,7 @@ jobs:
           git archive HEAD | tar -x -C "$checkout"
           (
             cd "$checkout"
-            uv run --frozen baibai-loop-validation
+            uv run --frozen baibai-engine validate
           )
 
       - name: Build package

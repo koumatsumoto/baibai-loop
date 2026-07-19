@@ -11,8 +11,8 @@ import yaml
 from hypothesis import given
 from hypothesis import strategies as st
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.position.ledger import (
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioLedgerError,
     load_portfolio_ledger,
@@ -20,7 +20,7 @@ from baibai_loop.position.ledger import (
     reconcile_portfolio,
     snapshot_to_payload,
 )
-from baibai_loop.position.policy import PORTFOLIO_POLICY
+from baibai_engine.position.policy import PORTFOLIO_POLICY
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"

@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.position.ledger import PortfolioLedgerDocument, reconcile_portfolio
-from baibai_loop.thesis.decision_cli import main as decision_cli_main
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.position.ledger import PortfolioLedgerDocument, reconcile_portfolio
+from baibai_engine.research.decision_cli import main as decision_cli_main
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketResult,
     decision_packet_core_hash,
@@ -20,7 +20,7 @@ from baibai_loop.thesis.decision_packet import (
     load_decision_packet,
     load_independent_review,
 )
-from baibai_loop.thesis.execution_policy import (
+from baibai_engine.research.execution_policy import (
     ExecutionOutcomeInput,
     ExecutionPolicyError,
     ExecutionPolicyInput,

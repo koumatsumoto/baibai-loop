@@ -4,8 +4,8 @@ import unittest
 from collections.abc import Mapping
 from datetime import date
 
-from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
-from baibai_loop.screening.selection import (
+from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.screening.selection import (
     build_selection_payload,
     candidate_record_from_mapping,
 )

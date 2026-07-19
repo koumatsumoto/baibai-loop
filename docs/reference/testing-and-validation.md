@@ -6,7 +6,7 @@ status: active
 last_reviewed: 2026-07-12
 source_paths:
   - "../../records/_schemas/"
-  - "../../src/baibai_loop/validation/"
+  - "../../src/baibai_engine/validation/"
   - "../../tests/"
 ---
 
@@ -21,7 +21,7 @@ YAML front matter の `ticker` は必ず quote する（`"9715"`）。unquoted �
 | area | 責務 |
 | --- | --- |
 | `records/_schemas/` | YAML / front matter の schema 正本 |
-| `src/baibai_loop/validation/` | schema validation と cross-file validation |
+| `src/baibai_engine/validation/` | schema validation と cross-file validation |
 | `tests/test_validate_*.py` | validator の期待挙動 |
 | `.github/workflows/ci.yml` | PR / main push の local parity gate |
 | `tools/drift/` | docs link、CLI recipe、legacy semantics、lineage、skill inventory/parity |
@@ -31,7 +31,7 @@ YAML front matter の `ticker` は必ず quote する（`"9715"`）。unquoted �
 records / schema / Python 実装を変更したら最低限以下を実行します。
 
 ```bash
-uv run baibai-loop-validation
+uv run baibai-engine validate
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy

@@ -11,14 +11,14 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-from baibai_loop.market.jquants import JQuantsProviderError
-from baibai_loop.screening.cli import bootstrap_cache_command
-from baibai_loop.screening.cli.providers import ProviderBundle
-from baibai_loop.screening.master_snapshot import validate_master_snapshot
-from baibai_loop.screening.providers.jquants import JQuantsProvider
-from baibai_loop.screening.sqlite_cache import open_connection, store_jquants_master
-from baibai_loop.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
-from baibai_loop.screening.sqlite_reader import (
+from baibai_engine.market.jquants import JQuantsProviderError
+from baibai_engine.screening.cli import bootstrap_cache_command
+from baibai_engine.screening.cli.providers import ProviderBundle
+from baibai_engine.screening.master_snapshot import validate_master_snapshot
+from baibai_engine.screening.providers.jquants import JQuantsProvider
+from baibai_engine.screening.sqlite_cache import open_connection, store_jquants_master
+from baibai_engine.screening.sqlite_coverage.jquants import _append_master_snapshot_issues
+from baibai_engine.screening.sqlite_reader import (
     read_eq_master,
     read_eq_master_asof,
     read_eq_master_exact,
@@ -85,7 +85,7 @@ def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
 class MasterSnapshotStoreTests(unittest.TestCase):
     def test_validation_logs_raw_persisted_and_intentional_exclusion_counts(self) -> None:
         asof = date(2026, 5, 29)
-        with self.assertLogs("baibai_loop.screening.master_snapshot", level="INFO") as captured:
+        with self.assertLogs("baibai_engine.screening.master_snapshot", level="INFO") as captured:
             validated = validate_master_snapshot(make_master_records(asof, excluded_count=2), asof)
 
         self.assertEqual(validated.raw_count, 2502)
@@ -197,7 +197,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_loop.screening.sqlite_cache.jquants.record_source_coverage",
+                    "baibai_engine.screening.sqlite_cache.jquants.record_source_coverage",
                     side_effect=sqlite3.OperationalError("injected coverage failure"),
                 ),
                 self.assertRaises(sqlite3.OperationalError),
@@ -224,7 +224,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_loop.screening.sqlite_cache.jquants.validate_master_snapshot",
+                    "baibai_engine.screening.sqlite_cache.jquants.validate_master_snapshot",
                     return_value=inconsistent,
                 ),
                 self.assertRaisesRegex(JQuantsProviderError, "persisted count mismatch"),

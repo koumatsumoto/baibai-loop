@@ -47,7 +47,7 @@ frontend を build して local cockpit を起動します。
 cd ui
 npm run build
 cd ..
-uv run baibai-loop-app serve
+uv run baibai-app serve
 ```
 
 ブラウザで `http://127.0.0.1:8712` を開きます。UI と API は records を read-only で参照し、task や portfolio を更新しません。
@@ -66,7 +66,7 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 
 | path | 役割 |
 | --- | --- |
-| `src/baibai_loop/` | macro、market、screening、thesis、position、validation、foundation package |
+| `src/baibai_engine/` | macro、market、screening、thesis、position、validation、foundation package |
 | `records/` | 人間が確認できるcanonical judgment recordsとschema/config |
 | `data/` | git外の再取得可能なmarket data |
 | `docs/` | doctrine、governance、operations、workflow、reference |
@@ -81,12 +81,12 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 
 | command | 役割 |
 | --- | --- |
-| `baibai-loop-screening` | cache、screening、select、ticker profile、calibration |
-| `baibai-loop-opportunity` | opportunity workspace、packet/review scaffold、promotion、前営業日指値 |
-| `baibai-loop-decision` | decision packetと既存execution policyの再計算 |
-| `baibai-loop-position` | ledger、human result draft、holding review、portfolio outcome |
-| `baibai-loop-macro` | macro indicator seriesの取得・cache |
-| `baibai-loop-validation` | canonical recordsとpolicyのvalidation |
+| `baibai-engine screening` | cache、screening、select、ticker profile、calibration |
+| `baibai-engine research` | opportunity workspace、packet/review scaffold、promotion、前営業日指値 |
+| `baibai-engine research evaluate` | decision packetと既存execution policyの再計算 |
+| `baibai-engine position` | ledger、human result draft、holding review、portfolio outcome |
+| `baibai-engine macro` | macro indicator seriesの取得・cache |
+| `baibai-engine validate` | canonical recordsとpolicyのvalidation |
 
 日常運用の完全なcommand順は[`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md)、各optionはpublic `--help`を正本とします。
 
@@ -104,7 +104,7 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 Python 3.14と`uv`を使用します。records/schema/src/docsを変更したら次を実行します。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate
 UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
 UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .
 UV_CACHE_DIR=/tmp/uv-cache uv run mypy

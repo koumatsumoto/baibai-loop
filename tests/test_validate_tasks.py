@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_loop.validation.cli import main as validation_main
-from baibai_loop.validation.task_list import (
+from baibai_engine.validation.cli import main as validation_main
+from baibai_engine.validation.task_list import (
     discover_task_list_files,
     validate_task_list_file,
 )

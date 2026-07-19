@@ -59,7 +59,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render \
   --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
 ```
 
-`--prepared`は`baibai-loop-opportunity prepare`が書くworkspaceの`selection.yaml`で、portfolio annotationの唯一の機械sourceとする。narrativeのtickerがprepared audit poolに無い場合、レンダラはerrorで停止する。
+`--prepared`は`baibai-engine research prepare`が書くworkspaceの`selection.yaml`で、portfolio annotationの唯一の機械sourceとする。narrativeのtickerがprepared audit poolに無い場合、レンダラはerrorで停止する。
 
 ## narratives スキーマ
 

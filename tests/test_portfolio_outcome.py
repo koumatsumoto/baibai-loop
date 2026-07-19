@@ -4,11 +4,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.market.bars import JQuantsDailyBar
-from baibai_loop.market.jpx_total_return import BenchmarkObservation
-from baibai_loop.position.cli import main
-from baibai_loop.position.ledger import PortfolioLedgerDocument
-from baibai_loop.position.outcome import (
+from baibai_engine.market.bars import JQuantsDailyBar
+from baibai_engine.market.jpx_total_return import BenchmarkObservation
+from baibai_engine.position.cli import main
+from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.position.outcome import (
     DailyNav,
     PortfolioOutcomeError,
     compute_time_weighted_return,
@@ -138,7 +138,7 @@ def _ledger() -> PortfolioLedgerDocument:
 
 
 def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
-    from baibai_loop.position.outcome import compute_portfolio_outcome
+    from baibai_engine.position.outcome import compute_portfolio_outcome
 
     result = compute_portfolio_outcome(
         _ledger(),
@@ -161,7 +161,7 @@ def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
 
 
 def test_portfolio_outcome_rejects_unresolved_corporate_action() -> None:
-    from baibai_loop.position.outcome import compute_portfolio_outcome
+    from baibai_engine.position.outcome import compute_portfolio_outcome
 
     result = compute_portfolio_outcome(
         _ledger(),
@@ -178,7 +178,7 @@ def test_portfolio_outcome_rejects_unresolved_corporate_action() -> None:
 
 
 def test_after_close_internal_cashflow_rolls_past_that_close() -> None:
-    from baibai_loop.position.outcome import compute_portfolio_outcome
+    from baibai_engine.position.outcome import compute_portfolio_outcome
 
     raw = _ledger().model_dump(mode="json")
     # Move the confirmed tax after close; it must not affect this period's NAV.

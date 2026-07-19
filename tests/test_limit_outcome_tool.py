@@ -8,7 +8,7 @@ import pytest
 import yaml
 from tools.limit_outcome import build_parser, main
 
-from baibai_loop.market.sqlite import open_connection
+from baibai_engine.market.sqlite import open_connection
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 

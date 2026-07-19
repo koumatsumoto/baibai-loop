@@ -16,11 +16,11 @@ from tools.research_decision_report.render import (
 )
 from tools.research_decision_report.review_scaffold import scaffold
 
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.research.decision_packet import (
     decision_packet_core_hash,
     load_decision_packet,
 )
-from baibai_loop.thesis.execution_policy import max_acceptable_price
+from baibai_engine.research.execution_policy import max_acceptable_price
 
 FIXTURES = Path(__file__).parent / "fixtures" / "decision-packet"
 REQUIRED_REVIEW_CHECKS = (

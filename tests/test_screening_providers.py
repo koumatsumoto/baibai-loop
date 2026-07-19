@@ -19,7 +19,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.providers.edinet import (
+from baibai_engine.screening.providers.edinet import (
     EDINETProvider,
     EDINETProviderError,
     EDINETRateLimitError,
@@ -28,13 +28,13 @@ from baibai_loop.screening.providers.edinet import (
     parse_sec_code,
     select_document_candidates,
 )
-from baibai_loop.screening.providers.edinet_csv import parse_csv_zip_metric_record
-from baibai_loop.screening.providers.jpx import (
+from baibai_engine.screening.providers.edinet_csv import parse_csv_zip_metric_record
+from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXProvider,
     JPXProviderError,
 )
-from baibai_loop.screening.providers.jquants import (
+from baibai_engine.screening.providers.jquants import (
     JQuantsProvider,
     normalize_daily_bar,
     normalize_financial_summary,
@@ -42,8 +42,8 @@ from baibai_loop.screening.providers.jquants import (
     normalize_security_master,
     parse_jquants_code,
 )
-from baibai_loop.screening.schema import TTMQuality
-from baibai_loop.screening.sqlite_cache import store_edinet_metrics, store_jpx_regulations
+from baibai_engine.screening.schema import TTMQuality
+from baibai_engine.screening.sqlite_cache import store_edinet_metrics, store_jpx_regulations
 
 
 class _FixedHtmlSession:
@@ -335,7 +335,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 ),
             )
 
-            with patch("baibai_loop.screening.providers.edinet.time.sleep"):
+            with patch("baibai_engine.screening.providers.edinet.time.sleep"):
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
@@ -350,7 +350,7 @@ class ScreeningProviderTests(unittest.TestCase):
             session = _TransientThenBytesSession(content=expected)
             provider = EDINETProvider("key", cache, session=session)
 
-            with patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep:
+            with patch("baibai_engine.screening.providers.edinet.time.sleep") as sleep:
                 content = provider.download_csv_zip("S100TEST")
 
             self.assertEqual(content, expected)
@@ -363,7 +363,7 @@ class ScreeningProviderTests(unittest.TestCase):
             session = _TransientThenJsonSession()
             provider = EDINETProvider("key", Path(tmp), session=session)
 
-            with patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep:
+            with patch("baibai_engine.screening.providers.edinet.time.sleep") as sleep:
                 documents = provider.list_documents(date(2026, 7, 10))
 
             self.assertEqual(documents, [])
@@ -386,7 +386,7 @@ class ScreeningProviderTests(unittest.TestCase):
             provider = EDINETProvider("secret-key", Path(tmp), session=session)
 
             with (
-                patch("baibai_loop.screening.providers.edinet.time.sleep") as sleep,
+                patch("baibai_engine.screening.providers.edinet.time.sleep") as sleep,
                 self.assertRaises(EDINETProviderError) as caught,
             ):
                 provider.download_csv_zip("S100TEST")
@@ -412,7 +412,7 @@ class ScreeningProviderTests(unittest.TestCase):
             )
 
             with (
-                patch("baibai_loop.screening.providers.edinet.time.sleep"),
+                patch("baibai_engine.screening.providers.edinet.time.sleep"),
                 self.assertRaisesRegex(EDINETRateLimitError, "rate limited"),
             ):
                 provider.download_csv_zip("S100TEST")
@@ -1019,7 +1019,7 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
-            with patch("baibai_loop.market.provider.time.sleep", return_value=None):
+            with patch("baibai_engine.market.provider.time.sleep", return_value=None):
                 bars = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
 
         self.assertEqual(len(client.calls), 2)
@@ -1057,12 +1057,12 @@ class ScreeningProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "data" / "screening" / "market.sqlite"
             provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
-            with patch("baibai_loop.market.provider.time.sleep") as sleep_first:
+            with patch("baibai_engine.market.provider.time.sleep") as sleep_first:
                 first = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
             self.assertEqual(sleep_first.call_count, 1)
 
-            with patch("baibai_loop.market.provider.time.sleep") as sleep_second:
+            with patch("baibai_engine.market.provider.time.sleep") as sleep_second:
                 second = provider.get_eq_bars_daily_range(date(2026, 1, 1), date(2026, 2, 15))
             self.assertEqual(len(client.calls), 2)
             self.assertEqual(sleep_second.call_count, 0)
@@ -1085,7 +1085,7 @@ class ScreeningProviderTests(unittest.TestCase):
         client = FakeClient()
         with tempfile.TemporaryDirectory() as tmp:
             provider = JQuantsProvider("token", Path(tmp), client=client)
-            with patch("baibai_loop.market.provider.time.sleep", return_value=None):
+            with patch("baibai_engine.market.provider.time.sleep", return_value=None):
                 bars = provider.get_eq_bars_daily_range(date(2026, 4, 24), date(2026, 4, 24))
 
         self.assertEqual(client.calls, 3)

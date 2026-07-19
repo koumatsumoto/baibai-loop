@@ -19,19 +19,19 @@ last_reviewed: 2026-07-16
 ## 2. Runtime
 
 - Python 3.14（[`./python-foundation.md`](./python-foundation.md)）
-- package root: `src/baibai_loop/screening/`
+- package root: `src/baibai_engine/screening/`
 - J-Quants client は `jquantsapi.ClientV2` 固定
 - 実行コマンド:
 
 ```bash
-python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
-python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
-python -m baibai_loop.screening.cli bootstrap-cache --asof YYYY-MM-DD
-python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--macro-context path] [--top N] [--profile PROFILE]
-python -m baibai_loop.screening.cli ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
-python -m baibai_loop.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
-python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
-python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
+python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
+python -m baibai_engine.screening.cli bootstrap-cache --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli select --asof YYYY-MM-DD [--macro-context path] [--top N] [--profile PROFILE]
+python -m baibai_engine.screening.cli ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
+python -m baibai_engine.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
+python -m baibai_engine.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
+python -m baibai_engine.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 ```
 
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
@@ -105,9 +105,9 @@ cache / SQLite の配置先は固定 (env override 廃止):
 EDINET CSV-derived metrics を更新してから run する標準手順:
 
 ```bash
-python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
-python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD
-python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
+python -m baibai_engine.screening.cli verify-cache-coverage --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 ```
 
 `EDINET_API_KEY` が無い場合、`extract-edinet-metrics` は fail-fast する。`run` は SQLite の EDINET metrics が無い状態では継続せず、事前 coverage 検証で fail-fast する。
@@ -182,7 +182,7 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 
 ## 12. J-Quants rate limit と bootstrap コスト
 
-J-Quants Light プランの正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_loop/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
+J-Quants Light プランの正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_engine/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
 
 - `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の日次足は asof−1200 暦日、財務サマリーは asof−730 暦日を範囲に取り、`_RANGE_CHUNK_DAYS=31` で 31 日 chunk に分割して ClientV2 内部の per-day API 呼び出しに fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、1 asof の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
 - chunk は resumable。`source_coverage` に chunk 単位で `status=ok` を記録し、中断しても完了済み chunk は再取得しない。複数 asof は履歴窓が大きく重複するため、最初の 1 asof の full bootstrap が高コストで、以降の週は非重複 chunk とその週の EDINET だけで安価になる。

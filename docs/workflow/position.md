@@ -106,9 +106,9 @@ outcomeは長期判断のcalibration evidenceであり、短期screenの最適�
 ## Validation
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-position ledger
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target ledger
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target holding-review
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine position ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target ledger
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target holding-review
 ```
 
 ## Related

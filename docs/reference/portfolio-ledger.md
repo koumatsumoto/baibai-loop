@@ -16,7 +16,7 @@ ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで
 
 この文書とschemaはledgerの永続化契約を定義する。canonical ledgerはrepository内portfolioのhuman-confirmed cash、保有、未約定引当の正本であり、validatorはこの契約だけを検証する。broker残高を自動取得・推定・完全照合する契約ではない。
 
-公開schemaは`records/_schemas/portfolio-ledger.json`、実装は`src/baibai_loop/position/ledger.py`を正本とする。schemaはunknown fieldと、event総額におけるfloat円額を拒否する。単価は小数4桁まで許すが、数量との積が1円単位に一致しないeventを暗黙に丸めず拒否する。
+公開schemaは`records/_schemas/portfolio-ledger.json`、実装は`src/baibai_engine/position/ledger.py`を正本とする。schemaはunknown fieldと、event総額におけるfloat円額を拒否する。単価は小数4桁まで許すが、数量との積が1円単位に一致しないeventを暗黙に丸めず拒否する。
 
 ## Events
 
@@ -39,7 +39,7 @@ reservation ID、order identity、execution IDは再利用しない。これら�
 
 人間報告から作る`reservation / execution / release`はproposal/approval URLを`decision_reference`に持つ。既存migration eventではnullを許すが、新しいhuman resultは参照なしで記録しない。
 
-`event_id`が`migration-`で始まるeventは、移行時点の保有・予約をcanonical stateへ初期化する記録であり、人間が報告したbroker注文・約定・取消ではない。`baibai-loop-position ledger`はこれらを`event_annotations`の`ledger.migration-initialization`として件数表示する。期間内の新規broker resultを数えるときはmigration eventを含めず、`record-result`へ入力された人間報告と`decision_reference`を基準にする。この注記は表示上の区別であり、reconciliation計算やevent modelを分岐させない。
+`event_id`が`migration-`で始まるeventは、移行時点の保有・予約をcanonical stateへ初期化する記録であり、人間が報告したbroker注文・約定・取消ではない。`baibai-engine position ledger`はこれらを`event_annotations`の`ledger.migration-initialization`として件数表示する。期間内の新規broker resultを数えるときはmigration eventを含めず、`record-result`へ入力された人間報告と`decision_reference`を基準にする。この注記は表示上の区別であり、reconciliation計算やevent modelを分岐させない。
 
 reservationとexecutionの数量はpolicyの`board_lot`倍数に限定する。小数単価は1 board lotとの積が整数円になる場合だけ受理するため、合法な部分約定ごとのreserved cashも暗黙の丸めなしに再計算できる。
 
@@ -82,11 +82,11 @@ warningは判断を禁止しない。overrideは`reason`、`decision_reference`�
 ## Commands
 
 ```bash
-uv run baibai-loop-position ledger
-uv run baibai-loop-position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof YYYY-MM-DD --out .cache/position/YYYY-MM-DD-market-price-ledger.yaml
-uv run baibai-loop-position record-result --help
+uv run baibai-engine position ledger
+uv run baibai-engine position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof YYYY-MM-DD --out .cache/position/YYYY-MM-DD-market-price-ledger.yaml
+uv run baibai-engine position record-result --help
 uv run python -m tools.limit_outcome --help
-uv run baibai-loop-validation --target ledger
+uv run baibai-engine validate --target ledger
 ```
 
 `market-price-draft`はsource ledgerのeventを価格なしで`as_of`まで再生して全open holdingを特定し、指定日のJ-Quants `jquants_daily_bars.close`を全tickerで同日に観測できる場合だけ、新しいledger draftをexclusive createする。新規約定でholdingが生じ、source ledgerにそのtickerのmarket priceがまだ無い中間状態も受理する。open holdingは価格観測時点ではなくledger `as_of`のevent stateで決まるため、最新完全営業日のcloseが当日の約定時刻より前でもよい。既存market priceを持つholdingでは、指定日がcurrent observation日以上であることを要求する。

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_loop.app.sources.protocols import (
+from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
     ResearchSource,
     TaskSource,
 )
-from baibai_loop.app.sources.yaml_sources import (
+from baibai_app.sources.yaml_sources import (
     YamlCandidatesSource,
     YamlLedgerSource,
     YamlResearchSource,

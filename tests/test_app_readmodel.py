@@ -4,19 +4,19 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from baibai_loop.app.readmodel.builders import (
+from baibai_app.readmodel.builders import (
     build_dashboard,
     build_screening,
     build_security_detail,
 )
-from baibai_loop.app.sources.types import (
+from baibai_app.sources.types import (
     CandidatesRun,
     PacketDetail,
     ResearchRevision,
     ScenarioSummary,
     TaskRecord,
 )
-from baibai_loop.position.ledger import (
+from baibai_engine.position.ledger import (
     HoldingSnapshot,
     PortfolioLedgerError,
     PortfolioSnapshot,

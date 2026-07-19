@@ -16,20 +16,20 @@ from typing import cast
 
 import yaml
 
-from baibai_loop.market.sqlite import (
+from baibai_engine.market.sqlite import (
     SQLiteSchemaError,
     optional_float,
     range_covered,
     validate_current_schema,
 )
-from baibai_loop.position.ledger import (
+from baibai_engine.position.ledger import (
     PortfolioLedgerError,
     ReservationEvent,
     load_portfolio_ledger,
     replay_events_through,
     reservation_snapshots,
 )
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     DecisionPacketError,
     IndependentReview,

@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.position.cli import build_parser as position_parser
-from baibai_loop.position.cli import main as position_main
-from baibai_loop.screening.cli import main as screening_main
-from baibai_loop.screening.cli.app import build_parser as screening_parser
-from baibai_loop.thesis.decision_cli import main as decision_main
-from baibai_loop.thesis.opportunity_cli import build_parser as opportunity_parser
-from baibai_loop.thesis.opportunity_cli import main as opportunity_main
+from baibai_engine.position.cli import build_parser as position_parser
+from baibai_engine.position.cli import main as position_main
+from baibai_engine.research.decision_cli import main as decision_main
+from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
+from baibai_engine.research.opportunity_cli import main as opportunity_main
+from baibai_engine.screening.cli import main as screening_main
+from baibai_engine.screening.cli.app import build_parser as screening_parser
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -408,7 +408,7 @@ def test_holding_review_cli_emits_stable_yaml_shape(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "baibai_loop.position.cli.validate_holding_review_scalars",
+        "baibai_engine.position.cli.validate_holding_review_scalars",
         lambda document, root: None,
     )
     assert position_main(["holding-review", "--input", str(HOLDING_REVIEW_FIXTURE)]) == 0
@@ -686,9 +686,9 @@ def test_decision_cycle_runbook_recipes_use_public_cli_contract(
     parsed = parser.parse_args(argv)
     assert parsed.command == argv[0]
     executable = {
-        screening_parser: "baibai-loop-screening",
-        opportunity_parser: "baibai-loop-opportunity",
-        position_parser: "baibai-loop-position",
+        screening_parser: "baibai-engine screening",
+        opportunity_parser: "baibai-engine research",
+        position_parser: "baibai-engine position",
     }[parser_factory]
     runbook = (ROOT / "docs/operations/decision-cycle.md").read_text(encoding="utf-8")
     assert f"{executable} {argv[0]}" in runbook

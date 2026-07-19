@@ -9,13 +9,13 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.estimates import (
+from baibai_engine.screening.estimates import (
     BUYBACK_CLIP,
     REALIZATION_RATE_ANNUAL,
     UPSIDE_CAP,
     estimate_expected_return,
 )
-from baibai_loop.screening.schema import DerivedMetrics, FinancialSnapshot
+from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot
 
 
 def _financial(

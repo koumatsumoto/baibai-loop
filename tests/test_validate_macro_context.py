@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from baibai_loop.validation.macro_context import _validate_custom
+from baibai_engine.validation.macro_context import _validate_custom
 
 _PATH = Path("records/01-macro-context/2026/06/x.yaml")
 

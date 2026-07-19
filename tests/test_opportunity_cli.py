@@ -1,4 +1,4 @@
-"""Public CLI contract and golden-path tests for baibai-loop-opportunity.
+"""Public CLI contract and golden-path tests for baibai-engine research.
 
 These drive the CLI the way the runbook does — through scaffolds and the workspace,
 never by copying a fixture packet as the operational input. Where a fully-ready
@@ -16,22 +16,22 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.foundation.time import JST
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.market.sqlite.schema import open_connection
-from baibai_loop.thesis.close_source import (
+from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sqlite.schema import open_connection
+from baibai_engine.research.close_source import (
     _EXPECTED_MARKET_SCHEMA_VERSION,
     resolve_holding_close_on_basis,
     resolve_previous_business_day_close,
 )
-from baibai_loop.thesis.decision_cli import main as decision_main
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.research.decision_cli import main as decision_main
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     ScreeningEstimate,
     decision_packet_core_hash,
 )
-from baibai_loop.thesis.opportunity_cli import main as opportunity_main
-from baibai_loop.validation.decision_packet import validate_decision_packet_file
+from baibai_engine.research.opportunity_cli import main as opportunity_main
+from baibai_engine.validation.decision_packet import validate_decision_packet_file
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -330,7 +330,7 @@ def _fill_ready_workspace(
 
 
 def _checklist_ids() -> tuple[str, ...]:
-    from baibai_loop.thesis.opportunity import CHECKLIST_IDS
+    from baibai_engine.research.opportunity import CHECKLIST_IDS
 
     return CHECKLIST_IDS
 
@@ -352,7 +352,7 @@ def test_close_source_expected_schema_version_tracks_market() -> None:
     # A market schema version bump changes SQLITE_SCHEMA_VERSION; this coupling
     # assertion turns that bump into a red CI check so the boundary-crossing schema
     # literals in close_source cannot drift silently.
-    from baibai_loop.market.sqlite.schema import SQLITE_SCHEMA_VERSION
+    from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 
     assert _EXPECTED_MARKET_SCHEMA_VERSION == SQLITE_SCHEMA_VERSION
 
@@ -779,7 +779,7 @@ def test_status_points_to_first_missing_shortlist_lane(
 
     assert code == 0
     assert payload["workspace_status"] == "incomplete"
-    assert payload["next_command"] == "baibai-loop-opportunity packet-scaffold --ticker 2331"
+    assert payload["next_command"] == "baibai-engine research packet-scaffold --ticker 2331"
 
 
 def test_status_waits_for_all_lane_checks_before_comparison(

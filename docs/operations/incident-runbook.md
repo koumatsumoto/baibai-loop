@@ -18,7 +18,7 @@ last_reviewed: 2026-06-23
 
 ## Validation failure
 
-1. `uv run baibai-loop-validation` の error path を読む。
+1. `uv run baibai-engine validate` の error path を読む。
 2. 対応する component doc と schema を確認する。
 3. schema や validator の意味を推測で変えない。必要なら別 issue を起こす。
 

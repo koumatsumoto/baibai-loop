@@ -9,15 +9,15 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
-from baibai_loop.position import cli as position_cli
-from baibai_loop.position.cli import main
-from baibai_loop.position.ledger import (
+from baibai_engine.position import cli as position_cli
+from baibai_engine.position.cli import main
+from baibai_engine.position.ledger import (
     load_portfolio_ledger,
     reconcile_portfolio,
     replay_events_through,
     reservation_snapshots,
 )
-from baibai_loop.position.result_recording import ResultRecordingError, record_result
+from baibai_engine.position.result_recording import ResultRecordingError, record_result
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 JST = ZoneInfo("Asia/Tokyo")

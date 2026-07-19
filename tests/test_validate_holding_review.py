@@ -6,8 +6,8 @@ from typing import Any
 
 import yaml
 
-from baibai_loop.position.holding_review import holding_review_json_schema
-from baibai_loop.validation.holding_review import (
+from baibai_engine.position.holding_review import holding_review_json_schema
+from baibai_engine.validation.holding_review import (
     discover_holding_review_files,
     validate_holding_review_file,
 )

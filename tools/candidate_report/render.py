@@ -21,7 +21,7 @@ Usage::
         --prepared .cache/opportunity/ASOF/selection.yaml \\
         --out .cache/opportunity/ASOF/candidate-report.html
 
-``--prepared`` points at the ``baibai-loop-opportunity prepare`` workspace
+``--prepared`` points at the ``baibai-engine research prepare`` workspace
 output (``selection.yaml``): its ``audit_pool`` rows carry
 ``portfolio_annotation`` (unheld/held/reserved/held_and_reserved), the one
 fact ``selection-output.yaml`` does not know because screening runs

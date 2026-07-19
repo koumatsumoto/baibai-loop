@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from baibai_loop.foundation.coerce import (
+from baibai_engine.foundation.coerce import (
     date_from_datetime_prefix,
     dedupe_strings,
     dict_sequence,

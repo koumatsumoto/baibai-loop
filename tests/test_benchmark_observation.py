@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from baibai_loop.market.jpx_total_return import (
+from baibai_engine.market.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_loop.validation.benchmark_observation import validate_benchmark_observation_file
+from baibai_engine.validation.benchmark_observation import validate_benchmark_observation_file
 
 FIXTURE = Path(__file__).parent / "fixtures" / "benchmark-observation" / "topix-1y.yaml"
 

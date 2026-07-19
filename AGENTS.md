@@ -36,14 +36,14 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 | subsystem | src | records | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
-| macro | `src/baibai_loop/macro/` | `records/01-macro-context/` | `baibai-loop-macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
-| screening | `src/baibai_loop/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-loop-screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| thesis | `src/baibai_loop/thesis/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-loop-opportunity` / `baibai-loop-decision` / validation | decision packet + planning-only limit + holding-review composition |
-| position | `src/baibai_loop/position/` | `records/04-position/` | `baibai-loop-position` (`ledger` / `record-result` / `holding-review-build` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
-| market | `src/baibai_loop/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
-| foundation | `src/baibai_loop/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
-| validation | `src/baibai_loop/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-loop-validation` | records 公開言語の検証器（CI gate） |
-| app | `src/baibai_loop/app/` | `records/05-task/`（ほか domain records を read-only 合成） | `baibai-loop-app` | 運用 cockpit の read model / local API |
+| macro | `src/baibai_engine/macro/` | `records/01-macro-context/` | `baibai-engine macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
+| screening | `src/baibai_engine/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
+| thesis | `src/baibai_engine/research/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` / validation | decision packet + planning-only limit + holding-review composition |
+| position | `src/baibai_engine/position/` | `records/04-position/` | `baibai-engine position` (`ledger` / `record-result` / `holding-review-build` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
+| market | `src/baibai_engine/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
+| foundation | `src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
+| validation | `src/baibai_engine/validation/` | `records/_schemas/`（検証対象 schema） | `baibai-engine validate` | records 公開言語の検証器（CI gate） |
+| app | `src/baibai_engine/app/` | `records/05-task/`（ほか domain records を read-only 合成） | `baibai-app` | 運用 cockpit の read model / local API |
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイ（[`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md)）で見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善である。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
 
@@ -93,7 +93,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 records / schema の変更を加えたら、コミット前に最低限以下を通す。
 
 ```bash
-uv run baibai-loop-validation
+uv run baibai-engine validate
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy

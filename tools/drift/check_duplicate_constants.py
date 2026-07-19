@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-_EXCLUDED = {Path("docs/portfolio-management.md"), Path("src/baibai_loop/position/policy.py")}
+_EXCLUDED = {Path("docs/portfolio-management.md"), Path("src/baibai_engine/position/policy.py")}
 
 
 def check(root: Path) -> list[str]:
@@ -67,7 +67,7 @@ def _policy_patterns(root: Path) -> tuple[re.Pattern[str], ...]:
 
 
 def _load_policy(root: Path) -> dict[str, dict[str, int | float | bool]]:
-    tree = ast.parse((root / "src/baibai_loop/position/policy.py").read_text(encoding="utf-8"))
+    tree = ast.parse((root / "src/baibai_engine/position/policy.py").read_text(encoding="utf-8"))
     for statement in tree.body:
         if (
             isinstance(statement, ast.AnnAssign)

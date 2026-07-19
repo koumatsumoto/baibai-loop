@@ -10,9 +10,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.providers.jquants import JQuantsDailyBar
-from baibai_loop.screening.schema import SecurityMaster
-from baibai_loop.screening.universe import build_universe
+from baibai_engine.screening.providers.jquants import JQuantsDailyBar
+from baibai_engine.screening.schema import SecurityMaster
+from baibai_engine.screening.universe import build_universe
 
 
 def _bars(

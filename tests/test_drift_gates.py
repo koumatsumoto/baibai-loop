@@ -64,10 +64,10 @@ def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path
 
 
 def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> None:
-    policy = tmp_path / "src/baibai_loop/position/policy.py"
+    policy = tmp_path / "src/baibai_engine/position/policy.py"
     policy.parent.mkdir(parents=True)
     policy.write_text(
-        (ROOT / "src/baibai_loop/position/policy.py").read_text(encoding="utf-8"),
+        (ROOT / "src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     path = tmp_path / ".claude" / "skills" / "demo" / "SKILL.md"
@@ -81,10 +81,10 @@ def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> No
 def test_duplicate_policy_constant_gate_rejects_japanese_monthly_contribution(
     tmp_path: Path,
 ) -> None:
-    policy = tmp_path / "src/baibai_loop/position/policy.py"
+    policy = tmp_path / "src/baibai_engine/position/policy.py"
     policy.parent.mkdir(parents=True)
     policy.write_text(
-        (ROOT / "src/baibai_loop/position/policy.py").read_text(encoding="utf-8"),
+        (ROOT / "src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     path = tmp_path / "docs" / "copied-policy.md"
@@ -104,10 +104,10 @@ def test_duplicate_policy_constant_gate_rejects_japanese_monthly_contribution(
 def test_duplicate_policy_constant_gate_allows_other_japanese_quantities(
     tmp_path: Path,
 ) -> None:
-    policy = tmp_path / "src/baibai_loop/position/policy.py"
+    policy = tmp_path / "src/baibai_engine/position/policy.py"
     policy.parent.mkdir(parents=True)
     policy.write_text(
-        (ROOT / "src/baibai_loop/position/policy.py").read_text(encoding="utf-8"),
+        (ROOT / "src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     canonical = tmp_path / "docs" / "portfolio-management.md"

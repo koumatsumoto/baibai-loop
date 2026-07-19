@@ -4,10 +4,10 @@ import unittest
 from collections.abc import Mapping
 from datetime import date
 
-from baibai_loop.screening.cli import build_parser
-from baibai_loop.screening.regime import MarketRegime, MarketRegimeSnapshot
-from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
-from baibai_loop.screening.selection import (
+from baibai_engine.screening.cli import build_parser
+from baibai_engine.screening.regime import MarketRegime, MarketRegimeSnapshot
+from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.screening.selection import (
     build_selection_payload,
     build_selection_sweep_payload,
     candidate_record_from_mapping,

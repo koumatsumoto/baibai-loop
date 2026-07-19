@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.market.sqlite import open_connection, store_jquants_market_calendar
-from baibai_loop.position.cli import main
-from baibai_loop.position.ledger import (
+from baibai_engine.market.sqlite import open_connection, store_jquants_market_calendar
+from baibai_engine.position.cli import main
+from baibai_engine.position.ledger import (
     PortfolioLedgerError,
     load_portfolio_ledger,
     reconcile_portfolio,

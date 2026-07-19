@@ -138,7 +138,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 - [ ] candidates / macro context / research の field を新規に解釈・記述する前に、対応する
       JSON schema (`records/_schemas/*.json`) を読み返したか
-- [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`src/baibai_loop/screening/`)
+- [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`src/baibai_engine/screening/`)
       で計算ロジックを確認したか
 - [ ] 既存ファイル (candidates、macro context、research) のサンプル形式に
       従っているか、独自構造を勝手に追加していないか
@@ -187,7 +187,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] `inputs`のinput_id、`material_deltas` / `sizing_cautions` のsource_ids、statusを照合したか
 - [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
 - [ ] material deltaが個別仮説に影響する場合だけ、decision packetの判断と反証にsource付きで接続したか
-- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-loop-validation` を実行したか
+- [ ] **機械化チェック**: macro context 編集後に `uv run baibai-engine validate` を実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -274,9 +274,9 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
 - [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える** (PR #248 で 5 名レビューで指摘):
-  - [ ] `src/baibai_loop/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
-  - [ ] `src/baibai_loop/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
-  - [ ] `src/baibai_loop/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
+  - [ ] `src/baibai_engine/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
+  - [ ] `src/baibai_engine/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
+  - [ ] `src/baibai_engine/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
   - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.agents/skills/`と`.claude/skills/`全grep: canonical skillとsymlinkが当該CLIを参照していないか
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) と `docs/workflow/screening.md` の selection block 節
@@ -284,10 +284,10 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
   - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
         `research_selection_playbook_order` から削除
-  - [ ] `src/baibai_loop/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
-  - [ ] `src/baibai_loop/screening/rule_config.py` の `<Name>Playbook` class と Union 型
+  - [ ] `src/baibai_engine/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
+  - [ ] `src/baibai_engine/screening/rule_config.py` の `<Name>Playbook` class と Union 型
         (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
-  - [ ] `src/baibai_loop/screening/selection/ranking.py` の sort key match arm
+  - [ ] `src/baibai_engine/screening/selection/ranking.py` の sort key match arm
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
@@ -360,7 +360,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 ### 再発防止チェックリスト
 
-- [ ] **YAML 読み込みは必ず `from baibai_loop.yaml_io import safe_load` 経由**で書く。
+- [ ] **YAML 読み込みは必ず `from baibai_engine.yaml_io import safe_load` 経由**で書く。
       `yaml.safe_load(...)` / `yaml.load(...)` を直接呼ぶ src コードは書かない
 - [ ] 新規 src モジュールで YAML 読み込みを足すときは `yaml_io.safe_load` が import されているか
       確認する。`grep -rn "yaml.safe_load" src/` は常に zero を保つ

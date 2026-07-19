@@ -10,12 +10,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.calibration.forward import (
+from baibai_engine.screening.calibration.forward import (
     HORIZONS,
     _ticker_forward_rows,
 )
-from baibai_loop.screening.calibration.grid import complete_month_end_dates
-from baibai_loop.screening.providers.jquants import JQuantsDailyBar
+from baibai_engine.screening.calibration.grid import complete_month_end_dates
+from baibai_engine.screening.providers.jquants import JQuantsDailyBar
 
 
 def _bar(day: date, close: float, factor: float | None = None) -> JQuantsDailyBar:

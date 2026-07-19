@@ -7,19 +7,19 @@ from typing import Any
 import pytest
 import yaml
 
-from baibai_loop.position.cli import main
-from baibai_loop.position.holding_review import (
+from baibai_engine.position.cli import main
+from baibai_engine.position.holding_review import (
     HoldingReviewDocument,
     evaluate_holding_review,
     validate_holding_review_sources,
 )
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     IndependentReview,
     decision_packet_core_hash,
     independent_review_hash,
 )
-from baibai_loop.thesis.holding_review_builder import build_holding_review
+from baibai_engine.research.holding_review_builder import build_holding_review
 
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
 

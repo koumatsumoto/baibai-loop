@@ -113,8 +113,8 @@ E[r]とFV anchorの長期予測力は`calibration-build/evaluate`でpoint-in-tim
 ## Validation
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target candidates
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-screening verify-cache-coverage --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target candidates
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
 ```
 
 ## Related
