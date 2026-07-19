@@ -73,6 +73,13 @@ def _db_main(argv: list[str]) -> int:
     import_tasks = subparsers.add_parser("import-tasks")
     import_tasks.add_argument("--db", type=Path)
     import_tasks.add_argument("--source", type=Path, default=Path("records/05-task/tasks.yaml"))
+    import_screening = subparsers.add_parser("import-screening")
+    import_screening.add_argument("--runs-db", type=Path)
+    import_screening.add_argument(
+        "--source",
+        type=Path,
+        default=Path("records/02-candidates"),
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
@@ -88,6 +95,24 @@ def _db_main(argv: list[str]) -> int:
             from baibai_engine.tasks.importer import import_task_file
 
             inserted, unchanged = import_task_file(args.source, db_path=args.db)
+            print(
+                yaml.safe_dump(
+                    {
+                        "source": str(args.source),
+                        "inserted": inserted,
+                        "unchanged": unchanged,
+                    },
+                    sort_keys=False,
+                )
+            )
+            return 0
+        if args.command == "import-screening":
+            from baibai_engine.screening.run_store import import_screening_runs
+
+            inserted, unchanged = import_screening_runs(
+                args.source,
+                db_path=args.runs_db,
+            )
             print(
                 yaml.safe_dump(
                     {
@@ -122,7 +147,7 @@ def _db_main(argv: list[str]) -> int:
             )
         )
         return 0
-    except (OSError, RuntimeError, sqlite3.Error) as error:
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 

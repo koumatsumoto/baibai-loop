@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.screening.run_store import import_screening_runs
 from baibai_engine.tasks.importer import import_task_file
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -46,9 +47,16 @@ def app_records_root(tmp_path: Path) -> Path:
     (task_dir / "tasks.yaml").write_text(_TASKS, encoding="utf-8")
     import_task_file(task_dir / "tasks.yaml", db_path=root / "data/app/baibai.sqlite")
     (candidates_dir / "2026-07-01.yaml").write_text(
-        _CANDIDATES.replace("2026-07-08", "2026-07-01"), encoding="utf-8"
+        _CANDIDATES.replace("screening-20260708", "screening-20260701").replace(
+            "2026-07-08", "2026-07-01"
+        ),
+        encoding="utf-8",
     )
     (candidates_dir / "2026-07-08.yaml").write_text(_CANDIDATES, encoding="utf-8")
+    import_screening_runs(
+        root / "records/02-candidates",
+        db_path=root / "data/screening/runs.sqlite",
+    )
     return root
 
 
@@ -87,6 +95,7 @@ run_id: screening-20260708
 run_date: "2026-07-08"
 asof_date: "2026-07-08"
 universe_size: 3
+run_at: "2026-07-08T12:00:00+09:00"
 candidates:
   - ticker: "2331"
     name: ALSOK
@@ -94,11 +103,14 @@ candidates:
     per_trailing: 12.0
     metrics:
       er_annual: 0.12
+    evidence_hits: []
   - ticker: "0001"
     name: Sample One
     sector_33: 情報・通信業
     metrics: {}
+    evidence_hits: []
   - ticker: "0002"
     name: Sample Two
     sector_33: 小売業
+    evidence_hits: []
 """

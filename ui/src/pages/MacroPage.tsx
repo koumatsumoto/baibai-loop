@@ -66,6 +66,7 @@ export function MacroPage() {
             </CardContent>
           </Card>
         )}
+        {data.context_history.length > 0 && <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Published history</CardTitle><CardDescription>immutable revisions</CardDescription></CardHeader><CardContent className="grid gap-2 px-5">{data.context_history.map((revision) => <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-2 last:border-0" key={revision.context_id}><div><p className="text-sm font-medium">{revision.summary}</p><p className="font-mono text-xs text-muted-foreground">{revision.context_id}</p></div><time className="text-xs text-muted-foreground" dateTime={revision.as_of}>{revision.as_of}</time></div>)}</CardContent></Card>}
       </section>
       <section className="grid gap-5"><div><p className="text-sm font-medium text-muted-foreground">Fact</p><h2 className="text-2xl font-semibold tracking-tight">Macro indicators</h2></div>{data.groups.map((group) => <div className="grid gap-4" key={group.title}><h3 className="text-lg font-semibold">{group.title}</h3><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{group.series.map((series) => <SeriesChart key={series.series_id} series={series} />)}</div></div>)}</section>
     </main></>

@@ -9,6 +9,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
 
+import yaml
+
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
@@ -36,7 +38,7 @@ from baibai_engine.screening.providers.jpx import JPXEarningsCalendarEntry, JPXP
 from baibai_engine.screening.providers.jquants import (
     JQuantsProviderError,
 )
-from baibai_engine.screening.render import build_output_path, render_screened_yaml
+from baibai_engine.screening.render import render_screened_yaml
 from baibai_engine.screening.rule_config import (
     CashflowYieldPlaybook,
     SalesDiscountGrowthPlaybook,
@@ -44,6 +46,7 @@ from baibai_engine.screening.rule_config import (
     load_screening_rules,
 )
 from baibai_engine.screening.rules import evaluate_screening
+from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.schema import (
     FinancialSnapshot,
     ScreenedCandidate,
@@ -69,12 +72,12 @@ def run_command(
     allow_stale_jpx: bool = False,
     output_path: Path | None = None,
     force: bool = False,
+    run_store_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
-    output_path = output_path or build_output_path(asof_date)
     rules = rules or load_screening_rules(config.rules_path)
-    if output_path.exists() and not force:
+    if output_path is not None and output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
         return 1
 
@@ -376,12 +379,23 @@ def run_command(
         evidence_hits_summary=_evidence_hits_summary(screened_candidates, rules),
         fallback_lines=tuple(fallback_lines),
     )
-    yaml_text = render_screened_yaml(document)
-    write_text_atomic(output_path, yaml_text)
+    legacy_yaml = render_screened_yaml(document)
+    raw_payload = yaml.safe_load(legacy_yaml)
+    if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
+        raise AssertionError("screening renderer must produce a mapping")
+    try:
+        publication = ScreeningRunStore(run_store_path).publish_run(raw_payload)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        print(f"screening run publication failed: {exc}", file=sys.stderr)
+        return 1
+    yaml_text = render_screened_yaml(document, run_revision_id=publication.publication_id)
+    if output_path is not None:
+        write_text_atomic(output_path, yaml_text)
     status = "partial warning" if partial_warning else "ok"
     print(
         "screening run done: "
-        f"status={status}; output={output_path}; "
+        f"status={status}; run_revision_id={publication.publication_id}; "
+        f"output={output_path}; "
         f"universe={universe_size}; candidates={len(screened_candidates)}",
         file=out,
         flush=True,

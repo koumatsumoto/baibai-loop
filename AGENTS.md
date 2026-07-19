@@ -37,7 +37,7 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | subsystem | src | records | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_engine/macro/` | `data/app/baibai.sqlite`（context）+ `data/indicators/macro.sqlite`（series） | `baibai-engine macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
-| screening | `src/baibai_engine/screening/` | `records/02-candidates/`, `records/_config/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
+| screening | `src/baibai_engine/screening/` | `data/screening/runs.sqlite`（machine）+ `data/app/baibai.sqlite`（reviewed shortlist）+ `records/_config/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
 | thesis | `src/baibai_engine/research/` | `records/03-thesis/`, `records/_playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` / validation | decision packet + planning-only limit + holding-review composition |
 | position | `src/baibai_engine/position/` | `records/04-position/` | `baibai-engine position` (`ledger` / `record-result` / `holding-review-build` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
 | market | `src/baibai_engine/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
@@ -87,7 +87,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-`records/02-candidates/`はobserved / derived / estimateを区別する機械出力層、application DB のmacro contextと`records/03-thesis/`はjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
+screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・reviewed shortlistと`records/03-thesis/`はjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
 ## 検証
 

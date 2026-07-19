@@ -118,6 +118,41 @@ class CandidateRowView(BaseModel):
 class ScreeningView(BaseModel):
     run: ScreeningRunView | None
     rows: list[CandidateRowView]
+    runs: list[ScreeningPublicationView]
+    selections: list[MachineSelectionView]
+    reviewed_shortlists: list[ReviewedShortlistView]
+
+
+class ScreeningPublicationView(BaseModel):
+    run_revision_id: str
+    run_id: str
+    asof_date: date
+    run_at: datetime
+    candidate_count: int
+
+
+class MachineSelectionView(BaseModel):
+    selection_id: str
+    run_revision_id: str
+    profile: str
+    macro_context_id: str | None
+    created_at: datetime
+    recommendations: list[dict[str, object]]
+    audit_pool: list[dict[str, object]]
+
+
+class ReviewedShortlistEntryView(BaseModel):
+    ticker: str
+    decision: str
+    reason: str
+
+
+class ReviewedShortlistView(BaseModel):
+    shortlist_id: str
+    selection_id: str
+    run_revision_id: str
+    published_at: datetime
+    entries: list[ReviewedShortlistEntryView]
 
 
 class ResearchRevisionView(BaseModel):
@@ -184,6 +219,14 @@ class MacroContextView(BaseModel):
     changes_since_previous: list[str]
 
 
+class MacroContextRevisionView(BaseModel):
+    context_id: str
+    as_of: date
+    valid_until: date
+    published_at: datetime
+    summary: str
+
+
 class MacroPointView(BaseModel):
     observed_at: date
     value: float
@@ -205,4 +248,5 @@ class MacroGroupView(BaseModel):
 class MacroView(BaseModel):
     as_of: date
     context: MacroContextView | None
+    context_history: list[MacroContextRevisionView]
     groups: list[MacroGroupView]

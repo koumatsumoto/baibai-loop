@@ -38,8 +38,9 @@ historical backfill以外で`--allow-stale-jpx`を通常使用しない。ASOF�
 2. 不足時だけ`bootstrap-cache`
 3. 不足時だけ`extract-edinet-metrics`
 4. `verify-cache-coverage`を再実行
-5. `run`
-6. `select`
+5. `run`（返された`run_revision_id`を保持）
+6. `select --run-revision-id ...`（返された`selection_id`を保持）
+7. review後に`shortlist publish`
 
 coverage commandは単独で実行し、後続commandのexit 0で失敗を隠さない。`run/select`はprovider APIへ暗黙fallbackせず、cache-onlyで決定論的に動く。
 
@@ -53,7 +54,7 @@ coverage commandは単独で実行し、後続commandのexit 0で失敗を隠さ
 
 ## Deterministic run
 
-`run --asof`は同じcache、rules、ASOFから同じcandidate outputを作る。通常operationでは`--output-path /tmp/...`またはlocal workspaceへ出し、raw全量をcanonical judgmentとしてcommitしない。
+`run --asof`は同じcache、rules、ASOFから同じcandidate outputを作り、rebuildable run storeへimmutable publicationとして保存する。同一ASOFの再実行は別の`run_revision_id`を持つ。`--output-path`はDB publicationのYAML viewが必要な場合だけ指定し、raw全量をcanonical judgmentとしてcommitしない。
 
 candidateは次を区別する。
 
@@ -70,10 +71,10 @@ AI judgment、割安の原因、将来予測、採用結論をcandidateへ書か
 | candidate pool | screen通過全件 | select/calibration | rebuildable |
 | `recommendations` | production rule/cap適用後の通常表示 | operator | rebuildable |
 | `audit_pool` | diversity/cap切断前のrank上位N件を監査 | AI/reviewer | rebuildable |
-| human-review shortlist | audit poolからOP3の件数契約で理由付き選定 | human review | operation Issue/candidate report |
+| reviewed shortlist | audit poolからOP3の件数契約で採否・理由を明示 | human review | application DB |
 | primary-research set | human-review shortlistから人間が選択 | research | workspace |
 
-`--audit-top 20`は候補抜けを監査するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capはhuman-review shortlistの件数を決めない。selection outputの`research_selection_target_max`はproduction `recommendations`とworkspaceのprimary-research setの上限に使う。
+`--audit-top 20`は候補抜けを監査するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capはreviewed shortlistの件数を決めない。review後はsource `selection_id`とrun/profile/context metadataを含むstrict draftを`baibai-engine screening shortlist publish`で明示publishする。machine recommendationをreview済みとして代用しない。
 
 ## Ranking versus warnings
 
@@ -113,8 +114,8 @@ E[r]とFV anchorの長期予測力は`calibration-build/evaluate`でpoint-in-tim
 ## Validation
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target candidates
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run pytest tests/test_screening_run_store.py tests/test_screening_db_flow.py
 ```
 
 ## Related

@@ -49,17 +49,25 @@ def load_macro_context(path: Path) -> MacroContext:
         raise ValueError(f"failed to load macro context: {path}: {exc}") from exc
     if not isinstance(payload, Mapping):
         raise ValueError(f"macro context YAML root must be a mapping: {path}")
+    return macro_context_from_payload(payload, source=path)
+
+
+def macro_context_from_payload(
+    payload: Mapping[str, Any],
+    *,
+    source: Path,
+) -> MacroContext:
     try:
         document = MacroContextDocument.model_validate(payload)
     except ValidationError as exc:
         first = exc.errors()[0]
         location = ".".join(str(part) for part in first["loc"]) or "root"
         raise ValueError(
-            f"macro context schema invalid at {location}: {first['msg']}: {path}"
+            f"macro context schema invalid at {location}: {first['msg']}: {source}"
         ) from exc
     return MacroContext(
         context_id=document.context_id,
-        path=path,
+        path=source,
         as_of=document.as_of,
         valid_until=document.valid_until,
         payload=document.payload(),

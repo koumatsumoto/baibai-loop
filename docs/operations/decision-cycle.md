@@ -72,8 +72,8 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening extract-edinet-metrics
 ### OP2 Screening and audit pool
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening run --asof YYYY-MM-DD --output-path /tmp/candidates-YYYY-MM-DD.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening select --asof YYYY-MM-DD --candidates /tmp/candidates-YYYY-MM-DD.yaml --detail full --audit-top 20 --output-path /tmp/selection-YYYY-MM-DD.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening run --asof YYYY-MM-DD
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id RUN_REVISION_ID --detail full --audit-top 20 --output-path /tmp/selection-YYYY-MM-DD.yaml
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research prepare --asof YYYY-MM-DD --selection-output /tmp/selection-YYYY-MM-DD.yaml --ledger records/04-position/portfolio-ledger.yaml --workspace .cache/opportunity/YYYY-MM-DD
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research status --workspace .cache/opportunity/YYYY-MM-DD
 ```
@@ -106,7 +106,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render --sele
 
 生成HTMLは`.cache`のephemeral成果物でcommitしない。詳細は[`../reference/candidate-report.md`](../reference/candidate-report.md)。非選択上位候補にも構造的衰退、永久損失warning、一次情報不足、FV乖離不足、投資対象外等の理由を残す。「保有済み」「予約中」「予算外」だけを除外理由にしない。weekly差分の分類と確認結果は当面operation Issueへ残し、2〜3回の運用テストでfieldと表示の必要性が安定するまでrenderer/schemaへ組み込まない。
 
-このレポートを提示し、人間がprimary-research set（推奨2〜4件）を選ぶまで一次リサーチへ進まない。選択結果はworkspaceの`selection.yaml.shortlist`へ記録し、件数上限はselection outputの`research_selection_target_max`に従う。買う候補が無ければこの段階で`no actionable bargain`終了できる。
+このレポートを提示し、人間がprimary-research set（推奨2〜4件）を選ぶまで一次リサーチへ進まない。採否・理由とsource `selection_id / run_revision_id / profile / macro_context_id`をreviewed-shortlist draftへ記録し、`baibai-engine screening shortlist publish <draft>`でapplication DBへ明示publishする。件数上限はselection outputの`research_selection_target_max`に従う。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 ### OP4 Primary research on selected candidates
 

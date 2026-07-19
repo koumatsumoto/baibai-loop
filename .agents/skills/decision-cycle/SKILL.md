@@ -31,7 +31,7 @@ schema fieldやCLI optionはskillから推測しない。JSON schemaとpublic `-
 ## 共通開始checkpoint
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。
-2. triggerを1件選び、operation Issueへcheckpointを集約する。
+2. triggerを1件選び、現在のoperation checkpointへ作業を集約する。
 3. `uv run baibai-engine position ledger`でholding、active reservation、cash、warningを読む。
 4. triggerで使うpublic commandの`--help`とrequired inputを確認する。
 
@@ -57,7 +57,7 @@ dirty worktreeの所有不明、public command不明、入力矛盾では停止�
 
 ## 記録境界
 
-operation Issueにはcheckpoint、shortlist比較、非選択理由、一次source、公表日、countercase、順位理由、統合content review hash、購入方法または注文なしの理由に加え、review済みmanifest / findings / comparison / non-promoted packet / proposal / report reviewの内容をrepository visibility確認後にartifact別commentで残す。promote済みpacket/reviewはcanonical pathとhashを参照し、同じ内容を複製しない。local pathとhashだけで完了しない。recordsにはpromote済みpacket/review、human-confirmed ledger、holding review、outcomeだけを残す。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
+候補抽出では`screening run`の`run_revision_id`を`select --run-revision-id`へ渡し、review後の採否・理由をsource `selection_id`へ束縛したdraftとして`screening shortlist publish`する。machine recommendationをreview済みshortlistとして扱わない。promote済みpacket/reviewはcanonical IDを参照し、同じ内容を複製しない。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
 
 ## 完了
 

@@ -109,6 +109,41 @@ export interface CandidateRowView {
 export interface ScreeningView {
   run: ScreeningRunView | null
   rows: CandidateRowView[]
+  runs: ScreeningPublicationView[]
+  selections: MachineSelectionView[]
+  reviewed_shortlists: ReviewedShortlistView[]
+}
+
+export interface ScreeningPublicationView {
+  run_revision_id: string
+  run_id: string
+  asof_date: string
+  run_at: string
+  candidate_count: number
+}
+
+export interface MachineSelectionView {
+  selection_id: string
+  run_revision_id: string
+  profile: string
+  macro_context_id: string | null
+  created_at: string
+  recommendations: Record<string, unknown>[]
+  audit_pool: Record<string, unknown>[]
+}
+
+export interface ReviewedShortlistEntryView {
+  ticker: string
+  decision: string
+  reason: string
+}
+
+export interface ReviewedShortlistView {
+  shortlist_id: string
+  selection_id: string
+  run_revision_id: string
+  published_at: string
+  entries: ReviewedShortlistEntryView[]
 }
 
 export interface ResearchRevisionView {
@@ -175,6 +210,14 @@ export interface MacroContextView {
   changes_since_previous: string[]
 }
 
+export interface MacroContextRevisionView {
+  context_id: string
+  as_of: string
+  valid_until: string
+  published_at: string
+  summary: string
+}
+
 export interface MacroPointView {
   observed_at: string
   value: number
@@ -196,5 +239,6 @@ export interface MacroGroupView {
 export interface MacroView {
   as_of: string
   context: MacroContextView | null
+  context_history: MacroContextRevisionView[]
   groups: MacroGroupView[]
 }

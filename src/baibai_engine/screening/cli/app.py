@@ -56,11 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--output-path",
-        help=(
-            "write candidates YAML to this path instead of the canonical "
-            "records/02-candidates/YYYY/MM/YYYY-MM-DD.yaml path"
-        ),
+        help=("also write the DB publication view as local YAML to this path"),
     )
+    run_parser.add_argument("--runs-db", help="screening run store path")
     run_parser.add_argument(
         "--force",
         action="store_true",
@@ -120,6 +118,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     select_parser.add_argument("--asof", required=True, help="screening target date (YYYY-MM-DD)")
     select_parser.add_argument(
+        "--run-revision-id",
+        required=True,
+        help="immutable screening run revision to select from",
+    )
+    select_parser.add_argument("--runs-db", help="screening run store path")
+    select_parser.add_argument(
+        "--previous-run-revision-id",
+        help="explicit previous revision when the greatest prior as-of is ambiguous",
+    )
+    select_parser.add_argument("--app-db", help="application DB path")
+    select_parser.add_argument(
+        "--macro-context-id",
+        help="published macro context ID (default: latest eligible context)",
+    )
+    select_parser.add_argument(
         "--macro-context",
         help=(
             "optional macro context path to summarize (default: latest "
@@ -173,6 +186,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="overwrite an existing --output-path file",
     )
     _add_market_state_arguments(select_parser)
+
+    shortlist_parser = subparsers.add_parser(
+        "shortlist",
+        help="publish a reviewed shortlist judgment",
+    )
+    shortlist_commands = shortlist_parser.add_subparsers(dest="shortlist_command", required=True)
+    shortlist_publish = shortlist_commands.add_parser("publish")
+    shortlist_publish.add_argument("draft")
+    shortlist_publish.add_argument("--db", help="application DB path")
+    shortlist_publish.add_argument("--runs-db", help="screening run store path")
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
@@ -324,6 +347,20 @@ def main(argv: list[str] | None = None) -> int:
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             regime_sqlite_path=Path(args.sqlite_path),
+            run_revision_id=args.run_revision_id,
+            runs_db_path=Path(args.runs_db) if args.runs_db else None,
+            app_db_path=Path(args.app_db) if args.app_db else None,
+            macro_context_id=args.macro_context_id,
+            previous_run_revision_id=args.previous_run_revision_id,
+        )
+
+    if args.command == "shortlist":
+        from baibai_engine.screening.shortlist_cli import publish_shortlist
+
+        return publish_shortlist(
+            Path(args.draft),
+            app_db_path=Path(args.db) if args.db else None,
+            runs_db_path=Path(args.runs_db) if args.runs_db else None,
         )
 
     if args.command == "ticker-profile":
@@ -442,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
             allow_stale_jpx=args.allow_stale_jpx,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
+            run_store_path=Path(args.runs_db) if args.runs_db else None,
         )
 
     if args.command == "bootstrap-cache":

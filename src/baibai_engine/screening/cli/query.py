@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -12,11 +13,18 @@ from typing import TextIO
 
 import yaml
 
+from baibai_engine.appdb import database_path
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.macro.context import MacroContext, find_latest_macro_context, load_macro_context
+from baibai_engine.macro.context import (
+    MacroContext,
+    find_latest_macro_context,
+    load_macro_context,
+    macro_context_from_payload,
+)
 from baibai_engine.market.store import latest_daily_bar_date
+from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
 from baibai_engine.screening.market_snapshot import build_market_snapshot
 from baibai_engine.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_engine.screening.rule_config import (
@@ -24,6 +32,7 @@ from baibai_engine.screening.rule_config import (
     ScreeningRules,
     load_screening_rules,
 )
+from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.screening.schema import (
     normalize_ticker,
 )
@@ -51,7 +60,7 @@ def ticker_profile_command(
     out = stdout if stdout is not None else sys.stdout
     try:
         normalized = normalize_ticker(ticker)
-    except ValueError as exc:
+    except (ValueError, sqlite3.Error) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     if asof is not None:
@@ -125,6 +134,11 @@ def select_command(
     force: bool = False,
     regime_sqlite_path: Path | None = None,
     stdout: TextIO | None = None,
+    run_revision_id: str | None = None,
+    runs_db_path: Path | None = None,
+    app_db_path: Path | None = None,
+    macro_context_id: str | None = None,
+    previous_run_revision_id: str | None = None,
 ) -> int:
     if top < 1:
         print("--top must be greater than zero", file=sys.stderr)
@@ -139,13 +153,23 @@ def select_command(
     out = stdout if stdout is not None else sys.stdout
     rules = rules or load_screening_rules(_rules_path_from_env())
     try:
-        inputs = _load_selection_inputs(
-            asof_date=asof_date,
-            candidates_path=candidates_path,
-            macro_context_path=macro_context_path,
-            candidates_root=candidates_root,
-            macro_context_root=macro_context_root,
-        )
+        if run_revision_id is not None:
+            inputs = _load_selection_inputs_db(
+                asof_date=asof_date,
+                run_revision_id=run_revision_id,
+                runs_db_path=runs_db_path,
+                app_db_path=app_db_path,
+                macro_context_id=macro_context_id,
+                previous_run_revision_id=previous_run_revision_id,
+            )
+        else:
+            inputs = _load_selection_inputs(
+                asof_date=asof_date,
+                candidates_path=candidates_path,
+                macro_context_path=macro_context_path,
+                candidates_root=candidates_root,
+                macro_context_root=macro_context_root,
+            )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -168,6 +192,22 @@ def select_command(
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    if run_revision_id is not None:
+        selection = payload.get("selection")
+        if not isinstance(selection, Mapping):  # pragma: no cover - builder invariant
+            raise AssertionError("selection payload must contain metadata")
+        effective_profile = str(selection["profile"])
+        try:
+            publication = ScreeningRunStore(runs_db_path).publish_selection(
+                run_revision_id=run_revision_id,
+                profile=effective_profile,
+                macro_context_id=inputs.macro_context_ref,
+                payload=payload,
+            )
+        except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+            print(f"screening selection publication failed: {exc}", file=sys.stderr)
+            return 1
+        payload = {"selection_id": publication.publication_id, **payload}
     rendered = yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     # --output-path 指定時は同じ内容を file と stdout の両方へ出す。file は
     # local/rebuildable な保存先で、canonical 判断は decision packet だけが担う。
@@ -196,6 +236,69 @@ class _SelectionInputs:
     previous_candidates: PreviousCandidates
     candidates_ref: str
     macro_context_ref: str | None
+
+
+def _load_selection_inputs_db(
+    *,
+    asof_date: date,
+    run_revision_id: str,
+    runs_db_path: Path | None,
+    app_db_path: Path | None,
+    macro_context_id: str | None,
+    previous_run_revision_id: str | None,
+) -> _SelectionInputs:
+    reader = ScreeningRunReader(runs_db_path)
+    run = reader.get_run(run_revision_id)
+    if run is None:
+        raise ValueError(f"unknown run_revision_id: {run_revision_id}")
+    if run.as_of_date != asof_date.isoformat():
+        raise ValueError(
+            f"run revision as-of mismatch: {run.as_of_date} != {asof_date.isoformat()}"
+        )
+    candidate_records = tuple(candidate_record_from_mapping(item) for item in run.candidates)
+    if previous_run_revision_id is None:
+        previous = reader.previous_run(before_as_of_date=run.as_of_date)
+    else:
+        previous = reader.get_run(previous_run_revision_id)
+        if previous is None:
+            raise ValueError(f"unknown previous_run_revision_id: {previous_run_revision_id}")
+        prior_dates = [
+            item.as_of_date for item in reader.list_runs() if item.as_of_date < run.as_of_date
+        ]
+        if not prior_dates or previous.as_of_date != max(prior_dates):
+            raise ValueError(
+                "previous run revision must belong to the greatest as-of before the current run"
+            )
+    previous_candidates = PreviousCandidates(
+        ref_path=None if previous is None else previous.run_revision_id,
+        tickers=()
+        if previous is None
+        else tuple(str(item["ticker"]) for item in previous.candidates),
+    )
+    resolved_app_db = database_path(app_db_path)
+    if macro_context_id is None:
+        context_payload = latest_macro_context_payload(resolved_app_db, as_of=asof_date)
+    else:
+        context_payload = macro_context_payload(
+            resolved_app_db,
+            context_id=macro_context_id,
+            as_of=asof_date,
+        )
+    context = (
+        None
+        if context_payload is None
+        else macro_context_from_payload(
+            context_payload,
+            source=Path(str(context_payload["context_id"])),
+        )
+    )
+    return _SelectionInputs(
+        candidates=candidate_records,
+        macro_context=context,
+        previous_candidates=previous_candidates,
+        candidates_ref=run_revision_id,
+        macro_context_ref=None if context is None else context.context_id,
+    )
 
 
 def _load_selection_inputs(

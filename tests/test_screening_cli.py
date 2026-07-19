@@ -287,6 +287,7 @@ class ScreeningCliTests(unittest.TestCase):
                         config,
                         providers,
                         now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                        output_path=build_output_path(date(2026, 4, 24)),
                     )
                 self.assertEqual(exit_code, 2)
                 self.assertIn("screening run done: status=partial warning", stdout.getvalue())
@@ -486,6 +487,7 @@ class ScreeningCliTests(unittest.TestCase):
                     config,
                     providers,
                     now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=build_output_path(date(2026, 4, 24)),
                 )
 
                 self.assertEqual(exit_code, 2)
@@ -540,6 +542,7 @@ class ScreeningCliTests(unittest.TestCase):
                     config,
                     providers,
                     now=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
+                    output_path=build_output_path(date(2026, 4, 24)),
                 )
 
                 self.assertEqual(exit_code, 2)

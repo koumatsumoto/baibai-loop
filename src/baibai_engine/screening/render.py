@@ -53,7 +53,11 @@ def build_output_path(asof_date: date) -> Path:
     )
 
 
-def render_screened_yaml(document: ScreenedRunDocument) -> str:
+def render_screened_yaml(
+    document: ScreenedRunDocument,
+    *,
+    run_revision_id: str | None = None,
+) -> str:
     if document.run_date != document.asof_date:
         raise RenderError("run_date must equal asof_date")
     if document.run_at.tzinfo is None:
@@ -62,6 +66,8 @@ def render_screened_yaml(document: ScreenedRunDocument) -> str:
         raise RenderError("run_at must use JST (+09:00)")
 
     front_matter = _build_front_matter(document)
+    if run_revision_id is not None:
+        front_matter["run_revision_id"] = QuotedString(run_revision_id)
     yaml_text = yaml.dump(
         front_matter,
         Dumper=_QuotedDumper,

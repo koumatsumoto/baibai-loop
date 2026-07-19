@@ -8,11 +8,16 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from baibai_app.sources.types import MacroGroupConfig, MacroSeriesConfig, TaskRecord
+from baibai_app.sources.types import CandidatesRun, MacroGroupConfig, MacroSeriesConfig, TaskRecord
 from baibai_engine.read_api import (
     latest_macro_context_payload,
+    list_macro_context_payloads,
+    list_reviewed_shortlist_payloads,
     list_task_payloads,
     macro_indicator_series,
+    screening_run_payload,
+    screening_run_payloads,
+    screening_selection_payloads,
     task_store_exists,
 )
 
@@ -96,8 +101,56 @@ class DbMacroSource:
     def context(self, *, as_of: date) -> dict[str, object] | None:
         return latest_macro_context_payload(self._app_db_path, as_of=as_of)
 
+    def contexts(self) -> list[dict[str, object]]:
+        return list_macro_context_payloads(self._app_db_path)
+
     def series(self, series_id: str) -> dict[str, object] | None:
         return macro_indicator_series(self._indicators_db_path, series_id=series_id)
+
+
+class DbCandidatesSource:
+    def __init__(self, runs_db_path: Path, app_db_path: Path) -> None:
+        self._runs_path = runs_db_path.resolve()
+        self._app_path = app_db_path.resolve()
+
+    def latest_run(self) -> CandidatesRun | None:
+        raw = screening_run_payload(self._runs_path)
+        return None if raw is None else self._parse_run(raw)
+
+    def run(self, run_revision_id: str) -> CandidatesRun | None:
+        raw = screening_run_payload(
+            self._runs_path,
+            run_revision_id=run_revision_id,
+        )
+        return None if raw is None else self._parse_run(raw)
+
+    def publications(self) -> list[dict[str, object]]:
+        return screening_run_payloads(self._runs_path)
+
+    def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
+        return screening_selection_payloads(
+            self._runs_path,
+            run_revision_id=run_revision_id,
+        )
+
+    def reviewed_shortlists(self) -> list[dict[str, object]]:
+        return list_reviewed_shortlist_payloads(self._app_path)
+
+    @staticmethod
+    def _parse_run(raw: dict[str, object]) -> CandidatesRun:
+        candidates = raw["candidates"]
+        if not isinstance(candidates, list) or not all(
+            isinstance(item, dict) for item in candidates
+        ):
+            raise ValueError("screening candidates must be an array of objects")
+        return CandidatesRun(
+            run_id=str(raw["public_run_id"]),
+            run_date=date.fromisoformat(str(raw["run_date"])),
+            asof_date=date.fromisoformat(str(raw["as_of_date"])),
+            universe_size=int(str(raw["universe_size"])),
+            source_path=str(raw["run_revision_id"]),
+            rows=tuple(candidates),
+        )
 
 
 def _optional_text(value: object) -> str | None:

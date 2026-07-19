@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from baibai_app.sources.db_sources import DbMacroSource
+from baibai_app.sources.db_sources import DbCandidatesSource, DbMacroSource
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
@@ -25,6 +25,8 @@ from .models import (
     CandidateRowView,
     DashboardView,
     HoldingView,
+    MachineSelectionView,
+    MacroContextRevisionView,
     MacroContextView,
     MacroGroupView,
     MacroMaterialDeltaView,
@@ -35,7 +37,10 @@ from .models import (
     PacketDetailView,
     ResearchRevisionView,
     ReservationView,
+    ReviewedShortlistEntryView,
+    ReviewedShortlistView,
     ScenarioView,
+    ScreeningPublicationView,
     ScreeningRunView,
     ScreeningView,
     SecurityDetailView,
@@ -174,18 +179,90 @@ def build_screening(
     candidates: CandidatesSource,
     ledger: LedgerSource,
     research: ResearchSource,
+    *,
+    run_revision_id: str | None = None,
 ) -> ScreeningView:
     """Build the latest candidates table with portfolio/research annotations."""
 
-    run = candidates.latest_run()
+    if isinstance(candidates, DbCandidatesSource) and run_revision_id is not None:
+        run = candidates.run(run_revision_id)
+    else:
+        run = candidates.latest_run()
+    runs: list[ScreeningPublicationView] = []
+    selections: list[MachineSelectionView] = []
+    shortlists: list[ReviewedShortlistView] = []
+    if isinstance(candidates, DbCandidatesSource):
+        runs = [_screening_publication_view(item) for item in candidates.publications()]
+        selected_id = None if run is None else run.source_path
+        selections = [
+            _machine_selection_view(item)
+            for item in candidates.selections(run_revision_id=selected_id)
+        ]
+        shortlists = [
+            _reviewed_shortlist_view(item)
+            for item in candidates.reviewed_shortlists()
+            if selected_id is None or str(item.get("run_revision_id")) == selected_id
+        ]
     if run is None:
-        return ScreeningView(run=None, rows=[])
+        return ScreeningView(
+            run=None,
+            rows=[],
+            runs=runs,
+            selections=selections,
+            reviewed_shortlists=shortlists,
+        )
     held = _held_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
     return ScreeningView(
         run=_screening_run_view(run),
         rows=[_candidate_row_view(row, held=held, researched=researched) for row in run.rows],
+        runs=runs,
+        selections=selections,
+        reviewed_shortlists=shortlists,
     )
+
+
+def _screening_publication_view(raw: Mapping[str, object]) -> ScreeningPublicationView:
+    candidates = raw.get("candidates")
+    return ScreeningPublicationView(
+        run_revision_id=str(raw["run_revision_id"]),
+        run_id=str(raw["public_run_id"]),
+        asof_date=date.fromisoformat(str(raw["as_of_date"])),
+        run_at=datetime.fromisoformat(str(raw["run_at"])),
+        candidate_count=len(candidates) if isinstance(candidates, list) else 0,
+    )
+
+
+def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
+    payload = raw.get("payload")
+    if not isinstance(payload, Mapping):
+        raise ValueError("machine selection payload must be an object")
+    return MachineSelectionView(
+        selection_id=str(raw["selection_id"]),
+        run_revision_id=str(raw["run_revision_id"]),
+        profile=str(raw["profile"]),
+        macro_context_id=_text(raw.get("macro_context_id")),
+        created_at=datetime.fromisoformat(str(raw["created_at"])),
+        recommendations=[dict(item) for item in _mapping_items(payload.get("recommendations"))],
+        audit_pool=[dict(item) for item in _mapping_items_optional(payload.get("audit_pool"))],
+    )
+
+
+def _reviewed_shortlist_view(raw: Mapping[str, object]) -> ReviewedShortlistView:
+    return ReviewedShortlistView(
+        shortlist_id=str(raw["shortlist_id"]),
+        selection_id=str(raw["selection_id"]),
+        run_revision_id=str(raw["run_revision_id"]),
+        published_at=datetime.fromisoformat(str(raw["published_at"])),
+        entries=[
+            ReviewedShortlistEntryView.model_validate(item)
+            for item in _mapping_items(raw.get("entries"))
+        ],
+    )
+
+
+def _mapping_items_optional(value: object) -> list[Mapping[str, object]]:
+    return [] if value is None else _mapping_items(value)
 
 
 def build_security_detail(
@@ -304,7 +381,17 @@ def build_macro(source: DbMacroSource, *, as_of: date) -> MacroView:
                 )
             )
         groups.append(MacroGroupView(title=group.title, series=series_views))
-    return MacroView(as_of=as_of, context=context, groups=groups)
+    history = [
+        MacroContextRevisionView(
+            context_id=str(item["context_id"]),
+            as_of=date.fromisoformat(str(item["as_of"])),
+            valid_until=date.fromisoformat(str(item["valid_until"])),
+            published_at=datetime.fromisoformat(str(item["published_at"])),
+            summary=str(item["summary"]),
+        )
+        for item in source.contexts()
+    ]
+    return MacroView(as_of=as_of, context=context, context_history=history, groups=groups)
 
 
 def _mapping_items(value: object) -> list[Mapping[str, object]]:
