@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators_db
 from baibai_engine.position.importer import import_and_check_ledger
 from baibai_engine.research.importer import import_research_records
 from baibai_engine.screening.run_store import import_screening_runs
@@ -26,7 +27,7 @@ def app_records_root(tmp_path: Path) -> Path:
     shutil.copy2(Path("records/_config/macro-dashboard.yaml"), config_dir)
     indicators_dir = root / "data/indicators"
     indicators_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(Path("data/indicators/macro.sqlite"), indicators_dir)
+    initialize_indicators_db(indicators_dir / "macro.sqlite").close()
     shutil.copy2(
         FIXTURES / "portfolio-ledger/representative.yaml",
         ledger_dir / "portfolio-ledger.yaml",
