@@ -157,8 +157,9 @@ def test_task_conflict_rolls_back_new_row(tmp_path: Path) -> None:
 
 
 def test_screening_conflict_rolls_back_new_run(tmp_path: Path) -> None:
-    source = tmp_path / "runs"
-    source.mkdir()
+    source_root = tmp_path / "runs"
+    source = source_root / "2026" / "07"
+    source.mkdir(parents=True)
     first_path = source / "first.yaml"
     second_path = source / "second.yaml"
     first = _screening_run(as_of="2026-07-07", run_at="2026-07-08T01:00:00+09:00")
@@ -166,7 +167,7 @@ def test_screening_conflict_rolls_back_new_run(tmp_path: Path) -> None:
     first_path.write_text(yaml.safe_dump(first), encoding="utf-8")
     second_path.write_text(yaml.safe_dump(second), encoding="utf-8")
     db = tmp_path / "app.sqlite"
-    import_screening_runs(source, db_path=db)
+    import_screening_runs(source_root, db_path=db)
     second["universe_size"] = 2
     second_path.write_text(yaml.safe_dump(second), encoding="utf-8")
     third_path = source / "third.yaml"
@@ -176,7 +177,7 @@ def test_screening_conflict_rolls_back_new_run(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RunStoreConflictError):
-        import_screening_runs(source, db_path=db)
+        import_screening_runs(source_root, db_path=db)
     with sqlite3.connect(db) as connection:
         assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 2
 
