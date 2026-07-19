@@ -15,14 +15,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.calibration.cli import calibration_evaluate_command
-from baibai_loop.screening.calibration.evaluation import (
+from baibai_engine.screening.calibration.cli import calibration_evaluate_command
+from baibai_engine.screening.calibration.evaluation import (
     _spearman,
     evaluate_cohorts,
 )
-from baibai_loop.screening.calibration.forward import ForwardReturnRow
-from baibai_loop.screening.calibration.panel import PanelDiagnostics, PanelRow
-from baibai_loop.screening.calibration.store import write_forward, write_panel
+from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.calibration.panel import PanelDiagnostics, PanelRow
+from baibai_engine.screening.calibration.store import write_forward, write_panel
 
 
 def _panel_row(

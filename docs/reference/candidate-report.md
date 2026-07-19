@@ -37,17 +37,17 @@ packet-scaffold と同じく「機械 = data plumbing / 人間 = judgment」。�
 - `continued`: 前回と今回の両方に含まれるticker。前回narrativeは自動継承せず、audit-pool順位差、価格、前回as-of後に会社IR・TDnet・EDINETで公表された最新開示、最強countercaseとmaterial deltaを確認する。
 - `exited`: 前回だけに含まれるticker。今回のaudit pool外である場合も含め、今回shortlistへ残さない現在の理由を新たに書く。
 
-`continued`は、上記確認後も定性判断を支える根拠にmaterial changeがない場合だけ、前回narrativeを今回の`narratives.yaml`で再利用できます。material changeがあるfieldは現在の一次情報と判断へ更新し、確認不能なら再利用せずその不足を明記します。`new / continued / exited`、順位差、確認した最新開示、narrativeを再利用または更新した理由はoperation Issueのshortlist checkpointへ残し、今回reportと同時に人間へ提示します。前回reportを確認できない場合は分類を推定せず、全候補のnarrativeを確認するfull reportを作ります。
+`continued`は、上記確認後も定性判断を支える根拠にmaterial changeがない場合だけ、前回narrativeを今回の`narratives.yaml`で再利用できます。material changeがあるfieldは現在の一次情報と判断へ更新し、確認不能なら再利用せずその不足を明記します。`new / continued / exited`、順位差、確認した最新開示、narrativeを再利用または更新した理由はoperation sessionのshortlist artifactへ残し、今回reportと同時に人間へ提示します。前回reportを確認できない場合は分類を推定せず、全候補のnarrativeを確認するfull reportを作ります。
 
 価格、valuation、配当basis、E[r]、FVアンカー乖離等の数値は、毎回そのrunの`selection-output.yaml`と`candidates.yaml`からrendererが生成します。前回HTMLの表示値や前回`narratives.yaml`に数値を転記して再利用しません。
 
-この差分運用は当面、既存のrendererとnarratives schemaを変えずに実施します。operation Issue上の2〜3回の運用結果から、繰り返し必要になるfield、表示先、確認コストが安定した後にだけrenderer/schema変更を別のimprovement taskとして判断します。
+この差分運用はrendererとnarratives modelを変えずに実施します。operation session上の2〜3回の運用結果から、繰り返し必要になるfield、表示先、確認コストが安定した後にだけrenderer/model変更を別のimprovement taskとして判断します。
 
 ## 生成手順
 
 1. OP2 で `candidates.yaml` / `selection-output.yaml`（`--audit-top 20`）を作る。
 2. audit poolから[OP3の件数契約](../operations/decision-cycle.md#opportunity-path)に従って候補を選び、[`tools/candidate_report/narratives-template.yaml`](../../tools/candidate_report/narratives-template.yaml)をrunのworkspaceへ複製して記入する。
-3. 直近の前回reportがある場合は[`Weekly report の差分確認`](#weekly-report-の差分確認)を実施し、結果をoperation Issueへ記録する。前回reportがない場合はfull reportとして全narrativeを確認する。
+3. 直近の前回reportがある場合は[`Weekly report の差分確認`](#weekly-report-の差分確認)を実施し、結果をoperation sessionへ記録する。前回reportがない場合はfull reportとして全narrativeを確認する。
 4. レンダラを実行する。
 
 ```bash
@@ -59,7 +59,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python -m tools.candidate_report.render \
   --out .cache/opportunity/YYYY-MM-DD/candidate-report.html
 ```
 
-`--prepared`は`baibai-loop-opportunity prepare`が書くworkspaceの`selection.yaml`で、portfolio annotationの唯一の機械sourceとする。narrativeのtickerがprepared audit poolに無い場合、レンダラはerrorで停止する。
+`--prepared`は`baibai-engine research prepare`が書くworkspaceの`selection.yaml`で、portfolio annotationの唯一の機械sourceとする。narrativeのtickerがprepared audit poolに無い場合、レンダラはerrorで停止する。
 
 ## narratives スキーマ
 

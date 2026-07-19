@@ -35,9 +35,9 @@ cache schema version は `2`。missing/mismatch/partial cache は `calibration-b
 ## Commands
 
 ```bash
-uv run baibai-loop-screening calibration-build --start 2023-01-01 --end 2026-04-30 --force
-uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval.yaml
-uv run baibai-loop-screening calibration-evaluate \
+uv run baibai-engine screening calibration-build --start 2023-01-01 --end 2026-04-30 --force
+uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eval.yaml
+uv run baibai-engine screening calibration-evaluate \
   --run-purpose production_decision \
   --required-asof 2021-06-30 \
   --required-metric recommended_rank_top5 \

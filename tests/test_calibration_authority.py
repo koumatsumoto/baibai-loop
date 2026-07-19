@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from datetime import date
 
-from baibai_loop.screening.calibration.authority import (
+from baibai_engine.screening.calibration.authority import (
     CohortIntegrity,
     EvaluationScope,
     decide_authority,
 )
-from baibai_loop.screening.calibration.horizons import add_months_clamped
+from baibai_engine.screening.calibration.horizons import add_months_clamped
 
 
 def _scope(*, purpose: str = "production_decision") -> EvaluationScope:

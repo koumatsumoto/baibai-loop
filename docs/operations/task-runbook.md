@@ -1,6 +1,6 @@
 ---
 title: "タスク runbook"
-summary: "records/05-task/tasks.yaml で決算後確認などの運用タスクを管理するための入口。"
+summary: "application DBとbaibai-engine taskで決算後確認などの運用taskを管理する入口。"
 doc_type: operation
 status: active
 last_reviewed: 2026-07-18
@@ -11,9 +11,9 @@ related_docs:
 
 # タスク runbook
 
-運用 task の正本は [`records/05-task/tasks.yaml`](../../records/05-task/tasks.yaml) です。決算後確認など、将来の特定 event や日付で実行する作業の current state を一つの一覧で管理します。trigger の選択と全体導線は [`decision-cycle.md`](./decision-cycle.md) を正本とし、投資判断と注文状態はそれぞれ canonical records と human-confirmed ledger に残します。
+運用 task の正本はapplication DBです。`baibai-engine task`が唯一のwriterで、決算後確認など、将来の特定eventや日付で実行する作業のcurrent stateを管理します。triggerの選択と全体導線は[`decision-cycle.md`](./decision-cycle.md)を正本とし、投資判断と注文状態はそれぞれcanonical entityとhuman-confirmed ledgerに残します。
 
-GitHub Issue は task 管理には使わず、feature、bug、基盤改善、PR delivery などの開発作業に使います。task の状態遷移履歴は Git が持つため、`tasks.yaml` は current state だけを保持します。
+GitHub Issueはtask管理には使わず、feature、bug、基盤改善、PR deliveryなどの開発作業に使います。taskは状態遷移履歴を持たず、DB rowにcurrent stateだけを保持します。
 
 ## 対象
 
@@ -30,10 +30,10 @@ GitHub Issue は task 管理には使わず、feature、bug、基盤改善、PR 
 
 - 同じ期限日、同じ task 種別、同じ領域の未保有候補は、原則一つにまとめます。
 - 既存保有、売買判断が絡むもの、高重要候補、確認項目が大きく異なるものは個別 task にします。
-- 新規追加前に `task_id`、期限、ticker、確認内容を照合し、既存 task へ統合できないか確認します。
-- `task_id` は `task-YYYYMMDD-<slug>` とし、`YYYYMMDD` を `due_date` と一致させます。
+- 新規追加前に`baibai-engine task list --status open`で期限、ticker、確認内容を照合し、既存taskへ統合できないか確認します。
+- `task_id`は`task-YYYYMMDD-<slug>`で自動採番され、`YYYYMMDD`は作成identityです。due dateを編集してもtask_idは変えません。
 
-field の型・必須項目・enum は [`records/_schemas/task-list.json`](../../records/_schemas/task-list.json) を正本とします。task 間で `task_id` は一意でなければなりません。
+fieldの型・必須項目・enumは`baibai_engine.tasks.Task`とapplication serviceのwrite-time validationが正本です。task間で`task_id`は一意です。
 
 ## Status
 
@@ -41,7 +41,7 @@ field の型・必須項目・enum は [`records/_schemas/task-list.json`](../..
 - `done`: load-bearing question への判断と必要な canonical 更新が完了。
 - `dropped`: current canonical state では task の問いが成立しない、または実行不要。
 
-`done` / `dropped` へ変更するときは `closed_at` を設定します。遷移配列や別の監査 metadata は追加しません。判断が変わった理由は対象の decision packet、holding review、ledger などの正本へ書き、task には current state と参照だけを残します。
+完了は`baibai-engine task done <task_id>`、不要化は`baibai-engine task drop <task_id>`で記録し、CLIが`closed_at`を設定します。遷移配列や別の監査metadataは追加しません。判断が変わった理由は対象のdecision packet、holding review、ledgerなどの正本へ書き、taskにはcurrent stateと参照だけを残します。
 
 ## Task の内容
 
@@ -56,7 +56,11 @@ field の型・必須項目・enum は [`records/_schemas/task-list.json`](../..
 
 ## Resume checkpoint
 
-resume 時は `status: open` の task を `due_date` 昇順で確認し、各 task を current canonical records と ledger に照合します。
+resume時は次のqueryでopen taskをdue date順に確認し、各taskをcurrent canonical entityとledgerに照合します。
+
+```bash
+uv run baibai-engine task list --status open
+```
 
 1. `due_date` / `event_date`、ticker、load-bearing question、expected destination を読む。
 2. current decision packet、holding review、portfolio ledger、人間が報告した broker status と照合する。
@@ -69,8 +73,9 @@ broker 状態は人間の報告だけを事実入力とします。期日経過�
 
 ## Validation
 
-task を追加・変更したら、schema と `task_id` 一意性を検証します。
+追加・変更はCLIから行います。入力契約、calendar date、enum、task_id一意性はwrite transactionより前に検証されます。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation --target task-list
+uv run baibai-engine task add --title '<title>' --kind <kind> --due YYYY-MM-DD
+uv run baibai-engine task edit <task_id> --due YYYY-MM-DD
 ```

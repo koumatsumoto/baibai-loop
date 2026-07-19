@@ -16,11 +16,11 @@ from tools.research_decision_report.render import (
 )
 from tools.research_decision_report.review_scaffold import scaffold
 
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.research.decision_packet import (
     decision_packet_core_hash,
     load_decision_packet,
 )
-from baibai_loop.thesis.execution_policy import max_acceptable_price
+from baibai_engine.research.execution_policy import max_acceptable_price
 
 FIXTURES = Path(__file__).parent / "fixtures" / "decision-packet"
 REQUIRED_REVIEW_CHECKS = (
@@ -178,7 +178,8 @@ def _proposal(workspace: Path, *, status: str) -> dict[str, object]:
         "decision_packet_sha256": _sha256(packet_path),
         "decision_packet_core_sha256": decision_packet_core_hash(packet),
         "independent_review_sha256": _sha256(review_path),
-        "source_ledger_sha256": manifest["inputs"]["ledger"]["sha256"],
+        "source_ledger_entity": manifest["inputs"]["ledger"]["entity_id"],
+        "source_ledger_append_head": manifest["inputs"]["ledger"]["append_head"],
         "expires_at": "2026-07-06T15:30:00+09:00",
         "price_as_of": "2026-07-03",
         "price_basis": "last_close_unadjusted",
@@ -284,9 +285,7 @@ def _workspace(
     shutil.copyfile(FIXTURES / "2331-decision.yaml", ticker_dir / "packet-draft.yaml")
     shutil.copyfile(FIXTURES / "2331-decision-review.yaml", ticker_dir / "review-draft.yaml")
     selection_input = workspace / "inputs" / "selection-output.yaml"
-    ledger_input = workspace / "inputs" / "ledger.yaml"
     _write(selection_input, {"run_id": "fixture-selection"})
-    _write(ledger_input, {"schema_version": 1, "fixture": "ledger"})
     _write(
         workspace / "manifest.yaml",
         {
@@ -296,7 +295,7 @@ def _workspace(
                     "path": str(selection_input),
                     "sha256": _sha256(selection_input),
                 },
-                "ledger": {"path": str(ledger_input), "sha256": _sha256(ledger_input)},
+                "ledger": {"entity_id": "portfolio-ledger", "append_head": 11},
             },
         },
     )
@@ -493,15 +492,15 @@ def test_render_rejects_review_after_a_reviewed_input_changes(tmp_path: Path) ->
         render(**paths)  # type: ignore[arg-type]
 
 
-def test_render_rejects_current_ledger_hash_drift(tmp_path: Path) -> None:
+def test_render_rejects_invalid_ledger_revision_binding(tmp_path: Path) -> None:
     paths = _workspace(tmp_path)
     workspace = paths["workspace"]
     assert isinstance(workspace, Path)
     manifest = yaml.safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
-    ledger_path = Path(manifest["inputs"]["ledger"]["path"])
-    _write(ledger_path, {"schema_version": 1, "fixture": "changed-ledger"})
+    manifest["inputs"]["ledger"]["append_head"] = "11"
+    _write(workspace / "manifest.yaml", manifest)
 
-    with pytest.raises(ReportError, match="external input hash is stale: ledger"):
+    with pytest.raises(ReportError, match="ledger revision is invalid"):
         render(**paths)  # type: ignore[arg-type]
 
 

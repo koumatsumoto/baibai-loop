@@ -12,17 +12,17 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.market.store import read_daily_bars
-from baibai_loop.screening.providers.jpx import (
+from baibai_engine.market.store import read_daily_bars
+from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
 )
-from baibai_loop.screening.sqlite_cache import (
+from baibai_engine.screening.sqlite_cache import (
     open_connection,
     store_jpx_earnings_calendar_snapshot,
     store_jquants_daily_bars,
 )
-from baibai_loop.screening.sqlite_reader import (
+from baibai_engine.screening.sqlite_reader import (
     read_eq_master,
     read_eq_master_asof,
     read_fin_summaries,

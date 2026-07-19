@@ -11,7 +11,7 @@ export interface HoldingView {
   unrealized_pnl_pct: number
   fair_value_yen: number | null
   fv_gap_pct: number | null
-  latest_packet_path: string | null
+  latest_packet_id: string | null
   recommendation: string | null
 }
 
@@ -70,6 +70,45 @@ export interface DashboardView {
   research_load_errors: string[]
 }
 
+export interface OperationSessionView {
+  operation_id: string
+  session_kind: string
+  status: string
+  as_of: string
+  ticker: string | null
+  started_at: string
+  completed_at: string | null
+  payload: Record<string, unknown>
+}
+
+export interface ProposalView {
+  proposal_id: string
+  ticker: string
+  packet_id: string
+  review_id: string
+  created_at: string
+  status: 'pending' | 'approved' | 'deferred' | 'rejected'
+  decided_at: string | null
+  payload: Record<string, unknown>
+}
+
+export interface PortfolioOutcomeView {
+  outcome_id: string
+  horizon: string
+  period_start_date: string
+  period_end_date: string
+  status: string
+  reason: string | null
+  portfolio_twr_pct: number | null
+  benchmark_cumulative_return_pct: number | null
+}
+
+export interface ProgramStateView {
+  operations: OperationSessionView[]
+  proposals: ProposalView[]
+  outcomes: PortfolioOutcomeView[]
+}
+
 export interface ScreeningRunView {
   run_id: string
   run_date: string
@@ -109,16 +148,51 @@ export interface CandidateRowView {
 export interface ScreeningView {
   run: ScreeningRunView | null
   rows: CandidateRowView[]
+  runs: ScreeningPublicationView[]
+  selections: MachineSelectionView[]
+  reviewed_shortlists: ReviewedShortlistView[]
+}
+
+export interface ScreeningPublicationView {
+  run_revision_id: string
+  run_id: string
+  asof_date: string
+  run_at: string
+  candidate_count: number
+}
+
+export interface MachineSelectionView {
+  selection_id: string
+  run_revision_id: string
+  profile: string
+  macro_context_id: string | null
+  created_at: string
+  recommendations: Record<string, unknown>[]
+  audit_pool: Record<string, unknown>[]
+}
+
+export interface ReviewedShortlistEntryView {
+  ticker: string
+  decision: string
+  reason: string
+}
+
+export interface ReviewedShortlistView {
+  shortlist_id: string
+  selection_id: string
+  run_revision_id: string
+  published_at: string
+  entries: ReviewedShortlistEntryView[]
 }
 
 export interface ResearchRevisionView {
   as_of: string
-  packet_path: string
+  packet_id: string
   recommendation: string
   confidence: string | null
   current_fair_value_yen: number | null
   model_version: string | null
-  review_path: string | null
+  review_id: string | null
 }
 
 export interface ScenarioView {
@@ -137,6 +211,15 @@ export interface PacketDetailView {
   sizing_action: string | null
 }
 
+export interface HoldingReviewView {
+  holding_review_id: string
+  as_of: string
+  packet_id: string
+  candidate_packet_id: string | null
+  action: string
+  note: string | null
+}
+
 export interface SecurityDetailView {
   ticker: string
   company_name: string | null
@@ -144,6 +227,67 @@ export interface SecurityDetailView {
   holding: HoldingView | null
   revisions: ResearchRevisionView[]
   latest_packet: PacketDetailView | null
+  holding_reviews: HoldingReviewView[]
   candidate_row: CandidateRowView | null
   candidate_run: ScreeningRunView | null
+}
+
+export interface MacroMaterialDeltaView {
+  channel: string
+  direction: string
+  materiality: string
+  summary: string
+  used_for: string
+}
+
+export interface MacroSizingCautionView {
+  severity: string
+  summary: string
+}
+
+export interface MacroContextView {
+  context_id: string
+  as_of: string
+  valid_until: string
+  published_at: string
+  summary: string
+  stale: boolean
+  material_deltas: MacroMaterialDeltaView[]
+  sizing_cautions: MacroSizingCautionView[]
+  research_questions: string[]
+  refresh_triggers: string[]
+  changes_since_previous: string[]
+}
+
+export interface MacroContextRevisionView {
+  context_id: string
+  as_of: string
+  valid_until: string
+  published_at: string
+  summary: string
+}
+
+export interface MacroPointView {
+  observed_at: string
+  value: number
+}
+
+export interface MacroSeriesView {
+  series_id: string
+  label: string
+  name: string
+  unit: string
+  points: MacroPointView[]
+}
+
+export interface MacroGroupView {
+  title: string
+  series: MacroSeriesView[]
+}
+
+export interface MacroView {
+  as_of: string
+  context: MacroContextView | null
+  context_history: MacroContextRevisionView[]
+  groups: MacroGroupView[]
 }

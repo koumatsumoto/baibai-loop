@@ -18,7 +18,6 @@ dependencies = [
   "pyyaml>=6.0.0",
   "requests>=2.34.2",
   "xlrd>=2.0.0",
-  "jsonschema>=4.21.0",
   "fastapi>=0.139.2",
   "uvicorn>=0.51.0",
 ]
@@ -29,13 +28,8 @@ classifiers = [
 ]
 
 [project.scripts]
-baibai-loop-screening = "baibai_loop.screening.cli:main"
-baibai-loop-validation = "baibai_loop.validation.cli:main"
-baibai-loop-position = "baibai_loop.position.cli:main"
-baibai-loop-macro = "baibai_loop.macro.indicators.cli:main"
-baibai-loop-decision = "baibai_loop.thesis.decision_cli:main"
-baibai-loop-opportunity = "baibai_loop.thesis.opportunity_cli:main"
-baibai-loop-app = "baibai_loop.app.cli:main"
+baibai-engine = "baibai_engine.cli:main"
+baibai-app = "baibai_app.cli:main"
 
 [dependency-groups]
 dev = [
@@ -54,7 +48,6 @@ test = [
 typing = [
   "mypy>=2.2.0",
   "pandas-stubs>=3.0.3.260530",
-  "types-jsonschema>=4.26.0.20260518",
   "types-pyyaml>=6.0.12.20260518",
   "types-requests>=2.33.0.20260712",
 ]
@@ -70,13 +63,13 @@ security = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/baibai_loop"]
+packages = ["src/baibai_engine", "src/baibai_app"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/baibai_loop/py.typed" = "baibai_loop/py.typed"
-"src/baibai_loop/macro/indicators/schema.sql" = "baibai_loop/macro/indicators/schema.sql"
-"src/baibai_loop/macro/indicators/series.yaml" = "baibai_loop/macro/indicators/series.yaml"
-"src/baibai_loop/macro/indicators/providers/manual_data.yaml" = "baibai_loop/macro/indicators/providers/manual_data.yaml"
+"src/baibai_engine/py.typed" = "baibai_engine/py.typed"
+"src/baibai_engine/macro/indicators/schema.sql" = "baibai_engine/macro/indicators/schema.sql"
+"src/baibai_engine/macro/indicators/series.yaml" = "baibai_engine/macro/indicators/series.yaml"
+"src/baibai_engine/macro/indicators/providers/manual_data.yaml" = "baibai_engine/macro/indicators/providers/manual_data.yaml"
 
 [tool.ruff]
 # Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites
@@ -130,7 +123,7 @@ show_error_codes = true
 pretty = true
 disallow_any_unimported = true
 no_implicit_optional = true
-packages = ["baibai_loop"]
+packages = ["baibai_engine", "baibai_app"]
 plugins = ["pydantic.mypy"]
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 
@@ -160,7 +153,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["src/baibai_loop"]
+source = ["src/baibai_engine", "src/baibai_app"]
 
 [tool.coverage.report]
 fail_under = 80
@@ -177,141 +170,170 @@ exclude_dirs = ["tests", ".venv"]
 skips = ["B101"]
 
 [tool.mutmut]
-paths_to_mutate = ["src/baibai_loop"]
+paths_to_mutate = ["src/baibai_engine", "src/baibai_app"]
 tests_dir = "tests"
 runner = "python -m pytest -q -m 'not slow and not integration'"
 
-# Import-direction contracts. These encode the subsystem dependency DAG
-# (macro / screening / position / thesis / shared / validation) so a relabel that
-# silently reintroduces a cross-subsystem edge fails CI rather than passing
-# every other gate. Contracts are tightened as the reorg lands; this baseline
-# captures the invariants that already hold and must keep holding.
+# Import-direction contracts encode the subsystem dependency DAG
+# (macro / screening / position / research / shared) so a structural edit that
+# reintroduces a cross-subsystem edge fails CI rather than passing every other gate.
 [tool.importlinter]
-root_package = "baibai_loop"
+root_packages = ["baibai_engine", "baibai_app"]
 
 [[tool.importlinter.contracts]]
-name = "macro layer stays independent of screening/position/validation"
+name = "macro layer stays independent of screening/position"
 type = "forbidden"
-source_modules = ["baibai_loop.macro"]
+source_modules = ["baibai_engine.macro"]
 forbidden_modules = [
-  "baibai_loop.screening",
-  "baibai_loop.position",
-  "baibai_loop.validation",
+  "baibai_engine.screening",
+  "baibai_engine.position",
 ]
 
 [[tool.importlinter.contracts]]
 name = "shared primitives are an import sink"
 type = "forbidden"
-source_modules = ["baibai_loop.foundation"]
+source_modules = ["baibai_engine.foundation"]
 forbidden_modules = [
-  "baibai_loop.screening",
-  "baibai_loop.macro",
-  "baibai_loop.position",
-  "baibai_loop.market",
-  "baibai_loop.validation",
+  "baibai_engine.screening",
+  "baibai_engine.macro",
+  "baibai_engine.position",
+  "baibai_engine.market",
+  "baibai_engine.appdb",
+  "baibai_engine.read_api",
+  "baibai_engine.research",
+]
+
+[[tool.importlinter.contracts]]
+name = "application database infrastructure only depends on foundation"
+type = "forbidden"
+source_modules = ["baibai_engine.appdb"]
+forbidden_modules = [
+  "baibai_engine.market",
+  "baibai_engine.macro",
+  "baibai_engine.screening",
+  "baibai_engine.position",
+  "baibai_engine.research",
+  "baibai_engine.read_api",
+]
+
+[[tool.importlinter.contracts]]
+name = "tasks only depends on application database and foundation"
+type = "forbidden"
+source_modules = ["baibai_engine.tasks"]
+forbidden_modules = [
+  "baibai_engine.market",
+  "baibai_engine.macro",
+  "baibai_engine.screening",
+  "baibai_engine.position",
+  "baibai_engine.research",
+  "baibai_engine.read_api",
 ]
 
 [[tool.importlinter.contracts]]
 name = "market data layer only depends on foundation"
 type = "forbidden"
-source_modules = ["baibai_loop.market"]
+source_modules = ["baibai_engine.market"]
 forbidden_modules = [
-  "baibai_loop.screening",
-  "baibai_loop.macro",
-  "baibai_loop.position",
-  "baibai_loop.validation",
+  "baibai_engine.screening",
+  "baibai_engine.macro",
+  "baibai_engine.position",
 ]
 
 [[tool.importlinter.contracts]]
 name = "position does not import screening (cycle prevention)"
 type = "forbidden"
-source_modules = ["baibai_loop.position"]
-forbidden_modules = ["baibai_loop.screening"]
+source_modules = ["baibai_engine.position"]
+forbidden_modules = ["baibai_engine.screening"]
 
 [[tool.importlinter.contracts]]
 name = "screening does not import position (one-way market<-{screening,position})"
 type = "forbidden"
-source_modules = ["baibai_loop.screening"]
-forbidden_modules = ["baibai_loop.position"]
-# ticker_profile reads the canonical ledger to surface current portfolio-
-# concentration facts in the candidate packet. This single lookup edge does not
-# form a package cycle; price/calendar data both subsystems share flow through market.
+source_modules = ["baibai_engine.screening"]
+forbidden_modules = ["baibai_engine.position"]
+# ticker_profile reads position only through the query-only read_api facade.
+# Direct screening -> position imports remain forbidden.
 ignore_imports = [
-  "baibai_loop.screening.ticker_profile -> baibai_loop.position.ledger",
+  "baibai_engine.screening.ticker_profile -> baibai_engine.read_api.position",
 ]
 
 [[tool.importlinter.contracts]]
-name = "thesis is the top-level domain engine (lower layers do not import it)"
+name = "research is the top-level domain engine (lower layers do not import it)"
 type = "forbidden"
-# Thesis composes decision packets with portfolio state.  Forbid reverse edges
-# to keep the DAG acyclic; validation is intentionally excluded because it
-# drives domain validation through the public entry surfaces.
+# Research composes decision packets with portfolio state. Forbid reverse edges
+# to keep the DAG acyclic.
 source_modules = [
-  "baibai_loop.foundation",
-  "baibai_loop.market",
-  "baibai_loop.macro",
-  "baibai_loop.screening",
-  "baibai_loop.position",
+  "baibai_engine.foundation",
+  "baibai_engine.market",
+  "baibai_engine.macro",
+  "baibai_engine.screening",
+  "baibai_engine.position",
 ]
-forbidden_modules = ["baibai_loop.thesis"]
+forbidden_modules = ["baibai_engine.research"]
 ignore_imports = [
   # The public CLI is the repository composition boundary for building a
-  # holding review from thesis and position artifacts. Position domain modules
-  # remain independent of thesis.
-  "baibai_loop.position.cli -> baibai_loop.thesis.holding_review_builder",
+  # holding review from research and position artifacts. Position domain modules
+  # remain independent of research.
+  "baibai_engine.position.cli -> baibai_engine.research.holding_review_builder",
+  "baibai_engine.position.cli -> baibai_engine.research.store",
+  "baibai_engine.position.cli -> baibai_engine.proposals.store",
+  "baibai_engine.position.result_service -> baibai_engine.proposals.store",
 ]
 
 [[tool.importlinter.contracts]]
-name = "thesis only composes foundation and position domains"
+name = "research only composes foundation and position domains"
 type = "forbidden"
-# Current thesis behavior is decision composition plus portfolio-aware execution
+# Current research behavior is decision composition plus portfolio-aware execution
 # and holding-review construction.  It has no direct macro, market, screening,
-# or validation dependency; keep that surface narrow.
-source_modules = ["baibai_loop.thesis"]
+# dependency; keep that surface narrow.
+source_modules = ["baibai_engine.research"]
 forbidden_modules = [
-  "baibai_loop.macro",
-  "baibai_loop.market",
-  "baibai_loop.screening",
-  "baibai_loop.validation",
+  "baibai_engine.macro",
+  "baibai_engine.market",
+  "baibai_engine.screening",
+  "baibai_engine.tasks",
 ]
 
 [[tool.importlinter.contracts]]
-name = "validation imports domain contexts only through their entry surface"
-type = "forbidden"
-# validation is the records public-language checker: it walks records, owns
-# ValidationFinding + the _schemas shape checks + cross-record referential
-# checks, and calls each domain context's validation entry (position via
-# decision_register / policy, thesis via validation.cli). Its own modules must
-# not reach into the macro / market / screening peers; those are consumed only
-# transitively through thesis/position, so only direct edges are forbidden.
-source_modules = ["baibai_loop.validation"]
-forbidden_modules = [
-  "baibai_loop.macro",
-  "baibai_loop.market",
-  "baibai_loop.screening",
-]
-allow_indirect_imports = true
-
-[[tool.importlinter.contracts]]
-name = "app is the top-level read composition surface (no package imports it)"
+name = "app is never imported by the engine"
 type = "forbidden"
 # app composes domain read APIs into local UI read models. Reverse imports
 # would make UI iteration ripple into domain packages and obstruct a storage swap.
 source_modules = [
-  "baibai_loop.foundation",
-  "baibai_loop.market",
-  "baibai_loop.macro",
-  "baibai_loop.screening",
-  "baibai_loop.position",
-  "baibai_loop.thesis",
-  "baibai_loop.validation",
+  "baibai_engine.foundation",
+  "baibai_engine.market",
+  "baibai_engine.macro",
+  "baibai_engine.screening",
+  "baibai_engine.position",
+  "baibai_engine.research",
 ]
-forbidden_modules = ["baibai_loop.app"]
+forbidden_modules = ["baibai_app"]
 
 [[tool.importlinter.contracts]]
-name = "app does not depend on macro or validation"
+name = "app imports the engine only through read_api"
 type = "forbidden"
-# v1 reads ledger, thesis, candidates, and task artifacts; macro has no UI
-# surface and validation is a CI gate rather than an application data API.
-source_modules = ["baibai_loop.app"]
-forbidden_modules = ["baibai_loop.macro", "baibai_loop.validation"]
+source_modules = ["baibai_app"]
+forbidden_modules = [
+  "baibai_engine.appdb",
+  "baibai_engine.foundation",
+  "baibai_engine.macro",
+  "baibai_engine.market",
+  "baibai_engine.position",
+  "baibai_engine.research",
+  "baibai_engine.screening",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "read_api cannot reach writer migration provider or CLI modules"
+type = "forbidden"
+source_modules = ["baibai_engine.read_api"]
+forbidden_modules = [
+  "baibai_engine.appdb.write",
+  "baibai_engine.appdb.migrations",
+  "baibai_engine.cli",
+  "baibai_engine.macro.indicators.providers",
+  "baibai_engine.position.cli",
+  "baibai_engine.research.decision_cli",
+  "baibai_engine.research.opportunity_cli",
+  "baibai_engine.screening.cli",
+]

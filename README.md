@@ -34,7 +34,7 @@ AIは提案までを担当し、人間だけが`approve / defer / reject`とbrok
 
 | cycle | 目的 | 主な成果物 |
 | --- | --- | --- |
-| continuous decision cycle | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | proposal Issue、decision packet/review、human-confirmed ledger、holding review、annual outcome |
+| continuous decision cycle | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | operation session、proposal、decision packet/review、human-confirmed ledger、holding review、annual outcome |
 | improvement loop | 見積り方法を計測し、再現可能な変更だけ採用する | preregistration、design/confirm評価、PR、operation test、dated report |
 
 個別銘柄の判断と基盤方法の改善を同じ作業に混ぜません。日常運用で見つけた基盤不備はIssue化し、improvement loopへ渡します。
@@ -47,7 +47,7 @@ frontend を build して local cockpit を起動します。
 cd ui
 npm run build
 cd ..
-uv run baibai-loop-app serve
+uv run baibai-app serve
 ```
 
 ブラウザで `http://127.0.0.1:8712` を開きます。UI と API は records を read-only で参照し、task や portfolio を更新しません。
@@ -58,22 +58,23 @@ uv run baibai-loop-app serve
 | --- | --- | --- |
 | L1 observed data | 再取得可能な市場・開示データ | `data/screening/market.sqlite` |
 | L2 derived / estimate | 決定論的screen、指標、E[r]、FV anchor | screening output、local opportunity workspace |
-| L3 judgment / records | 一次情報を確認した投資・保有判断 | macro context、decision packet/review、ledger、holding review、outcome |
+| L3 judgment / operation | 一次情報を確認した投資・保有判断 | macro context、decision packet/review、proposal、ledger、operation session |
 
-E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補探索のlocal outputを判断の正本にせず、採用した入力と判断だけをcanonical recordsへpromoteします。
+E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補探索のlocal outputを判断の正本にせず、採用した入力と判断だけをapplication DBへpublishします。
 
 ## Repository map
 
 | path | 役割 |
 | --- | --- |
-| `src/baibai_loop/` | macro、market、screening、thesis、position、validation、foundation package |
-| `records/` | 人間が確認できるcanonical judgment recordsとschema/config |
-| `data/` | git外の再取得可能なmarket data |
+| `src/baibai_engine/` | domain、application service、application DB、read API |
+| `src/baibai_app/` / `ui/` | read-only local cockpit |
+| `records/` | Git管理のmethod/configとresearch playbook |
+| `data/` | application DBとrebuildable data/run store |
 | `docs/` | doctrine、governance、operations、workflow、reference |
 | `.agents/skills/` | repository-local AI skillの正本 |
 | `.claude/skills/` | canonical skillへのClaude互換symlink |
 | `tools/drift/` | docs、CLI、lineage、skillのdrift gate |
-| `tests/` | domain、public CLI、validation contract test |
+| `tests/` | domain、public CLI、DB/write-time contract test |
 
 詳細は[`docs/architecture.md`](./docs/architecture.md)を参照してください。
 
@@ -81,12 +82,16 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 
 | command | 役割 |
 | --- | --- |
-| `baibai-loop-screening` | cache、screening、select、ticker profile、calibration |
-| `baibai-loop-opportunity` | opportunity workspace、packet/review scaffold、promotion、前営業日指値 |
-| `baibai-loop-decision` | decision packetと既存execution policyの再計算 |
-| `baibai-loop-position` | ledger、human result draft、holding review、portfolio outcome |
-| `baibai-loop-macro` | macro indicator seriesの取得・cache |
-| `baibai-loop-validation` | canonical recordsとpolicyのvalidation |
+| `baibai-engine screening` | cache、screening、select、ticker profile、calibration |
+| `baibai-engine research` | opportunity workspace、packet/review scaffold、promotion、前営業日指値 |
+| `baibai-engine research evaluate` | decision packetと既存execution policyの再計算 |
+| `baibai-engine position` | ledger、typed draft/apply、holding review、portfolio outcome |
+| `baibai-engine macro` | macro indicator seriesとcontext publication |
+| `baibai-engine operation` | current operation workspaceとimmutable final result |
+| `baibai-engine proposal` | trade proposalと人間のcurrent decision |
+| `baibai-engine task` | task current state |
+| `baibai-engine db` | application DB init/info/backup |
+| `baibai-app` | 127.0.0.1固定のread-only cockpit |
 
 日常運用の完全なcommand順は[`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md)、各optionはpublic `--help`を正本とします。
 
@@ -99,12 +104,11 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 - 短期screen成績の最適化、grid search、機械学習score
 - ETF、投資信託、海外株、口座・税制の完全モデル化
 
-## Development and validation
+## Development gates
 
-Python 3.14と`uv`を使用します。records/schema/src/docsを変更したら次を実行します。
+Python 3.14と`uv`を使用します。model、DB、src、docsを変更したら次を実行します。
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-loop-validation
 UV_CACHE_DIR=/tmp/uv-cache uv run ruff format --check .
 UV_CACHE_DIR=/tmp/uv-cache uv run ruff check .
 UV_CACHE_DIR=/tmp/uv-cache uv run mypy
@@ -116,4 +120,4 @@ UV_CACHE_DIR=/tmp/uv-cache uv run lint-imports
 
 ## Issues
 
-feature、bug、基盤改善、PR delivery は[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。運用 task の正本は `records/05-task/tasks.yaml` です。
+feature、bug、基盤改善、PR deliveryは[GitHub Issues](https://github.com/koumatsumoto/baibai-loop/issues)で管理します。運用taskの正本はapplication DBで、`baibai-engine task`から操作します。

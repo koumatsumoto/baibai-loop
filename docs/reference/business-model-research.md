@@ -12,7 +12,7 @@ related_docs:
 
 # Business-model research guide
 
-このguideは「なぜ安く見えるか」を扱うscreening playbookとは別に、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot question lensである。business model分類そのものを投資根拠、screening条件、packet fieldにせず、問いの抜けを減らすためだけに使う。pilot期間はoperation Issueで対象に指定したprimary-research laneだけへ適用し、対象外laneへ一律に強制しない。
+このguideは「なぜ安く見えるか」を扱うscreening playbookとは別に、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot question lensである。business model分類そのものを投資根拠、screening条件、packet fieldにせず、問いの抜けを減らすためだけに使う。pilot期間はoperation sessionで対象に指定したprimary-research laneだけへ適用し、対象外laneへ一律に強制しない。
 
 ## 適用手順
 
@@ -158,4 +158,4 @@ title/IP別売上、MAU/DAU、payer数・payer率、ARPU/ARPPU、retention、boo
 
 ## Pilotの見直し
 
-次回以降の自然発生researchから2〜3件で、従来の共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation Issueへ残す。確認のために候補選定、research、売買を強制せず、`buy / reject / defer / no actionable bargain`をすべて正常結果とする。1件だけで投資精度の改善を断定せず、pilot lensが問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。
+次回以降の自然発生researchから2〜3件で、共通checklistと比べて新たに立った問い、残ったunknown、scenario/FVまたはdispositionへの影響、追加負担をoperation sessionへ残す。確認のために候補選定、research、売買を強制せず、`buy / reject / defer / no actionable bargain`をすべて正常結果とする。1件だけで投資精度の改善を断定せず、pilot lensが問いを増やすだけで判断を変えない場合は、項目追加より削減・統合・撤回を優先する。

@@ -5,7 +5,7 @@ doc_type: reference
 status: active
 last_reviewed: 2026-05-04
 source_paths:
-  - "../../src/baibai_loop/"
+  - "../../src/baibai_engine/"
   - "../../tests/"
   - "../../pyproject.toml"
   - "../../uv.lock"
@@ -13,7 +13,7 @@ source_paths:
 
 # Python foundation
 
-このリポジトリの Python 基盤の正本。対象は `src/baibai_loop/**` と `tests/**`。Baibai-Loop は外部データを取り込み、Markdown front matter と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
+このリポジトリの Python 基盤の正本。対象は `src/baibai_engine/**` と `tests/**`。Baibai-Loop は外部データを取り込み、Markdown front matter と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
 
 ## 1. Runtime policy
 
@@ -179,7 +179,7 @@ uv run ruff check .
 uv run mypy
 uv run coverage run -m pytest
 uv run coverage report -m
-uv run bandit -c pyproject.toml -r src/baibai_loop -q
+uv run bandit -c pyproject.toml -r src/baibai_engine -q
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel

@@ -19,10 +19,10 @@ Decision lifecycle ([`../architecture.md`](../architecture.md)) における各 
 
 | Artifact | 用途 | 主なソース |
 | --- | --- | --- |
-| `records/01-macro-context/` | 必要時の個別調査用material-delta context | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
-| `records/02-candidates/` | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（決算発表予定日、特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
-| `records/03-thesis/` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 個別期待値へ影響するときだけmacro context参照 |
-| `records/04-position/` | 執行記録 | 証券会社からの約定情報（手動記録） |
+| application DB `macro_context` | 必要時の個別調査用material-delta context | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
+| screening run store | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（決算発表予定日、特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
+| application DB `research_packet / research_review` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 個別期待値へ影響するときだけmacro context参照 |
+| application DB ledger | 執行記録 | 証券会社からの約定情報（人間報告だけを記録） |
 
 本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`./valuation-metrics.md`](./valuation-metrics.md) を参照。
 
@@ -32,19 +32,19 @@ holding review・見積り calibration の価格 source は J-Quants(`data/scree
 
 ## Portfolio outcome benchmark
 
-portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gross total return**だけをprimary benchmarkにする。operatorは公式factsheetまたは配当込み期間投資収益率の一次資料から、期間両端・公表日・as-of・gross区分・累積returnを`records/04-position/benchmarks/`のoffline observationへ正規化する。runtimeはHTTP/PDFを取得せず、期間や値を推測しない。
+portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gross total return**だけをprimary benchmarkにする。operatorは公式factsheetまたは配当込み期間投資収益率の一次資料から、期間両端・公表日・as-of・gross区分・累積returnを入力draftへ正規化する。runtimeはHTTP/PDFを取得せず、期間や値を推測しない。published outcomeはbenchmark observationをpayloadに含めてapplication DBへ保存する。
 
 `1321`や`1306`などのETF price proxyはportfolio outcomeの比較値として使用しない。J-Quants price-only proxyはscreeningまたは短期calibrationのdiagnosticに限り、総合収益率・年次benchmarkと表示しない。
 
 ## 取得データの保存方針
 
-J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 cache として保存してよい。外部公開・第三者再配布は行わない。screening の正本 local store は `data/screening/market.sqlite`、削除可能な byproduct cache は `.cache/` に置き、いずれも `records/` 配下には置かない（`records/` は履歴成果物専用。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)）。
+J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。screening のL1 storeは`data/screening/market.sqlite`、run storeは`data/screening/runs.sqlite`、削除可能なbyproductは`.cache/`に置く。`records/`はmethod/configとplaybook専用である。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)。
 
 保存済み cache は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 
 J-Quants Light の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストは [`./screening-runtime.md`](./screening-runtime.md) §12 にまとめる。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro indicators は `baibai-loop-macro` で公式 API / CSV から取得し、`data/indicators/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
+Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、`data/indicators/macro.sqlite` に保存してよい。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。
 
 ## スコアリング軸
 

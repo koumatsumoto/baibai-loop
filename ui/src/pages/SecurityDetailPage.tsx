@@ -179,7 +179,7 @@ export function SecurityDetailPage() {
                   <Field label="Strongest countercase"><p className="font-normal leading-relaxed">{packet.strongest_countercase ?? '—'}</p></Field>
                   <Field label="Sizing action"><p className="font-normal leading-relaxed">{packet.sizing_action ?? '—'}</p></Field>
                 </dl>
-                <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={packet.revision.packet_path}>{packet.revision.packet_path}</code>
+                <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={packet.revision.packet_id}>{packet.revision.packet_id}</code>
               </div>
             )}
           </CardContent>
@@ -197,12 +197,36 @@ export function SecurityDetailPage() {
               <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>as of</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data.revisions.map((revision) => (
-                  <TableRow key={revision.packet_path}>
+                  <TableRow key={revision.packet_id}>
                     <TableCell className="font-mono tabular-nums">{revision.as_of}</TableCell>
                     <TableCell><Badge className="font-mono uppercase" variant="outline">{revision.recommendation}</Badge></TableCell>
                     <TableCell className="text-right"><YenAmount value={revision.current_fair_value_yen} /></TableCell>
                     <TableCell>{revision.model_version ?? '—'}</TableCell>
-                    <TableCell>{revision.review_path ? <Badge variant="secondary">有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
+                    <TableCell>{revision.review_id ? <Badge variant="secondary">有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+
+        <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+          <CardHeader className="flex flex-row items-start justify-between gap-4 border-b py-5">
+            <div><CardTitle>Holding review 履歴</CardTitle><CardDescription className="mt-1">人間確認後に publish された保有判断</CardDescription></div>
+            <Badge variant="secondary">{data.holding_reviews.length} revisions</Badge>
+          </CardHeader>
+          {data.holding_reviews.length === 0 ? (
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</CardContent>
+          ) : (
+            <Table>
+              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>as of</TableHead><TableHead>action</TableHead><TableHead>packet</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {data.holding_reviews.map((review) => (
+                  <TableRow key={review.holding_review_id}>
+                    <TableCell className="font-mono tabular-nums">{review.as_of}</TableCell>
+                    <TableCell><Badge className="font-mono uppercase" variant="outline">{review.action}</Badge></TableCell>
+                    <TableCell><code className="text-xs">{review.packet_id}</code></TableCell>
+                    <TableCell className="max-w-md text-sm text-muted-foreground">{review.note ?? '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

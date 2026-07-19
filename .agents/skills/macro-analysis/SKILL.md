@@ -19,12 +19,12 @@ description: 金利・為替・流動性・需要・資金調達・共通tail ri
 
 ## 手順
 
-1. 既存contextの`as_of / valid_until / refresh_triggers`を確認する。
+1. `baibai-engine macro context head`と`context show --latest --asof <date>`で既存contextの`as_of / valid_until / refresh_triggers`を確認する。
 2. 変化channelを`discount rate / demand / funding / common tail`から選ぶ。
 3. 判断に必要なseriesと一次sourceだけ取得する。
 4. series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。
 5. 個別packetのどのscenario/claimを変えるかを1〜3行で示す。
-6. materialならmacro-context schemaへ記録しvalidationする。
+6. materialならstrict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。初回publishだけはexpected headを省略する。
 
 ## 禁止
 

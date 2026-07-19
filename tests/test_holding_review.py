@@ -7,19 +7,20 @@ from typing import Any
 import pytest
 import yaml
 
-from baibai_loop.position.cli import main
-from baibai_loop.position.holding_review import (
+from baibai_engine.position.cli import main
+from baibai_engine.position.holding_review import (
     HoldingReviewDocument,
     evaluate_holding_review,
-    validate_holding_review_sources,
 )
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     IndependentReview,
     decision_packet_core_hash,
     independent_review_hash,
 )
-from baibai_loop.thesis.holding_review_builder import build_holding_review
+from baibai_engine.research.store import ResearchStoreService
+from tests.helpers.db_seed import seed_ledger
 
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
 
@@ -31,6 +32,13 @@ def _load(name: str) -> HoldingReviewDocument:
 
 def _raw(name: str) -> dict[str, Any]:
     return yaml.safe_load((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def test_file_source_binding_is_rejected() -> None:
+    raw = _raw("underwater-hold.yaml")
+    raw["sources"]["ledger"] = {"ref": "records/ledger.yaml", "sha256": "0" * 64}
+    with pytest.raises(ValueError, match="entity_id"):
+        HoldingReviewDocument.model_validate(raw)
 
 
 def test_broken_thesis_is_priority_exit() -> None:
@@ -214,62 +222,6 @@ def test_stale_evidence_warns() -> None:
     assert any("days old" in warning for warning in result.warnings)
 
 
-def test_cli_recomputes_action_from_source_bound_draft(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    _write_current_builder_sources(tmp_path)
-    document = build_holding_review(
-        root=tmp_path,
-        ledger_ref=Path("ledger.yaml"),
-        holding_packet_ref=Path("packets/2331-decision.yaml"),
-        position_id="position-2331",
-    )
-    tmp_path.joinpath("review.yaml").write_text(
-        yaml.safe_dump(document.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
-    )
-    exit_code = main(["holding-review", "--root", str(tmp_path), "--input", "review.yaml"])
-    assert exit_code == 0
-    payload = yaml.safe_load(capsys.readouterr().out)
-    assert payload["computed_action"] == "hold"
-
-
-def test_cli_flags_inconsistent_draft(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    _write_current_builder_sources(tmp_path)
-    raw = build_holding_review(
-        root=tmp_path,
-        ledger_ref=Path("ledger.yaml"),
-        holding_packet_ref=Path("packets/2331-decision.yaml"),
-        position_id="position-2331",
-    ).model_dump(mode="json")
-    raw["action"] = "reduce"
-    draft = tmp_path / "bad-review.yaml"
-    draft.write_text(yaml.safe_dump(raw), encoding="utf-8")
-    exit_code = main(["holding-review", "--root", str(tmp_path), "--input", "bad-review.yaml"])
-    assert exit_code == 2
-    assert "load-bearing values differ" in capsys.readouterr().err
-
-
-def test_source_hash_mismatch_rejects_review() -> None:
-    document = _load("underwater-hold.yaml")
-    validate_holding_review_sources(document, root=Path.cwd())
-
-    raw = _raw("underwater-hold.yaml")
-    raw["sources"]["ledger"]["sha256"] = "f" * 64
-    tampered = HoldingReviewDocument.model_validate(raw)
-    with pytest.raises(ValueError, match="source hash mismatch"):
-        validate_holding_review_sources(tampered, root=Path.cwd())
-
-
-def test_source_builder_rejects_adjusted_or_stale_packet_price() -> None:
-    with pytest.raises(ValueError, match="market-price observation date"):
-        build_holding_review(
-            root=Path.cwd(),
-            ledger_ref=Path("tests/fixtures/portfolio-ledger/representative.yaml"),
-            holding_packet_ref=Path("tests/fixtures/decision-packet/2331-decision.yaml"),
-            position_id="test-position",
-        )
-
-
 def _write_current_builder_sources(root: Path) -> None:
     packet_dir = root / "packets"
     packet_dir.mkdir()
@@ -311,58 +263,37 @@ def _write_current_builder_sources(root: Path) -> None:
     root.joinpath("ledger.yaml").write_text(yaml.safe_dump(ledger), encoding="utf-8")
 
 
-def test_source_builder_loads_the_adjacent_independent_review(tmp_path: Path) -> None:
-    _write_current_builder_sources(tmp_path)
-    document = build_holding_review(
-        root=tmp_path,
-        ledger_ref=Path("ledger.yaml"),
-        holding_packet_ref=Path("packets/2331-decision.yaml"),
-        position_id="position-2331",
-    )
-    assert document.ticker == "2331"
-    assert document.action == "hold"
-
-
-def test_source_builder_uses_latest_close_when_ledger_has_a_newer_nonprice_event(
-    tmp_path: Path,
-) -> None:
-    _write_current_builder_sources(tmp_path)
-    ledger_path = tmp_path / "ledger.yaml"
-    ledger = yaml.safe_load(ledger_path.read_text(encoding="utf-8"))
-    ledger["events"].append(
-        {
-            "event_id": "contribution-after-close",
-            "type": "contribution",
-            "occurred_at": "2026-07-04T09:00:00+09:00",
-            "amount_yen": 10000,
-        }
-    )
-    ledger["as_of"] = "2026-07-04T09:00:00+09:00"
-    ledger_path.write_text(yaml.safe_dump(ledger, sort_keys=False), encoding="utf-8")
-
-    document = build_holding_review(
-        root=tmp_path,
-        ledger_ref=Path("ledger.yaml"),
-        holding_packet_ref=Path("packets/2331-decision.yaml"),
-        position_id="position-2331",
-    )
-    assert document.as_of.isoformat() == "2026-07-03"
-
-
 def test_holding_review_build_cli_writes_a_validated_draft(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _write_current_builder_sources(tmp_path)
+    db_path = tmp_path / "app.sqlite"
+    packet = yaml.safe_load(tmp_path.joinpath("packets/2331-decision.yaml").read_text())
+    review = yaml.safe_load(tmp_path.joinpath("packets/2331-decision-review.yaml").read_text())
+    packet_id = "packet-20260703-2331-r1"
+    ResearchStoreService(db_path).publish_packet_with_review(packet_id, packet, review)
+    ledger = load_portfolio_ledger(tmp_path / "ledger.yaml")
+    seed_ledger(
+        db_path,
+        ledger.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in ledger.market_prices
+                )
+            }
+        ),
+    )
     output = tmp_path / "review.yaml"
     exit_code = main(
         [
             "holding-review-build",
             "--root",
             str(tmp_path),
-            "--packet",
-            "packets/2331-decision.yaml",
-            "--ledger",
-            "ledger.yaml",
+            "--db",
+            str(db_path),
+            "--packet-id",
+            packet_id,
             "--position-id",
             "position-2331",
             "--out",
@@ -372,27 +303,3 @@ def test_holding_review_build_cli_writes_a_validated_draft(
     assert exit_code == 0
     assert output.is_file()
     assert yaml.safe_load(capsys.readouterr().out)["ticker"] == "2331"
-
-
-def test_source_builder_rejects_a_missing_independent_review(tmp_path: Path) -> None:
-    _write_current_builder_sources(tmp_path)
-    tmp_path.joinpath("packets/2331-decision-review.yaml").unlink()
-    with pytest.raises(ValueError, match="failed to load independent review"):
-        build_holding_review(
-            root=tmp_path,
-            ledger_ref=Path("ledger.yaml"),
-            holding_packet_ref=Path("packets/2331-decision.yaml"),
-            position_id="position-2331",
-        )
-
-
-def test_source_builder_rejects_a_source_outside_root(tmp_path: Path) -> None:
-    outside = tmp_path.parent / "outside-ledger.yaml"
-    outside.write_bytes(Path("tests/fixtures/portfolio-ledger/representative.yaml").read_bytes())
-    with pytest.raises(ValueError, match="within repository root"):
-        build_holding_review(
-            root=tmp_path,
-            ledger_ref=outside,
-            holding_packet_ref=Path("packets/2331-decision.yaml"),
-            position_id="position-2331",
-        )

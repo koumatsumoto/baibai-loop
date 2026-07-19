@@ -4,7 +4,7 @@ import { CalendarCheck2, CalendarDays, ChartNoAxesCombined, CircleAlert } from '
 import { Pie, PieChart } from 'recharts'
 
 import { fetchJson } from '../api/client'
-import type { DashboardView, HoldingView, TaskView, WarningView } from '../api/types'
+import type { DashboardView, HoldingView, ProgramStateView, TaskView, WarningView } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { PctBadge } from '../components/PctBadge'
@@ -304,11 +304,15 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
 
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
+  const [program, setProgram] = useState<ProgramStateView | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchJson<DashboardView>('/api/dashboard').then(setData).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
+    })
+    fetchJson<ProgramStateView>('/api/program').then(setProgram).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : '運用状態を読み込めませんでした')
     })
   }, [])
 
@@ -340,6 +344,41 @@ export function DashboardPage() {
           <NextCard label="NEXT TASK" task={data.next_task} />
           <NextCard event label="NEXT EVENT" task={data.next_event} />
         </section>
+
+        {program && (
+          <section className="grid gap-4 lg:grid-cols-3" aria-label="運用・提案・評価">
+            <Card>
+              <CardHeader><CardTitle>Operation</CardTitle><CardDescription>active checkpoint / completed result</CardDescription></CardHeader>
+              <CardContent className="grid gap-2 text-sm">
+                {program.operations.length === 0 ? <p className="text-muted-foreground">session はありません。</p> : program.operations.map((item) => (
+                  <div className="flex items-center justify-between gap-2" key={item.operation_id}>
+                    <span className="truncate font-mono text-xs">{item.operation_id}</span><Badge variant="outline">{item.status}</Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle>Trade proposal</CardTitle><CardDescription>人間が報告した current state</CardDescription></CardHeader>
+              <CardContent className="grid gap-2 text-sm">
+                {program.proposals.length === 0 ? <p className="text-muted-foreground">proposal はありません。</p> : program.proposals.map((item) => (
+                  <div className="flex items-center justify-between gap-2" key={item.proposal_id}>
+                    <span className="font-mono text-xs">{item.ticker} · {item.proposal_id}</span><Badge variant="outline">{item.status}</Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle>Portfolio outcome</CardTitle><CardDescription>保存済みの期間評価</CardDescription></CardHeader>
+              <CardContent className="grid gap-2 text-sm">
+                {program.outcomes.length === 0 ? <p className="text-muted-foreground">保存済み outcome はありません。</p> : program.outcomes.map((item) => (
+                  <div className="flex items-center justify-between gap-2" key={item.outcome_id}>
+                    <span>{item.horizon} · {item.period_end_date}</span><Badge variant="outline">{item.status}</Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         {!data.ledger_exists && !data.ledger_error ? (
           <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
@@ -390,7 +429,7 @@ export function DashboardPage() {
             <Badge variant="secondary">{data.open_tasks.length} open</Badge>
           </CardHeader>
           {!data.tasks_exist ? (
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">task record 未作成（records/05-task/tasks.yaml）</CardContent>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">task はまだ登録されていません</CardContent>
           ) : data.open_tasks.length === 0 ? (
             <CardContent className="py-8 text-center text-sm text-muted-foreground">open task はありません。</CardContent>
           ) : (

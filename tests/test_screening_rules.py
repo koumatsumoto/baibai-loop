@@ -12,8 +12,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.rule_config import load_screening_rules
-from baibai_loop.screening.rules import (
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.rules import (
     PLAYBOOK_CASH_RICH,
     PLAYBOOK_CASHFLOW_YIELD,
     PLAYBOOK_SALES_DISCOUNT,
@@ -22,7 +22,7 @@ from baibai_loop.screening.rules import (
     REASON_VALUATION_SIGMA,
     evaluate_screening,
 )
-from baibai_loop.screening.schema import DerivedMetrics, FinancialSnapshot, TTMQuality
+from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot, TTMQuality
 
 RULES = load_screening_rules()
 

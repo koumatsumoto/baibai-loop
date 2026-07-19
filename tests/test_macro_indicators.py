@@ -14,8 +14,8 @@ from unittest.mock import patch
 import openpyxl
 import requests
 
-from baibai_loop.macro.indicators.cli import main
-from baibai_loop.macro.indicators.db import (
+from baibai_engine.macro.indicators.cli import main
+from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     ObservationRecord,
     get_series,
@@ -28,8 +28,8 @@ from baibai_loop.macro.indicators.db import (
     record_provider_run,
     row_count,
 )
-from baibai_loop.macro.indicators.definitions import SeriesDefinition, load_definitions
-from baibai_loop.macro.indicators.providers import (
+from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.macro.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
     parse_boj_mutan_xlsx,
@@ -44,11 +44,11 @@ from baibai_loop.macro.indicators.providers import (
     parse_trades_spec,
     parse_yahoo_chart,
 )
-from baibai_loop.macro.indicators.providers.boj_mutan import (
+from baibai_engine.macro.indicators.providers.boj_mutan import (
     BojMutanProvider,
     parse_boj_mutan_old_average,
 )
-from baibai_loop.macro.indicators.service import IndicatorsService
+from baibai_engine.macro.indicators.service import IndicatorsService
 
 
 class IndicatorsDBTests(unittest.TestCase):
@@ -620,7 +620,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             parse_multpl_current("<html>no current sentence here</html>", "shiller-pe")
 
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
-        from baibai_loop.macro.indicators.providers.estat import _split_stats_data_id
+        from baibai_engine.macro.indicators.providers.estat import _split_stats_data_id
 
         stats_id, narrowing = _split_stats_data_id("0003427113?cdCat01=0001&cdArea=00000&cdTab=1")
 
@@ -628,7 +628,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(narrowing, {"cdCat01": "0001", "cdArea": "00000", "cdTab": "1"})
 
     def test_split_stats_data_id_without_query_returns_empty_params(self) -> None:
-        from baibai_loop.macro.indicators.providers.estat import _split_stats_data_id
+        from baibai_engine.macro.indicators.providers.estat import _split_stats_data_id
 
         self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))
 
@@ -743,7 +743,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 for day, value in ((3, 4.45), (2, 4.41), (1, 4.39))
             ]
             with patch(
-                "baibai_loop.macro.indicators.service.fetch_observations",
+                "baibai_engine.macro.indicators.service.fetch_observations",
                 return_value=descending,
             ):
                 result = IndicatorsService(db).get_range(
@@ -773,13 +773,13 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "baibai_loop.macro.indicators.service.fetch_observations",
+                    "baibai_engine.macro.indicators.service.fetch_observations",
                     side_effect=[
                         IndicatorsProviderError("temporary upstream error"),
                         [observation],
                     ],
                 ) as fetch,
-                patch("baibai_loop.macro.indicators.service.time.sleep") as sleep,
+                patch("baibai_engine.macro.indicators.service.time.sleep") as sleep,
             ):
                 result = IndicatorsService(db).get_range(
                     "us.10y",
@@ -823,7 +823,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             with patch(
-                "baibai_loop.macro.indicators.service.fetch_observations",
+                "baibai_engine.macro.indicators.service.fetch_observations",
                 side_effect=[[first_observation], [second_observation]],
             ) as fetch:
                 first = IndicatorsService(db).get_range(
@@ -894,7 +894,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
 
             with patch(
-                "baibai_loop.macro.indicators.service.fetch_observations",
+                "baibai_engine.macro.indicators.service.fetch_observations",
                 side_effect=AssertionError("provider should not be called"),
             ):
                 result = IndicatorsService(db).get_latest("us.10y")
@@ -916,7 +916,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             with patch(
-                "baibai_loop.macro.indicators.service.fetch_observations",
+                "baibai_engine.macro.indicators.service.fetch_observations",
                 return_value=[observation],
             ) as fetch:
                 result = IndicatorsService(db).get_latest("jp.10y", refresh=True)
@@ -945,7 +945,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
             with patch(
-                "baibai_loop.macro.indicators.service.fetch_observations",
+                "baibai_engine.macro.indicators.service.fetch_observations",
                 return_value=[observation],
             ) as fetch:
                 result = IndicatorsService(db).get_latest("jp.10y")

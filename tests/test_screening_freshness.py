@@ -1,23 +1,16 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.screening.freshness import (
+from baibai_engine.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
 )
-from baibai_loop.screening.schema import FinancialSnapshot
+from baibai_engine.screening.schema import FinancialSnapshot
 
 
 def _financial(source_submit_datetime: str | None = "2025-10-15 12:00") -> FinancialSnapshot:
@@ -71,53 +64,6 @@ class ScreeningFreshnessTests(unittest.TestCase):
             self.assertEqual(result.load_errors, ())
             self.assertEqual(result.events_by_ticker["3678"][0].title, "資金の借入に関するお知らせ")
 
-    @unittest.skipUnless(
-        (ROOT / "records/02-candidates/2026/05/2026-05-01.yaml").is_file(),
-        "weekly candidates live in the local store; skip where absent",
-    )
-    def test_issue_94_3678_real_candidate_gets_freshness_warnings(self) -> None:
-        payload = safe_load(
-            (ROOT / "records/02-candidates/2026/05/2026-05-01.yaml").read_text(encoding="utf-8")
-        )
-        candidate = next(item for item in payload["candidates"] if item["ticker"] == "3678")
-        playbook_ids = {evidence_hit["playbook_id"] for evidence_hit in candidate["evidence_hits"]}
-        self.assertLessEqual(
-            {
-                "valuation-reversion",
-                "cashflow-yield-discount",
-                "sales-discount-growth",
-            },
-            playbook_ids,
-        )
-
-        candidate_source_submit_datetime = _datetime_text(
-            candidate["metrics"]["edinet_source_submit_datetime"]
-        )
-        self.assertEqual(candidate_source_submit_datetime, "2025-10-15 16:01")
-        events = load_disclosure_events(
-            _fixture_root(
-                [
-                    {"ticker": "3678", "date": "2026-03-02", "title": "持分取得に関するお知らせ"},
-                    {"ticker": "3678", "date": "2026-03-03", "title": "資金の借入に関するお知らせ"},
-                ]
-            ),
-            asof_date=date(2026, 5, 1),
-        )
-        warnings = detect_edinet_freshness_warnings(
-            ticker="3678",
-            financial=_financial(candidate_source_submit_datetime),
-            events_by_ticker=events.events_by_ticker,
-            asof_date=date(2026, 5, 1),
-        )
-
-        self.assertEqual(events.file_count, 1)
-        self.assertEqual(events.event_count, 2)
-        self.assertEqual(
-            [(warning.event_date.isoformat(), warning.event_kind) for warning in warnings],
-            [("2026-03-02", "m_and_a"), ("2026-03-03", "borrowing")],
-        )
-        self.assertEqual({warning.stale_metric for warning in warnings}, {"edinet_metrics"})
-
     def test_detect_edinet_freshness_warnings_includes_same_day_events(self) -> None:
         events = load_disclosure_events(
             _fixture_root(
@@ -141,9 +87,7 @@ class ScreeningFreshnessTests(unittest.TestCase):
         self.assertEqual(warnings[0].reason, "material_event_after_edinet_source")
         self.assertEqual(warnings[0].stale_metric, "edinet_metrics")
 
-    def test_detect_edinet_freshness_warnings_classifies_non_ma_acquisition_titles(
-        self,
-    ) -> None:
+    def test_detect_edinet_freshness_warnings_classifies_non_ma_acquisition_titles(self) -> None:
         events = load_disclosure_events(
             _fixture_root(
                 [
@@ -221,9 +165,3 @@ def _fixture_root(records: list[dict[str, str]]) -> Path:
     path = root / "events.json"
     path.write_text(json.dumps(records), encoding="utf-8")
     return root
-
-
-def _datetime_text(value: object) -> str:
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d %H:%M")
-    return str(value)

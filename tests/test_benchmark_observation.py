@@ -2,11 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from baibai_loop.market.jpx_total_return import (
+from baibai_engine.market.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
-from baibai_loop.validation.benchmark_observation import validate_benchmark_observation_file
 
 FIXTURE = Path(__file__).parent / "fixtures" / "benchmark-observation" / "topix-1y.yaml"
 
@@ -31,16 +30,6 @@ def test_rejects_period_end_mismatch(tmp_path: Path) -> None:
         load_benchmark_observation(bad)
 
 
-def test_validator_reports_invalid_gross_return_artifact(tmp_path: Path) -> None:
-    bad = tmp_path / "bad.yaml"
-    bad.write_text(
-        FIXTURE.read_text(encoding="utf-8").replace("gross_total_return", "net_total_return"),
-        encoding="utf-8",
-    )
-
-    assert validate_benchmark_observation_file(bad)
-
-
 def test_three_year_annualized_cross_check_is_enforced(tmp_path: Path) -> None:
     valid = FIXTURE.read_text(encoding="utf-8").replace("horizon: 1y", "horizon: 3y")
     valid = valid.replace('period_start_date: "2025-06-30"', 'period_start_date: "2023-06-30"')
@@ -50,7 +39,8 @@ def test_three_year_annualized_cross_check_is_enforced(tmp_path: Path) -> None:
 
     assert load_benchmark_observation(path).horizon == "3y"
     path.write_text(
-        valid.replace("annualized_return_pct: 3.94", "annualized_return_pct: 99"), encoding="utf-8"
+        valid.replace("annualized_return_pct: 3.94", "annualized_return_pct: 99"),
+        encoding="utf-8",
     )
     with pytest.raises(BenchmarkObservationError, match="annualized_return_pct disagrees"):
         load_benchmark_observation(path)

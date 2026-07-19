@@ -6,11 +6,11 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from baibai_loop.screening.providers.jpx import (
+from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
 )
-from baibai_loop.screening.sqlite_cache import (
+from baibai_engine.screening.sqlite_cache import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,
@@ -23,7 +23,7 @@ from baibai_loop.screening.sqlite_cache import (
     store_jquants_market_calendar,
     store_jquants_master,
 )
-from baibai_loop.screening.sqlite_reader import range_covered
+from baibai_engine.screening.sqlite_reader import range_covered
 from tests.helpers.screening_sqlite import make_master_records
 
 

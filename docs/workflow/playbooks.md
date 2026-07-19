@@ -14,7 +14,7 @@ last_reviewed: 2026-07-12
 
 - 閾値・除外条件・pattern の選定順: `records/_config/screening-rules/*.yaml`
 - pattern ごとの research checklist: `records/_playbooks/<playbook_id>/YYYY-MM-DDTHHMMSS+0900.md`
-- candidates / selection の公開 field: `records/_schemas/candidates.json`
+- candidates / selection の公開 field: screening modelとpublic CLI YAML contract
 
 Markdown 本文に固定の H2 構成を要求しない。decision packet は playbook 本文を参照せず、候補の source data と個別の判断を記録する。
 

@@ -11,17 +11,17 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.calibration.forward import ForwardReturnRow
-from baibai_loop.screening.calibration.panel import build_panel
-from baibai_loop.screening.calibration.store import (
+from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.calibration.panel import build_panel
+from baibai_engine.screening.calibration.store import (
     CalibrationCacheError,
     read_forward,
     read_panel,
     write_forward,
     write_panel,
 )
-from baibai_loop.screening.rule_config import load_screening_rules
-from baibai_loop.screening.sqlite_cache import open_connection
+from baibai_engine.screening.rule_config import load_screening_rules
+from baibai_engine.screening.sqlite_cache import open_connection
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 ASOF = date(2026, 6, 30)

@@ -21,12 +21,12 @@ related_docs:
 | レバー | 所在 | 計測経路 |
 | --- | --- | --- |
 | screen の閾値・gate・evidence pattern 条件 | `records/_config/screening-rules/*.yaml` | 較正リプレイ（rules variant） |
-| select の順位付け・diversity cap | 同上 + `src/baibai_loop/screening/selection/` | 較正リプレイ（selection replay） |
-| 機械 E[r]・FV アンカー（anchor・実現率・cap・carry） | `src/baibai_loop/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
-| valuation 指標の算出 | `src/baibai_loop/screening/metrics` 系 + [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
+| select の順位付け・diversity cap | 同上 + `src/baibai_engine/screening/selection/` | 較正リプレイ（selection replay） |
+| 機械 E[r]・FV アンカー（anchor・実現率・cap・carry） | `src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
+| valuation 指標の算出 | `src/baibai_engine/screening/metrics` 系 + [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
 | マクロ読みの手順・レンズ | [`../workflow/macro.md`](../workflow/macro.md) + skill `macro-analysis` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
 | research の見積り手順（FV・RR・耐性） | [`../workflow/research.md`](../workflow/research.md) + skill `decision-cycle` | portfolio outcome と長期horizon calibration |
-| 資本・cap・sizing | [`../portfolio-management.md`](../portfolio-management.md) + `src/baibai_loop/position/policy.py` | 保有 outcome |
+| 資本・cap・sizing | [`../portfolio-management.md`](../portfolio-management.md) + `src/baibai_engine/position/policy.py` | 保有 outcome |
 
 計測の母数は 2 系統（doctrine §2）: **(a) 保有 outcome**（少数・深い観測。判断品質の最終的な正）と **(b) 較正リプレイ**（全銘柄 × 長期 horizon。手法較正用に件数を桁で補う）。機械レバー（screen / select / E[r]）の実証的改訂は (b) の 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は (a) と運用の事後検証で改める。
 
@@ -35,8 +35,8 @@ related_docs:
 ### 0. 現状計測の確認
 
 ```bash
-uv run baibai-loop-screening calibration-build --start 2022-09-01 --end <直近の完全月末>   # 増分。rules 改訂後は --force
-uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-current.yaml
+uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>   # 増分。rules 改訂後は --force
+uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eval-current.yaml
 ```
 
 直近の dated report（`reports/` の estimate-calibration 系）と突き合わせ、baseline が固定されていることを確認する。baseline が無い観点を測るときは、まず観察のみの baseline report を書いて固定する。
@@ -47,7 +47,7 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-
 
 冒頭には[`doctrine.md`の改善提案の価値階層](../doctrine.md#improvement-value-hierarchy)に従い、`価値tier: Tn — <直接的な成果への因果経路>`を1行で書く。T3は観測した頻度・負担、T4を例外採用する場合は人間の実損またはT1〜T3への検証可能な寄与を示す。価値階層を第一基準とし、同じtier内では効果の見込みが大きい順に優先する。
 
-導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical packetとoperation Issueに保存した非promote laneから同一packet hashの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
+導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical packetとoperation sessionに保存した非promote laneから同一packetの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
 
 ### 2. 採否基準の事前登録（計測より先に commit）
 
@@ -69,8 +69,8 @@ uv run baibai-loop-screening calibration-evaluate --out .cache/calibration-eval-
 現 asof でパイプラインを回し、実出力で妥当性を確認する（[`./decision-cycle.md`](./decision-cycle.md) の`opportunity` pathと同じ操作）:
 
 ```bash
-uv run baibai-loop-screening run --asof <最新の完全営業日>
-uv run baibai-loop-screening select --asof <同上>
+uv run baibai-engine screening run --asof <最新の完全営業日>
+uv run baibai-engine screening select --asof <同上> --run-revision-id <run revision ID>
 ```
 
 - 変更前後の select 上位の差分を確認し、意図した挙動（例: E[r] 降順の成立・value-trap 形の脱落）を実銘柄で確認する。
@@ -98,4 +98,4 @@ uv run baibai-loop-screening select --asof <同上>
 - 1 改善 = 1 issue = 1 PR。レビュー反映・運用テストで見つけたバグ修正・付随する follow-up は同一 PR にコミットを積む。
 - issue title は `task(<subsystem>): <改善の要約>` または `improve: <要約>`。本文に観察 → 仮説 → 検証方法 → 着手条件。
 - 判断の正本は records / reports に置き、issue / PR には参照と要約を書く（[`./task-runbook.md`](./task-runbook.md) と同じ原則）。
-- マージ前ゲート: `uv run baibai-loop-validation` / `ruff format --check` / `ruff check` / `mypy` / `pytest` + 運用テスト（§5）。
+- マージ前ゲート: `ruff format --check` / `ruff check` / `mypy` / `pytest` + write-time negative test + 運用テスト（§5）。

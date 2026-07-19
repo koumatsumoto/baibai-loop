@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -11,20 +10,18 @@ import yaml
 from hypothesis import given
 from hypothesis import strategies as st
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.position.ledger import (
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioLedgerError,
     load_portfolio_ledger,
-    portfolio_ledger_json_schema,
     reconcile_portfolio,
     snapshot_to_payload,
 )
-from baibai_loop.position.policy import PORTFOLIO_POLICY
+from baibai_engine.position.policy import PORTFOLIO_POLICY
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
-SCHEMA = ROOT / "records/_schemas/portfolio-ledger.json"
 TOKYO = ZoneInfo("Asia/Tokyo")
 
 
@@ -69,10 +66,6 @@ def test_representative_ledger_reconciles_every_required_event_to_one_yen() -> N
     assert reservation.reservation_id == "reservation-8929-pending"
     assert reservation.order_id == "order-8929-pending"
     assert reservation.reserved_yen == 119_000
-
-
-def test_generated_public_schema_matches_tracked_contract() -> None:
-    assert json.loads(SCHEMA.read_text(encoding="utf-8")) == portfolio_ledger_json_schema()
 
 
 def test_pending_order_cannot_be_reserved_twice() -> None:

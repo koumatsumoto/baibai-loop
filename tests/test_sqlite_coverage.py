@@ -13,8 +13,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.sqlite_cache import open_connection
-from baibai_loop.screening.sqlite_coverage import verify_screening_sqlite_coverage
+from baibai_engine.screening.sqlite_cache import open_connection
+from baibai_engine.screening.sqlite_coverage import verify_screening_sqlite_coverage
 from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
 
 _DATA_TABLES = (
@@ -31,7 +31,7 @@ _DATA_TABLES = (
 
 
 def _verify_screening_sqlite_coverage(*args, **kwargs):
-    with patch("baibai_loop.screening.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
+    with patch("baibai_engine.screening.master_snapshot.MIN_COMMON_STOCK_MASTER_ROWS", 100):
         return verify_screening_sqlite_coverage(*args, **kwargs)
 
 

@@ -8,7 +8,7 @@ last_reviewed: 2026-07-15
 
 # Doctrine — Baibai-Loop の投資思想と大戦略
 
-このリポジトリが **何を信じ、何を狙い、どの原則と語彙で判断するか** を定める正本。構造（3 層・7 package・CLI/SQLite 契約）は [`architecture.md`](./architecture.md)、資本とポジションの管理は [`portfolio-management.md`](./portfolio-management.md)、各工程の手順は [`workflow/`](./workflow/) を参照する。
+このリポジトリが **何を信じ、何を狙い、どの原則と語彙で判断するか** を定める正本。構造（3 層・engine/app package・CLI/SQLite 契約）は [`architecture.md`](./architecture.md)、資本とポジションの管理は [`portfolio-management.md`](./portfolio-management.md)、各工程の手順は [`workflow/`](./workflow/) を参照する。
 
 運用モデルは **AI 主導・人間裁定**：AI がマクロ経済を分析してトレンドを読み、市場で過小評価されているお買い得銘柄を機械抽出し、長期積立・配当還元を前提とした長期保有に耐える銘柄を個別にリサーチして売買提案まで作る。人間はその提案を判断し、発注する。Baibai-Loop はこの分業に一貫性を持たせ、判断を後から検証できるようにするための基盤であり、投資助言サービスではない。
 
@@ -87,15 +87,15 @@ validation や hash のように監査にも使える手段でも、現在の候
 - **(b)** 実際にループを回してはじめて、見積りのどこが系統的に外れているのか（マクロの読みか、フェアバリュー推定か、耐性判定か）が見えてくる。材料がなければ改善の方向は定まらない。
 - **(c)** 設計を固めきってから運用を始めると、運用開始時点で陳腐化している。短期 screen の成績を大量の銘柄で backtest して最適化する重い改善ループは、長期保有では前提そのものが不要（柱 5）。
 
-### 柱 4: Markdown / YAML 駆動、schema を契約の正本に
+### 柱 4: application DB 正本、Git は method / config
 
-- **(a)** 投資判断の record は、front matter の揃った Markdown / YAML を正本とする。データ提供元から再取得できる入力やキャッシュは SQLite に閉じ込める。**成果物の機械契約（形・必須項目・enum）は `records/_schemas/*.json` を contract-of-record とし**、doc は JSON に書けないもの（計算式・enum の意味・設計判断の理由・境界条件）だけを持つ。
-- **(b)** 1 人での運用では、判断 record をデータベースで維持し続けるのは現実的でない。ファイルと git なら差分・変更履歴・由来の追跡が標準ツールで扱え、AI が下書きし人間が確認する協働も自然に成り立つ。schema を正本にすれば、doc へ項目定義を書き写す冗長さと、doc と実装のずれを消せる。
-- **(c)** 判断 record の SQLite 化や外部ツール（Notion / Airtable）への移管は、移行コストが高くベンダーへの囲い込みを招く。JSON / YAML 単独では人間にとって読みにくい。
+- **(a)** task、macro context、reviewed shortlist、research、trade proposal、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
+- **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行い、`baibai-app` は application DB と各 read store を読むだけの cockpit とする。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
+- **(c)** GitHub Issue や Markdown / YAML を application data の正本にはしない。GitHub は開発作業に使い、運用 workspace は `operation_session`、確定した entity は各 DB table に置く。外部 SaaS を正本にすると local-first の運用と application service の境界が崩れるため採用しない。
 
 ### 柱 5: 計測ファーストのデータ基盤
 
-- **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的なscreen・導出指標・モデル見積りからなる **分析層（L2）** であり、判断層（L3 = records）はその消費者にあたる（3層の詳細は[`architecture.md`](./architecture.md)）。L2出力は`observed / derived / estimate`を区別し、決定論的に生成されてもE[r]やFV anchorを事実とは呼ばない。人間/AIの解釈は`judgment`としてdecision packetへ置く。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
+- **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的なscreen・導出指標・モデル見積りからなる **分析層（L2）** であり、application DBの判断層（L3）はその消費者にあたる（3層の詳細は[`architecture.md`](./architecture.md)）。L2出力は`observed / derived / estimate`を区別し、決定論的に生成されてもE[r]やFV anchorを事実とは呼ばない。人間/AIの解釈は`judgment`としてdecision packetへ置く。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
 - **(b)** スコアは軸ごとの座標（業種相対・自己レンジ相対の percentile）であり、単一の合成点や売買指示には決して畳まない。**単位（%/年）・成分分解（reversion / carry）・前提（anchor・実現率・cap）を持つ機械見積り（E[r]・FV アンカー）は「単一の合成点」とはみなさない** — ただし (i) 出力に成分と前提を必ず併記する、(ii) 較正リプレイで予測と実現を突き合わせ続ける、(iii) 採否と投入額の判断は人間に残る、を必須条件とする。正直な軸別の事実 + 人間の判断という役割分担が、AI の強み（機械可読な事実の整理・統合）を活かしつつ、弱み（判断の責任を負えないこと）を遮断する。
 - **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。MCP / API server 化やリアルタイム化は、1 人・ローカル完結の運用では不要（YAGNI）。
 
@@ -116,10 +116,10 @@ validation や hash のように監査にも使える手段でも、現在の候
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
 | 投資判断packet | decision packet | 分析（判断） | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact |
 | 戦略プレイブック | `playbook_id` | L2 設定 + research checklist | 割安型の label・閾値・除外条件を `screening-rules` から候補へ注記し、個別調査の確認項目を保持する |
-| 売買提案 | trade proposal | 判断の入口 | L3 | 銘柄・価格・株数を人間に上げる（GitHub Issue） |
+| 売買提案 | trade proposal | 判断の入口 | L3 | 銘柄・価格・株数と人間のcurrent decisionをapplication DBに保持する |
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
 
-`research`は個別銘柄を調べる活動、`decision packet`はcanonical成果物である。package/directory識別子`thesis`は実装境界として残るが、旧Markdown投資メモをcurrent artifactとして指さない。
+`research`は個別銘柄を調べる活動、`decision packet`はcanonical成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、package名ではない。
 
 ### Evidence Taxonomy
 
@@ -131,7 +131,7 @@ decision packetで見積りの根拠を検証するときの分析レンズ / re
 - **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、個別期待値へ影響するmaterial deltaと共通riskを短く残す。記事本文や取得ログは保存しない。
 - **通過銘柄リスト (candidates)**：screenの機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **個別銘柄research / decision packet**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical packetへ固定する。
-- **売買提案 (trade proposal)**：research の採用結論を「どの銘柄を・いくらで・何株」という具体提案に落とし、GitHub Issue で人間に上げる入口。
+- **売買提案 (trade proposal)**：research の採用結論を「どの銘柄を・いくらで・何株」という具体提案に落とし、人間の `approve / defer / reject` を current state として保持する入口。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
 
 <a id="fact-analysis-separation"></a>
@@ -167,7 +167,7 @@ candidatesのobserved / derived / estimateと、macro context・decision packet�
 
 ## 9. 参考
 
-- [`architecture.md`](./architecture.md)：3 層インフラ・7 package・CLI / SQLite 安定契約・repository map
+- [`architecture.md`](./architecture.md)：3 層インフラ・engine/app package・CLI / SQLite 安定契約・repository map
 - [`portfolio-management.md`](./portfolio-management.md)：資本・ポジション管理・cap・積立・余力・kill switch 仕様
 - [`workflow/`](./workflow/)：単一ループ各工程の手順（macro / screening / research / position / playbooks）
 - [`anti-patterns.md`](./anti-patterns.md)：失敗パターンと commit 前チェックリスト

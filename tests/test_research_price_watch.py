@@ -17,14 +17,17 @@ from tools.research_price_watch import (
     main,
 )
 
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.market.sqlite import open_connection
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sqlite import open_connection
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.research.decision_packet import (
     decision_packet_core_hash,
     independent_review_hash,
     load_decision_packet,
     load_independent_review,
 )
+from baibai_engine.research.store import ResearchStoreService
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -178,12 +181,51 @@ def _run(
     asof: date = ASOF,
 ) -> tuple[int, dict[str, Any], str]:
     market = sqlite_path or tmp_path / "market.sqlite"
+    source = packets_root or _packet_root(tmp_path)
+    db_path = tmp_path / "app.sqlite"
+    if source.is_dir():
+        packet_path = next(
+            path
+            for path in source.rglob("*-decision.yaml")
+            if not path.name.endswith("-review.yaml")
+        )
+        packet = load_decision_packet(packet_path)
+        packet_id = (
+            f"packet-{packet.input_snapshot.as_of:%Y%m%d}-{packet.input_snapshot.ticker}-test"
+        )
+        service = ResearchStoreService(db_path)
+        if packet.independent_review_ref is None:
+            service.publish_packet(packet_id, packet.model_dump(mode="json"))
+            review_path = packet_path.with_name(
+                packet_path.name.replace("-decision.yaml", "-decision-review.yaml")
+            )
+            service.publish_review(
+                packet_id,
+                load_independent_review(review_path).model_dump(mode="json"),
+            )
+        else:
+            review = load_independent_review(packet_path.with_name(packet.independent_review_ref))
+            service.publish_packet_with_review(
+                packet_id,
+                packet.model_dump(mode="json"),
+                review.model_dump(mode="json"),
+            )
+        document = load_portfolio_ledger(ledger)
+        document = document.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in document.market_prices
+                )
+            }
+        )
+        seed_ledger(db_path, document)
+    else:
+        db_path = tmp_path / "missing-app.sqlite"
     exit_code = main(
         [
-            "--packets-root",
-            str(packets_root or _packet_root(tmp_path)),
-            "--ledger",
-            str(ledger),
+            "--db",
+            str(db_path),
             "--sqlite-path",
             str(market),
             "--asof",
@@ -198,9 +240,7 @@ def _run(
 def test_cli_contract_has_only_explicit_inputs() -> None:
     help_text = build_parser().format_help()
 
-    assert all(
-        option in help_text for option in ("--packets-root", "--ledger", "--sqlite-path", "--asof")
-    )
+    assert all(option in help_text for option in ("--db", "--sqlite-path", "--asof"))
     assert "--write" not in help_text
 
 
@@ -212,7 +252,7 @@ def test_resolved_join_keeps_history_and_excludes_ledger_only_rows(
 
     exit_code, payload, stderr = _run(tmp_path, capsys, sqlite_path=market)
 
-    assert exit_code == 0
+    assert exit_code == 0, stderr
     assert stderr == ""
     rows = payload["rows"]
     assert len(rows) == 1
@@ -262,14 +302,14 @@ def test_packet_only_ticker_is_included_as_unheld(
     market = tmp_path / "market.sqlite"
     _market_sqlite(market)
 
-    exit_code, payload, _ = _run(
+    exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
         sqlite_path=market,
         ledger=_opening_only_ledger(tmp_path),
     )
 
-    assert exit_code == 0
+    assert exit_code == 0, stderr
     assert payload["rows"][0]["current_portfolio_status"] == "unheld"
     assert payload["rows"][0]["reservation_history"] == []
 
@@ -334,16 +374,17 @@ def test_latest_packet_selection_uses_asof_not_path_or_mtime() -> None:
     assert selected["2331"].document.judgment.recommendation == "defer"
 
 
-def test_same_ticker_same_asof_is_a_hard_conflict() -> None:
+def test_same_ticker_same_asof_selects_latest_publication() -> None:
     document = load_decision_packet(PACKET)
 
-    with pytest.raises(ResearchPriceWatchError, match="conflicting latest decision packets"):
-        _select_latest_packets(
-            [
-                _PacketCandidate(Path("first.yaml"), document),
-                _PacketCandidate(Path("second.yaml"), document),
-            ]
-        )
+    selected = _select_latest_packets(
+        [
+            _PacketCandidate("packet-first", document),
+            _PacketCandidate("packet-second", document),
+        ]
+    )
+
+    assert selected["2331"].packet_id == "packet-second"
 
 
 def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
@@ -381,7 +422,7 @@ def test_latest_reject_is_excluded_from_watch_rows(
         sqlite_path=sqlite_path,
     )
 
-    assert exit_code == 0
+    assert exit_code == 0, stderr
     assert stderr == ""
     assert payload["rows"] == []
     assert payload["coverage"]["excluded_latest_reject_tickers"] == ["2331"]
@@ -558,8 +599,7 @@ def test_adjustment_factor_one_uses_a_narrow_float_tolerance(
 def test_future_packet_is_rejected_before_market_evaluation(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    future_asof = date(2026, 7, 4)
-    packet_root = _packet_root(tmp_path, packet_asof=future_asof)
+    packet_root = _packet_root(tmp_path)
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path)
 
@@ -568,6 +608,7 @@ def test_future_packet_is_rejected_before_market_evaluation(
         capsys,
         packets_root=packet_root,
         sqlite_path=sqlite_path,
+        asof=date(2026, 7, 2),
     )
 
     assert exit_code == 2
@@ -618,7 +659,7 @@ def test_tiny_positive_close_is_an_unresolved_row_without_traceback(
     assert row["unresolved_reason"] == "fv_gap_calculation_unresolved"
 
 
-def test_misnamed_packet_is_rejected_as_not_canonical(
+def test_imported_packet_identity_does_not_depend_on_legacy_filename(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     packet_root = _packet_root(tmp_path)
@@ -634,13 +675,12 @@ def test_misnamed_packet_is_rejected_as_not_canonical(
         sqlite_path=sqlite_path,
     )
 
-    assert exit_code == 2
-    assert payload == {}
-    assert "not in canonical YYYY/MM layout" in stderr
-    assert "Traceback" not in stderr
+    assert exit_code == 0
+    assert payload["coverage"]["packet_tickers"] == ["2331"]
+    assert stderr == ""
 
 
-def test_reject_packet_without_canonical_review_ref_is_not_promoted(
+def test_reject_packet_is_bound_by_db_revision_not_legacy_review_ref(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     packet_root = _packet_root(
@@ -658,10 +698,10 @@ def test_reject_packet_without_canonical_review_ref_is_not_promoted(
         sqlite_path=sqlite_path,
     )
 
-    assert exit_code == 2
-    assert payload == {}
-    assert "does not reference its canonical promoted review" in stderr
-    assert "Traceback" not in stderr
+    assert exit_code == 0, stderr
+    assert payload["rows"] == []
+    assert payload["coverage"]["excluded_latest_reject_tickers"] == ["2331"]
+    assert stderr == ""
 
 
 def test_successful_run_is_byte_for_byte_read_only(
@@ -707,5 +747,5 @@ def test_error_has_no_stdout_or_traceback(
 
     assert exit_code == 2
     assert payload == {}
-    assert stderr.startswith("error: packets root is not a directory")
+    assert stderr.startswith("error: application database does not exist")
     assert "Traceback" not in stderr

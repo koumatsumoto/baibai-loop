@@ -8,7 +8,7 @@ last_reviewed: 2026-07-16
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
 
-`records/02-candidates/` の自動生成を担う screening CLI の実装正本。週次 screening の入力と実行条件を traceability として追跡するための実行方式、依存、失敗時の扱いを定義する。
+`data/screening/runs.sqlite` のimmutable run publicationを担う screening CLI の実装正本。週次 screening の入力と実行条件、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
@@ -19,19 +19,19 @@ last_reviewed: 2026-07-16
 ## 2. Runtime
 
 - Python 3.14（[`./python-foundation.md`](./python-foundation.md)）
-- package root: `src/baibai_loop/screening/`
+- package root: `src/baibai_engine/screening/`
 - J-Quants client は `jquantsapi.ClientV2` 固定
 - 実行コマンド:
 
 ```bash
-python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
-python -m baibai_loop.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
-python -m baibai_loop.screening.cli bootstrap-cache --asof YYYY-MM-DD
-python -m baibai_loop.screening.cli select --asof YYYY-MM-DD [--macro-context path] [--top N] [--profile PROFILE]
-python -m baibai_loop.screening.cli ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
-python -m baibai_loop.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
-python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
-python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
+python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
+python -m baibai_engine.screening.cli bootstrap-cache --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli select --asof YYYY-MM-DD [--macro-context path] [--top N] [--profile PROFILE]
+python -m baibai_engine.screening.cli ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
+python -m baibai_engine.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
+python -m baibai_engine.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
+python -m baibai_engine.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 ```
 
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
@@ -42,7 +42,7 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
-`select` は最新 `records/02-candidates/<YYYY>/<MM>/<asof>.yaml` からresearch recommendationsを出力する。macro contextは任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future context・明示path不在・invalid YAMLはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `records/_config/screening-rules/` の rules 設定を編集して再実行し output を diff する。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) をスクリプトで支援する。
+`select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `records/_config/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) を支援する。
 
 金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、audit の対象になる。
 
@@ -105,9 +105,9 @@ cache / SQLite の配置先は固定 (env override 廃止):
 EDINET CSV-derived metrics を更新してから run する標準手順:
 
 ```bash
-python -m baibai_loop.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
-python -m baibai_loop.screening.cli verify-cache-coverage --asof YYYY-MM-DD
-python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
+python -m baibai_engine.screening.cli verify-cache-coverage --asof YYYY-MM-DD
+python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 ```
 
 `EDINET_API_KEY` が無い場合、`extract-edinet-metrics` は fail-fast する。`run` は SQLite の EDINET metrics が無い状態では継続せず、事前 coverage 検証で fail-fast する。
@@ -126,7 +126,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 
 - `--asof` は対象営業日を表す
 - `run_date` は `asof_date` と同値にする
-- 出力 path は `records/02-candidates/{YYYY}/{MM}/{asof_date}.yaml`
+- canonical出力はrun storeのimmutable revision。`--output-path`はAI連携用のephemeral YAML view
 - 同一 path が既に存在する場合は fail-fast
 - 非営業日の `--asof` は fail-fast
 
@@ -157,7 +157,7 @@ python -m baibai_loop.screening.cli run --asof YYYY-MM-DD
 - `data/screening/market.sqlite` は screening input の local canonical store。J-Quants / EDINET / JPX の provider fetch は normalized table と `source_coverage` を直接更新する
 - `.cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の cache。削除しても SQLite の metric rows は残る
 - `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit を `freshness_warnings` として candidates YAML に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
-- `records/` は履歴成果物だけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
+- `records/` はmethod/configとplaybookだけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
 - `screening run` は開始時に `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない
 - `JQuantsProvider` / `EDINETProvider` / `JPXProvider` は bootstrap / extract 系コマンドでは SQLite miss 後に provider API へ進み、取得結果を SQLite に直接保存する。`screening run` では `cache_only` で構築され、run 中の追加取得を禁止する
 
@@ -182,7 +182,7 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 
 ## 12. J-Quants rate limit と bootstrap コスト
 
-J-Quants Light プランの正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_loop/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
+J-Quants Light プランの正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_engine/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
 
 - `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の日次足は asof−1200 暦日、財務サマリーは asof−730 暦日を範囲に取り、`_RANGE_CHUNK_DAYS=31` で 31 日 chunk に分割して ClientV2 内部の per-day API 呼び出しに fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、1 asof の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
 - chunk は resumable。`source_coverage` に chunk 単位で `status=ok` を記録し、中断しても完了済み chunk は再取得しない。複数 asof は履歴窓が大きく重複するため、最初の 1 asof の full bootstrap が高コストで、以降の週は非重複 chunk とその週の EDINET だけで安価になる。

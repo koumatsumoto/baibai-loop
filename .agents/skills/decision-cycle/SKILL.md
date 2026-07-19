@@ -15,7 +15,7 @@ description: Baibai-Loopで日本株の候補抽出、一次IR、3年/5年評価
 2. 今回のtriggerに対応する下記reference
 3. referenceから直接指定されたworkflow/reference doc
 
-schema fieldやCLI optionはskillから推測しない。JSON schemaとpublic `--help`を正とする。
+fieldやCLI optionはskillから推測しない。engine modelとpublic `--help`を正とする。
 
 ## Trigger routing
 
@@ -28,11 +28,11 @@ schema fieldやCLI optionはskillから推測しない。JSON schemaとpublic `-
 
 複数triggerを同時に始めない。共有data refreshは再利用できるが、成果物と完了条件を分ける。
 
-## 共通開始checkpoint
+## 共通開始
 
 1. `git status --short --branch`でbranchとtracked差分を確認する。
-2. triggerを1件選び、operation Issueへcheckpointを集約する。
-3. `uv run baibai-loop-position ledger`でholding、active reservation、cash、warningを読む。
+2. `uv run baibai-engine operation show --status active`を確認し、triggerを1件選んで同じactive sessionをresumeする。activeが無ければ`operation start`で1件だけ作る。
+3. `uv run baibai-engine position ledger --db data/app/baibai.sqlite`でholding、active reservation、cash、warningを読む。
 4. triggerで使うpublic commandの`--help`とrequired inputを確認する。
 
 dirty worktreeの所有不明、public command不明、入力矛盾では停止する。coverageとmacro freshnessは、それらを使うopportunity/holding/outcome pathだけで確認する。`pending-result`を無関係なmarket/macro不足で止めない。推測でrecordを作らず、command、error、判断への影響、必要inputを残す。
@@ -57,8 +57,8 @@ dirty worktreeの所有不明、public command不明、入力矛盾では停止�
 
 ## 記録境界
 
-operation Issueにはcheckpoint、shortlist比較、非選択理由、一次source、公表日、countercase、順位理由、統合content review hash、購入方法または注文なしの理由に加え、review済みmanifest / findings / comparison / non-promoted packet / proposal / report reviewの内容をrepository visibility確認後にartifact別commentで残す。promote済みpacket/reviewはcanonical pathとhashを参照し、同じ内容を複製しない。local pathとhashだけで完了しない。recordsにはpromote済みpacket/review、human-confirmed ledger、holding review、outcomeだけを残す。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
+候補抽出では`screening run`の`run_revision_id`を`select --run-revision-id`へ渡し、review後の採否・理由をsource `selection_id`へ束縛したdraftとして`screening shortlist publish`する。machine recommendationをreview済みshortlistとして扱わない。promote済みpacket/reviewはcanonical IDを参照し、同じ内容を複製しない。holding reviewはdraftの検証と人間確認が済んだ後だけ`holding-review publish ... --packet-id`で保存する。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
 
 ## 完了
 
-使用したreferenceのpass/defer/stop条件とvalidationを確認し、Issueへ`result / evidence / decision / next`を1〜3行ずつ記録する。基盤の方法改善は個別判断へ混ぜず`improvement-loop`へ渡す。
+使用したreferenceのpass/defer/stop条件とwrite-time validationを確認し、canonical ID、人間確認結果、`result / next`を1〜3行ずつfinal payloadへ置いて`operation complete`する。completed sessionへ本文を複製しない。基盤の方法改善は個別判断へ混ぜず`improvement-loop`へ渡す。

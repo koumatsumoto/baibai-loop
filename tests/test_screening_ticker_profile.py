@@ -6,12 +6,13 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-import yaml
-
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.screening.cli import build_parser, ticker_profile_command
-from baibai_loop.screening.sqlite_cache import open_connection
-from baibai_loop.screening.ticker_profile import build_ticker_profile
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.screening.cli import build_parser, ticker_profile_command
+from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.screening.sqlite_cache import open_connection
+from baibai_engine.screening.ticker_profile import build_ticker_profile
+from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 _ASOF = date(2026, 5, 29)
@@ -62,24 +63,39 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
         conn.close()
 
 
-def _write_candidates(candidates_root: Path) -> None:
-    path = candidates_root / "2026" / "05" / "2026-05-29.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "candidates": [
-                    {
-                        "ticker": "AAAA",
-                        "evidence_hits": [{"name": "cashflow-yield-discount"}],
-                        "metrics": {"ocf_yield": 0.11},
-                    }
-                ]
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+def _write_candidates(runs_db_path: Path) -> None:
+    ScreeningRunStore(runs_db_path).publish_run(
+        {
+            "run_date": "2026-05-29",
+            "asof_date": "2026-05-29",
+            "universe_size": 1,
+            "filters": {},
+            "generated_by": "test",
+            "data_sources": [],
+            "run_at": "2026-05-29T09:00:00+09:00",
+            "run_id": "screening-20260529",
+            "candidates": [
+                {
+                    "ticker": "AAAA",
+                    "name": "テスト製作所",
+                    "evidence_hits": [
+                        {
+                            "name": "cashflow-yield-discount",
+                            "playbook_id": "cashflow-yield-discount",
+                            "source_status": "ok",
+                            "sizing_eligible": True,
+                        }
+                    ],
+                    "metrics": {"ocf_yield": 0.11},
+                }
+            ],
+            "provider_status_lines": [],
+            "universe_exclusion_lines": [],
+            "ttm_quality_counts": {},
+            "evidence_hits_summary": {},
+            "fallback_lines": [],
+        },
+        run_revision_id="run-20260529-test",
     )
 
 
@@ -89,8 +105,8 @@ class BuildTickerProfileTests(unittest.TestCase):
             sqlite_path=root / "market.sqlite",
             ticker=ticker,
             asof_date=_ASOF,
-            candidates_root=root / "candidates",
-            records_root=root / "records",
+            runs_db_path=root / "runs.sqlite",
+            app_db_path=root / "app.sqlite",
         )
 
     def test_legacy_jquants_earnings_rows_are_not_reported_as_jpx_fact(self) -> None:
@@ -113,7 +129,9 @@ class BuildTickerProfileTests(unittest.TestCase):
 
             profile = self._build(root, "AAAA")
 
-            self.assertIsNone(profile["events"]["next_earnings_date"])
+            events = profile["events"]
+            assert isinstance(events, dict)
+            self.assertIsNone(events["next_earnings_date"])
 
     def test_packet_covers_price_relative_events_and_screening(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -124,7 +142,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_bars(sqlite_path, "1321", [200.0] * 30, end=_ASOF)
             _insert_bars(sqlite_path, "BBBB", [300 * 0.99**i for i in range(30)], end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_candidates(root / "candidates")
+            _write_candidates(root / "runs.sqlite")
 
             packet = self._build(root, "AAAA")
 
@@ -180,7 +198,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             sqlite_path = root / "market.sqlite"
             _insert_bars(sqlite_path, "BBBB", [300.0] * 30, end=_ASOF)
             _insert_reference_rows(sqlite_path)
-            _write_candidates(root / "candidates")
+            _write_candidates(root / "runs.sqlite")
 
             packet = self._build(root, "BBBB")
 
@@ -239,8 +257,8 @@ class TickerProfileCliTests(unittest.TestCase):
             ticker="not-a-ticker",
             asof="2026-06-08",
             sqlite_path=Path("/nonexistent.sqlite"),
-            candidates_root=Path("/nonexistent"),
-            records_root=Path("/nonexistent"),
+            runs_db_path=Path("/nonexistent-runs.sqlite"),
+            app_db_path=Path("/nonexistent-app.sqlite"),
             stdout=io.StringIO(),
         )
         self.assertEqual(exit_code, 1)
@@ -255,8 +273,8 @@ class TickerProfileCliTests(unittest.TestCase):
                 ticker="AAAA",
                 asof=_ASOF.isoformat(),
                 sqlite_path=sqlite_path,
-                candidates_root=root / "candidates",
-                records_root=root / "records",
+                runs_db_path=root / "runs.sqlite",
+                app_db_path=root / "app.sqlite",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -283,8 +301,8 @@ class PortfolioBlockTests(unittest.TestCase):
                 sqlite_path=sqlite_path,
                 ticker="AAAA",
                 asof_date=_ASOF,
-                candidates_root=root / "candidates",
-                records_root=root / "records",
+                runs_db_path=root / "runs.sqlite",
+                app_db_path=root / "app.sqlite",
             )
 
             portfolio = packet["portfolio"]
@@ -300,10 +318,9 @@ class PortfolioBlockTests(unittest.TestCase):
 
 
 def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: int) -> None:
-    path = root / "records/04-position/portfolio-ledger.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        yaml.safe_dump(
+    seed_ledger(
+        root / "app.sqlite",
+        PortfolioLedgerDocument.model_validate(
             {
                 "schema_version": 2,
                 "portfolio_scope": "repository_only",
@@ -353,9 +370,6 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
                     }
                 ],
                 "overrides": [],
-            },
-            allow_unicode=True,
-            sort_keys=False,
+            }
         ),
-        encoding="utf-8",
     )

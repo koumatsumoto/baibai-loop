@@ -8,14 +8,14 @@ last_reviewed: 2026-07-12
 
 # Workflow
 
-workflowは「工程内でどう変換するか」を持つ。triggerと工程横断の順序は[`operations/decision-cycle.md`](../operations/decision-cycle.md)、artifact・式・schemaの意味は[`reference/`](../reference/)を正本とする。
+workflowは「工程内でどう変換するか」を持つ。triggerと工程横断の順序は[`operations/decision-cycle.md`](../operations/decision-cycle.md)、artifact・式・modelの意味は[`reference/`](../reference/)を正本とする。
 
 ```mermaid
 flowchart LR
   market[L1 market data] --> screening[L2 screening/select]
   screening --> research[L3 decision packet]
   macro[material macro delta] -. context .-> research
-  research --> proposal[human decision Issue]
+  research --> proposal[trade proposal]
   proposal --> human[human broker action]
   human --> ledger[human-confirmed ledger]
   ledger --> holding[holding review/outcome]

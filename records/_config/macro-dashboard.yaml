@@ -1,0 +1,23 @@
+groups:
+  - title: 金利・金融条件
+    series:
+      - id: jp.policy_rate
+        label: 日本 政策金利
+      - id: jp.10y
+        label: 日本 10年国債
+      - id: us.10y
+        label: 米国 10年国債
+      - id: credit.us_hy_oas
+        label: 米国 HY OAS
+  - title: 為替・物価
+    series:
+      - id: eur_jpy
+        label: EUR/JPY
+      - id: jp.cpi.headline
+        label: 日本 CPI
+  - title: 景気・市場
+    series:
+      - id: jp.pmi_manufacturing
+        label: 日本 製造業 PMI
+      - id: jp.nikkei225
+        label: 日経平均

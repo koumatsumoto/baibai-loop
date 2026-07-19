@@ -1,47 +1,37 @@
 ---
 title: "Portfolio ledger reference"
-summary: "repo内portfolioのcash、予約、約定、保有、income、cost、taxを再計算するevent契約。"
+summary: "application DBのeventからcash、予約、約定、保有、income、cost、taxを再計算する契約。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-19
 ---
 
 # Portfolio ledger
 
-## Scope
+## Scope and canonical home
 
-ledgerは`portfolio_scope: repository_only`だけを許し、このrepositoryで管理する日本株以外を合算しない。運用時のcanonical pathは`records/04-position/portfolio-ledger.yaml`である。ファイルが存在しない状態は未初期化であり、外部保有から推測して補完しない。
+ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_market_price / ledger_meta`がcanonical stateであり、`baibai-engine position ledger --db data/app/baibai.sqlite`はこれらから既存domain modelを再構築してsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
 
-## Activation boundary
-
-この文書とschemaはledgerの永続化契約を定義する。canonical ledgerはrepository内portfolioのhuman-confirmed cash、保有、未約定引当の正本であり、validatorはこの契約だけを検証する。broker残高を自動取得・推定・完全照合する契約ではない。
-
-公開schemaは`records/_schemas/portfolio-ledger.json`、実装は`src/baibai_loop/position/ledger.py`を正本とする。schemaはunknown fieldと、event総額におけるfloat円額を拒否する。単価は小数4桁まで許すが、数量との積が1円単位に一致しないeventを暗黙に丸めず拒否する。
+DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
 
 ## Events
 
 | event | cash / position effect |
 | --- | --- |
-| `opening_balance` | 初期available cashを設定する。ledger内で1件だけ |
-| `contribution` | available cashを増やす。月次標準額は[`../portfolio-management.md`](../portfolio-management.md)を正本とする |
-| `withdrawal` | available cashだけを減らす。予約・保有は暗黙に解約しない |
-| `reservation` | `quantity * price_guard_yen`をavailableからreservedへ移す |
-| `release` | 未約定残数のguarded notionalをreservedからavailableへ戻す |
+| `opening_balance` | 初期cashを設定する。migration専用で1件だけ |
+| `contribution` | available cashを増やす |
+| `withdrawal` | available cashを減らす |
+| `reservation` | guarded notionalをavailableからreservedへ移す |
+| `release` | remaining guarded notionalをavailableへ戻す |
 | `execution` buy | filled分をreservedから取得原価へ移し、価格改善分をavailableへ戻す |
-| `execution` sell | repo内FIFO lotを減らし、売却代金をavailableへ加える |
+| `execution` sell | FIFO lotを減らし、売却代金をavailableへ加える |
 | `income` | 確認済み配当等をavailableとconfirmed incomeへ加える |
-| `cost` | 確認済み手数料等をavailableから引く |
-| `tax_confirmed` | 実際に確認した税額をavailableから引く |
+| `cost` | 確認済み費用をavailableから引く |
+| `tax_confirmed` | 確認済み税額をavailableから引く |
 
-reservation ID、order identity、execution IDは再利用しない。これらはledger replay用のrepository identityであり、brokerが同名IDを報告したことを意味しない。buy executionはactive reservation、同じticker、残数量以下、guard価格以下、expiry前を必須とする。expiry到達後は`release(reason=expired)`を明記し、暗黙解放しない。
+event ID、reservation ID、order identity、execution IDは再利用しない。既存IDとlegacy URL/null decision referenceは変更しない。新しいhuman resultはproposal IDへ束縛する。buy executionはactive reservation、同じticker、remaining以下、guard以下、expiry以前を必須とする。releaseは明示eventであり自動生成しない。
 
-`record-result`が作るreservation、execution、releaseはproposal/approval Issue URLを`decision_reference`に持つ。既存migration eventはこのfieldを持たない場合がある。active reservationにreferenceがあるfill/cancel/expiryは同じreferenceだけを受け付け、別の判断へ付け替えない。
-
-人間報告から作る`reservation / execution / release`はproposal/approval URLを`decision_reference`に持つ。既存migration eventではnullを許すが、新しいhuman resultは参照なしで記録しない。
-
-`event_id`が`migration-`で始まるeventは、移行時点の保有・予約をcanonical stateへ初期化する記録であり、人間が報告したbroker注文・約定・取消ではない。`baibai-loop-position ledger`はこれらを`event_annotations`の`ledger.migration-initialization`として件数表示する。期間内の新規broker resultを数えるときはmigration eventを含めず、`record-result`へ入力された人間報告と`decision_reference`を基準にする。この注記は表示上の区別であり、reconciliation計算やevent modelを分岐させない。
-
-reservationとexecutionの数量はpolicyの`board_lot`倍数に限定する。小数単価は1 board lotとの積が整数円になる場合だけ受理するため、合法な部分約定ごとのreserved cashも暗黙の丸めなしに再計算できる。
+event rowはappend-onlyで、late reportも新規rowとして保存する。replay順は`(occurred_at, same_instant_order)`である。同時刻の既存eventの順序とIDを変更しない。
 
 ## Snapshot equations
 
@@ -53,64 +43,34 @@ book_capital = available_cash + reserved_cash + deployed_cost
 total_capital = available_cash + reserved_cash + holdings_market_value
 ```
 
-pending orderはreservation eventを1回だけ持ち、partial fill後は未約定残数だけをreservedに残す。これにより同じ注文の二重引当を防ぐ。
+partial fill後は未約定残数だけをreservedに残す。hard errorはcash超過、重複ID、未知reservation、overfill / oversell、guard超過、expiry後buy、future row、metadata不整合。concentrationとdry powderはwarningであり、判断を禁止しない。
 
-## Errors and warnings
+## Market price and tax
 
-Hard error:
+market priceはtickerごとに`observed_at / source_kind / price_basis / source_ref`を持つ。日常更新はJ-Quants raw/unadjusted closeを`market-price-draft`で作り、全open holdingの同日coverageとcalendarを検証する。adjusted closeで補完しない。
 
-- available cashを超えるreservation / cost / confirmed tax
-- 重複ID、未知reservationへのrelease/execution、保有超過sell
-- guard超過、expiry以後のbuy execution、明示releaseのないexpired reservation
-- event順序、future event/price/override、ticker metadataの不整合
+`income`とsell proceedsはgross、feeは`cost`、確認済み税は`tax_confirmed`に分離する。estimated exit taxは`ledger_meta`のrateと`ledger_fifo_gross_unrealized_gain` basisから表示だけを計算し、cashやconfirmed taxに混ぜない。
 
-Warning:
+## Draft / apply contract
 
-- current holding market value + active reservationがticker / sector / common-factor warning lineを超える
-- available cash比率がdry-powder warning lineを下回る
-
-warningは判断を禁止しない。overrideは`reason`、`decision_reference`、approval/expiryを必須とし、policyの最大31日を超えられない。
-
-## Tax estimate
-
-`income`と売却代金はgrossで記録し、手数料は`cost`、確認済み税額は`tax_confirmed`へ別eventとして記録する。snapshotは`confirmed_cost_yen`と`confirmed_tax_yen`を分離し、互換的な合計`confirmed_cost_tax_yen`も返す。
-
-`tax_confirmed`はcashへ反映する実績である。将来売却税を表示する場合は、`estimated_exit_tax_rate_bps`と`estimated_exit_tax_basis: ledger_fifo_gross_unrealized_gain`を同時に指定する。このestimateはledger内FIFO取得原価に対する銘柄別gross含み益の正値だけを対象とし、手数料、損益通算、口座種別は扱わない。cashやconfirmed taxへ混ぜず、未指定時の`estimated_exit_tax_yen`は`null`とする。
-
-保有時価には各tickerの`observed_at`、`source_kind`、`price_basis`、`source_ref`を必須とする。`source_kind`はmarket API・取引所・契約dataset・test fixtureを、`price_basis`は現在値・終値・未調整終値を区別する。test fixtureはテスト成果物だけで使う。`observed_at`がpolicyの`market_price_max_age_days`を超える場合はsnapshotを生成しない。
-
-## Commands
+`record-result`、`event-draft`、`override-draft`、`meta-draft`、`market-price-draft`はcanonical DBを変更しない。draftはsource append headと置換対象rowを持つ。人間が内容を確認した後だけ次を実行する。
 
 ```bash
-uv run baibai-loop-position ledger
-uv run baibai-loop-position market-price-draft --root . --ledger records/04-position/portfolio-ledger.yaml --sqlite data/screening/market.sqlite --asof YYYY-MM-DD --out .cache/position/YYYY-MM-DD-market-price-ledger.yaml
-uv run baibai-loop-position record-result --help
-uv run python -m tools.limit_outcome --help
-uv run baibai-loop-validation --target ledger
+uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db data/app/baibai.sqlite --confirmed
 ```
 
-`market-price-draft`はsource ledgerのeventを価格なしで`as_of`まで再生して全open holdingを特定し、指定日のJ-Quants `jquants_daily_bars.close`を全tickerで同日に観測できる場合だけ、新しいledger draftをexclusive createする。新規約定でholdingが生じ、source ledgerにそのtickerのmarket priceがまだ無い中間状態も受理する。open holdingは価格観測時点ではなくledger `as_of`のevent stateで決まるため、最新完全営業日のcloseが当日の約定時刻より前でもよい。既存market priceを持つholdingでは、指定日がcurrent observation日以上であることを要求する。
+applyは1 transactionでsource head、proposal / reservation、event payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、未approved proposal、broker reportなし、矛盾payloadはno-writeである。
 
-`adjustment_close`は代替価格に使わず、`adjustment_factor != 1`でもraw closeを記録してcorporate-action確認を別contractに残す。生成した全`market_prices`は`source_kind: licensed_dataset`、`price_basis: unadjusted_close`、`source_ref: data/screening/market.sqlite:jquants_daily_bars:TICKER:YYYY-MM-DD`を持つ。ledger `as_of`は既存時刻と指定日15:30 JSTの遅い方なので、より新しい非価格eventを巻き戻さない。全価格を組み込んだ最終draftは通常のledger reconciliationを必ず通る。
+## Human result semantics
 
-stdoutはsource ledger path/hash、使用rowのfingerprint、生成直後の`draft_sha256`、output pathを返す。canonical ledgerを直接sourceにする場合は、copy直前にcurrent canonical hashとsource ledger hashを照合する。`record-result`の中間draftをsourceにする場合は、current canonical hashと`record-result`のsource hash、中間draftのbyte hashと`market-price-draft`のsource hash、最終draftのbyte hashと`draft_sha256`を順に照合する。いずれかが異なればcopyせず、current canonical sourceからdraft chainを再生成する。
-
-`record-result`は人間の`open / filled / cancelled / expired`報告だけを入力とし、canonical ledgerを直接変更しない。`expired`は明示的なreservation_idと`occurred_at >= expires_at`を必須とし、未約定残数を`release(reason=expired)`にする。active reservationが1件でもIDを推定しない。source ledger hashとpatched local draftを返す。報告がない状態、missing field、未知reservation、future timestamp、reconciliation errorを推定で補わない。result draftのevent replayはmarket price鮮度に依存せず、broker結果の記録を無関係なmarket不足で止めない。draftのevent/snapshot/diffを確認し、source hash不変とvalidationを確認してからcanonicalへ反映する。
-
-`tools.limit_outcome`はhuman-confirmed expired releaseを持つreservationだけをformal targetとするread-only個票toolである。最初にledger event stateをprice-free replayし、schema-validでもexpiry前releaseやoverfill等の不整合があれば停止する。raw/unadjusted daily lowのtouchはfillと同一視せず、submission日をtouchから除外し、15:30 JSTまで有効なexpiry日だけを含める。submission日はcorporate-action basis確認には含める。期限後価格はexpiry直前営業session raw closeから5 JPX営業session後のraw closeまでの実観測であり、limit fillを起点にしない。同一URI `mode=ro` transactionからcalendarとraw barsを読み、submissionから固定5 session horizonまでに実際に使用したrowの決定論的fingerprintとhash basis、ledger ref/hash、未約定残数、touch、期限後観測、単一のpending/unresolved reasonをstdout YAMLへ出す。SQLite全体のbyte hashは使わない。horizonより後のbarは判定とfingerprintに含めない。calendar外bar、corporate action、`adjustment_factor`未確認、raw basis欠損をadjusted seriesで補完せず、canonical/recordsを書かない。stdout YAMLはoperation Issueへ貼る初期サンプルであり、永続schemaやaggregateではない。反復利用と効果を確認してからstable surfaceへの昇格を判断する。
-
-representative contract fixtureは`tests/fixtures/portfolio-ledger/representative.yaml`に置く。
-
-<a id="historical-outcome"></a>
+`record-result`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続resultを受理する。full fill / cancel / expire後の完全一致reportはno-change、矛盾reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。
 
 ## Historical outcome
 
-portfolio outcome はledger eventを各JPX営業日closeまで再生し、日次NAVを
-`available_cash + reserved_cash + open holdings market value` として算出する。
-`contribution`だけを正、`withdrawal`だけを負のexternal flowとし、buy/sell、reservation、配当、費用、確定税はNAV内部のeventである。開始日を除く各営業日のreturnは次で連鎖する。
+portfolio outcomeは各JPX営業日closeまでeventをreplayし、日次NAVを`available_cash + reserved_cash + open holdings market value`として算出する。`contribution`を正、`withdrawal`を負のexternal flowとし、buy/sell、reservation、income、cost、taxはNAV内部eventである。
 
 ```text
 r_d = V_d / (V_(d-1) + CF_d) - 1
 ```
 
-非営業日のeventは次のJPX営業日のBODへ繰り越す。価格欠損、未解決のcorporate action、ゼロ以下NAVは補完せずoutcomeを`unresolved`にする。`estimated_exit_tax_yen`は将来仮定の表示であり、実績returnへ入れない。
+非営業日のeventは次のJPX営業日BODへ繰り越す。価格欠損、未解決corporate action、ゼロ以下NAVは補完せず`unresolved`にする。outcome publicationはapplication DBのimmutable recordである。

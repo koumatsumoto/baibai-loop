@@ -31,6 +31,9 @@ dist/
 # See docs/components/candidates.md §2.
 records/02-candidates/**/*.yaml
 
+# Canonical application database and consistent manual snapshots
+data/app/
+
 # Local environment files
 .env
 

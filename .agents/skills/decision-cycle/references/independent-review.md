@@ -7,7 +7,7 @@ packet authorと別roleで実行し、packetを直接編集しない。
 - audit poolとshortlist比較
 - packet path/core hash
 - source URL、公表日、対象期
-- `baibai-loop-decision <packet>`の`five_year_base_break_even`
+- `baibai-engine research evaluate <packet>`の`five_year_base_break_even`
 - current ledger annotation
 - plan-limit output（存在する場合）
 

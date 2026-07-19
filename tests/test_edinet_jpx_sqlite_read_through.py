@@ -13,18 +13,18 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.providers.edinet import (
+from baibai_engine.screening.providers.edinet import (
     EDINETProvider,
     EDINETProviderError,
     select_document_candidates,
 )
-from baibai_loop.screening.providers.jpx import JPXProvider, JPXProviderError
-from baibai_loop.screening.sqlite_cache import (
+from baibai_engine.screening.providers.jpx import JPXProvider, JPXProviderError
+from baibai_engine.screening.sqlite_cache import (
     open_connection,
     store_edinet_documents,
     store_jpx_regulations,
 )
-from baibai_loop.screening.sqlite_reader import (
+from baibai_engine.screening.sqlite_reader import (
     has_jpx_regulation_data,
     read_edinet_documents,
     read_edinet_metrics,

@@ -14,14 +14,14 @@ last_reviewed: 2026-07-11
 
 ## ① データ：indicator series を引く
 
-指標データは `baibai-loop-macro`（`src/baibai_loop/macro/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
+指標データは `baibai-engine macro`（`src/baibai_engine/macro/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
 
 ```bash
-uv run baibai-loop-macro list --category rates       # 登録 series を見る
-uv run baibai-loop-macro search 失業率              # 名前/alias/category で検索
-uv run baibai-loop-macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
-uv run baibai-loop-macro get jp.policy_rate --latest
-uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
+uv run baibai-engine macro list --category rates       # 登録 series を見る
+uv run baibai-engine macro search 失業率              # 名前/alias/category で検索
+uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
+uv run baibai-engine macro get jp.policy_rate --latest
+uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
 ```
 
 `get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` は frequency 別の鮮度窓（daily は 1 暦日、weekly は 14 日、monthly は 70 日）内の cache があればそれを返し、古い場合は最新確認用の短い窓（daily は 14 日、weekly は 60 日、monthly は 370 日）を provider で再取得する。環境認識を書く直前は、判断に使う主要 series を `refresh` で直近窓ごと再取得してから `get --latest` を読む。
@@ -46,24 +46,31 @@ uv run baibai-loop-macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # 
 
 ### 運用テスト（series / provider を変更したら必ず回す）
 
-データ層の品質は **運用テスト** で担保する。すべて失敗 0 件で通す：(1) 全 series スイープ（`list | get --latest`）で error / stale を 0、(2) 桁・単位の妥当性、(3) provider ストレス（rate-limit 系を 1 プロセスで refresh し 429 が出ないか）、(4) 派生計算の単位整合（net liquidity = FRB総資産 − RRP − TGA、単位換算を明示）、(5) alias 解決、(6) 決定論、(7) `uv run pytest` と `uv run baibai-loop-validation`。
+データ層の品質は **運用テスト** で担保する。すべて失敗 0 件で通す：(1) 全 series スイープ（`list | get --latest`）で error / stale を 0、(2) 桁・単位の妥当性、(3) provider ストレス（rate-limit 系を 1 プロセスで refresh し 429 が出ないか）、(4) 派生計算の単位整合（net liquidity = FRB総資産 − RRP − TGA、単位換算を明示）、(5) alias 解決、(6) 決定論、(7) `uv run pytest` とmacro model / config loaderのnegative test。
 
-## ② 環境認識：macro-context record を書く
+## ② 環境認識：macro-context revision を publish する
 
-市場局面についての、日付と出所の明確な環境認識を `records/01-macro-context/<YYYY>/<MM>/macro-context-<YYYY-MM-DD>-<slug>.yaml` に残す。schema は `records/_schemas/macro-context.json`（contract-of-record）、検証は `uv run baibai-loop-validation --target macro-context`。
+市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。既存 head を読んで draft を作り、2件目以降は `--expected-head` にその ID を渡す。head が変わっていれば publish 全体が無変更で失敗する。
+
+```bash
+uv run baibai-engine macro context head
+uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
+  --expected-head macro-context-2026-07-01-example
+uv run baibai-engine macro context show --latest --asof 2026-07-19
+```
 
 主な field：
 
 - `context_id` / `as_of` / `valid_until` / `published_at`
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
-- `inputs.indicator_series`：一意な`input_id`、`baibai-loop-macro`で確認したprovider / series / window / observation_as_of / status / used_for
+- `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
 - `material_deltas`：discount rate、demand、funding、common tailのどれが変わったか、方向・重要度・使い道・根拠input
 - `sizing_cautions`：個別の投入額を決めないが、proposalで可視化する共通risk
 - `research_questions` / `refresh_triggers` / `changes_since_previous`
 
-**record は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。record には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
+**revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。revision には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
 
-**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context recordにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去のcontextとの連続性は、結論を確定させた後に`changes_since_previous`として事後的に接続する。
+**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context revisionにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去のcontextとの連続性は、結論を確定させた後に`changes_since_previous`として事後的に接続する。
 
 **更新のきっかけ**：macro-contextは定期的には生成せず、discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、または前回の`refresh_triggers`が発火したときだけ更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
 

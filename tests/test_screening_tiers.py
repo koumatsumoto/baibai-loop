@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_loop.screening.tiers import MIN_MARKET_CAP_OKU, TIER_SMALL_OKU, position_tier
+from baibai_engine.screening.tiers import MIN_MARKET_CAP_OKU, TIER_SMALL_OKU, position_tier
 
 
 @pytest.mark.parametrize(

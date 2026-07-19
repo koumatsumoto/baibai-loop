@@ -4,10 +4,10 @@ import unittest
 from collections.abc import Mapping
 from datetime import date
 
-from baibai_loop.screening.cli import build_parser
-from baibai_loop.screening.regime import MarketRegime, MarketRegimeSnapshot
-from baibai_loop.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
-from baibai_loop.screening.selection import (
+from baibai_engine.screening.cli import build_parser
+from baibai_engine.screening.regime import MarketRegime, MarketRegimeSnapshot
+from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.screening.selection import (
     build_selection_payload,
     build_selection_sweep_payload,
     candidate_record_from_mapping,
@@ -273,12 +273,22 @@ class SelectionMarketStateTests(unittest.TestCase):
 
 class MarketStateCliArgumentTests(unittest.TestCase):
     def test_select_parser_has_sqlite_path_default(self) -> None:
-        args = build_parser().parse_args(["select", "--asof", "2026-05-29"])
+        args = build_parser().parse_args(
+            ["select", "--asof", "2026-05-29", "--run-revision-id", "run-test"]
+        )
         self.assertTrue(args.sqlite_path.endswith("market.sqlite"))
 
     def test_select_parser_accepts_sqlite_path(self) -> None:
         args = build_parser().parse_args(
-            ["select", "--asof", "2026-05-29", "--sqlite-path", "x.sqlite"]
+            [
+                "select",
+                "--asof",
+                "2026-05-29",
+                "--run-revision-id",
+                "run-test",
+                "--sqlite-path",
+                "x.sqlite",
+            ]
         )
         self.assertEqual(args.sqlite_path, "x.sqlite")
 
@@ -289,10 +299,20 @@ class MarketStateCliArgumentTests(unittest.TestCase):
         import unittest.mock
 
         with unittest.mock.patch.dict(os.environ, {"SCREENING_RULES_PATH": "/tmp/env-rules.yaml"}):
-            args = build_parser().parse_args(["select", "--asof", "2026-05-29"])
+            args = build_parser().parse_args(
+                ["select", "--asof", "2026-05-29", "--run-revision-id", "run-test"]
+            )
             self.assertEqual(args.rules_path, "/tmp/env-rules.yaml")
             explicit = build_parser().parse_args(
-                ["select", "--asof", "2026-05-29", "--rules-path", "cli.yaml"]
+                [
+                    "select",
+                    "--asof",
+                    "2026-05-29",
+                    "--run-revision-id",
+                    "run-test",
+                    "--rules-path",
+                    "cli.yaml",
+                ]
             )
             self.assertEqual(explicit.rules_path, "cli.yaml")
 

@@ -10,10 +10,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_loop.screening.metrics import _resolve_dividend_carry, build_metrics
-from baibai_loop.screening.providers.edinet import EdinetMetricRecord
-from baibai_loop.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
-from baibai_loop.screening.schema import SecurityMaster, TTMQuality
+from baibai_engine.screening.metrics import _resolve_dividend_carry, build_metrics
+from baibai_engine.screening.providers.edinet import EdinetMetricRecord
+from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
+from baibai_engine.screening.schema import SecurityMaster, TTMQuality
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
@@ -1115,12 +1115,12 @@ class MedianPopulationTests(unittest.TestCase):
     def test_sector_median_uses_only_population_tickers(self) -> None:
         from datetime import date as _date
 
-        from baibai_loop.screening.metrics import build_metrics
-        from baibai_loop.screening.providers.jquants import (
+        from baibai_engine.screening.metrics import build_metrics
+        from baibai_engine.screening.providers.jquants import (
             JQuantsDailyBar,
             JQuantsFinancialSummary,
         )
-        from baibai_loop.screening.schema import SecurityMaster
+        from baibai_engine.screening.schema import SecurityMaster
 
         asof = _date(2026, 4, 24)
 

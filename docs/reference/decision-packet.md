@@ -10,7 +10,7 @@ last_reviewed: 2026-07-15
 
 ## Purpose and activation
 
-Decision packetは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。公開schemaは`records/_schemas/decision-packet.json`と`decision-review.json`、実装は`src/baibai_loop/thesis/decision_packet.py`である。canonical pathは`records/03-thesis/YYYY/MM/YYYY-MM-DD-<ticker>-decision.yaml`、reviewはpacketの`independent_review_ref`が指す隣接YAMLとする。
+Decision packetは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。機械契約は`src/baibai_engine/research/decision_packet.py`、canonical revisionはapplication DBの`packet_id`で識別する。独立reviewは同じpublish transactionで`review_id`を得て、DBの外部キーで対象packet revisionへ束縛される。
 
 decision packetは新規の購入判断と保有見直しの判断根拠を固定する。既存保有に判断根拠が必要になった場合は、その時点の一次情報と現値からpacketを作成する。
 
@@ -37,7 +37,7 @@ Candidate YAMLはlocalで再生成する探索成果物であり、decision pack
 
 Selectionから機械転記するE[r]とFV anchorは観測factではないため、`facts`へ混ぜず`input_snapshot.screening_estimate`へ置く。このobjectは`origin: estimate`、model version、unit、assumptions、as-of、source IDsを保持し、E[r]は`annual_ratio`、FVは`JPY_per_share`で固定する。値はworkspaceの外部inputとしてhashで束縛したselection outputのaudit rowから転記し、編集可能なshortlistや表示用percent・丸め済みFVから逆算しない。selection、estimate snapshot、workspaceのas-ofは一致を必須とする。転記元が無い旧selectionやFV欠損を推測で埋めず、bridge telemetryの欠損だけでresearch・promotionを停止しない。
 
-外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはpacketと同じtickerを明示し、source/fact/scenarioがpacket as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。canonical filenameの日付・tickerもsnapshotと一致させる。HTML、PR body、proposal Issueは説明・リンクにとどめ、判断入力の正本を複製しない。
+外部sourceはHTTPS URLを持つ。local dataは消失し得るファイルパスを参照せず、`provider`、`dataset`、`retrieved_at`を持つ。`retrieved_at`はAI proposal時刻以前でなければならず、提案後に得た情報を判断時点snapshotへ遡及混入できない。市場価格は`observed_at`と`price_basis`（realtime / 調整済み終値 / 未調整終値）を持つ。すべてのsourceはpacketと同じtickerを明示し、source/fact/scenarioがpacket as-ofより未来の場合、source IDが解決しない場合、価格・valuationのtypeまたはunitが不正な場合は`incomplete`とする。HTML、PR body、operation sessionは説明・ID参照にとどめ、判断入力の正本を複製しない。
 
 ## Scenario arithmetic
 
@@ -54,7 +54,7 @@ total_return_CAGR = ((terminal_price + cumulative_dividend_per_share) / entry_pr
 
 ### 5-year base break-even
 
-`baibai-loop-decision`は5年base scenarioだけについて、packet schemaへ値を複製せず`five_year_base_break_even`を派生出力する。要求CAGRを`r`、entry priceを`P`、累積配当を`D`、5年後利益と株数を`E5`、`S5`とすると、境界値は次の式で求める。
+`baibai-engine research evaluate`は5年base scenarioだけについて、packet schemaへ値を複製せず`five_year_base_break_even`を派生出力する。要求CAGRを`r`、entry priceを`P`、累積配当を`D`、5年後利益と株数を`E5`、`S5`とすると、境界値は次の式で求める。
 
 ```text
 required_total_value = P * (1 + r)^5
@@ -72,7 +72,7 @@ break_even_earnings_growth =
 
 ### Screening-to-research FV bridge
 
-`estimates.screening_fv_bridge`は、screening FV anchorからresearch FVへ修正した主要説明要因1つと短いnoteだけを持つ。全要因の寄与率や乖離率をpacketへ複製しない。`baibai-loop-decision`は`screening_fv_revision_pct = (current_fair_value_yen / screening_estimate.fair_value_anchor_yen - 1) * 100`を派生計算し、負値をresearchによるFV引き下げ、正値を引き上げとして返す。bridgeが存在するのにbaseline FVが無い場合は不整合、baselineがあるのにbridgeが無い場合は改善telemetryのwarningであり、投資判断のhard blockではない。
+`estimates.screening_fv_bridge`は、screening FV anchorからresearch FVへ修正した主要説明要因1つと短いnoteだけを持つ。全要因の寄与率や乖離率をpacketへ複製しない。`baibai-engine research evaluate`は`screening_fv_revision_pct = (current_fair_value_yen / screening_estimate.fair_value_anchor_yen - 1) * 100`を派生計算し、負値をresearchによるFV引き下げ、正値を引き上げとして返す。bridgeが存在するのにbaseline FVが無い場合は不整合、baselineがあるのにbridgeが無い場合は改善telemetryのwarningであり、投資判断のhard blockではない。
 
 ## Planning-only execution pricing
 
@@ -86,7 +86,7 @@ max_acceptable_price = floor_to_tick(
 )
 ```
 
-日常の寄り前proposalは`baibai-loop-opportunity plan-limit`を使う。target session直前の最新完全営業日のJPX raw/unadjusted closeをSQLiteから読み、packetの最大許容価格とboard lotへ接続する。regular session、realtime quote、板、5分freshnessは要求しない。
+日常の寄り前proposalは`baibai-engine research plan-limit`を使う。target session直前の最新完全営業日のJPX raw/unadjusted closeをSQLiteから読み、packetの最大許容価格とboard lotへ接続する。regular session、realtime quote、板、5分freshnessは要求しない。
 
 | condition | result |
 | --- | --- |
@@ -104,9 +104,9 @@ quantityを考える注文額の目安は[`portfolio-management`](../portfolio-m
 
 common-factor exposureは、選定銘柄にpacketの現行classification、その他にledgerの宣言済みtagを使う。選定銘柄以外で`common_factors`が空の銘柄は`common_factor_empty_tickers`に列挙し、その場合のcommon-factor円額・比率は宣言済みtagだけに基づく下限値である。coverage warningを併記し、閾値未満を完全なfactor分散の保証として扱わない。
 
-proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-loop-decision --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
+proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-engine research evaluate --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
 
-`plan-limit`出力は説明用pathに加え、`decision_packet_sha256`、`decision_packet_core_sha256`、`independent_review_sha256`、`source_ledger_sha256`を持つ。統合reportやIssue checkpointはこのhashでpacket / review / ledger snapshotへのbindingを確認し、path文字列だけで同一性を判断しない。packet、review、ledgerのいずれかが変わったら旧proposalはstaleで、再計算する。
+`plan-limit`出力はproposal作成用のephemeral inputである。`proposal create --packet-id`はimmutable packet/review ID、current DB ledger、`--market-db`で指定するcanonical market storeからplanning-limitを再検証し、入力内のpathやhashを正本へ保存しない。`approve`時にも同じmarket snapshot内でpriceとportfolio exposureを再計算し、packet、price、quantity、expiry、ledgerのいずれかが変わっていればno-writeで新proposalを要求する。
 
 ## Permanent-loss axes
 
@@ -131,8 +131,7 @@ hashとrun metadataが保証するのはartifactの整合性であり、reviewer
 ## Commands
 
 ```bash
-uv run baibai-loop-decision records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml
-uv run baibai-loop-opportunity status --workspace .cache/opportunity/YYYY-MM-DD
-uv run baibai-loop-opportunity plan-limit --help
-uv run baibai-loop-validation --target decision-packet
+uv run baibai-engine research evaluate /tmp/packet-draft.yaml
+uv run baibai-engine research status --workspace .cache/opportunity/YYYY-MM-DD
+uv run baibai-engine research plan-limit --help
 ```

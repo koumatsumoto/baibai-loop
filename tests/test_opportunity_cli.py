@@ -1,4 +1,4 @@
-"""Public CLI contract and golden-path tests for baibai-loop-opportunity.
+"""Public CLI contract and golden-path tests for baibai-engine research.
 
 These drive the CLI the way the runbook does — through scaffolds and the workspace,
 never by copying a fixture packet as the operational input. Where a fully-ready
@@ -16,22 +16,25 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.foundation.time import JST
-from baibai_loop.foundation.yaml_io import safe_load
-from baibai_loop.market.sqlite.schema import open_connection
-from baibai_loop.thesis.close_source import (
+from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sqlite.schema import open_connection
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.research.close_source import (
     _EXPECTED_MARKET_SCHEMA_VERSION,
     resolve_holding_close_on_basis,
     resolve_previous_business_day_close,
 )
-from baibai_loop.thesis.decision_cli import main as decision_main
-from baibai_loop.thesis.decision_packet import (
+from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
+    IndependentReview,
     ScreeningEstimate,
     decision_packet_core_hash,
+    evaluate_decision_packet,
 )
-from baibai_loop.thesis.opportunity_cli import main as opportunity_main
-from baibai_loop.validation.decision_packet import validate_decision_packet_file
+from baibai_engine.research.opportunity_cli import main as opportunity_main
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -45,6 +48,32 @@ TARGET_SESSION = "2026-07-13"
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _configured_application_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("BAIBAI_DB", str(tmp_path / "app.sqlite"))
+
+
+def _app_db(tmp_path: Path, ledger_path: Path = LEDGER_FIXTURE) -> Path:
+    name = "app.sqlite" if ledger_path == LEDGER_FIXTURE else f"app-{ledger_path.stem}.sqlite"
+    path = tmp_path / name
+    document = load_portfolio_ledger(ledger_path)
+    document = document.model_copy(
+        update={
+            "market_prices": tuple(
+                price.model_copy(update={"source_kind": "licensed_dataset"})
+                for price in document.market_prices
+            )
+        }
+    )
+    seed_ledger(path, document)
+    return path
+
+
+def _assert_no_research_packets(db_path: Path) -> None:
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM research_packet").fetchone() == (0,)
 
 
 def _seed_bars(
@@ -116,9 +145,11 @@ def _ledger_with_observed_at(
                 "expires_at": "2026-07-31T15:30:00+09:00",
             }
         )
-    path = tmp_path / "test-ledger.yaml"
-    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
-    return path
+    source = tmp_path / "test-ledger.yaml"
+    source.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    return _app_db(tmp_path, source)
 
 
 def _write_selection(
@@ -218,8 +249,8 @@ def _prepared_workspace(
                 "2026-07-03",
                 "--selection-output",
                 str(selection),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--workspace",
                 str(workspace),
             ]
@@ -235,13 +266,15 @@ def _prepared_workspace(
     return workspace
 
 
-def _ledger_with_market_price_date(path: Path, observed_on: date) -> None:
+def _ledger_with_market_price_date(path: Path, observed_on: date) -> Path:
     payload = safe_load(LEDGER_FIXTURE.read_text(encoding="utf-8"))
     payload["market_prices"][0]["observed_at"] = f"{observed_on.isoformat()}T15:30:00+09:00"
-    path.write_text(
+    source = path.with_suffix(".yaml")
+    source.write_text(
         yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
+    return _app_db(path.parent, source)
 
 
 def _ready_packet_and_review() -> tuple[dict[str, object], dict[str, object], str]:
@@ -330,7 +363,7 @@ def _fill_ready_workspace(
 
 
 def _checklist_ids() -> tuple[str, ...]:
-    from baibai_loop.thesis.opportunity import CHECKLIST_IDS
+    from baibai_engine.research.opportunity import CHECKLIST_IDS
 
     return CHECKLIST_IDS
 
@@ -352,7 +385,7 @@ def test_close_source_expected_schema_version_tracks_market() -> None:
     # A market schema version bump changes SQLITE_SCHEMA_VERSION; this coupling
     # assertion turns that bump into a red CI check so the boundary-crossing schema
     # literals in close_source cannot drift silently.
-    from baibai_loop.market.sqlite.schema import SQLITE_SCHEMA_VERSION
+    from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 
     assert _EXPECTED_MARKET_SCHEMA_VERSION == SQLITE_SCHEMA_VERSION
 
@@ -401,6 +434,42 @@ def test_close_source_treats_missing_adjustment_factor_as_unresolved(tmp_path: P
 
     assert resolved is not None
     assert resolved.corporate_action_unresolved is True
+
+
+def test_close_source_reuses_one_stable_market_snapshot(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    with sqlite3.connect(sqlite_path) as writer:
+        writer.execute("PRAGMA journal_mode = WAL")
+
+    reader = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    try:
+        reader.execute("BEGIN")
+        first = resolve_previous_business_day_close(
+            sqlite_path=sqlite_path,
+            ticker="2331",
+            target_session=date(2026, 7, 13),
+            connection=reader,
+        )
+        with sqlite3.connect(sqlite_path) as writer:
+            writer.execute("UPDATE jquants_daily_bars SET close = 1200 WHERE ticker = '2331'")
+        second = resolve_previous_business_day_close(
+            sqlite_path=sqlite_path,
+            ticker="2331",
+            target_session=date(2026, 7, 13),
+            connection=reader,
+        )
+    finally:
+        reader.close()
+
+    current = resolve_previous_business_day_close(
+        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    )
+    assert first is not None
+    assert second is not None
+    assert current is not None
+    assert first.close_yen == second.close_yen == 1000.0
+    assert current.close_yen == 1200.0
 
 
 @pytest.mark.parametrize(
@@ -486,8 +555,8 @@ def test_prepare_empty_audit_pool_is_no_actionable_bargain(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ],
@@ -503,15 +572,14 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    ledger = tmp_path / "ledger.yaml"
-    _ledger_with_market_price_date(ledger, date(2026, 7, 10))
+    ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
     workspace = tmp_path / "holding-ws"
     code, payload = _run(
         [
             "holding-prepare",
             "--asof",
             "2026-07-10",
-            "--ledger",
+            "--db",
             str(ledger),
             "--ticker",
             "2331",
@@ -539,6 +607,8 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
                 "packet-scaffold",
                 "--workspace",
                 str(workspace),
+                "--db",
+                str(ledger),
                 "--ticker",
                 "2331",
                 "--sqlite-path",
@@ -564,8 +634,8 @@ def test_holding_prepare_rejects_ticker_without_open_holding(
             "holding-prepare",
             "--asof",
             "2026-07-11",
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--ticker",
             ticker,
             "--workspace",
@@ -578,40 +648,10 @@ def test_holding_prepare_rejects_ticker_without_open_holding(
     assert not (tmp_path / "holding-ws").exists()
 
 
-def test_holding_workspace_detects_ledger_hash_drift(
+def test_holding_workspace_binds_canonical_ledger_revision(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    ledger.write_bytes(LEDGER_FIXTURE.read_bytes())
-    workspace = tmp_path / "holding-ws"
-    assert (
-        opportunity_main(
-            [
-                "holding-prepare",
-                "--asof",
-                "2026-07-11",
-                "--ledger",
-                str(ledger),
-                "--ticker",
-                "2331",
-                "--workspace",
-                str(workspace),
-            ]
-        )
-        == 0
-    )
-    capsys.readouterr()
-    ledger.write_text(ledger.read_text(encoding="utf-8") + "\n", encoding="utf-8")
-
-    assert opportunity_main(["status", "--workspace", str(workspace)]) == 4
-    assert "input hash drift" in capsys.readouterr().err
-
-
-def test_holding_workspace_uses_exact_byte_hash_for_crlf_ledger(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ledger = tmp_path / "ledger-crlf.yaml"
-    ledger.write_bytes(LEDGER_FIXTURE.read_bytes().replace(b"\n", b"\r\n"))
+    ledger = _app_db(tmp_path)
     workspace = tmp_path / "holding-ws"
 
     assert (
@@ -620,7 +660,7 @@ def test_holding_workspace_uses_exact_byte_hash_for_crlf_ledger(
                 "holding-prepare",
                 "--asof",
                 "2026-07-11",
-                "--ledger",
+                "--db",
                 str(ledger),
                 "--ticker",
                 "2331",
@@ -632,8 +672,11 @@ def test_holding_workspace_uses_exact_byte_hash_for_crlf_ledger(
     )
     capsys.readouterr()
     manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest["inputs"]["ledger"]["sha256"] == hashlib.sha256(ledger.read_bytes()).hexdigest()
-    assert opportunity_main(["status", "--workspace", str(workspace)]) == 0
+    assert manifest["inputs"]["ledger"] == {
+        "entity_id": "portfolio-ledger",
+        "append_head": LedgerStoreService(ledger).append_head(),
+    }
+    assert opportunity_main(["status", "--workspace", str(workspace), "--db", str(ledger)]) == 0
 
 
 def test_holding_prepare_requires_same_day_market_price(
@@ -644,8 +687,8 @@ def test_holding_prepare_requires_same_day_market_price(
             "holding-prepare",
             "--asof",
             "2026-07-10",
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--ticker",
             "2331",
             "--workspace",
@@ -681,8 +724,8 @@ def test_prepare_derives_shortlist_slots_from_selection_output(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ],
@@ -716,8 +759,8 @@ def test_prepare_rejects_invalid_research_selection_target_max(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ]
@@ -779,7 +822,7 @@ def test_status_points_to_first_missing_shortlist_lane(
 
     assert code == 0
     assert payload["workspace_status"] == "incomplete"
-    assert payload["next_command"] == "baibai-loop-opportunity packet-scaffold --ticker 2331"
+    assert payload["next_command"] == "baibai-engine research packet-scaffold --ticker 2331"
 
 
 def test_status_waits_for_all_lane_checks_before_comparison(
@@ -908,8 +951,8 @@ def test_packet_scaffold_confines_research_lane_to_direct_ticker_child(
                 "2026-07-03",
                 "--selection-output",
                 str(selection_output),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--workspace",
                 str(workspace),
             ]
@@ -962,8 +1005,8 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
                 "2026-07-03",
                 "--selection-output",
                 str(selection_output),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--workspace",
                 str(workspace),
             ]
@@ -1005,10 +1048,10 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
         manifest["inputs"]["selection_output"]["sha256"]
         == hashlib.sha256(selection_output.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
     )
-    assert (
-        manifest["inputs"]["ledger"]["sha256"]
-        == hashlib.sha256(LEDGER_FIXTURE.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
-    )
+    assert manifest["inputs"]["ledger"] == {
+        "entity_id": "portfolio-ledger",
+        "append_head": LedgerStoreService(_app_db(tmp_path)).append_head(),
+    }
     assert (workspace / "manifest.yaml").read_bytes() == manifest_before
     first_packet = safe_load((workspace / "2331" / "packet-draft.yaml").read_text("utf-8"))
     second_packet_path = workspace / "8929" / "packet-draft.yaml"
@@ -1404,8 +1447,8 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
             "2026-07-03",
             "--selection-output",
             str(selection),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--workspace",
             str(tmp_path / "ws"),
         ],
@@ -1447,8 +1490,7 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-09", 990.0, 1.0)])
-    ledger = tmp_path / "ledger.yaml"
-    _ledger_with_market_price_date(ledger, date(2026, 7, 10))
+    ledger = _ledger_with_market_price_date(tmp_path / "ledger", date(2026, 7, 10))
     workspace = tmp_path / "holding-ws"
     assert (
         opportunity_main(
@@ -1456,7 +1498,7 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
                 "holding-prepare",
                 "--asof",
                 "2026-07-10",
-                "--ledger",
+                "--db",
                 str(ledger),
                 "--ticker",
                 "2331",
@@ -1473,6 +1515,8 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
             "packet-scaffold",
             "--workspace",
             str(workspace),
+            "--db",
+            str(ledger),
             "--ticker",
             "2331",
             "--sqlite-path",
@@ -1513,13 +1557,15 @@ def test_packet_scaffold_draft_has_no_structural_schema_errors(
     )
     assert code == 0
     draft_path = workspace / "2331" / "packet-draft.yaml"
-    findings = validate_decision_packet_file(draft_path)
-    messages = " ".join(f"{finding.code} {finding.message}" for finding in findings)
-    # The malformed-structure symptoms (extra price_snapshot / invalid price_basis)
-    # must be absent; only unfilled judgment/metadata fields remain.
-    assert "price_snapshot" not in messages
-    assert "raw_unadjusted_close" not in messages
-    assert "price_basis" not in messages
+    draft = safe_load(draft_path.read_text(encoding="utf-8"))
+    assert isinstance(draft, dict)
+    snapshot = draft["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    assert "price_snapshot" not in snapshot
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    assert facts[0]["fact_kind"] == "market_price"
+    assert facts[0]["price_basis"] == "last_close_unadjusted"
 
 
 def test_packet_scaffold_without_raw_close_exits_3(
@@ -1644,15 +1690,13 @@ def test_review_scaffold_goes_stale_when_packet_hash_changes(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(tmp_path / "records/03-thesis/2026/07"),
+            "--db",
+            str(tmp_path / "app.sqlite"),
         ],
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not (tmp_path / "records").exists() or not list(
-        (tmp_path / "records").rglob("*-decision.yaml")
-    )
+    _assert_no_research_packets(tmp_path / "app.sqlite")
 
 
 def test_promote_refuses_when_checklist_pending(
@@ -1667,7 +1711,7 @@ def test_promote_refuses_when_checklist_pending(
     checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
     checklist["checks"][0]["status"] = "pending"
     checklist_path.write_text(yaml.safe_dump(checklist, sort_keys=False), encoding="utf-8")
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     code = opportunity_main(
         [
             "promote",
@@ -1675,13 +1719,52 @@ def test_promote_refuses_when_checklist_pending(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
+    _assert_no_research_packets(db_path)
+
+
+def test_promote_rejects_canonical_ledger_append_head_drift(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    _fill_ready_workspace(workspace)
+    db_path = tmp_path / "app.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO ledger_event(
+                append_seq, event_id, occurred_at, same_instant_order,
+                event_type, ticker, proposal_id, payload
+            )
+            SELECT max(append_seq) + 1, 'drift-test', '2099-01-01T00:00:00+00:00',
+                   0, event_type, ticker, NULL, payload
+            FROM ledger_event
+            """
+        )
+
+    code = opportunity_main(
+        [
+            "promote",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--db",
+            str(db_path),
+        ],
+        now=FIXED_NOW,
+    )
+
+    assert code == 4
+    assert "append head drift" in capsys.readouterr().err
+    _assert_no_research_packets(db_path)
 
 
 def test_promote_rejects_non_complete_checklist_status(
@@ -1697,7 +1780,7 @@ def test_promote_rejects_non_complete_checklist_status(
     checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
     checklist["checks"][0]["status"] = "complet"
     checklist_path.write_text(yaml.safe_dump(checklist, sort_keys=False), encoding="utf-8")
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     code = opportunity_main(
         [
             "promote",
@@ -1705,13 +1788,13 @@ def test_promote_rejects_non_complete_checklist_status(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
+    _assert_no_research_packets(db_path)
 
 
 @pytest.mark.parametrize(
@@ -1745,7 +1828,7 @@ def test_promote_rejects_packet_identity_tampering(
     review_path.write_text(
         yaml.safe_dump(review, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
 
     assert (
         opportunity_main(
@@ -1755,25 +1838,25 @@ def test_promote_rejects_packet_identity_tampering(
                 str(workspace),
                 "--ticker",
                 "2331",
-                "--output-dir",
-                str(output_dir),
+                "--db",
+                str(db_path),
             ],
             now=FIXED_NOW,
         )
         == 3
     )
     assert error_text in capsys.readouterr().err
-    assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
+    _assert_no_research_packets(db_path)
 
 
-def test_promote_ready_writes_two_validated_canonical_files(
+def test_promote_ready_publishes_atomic_packet_and_review(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
-    review_filename = _fill_ready_workspace(workspace)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    _fill_ready_workspace(workspace)
+    db_path = tmp_path / "app.sqlite"
 
     code, _ = _run(
         [
@@ -1782,20 +1865,22 @@ def test_promote_ready_writes_two_validated_canonical_files(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         capsys,
     )
     assert code == 0
-    packet_out = output_dir / "2026-07-03-2331-decision.yaml"
-    review_out = output_dir / review_filename
-    assert packet_out.exists()
-    assert review_out.exists()
-
-    findings = validate_decision_packet_file(packet_out)
-    assert [finding.severity for finding in findings if finding.severity == "error"] == []
-    assert decision_main([str(packet_out)]) == 0
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM research_packet").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM research_review").fetchone()[0] == 1
+    packet = DecisionPacketDocument.model_validate(
+        safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
+    )
+    review = IndependentReview.model_validate(
+        safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
+    )
+    assert evaluate_decision_packet(packet, review=review, now=FIXED_NOW).errors == ()
 
 
 def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
@@ -1830,8 +1915,8 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
         capsys,
     )
     assert code == 0
-    review_filename = _fill_ready_workspace(workspace, preserve_screening_estimate=True)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    _fill_ready_workspace(workspace, preserve_screening_estimate=True)
+    db_path = tmp_path / "app.sqlite"
 
     promote_code, _ = _run(
         [
@@ -1840,45 +1925,45 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         capsys,
     )
 
     assert promote_code == 0
-    packet_out = output_dir / "2026-07-03-2331-decision.yaml"
-    review_out = output_dir / review_filename
-    assert review_out.exists()
-    promoted_review = safe_load(review_out.read_text(encoding="utf-8"))
+    promoted_review = safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
     assert "screening_selection" not in promoted_review["checked_source_ids"]
-    findings = validate_decision_packet_file(packet_out)
-    assert [finding for finding in findings if finding.severity == "error"] == []
-    assert decision_main([str(packet_out)]) == 0
-    payload = safe_load(capsys.readouterr().out)
-    assert payload["screening_fv_revision_pct"] == -0.1746
+    packet = DecisionPacketDocument.model_validate(
+        safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
+    )
+    review = IndependentReview.model_validate(promoted_review)
+    result = evaluate_decision_packet(packet, review=review, now=FIXED_NOW)
+    assert result.errors == ()
+    assert result.screening_fv_revision_pct is not None
+    assert round(float(result.screening_fv_revision_pct), 4) == -0.1746
 
 
-def test_promote_never_overwrites_canonical(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_promote_retry_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     args = [
         "promote",
         "--workspace",
         str(workspace),
         "--ticker",
         "2331",
-        "--output-dir",
-        str(output_dir),
+        "--db",
+        str(db_path),
     ]
     assert opportunity_main(args, now=FIXED_NOW) == 0
-    # A second promotion of the same as-of never overwrites the canonical record.
-    assert opportunity_main(args, now=FIXED_NOW) == 4
+    assert opportunity_main(args, now=FIXED_NOW) == 0
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM research_packet").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM research_review").fetchone()[0] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1889,7 +1974,7 @@ def test_promote_never_overwrites_canonical(
 def _promoted_packet(tmp_path: Path, sqlite_path: Path) -> Path:
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     assert (
         opportunity_main(
             [
@@ -1898,14 +1983,28 @@ def _promoted_packet(tmp_path: Path, sqlite_path: Path) -> Path:
                 str(workspace),
                 "--ticker",
                 "2331",
-                "--output-dir",
-                str(output_dir),
+                "--db",
+                str(db_path),
             ],
             now=FIXED_NOW,
         )
         == 0
     )
-    return output_dir / "2026-07-03-2331-decision.yaml"
+    # plan-limit accepts an ephemeral packet file; materialize the adjacent review
+    # under the ref already embedded in the draft without creating a canonical record.
+    ephemeral = tmp_path / "ephemeral-packet"
+    ephemeral.mkdir()
+    packet_path = ephemeral / "2026-07-03-2331-decision.yaml"
+    review_path = ephemeral / "2026-07-03-2331-decision-review.yaml"
+    packet_path.write_text(
+        (workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    review_path.write_text(
+        (workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return packet_path
 
 
 def test_plan_limit_close_within_max_plans_limit_at_close(
@@ -1919,8 +2018,8 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -1939,8 +2038,9 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     review = packet.with_name("2026-07-03-2331-decision-review.yaml")
     assert payload["independent_review_ref"] == str(review)
     assert payload["independent_review_sha256"] == hashlib.sha256(review.read_bytes()).hexdigest()
+    assert payload["source_ledger_entity"] == "portfolio-ledger"
     assert (
-        payload["source_ledger_sha256"] == hashlib.sha256(LEDGER_FIXTURE.read_bytes()).hexdigest()
+        payload["source_ledger_append_head"] == LedgerStoreService(_app_db(tmp_path)).append_head()
     )
     assert payload["portfolio_exposure"]["ledger_fallback_tickers"] == ["2331"]
     assert payload["portfolio_exposure"]["holding_valuation_status"] == (
@@ -1968,7 +2068,7 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2015,7 +2115,7 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2054,7 +2154,7 @@ def test_plan_limit_active_candidate_reservation_defers_without_second_order(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2099,7 +2199,7 @@ def test_plan_limit_counts_same_scope_reservation_and_order_once(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2147,7 +2247,7 @@ def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2189,7 +2289,7 @@ def test_plan_limit_discloses_other_ticker_with_missing_common_factor_coverage(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2223,7 +2323,7 @@ def test_plan_limit_falls_back_when_revalued_holding_is_not_whole_yen(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
+            "--db",
             str(ledger),
             "--sqlite-path",
             str(sqlite_path),
@@ -2254,8 +2354,8 @@ def test_plan_limit_close_above_max_defers(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2283,8 +2383,8 @@ def test_plan_limit_zero_close_defers_without_crashing(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2308,8 +2408,8 @@ def test_plan_limit_corporate_action_defers(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2333,8 +2433,8 @@ def test_plan_limit_missing_adjustment_factor_defers(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2360,8 +2460,8 @@ def test_plan_limit_single_lot_above_budget_max_still_proposes_with_warning(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2392,8 +2492,8 @@ def test_plan_limit_quantity_never_overshoots_budget_max(
             "plan-limit",
             "--packet",
             str(packet),
-            "--ledger",
-            str(LEDGER_FIXTURE),
+            "--db",
+            str(_app_db(tmp_path)),
             "--sqlite-path",
             str(sqlite_path),
             "--target-session",
@@ -2424,8 +2524,8 @@ def test_plan_limit_budget_and_warnings_do_not_change_limit_or_status(
                 "plan-limit",
                 "--packet",
                 str(packet),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(_app_db(tmp_path)),
                 "--sqlite-path",
                 str(sqlite_path),
                 "--target-session",
@@ -2455,8 +2555,8 @@ def test_plan_limit_is_deterministic_across_clocks(
         "plan-limit",
         "--packet",
         str(packet),
-        "--ledger",
-        str(LEDGER_FIXTURE),
+        "--db",
+        str(_app_db(tmp_path)),
         "--sqlite-path",
         str(sqlite_path),
         "--target-session",

@@ -8,7 +8,7 @@ last_reviewed: 2026-07-13
 
 # valuation-metrics — valuation 指標の算出仕様
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。`records/02-candidates/` と `records/03-thesis/` の両方で参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。screening run storeとapplication DBのresearch packetで参照される指標の前提を確定する。
 
 ## 1. 使用指標
 

@@ -1,23 +1,19 @@
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-import yaml
 
-from baibai_loop.position import cli as position_cli
-from baibai_loop.position.cli import main
-from baibai_loop.position.ledger import (
+from baibai_engine.position.ledger import (
     load_portfolio_ledger,
     reconcile_portfolio,
     replay_events_through,
     reservation_snapshots,
 )
-from baibai_loop.position.result_recording import ResultRecordingError, record_result
+from baibai_engine.position.result_recording import ResultRecordingError, record_result
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 JST = ZoneInfo("Asia/Tokyo")
@@ -156,36 +152,6 @@ def test_expired_report_requires_explicit_reservation_id() -> None:
         )
 
 
-def test_cli_expired_requires_explicit_reservation_id(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    ledger.write_bytes(FIXTURE.read_bytes())
-    assert (
-        main(
-            [
-                "record-result",
-                "--root",
-                str(tmp_path),
-                "--ledger",
-                "ledger.yaml",
-                "--proposal-ref",
-                PROPOSAL,
-                "--status",
-                "expired",
-                "--occurred-at",
-                "2026-07-31T15:30:00+09:00",
-                "--out",
-                "expired.yaml",
-            ],
-            now=datetime(2026, 8, 1, 12, 0, tzinfo=JST),
-        )
-        == 2
-    )
-    assert "expired requires reservation_id" in capsys.readouterr().err
-    assert not (tmp_path / "expired.yaml").exists()
-
-
 def test_expired_report_releases_only_remaining_partial_fill_quantity() -> None:
     expiry = datetime(2026, 7, 20, 15, 30, tzinfo=JST)
     now = datetime(2026, 7, 21, 12, 0, tzinfo=JST)
@@ -277,143 +243,6 @@ def test_result_rejects_a_non_issue_reference() -> None:
             reservation_id="reservation-8929-pending",
             now=_at(12),
         )
-
-
-def test_cli_writes_a_draft_without_mutating_the_source(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    ledger.write_bytes(FIXTURE.read_bytes())
-    before = ledger.read_bytes()
-    output = tmp_path / "patched.yaml"
-    exit_code = main(
-        [
-            "record-result",
-            "--root",
-            str(tmp_path),
-            "--ledger",
-            "ledger.yaml",
-            "--proposal-ref",
-            PROPOSAL,
-            "--status",
-            "cancelled",
-            "--occurred-at",
-            _at(10).isoformat(),
-            "--reservation-id",
-            "reservation-8929-pending",
-            "--out",
-            "patched.yaml",
-        ],
-        now=_at(12),
-    )
-    assert exit_code == 0
-    assert ledger.read_bytes() == before
-    assert yaml.safe_load(capsys.readouterr().out)["status"] == "draft_created"
-    assert load_portfolio_ledger(output).events[-1].type == "release"
-
-
-def test_cli_writes_human_confirmed_expiry_draft(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    ledger.write_bytes(FIXTURE.read_bytes())
-    occurred_at = datetime(2026, 7, 31, 15, 30, tzinfo=JST)
-    argv = [
-        "record-result",
-        "--root",
-        str(tmp_path),
-        "--ledger",
-        "ledger.yaml",
-        "--proposal-ref",
-        PROPOSAL,
-        "--status",
-        "expired",
-        "--occurred-at",
-        occurred_at.isoformat(),
-        "--reservation-id",
-        "reservation-8929-pending",
-        "--out",
-        "expired.yaml",
-    ]
-
-    assert main(argv, now=datetime(2026, 8, 1, 12, 0, tzinfo=JST)) == 0
-    first = yaml.safe_load(capsys.readouterr().out)
-    assert first["status"] == "draft_created"
-    draft = load_portfolio_ledger(tmp_path / "expired.yaml")
-    assert draft.events[-1].type == "release"
-    assert draft.events[-1].reason == "expired"
-
-    ledger.write_bytes((tmp_path / "expired.yaml").read_bytes())
-    assert main(argv, now=datetime(2026, 8, 1, 12, 0, tzinfo=JST)) == 0
-    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
-
-
-def test_cli_hashes_the_exact_ledger_bytes_used_for_the_draft(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    source = FIXTURE.read_bytes()
-    ledger.write_bytes(source)
-    original_write = position_cli._write_yaml_exclusive
-
-    def mutate_source_then_write(path: Path, payload: object) -> None:
-        ledger.write_bytes(source + b"\n")
-        original_write(path, payload)
-
-    monkeypatch.setattr(position_cli, "_write_yaml_exclusive", mutate_source_then_write)
-    exit_code = main(
-        [
-            "record-result",
-            "--root",
-            str(tmp_path),
-            "--ledger",
-            "ledger.yaml",
-            "--proposal-ref",
-            PROPOSAL,
-            "--status",
-            "cancelled",
-            "--occurred-at",
-            _at(10).isoformat(),
-            "--reservation-id",
-            "reservation-8929-pending",
-            "--out",
-            "draft.yaml",
-        ],
-        now=_at(12),
-    )
-    assert exit_code == 0
-    payload = yaml.safe_load(capsys.readouterr().out)
-    assert payload["source_ledger_sha256"] == hashlib.sha256(source).hexdigest()
-    assert payload["source_ledger_sha256"] != hashlib.sha256(ledger.read_bytes()).hexdigest()
-
-
-def test_cli_nochange_does_not_require_a_fresh_output_path(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    ledger.write_bytes(FIXTURE.read_bytes())
-    argv = [
-        "record-result",
-        "--root",
-        str(tmp_path),
-        "--ledger",
-        "ledger.yaml",
-        "--proposal-ref",
-        PROPOSAL,
-        "--status",
-        "cancelled",
-        "--occurred-at",
-        _at(10).isoformat(),
-        "--reservation-id",
-        "reservation-8929-pending",
-        "--out",
-        "draft.yaml",
-    ]
-    assert main(argv, now=_at(12)) == 0
-    capsys.readouterr()
-    ledger.write_bytes(tmp_path.joinpath("draft.yaml").read_bytes())
-    assert main(argv, now=_at(12)) == 0
-    assert yaml.safe_load(capsys.readouterr().out)["status"] == "no_change"
 
 
 def test_result_rejects_future_human_times() -> None:
@@ -519,35 +348,6 @@ def test_fill_cannot_replace_the_reservation_proposal_reference() -> None:
         )
 
 
-def test_cli_rejects_output_outside_root(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    ledger = tmp_path / "ledger.yaml"
-    ledger.write_bytes(FIXTURE.read_bytes())
-    exit_code = main(
-        [
-            "record-result",
-            "--root",
-            str(tmp_path),
-            "--ledger",
-            "ledger.yaml",
-            "--proposal-ref",
-            PROPOSAL,
-            "--status",
-            "cancelled",
-            "--occurred-at",
-            _at(10).isoformat(),
-            "--reservation-id",
-            "reservation-8929-pending",
-            "--out",
-            "../escaped.yaml",
-        ],
-        now=_at(12),
-    )
-    assert exit_code == 2
-    assert "relative path below --root" in capsys.readouterr().err
-
-
 def test_direct_fill_inserts_approval_before_newer_existing_events() -> None:
     result = record_result(
         load_portfolio_ledger(FIXTURE),
@@ -568,33 +368,3 @@ def test_direct_fill_inserts_approval_before_newer_existing_events() -> None:
         item for item in reconcile_portfolio(result.document).holdings if item.ticker == "2331"
     )
     assert holding.quantity == 300
-
-
-def test_cli_rejects_symlink_draft_output(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    tmp_path.joinpath("ledger.yaml").write_bytes(FIXTURE.read_bytes())
-    tmp_path.joinpath("draft.yaml").symlink_to(tmp_path / "outside.yaml")
-    exit_code = main(
-        [
-            "record-result",
-            "--root",
-            str(tmp_path),
-            "--ledger",
-            "ledger.yaml",
-            "--proposal-ref",
-            PROPOSAL,
-            "--status",
-            "cancelled",
-            "--occurred-at",
-            _at(10).isoformat(),
-            "--reservation-id",
-            "reservation-8929-pending",
-            "--out",
-            "draft.yaml",
-        ],
-        now=_at(12),
-    )
-    assert exit_code == 2
-    assert "must not traverse a symlink" in capsys.readouterr().err
-    assert not tmp_path.joinpath("outside.yaml").exists()

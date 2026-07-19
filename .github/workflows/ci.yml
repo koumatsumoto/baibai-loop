@@ -48,7 +48,6 @@ jobs:
           uv run python tools/drift/check_cli_doc.py
           uv run python tools/drift/check_legacy_semantics.py
           uv run python tools/drift/check_duplicate_constants.py
-          uv run python tools/drift/check_clean_lineage.py
           uv run python tools/drift/check_skill_inventory.py
 
       - name: Block tracked raw screening cache
@@ -64,18 +63,6 @@ jobs:
           uv run coverage run -m pytest
           uv run coverage report -m
           uv run coverage xml
-
-      - name: Validate artefacts
-        run: uv run baibai-loop-validation
-
-      - name: Validate clean checkout lineage
-        run: |
-          checkout="$(mktemp -d)"
-          git archive HEAD | tar -x -C "$checkout"
-          (
-            cd "$checkout"
-            uv run --frozen baibai-loop-validation
-          )
 
       - name: Build package
         run: uv build --wheel

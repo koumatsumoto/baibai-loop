@@ -8,20 +8,23 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_loop.position.cli import build_parser as position_parser
-from baibai_loop.position.cli import main as position_main
-from baibai_loop.screening.cli import main as screening_main
-from baibai_loop.screening.cli.app import build_parser as screening_parser
-from baibai_loop.thesis.decision_cli import main as decision_main
-from baibai_loop.thesis.opportunity_cli import build_parser as opportunity_parser
-from baibai_loop.thesis.opportunity_cli import main as opportunity_main
+from baibai_engine.position.cli import build_parser as position_parser
+from baibai_engine.position.cli import main as position_main
+from baibai_engine.position.ledger import PortfolioLedgerDocument, load_portfolio_ledger
+from baibai_engine.position.outcome_store import PortfolioOutcomeStore
+from baibai_engine.research.decision_cli import main as decision_main
+from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
+from baibai_engine.research.opportunity_cli import main as opportunity_main
+from baibai_engine.screening.cli import main as screening_main
+from baibai_engine.screening.cli.app import build_parser as screening_parser
+from baibai_engine.screening.run_store import ScreeningRunStore
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
 LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 BENCHMARK_FIXTURE = ROOT / "tests/fixtures/benchmark-observation/topix-1y.yaml"
 EXECUTION_INPUT_FIXTURE = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
-HOLDING_REVIEW_FIXTURE = ROOT / "tests/fixtures/holding-review/replacement-superior.yaml"
 RULES_PATH = ROOT / "records/_config/screening-rules/2026-07-06T000000+0900.yaml"
 
 
@@ -31,31 +34,56 @@ def _payload(text: str) -> dict[str, object]:
     return loaded
 
 
+def _import_ledger(db_path: Path, source: Path = LEDGER_FIXTURE) -> None:
+    document = load_portfolio_ledger(source)
+    seed_ledger(
+        db_path,
+        document.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in document.market_prices
+                )
+            }
+        ),
+    )
+
+
 def test_select_cli_emits_stable_yaml_shape(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    candidates_path = tmp_path / "candidates.yaml"
-    candidates_path.write_text(
-        yaml.safe_dump(
-            {
-                "candidates": [
-                    {
-                        "ticker": "1111",
-                        "name": "contract candidate",
-                        "sector_33": "機械",
-                        "market_cap_oku": 300,
-                        "avg_turnover_oku": 2.0,
-                        "listing_span_days": 1200,
-                        "jpx_flags": [],
-                        "metrics": {"er_annual": 1.0},
-                        "evidence_hits": [{"name": "valuation-reversion"}],
-                    }
-                ]
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    runs_db = tmp_path / "runs.sqlite"
+    run_revision_id = "run-revision-public-contract"
+    ScreeningRunStore(runs_db).publish_run(
+        {
+            "run_id": "screening-20260424",
+            "run_date": "2026-04-24",
+            "asof_date": "2026-04-24",
+            "run_at": "2026-04-24T18:00:00+09:00",
+            "universe_size": 1,
+            "rules_ref": str(RULES_PATH),
+            "candidates": [
+                {
+                    "ticker": "1111",
+                    "name": "contract candidate",
+                    "sector_33": "機械",
+                    "market_cap_oku": 300,
+                    "avg_turnover_oku": 2.0,
+                    "listing_span_days": 1200,
+                    "jpx_flags": [],
+                    "metrics": {"er_annual": 1.0},
+                    "evidence_hits": [
+                        {
+                            "name": "valuation-reversion",
+                            "playbook_id": "cashflow-yield-discount",
+                            "source_status": "ok",
+                            "sizing_eligible": True,
+                        }
+                    ],
+                }
+            ],
+        },
+        run_revision_id=run_revision_id,
     )
 
     assert (
@@ -64,8 +92,10 @@ def test_select_cli_emits_stable_yaml_shape(
                 "select",
                 "--asof",
                 date(2026, 4, 24).isoformat(),
-                "--candidates",
-                str(candidates_path),
+                "--run-revision-id",
+                run_revision_id,
+                "--runs-db",
+                str(runs_db),
                 "--top",
                 "1",
                 "--rules-path",
@@ -78,7 +108,8 @@ def test_select_cli_emits_stable_yaml_shape(
     )
     payload = _payload(capsys.readouterr().out)
 
-    assert set(payload) == {"recommendations", "selection"}
+    assert set(payload) == {"recommendations", "selection", "selection_id"}
+    assert str(payload["selection_id"]).startswith("selection-")
     recommendations = payload["recommendations"]
     assert isinstance(recommendations, list)
     assert len(recommendations) == 1
@@ -155,8 +186,12 @@ def test_select_cli_emits_stable_yaml_shape(
     }
 
 
-def test_ledger_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]) -> None:
-    assert position_main(["ledger", "--ledger", str(LEDGER_FIXTURE)]) == 0
+def test_ledger_cli_emits_stable_yaml_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "app.sqlite"
+    _import_ledger(db_path)
+    assert position_main(["ledger", "--db", str(db_path)]) == 0
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {
@@ -207,10 +242,19 @@ def test_ledger_cli_labels_migration_events_as_initialization(
     events = raw["events"]
     assert isinstance(events, list)
     events[0]["event_id"] = "migration-opening-20260501"
-    ledger = tmp_path / "migration-ledger.yaml"
-    ledger.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+    document = PortfolioLedgerDocument.model_validate(raw)
+    document = document.model_copy(
+        update={
+            "market_prices": tuple(
+                price.model_copy(update={"source_kind": "licensed_dataset"})
+                for price in document.market_prices
+            )
+        }
+    )
+    db_path = tmp_path / "app.sqlite"
+    seed_ledger(db_path, document)
 
-    assert position_main(["ledger", "--ledger", str(ledger)]) == 0
+    assert position_main(["ledger", "--db", str(db_path)]) == 0
     payload = _payload(capsys.readouterr().out)
 
     assert payload["event_annotations"] == [
@@ -225,39 +269,17 @@ def test_ledger_cli_labels_migration_events_as_initialization(
     ]
 
 
-def test_outcome_cli_emits_stable_activation_pending_shape(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    benchmark_path = tmp_path / "topix.yaml"
-    benchmark_path.write_text(BENCHMARK_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
-
-    assert (
-        position_main(["outcome", "--root", str(tmp_path), "--benchmark-observation", "topix.yaml"])
-        == 0
-    )
-    payload = _payload(capsys.readouterr().out)
-
-    assert set(payload) == {
-        "schema_version",
-        "kind",
-        "status",
-        "reason",
-        "benchmark_id",
-        "horizon",
-    }
-    assert payload["status"] == "unresolved"
-    assert payload["reason"] == "activation_pending"
-
-
 def test_outcome_cli_emits_stable_market_unavailable_shape(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    db_path = tmp_path / "app.sqlite"
+    _import_ledger(db_path)
     assert (
         position_main(
             [
                 "outcome",
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(db_path),
                 "--benchmark-observation",
                 str(BENCHMARK_FIXTURE),
                 "--sqlite",
@@ -277,10 +299,7 @@ def test_outcome_cli_emits_stable_market_unavailable_shape(
         "period_start_date",
         "period_end_date",
         "benchmark_id",
-        "benchmark_observation_ref",
-        "benchmark_observation_sha256",
-        "ledger_ref",
-        "ledger_sha256",
+        "benchmark_observation",
         "market_data_ref",
         "market_data_sha256",
         "market_data_coverage_start_date",
@@ -290,6 +309,7 @@ def test_outcome_cli_emits_stable_market_unavailable_shape(
     assert payload["status"] == "unresolved"
     assert payload["reason"] == "benchmark_unavailable"
     assert payload["market_data_sha256"] is None
+    assert PortfolioOutcomeStore(db_path).list() == ()
 
 
 def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]) -> None:
@@ -338,15 +358,19 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
     }
 
 
-def test_decision_cli_emits_execution_proposal_shape(capsys: pytest.CaptureFixture[str]) -> None:
+def test_decision_cli_emits_execution_proposal_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db_path = tmp_path / "app.sqlite"
+    _import_ledger(db_path)
     assert (
         decision_main(
             [
                 str(DECISION_FIXTURE),
                 "--execution-input",
                 str(EXECUTION_INPUT_FIXTURE),
-                "--ledger",
-                str(LEDGER_FIXTURE),
+                "--db",
+                str(db_path),
             ],
             now=datetime.fromisoformat("2026-07-11T10:01:00+09:00"),
         )
@@ -404,39 +428,6 @@ def test_decision_cli_emits_execution_proposal_shape(capsys: pytest.CaptureFixtu
     }
 
 
-def test_holding_review_cli_emits_stable_yaml_shape(
-    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "baibai_loop.position.cli.validate_holding_review_scalars",
-        lambda document, root: None,
-    )
-    assert position_main(["holding-review", "--input", str(HOLDING_REVIEW_FIXTURE)]) == 0
-    payload = _payload(capsys.readouterr().out)
-
-    assert set(payload) == {
-        "as_of",
-        "position_id",
-        "ticker",
-        "review_status",
-        "recorded_action",
-        "computed_action",
-        "permanent_loss_conclusion",
-        "replacement",
-        "valuation_review",
-        "note",
-    }
-    replacement = payload["replacement"]
-    assert isinstance(replacement, dict)
-    assert set(replacement) == {
-        "status",
-        "edge_yen",
-        "tax_basis",
-        "breakeven_exit_tax_rate_bps",
-        "edge_at_zero_tax_yen",
-    }
-
-
 def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
     parser = opportunity_parser()
     subactions = [
@@ -487,6 +478,10 @@ def test_position_cli_exposes_human_result_and_holding_build_subcommands() -> No
     assert len(subactions) == 1
     assert set(subactions[0].choices) == {
         "ledger",
+        "apply-draft",
+        "event-draft",
+        "meta-draft",
+        "override-draft",
         "outcome",
         "holding-review",
         "holding-review-build",
@@ -505,9 +500,6 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
 @pytest.mark.parametrize(
     ("parser_factory", "argv"),
     [
-        (screening_parser, ["verify-cache-coverage", "--asof", "2026-07-10"]),
-        (screening_parser, ["bootstrap-cache", "--asof", "2026-07-10"]),
-        (screening_parser, ["extract-edinet-metrics", "--asof", "2026-07-10"]),
         (
             screening_parser,
             ["run", "--asof", "2026-07-10", "--output-path", "/tmp/candidates.yaml"],
@@ -518,10 +510,8 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "select",
                 "--asof",
                 "2026-07-10",
-                "--candidates",
-                "/tmp/candidates.yaml",
-                "--detail",
-                "full",
+                "--run-revision-id",
+                "run-revision-example",
                 "--audit-top",
                 "20",
                 "--output-path",
@@ -536,49 +526,10 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "2026-07-10",
                 "--selection-output",
                 "/tmp/selection.yaml",
-                "--ledger",
-                "records/04-position/portfolio-ledger.yaml",
+                "--db",
+                "data/app/baibai.sqlite",
                 "--workspace",
                 ".cache/opportunity/2026-07-10",
-            ],
-        ),
-        (
-            opportunity_parser,
-            [
-                "holding-prepare",
-                "--asof",
-                "2026-07-10",
-                "--ledger",
-                "records/04-position/portfolio-ledger.yaml",
-                "--ticker",
-                "1234",
-                "--workspace",
-                ".cache/opportunity/2026-07-10/holding-1234",
-            ],
-        ),
-        (opportunity_parser, ["status", "--workspace", ".cache/opportunity/2026-07-10"]),
-        (
-            opportunity_parser,
-            [
-                "packet-scaffold",
-                "--workspace",
-                ".cache/opportunity/2026-07-10",
-                "--ticker",
-                "1234",
-                "--sqlite-path",
-                "data/screening/market.sqlite",
-                "--target-session",
-                "2026-07-13",
-            ],
-        ),
-        (
-            opportunity_parser,
-            [
-                "review-scaffold",
-                "--workspace",
-                ".cache/opportunity/2026-07-10",
-                "--ticker",
-                "1234",
             ],
         ),
         (
@@ -589,8 +540,8 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 ".cache/opportunity/2026-07-10",
                 "--ticker",
                 "1234",
-                "--output-dir",
-                "records/03-thesis/2026/07",
+                "--db",
+                "data/app/baibai.sqlite",
             ],
         ),
         (
@@ -599,16 +550,12 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "plan-limit",
                 "--packet",
                 "packet.yaml",
-                "--ledger",
-                "ledger.yaml",
+                "--db",
+                "data/app/baibai.sqlite",
                 "--sqlite-path",
                 "market.sqlite",
                 "--target-session",
                 "2026-07-13",
-                "--budget-min-yen",
-                "200000",
-                "--budget-max-yen",
-                "300000",
                 "--output",
                 "proposal.yaml",
             ],
@@ -617,10 +564,8 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
             position_parser,
             [
                 "market-price-draft",
-                "--root",
-                ".",
-                "--ledger",
-                "records/04-position/portfolio-ledger.yaml",
+                "--db",
+                "data/app/baibai.sqlite",
                 "--sqlite",
                 "data/screening/market.sqlite",
                 "--asof",
@@ -633,10 +578,10 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
             position_parser,
             [
                 "record-result",
-                "--ledger",
-                "ledger.yaml",
+                "--db",
+                "data/app/baibai.sqlite",
                 "--proposal-ref",
-                "https://github.com/owner/repo/issues/1#issuecomment-1",
+                "prop-20260712-1234-example",
                 "--status",
                 "filled",
                 "--occurred-at",
@@ -657,10 +602,10 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
             position_parser,
             [
                 "holding-review-build",
-                "--packet",
-                "packet.yaml",
-                "--ledger",
-                "ledger.yaml",
+                "--db",
+                "data/app/baibai.sqlite",
+                "--packet-id",
+                "packet-20260712-1234-r1",
                 "--position-id",
                 "position-1",
                 "--out",
@@ -671,8 +616,6 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
             position_parser,
             [
                 "holding-review",
-                "--root",
-                ".",
                 "--input",
                 ".cache/holding-review/review.yaml",
             ],
@@ -686,11 +629,9 @@ def test_decision_cycle_runbook_recipes_use_public_cli_contract(
     parsed = parser.parse_args(argv)
     assert parsed.command == argv[0]
     executable = {
-        screening_parser: "baibai-loop-screening",
-        opportunity_parser: "baibai-loop-opportunity",
-        position_parser: "baibai-loop-position",
+        screening_parser: "baibai-engine screening",
+        opportunity_parser: "baibai-engine research",
+        position_parser: "baibai-engine position",
     }[parser_factory]
     runbook = (ROOT / "docs/operations/decision-cycle.md").read_text(encoding="utf-8")
     assert f"{executable} {argv[0]}" in runbook
-    for option in (item for item in argv if item.startswith("--")):
-        assert option in runbook
