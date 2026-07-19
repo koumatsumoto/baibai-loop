@@ -12,9 +12,9 @@ Design boundaries (Issue #359 Milestone A):
 - Investment value is decided before budget rounding. The 20-30万円 guide is a
   sizing annotation, never a hard gate: a single board lot above the guide still
   produces a proposal with a warning rather than an auto-reject.
-- ``promote`` is the only command that writes a canonical decision packet/review;
+- ``promote`` is the only command that publishes a canonical decision packet/review;
   every other command writes only to the rebuildable ``.cache/opportunity/<asof>/``
-  workspace and refuses to overwrite a canonical record.
+  workspace.
 - ``defer`` and "no actionable bargain" are normal investment judgments and exit 0.
 """
 
@@ -55,6 +55,7 @@ from .decision_packet import (
     load_independent_review,
 )
 from .execution_policy import ExecutionPolicyError, max_acceptable_price
+from .store import ResearchConflictError, ResearchStoreService, ResearchValidationError
 
 TOOL_VERSION = "opportunity-v1"
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
@@ -1058,8 +1059,8 @@ def _packet_core_hash_if_valid(packet_path: Path) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class PromoteResult:
-    packet_path: Path
-    review_path: Path
+    packet_id: str
+    review_id: str
     packet_sha256: str
 
 
@@ -1067,14 +1068,16 @@ def promote(
     *,
     workspace: Path,
     ticker: str,
-    output_dir: Path,
+    db_path: Path | None,
+    packet_id: str | None,
+    supersedes_id: str | None,
     now: datetime,
 ) -> PromoteResult:
-    """Persist the canonical packet/review only when everything is ready.
+    """Publish the canonical packet/review only when everything is ready.
 
     Gates: no pending/blocked checklist item, packet evaluates ready against the
     adjacent review, review hash matches the packet core hash, schema validity, and
-    path confinement. A canonical file that already exists is never overwritten.
+    path confinement. Reusing an immutable ID with different content is rejected.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest)
@@ -1136,32 +1139,35 @@ def promote(
     if result.decision_readiness != "ready":
         raise OpportunityDataError(f"packet is not decision-ready: {list(result.errors)}")
 
-    output_dir = output_dir.resolve()
-    packet_out = output_dir / f"{document.input_snapshot.as_of:%Y-%m-%d}-{ticker}-decision.yaml"
-    review_out = (
-        output_dir / f"{document.input_snapshot.as_of:%Y-%m-%d}-{ticker}-decision-review.yaml"
+    legacy_review_name = (
+        f"{document.input_snapshot.as_of:%Y-%m-%d}-{ticker}-decision-review.yaml"
     )
-    # The packet's independent_review_ref is part of its core hash, so promotion
-    # must not rewrite it. The packet must already point at the canonical review
-    # filename so the review resolves path-confined beside it without changing the
-    # hash the review and any override are bound to.
-    if document.independent_review_ref != review_out.name:
+    # The legacy ref remains part of the packet payload and core hash. Canonical
+    # source binding is the DB packet_id FK; the field is retained as migrated data.
+    if document.independent_review_ref != legacy_review_name:
         raise OpportunityDataError(
-            f"packet independent_review_ref must equal the canonical review filename "
-            f"{review_out.name!r} before promotion"
+            "packet independent_review_ref must equal the stable review filename "
+            f"{legacy_review_name!r} before promotion"
         )
-    for target in (packet_out, review_out):
-        if not target.resolve().is_relative_to(output_dir):
-            raise OpportunityConflictError("promotion target escapes the output directory")
-        if target.exists():
-            raise OpportunityConflictError(
-                f"canonical file already exists and is never overwritten: {target}"
-            )
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(review_out, review_path.read_text(encoding="utf-8"))
-    write_text_atomic(packet_out, packet_path.read_text(encoding="utf-8"))
-    return PromoteResult(packet_path=packet_out, review_path=review_out, packet_sha256=core_hash)
+    resolved_packet_id = packet_id or (
+        f"packet-{document.input_snapshot.as_of:%Y%m%d}-{ticker}-{review.review_id}"
+    )
+    try:
+        ResearchStoreService(db_path).publish_packet_with_review(
+            resolved_packet_id,
+            _load_mapping(packet_path, label="decision packet"),
+            _load_mapping(review_path, label="independent review"),
+            supersedes_id=supersedes_id,
+        )
+    except ResearchConflictError as error:
+        raise OpportunityConflictError(str(error)) from error
+    except (ResearchValidationError, ValidationError) as error:
+        raise OpportunityDataError(str(error)) from error
+    return PromoteResult(
+        packet_id=resolved_packet_id,
+        review_id=review.review_id,
+        packet_sha256=core_hash,
+    )
 
 
 # --------------------------------------------------------------------------- #

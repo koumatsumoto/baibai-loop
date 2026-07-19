@@ -11,7 +11,7 @@ export interface HoldingView {
   unrealized_pnl_pct: number
   fair_value_yen: number | null
   fv_gap_pct: number | null
-  latest_packet_path: string | null
+  latest_packet_id: string | null
   recommendation: string | null
 }
 
@@ -148,12 +148,12 @@ export interface ReviewedShortlistView {
 
 export interface ResearchRevisionView {
   as_of: string
-  packet_path: string
+  packet_id: string
   recommendation: string
   confidence: string | null
   current_fair_value_yen: number | null
   model_version: string | null
-  review_path: string | null
+  review_id: string | null
 }
 
 export interface ScenarioView {
@@ -172,6 +172,15 @@ export interface PacketDetailView {
   sizing_action: string | null
 }
 
+export interface HoldingReviewView {
+  holding_review_id: string
+  as_of: string
+  packet_id: string
+  candidate_packet_id: string | null
+  action: string
+  note: string | null
+}
+
 export interface SecurityDetailView {
   ticker: string
   company_name: string | null
@@ -179,6 +188,7 @@ export interface SecurityDetailView {
   holding: HoldingView | null
   revisions: ResearchRevisionView[]
   latest_packet: PacketDetailView | null
+  holding_reviews: HoldingReviewView[]
   candidate_row: CandidateRowView | null
   candidate_run: ScreeningRunView | null
 }

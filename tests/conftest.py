@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from baibai_engine.research.importer import import_research_records
 from baibai_engine.screening.run_store import import_screening_runs
 from baibai_engine.tasks.importer import import_task_file
 
@@ -43,6 +44,11 @@ def app_records_root(tmp_path: Path) -> Path:
     shutil.copy2(
         FIXTURES / "decision-packet/2331-decision-review.yaml",
         thesis_dir / "2026-07-14-2331-decision-review.yaml",
+    )
+    import_research_records(
+        root / "records/03-thesis",
+        root / "records/04-position",
+        db_path=root / "data/app/baibai.sqlite",
     )
     (task_dir / "tasks.yaml").write_text(_TASKS, encoding="utf-8")
     import_task_file(task_dir / "tasks.yaml", db_path=root / "data/app/baibai.sqlite")

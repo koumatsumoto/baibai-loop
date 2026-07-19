@@ -24,11 +24,12 @@ from baibai_engine.research.close_source import (
     resolve_holding_close_on_basis,
     resolve_previous_business_day_close,
 )
-from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
+    IndependentReview,
     ScreeningEstimate,
     decision_packet_core_hash,
+    evaluate_decision_packet,
 )
 from baibai_engine.research.opportunity_cli import main as opportunity_main
 from baibai_engine.validation.decision_packet import validate_decision_packet_file
@@ -1644,15 +1645,13 @@ def test_review_scaffold_goes_stale_when_packet_hash_changes(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(tmp_path / "records/03-thesis/2026/07"),
+            "--db",
+            str(tmp_path / "app.sqlite"),
         ],
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not (tmp_path / "records").exists() or not list(
-        (tmp_path / "records").rglob("*-decision.yaml")
-    )
+    assert not (tmp_path / "app.sqlite").exists()
 
 
 def test_promote_refuses_when_checklist_pending(
@@ -1667,7 +1666,7 @@ def test_promote_refuses_when_checklist_pending(
     checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
     checklist["checks"][0]["status"] = "pending"
     checklist_path.write_text(yaml.safe_dump(checklist, sort_keys=False), encoding="utf-8")
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     code = opportunity_main(
         [
             "promote",
@@ -1675,13 +1674,13 @@ def test_promote_refuses_when_checklist_pending(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
+    assert not db_path.exists()
 
 
 def test_promote_rejects_non_complete_checklist_status(
@@ -1697,7 +1696,7 @@ def test_promote_rejects_non_complete_checklist_status(
     checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
     checklist["checks"][0]["status"] = "complet"
     checklist_path.write_text(yaml.safe_dump(checklist, sort_keys=False), encoding="utf-8")
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     code = opportunity_main(
         [
             "promote",
@@ -1705,13 +1704,13 @@ def test_promote_rejects_non_complete_checklist_status(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         now=FIXED_NOW,
     )
     assert code == 3
-    assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
+    assert not db_path.exists()
 
 
 @pytest.mark.parametrize(
@@ -1745,7 +1744,7 @@ def test_promote_rejects_packet_identity_tampering(
     review_path.write_text(
         yaml.safe_dump(review, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
 
     assert (
         opportunity_main(
@@ -1755,25 +1754,25 @@ def test_promote_rejects_packet_identity_tampering(
                 str(workspace),
                 "--ticker",
                 "2331",
-                "--output-dir",
-                str(output_dir),
+                "--db",
+                str(db_path),
             ],
             now=FIXED_NOW,
         )
         == 3
     )
     assert error_text in capsys.readouterr().err
-    assert not output_dir.exists() or not list(output_dir.glob("*.yaml"))
+    assert not db_path.exists()
 
 
-def test_promote_ready_writes_two_validated_canonical_files(
+def test_promote_ready_publishes_atomic_packet_and_review(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
-    review_filename = _fill_ready_workspace(workspace)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    _fill_ready_workspace(workspace)
+    db_path = tmp_path / "app.sqlite"
 
     code, _ = _run(
         [
@@ -1782,20 +1781,22 @@ def test_promote_ready_writes_two_validated_canonical_files(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         capsys,
     )
     assert code == 0
-    packet_out = output_dir / "2026-07-03-2331-decision.yaml"
-    review_out = output_dir / review_filename
-    assert packet_out.exists()
-    assert review_out.exists()
-
-    findings = validate_decision_packet_file(packet_out)
-    assert [finding.severity for finding in findings if finding.severity == "error"] == []
-    assert decision_main([str(packet_out)]) == 0
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM research_packet").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM research_review").fetchone()[0] == 1
+    packet = DecisionPacketDocument.model_validate(
+        safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
+    )
+    review = IndependentReview.model_validate(
+        safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
+    )
+    assert evaluate_decision_packet(packet, review=review, now=FIXED_NOW).errors == ()
 
 
 def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
@@ -1830,8 +1831,8 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
         capsys,
     )
     assert code == 0
-    review_filename = _fill_ready_workspace(workspace, preserve_screening_estimate=True)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    _fill_ready_workspace(workspace, preserve_screening_estimate=True)
+    db_path = tmp_path / "app.sqlite"
 
     promote_code, _ = _run(
         [
@@ -1840,45 +1841,47 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
             str(workspace),
             "--ticker",
             "2331",
-            "--output-dir",
-            str(output_dir),
+            "--db",
+            str(db_path),
         ],
         capsys,
     )
 
     assert promote_code == 0
-    packet_out = output_dir / "2026-07-03-2331-decision.yaml"
-    review_out = output_dir / review_filename
-    assert review_out.exists()
-    promoted_review = safe_load(review_out.read_text(encoding="utf-8"))
+    promoted_review = safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
     assert "screening_selection" not in promoted_review["checked_source_ids"]
-    findings = validate_decision_packet_file(packet_out)
-    assert [finding for finding in findings if finding.severity == "error"] == []
-    assert decision_main([str(packet_out)]) == 0
-    payload = safe_load(capsys.readouterr().out)
-    assert payload["screening_fv_revision_pct"] == -0.1746
+    packet = DecisionPacketDocument.model_validate(
+        safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
+    )
+    review = IndependentReview.model_validate(promoted_review)
+    result = evaluate_decision_packet(packet, review=review, now=FIXED_NOW)
+    assert result.errors == ()
+    assert result.screening_fv_revision_pct is not None
+    assert round(float(result.screening_fv_revision_pct), 4) == -0.1746
 
 
-def test_promote_never_overwrites_canonical(
+def test_promote_retry_is_idempotent(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     args = [
         "promote",
         "--workspace",
         str(workspace),
         "--ticker",
         "2331",
-        "--output-dir",
-        str(output_dir),
+        "--db",
+        str(db_path),
     ]
     assert opportunity_main(args, now=FIXED_NOW) == 0
-    # A second promotion of the same as-of never overwrites the canonical record.
-    assert opportunity_main(args, now=FIXED_NOW) == 4
+    assert opportunity_main(args, now=FIXED_NOW) == 0
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM research_packet").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM research_review").fetchone()[0] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1889,7 +1892,7 @@ def test_promote_never_overwrites_canonical(
 def _promoted_packet(tmp_path: Path, sqlite_path: Path) -> Path:
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
-    output_dir = tmp_path / "records/03-thesis/2026/07"
+    db_path = tmp_path / "app.sqlite"
     assert (
         opportunity_main(
             [
@@ -1898,14 +1901,28 @@ def _promoted_packet(tmp_path: Path, sqlite_path: Path) -> Path:
                 str(workspace),
                 "--ticker",
                 "2331",
-                "--output-dir",
-                str(output_dir),
+                "--db",
+                str(db_path),
             ],
             now=FIXED_NOW,
         )
         == 0
     )
-    return output_dir / "2026-07-03-2331-decision.yaml"
+    # plan-limit accepts an ephemeral packet file; materialize the adjacent review
+    # under the ref already embedded in the draft without creating a canonical record.
+    ephemeral = tmp_path / "ephemeral-packet"
+    ephemeral.mkdir()
+    packet_path = ephemeral / "2026-07-03-2331-decision.yaml"
+    review_path = ephemeral / "2026-07-03-2331-decision-review.yaml"
+    packet_path.write_text(
+        (workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    review_path.write_text(
+        (workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    return packet_path
 
 
 def test_plan_limit_close_within_max_plans_limit_at_close(

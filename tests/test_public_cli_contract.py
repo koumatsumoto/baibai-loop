@@ -15,6 +15,7 @@ from baibai_engine.research.opportunity_cli import build_parser as opportunity_p
 from baibai_engine.research.opportunity_cli import main as opportunity_main
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.cli.app import build_parser as screening_parser
+from baibai_engine.screening.run_store import ScreeningRunStore
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -34,28 +35,38 @@ def _payload(text: str) -> dict[str, object]:
 def test_select_cli_emits_stable_yaml_shape(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    candidates_path = tmp_path / "candidates.yaml"
-    candidates_path.write_text(
-        yaml.safe_dump(
-            {
-                "candidates": [
-                    {
-                        "ticker": "1111",
-                        "name": "contract candidate",
-                        "sector_33": "機械",
-                        "market_cap_oku": 300,
-                        "avg_turnover_oku": 2.0,
-                        "listing_span_days": 1200,
-                        "jpx_flags": [],
-                        "metrics": {"er_annual": 1.0},
-                        "evidence_hits": [{"name": "valuation-reversion"}],
-                    }
-                ]
-            },
-            allow_unicode=True,
-            sort_keys=False,
-        ),
-        encoding="utf-8",
+    runs_db = tmp_path / "runs.sqlite"
+    run_revision_id = "run-revision-public-contract"
+    ScreeningRunStore(runs_db).publish_run(
+        {
+            "run_id": "screening-20260424",
+            "run_date": "2026-04-24",
+            "asof_date": "2026-04-24",
+            "run_at": "2026-04-24T18:00:00+09:00",
+            "universe_size": 1,
+            "rules_ref": str(RULES_PATH),
+            "candidates": [
+                {
+                    "ticker": "1111",
+                    "name": "contract candidate",
+                    "sector_33": "機械",
+                    "market_cap_oku": 300,
+                    "avg_turnover_oku": 2.0,
+                    "listing_span_days": 1200,
+                    "jpx_flags": [],
+                    "metrics": {"er_annual": 1.0},
+                    "evidence_hits": [
+                        {
+                            "name": "valuation-reversion",
+                            "playbook_id": "cashflow-yield-discount",
+                            "source_status": "ok",
+                            "sizing_eligible": True,
+                        }
+                    ],
+                }
+            ],
+        },
+        run_revision_id=run_revision_id,
     )
 
     assert (
@@ -64,8 +75,10 @@ def test_select_cli_emits_stable_yaml_shape(
                 "select",
                 "--asof",
                 date(2026, 4, 24).isoformat(),
-                "--candidates",
-                str(candidates_path),
+                "--run-revision-id",
+                run_revision_id,
+                "--runs-db",
+                str(runs_db),
                 "--top",
                 "1",
                 "--rules-path",
@@ -78,7 +91,8 @@ def test_select_cli_emits_stable_yaml_shape(
     )
     payload = _payload(capsys.readouterr().out)
 
-    assert set(payload) == {"recommendations", "selection"}
+    assert set(payload) == {"recommendations", "selection", "selection_id"}
+    assert str(payload["selection_id"]).startswith("selection-")
     recommendations = payload["recommendations"]
     assert isinstance(recommendations, list)
     assert len(recommendations) == 1
@@ -515,11 +529,11 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
         (
             screening_parser,
             [
-                "select",
-                "--asof",
-                "2026-07-10",
-                "--candidates",
-                "/tmp/candidates.yaml",
+                    "select",
+                    "--asof",
+                    "2026-07-10",
+                    "--run-revision-id",
+                    "run-revision-example",
                 "--detail",
                 "full",
                 "--audit-top",
@@ -589,8 +603,6 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 ".cache/opportunity/2026-07-10",
                 "--ticker",
                 "1234",
-                "--output-dir",
-                "records/03-thesis/2026/07",
             ],
         ),
         (

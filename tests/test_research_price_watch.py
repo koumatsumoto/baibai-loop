@@ -25,6 +25,7 @@ from baibai_engine.research.decision_packet import (
     load_decision_packet,
     load_independent_review,
 )
+from baibai_engine.research.importer import import_research_records
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -178,10 +179,16 @@ def _run(
     asof: date = ASOF,
 ) -> tuple[int, dict[str, Any], str]:
     market = sqlite_path or tmp_path / "market.sqlite"
+    source = packets_root or _packet_root(tmp_path)
+    db_path = tmp_path / "app.sqlite"
+    if source.is_dir():
+        import_research_records(source, tmp_path / "no-position-records", db_path=db_path)
+    else:
+        db_path = tmp_path / "missing-app.sqlite"
     exit_code = main(
         [
-            "--packets-root",
-            str(packets_root or _packet_root(tmp_path)),
+            "--db",
+            str(db_path),
             "--ledger",
             str(ledger),
             "--sqlite-path",
@@ -199,7 +206,7 @@ def test_cli_contract_has_only_explicit_inputs() -> None:
     help_text = build_parser().format_help()
 
     assert all(
-        option in help_text for option in ("--packets-root", "--ledger", "--sqlite-path", "--asof")
+        option in help_text for option in ("--db", "--ledger", "--sqlite-path", "--asof")
     )
     assert "--write" not in help_text
 
@@ -334,16 +341,17 @@ def test_latest_packet_selection_uses_asof_not_path_or_mtime() -> None:
     assert selected["2331"].document.judgment.recommendation == "defer"
 
 
-def test_same_ticker_same_asof_is_a_hard_conflict() -> None:
+def test_same_ticker_same_asof_selects_latest_publication() -> None:
     document = load_decision_packet(PACKET)
 
-    with pytest.raises(ResearchPriceWatchError, match="conflicting latest decision packets"):
-        _select_latest_packets(
-            [
-                _PacketCandidate(Path("first.yaml"), document),
-                _PacketCandidate(Path("second.yaml"), document),
-            ]
-        )
+    selected = _select_latest_packets(
+        [
+            _PacketCandidate("packet-first", document),
+            _PacketCandidate("packet-second", document),
+        ]
+    )
+
+    assert selected["2331"].packet_id == "packet-second"
 
 
 def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
@@ -558,8 +566,7 @@ def test_adjustment_factor_one_uses_a_narrow_float_tolerance(
 def test_future_packet_is_rejected_before_market_evaluation(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    future_asof = date(2026, 7, 4)
-    packet_root = _packet_root(tmp_path, packet_asof=future_asof)
+    packet_root = _packet_root(tmp_path)
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path)
 
@@ -568,6 +575,7 @@ def test_future_packet_is_rejected_before_market_evaluation(
         capsys,
         packets_root=packet_root,
         sqlite_path=sqlite_path,
+        asof=date(2026, 7, 2),
     )
 
     assert exit_code == 2
@@ -618,7 +626,7 @@ def test_tiny_positive_close_is_an_unresolved_row_without_traceback(
     assert row["unresolved_reason"] == "fv_gap_calculation_unresolved"
 
 
-def test_misnamed_packet_is_rejected_as_not_canonical(
+def test_imported_packet_identity_does_not_depend_on_legacy_filename(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     packet_root = _packet_root(tmp_path)
@@ -634,13 +642,12 @@ def test_misnamed_packet_is_rejected_as_not_canonical(
         sqlite_path=sqlite_path,
     )
 
-    assert exit_code == 2
-    assert payload == {}
-    assert "not in canonical YYYY/MM layout" in stderr
-    assert "Traceback" not in stderr
+    assert exit_code == 0
+    assert payload["coverage"]["packet_tickers"] == ["2331"]
+    assert stderr == ""
 
 
-def test_reject_packet_without_canonical_review_ref_is_not_promoted(
+def test_reject_packet_is_bound_by_db_revision_not_legacy_review_ref(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     packet_root = _packet_root(
@@ -658,10 +665,10 @@ def test_reject_packet_without_canonical_review_ref_is_not_promoted(
         sqlite_path=sqlite_path,
     )
 
-    assert exit_code == 2
-    assert payload == {}
-    assert "does not reference its canonical promoted review" in stderr
-    assert "Traceback" not in stderr
+    assert exit_code == 0
+    assert payload["rows"] == []
+    assert payload["coverage"]["excluded_latest_reject_tickers"] == ["2331"]
+    assert stderr == ""
 
 
 def test_successful_run_is_byte_for_byte_read_only(
@@ -707,5 +714,5 @@ def test_error_has_no_stdout_or_traceback(
 
     assert exit_code == 2
     assert payload == {}
-    assert stderr.startswith("error: packets root is not a directory")
+    assert stderr.startswith("error: application database does not exist")
     assert "Traceback" not in stderr

@@ -14,12 +14,12 @@ class ResearchRevision:
     company_name: str
     sector: str
     as_of: date
-    packet_path: str
+    packet_id: str
     recommendation: str
     confidence: str | None
     current_fair_value_yen: float | None
     model_version: str | None
-    review_path: str | None
+    review_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +38,19 @@ class PacketDetail:
     permanent_loss_conclusion: str | None
     strongest_countercase: str | None
     sizing_action: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class HoldingReviewSummary:
+    """Summary of one published holding-review revision."""
+
+    holding_review_id: str
+    ticker: str
+    as_of: date
+    packet_id: str
+    candidate_packet_id: str | None
+    action: str
+    note: str | None
 
 
 @dataclass(frozen=True, slots=True)

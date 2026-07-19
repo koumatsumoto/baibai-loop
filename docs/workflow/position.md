@@ -75,7 +75,7 @@ input:
 
 最初に`market-price-draft`で指定した最新完全営業日のJ-Quants raw closeを全open holdingについて取得する。1銘柄でも同日raw close、calendar coverage、current SQLite schemaが欠ければ停止し、`adjustment_close`へ代替しない。commandはcanonical ledgerを変更せず、source hashと観測row fingerprintに束縛した新規draftだけを作る。人間が全ticker、日付、raw basis、差分を確認した後だけcanonical ledgerへcopyする。
 
-次に`holding-prepare`でcanonical ledgerの対象open holdingを1銘柄固定workspaceへ接続し、packet/reviewを更新する。`holding-review-build`はpacketの隣接independent reviewを読み、ledgerとcurrent packetからload-bearing scalarを生成する。価格日はledger event時刻ではなく、holdingの最新完全営業日market-price observationとpacketのraw/unadjusted closeを照合する。source値を手入力で変更しない。生成後に`holding-review --root . --input ...`でsource hashとscalar再構築を検証し、人間確認後だけcanonicalへcopyしてvalidationを通す。
+次に`holding-prepare`でcanonical ledgerの対象open holdingを1銘柄固定workspaceへ接続し、packet/reviewを更新する。`holding-review-build`はworkspaceのready packet/reviewを読み、ledgerとcurrent packetからload-bearing scalarを生成する。価格日はledger event時刻ではなく、holdingの最新完全営業日market-price observationとpacketのraw/unadjusted closeを照合する。source値を手入力で変更しない。生成後に`holding-review --root . --input ...`でsource hashとscalar再構築を検証し、人間確認後だけ`holding-review publish ... --packet-id PACKET_ID`でimmutable revisionを保存する。
 
 ## Holding action
 

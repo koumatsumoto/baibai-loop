@@ -23,12 +23,12 @@ from baibai_app.readmodel.models import DashboardView, MacroView, ScreeningView,
 from baibai_app.sources.db_sources import (
     DbCandidatesSource,
     DbMacroSource,
+    DbResearchSource,
     DbTaskSource,
     load_macro_dashboard_config,
 )
 from baibai_app.sources.yaml_sources import (
     YamlLedgerSource,
-    YamlResearchSource,
 )
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -37,7 +37,7 @@ _JST = ZoneInfo("Asia/Tokyo")
 @dataclass(frozen=True, slots=True)
 class _Sources:
     ledger: YamlLedgerSource
-    research: YamlResearchSource
+    research: DbResearchSource
     tasks: DbTaskSource
     candidates: DbCandidatesSource
     macro: DbMacroSource
@@ -130,7 +130,7 @@ def _build_sources(request: Request) -> _Sources:
     root: Path = request.app.state.root
     return _Sources(
         ledger=YamlLedgerSource(root),
-        research=YamlResearchSource(root),
+        research=DbResearchSource(root / "data/app/baibai.sqlite"),
         tasks=DbTaskSource(root / "data/app/baibai.sqlite"),
         candidates=DbCandidatesSource(
             root / "data/screening/runs.sqlite",

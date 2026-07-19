@@ -57,7 +57,7 @@ dirty worktreeの所有不明、public command不明、入力矛盾では停止�
 
 ## 記録境界
 
-候補抽出では`screening run`の`run_revision_id`を`select --run-revision-id`へ渡し、review後の採否・理由をsource `selection_id`へ束縛したdraftとして`screening shortlist publish`する。machine recommendationをreview済みshortlistとして扱わない。promote済みpacket/reviewはcanonical IDを参照し、同じ内容を複製しない。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
+候補抽出では`screening run`の`run_revision_id`を`select --run-revision-id`へ渡し、review後の採否・理由をsource `selection_id`へ束縛したdraftとして`screening shortlist publish`する。machine recommendationをreview済みshortlistとして扱わない。promote済みpacket/reviewはcanonical IDを参照し、同じ内容を複製しない。holding reviewはdraftの検証と人間確認が済んだ後だけ`holding-review publish ... --packet-id`で保存する。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
 
 ## 完了
 

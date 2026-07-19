@@ -10,7 +10,7 @@ last_reviewed: 2026-07-15
 
 ## Purpose and activation
 
-Decision packetは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。公開schemaは`records/_schemas/decision-packet.json`と`decision-review.json`、実装は`src/baibai_engine/research/decision_packet.py`である。canonical pathは`records/03-thesis/YYYY/MM/YYYY-MM-DD-<ticker>-decision.yaml`、reviewはpacketの`independent_review_ref`が指す隣接YAMLとする。
+Decision packetは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。機械契約は`src/baibai_engine/research/decision_packet.py`、canonical revisionはapplication DBの`packet_id`で識別する。独立reviewは同じpublish transactionで`review_id`を得て、DBの外部キーで対象packet revisionへ束縛される。
 
 decision packetは新規の購入判断と保有見直しの判断根拠を固定する。既存保有に判断根拠が必要になった場合は、その時点の一次情報と現値からpacketを作成する。
 

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import argparse
 import math
-import re
 import sqlite3
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, DecimalException
 from pathlib import Path
 from typing import cast
@@ -29,30 +28,28 @@ from baibai_engine.position.ledger import (
     replay_events_through,
     reservation_snapshots,
 )
+from baibai_engine.read_api import (
+    list_research_packet_publications,
+    list_research_review_publications,
+)
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
-    DecisionPacketError,
     IndependentReview,
     evaluate_decision_packet,
-    load_decision_packet,
-    load_independent_review,
 )
 
 _GAP_QUANTUM = Decimal("0.000001")
 _ADJUSTMENT_FACTOR_ABS_TOLERANCE = 1e-12
-_CANONICAL_PACKET_NAME = re.compile(
-    r"^(?P<as_of>\d{4}-\d{2}-\d{2})-(?P<ticker>[0-9A-Z]{4})-decision\.yaml$"
-)
-
-
 class ResearchPriceWatchError(ValueError):
     """Raised when the watch cannot be produced without inventing facts."""
 
 
 @dataclass(frozen=True, slots=True)
 class _PacketCandidate:
-    path: Path
+    packet_id: str | Path
     document: DecisionPacketDocument
+    published_at: datetime = datetime.min.replace(tzinfo=UTC)
+    review: IndependentReview | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
             "This command never proposes an order or updates canonical records."
         ),
     )
-    parser.add_argument("--packets-root", type=Path, required=True)
+    parser.add_argument("--db", type=Path, default=Path("data/app/baibai.sqlite"))
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--sqlite-path", type=Path, required=True)
     parser.add_argument("--asof", type=_date_argument, required=True)
@@ -95,13 +92,12 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         payload = build_watch(
-            packets_root=args.packets_root,
+            app_db_path=args.db,
             ledger_path=args.ledger,
             sqlite_path=args.sqlite_path,
             asof=args.asof,
         )
     except (
-        DecisionPacketError,
         PortfolioLedgerError,
         ResearchPriceWatchError,
         SQLiteSchemaError,
@@ -116,12 +112,12 @@ def main(argv: list[str] | None = None) -> int:
 
 def build_watch(
     *,
-    packets_root: Path,
+    app_db_path: Path,
     ledger_path: Path,
     sqlite_path: Path,
     asof: date,
 ) -> dict[str, object]:
-    latest = _load_latest_promoted_packets(packets_root, asof=asof)
+    latest = _load_latest_promoted_packets(app_db_path, asof=asof)
     watched = {
         ticker: candidate
         for ticker, candidate in latest.items()
@@ -190,33 +186,53 @@ def build_watch(
 
 
 def _load_latest_promoted_packets(
-    packets_root: Path,
+    app_db_path: Path,
     *,
     asof: date,
 ) -> dict[str, _PacketCandidate]:
-    if not packets_root.is_dir():
-        raise ResearchPriceWatchError(f"packets root is not a directory: {packets_root}")
+    if not app_db_path.is_file():
+        raise ResearchPriceWatchError(f"application database does not exist: {app_db_path}")
+    reviews_by_packet: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for publication in list_research_review_publications(app_db_path):
+        reviews_by_packet[str(publication["packet_id"])].append(publication)
     candidates: list[_PacketCandidate] = []
-    for path in sorted(packets_root.rglob("*-decision.yaml")):
-        document = load_decision_packet(path)
-        _validate_canonical_packet_identity(
-            packets_root=packets_root,
-            path=path,
-            document=document,
-        )
+    for publication in list_research_packet_publications(app_db_path):
+        packet_id = str(publication["packet_id"])
+        packet_payload = publication["payload"]
+        if not isinstance(packet_payload, dict):
+            raise ResearchPriceWatchError(f"packet payload is invalid: {packet_id}")
+        document = DecisionPacketDocument.model_validate(packet_payload)
         if document.input_snapshot.as_of > asof:
             raise ResearchPriceWatchError(
-                f"future decision packet is not allowed: {path} "
+                f"future decision packet is not allowed: {packet_id} "
                 f"({document.input_snapshot.as_of.isoformat()} > {asof.isoformat()})"
             )
-        candidates.append(_PacketCandidate(path=path, document=document))
+        review_publications = reviews_by_packet.get(packet_id, [])
+        if not review_publications:
+            raise ResearchPriceWatchError(
+                f"promoted decision packet requires an independent review: {packet_id}"
+            )
+        review_payload = review_publications[0]["payload"]
+        if not isinstance(review_payload, dict):
+            raise ResearchPriceWatchError(f"review payload is invalid: {packet_id}")
+        candidates.append(
+            _PacketCandidate(
+                packet_id=packet_id,
+                published_at=datetime.fromisoformat(str(publication["published_at"])),
+                document=document,
+                review=IndependentReview.model_validate(review_payload),
+            )
+        )
     latest = _select_latest_packets(candidates)
     for ticker, candidate in latest.items():
-        review = _load_adjacent_review(candidate)
+        if candidate.review is None:  # pragma: no cover - loader invariant
+            raise ResearchPriceWatchError(
+                f"promoted decision packet requires an independent review: {candidate.packet_id}"
+            )
         result = evaluate_decision_packet(
             candidate.document,
-            review=review,
-            now=_historical_integrity_evaluated_at(candidate.document, review),
+            review=candidate.review,
+            now=_historical_integrity_evaluated_at(candidate.document, candidate.review),
         )
         if result.errors or result.decision_readiness != "ready":
             details = "; ".join(result.errors) or result.packet_status
@@ -224,38 +240,6 @@ def _load_latest_promoted_packets(
                 f"latest decision packet for {ticker} is not ready: {details}"
             )
     return latest
-
-
-def _validate_canonical_packet_identity(
-    *,
-    packets_root: Path,
-    path: Path,
-    document: DecisionPacketDocument,
-) -> None:
-    """Keep draft or copied packets out of the promoted-research universe."""
-    if path.is_symlink() or not path.is_file():
-        raise ResearchPriceWatchError(f"decision packet must be a regular file: {path}")
-    root = packets_root.resolve()
-    resolved = path.resolve()
-    try:
-        relative = resolved.relative_to(root)
-    except ValueError as error:
-        raise ResearchPriceWatchError(f"decision packet escapes packets root: {path}") from error
-    match = _CANONICAL_PACKET_NAME.fullmatch(relative.name)
-    if match is None or len(relative.parts) != 3:
-        raise ResearchPriceWatchError(f"decision packet is not in canonical YYYY/MM layout: {path}")
-    packet_asof = document.input_snapshot.as_of.isoformat()
-    ticker = document.input_snapshot.ticker
-    expected = Path(packet_asof[:4]) / packet_asof[5:7] / f"{packet_asof}-{ticker}-decision.yaml"
-    if relative != expected:
-        raise ResearchPriceWatchError(
-            f"decision packet canonical identity does not match its contents: {path}"
-        )
-    expected_review = f"{packet_asof}-{ticker}-decision-review.yaml"
-    if document.independent_review_ref != expected_review:
-        raise ResearchPriceWatchError(
-            f"decision packet does not reference its canonical promoted review: {path}"
-        )
 
 
 def _historical_integrity_evaluated_at(
@@ -277,34 +261,15 @@ def _select_latest_packets(
         by_ticker[candidate.document.input_snapshot.ticker].append(candidate)
     selected: dict[str, _PacketCandidate] = {}
     for ticker, ticker_candidates in by_ticker.items():
-        latest_asof = max(item.document.input_snapshot.as_of for item in ticker_candidates)
-        newest = [
-            item for item in ticker_candidates if item.document.input_snapshot.as_of == latest_asof
-        ]
-        if len(newest) != 1:
-            paths = ", ".join(str(item.path) for item in newest)
-            raise ResearchPriceWatchError(
-                f"conflicting latest decision packets for {ticker} at "
-                f"{latest_asof.isoformat()}: {paths}"
-            )
-        selected[ticker] = newest[0]
+        selected[ticker] = max(
+            ticker_candidates,
+            key=lambda item: (
+                item.document.input_snapshot.as_of,
+                item.published_at,
+                item.packet_id,
+            ),
+        )
     return selected
-
-
-def _load_adjacent_review(candidate: _PacketCandidate) -> IndependentReview:
-    review_ref = candidate.document.independent_review_ref
-    if review_ref is None:
-        raise ResearchPriceWatchError("promoted decision packet requires an independent review")
-    ref = Path(review_ref)
-    if ref.is_absolute() or ref.name != review_ref:
-        raise ResearchPriceWatchError("independent_review_ref must stay beside the packet")
-    unresolved_path = candidate.path.parent / ref
-    if unresolved_path.is_symlink() or not unresolved_path.is_file():
-        raise ResearchPriceWatchError("independent review must be a regular adjacent file")
-    review_path = unresolved_path.resolve()
-    if review_path.parent != candidate.path.parent.resolve():
-        raise ResearchPriceWatchError("independent_review_ref must stay beside the packet")
-    return load_independent_review(review_path)
 
 
 def _reservation_history(

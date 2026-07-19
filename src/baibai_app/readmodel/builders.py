@@ -24,6 +24,7 @@ from baibai_engine.read_api import (
 from .models import (
     CandidateRowView,
     DashboardView,
+    HoldingReviewView,
     HoldingView,
     MachineSelectionView,
     MacroContextRevisionView,
@@ -305,7 +306,7 @@ def build_security_detail(
         else None
     )
     latest_packet = (
-        _packet_detail_view(research.packet_detail(latest_revision.packet_path))
+        _packet_detail_view(research.packet_detail(latest_revision.packet_id))
         if latest_revision is not None
         else None
     )
@@ -332,6 +333,17 @@ def build_security_detail(
         holding=holding,
         revisions=[_research_revision_view(item) for item in revisions],
         latest_packet=latest_packet,
+        holding_reviews=[
+            HoldingReviewView(
+                holding_review_id=item.holding_review_id,
+                as_of=item.as_of,
+                packet_id=item.packet_id,
+                candidate_packet_id=item.candidate_packet_id,
+                action=item.action,
+                note=item.note,
+            )
+            for item in research.holding_reviews(ticker=ticker)
+        ],
         candidate_row=candidate_row,
         candidate_run=_screening_run_view(run) if run is not None else None,
     )
@@ -490,7 +502,7 @@ def _holding_view(
         unrealized_pnl_pct=_percentage(pnl, holding.deployed_cost_yen, digits=2),
         fair_value_yen=fair_value,
         fv_gap_pct=fv_gap,
-        latest_packet_path=revision.packet_path if revision is not None else None,
+        latest_packet_id=revision.packet_id if revision is not None else None,
         recommendation=revision.recommendation if revision is not None else None,
     )
 
@@ -578,12 +590,12 @@ def _candidate_row_view(
 def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:
     return ResearchRevisionView(
         as_of=revision.as_of,
-        packet_path=revision.packet_path,
+        packet_id=revision.packet_id,
         recommendation=revision.recommendation,
         confidence=revision.confidence,
         current_fair_value_yen=revision.current_fair_value_yen,
         model_version=revision.model_version,
-        review_path=revision.review_path,
+        review_id=revision.review_id,
     )
 
 

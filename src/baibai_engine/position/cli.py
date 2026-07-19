@@ -34,6 +34,7 @@ from baibai_engine.market.sqlite import (
 )
 from baibai_engine.market.store import read_daily_bars_for_tickers, read_market_calendar
 from baibai_engine.position.holding_review import (
+    HoldingReviewDocument,
     HoldingReviewError,
     evaluate_holding_review,
     load_holding_review,
@@ -138,10 +139,20 @@ def build_parser() -> argparse.ArgumentParser:
     holding_review_parser.add_argument(
         "--input",
         type=Path,
-        required=True,
         help="holding review draft YAML path",
     )
+    holding_review_parser.add_argument(
+        "operation",
+        nargs="?",
+        choices=("publish",),
+        help="publish a human-confirmed draft to the application DB",
+    )
+    holding_review_parser.add_argument("draft", nargs="?", type=Path)
     holding_review_parser.add_argument("--root", type=Path, default=Path.cwd())
+    holding_review_parser.add_argument("--db", type=Path)
+    holding_review_parser.add_argument("--holding-review-id")
+    holding_review_parser.add_argument("--packet-id")
+    holding_review_parser.add_argument("--candidate-packet-id")
     holding_build_parser = subparsers.add_parser(
         "holding-review-build",
         help="build a holding review draft from a ready packet, its review, and the ledger",
@@ -192,6 +203,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         ledger_path = args.ledger if args.ledger.is_absolute() else args.root / args.ledger
         return _run_ledger(ledger_path)
     if args.command == "holding-review":
+        if args.operation == "publish":
+            if args.draft is None or args.packet_id is None:
+                print(
+                    "error: holding-review publish requires <draft> and --packet-id",
+                    file=sys.stderr,
+                )
+                return 2
+            return _run_holding_review_publish(args)
+        if args.input is None:
+            print("error: holding-review validation requires --input", file=sys.stderr)
+            return 2
         input_path = args.input if args.input.is_absolute() else args.root / args.input
         return _run_holding_review(input_path, root=args.root)
     if args.command == "holding-review-build":
@@ -404,6 +426,42 @@ def _run_holding_review(path: Path, *, root: Path) -> int:
     for finding in result.errors:
         print(f"error: {finding}", file=sys.stderr)
     return 2 if result.errors else 0
+
+
+def _run_holding_review_publish(args: argparse.Namespace) -> int:
+    from baibai_engine.foundation.yaml_io import safe_load
+    from baibai_engine.research.store import ResearchStoreService, ResearchValidationError
+
+    draft_path = args.draft if args.draft.is_absolute() else args.root / args.draft
+    try:
+        raw = safe_load(draft_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ResearchValidationError("holding review draft must be a mapping")
+        document = HoldingReviewDocument.model_validate(raw)
+        holding_review_id = args.holding_review_id or (
+            f"holding-review-{document.as_of:%Y%m%d}-{document.ticker}-{document.position_id}"
+        )
+        ResearchStoreService(args.db).publish_holding_review(
+            holding_review_id,
+            args.packet_id,
+            raw,
+            root=args.root,
+            candidate_packet_id=args.candidate_packet_id,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    yaml.safe_dump(
+        {
+            "holding_review_id": holding_review_id,
+            "packet_id": args.packet_id,
+            "candidate_packet_id": args.candidate_packet_id,
+        },
+        sys.stdout,
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    return 0
 
 
 def _run_holding_review_build(

@@ -6,6 +6,7 @@ from typing import Protocol
 
 from baibai_app.sources.types import (
     CandidatesRun,
+    HoldingReviewSummary,
     PacketDetail,
     ResearchRevision,
     TaskRecord,
@@ -22,7 +23,9 @@ class LedgerSource(Protocol):
 class ResearchSource(Protocol):
     def revisions(self) -> list[ResearchRevision]: ...
 
-    def packet_detail(self, packet_path: str) -> PacketDetail: ...
+    def packet_detail(self, packet_id: str) -> PacketDetail: ...
+
+    def holding_reviews(self, *, ticker: str | None = None) -> list[HoldingReviewSummary]: ...
 
     def load_errors(self) -> list[str]: ...
 

@@ -20,7 +20,7 @@ class HoldingView(BaseModel):
     unrealized_pnl_pct: float
     fair_value_yen: float | None
     fv_gap_pct: float | None
-    latest_packet_path: str | None
+    latest_packet_id: str | None
     recommendation: str | None
 
 
@@ -157,12 +157,12 @@ class ReviewedShortlistView(BaseModel):
 
 class ResearchRevisionView(BaseModel):
     as_of: date
-    packet_path: str
+    packet_id: str
     recommendation: str
     confidence: str | None
     current_fair_value_yen: float | None
     model_version: str | None
-    review_path: str | None
+    review_id: str | None
 
 
 class ScenarioView(BaseModel):
@@ -181,6 +181,15 @@ class PacketDetailView(BaseModel):
     sizing_action: str | None
 
 
+class HoldingReviewView(BaseModel):
+    holding_review_id: str
+    as_of: date
+    packet_id: str
+    candidate_packet_id: str | None
+    action: str
+    note: str | None
+
+
 class SecurityDetailView(BaseModel):
     ticker: str
     company_name: str | None
@@ -188,6 +197,7 @@ class SecurityDetailView(BaseModel):
     holding: HoldingView | None
     revisions: list[ResearchRevisionView]
     latest_packet: PacketDetailView | None
+    holding_reviews: list[HoldingReviewView]
     candidate_row: CandidateRowView | None
     candidate_run: ScreeningRunView | None
 

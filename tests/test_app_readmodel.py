@@ -48,8 +48,8 @@ class StubResearch:
     def revisions(self):
         return list(self._revisions)
 
-    def packet_detail(self, packet_path: str):
-        revision = next(item for item in self._revisions if item.packet_path == packet_path)
+    def packet_detail(self, packet_id: str):
+        revision = next(item for item in self._revisions if item.packet_id == packet_id)
         return PacketDetail(
             revision=revision,
             entry_price_basis_yen=10.0,
@@ -62,6 +62,9 @@ class StubResearch:
         )
 
     def load_errors(self):
+        return []
+
+    def holding_reviews(self, *, ticker: str | None = None):
         return []
 
 
@@ -127,12 +130,12 @@ def _revision() -> ResearchRevision:
         company_name="ウイングアーク１ｓｔ",
         sector="情報・通信業",
         as_of=date(2026, 7, 14),
-        packet_path="records/03-thesis/2026/07/2026-07-14-4432-decision.yaml",
+        packet_id="records/03-thesis/2026/07/2026-07-14-4432-decision.yaml",
         recommendation="buy",
         confidence="medium",
         current_fair_value_yen=12.0,
         model_version="decision-packet-v2",
-        review_path=None,
+        review_id=None,
     )
 
 
@@ -183,7 +186,7 @@ def test_dashboard_keeps_fv_fields_empty_without_packet() -> None:
     assert holding.company_name == "ウイングアーク１ｓｔ"
     assert holding.fair_value_yen is None
     assert holding.fv_gap_pct is None
-    assert holding.latest_packet_path is None
+    assert holding.latest_packet_id is None
 
 
 def test_dashboard_returns_task_data_when_ledger_is_absent_or_invalid() -> None:

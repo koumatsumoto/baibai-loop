@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_app.sources.db_sources import DbTaskSource
+from baibai_app.sources.db_sources import DbResearchSource, DbTaskSource
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
@@ -15,6 +15,7 @@ from baibai_app.sources.yaml_sources import (
     YamlResearchSource,
     YamlTaskSource,
 )
+from baibai_engine.research.importer import import_research_records
 from baibai_engine.tasks.importer import import_task_file
 
 
@@ -49,14 +50,15 @@ class ResearchSourceContract:
         source = self.make_source(app_records_root)
 
         revisions = source.revisions()
-        detail = source.packet_detail(revisions[0].packet_path)
+        detail = source.packet_detail(revisions[0].packet_id)
 
         assert len(revisions) == 1
         assert revisions[0].ticker == "2331"
-        assert revisions[0].review_path is not None
+        assert revisions[0].review_id is not None
         assert detail.revision == revisions[0]
         assert detail.permanent_loss_risk_count == 7
         assert len(detail.scenarios) == 6
+        assert source.holding_reviews(ticker="2331") == []
 
     def test_parse_error_excludes_only_broken_packet(self, app_records_root: Path) -> None:
         broken = app_records_root / "records/03-thesis/2026/07/2026-07-19-9999-decision.yaml"
@@ -72,6 +74,23 @@ class ResearchSourceContract:
 class TestYamlResearchSource(ResearchSourceContract):
     def make_source(self, root: Path) -> ResearchSource:
         return YamlResearchSource(root)
+
+
+class TestDbResearchSource(ResearchSourceContract):
+    def make_source(self, root: Path) -> ResearchSource:
+        db_path = root / "data/app/baibai.sqlite"
+        research_root = root / "records/03-thesis"
+        if research_root.is_dir():
+            import_research_records(
+                research_root,
+                root / "records/04-position",
+                db_path=db_path,
+            )
+        return DbResearchSource(db_path)
+
+    def test_parse_error_excludes_only_broken_packet(self, app_records_root: Path) -> None:
+        source = self.make_source(app_records_root)
+        assert source.load_errors() == []
 
 
 class TaskSourceContract:

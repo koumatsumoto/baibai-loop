@@ -150,7 +150,7 @@ HTML生成前に、report compilerと別roleが軽量なfindings / comparison / 
 | `defer` | load-bearing fact/corporate action/price basis未解決 | dated taskまたはsource待ち |
 | `no actionable bargain` | viable候補0件 | 正常終了、packetなし |
 
-promotionはpacket/review/hash/schema/pathが一致するときだけ行う。test fixtureのcopy、旧thesis Markdown、旧position Markdownへ書かない。
+promotionはpacket/review/hash/application contractが一致するときだけ行い、同じtransactionでimmutable `packet_id` / `review_id`をpublishする。test fixtureのcopyやephemeral draftをcanonical dataとして扱わない。
 
 ## Failure / stop conditions
 
@@ -164,8 +164,8 @@ promotionはpacket/review/hash/schema/pathが一致するときだけ行う。te
 ## Validation
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research evaluate records/03-thesis/YYYY/MM/YYYY-MM-DD-XXXX-decision.yaml
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine validate --target decision-packet
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research evaluate .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX
 ```
 
 ## Related

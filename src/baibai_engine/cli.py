@@ -80,6 +80,18 @@ def _db_main(argv: list[str]) -> int:
         type=Path,
         default=Path("records/02-candidates"),
     )
+    import_research = subparsers.add_parser("import-research")
+    import_research.add_argument("--db", type=Path)
+    import_research.add_argument(
+        "--research-source",
+        type=Path,
+        default=Path("records/03-thesis"),
+    )
+    import_research.add_argument(
+        "--position-source",
+        type=Path,
+        default=Path("records/04-position"),
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
@@ -119,6 +131,30 @@ def _db_main(argv: list[str]) -> int:
                         "source": str(args.source),
                         "inserted": inserted,
                         "unchanged": unchanged,
+                    },
+                    sort_keys=False,
+                )
+            )
+            return 0
+        if args.command == "import-research":
+            from baibai_engine.research.importer import import_research_records
+
+            result = import_research_records(
+                args.research_source,
+                args.position_source,
+                db_path=args.db,
+            )
+            print(
+                yaml.safe_dump(
+                    {
+                        "research_source": str(args.research_source),
+                        "position_source": str(args.position_source),
+                        "packets_inserted": result.packets_inserted,
+                        "packets_unchanged": result.packets_unchanged,
+                        "reviews_inserted": result.reviews_inserted,
+                        "reviews_unchanged": result.reviews_unchanged,
+                        "holding_reviews_inserted": result.holding_reviews_inserted,
+                        "holding_reviews_unchanged": result.holding_reviews_unchanged,
                     },
                     sort_keys=False,
                 )

@@ -101,11 +101,13 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--force", action="store_true")
 
     promote_parser = subparsers.add_parser(
-        "promote", help="persist the canonical packet/review when ready (only writer of records)"
+        "promote", help="publish the canonical packet/review to the application DB"
     )
     promote_parser.add_argument("--workspace", required=True, type=Path)
     promote_parser.add_argument("--ticker", required=True)
-    promote_parser.add_argument("--output-dir", required=True, type=Path)
+    promote_parser.add_argument("--db", type=Path)
+    promote_parser.add_argument("--packet-id")
+    promote_parser.add_argument("--supersedes-id")
 
     plan_parser = subparsers.add_parser(
         "plan-limit", help="derive a planning-only limit/defer from the previous-day raw close"
@@ -186,13 +188,15 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 promoted = promote(
                     workspace=args.workspace,
                     ticker=args.ticker,
-                    output_dir=args.output_dir,
+                    db_path=args.db,
+                    packet_id=args.packet_id,
+                    supersedes_id=args.supersedes_id,
                     now=resolved_now,
                 )
                 _emit(
                     {
-                        "packet": str(promoted.packet_path),
-                        "review": str(promoted.review_path),
+                        "packet_id": promoted.packet_id,
+                        "review_id": promoted.review_id,
                         "packet_sha256": promoted.packet_sha256,
                     },
                     out,

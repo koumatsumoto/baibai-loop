@@ -2,24 +2,138 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from baibai_app.sources.types import CandidatesRun, MacroGroupConfig, MacroSeriesConfig, TaskRecord
+from baibai_app.sources.types import (
+    CandidatesRun,
+    HoldingReviewSummary,
+    MacroGroupConfig,
+    MacroSeriesConfig,
+    PacketDetail,
+    ResearchRevision,
+    ScenarioSummary,
+    TaskRecord,
+)
 from baibai_engine.read_api import (
     latest_macro_context_payload,
+    list_holding_review_publications,
     list_macro_context_payloads,
+    list_research_packet_publications,
+    list_research_review_publications,
     list_reviewed_shortlist_payloads,
     list_task_payloads,
     macro_indicator_series,
+    research_packet_publication,
     screening_run_payload,
     screening_run_payloads,
     screening_selection_payloads,
     task_store_exists,
 )
+
+
+class DbResearchSource:
+    def __init__(self, db_path: Path) -> None:
+        self._path = db_path.resolve()
+        self._load_errors: list[str] = []
+
+    def revisions(self) -> list[ResearchRevision]:
+        reviews = {
+            str(item["packet_id"]): str(item["review_id"])
+            for item in list_research_review_publications(self._path)
+        }
+        result: list[ResearchRevision] = []
+        errors: list[str] = []
+        for publication in list_research_packet_publications(self._path):
+            packet_id = str(publication["packet_id"])
+            try:
+                result.append(self._revision(publication, review_id=reviews.get(packet_id)))
+            except (KeyError, TypeError, ValueError):
+                errors.append(packet_id)
+        self._load_errors = errors
+        return result
+
+    def packet_detail(self, packet_id: str) -> PacketDetail:
+        publication = research_packet_publication(self._path, packet_id=packet_id)
+        if publication is None:
+            raise ValueError(f"unknown packet_id: {packet_id}")
+        reviews = list_research_review_publications(self._path, packet_id=packet_id)
+        revision = self._revision(
+            publication,
+            review_id=None if not reviews else str(reviews[0]["review_id"]),
+        )
+        payload = _mapping(publication["payload"], label="research packet")
+        estimates = _mapping(payload["estimates"], label="packet estimates")
+        judgment = _mapping(payload["judgment"], label="packet judgment")
+        risks = _mapping_list(payload["permanent_loss_risks"], label="permanent loss risks")
+        scenarios = _mapping_list(estimates["scenarios"], label="research scenarios")
+        return PacketDetail(
+            revision=revision,
+            entry_price_basis_yen=_optional_float(estimates.get("entry_price_basis_yen")),
+            required_5y_base_cagr_pct=_optional_float(
+                estimates.get("required_5y_base_cagr_pct")
+            ),
+            permanent_loss_risk_count=len(risks),
+            scenarios=tuple(
+                ScenarioSummary(
+                    name=str(item["name"]),
+                    horizon_years=int(str(item["horizon_years"])),
+                )
+                for item in scenarios
+            ),
+            permanent_loss_conclusion=_optional_text(
+                judgment.get("permanent_loss_conclusion")
+            ),
+            strongest_countercase=_optional_text(judgment.get("strongest_countercase")),
+            sizing_action=_optional_text(judgment.get("sizing_action")),
+        )
+
+    def holding_reviews(self, *, ticker: str | None = None) -> list[HoldingReviewSummary]:
+        result: list[HoldingReviewSummary] = []
+        for publication in list_holding_review_publications(self._path, ticker=ticker):
+            payload = _mapping(publication["payload"], label="holding review")
+            result.append(
+                HoldingReviewSummary(
+                    holding_review_id=str(publication["holding_review_id"]),
+                    ticker=str(publication["ticker"]),
+                    as_of=date.fromisoformat(str(publication["as_of"])),
+                    packet_id=str(publication["packet_id"]),
+                    candidate_packet_id=_optional_text(publication.get("candidate_packet_id")),
+                    action=str(payload["action"]),
+                    note=_optional_text(payload.get("note")),
+                )
+            )
+        return result
+
+    def load_errors(self) -> list[str]:
+        return list(self._load_errors)
+
+    @staticmethod
+    def _revision(
+        publication: dict[str, object],
+        *,
+        review_id: str | None,
+    ) -> ResearchRevision:
+        payload = _mapping(publication["payload"], label="research packet")
+        snapshot = _mapping(payload["input_snapshot"], label="packet input snapshot")
+        estimates = _mapping(payload["estimates"], label="packet estimates")
+        judgment = _mapping(payload["judgment"], label="packet judgment")
+        return ResearchRevision(
+            ticker=str(publication["ticker"]),
+            company_name=str(snapshot["company_name"]),
+            sector=str(snapshot["sector"]),
+            as_of=date.fromisoformat(str(publication["as_of"])),
+            packet_id=str(publication["packet_id"]),
+            recommendation=str(publication["recommendation"]),
+            confidence=_optional_text(judgment.get("confidence")),
+            current_fair_value_yen=_optional_float(estimates.get("current_fair_value_yen")),
+            model_version=_optional_text(estimates.get("model_version")),
+            review_id=review_id,
+        )
 
 
 class DbTaskSource:
@@ -159,3 +273,19 @@ def _optional_text(value: object) -> str | None:
 
 def _optional_date(value: object) -> date | None:
     return None if value is None else date.fromisoformat(str(value))
+
+
+def _optional_float(value: object) -> float | None:
+    return None if value is None else float(str(value))
+
+
+def _mapping(value: object, *, label: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} must be an object")
+    return value
+
+
+def _mapping_list(value: object, *, label: str) -> list[Mapping[str, object]]:
+    if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
+        raise ValueError(f"{label} must be an array of objects")
+    return list(value)

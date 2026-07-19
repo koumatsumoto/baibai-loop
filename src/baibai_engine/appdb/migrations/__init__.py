@@ -85,6 +85,49 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX reviewed_shortlist_selection_idx ON reviewed_shortlist(selection_id)",
         ),
     ),
+    Migration(
+        version=5,
+        statements=(
+            """
+            CREATE TABLE research_packet (
+                packet_id TEXT PRIMARY KEY,
+                ticker TEXT NOT NULL,
+                as_of TEXT NOT NULL,
+                recommendation TEXT NOT NULL,
+                published_at TEXT NOT NULL,
+                supersedes_id TEXT REFERENCES research_packet(packet_id),
+                payload TEXT NOT NULL CHECK (json_valid(payload)),
+                CHECK (supersedes_id IS NULL OR supersedes_id <> packet_id)
+            ) STRICT
+            """,
+            "CREATE INDEX research_packet_ticker_idx "
+            "ON research_packet(ticker, as_of, published_at, packet_id)",
+            """
+            CREATE TABLE research_review (
+                review_id TEXT PRIMARY KEY,
+                packet_id TEXT NOT NULL REFERENCES research_packet(packet_id),
+                reviewed_at TEXT NOT NULL,
+                payload TEXT NOT NULL CHECK (json_valid(payload))
+            ) STRICT
+            """,
+            "CREATE INDEX research_review_packet_idx "
+            "ON research_review(packet_id, reviewed_at, review_id)",
+            """
+            CREATE TABLE holding_review (
+                holding_review_id TEXT PRIMARY KEY,
+                ticker TEXT NOT NULL,
+                as_of TEXT NOT NULL,
+                packet_id TEXT NOT NULL REFERENCES research_packet(packet_id),
+                candidate_packet_id TEXT REFERENCES research_packet(packet_id),
+                payload TEXT NOT NULL CHECK (json_valid(payload)),
+                CHECK (candidate_packet_id IS NULL OR candidate_packet_id <> packet_id)
+            ) STRICT
+            """,
+            "CREATE INDEX holding_review_ticker_idx "
+            "ON holding_review(ticker, as_of, holding_review_id)",
+            "CREATE INDEX holding_review_packet_idx ON holding_review(packet_id)",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version

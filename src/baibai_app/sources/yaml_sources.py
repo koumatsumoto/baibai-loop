@@ -8,6 +8,7 @@ from pathlib import Path
 
 from baibai_app.sources.types import (
     CandidatesRun,
+    HoldingReviewSummary,
     PacketDetail,
     ResearchRevision,
     ScenarioSummary,
@@ -55,12 +56,12 @@ class YamlResearchSource:
                 revisions.append(self._revision(path))
             except (DecisionPacketError, ValueError):
                 errors.append(self._relative(path))
-        revisions.sort(key=lambda item: (item.as_of, item.packet_path), reverse=True)
+        revisions.sort(key=lambda item: (item.as_of, item.packet_id), reverse=True)
         self._load_errors = sorted(errors)
         return revisions
 
-    def packet_detail(self, packet_path: str) -> PacketDetail:
-        path = self._resolve_packet(packet_path)
+    def packet_detail(self, packet_id: str) -> PacketDetail:
+        path = self._resolve_packet(packet_id)
         packet = load_decision_packet(path)
         return PacketDetail(
             revision=self._revision(path),
@@ -76,6 +77,41 @@ class YamlResearchSource:
             sizing_action=packet.judgment.sizing_action,
         )
 
+    def holding_reviews(self, *, ticker: str | None = None) -> list[HoldingReviewSummary]:
+        records_root = self._root / "records/04-position"
+        reviews: list[HoldingReviewSummary] = []
+        for path in records_root.rglob("*-holding-review.yaml"):
+            raw = safe_load(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, Mapping):
+                raise ValueError("holding review root must be a mapping")
+            record_ticker = str(raw["ticker"])
+            if ticker is not None and record_ticker != ticker:
+                continue
+            sources = raw.get("sources")
+            if not isinstance(sources, Mapping):
+                raise ValueError("holding review sources must be a mapping")
+            holding_packet = sources.get("holding_packet")
+            candidate_packet = sources.get("candidate_packet")
+            if not isinstance(holding_packet, Mapping):
+                raise ValueError("holding review packet source must be a mapping")
+            reviews.append(
+                HoldingReviewSummary(
+                    holding_review_id=self._relative(path),
+                    ticker=record_ticker,
+                    as_of=date.fromisoformat(str(raw["as_of"])),
+                    packet_id=str(holding_packet["ref"]),
+                    candidate_packet_id=(
+                        str(candidate_packet["ref"])
+                        if isinstance(candidate_packet, Mapping)
+                        else None
+                    ),
+                    action=str(raw["action"]),
+                    note=_optional_text(raw.get("note")),
+                )
+            )
+        reviews.sort(key=lambda item: (item.as_of, item.holding_review_id), reverse=True)
+        return reviews
+
     def load_errors(self) -> list[str]:
         return list(self._load_errors)
 
@@ -88,12 +124,12 @@ class YamlResearchSource:
             company_name=packet.input_snapshot.company_name,
             sector=packet.input_snapshot.sector,
             as_of=packet.input_snapshot.as_of,
-            packet_path=self._relative(path),
+            packet_id=self._relative(path),
             recommendation=packet.judgment.recommendation,
             confidence=packet.judgment.confidence,
             current_fair_value_yen=float(packet.estimates.current_fair_value_yen),
             model_version=packet.estimates.model_version,
-            review_path=self._relative(review_path) if review_path.is_file() else None,
+            review_id=self._relative(review_path) if review_path.is_file() else None,
         )
 
     def _resolve_packet(self, packet_path: str) -> Path:
