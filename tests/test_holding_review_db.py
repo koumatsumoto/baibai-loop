@@ -88,9 +88,8 @@ def test_db_holding_review_build_and_publish_recheck_canonical_revisions(
         "holding-review-20260714-2331-db-r2",
         PACKET_ID,
         document.model_dump(mode="json"),
-        root=tmp_path,
     )
-    assert published.sources.ledger.append_head == LedgerStoreService(db).append_head()  # type: ignore[union-attr]
+    assert published.sources.ledger.append_head == LedgerStoreService(db).append_head()
 
     stale = build_holding_review_from_db(
         db_path=db,
@@ -116,7 +115,6 @@ def test_db_holding_review_build_and_publish_recheck_canonical_revisions(
             "holding-review-20260714-2331-stale",
             PACKET_ID,
             stale.model_dump(mode="json"),
-            root=tmp_path,
         )
 
     draft = tmp_path / "stale-holding-review.yaml"
