@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft202012Validator, FormatChecker
+from pydantic import ValidationError
 
-from baibai_engine.foundation.coerce import parse_datetime
 from baibai_engine.foundation.yaml_io import safe_load
-
-_SCHEMA_PATH = Path(__file__).resolve().parents[3] / "records" / "_schemas" / "macro-context.json"
+from baibai_engine.macro.models import MacroContextDocument
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,99 +49,21 @@ def load_macro_context(path: Path) -> MacroContext:
         raise ValueError(f"failed to load macro context: {path}: {exc}") from exc
     if not isinstance(payload, Mapping):
         raise ValueError(f"macro context YAML root must be a mapping: {path}")
-    _validate_runtime_contract(payload, path)
-    kind = payload.get("kind")
-    if kind != "macro-context":
-        raise ValueError(f"macro context kind must be macro-context: {path}")
-    if payload.get("schema_version") != 2:
-        raise ValueError(f"macro context schema_version must be 2: {path}")
-    context_id = _required_str(payload, "context_id", path)
-    as_of = _required_date(payload, "as_of", path)
-    valid_until = _required_date(payload, "valid_until", path)
-    if valid_until < as_of:
-        raise ValueError(f"macro context valid_until must not predate as_of: {path}")
-    _required_str(payload, "summary", path)
-    _required_mapping(payload, "inputs", path)
-    for key in (
-        "material_deltas",
-        "sizing_cautions",
-        "research_questions",
-        "refresh_triggers",
-        "changes_since_previous",
-    ):
-        _required_list(payload, key, path)
+    try:
+        document = MacroContextDocument.model_validate(payload)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        location = ".".join(str(part) for part in first["loc"]) or "root"
+        raise ValueError(
+            f"macro context schema invalid at {location}: {first['msg']}: {path}"
+        ) from exc
     return MacroContext(
-        context_id=context_id,
+        context_id=document.context_id,
         path=path,
-        as_of=as_of,
-        valid_until=valid_until,
-        payload=payload,
+        as_of=document.as_of,
+        valid_until=document.valid_until,
+        payload=document.payload(),
     )
-
-
-@lru_cache(maxsize=1)
-def _schema_validator() -> Draft202012Validator:
-    raw = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise RuntimeError(f"unexpected macro context schema: {_SCHEMA_PATH}")
-    return Draft202012Validator(raw, format_checker=FormatChecker())
-
-
-def _validate_runtime_contract(payload: Mapping[str, Any], path: Path) -> None:
-    errors = sorted(_schema_validator().iter_errors(payload), key=lambda error: list(error.path))
-    if errors:
-        error = errors[0]
-        location = ".".join(str(part) for part in error.absolute_path) or "root"
-        raise ValueError(f"macro context schema invalid at {location}: {error.message}: {path}")
-    if parse_datetime(payload.get("published_at")) is None:
-        raise ValueError(f"macro context published_at must be an ISO 8601 datetime: {path}")
-
-    inputs = payload.get("inputs")
-    if not isinstance(inputs, Mapping):
-        return
-    input_statuses: dict[str, str] = {}
-    for collection_name in ("articles", "indicator_series"):
-        collection = inputs.get(collection_name)
-        if not isinstance(collection, list):
-            continue
-        for item in collection:
-            if not isinstance(item, Mapping):
-                continue
-            input_id = item.get("input_id")
-            status = item.get("status")
-            if not isinstance(input_id, str) or not isinstance(status, str):
-                continue
-            if input_id in input_statuses:
-                raise ValueError(f"macro context input_id must be unique: {input_id}: {path}")
-            input_statuses[input_id] = status
-    for field in ("material_deltas", "sizing_cautions"):
-        entries = payload.get(field)
-        if not isinstance(entries, list):
-            continue
-        for index, entry in enumerate(entries):
-            if not isinstance(entry, Mapping):
-                continue
-            source_ids = entry.get("source_ids")
-            if not isinstance(source_ids, list):
-                continue
-            missing = sorted(
-                source_id
-                for source_id in source_ids
-                if isinstance(source_id, str) and source_id not in input_statuses
-            )
-            if missing:
-                raise ValueError(
-                    f"macro context {field}[{index}] references unknown input IDs: "
-                    f"{missing}: {path}"
-                )
-            if source_ids and all(
-                input_statuses.get(source_id) == "failed" for source_id in source_ids
-            ):
-                raise ValueError(
-                    f"macro context {field}[{index}] cannot rely only on failed inputs: {path}"
-                )
-    if not payload.get("material_deltas") and not payload.get("sizing_cautions"):
-        raise ValueError(f"macro context requires a material delta or sizing caution: {path}")
 
 
 def macro_context_diagnostics(

@@ -48,9 +48,16 @@ uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   
 
 データ層の品質は **運用テスト** で担保する。すべて失敗 0 件で通す：(1) 全 series スイープ（`list | get --latest`）で error / stale を 0、(2) 桁・単位の妥当性、(3) provider ストレス（rate-limit 系を 1 プロセスで refresh し 429 が出ないか）、(4) 派生計算の単位整合（net liquidity = FRB総資産 − RRP − TGA、単位換算を明示）、(5) alias 解決、(6) 決定論、(7) `uv run pytest` と `uv run baibai-engine validate`。
 
-## ② 環境認識：macro-context record を書く
+## ② 環境認識：macro-context revision を publish する
 
-市場局面についての、日付と出所の明確な環境認識を `records/01-macro-context/<YYYY>/<MM>/macro-context-<YYYY-MM-DD>-<slug>.yaml` に残す。schema は `records/_schemas/macro-context.json`（contract-of-record）、検証は `uv run baibai-engine validate --target macro-context`。
+市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。既存 head を読んで draft を作り、2件目以降は `--expected-head` にその ID を渡す。head が変わっていれば publish 全体が無変更で失敗する。
+
+```bash
+uv run baibai-engine macro context head
+uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
+  --expected-head macro-context-2026-07-01-example
+uv run baibai-engine macro context show --latest --asof 2026-07-19
+```
 
 主な field：
 
@@ -61,9 +68,9 @@ uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   
 - `sizing_cautions`：個別の投入額を決めないが、proposalで可視化する共通risk
 - `research_questions` / `refresh_triggers` / `changes_since_previous`
 
-**record は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。record には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
+**revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。revision には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
 
-**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context recordにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去のcontextとの連続性は、結論を確定させた後に`changes_since_previous`として事後的に接続する。
+**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context revisionにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去のcontextとの連続性は、結論を確定させた後に`changes_since_previous`として事後的に接続する。
 
 **更新のきっかけ**：macro-contextは定期的には生成せず、discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、または前回の`refresh_triggers`が発火したときだけ更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
 

@@ -64,3 +64,15 @@ class CandidatesRun:
     universe_size: int
     source_path: str
     rows: tuple[dict[str, object], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MacroSeriesConfig:
+    series_id: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class MacroGroupConfig:
+    title: str
+    series: tuple[MacroSeriesConfig, ...]

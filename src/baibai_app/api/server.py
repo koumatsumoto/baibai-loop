@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -13,16 +14,18 @@ from fastapi.staticfiles import StaticFiles
 
 from baibai_app.readmodel.builders import (
     build_dashboard,
+    build_macro,
     build_screening,
     build_security_detail,
 )
-from baibai_app.readmodel.models import DashboardView, ScreeningView, SecurityDetailView
-from baibai_app.sources.db_sources import DbTaskSource
+from baibai_app.readmodel.models import DashboardView, MacroView, ScreeningView, SecurityDetailView
+from baibai_app.sources.db_sources import DbMacroSource, DbTaskSource, load_macro_dashboard_config
 from baibai_app.sources.yaml_sources import (
     YamlCandidatesSource,
     YamlLedgerSource,
     YamlResearchSource,
 )
+from baibai_engine.foundation.time import JST
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,7 @@ class _Sources:
     research: YamlResearchSource
     tasks: DbTaskSource
     candidates: YamlCandidatesSource
+    macro: DbMacroSource
 
 
 def create_app(root: Path) -> FastAPI:
@@ -48,6 +52,9 @@ def create_app(root: Path) -> FastAPI:
         allowed_hosts=["127.0.0.1", "localhost"],
     )
     app.state.root = resolved_root
+    app.state.macro_groups = load_macro_dashboard_config(
+        resolved_root / "records/_config/macro-dashboard.yaml"
+    )
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -65,6 +72,13 @@ def create_app(root: Path) -> FastAPI:
     @app.get("/api/screening/latest", response_model=ScreeningView)
     def screening(sources: _SourceDependency) -> ScreeningView:
         return build_screening(sources.candidates, sources.ledger, sources.research)
+
+    @app.get("/api/macro", response_model=MacroView)
+    def macro(
+        sources: _SourceDependency,
+        as_of: date | None = None,
+    ) -> MacroView:
+        return build_macro(sources.macro, as_of=as_of or datetime.now(JST).date())
 
     @app.get("/api/securities/{ticker}", response_model=SecurityDetailView)
     def security_detail(
@@ -105,6 +119,11 @@ def _build_sources(request: Request) -> _Sources:
         research=YamlResearchSource(root),
         tasks=DbTaskSource(root / "data/app/baibai.sqlite"),
         candidates=YamlCandidatesSource(root),
+        macro=DbMacroSource(
+            root / "data/app/baibai.sqlite",
+            root / "data/indicators/macro.sqlite",
+            request.app.state.macro_groups,
+        ),
     )
 
 

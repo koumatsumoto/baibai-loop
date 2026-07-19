@@ -15,6 +15,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.research.decision_packet import DecisionPacketError, load_decision_packet
 
+from .macro import latest_macro_context_payload, macro_indicator_series
 from .tasks import list_task_payloads, task_store_exists
 
 __all__ = [
@@ -22,9 +23,11 @@ __all__ = [
     "HoldingSnapshot",
     "PortfolioLedgerError",
     "PortfolioSnapshot",
+    "latest_macro_context_payload",
     "list_task_payloads",
     "load_decision_packet",
     "load_portfolio_ledger",
+    "macro_indicator_series",
     "reconcile_portfolio",
     "safe_load",
     "task_store_exists",

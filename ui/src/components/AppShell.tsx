@@ -15,6 +15,7 @@ export function AppShell() {
           {[
             { to: '/', label: 'Dashboard', end: true },
             { to: '/screening', label: 'Screening', end: false },
+            { to: '/macro', label: 'Macro', end: false },
           ].map((item) => (
             <NavLink
               className={({ isActive }) => cn(

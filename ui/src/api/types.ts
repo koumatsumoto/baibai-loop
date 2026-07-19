@@ -147,3 +147,54 @@ export interface SecurityDetailView {
   candidate_row: CandidateRowView | null
   candidate_run: ScreeningRunView | null
 }
+
+export interface MacroMaterialDeltaView {
+  channel: string
+  direction: string
+  materiality: string
+  summary: string
+  used_for: string
+}
+
+export interface MacroSizingCautionView {
+  severity: string
+  summary: string
+}
+
+export interface MacroContextView {
+  context_id: string
+  as_of: string
+  valid_until: string
+  published_at: string
+  summary: string
+  stale: boolean
+  material_deltas: MacroMaterialDeltaView[]
+  sizing_cautions: MacroSizingCautionView[]
+  research_questions: string[]
+  refresh_triggers: string[]
+  changes_since_previous: string[]
+}
+
+export interface MacroPointView {
+  observed_at: string
+  value: number
+}
+
+export interface MacroSeriesView {
+  series_id: string
+  label: string
+  name: string
+  unit: string
+  points: MacroPointView[]
+}
+
+export interface MacroGroupView {
+  title: string
+  series: MacroSeriesView[]
+}
+
+export interface MacroView {
+  as_of: string
+  context: MacroContextView | null
+  groups: MacroGroupView[]
+}

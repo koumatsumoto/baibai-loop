@@ -45,6 +45,29 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX task_ticker_idx ON task(ticker) WHERE ticker IS NOT NULL",
         ),
     ),
+    Migration(
+        version=3,
+        statements=(
+            """
+            CREATE TABLE macro_context (
+                context_id TEXT PRIMARY KEY,
+                as_of TEXT NOT NULL,
+                valid_until TEXT NOT NULL,
+                published_at TEXT NOT NULL,
+                supersedes_id TEXT REFERENCES macro_context(context_id),
+                payload TEXT NOT NULL CHECK (json_valid(payload)),
+                CHECK (valid_until >= as_of)
+            ) STRICT
+            """,
+            """
+            CREATE TABLE macro_context_head (
+                singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                context_id TEXT NOT NULL REFERENCES macro_context(context_id)
+            ) STRICT
+            """,
+            "CREATE INDEX macro_context_asof_idx ON macro_context(as_of, published_at, context_id)",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version

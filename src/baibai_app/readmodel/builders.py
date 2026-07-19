@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
+from baibai_app.sources.db_sources import DbMacroSource
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
@@ -24,6 +25,13 @@ from .models import (
     CandidateRowView,
     DashboardView,
     HoldingView,
+    MacroContextView,
+    MacroGroupView,
+    MacroMaterialDeltaView,
+    MacroPointView,
+    MacroSeriesView,
+    MacroSizingCautionView,
+    MacroView,
     PacketDetailView,
     ResearchRevisionView,
     ReservationView,
@@ -250,6 +258,65 @@ def build_security_detail(
         candidate_row=candidate_row,
         candidate_run=_screening_run_view(run) if run is not None else None,
     )
+
+
+def build_macro(source: DbMacroSource, *, as_of: date) -> MacroView:
+    raw_context = source.context(as_of=as_of)
+    context = None
+    if raw_context is not None:
+        valid_until = date.fromisoformat(str(raw_context["valid_until"]))
+        context = MacroContextView(
+            context_id=str(raw_context["context_id"]),
+            as_of=date.fromisoformat(str(raw_context["as_of"])),
+            valid_until=valid_until,
+            published_at=datetime.fromisoformat(str(raw_context["published_at"])),
+            summary=str(raw_context["summary"]),
+            stale=valid_until < as_of,
+            material_deltas=[
+                MacroMaterialDeltaView.model_validate(item)
+                for item in _mapping_items(raw_context.get("material_deltas"))
+            ],
+            sizing_cautions=[
+                MacroSizingCautionView.model_validate(item)
+                for item in _mapping_items(raw_context.get("sizing_cautions"))
+            ],
+            research_questions=_string_items(raw_context.get("research_questions")),
+            refresh_triggers=_string_items(raw_context.get("refresh_triggers")),
+            changes_since_previous=_string_items(raw_context.get("changes_since_previous")),
+        )
+    groups: list[MacroGroupView] = []
+    for group in source.groups:
+        series_views: list[MacroSeriesView] = []
+        for configured in group.series:
+            raw_series = source.series(configured.series_id)
+            if raw_series is None:
+                raise ValueError(f"configured macro series is unavailable: {configured.series_id}")
+            series_views.append(
+                MacroSeriesView(
+                    series_id=configured.series_id,
+                    label=configured.label,
+                    name=str(raw_series["name"]),
+                    unit=str(raw_series["unit"]),
+                    points=[
+                        MacroPointView.model_validate(item)
+                        for item in _mapping_items(raw_series["points"])
+                    ],
+                )
+            )
+        groups.append(MacroGroupView(title=group.title, series=series_views))
+    return MacroView(as_of=as_of, context=context, groups=groups)
+
+
+def _mapping_items(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
+        raise ValueError("expected an array of objects")
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _string_items(value: object) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("expected an array of strings")
+    return value
 
 
 def _empty_dashboard(

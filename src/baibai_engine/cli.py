@@ -32,6 +32,10 @@ def _delegate(domain: str, arguments: list[str]) -> int:
 
         return main(arguments)
     if domain == "macro":
+        if arguments and arguments[0] == "context":
+            from baibai_engine.macro.context_cli import main
+
+            return main(arguments[1:])
         from baibai_engine.macro.indicators.cli import main
 
         return main(arguments)

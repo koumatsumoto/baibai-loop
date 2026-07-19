@@ -13,6 +13,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         health = client.get("/api/health")
         dashboard = client.get("/api/dashboard")
         screening = client.get("/api/screening/latest")
+        macro = client.get("/api/macro?as_of=2026-07-19")
         detail = client.get("/api/securities/2331")
 
         assert health.status_code == 200
@@ -22,6 +23,13 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         assert len(dashboard.json()["open_tasks"]) == 2
         assert screening.status_code == 200
         assert screening.json()["run"]["candidate_count"] == 3
+        assert macro.status_code == 200
+        assert macro.json()["context"] is None
+        assert [group["title"] for group in macro.json()["groups"]] == [
+            "金利・金融条件",
+            "為替・物価",
+            "景気・市場",
+        ]
         assert detail.status_code == 200
         assert detail.json()["ticker"] == "2331"
         assert detail.json()["latest_packet"]["permanent_loss_risk_count"] == 7

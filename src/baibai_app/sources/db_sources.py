@@ -5,8 +5,16 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from baibai_app.sources.types import TaskRecord
-from baibai_engine.read_api import list_task_payloads, task_store_exists
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
+
+from baibai_app.sources.types import MacroGroupConfig, MacroSeriesConfig, TaskRecord
+from baibai_engine.read_api import (
+    latest_macro_context_payload,
+    list_task_payloads,
+    macro_indicator_series,
+    task_store_exists,
+)
 
 
 class DbTaskSource:
@@ -38,6 +46,58 @@ class DbTaskSource:
             created_at=date.fromisoformat(str(raw["created_at"])),
             closed_at=_optional_date(raw.get("closed_at")),
         )
+
+
+class _SeriesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+
+
+class _GroupConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1)
+    series: tuple[_SeriesConfig, ...] = Field(min_length=1)
+
+
+class _DashboardConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    groups: tuple[_GroupConfig, ...] = Field(min_length=1)
+
+
+def load_macro_dashboard_config(path: Path) -> tuple[MacroGroupConfig, ...]:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    config = _DashboardConfig.model_validate(raw)
+    identifiers = [item.id for group in config.groups for item in group.series]
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("macro dashboard series IDs must be unique")
+    return tuple(
+        MacroGroupConfig(
+            title=group.title,
+            series=tuple(
+                MacroSeriesConfig(series_id=item.id, label=item.label) for item in group.series
+            ),
+        )
+        for group in config.groups
+    )
+
+
+class DbMacroSource:
+    def __init__(
+        self,
+        app_db_path: Path,
+        indicators_db_path: Path,
+        groups: tuple[MacroGroupConfig, ...],
+    ) -> None:
+        self._app_db_path = app_db_path.resolve()
+        self._indicators_db_path = indicators_db_path.resolve()
+        self.groups = groups
+
+    def context(self, *, as_of: date) -> dict[str, object] | None:
+        return latest_macro_context_payload(self._app_db_path, as_of=as_of)
+
+    def series(self, series_id: str) -> dict[str, object] | None:
+        return macro_indicator_series(self._indicators_db_path, series_id=series_id)
 
 
 def _optional_text(value: object) -> str | None:

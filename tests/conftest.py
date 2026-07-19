@@ -17,8 +17,13 @@ def app_records_root(tmp_path: Path) -> Path:
     thesis_dir = root / "records/03-thesis/2026/07"
     task_dir = root / "records/05-task"
     candidates_dir = root / "records/02-candidates/2026/07"
-    for path in (ledger_dir, thesis_dir, task_dir, candidates_dir):
+    config_dir = root / "records/_config"
+    for path in (ledger_dir, thesis_dir, task_dir, candidates_dir, config_dir):
         path.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path("records/_config/macro-dashboard.yaml"), config_dir)
+    indicators_dir = root / "data/indicators"
+    indicators_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(Path("data/indicators/macro.sqlite"), indicators_dir)
     shutil.copy2(
         FIXTURES / "portfolio-ledger/representative.yaml",
         ledger_dir / "portfolio-ledger.yaml",

@@ -155,3 +155,54 @@ class SecurityDetailView(BaseModel):
     latest_packet: PacketDetailView | None
     candidate_row: CandidateRowView | None
     candidate_run: ScreeningRunView | None
+
+
+class MacroMaterialDeltaView(BaseModel):
+    channel: str
+    direction: str
+    materiality: str
+    summary: str
+    used_for: str
+
+
+class MacroSizingCautionView(BaseModel):
+    severity: str
+    summary: str
+
+
+class MacroContextView(BaseModel):
+    context_id: str
+    as_of: date
+    valid_until: date
+    published_at: datetime
+    summary: str
+    stale: bool
+    material_deltas: list[MacroMaterialDeltaView]
+    sizing_cautions: list[MacroSizingCautionView]
+    research_questions: list[str]
+    refresh_triggers: list[str]
+    changes_since_previous: list[str]
+
+
+class MacroPointView(BaseModel):
+    observed_at: date
+    value: float
+
+
+class MacroSeriesView(BaseModel):
+    series_id: str
+    label: str
+    name: str
+    unit: str
+    points: list[MacroPointView]
+
+
+class MacroGroupView(BaseModel):
+    title: str
+    series: list[MacroSeriesView]
+
+
+class MacroView(BaseModel):
+    as_of: date
+    context: MacroContextView | None
+    groups: list[MacroGroupView]
