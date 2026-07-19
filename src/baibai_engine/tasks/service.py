@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -112,38 +112,6 @@ class TaskService:
         if row is None:
             raise TaskNotFoundError(f"unknown task_id: {task_id}")
         return Task.model_validate_json(str(row[0]))
-
-    def import_tasks(self, tasks: Iterable[Task]) -> tuple[int, int]:
-        """Create-only all-or-nothing import; identical rows are no-change."""
-        validated = list(tasks)
-        identifiers = [task.task_id for task in validated]
-        if len(identifiers) != len(set(identifiers)):
-            raise TaskConflictError("task_id must be unique in import input")
-        initialize_database(self._db_path)
-        inserted = 0
-        unchanged = 0
-        with closing(connect_rw(self._db_path)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                for task in validated:
-                    payload = canonical_json(task.payload())
-                    row = connection.execute(
-                        "SELECT payload FROM task WHERE task_id = ?", (task.task_id,)
-                    ).fetchone()
-                    if row is None:
-                        self._insert(connection, task)
-                        inserted += 1
-                    elif str(row[0]) == payload:
-                        unchanged += 1
-                    else:
-                        raise TaskConflictError(
-                            f"task differs from existing canonical row: {task.task_id}"
-                        )
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
-        return inserted, unchanged
 
     def _replace(self, before: Task, after: Task) -> None:
         initialize_database(self._db_path)

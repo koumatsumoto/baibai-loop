@@ -662,24 +662,6 @@ def load_independent_review(path: Path) -> IndependentReview:
         raise DecisionPacketError(str(error)) from error
 
 
-def decision_packet_json_schema() -> dict[str, object]:
-    schema = DecisionPacketDocument.model_json_schema()
-    return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "decision-packet",
-        **schema,
-    }
-
-
-def independent_review_json_schema() -> dict[str, object]:
-    schema = IndependentReview.model_json_schema()
-    return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "decision-review",
-        **schema,
-    }
-
-
 def evaluate_decision_packet(
     document: DecisionPacketDocument,
     *,

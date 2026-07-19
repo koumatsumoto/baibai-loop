@@ -48,7 +48,6 @@ from baibai_engine.position.holding_review import (
     evaluate_holding_review,
     load_holding_review,
     result_to_payload,
-    validate_holding_review_sources,
 )
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
@@ -278,7 +277,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             print("error: holding-review validation requires --input", file=sys.stderr)
             return 2
         input_path = args.input if args.input.is_absolute() else args.root / args.input
-        return _run_holding_review(input_path, root=args.root, db_path=args.db)
+        return _run_holding_review(input_path, db_path=args.db)
     if args.command == "holding-review-build":
         return _run_holding_review_build_db(
             db_path=args.db,
@@ -584,14 +583,13 @@ def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _run_holding_review(path: Path, *, root: Path, db_path: Path | None) -> int:
+def _run_holding_review(path: Path, *, db_path: Path | None) -> int:
     try:
         document = load_holding_review(path)
     except HoldingReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     try:
-        validate_holding_review_sources(document, root=root)
         validate_holding_review_scalars_from_db(document, db_path=db_path)
     except HoldingReviewError as error:
         print(f"error: {error}", file=sys.stderr)
@@ -628,7 +626,6 @@ def _run_holding_review_publish(args: argparse.Namespace) -> int:
             holding_review_id,
             args.packet_id,
             raw,
-            root=args.root,
             candidate_packet_id=args.candidate_packet_id,
         )
     except (OSError, ValueError) as error:
