@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Mapping
-from contextlib import closing
+from contextlib import closing, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -76,21 +76,14 @@ class PlannedPortfolioExposure(BaseModel):
         return tuple(value) if isinstance(value, list) else value
 
 
-class PlannedLimitInput(BaseModel):
-    """Strict form of the ephemeral ``research plan-limit`` output."""
+class CanonicalPlannedLimit(BaseModel):
+    """Load-bearing planning values retained by a canonical proposal."""
 
     model_config = _MODEL_CONFIG
 
-    status: Literal["planned_limit"]
     ticker: Annotated[str, Field(pattern=r"^[0-9A-Z]{4}$")]
-    decision_packet_ref: Annotated[str, Field(min_length=1)]
-    decision_packet_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    decision_packet_core_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    independent_review_ref: Annotated[str, Field(min_length=1)]
-    independent_review_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     price_as_of: date
     price_basis: Literal["last_close_unadjusted"]
-    source_ref: Annotated[str, Field(min_length=1)]
     close_yen: Decimal
     max_acceptable_price_yen: Decimal
     board_lot: Annotated[int, Field(gt=0)]
@@ -126,7 +119,7 @@ class PlannedLimitInput(BaseModel):
         return tuple(value) if isinstance(value, list) else value
 
     @model_validator(mode="after")
-    def _coherent_order(self) -> PlannedLimitInput:
+    def _coherent_order(self) -> CanonicalPlannedLimit:
         if self.budget_min_yen > self.budget_max_yen:
             raise ValueError("budget_min_yen must not exceed budget_max_yen")
         if self.board_lot != BOARD_LOT or self.quantity % self.board_lot:
@@ -140,6 +133,18 @@ class PlannedLimitInput(BaseModel):
         if self.expires_at.astimezone(JST).timetz().replace(tzinfo=None) != time(15, 30):
             raise ValueError("expires_at must be the target session close")
         return self
+
+
+class PlannedLimitInput(CanonicalPlannedLimit):
+    """Strict ephemeral ``research plan-limit`` output accepted at the boundary."""
+
+    status: Literal["planned_limit"]
+    decision_packet_ref: Annotated[str, Field(min_length=1)]
+    decision_packet_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    decision_packet_core_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    independent_review_ref: Annotated[str, Field(min_length=1)]
+    independent_review_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    source_ref: Annotated[str, Field(min_length=1)]
 
 
 class ProposalValidationError(ValueError):
@@ -169,8 +174,14 @@ class ProposalRecord:
 class ProposalStoreService:
     """Create deterministic proposals and record only human-reported current decisions."""
 
-    def __init__(self, db_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        *,
+        market_db_path: Path = Path("data/screening/market.sqlite"),
+    ) -> None:
         self._db_path = db_path
+        self._market_db_path = market_db_path
 
     def create(
         self,
@@ -184,7 +195,10 @@ class ProposalStoreService:
         """Create one pending proposal from an immutable ready packet and current ledger."""
         _require_aware(created_at, "created_at")
         initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        with (
+            closing(_open_market_snapshot(self._market_db_path)) as market_connection,
+            closing(connect_rw(self._db_path)) as connection,
+        ):
             connection.execute("BEGIN IMMEDIATE")
             try:
                 packet, review = _ready_packet_and_review(connection, packet_id)
@@ -196,6 +210,10 @@ class ProposalStoreService:
                     snapshot=snapshot,
                     snapshot_append_head=snapshot_append_head,
                     now=created_at,
+                    market_db_path=self._market_db_path,
+                    market_connection=market_connection,
+                    claimed_source_ref=planned_limit.source_ref,
+                    claimed_packet_core_sha256=planned_limit.decision_packet_core_sha256,
                 )
                 proposal_id = _allocate_proposal_id(
                     connection,
@@ -205,7 +223,7 @@ class ProposalStoreService:
                 payload: dict[str, object] = {
                     "packet_id": packet_id,
                     "review_id": review.review_id,
-                    "planned_limit": planned_limit.model_dump(mode="python"),
+                    "planned_limit": _canonical_plan(planned_limit).model_dump(mode="python"),
                     "execution_proposal": _execution_proposal(planned_limit),
                 }
                 connection.execute(
@@ -247,7 +265,15 @@ class ProposalStoreService:
         _require_aware(decided_at, "decided_at")
         target = _decision_status(decision)
         initialize_database(self._db_path)
-        with closing(connect_rw(self._db_path)) as connection:
+        market_context = (
+            closing(_open_market_snapshot(self._market_db_path))
+            if target == "approved"
+            else nullcontext(None)
+        )
+        with (
+            market_context as market_connection,
+            closing(connect_rw(self._db_path)) as connection,
+        ):
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = _proposal_row(connection, proposal_id)
@@ -275,12 +301,15 @@ class ProposalStoreService:
                         raise ProposalValidationError(
                             "approval requires a current DB-derived portfolio snapshot"
                         )
+                    assert market_connection is not None
                     _revalidate_approval(
                         connection,
                         row,
                         snapshot=snapshot,
                         snapshot_append_head=snapshot_append_head,
                         decided_at=decided_at,
+                        market_db_path=self._market_db_path,
+                        market_connection=market_connection,
                     )
                 connection.execute(
                     "UPDATE proposal SET status = ?, decided_at = ? WHERE proposal_id = ?",
@@ -374,12 +403,14 @@ def _revalidate_approval(
     snapshot: PortfolioSnapshot,
     snapshot_append_head: int,
     decided_at: datetime,
+    market_db_path: Path,
+    market_connection: sqlite3.Connection,
 ) -> None:
     payload = _payload(row)
     raw_input = payload.get("planned_limit")
     if not isinstance(raw_input, Mapping):
         raise ProposalConflictError("stored proposal payload is incomplete")
-    planned_limit = PlannedLimitInput.model_validate(raw_input)
+    planned_limit = CanonicalPlannedLimit.model_validate(raw_input)
     packet, review = _ready_packet_and_review(
         connection,
         str(row["packet_id"]),
@@ -393,22 +424,31 @@ def _revalidate_approval(
         snapshot=snapshot,
         snapshot_append_head=snapshot_append_head,
         now=decided_at,
+        market_db_path=market_db_path,
+        market_connection=market_connection,
     )
 
 
 def _validate_planned_limit(
     connection: sqlite3.Connection,
-    planned: PlannedLimitInput,
+    planned: CanonicalPlannedLimit,
     *,
     packet: DecisionPacketDocument,
     review: IndependentReview,
     snapshot: PortfolioSnapshot,
     snapshot_append_head: int,
     now: datetime,
+    market_db_path: Path,
+    market_connection: sqlite3.Connection,
+    claimed_source_ref: str | None = None,
+    claimed_packet_core_sha256: str | None = None,
 ) -> None:
     """Rebuild the load-bearing planning result from canonical current sources."""
     result = evaluate_decision_packet(packet, review=review, now=now)
-    if result.packet_sha256 != planned.decision_packet_core_sha256:
+    if (
+        claimed_packet_core_sha256 is not None
+        and result.packet_sha256 != claimed_packet_core_sha256
+    ):
         raise ProposalConflictError("current packet differs; create a new proposal")
     if review.reviewed_packet_sha256 != result.packet_sha256:
         raise ProposalConflictError("current review differs; create a new proposal")
@@ -429,15 +469,20 @@ def _validate_planned_limit(
             "current ledger has an active reservation; create a new proposal"
         )
 
-    suffix = ":jquants_daily_bars"
-    if not planned.source_ref.endswith(suffix):
-        raise ProposalValidationError("source_ref must identify jquants_daily_bars")
-    market_path = Path(planned.source_ref.removesuffix(suffix))
+    market_path = market_db_path.expanduser().resolve()
+    if claimed_source_ref is not None:
+        suffix = ":jquants_daily_bars"
+        if not claimed_source_ref.endswith(suffix):
+            raise ProposalValidationError("source_ref must identify jquants_daily_bars")
+        claimed_market_path = Path(claimed_source_ref.removesuffix(suffix))
+        if claimed_market_path.expanduser().resolve() != market_path:
+            raise ProposalConflictError("planning source differs from the configured market DB")
     target_session = planned.expires_at.astimezone(JST).date()
     price = resolve_previous_business_day_close(
         sqlite_path=market_path,
         ticker=planned.ticker,
         target_session=target_session,
+        connection=market_connection,
     )
     if price is None or price.corporate_action_unresolved:
         raise ProposalConflictError("current planning price is unavailable; create a new proposal")
@@ -472,6 +517,7 @@ def _validate_planned_limit(
         sector=packet.input_snapshot.sector,
         common_factors=packet.input_snapshot.common_factors,
         order_notional_yen=planned.notional_yen,
+        market_connection=market_connection,
     )
     expected_warnings.extend(
         _portfolio_warnings(
@@ -490,7 +536,36 @@ def _validate_planned_limit(
         raise ProposalConflictError("current portfolio constraints differ; create a new proposal")
 
 
-def _execution_proposal(planned: PlannedLimitInput) -> dict[str, object]:
+def _open_market_snapshot(path: Path) -> sqlite3.Connection:
+    resolved = path.expanduser().resolve()
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(f"file:{resolved}?mode=ro", uri=True)
+        connection.execute("BEGIN")
+        return connection
+    except sqlite3.Error as error:
+        if connection is not None:
+            connection.close()
+        raise ProposalValidationError(f"cannot open configured market DB: {resolved}") from error
+
+
+def _canonical_plan(planned: PlannedLimitInput) -> CanonicalPlannedLimit:
+    return CanonicalPlannedLimit.model_validate(
+        planned.model_dump(
+            exclude={
+                "status",
+                "decision_packet_ref",
+                "decision_packet_sha256",
+                "decision_packet_core_sha256",
+                "independent_review_ref",
+                "independent_review_sha256",
+                "source_ref",
+            }
+        )
+    )
+
+
+def _execution_proposal(planned: CanonicalPlannedLimit) -> dict[str, object]:
     """Expose the approved order shape consumed by the human-result boundary."""
     return {
         "ticker": planned.ticker,

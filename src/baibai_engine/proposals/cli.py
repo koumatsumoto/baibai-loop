@@ -28,6 +28,7 @@ from .store import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine proposal")
     parser.add_argument("--db", type=Path)
+    parser.add_argument("--market-db", type=Path, default=Path("data/screening/market.sqlite"))
     commands = parser.add_subparsers(dest="command", required=True)
 
     create = commands.add_parser("create")
@@ -48,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
-    service = ProposalStoreService(args.db)
+    service = ProposalStoreService(args.db, market_db_path=args.market_db)
     current_time = now or datetime.now(JST)
     try:
         if args.command == "create":

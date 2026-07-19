@@ -94,6 +94,10 @@ def _current_snapshot(path: Path) -> PortfolioSnapshot:
     return reconcile_portfolio(LedgerStoreService(path).load())
 
 
+def _service(path: Path) -> ProposalStoreService:
+    return ProposalStoreService(path, market_db_path=path.with_name("market.sqlite"))
+
+
 def _create(service: ProposalStoreService, path: Path) -> ProposalRecord:
     return service.create(
         PACKET_ID,
@@ -107,7 +111,7 @@ def _create(service: ProposalStoreService, path: Path) -> ProposalRecord:
 def test_create_uses_db_packet_review_and_current_planning_limit(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    proposal = _create(ProposalStoreService(path), path)
+    proposal = _create(_service(path), path)
 
     assert proposal.proposal_id == "prop-20260711-2331-1"
     assert proposal.status == "pending"
@@ -116,6 +120,9 @@ def test_create_uses_db_packet_review_and_current_planning_limit(tmp_path: Path)
     stored_input = proposal.payload["planned_limit"]
     assert isinstance(stored_input, dict)
     assert stored_input["source_ledger_append_head"] == LedgerStoreService(path).append_head()
+    assert "source_ref" not in stored_input
+    assert "decision_packet_sha256" not in stored_input
+    assert "independent_review_sha256" not in stored_input
     generated = proposal.payload["execution_proposal"]
     assert isinstance(generated, dict)
     assert generated["orders"]
@@ -124,7 +131,7 @@ def test_create_uses_db_packet_review_and_current_planning_limit(tmp_path: Path)
 def test_internal_ids_are_allocated_without_collision_under_write_lock(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     first = _create(service, path)
     second = _create(service, path)
 
@@ -137,7 +144,7 @@ def test_create_requires_one_matching_ready_buy_review_without_write(tmp_path: P
     _database(path, with_review=False)
 
     with pytest.raises(ProposalValidationError, match="exactly one review"):
-        ProposalStoreService(path).create(
+        _service(path).create(
             PACKET_ID,
             _planned(path),
             _snapshot(),
@@ -149,10 +156,30 @@ def test_create_requires_one_matching_ready_buy_review_without_write(tmp_path: P
         assert connection.execute("SELECT COUNT(*) FROM proposal").fetchone()[0] == 0
 
 
+def test_create_rejects_caller_controlled_market_database_without_write(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _database(path)
+    planned = _planned(path).model_copy(
+        update={"source_ref": f"{tmp_path / 'crafted.sqlite'}:jquants_daily_bars"}
+    )
+
+    with pytest.raises(ProposalConflictError, match="configured market DB"):
+        _service(path).create(
+            PACKET_ID,
+            planned,
+            _current_snapshot(path),
+            snapshot_append_head=LedgerStoreService(path).append_head(),
+            created_at=CREATED_AT,
+        )
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM proposal").fetchone()[0] == 0
+
+
 def test_human_decision_can_move_between_non_approved_current_states(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     proposal = _create(service, path)
 
     deferred = service.decide(
@@ -174,7 +201,7 @@ def test_human_decision_can_move_between_non_approved_current_states(tmp_path: P
 def test_decision_time_cannot_move_backwards(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     proposal = _create(service, path)
     service.decide(
         proposal.proposal_id,
@@ -197,7 +224,7 @@ def test_decision_time_cannot_move_backwards(tmp_path: Path) -> None:
 def test_approve_recalculates_and_accepts_an_unchanged_current_snapshot(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     proposal = _create(service, path)
 
     approved = service.decide(
@@ -214,7 +241,7 @@ def test_approve_recalculates_and_accepts_an_unchanged_current_snapshot(tmp_path
 def test_approve_rejects_planning_limit_drift_without_write(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     proposal = _create(service, path)
     current_snapshot = _current_snapshot(path)
     changed = replace(
@@ -236,7 +263,7 @@ def test_approve_rejects_planning_limit_drift_without_write(tmp_path: Path) -> N
 def test_approve_rejects_changed_market_close_without_write(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     proposal = _create(service, path)
     with sqlite3.connect(tmp_path / "market.sqlite") as connection:
         connection.execute("UPDATE jquants_daily_bars SET close = 999 WHERE ticker = '2331'")
@@ -256,7 +283,7 @@ def test_approve_rejects_changed_market_close_without_write(tmp_path: Path) -> N
 def test_approve_requires_current_input_and_snapshot_without_write(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     proposal = _create(service, path)
 
     with pytest.raises(ProposalValidationError, match="current DB-derived"):
@@ -281,7 +308,7 @@ def test_ledger_reference_locks_decision_and_approved_is_not_redecidable(
 ) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
-    service = ProposalStoreService(path)
+    service = _service(path)
     first = _create(service, path)
     second = _create(service, path)
     service.decide(
@@ -362,7 +389,17 @@ def test_plan_limit_output_creates_proposal_through_public_clis(
     capsys.readouterr()
     assert (
         proposal_main(
-            ["--db", str(db), "create", "--packet-id", PACKET_ID, "--input", str(output)],
+            [
+                "--db",
+                str(db),
+                "--market-db",
+                str(market),
+                "create",
+                "--packet-id",
+                PACKET_ID,
+                "--input",
+                str(output),
+            ],
             now=CREATED_AT,
         )
         == 0

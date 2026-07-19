@@ -45,18 +45,22 @@ def resolve_previous_business_day_close(
     sqlite_path: Path,
     ticker: str,
     target_session: date,
+    connection: sqlite3.Connection | None = None,
 ) -> PreviousClose | None:
     """Return the exact previous market-wide session's raw close before target.
 
     ``None`` means no raw close is available (missing store, missing coverage, or an
     adjusted-only row); the caller must not substitute an adjusted series.
     """
-    if not sqlite_path.exists():
-        return None
-    try:
-        conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-    except sqlite3.Error:
-        return None
+    conn = connection
+    owns_connection = conn is None
+    if conn is None:
+        if not sqlite_path.exists():
+            return None
+        try:
+            conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+        except sqlite3.Error:
+            return None
     try:
         version_row = conn.execute("PRAGMA user_version").fetchone()
         if version_row is None or int(version_row[0]) != _EXPECTED_MARKET_SCHEMA_VERSION:
@@ -78,7 +82,8 @@ def resolve_previous_business_day_close(
     except sqlite3.Error:
         return None
     finally:
-        conn.close()
+        if owns_connection:
+            conn.close()
     if row is None:
         return None
     traded_at, close, adjustment_factor = row
@@ -109,6 +114,7 @@ def resolve_holding_close_on_basis(
     ticker: str,
     ledger_price_observed_on: date,
     basis_as_of: date,
+    connection: sqlite3.Connection | None = None,
 ) -> PreviousClose | None:
     """Return a holding's raw close only when its ledger-to-basis chain is complete.
 
@@ -117,12 +123,17 @@ def resolve_holding_close_on_basis(
     positive raw close, and a confirmed adjustment factor of 1. ``None`` requires
     the caller to retain the canonical ledger market value and disclose fallback.
     """
-    if not sqlite_path.exists() or ledger_price_observed_on > basis_as_of:
+    if ledger_price_observed_on > basis_as_of:
         return None
-    try:
-        conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
-    except sqlite3.Error:
-        return None
+    conn = connection
+    owns_connection = conn is None
+    if conn is None:
+        if not sqlite_path.exists():
+            return None
+        try:
+            conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+        except sqlite3.Error:
+            return None
     try:
         version_row = conn.execute("PRAGMA user_version").fetchone()
         if version_row is None or int(version_row[0]) != _EXPECTED_MARKET_SCHEMA_VERSION:
@@ -148,7 +159,8 @@ def resolve_holding_close_on_basis(
     except (sqlite3.Error, TypeError, ValueError):
         return None
     finally:
-        conn.close()
+        if owns_connection:
+            conn.close()
     basis_close: float | None = None
     for expected_session, row in zip(sessions, bar_rows, strict=True):
         traded_at, close, adjustment_factor = row

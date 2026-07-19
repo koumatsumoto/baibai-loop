@@ -62,8 +62,8 @@ uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml
 uv run baibai-engine research prepare --asof YYYY-MM-DD --selection-output /tmp/selection.yaml --db data/app/baibai.sqlite --workspace .cache/opportunity/YYYY-MM-DD
 uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --db data/app/baibai.sqlite
 uv run baibai-engine research plan-limit --packet .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
-uv run baibai-engine proposal --db data/app/baibai.sqlite create --packet-id PACKET_ID --input /tmp/proposal-input.yaml
-uv run baibai-engine proposal --db data/app/baibai.sqlite decide PROPOSAL_ID --decision approve
+uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite create --packet-id PACKET_ID --input /tmp/proposal-input.yaml
+uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite decide PROPOSAL_ID --decision approve
 ```
 
 `approve`時はcurrent DBのpacket、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。
@@ -117,8 +117,12 @@ risk override、estimated exit tax設定、market priceも各typed draftを作�
 ```bash
 uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite --sqlite data/screening/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
 uv run baibai-engine position apply-draft /tmp/market-price-draft.yaml --db data/app/baibai.sqlite --confirmed
+uv run baibai-engine research holding-prepare --db data/app/baibai.sqlite --asof ASOF_DATE --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
+uv run baibai-engine research packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+uv run baibai-engine research review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
+uv run baibai-engine research promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
 uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --packet-id PACKET_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
-uv run baibai-engine position holding-review --input /tmp/holding-review.yaml
+uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input /tmp/holding-review.yaml
 uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --packet-id PACKET_ID
 ```
 
@@ -128,7 +132,7 @@ uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --
 
 ## Annual outcome
 
-portfolio outcomeはcanonical DB ledger、JPX営業日close、配当込みTOPIX observationから再計算してDBへpublishする。期間、source、cash-flow basis不足は`unresolved`とし、短期結果だけでpolicyを変えない。方法変更は`improvement` sessionから[`improvement-loop.md`](./improvement-loop.md)へhandoffする。
+portfolio outcomeはcanonical DB ledger、JPX営業日close、配当込みTOPIX observationから再計算し、resolvedになった結果だけをDBへimmutable publishする。期間、source、cash-flow basis不足の`unresolved`結果は不足理由をstdout / ephemeral exportで確認し、正本へ保存せず同じ期間を再実行する。短期結果だけでpolicyを変えない。方法変更は`improvement` sessionから[`improvement-loop.md`](./improvement-loop.md)へhandoffする。
 
 ## Completion and stop conditions
 

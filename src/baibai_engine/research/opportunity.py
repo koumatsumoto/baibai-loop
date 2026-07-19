@@ -21,6 +21,7 @@ Design boundaries (Issue #359 Milestone A):
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
@@ -1359,6 +1360,7 @@ def _portfolio_exposure(
     sector: str,
     common_factors: Sequence[str],
     order_notional_yen: int,
+    market_connection: sqlite3.Connection | None = None,
 ) -> tuple[dict[str, object], list[str], int]:
     """Derive prospective concentration with disclosed common-factor coverage.
 
@@ -1375,6 +1377,7 @@ def _portfolio_exposure(
             ticker=holding.ticker,
             ledger_price_observed_on=holding.market_price_observed_at.date(),
             basis_as_of=price_as_of,
+            connection=market_connection,
         )
         market_value = (
             Decimal(str(resolved.close_yen)) * holding.quantity if resolved is not None else None

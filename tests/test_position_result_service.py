@@ -48,7 +48,7 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
             }
         )
     )
-    proposals = ProposalStoreService(db)
+    proposals = ProposalStoreService(db, market_db_path=tmp_path / "market.sqlite")
     document, append_head = ledger.load_with_head()
     snapshot = reconcile_portfolio(document)
     market = tmp_path / "market.sqlite"

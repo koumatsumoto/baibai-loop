@@ -436,6 +436,42 @@ def test_close_source_treats_missing_adjustment_factor_as_unresolved(tmp_path: P
     assert resolved.corporate_action_unresolved is True
 
 
+def test_close_source_reuses_one_stable_market_snapshot(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    with sqlite3.connect(sqlite_path) as writer:
+        writer.execute("PRAGMA journal_mode = WAL")
+
+    reader = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    try:
+        reader.execute("BEGIN")
+        first = resolve_previous_business_day_close(
+            sqlite_path=sqlite_path,
+            ticker="2331",
+            target_session=date(2026, 7, 13),
+            connection=reader,
+        )
+        with sqlite3.connect(sqlite_path) as writer:
+            writer.execute("UPDATE jquants_daily_bars SET close = 1200 WHERE ticker = '2331'")
+        second = resolve_previous_business_day_close(
+            sqlite_path=sqlite_path,
+            ticker="2331",
+            target_session=date(2026, 7, 13),
+            connection=reader,
+        )
+    finally:
+        reader.close()
+
+    current = resolve_previous_business_day_close(
+        sqlite_path=sqlite_path, ticker="2331", target_session=date(2026, 7, 13)
+    )
+    assert first is not None
+    assert second is not None
+    assert current is not None
+    assert first.close_yen == second.close_yen == 1000.0
+    assert current.close_yen == 1200.0
+
+
 @pytest.mark.parametrize(
     ("intermediate_close", "intermediate_factor"),
     [(None, 1.0), (995.0, None), (995.0, 0.5)],

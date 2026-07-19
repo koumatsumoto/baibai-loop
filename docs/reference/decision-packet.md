@@ -106,7 +106,7 @@ common-factor exposureは、選定銘柄にpacketの現行classification、そ�
 
 proposalは人間承認前の判断材料で、brokerを操作しない。AIはfill probability、当日価格方向、未報告broker状態を推定しない。人間から結果が報告された後だけledger draftを作る。既存`baibai-engine research evaluate --execution-input`は互換的なlive evaluationであり、通常の寄り前runbook入口ではない。
 
-`plan-limit`出力はproposal作成用のephemeral inputである。`proposal create --packet-id`はimmutable packet/review IDとcurrent DB ledgerからplanning-limitを再検証する。`approve`時にも同じ条件を再計算し、packet、price、quantity、expiry、ledgerのいずれかが変わっていればno-writeで新proposalを要求する。
+`plan-limit`出力はproposal作成用のephemeral inputである。`proposal create --packet-id`はimmutable packet/review ID、current DB ledger、`--market-db`で指定するcanonical market storeからplanning-limitを再検証し、入力内のpathやhashを正本へ保存しない。`approve`時にも同じmarket snapshot内でpriceとportfolio exposureを再計算し、packet、price、quantity、expiry、ledgerのいずれかが変わっていればno-writeで新proposalを要求する。
 
 ## Permanent-loss axes
 
