@@ -14,7 +14,7 @@ from baibai_engine.position.ledger import (
     load_portfolio_ledger,
     reconcile_portfolio,
 )
-from baibai_engine.position.store import LedgerStoreService
+from tests.helpers.db_seed import seed_ledger
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 ASOF = date(2026, 7, 13)
@@ -121,7 +121,7 @@ def _import_ledger(ledger_path: Path, db_path: Path) -> None:
             )
         }
     )
-    LedgerStoreService(db_path).import_document(canonical)
+    seed_ledger(db_path, canonical)
 
 
 def test_market_price_draft_replaces_all_holdings_with_exact_raw_close(

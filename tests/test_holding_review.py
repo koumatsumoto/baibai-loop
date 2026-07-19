@@ -14,7 +14,6 @@ from baibai_engine.position.holding_review import (
     validate_holding_review_sources,
 )
 from baibai_engine.position.ledger import load_portfolio_ledger
-from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     IndependentReview,
@@ -23,6 +22,7 @@ from baibai_engine.research.decision_packet import (
 )
 from baibai_engine.research.holding_review_builder import build_holding_review
 from baibai_engine.research.store import ResearchStoreService
+from tests.helpers.db_seed import seed_ledger
 
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
 
@@ -327,7 +327,8 @@ def test_holding_review_build_cli_writes_a_validated_draft(
     packet_id = "packet-20260703-2331-r1"
     ResearchStoreService(db_path).publish_packet_with_review(packet_id, packet, review)
     ledger = load_portfolio_ledger(tmp_path / "ledger.yaml")
-    LedgerStoreService(db_path).import_document(
+    seed_ledger(
+        db_path,
         ledger.model_copy(
             update={
                 "market_prices": tuple(
@@ -335,7 +336,7 @@ def test_holding_review_build_cli_writes_a_validated_draft(
                     for price in ledger.market_prices
                 )
             }
-        )
+        ),
     )
     output = tmp_path / "review.yaml"
     exit_code = main(

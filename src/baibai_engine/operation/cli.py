@@ -11,6 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
 
 from .models import SESSION_KINDS, OperationPayload
 from .service import (
@@ -104,7 +105,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
 
 
 def _load_payload(path: Path) -> OperationPayload:
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    loaded = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise ValueError("operation payload must be a mapping")
     return OperationPayload.model_validate(loaded)

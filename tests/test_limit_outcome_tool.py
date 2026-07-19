@@ -10,7 +10,7 @@ from tools.limit_outcome import build_parser, main
 
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.position.ledger import load_portfolio_ledger
-from baibai_engine.position.store import LedgerStoreService
+from tests.helpers.db_seed import seed_ledger
 
 FIXTURE = Path(__file__).parent / "fixtures" / "portfolio-ledger" / "representative.yaml"
 
@@ -26,7 +26,7 @@ def _app_db(tmp_path: Path, ledger_path: Path = FIXTURE) -> Path:
             )
         }
     )
-    LedgerStoreService(path).import_document(document)
+    seed_ledger(path, document)
     return path
 
 

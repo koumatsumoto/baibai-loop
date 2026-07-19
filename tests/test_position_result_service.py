@@ -18,6 +18,7 @@ from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.proposals.store import PlannedLimitInput, ProposalStoreService
 from baibai_engine.research.opportunity import plan_limit
 from baibai_engine.research.store import ResearchStoreService
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -38,7 +39,8 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
     ResearchStoreService(db).publish_packet_with_review(PACKET_ID, _raw(PACKET), _raw(REVIEW))
     ledger = LedgerStoreService(db)
     source = load_portfolio_ledger(LEDGER)
-    ledger.import_document(
+    seed_ledger(
+        db,
         source.model_copy(
             update={
                 "market_prices": tuple(
@@ -46,7 +48,7 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
                     for price in source.market_prices
                 )
             }
-        )
+        ),
     )
     proposals = ProposalStoreService(db, market_db_path=tmp_path / "market.sqlite")
     document, append_head = ledger.load_with_head()

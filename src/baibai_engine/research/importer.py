@@ -1,4 +1,4 @@
-"""Legacy research YAML loader used only by the final migration runner."""
+"""Research YAML loader used only by the final migration runner."""
 
 from __future__ import annotations
 
@@ -10,10 +10,13 @@ from pathlib import Path
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.holding_review import (
+    CanonicalSource,
     HoldingReviewDocument,
+    HoldingReviewSources,
     SourceArtifact,
     validate_holding_review_sources,
 )
+from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
     IndependentReview,
@@ -47,7 +50,10 @@ def import_research_records(
     db_path: Path | None = None,
     source_root: Path | None = None,
 ) -> ResearchImportResult:
-    """Import packets, reviews, and holding reviews as one domain transaction."""
+    """Import packets, reviews, and canonicalized holding reviews atomically."""
+    ledger_append_head = LedgerStoreService(db_path).append_head()
+    if ledger_append_head < 1:
+        raise ResearchConflictError("ledger must be imported before holding reviews")
     packet_sources = [_load_packet(path) for path in sorted(research_root.rglob("*-decision.yaml"))]
     packet_publications, by_core_hash, by_file_hash = _packet_publications(packet_sources)
 
@@ -73,6 +79,7 @@ def import_research_records(
     holding_publications = _holding_publications(
         holding_sources,
         by_file_hash=by_file_hash,
+        ledger_append_head=ledger_append_head,
     )
     return ResearchStoreService(db_path).import_publications(
         packets=packet_publications,
@@ -139,10 +146,11 @@ def _holding_publications(
     sources: list[tuple[Path, Mapping[str, object], HoldingReviewDocument]],
     *,
     by_file_hash: dict[str, list[str]],
+    ledger_append_head: int,
 ) -> list[HoldingReviewPublication]:
     per_day_ticker: dict[tuple[str, str], int] = defaultdict(int)
     publications: list[HoldingReviewPublication] = []
-    for path, payload, document in sorted(
+    for path, _payload, document in sorted(
         sources,
         key=lambda item: (item[2].as_of, item[2].ticker, item[0].as_posix()),
     ):
@@ -151,7 +159,7 @@ def _holding_publications(
         if not isinstance(holding_source, SourceArtifact) or (
             candidate_source is not None and not isinstance(candidate_source, SourceArtifact)
         ):
-            raise ValueError(f"legacy holding review has non-file sources: {path}")
+            raise ValueError(f"holding review migration input has non-file sources: {path}")
         packet_id = _unique_hash_binding(
             by_file_hash,
             holding_source.sha256,
@@ -164,6 +172,22 @@ def _holding_publications(
                 candidate_source.sha256,
                 label=f"holding review candidate {path}",
             )
+        canonical = document.model_copy(
+            update={
+                "sources": HoldingReviewSources(
+                    ledger=CanonicalSource(
+                        entity_id="portfolio-ledger",
+                        append_head=ledger_append_head,
+                    ),
+                    holding_packet=CanonicalSource(entity_id=packet_id),
+                    candidate_packet=(
+                        None
+                        if candidate_packet_id is None
+                        else CanonicalSource(entity_id=candidate_packet_id)
+                    ),
+                )
+            }
+        )
         stamp = document.as_of.strftime("%Y%m%d")
         key = (stamp, document.ticker)
         per_day_ticker[key] += 1
@@ -174,7 +198,7 @@ def _holding_publications(
                 ),
                 packet_id=packet_id,
                 candidate_packet_id=candidate_packet_id,
-                payload=payload,
+                payload=canonical.model_dump(mode="json"),
             )
         )
     return publications

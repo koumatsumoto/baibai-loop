@@ -9,11 +9,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
 
-import yaml
-
 from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.candidate_build import build_screened_candidate
 from baibai_engine.screening.config import (
     ScreeningConfig,
@@ -379,8 +378,8 @@ def run_command(
         evidence_hits_summary=_evidence_hits_summary(screened_candidates, rules),
         fallback_lines=tuple(fallback_lines),
     )
-    legacy_yaml = render_screened_yaml(document)
-    raw_payload = yaml.safe_load(legacy_yaml)
+    publication_yaml = render_screened_yaml(document)
+    raw_payload = safe_load(publication_yaml)
     if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
         raise AssertionError("screening renderer must produce a mapping")
     try:

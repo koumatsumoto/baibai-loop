@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import astuple
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
 from baibai_engine.appdb.write import initialize_database
-from baibai_engine.position.importer import import_and_check_ledger
 from baibai_engine.position.ledger import (
     ContributionEvent,
     PortfolioLedgerDocument,
@@ -16,73 +14,13 @@ from baibai_engine.position.ledger import (
     load_portfolio_ledger,
 )
 from baibai_engine.position.store import LedgerConflictError, LedgerStoreService
+from tests.helpers.db_seed import seed_ledger
 
 FIXTURE = Path("tests/fixtures/portfolio-ledger/representative.yaml")
-CANONICAL = Path("records/04-position/portfolio-ledger.yaml")
 
 
 def _create_schema(path: Path) -> None:
     initialize_database(path)
-
-
-@pytest.mark.parametrize("source_path", [CANONICAL])
-def test_document_import_is_exact_idempotent_and_has_full_parity(
-    tmp_path: Path, source_path: Path
-) -> None:
-    path = tmp_path / "app.sqlite"
-    _create_schema(path)
-    first, parity = import_and_check_ledger(source_path, db_path=path)
-    second, second_parity = import_and_check_ledger(source_path, db_path=path)
-    source = load_portfolio_ledger(source_path)
-
-    assert astuple(first) == (
-        len(source.events),
-        0,
-        len(source.market_prices),
-        0,
-        1,
-        0,
-    )
-    assert astuple(second) == (
-        0,
-        len(source.events),
-        0,
-        len(source.market_prices),
-        0,
-        1,
-    )
-    assert parity.matches
-    assert second_parity.matches
-    assert LedgerStoreService(path).load() == source
-
-    with sqlite3.connect(path) as connection:
-        assert [
-            row[0]
-            for row in connection.execute("SELECT event_id FROM ledger_event ORDER BY append_seq")
-        ] == [event.event_id for event in source.events]
-        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-
-
-def test_import_conflict_rolls_back_all_missing_rows(tmp_path: Path) -> None:
-    path = tmp_path / "app.sqlite"
-    _create_schema(path)
-    source = _store_fixture()
-    service = LedgerStoreService(path)
-    service.import_document(source)
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            "UPDATE ledger_event SET payload = json_set(payload, '$.amount_yen', 1) "
-            "WHERE append_seq = 1"
-        )
-        connection.execute("DELETE FROM ledger_event WHERE append_seq = 2")
-
-    with pytest.raises(LedgerConflictError, match="conflicts"):
-        service.import_document(source)
-
-    with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT count(*) FROM ledger_event").fetchone()[0] == (
-            len(source.events) - 1
-        )
 
 
 def test_late_event_is_physically_appended_but_replayed_by_time(tmp_path: Path) -> None:
@@ -90,7 +28,7 @@ def test_late_event_is_physically_appended_but_replayed_by_time(tmp_path: Path) 
     _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
-    service.import_document(source)
+    seed_ledger(path, source)
     head = service.append_head()
     occurred_at = source.events[1].occurred_at + timedelta(seconds=1)
     event = ContributionEvent(
@@ -135,7 +73,7 @@ def test_new_same_instant_event_gets_tail_ordinal(tmp_path: Path) -> None:
     _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
-    service.import_document(source)
+    seed_ledger(path, source)
     same_at = source.events[2].occurred_at
     same_events = [item for item in source.events if item.occurred_at == same_at]
     event = ContributionEvent(
@@ -170,7 +108,7 @@ def test_stale_apply_and_event_rewrite_are_no_write(tmp_path: Path) -> None:
     _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
-    service.import_document(source)
+    seed_ledger(path, source)
     changed_event = source.events[1].model_copy(update={"event_id": "rewritten"})
     replacement = source.model_copy(
         update={"events": (source.events[0], changed_event, *source.events[2:])}
@@ -196,7 +134,7 @@ def test_proposal_id_is_relational_only_for_db_native_reference(tmp_path: Path) 
     _create_schema(path)
     source = _store_fixture()
     service = LedgerStoreService(path)
-    service.import_document(source)
+    seed_ledger(path, source)
     with sqlite3.connect(path) as connection:
         connection.execute(
             """
@@ -265,7 +203,7 @@ def test_canonical_store_rejects_test_fixture_prices_without_write(tmp_path: Pat
     _create_schema(path)
 
     with pytest.raises(LedgerConflictError, match="test_fixture"):
-        LedgerStoreService(path).import_document(load_portfolio_ledger(FIXTURE))
+        seed_ledger(path, load_portfolio_ledger(FIXTURE))
 
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT count(*) FROM ledger_event").fetchone()[0] == 0

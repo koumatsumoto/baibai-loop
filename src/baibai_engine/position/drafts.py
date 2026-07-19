@@ -9,6 +9,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
     ConfirmedTaxEvent,
     ContributionEvent,
@@ -117,7 +118,7 @@ def write_draft(path: Path, draft: LedgerDraft) -> None:
 
 
 def load_draft(path: Path) -> LedgerDraft:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw = safe_load(path.read_text(encoding="utf-8"))
     return LedgerDraft.model_validate(raw)
 
 

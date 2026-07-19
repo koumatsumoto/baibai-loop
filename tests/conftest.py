@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators_db
-from baibai_engine.position.importer import import_and_check_ledger
-from baibai_engine.research.importer import import_research_records
-from baibai_engine.screening.run_store import import_screening_runs
-from baibai_engine.tasks.importer import import_task_file
+from baibai_engine.position.ledger import load_portfolio_ledger
+from baibai_engine.research.store import ResearchStoreService
+from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.tasks.models import Task
+from tests.helpers.db_seed import seed_ledger, seed_tasks
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -17,55 +19,51 @@ FIXTURES = Path(__file__).parent / "fixtures"
 @pytest.fixture
 def app_records_root(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
-    ledger_dir = root / "records/04-position"
-    thesis_dir = root / "records/03-thesis/2026/07"
-    task_dir = root / "records/05-task"
-    candidates_dir = root / "records/02-candidates/2026/07"
     config_dir = root / "records/_config"
-    for path in (ledger_dir, thesis_dir, task_dir, candidates_dir, config_dir):
-        path.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(Path("records/_config/macro-dashboard.yaml"), config_dir)
+    config_dir.mkdir(parents=True)
+    (config_dir / "macro-dashboard.yaml").write_text(
+        Path("records/_config/macro-dashboard.yaml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     indicators_dir = root / "data/indicators"
     indicators_dir.mkdir(parents=True, exist_ok=True)
     initialize_indicators_db(indicators_dir / "macro.sqlite").close()
-    shutil.copy2(
-        FIXTURES / "portfolio-ledger/representative.yaml",
-        ledger_dir / "portfolio-ledger.yaml",
-    )
-    ledger_path = ledger_dir / "portfolio-ledger.yaml"
-    ledger_path.write_text(
-        ledger_path.read_text(encoding="utf-8").replace(
-            "source_kind: test_fixture", "source_kind: licensed_dataset"
+    db_path = root / "data/app/baibai.sqlite"
+    ledger = load_portfolio_ledger(FIXTURES / "portfolio-ledger/representative.yaml")
+    seed_ledger(
+        db_path,
+        ledger.model_copy(
+            update={
+                "market_prices": tuple(
+                    price.model_copy(update={"source_kind": "licensed_dataset"})
+                    for price in ledger.market_prices
+                )
+            }
         ),
-        encoding="utf-8",
     )
-    shutil.copy2(
-        FIXTURES / "decision-packet/2331-decision.yaml",
-        thesis_dir / "2026-07-14-2331-decision.yaml",
+    packet = safe_load(
+        (FIXTURES / "decision-packet/2331-decision.yaml").read_text(encoding="utf-8")
     )
-    shutil.copy2(
-        FIXTURES / "decision-packet/2331-decision-review.yaml",
-        thesis_dir / "2026-07-14-2331-decision-review.yaml",
+    review = safe_load(
+        (FIXTURES / "decision-packet/2331-decision-review.yaml").read_text(encoding="utf-8")
     )
-    import_research_records(
-        root / "records/03-thesis",
-        root / "records/04-position",
-        db_path=root / "data/app/baibai.sqlite",
+    assert isinstance(packet, dict)
+    assert isinstance(review, dict)
+    ResearchStoreService(db_path).publish_packet_with_review(
+        "packet-20260714-2331-r1", packet, review
     )
-    import_and_check_ledger(ledger_path, db_path=root / "data/app/baibai.sqlite")
-    (task_dir / "tasks.yaml").write_text(_TASKS, encoding="utf-8")
-    import_task_file(task_dir / "tasks.yaml", db_path=root / "data/app/baibai.sqlite")
-    (candidates_dir / "2026-07-01.yaml").write_text(
+    tasks = yaml.safe_load(_TASKS)["tasks"]
+    seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
+    run_store = ScreeningRunStore(root / "data/screening/runs.sqlite")
+    for text in (
         _CANDIDATES.replace("screening-20260708", "screening-20260701").replace(
             "2026-07-08", "2026-07-01"
         ),
-        encoding="utf-8",
-    )
-    (candidates_dir / "2026-07-08.yaml").write_text(_CANDIDATES, encoding="utf-8")
-    import_screening_runs(
-        root / "records/02-candidates",
-        db_path=root / "data/screening/runs.sqlite",
-    )
+        _CANDIDATES,
+    ):
+        payload = yaml.safe_load(text)
+        assert isinstance(payload, dict)
+        run_store.publish_run(payload)
     return root
 
 

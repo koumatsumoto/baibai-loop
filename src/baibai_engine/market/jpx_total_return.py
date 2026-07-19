@@ -100,11 +100,3 @@ def load_benchmark_observation(path: Path) -> BenchmarkObservation:
         return BenchmarkObservation.model_validate(raw)
     except ValidationError as error:
         raise BenchmarkObservationError(str(error)) from error
-
-
-def benchmark_observation_json_schema() -> dict[str, object]:
-    return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "benchmark-observation",
-        **BenchmarkObservation.model_json_schema(),
-    }

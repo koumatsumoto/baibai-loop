@@ -2,21 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_app.sources.db_sources import DbResearchSource, DbTaskSource
+from baibai_app.sources.db_sources import (
+    DbCandidatesSource,
+    DbLedgerSource,
+    DbResearchSource,
+    DbTaskSource,
+)
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
     ResearchSource,
     TaskSource,
 )
-from baibai_app.sources.yaml_sources import (
-    YamlCandidatesSource,
-    YamlLedgerSource,
-    YamlResearchSource,
-    YamlTaskSource,
-)
-from baibai_engine.research.importer import import_research_records
-from baibai_engine.tasks.importer import import_task_file
 
 
 class LedgerSourceContract:
@@ -37,9 +34,9 @@ class LedgerSourceContract:
         assert snapshot.holdings[0].ticker == "2331"
 
 
-class TestYamlLedgerSource(LedgerSourceContract):
+class TestDbLedgerSource(LedgerSourceContract):
     def make_source(self, root: Path) -> LedgerSource:
-        return YamlLedgerSource(root)
+        return DbLedgerSource(root / "data/app/baibai.sqlite")
 
 
 class ResearchSourceContract:
@@ -60,37 +57,10 @@ class ResearchSourceContract:
         assert len(detail.scenarios) == 6
         assert source.holding_reviews(ticker="2331") == []
 
-    def test_parse_error_excludes_only_broken_packet(self, app_records_root: Path) -> None:
-        broken = app_records_root / "records/03-thesis/2026/07/2026-07-19-9999-decision.yaml"
-        broken.write_text("schema_version: broken\n", encoding="utf-8")
-        source = self.make_source(app_records_root)
-
-        revisions = source.revisions()
-
-        assert [item.ticker for item in revisions] == ["2331"]
-        assert source.load_errors() == ["records/03-thesis/2026/07/2026-07-19-9999-decision.yaml"]
-
-
-class TestYamlResearchSource(ResearchSourceContract):
-    def make_source(self, root: Path) -> ResearchSource:
-        return YamlResearchSource(root)
-
 
 class TestDbResearchSource(ResearchSourceContract):
     def make_source(self, root: Path) -> ResearchSource:
-        db_path = root / "data/app/baibai.sqlite"
-        research_root = root / "records/03-thesis"
-        if research_root.is_dir():
-            import_research_records(
-                research_root,
-                root / "records/04-position",
-                db_path=db_path,
-            )
-        return DbResearchSource(db_path)
-
-    def test_parse_error_excludes_only_broken_packet(self, app_records_root: Path) -> None:
-        source = self.make_source(app_records_root)
-        assert source.load_errors() == []
+        return DbResearchSource(root / "data/app/baibai.sqlite")
 
 
 class TaskSourceContract:
@@ -113,18 +83,9 @@ class TaskSourceContract:
         assert tasks[0].event_date is not None
 
 
-class TestYamlTaskSource(TaskSourceContract):
-    def make_source(self, root: Path) -> TaskSource:
-        return YamlTaskSource(root)
-
-
 class TestDbTaskSource(TaskSourceContract):
     def make_source(self, root: Path) -> TaskSource:
-        db_path = root / "data/app/baibai.sqlite"
-        source = root / "records/05-task/tasks.yaml"
-        if source.is_file():
-            import_task_file(source, db_path=db_path)
-        return DbTaskSource(db_path)
+        return DbTaskSource(root / "data/app/baibai.sqlite")
 
 
 class CandidatesSourceContract:
@@ -134,7 +95,7 @@ class CandidatesSourceContract:
     def test_latest_run_is_none_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).latest_run() is None
 
-    def test_latest_run_uses_greatest_filename_date(self, app_records_root: Path) -> None:
+    def test_latest_run_uses_greatest_run_date(self, app_records_root: Path) -> None:
         source = self.make_source(app_records_root)
 
         run = source.latest_run()
@@ -142,9 +103,12 @@ class CandidatesSourceContract:
         assert run is not None
         assert run.run_id == "screening-20260708"
         assert len(run.rows) == 3
-        assert run.source_path == "records/02-candidates/2026/07/2026-07-08.yaml"
+        assert run.source_path.startswith("run-revision-")
 
 
-class TestYamlCandidatesSource(CandidatesSourceContract):
+class TestDbCandidatesSource(CandidatesSourceContract):
     def make_source(self, root: Path) -> CandidatesSource:
-        return YamlCandidatesSource(root)
+        return DbCandidatesSource(
+            root / "data/screening/runs.sqlite",
+            root / "data/app/baibai.sqlite",
+        )

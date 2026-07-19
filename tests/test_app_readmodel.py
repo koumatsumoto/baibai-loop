@@ -130,7 +130,7 @@ def _revision() -> ResearchRevision:
         company_name="ウイングアーク１ｓｔ",
         sector="情報・通信業",
         as_of=date(2026, 7, 14),
-        packet_id="records/03-thesis/2026/07/2026-07-14-4432-decision.yaml",
+        packet_id="packet-20260714-4432-r1",
         recommendation="buy",
         confidence="medium",
         current_fair_value_yen=12.0,
@@ -153,7 +153,7 @@ def _run(*, metrics: object = None) -> CandidatesRun:
         run_date=date(2026, 7, 8),
         asof_date=date(2026, 7, 8),
         universe_size=3744,
-        source_path="records/02-candidates/2026/07/2026-07-08.yaml",
+        source_path="run-revision-20260708",
         rows=(row,),
     )
 

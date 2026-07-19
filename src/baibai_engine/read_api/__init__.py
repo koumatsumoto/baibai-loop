@@ -1,8 +1,8 @@
 """Query-only facade imported by :mod:`baibai_app`.
 
 Writable connections, migrations, providers, and CLI composition deliberately
-remain outside this package.  The re-exports below are the temporary YAML read
-surface until each domain moves to its database-backed query implementation.
+remain outside this package. The re-exports expose DB-backed queries and the
+domain models needed to assemble read-only application views.
 """
 
 from baibai_engine.foundation.yaml_io import safe_load

@@ -34,7 +34,7 @@ from baibai_engine.research.decision_packet import (
     evaluate_decision_packet,
 )
 from baibai_engine.research.opportunity_cli import main as opportunity_main
-from baibai_engine.validation.decision_packet import validate_decision_packet_file
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -67,7 +67,7 @@ def _app_db(tmp_path: Path, ledger_path: Path = LEDGER_FIXTURE) -> Path:
             )
         }
     )
-    LedgerStoreService(path).import_document(document)
+    seed_ledger(path, document)
     return path
 
 
@@ -1557,13 +1557,15 @@ def test_packet_scaffold_draft_has_no_structural_schema_errors(
     )
     assert code == 0
     draft_path = workspace / "2331" / "packet-draft.yaml"
-    findings = validate_decision_packet_file(draft_path)
-    messages = " ".join(f"{finding.code} {finding.message}" for finding in findings)
-    # The malformed-structure symptoms (extra price_snapshot / invalid price_basis)
-    # must be absent; only unfilled judgment/metadata fields remain.
-    assert "price_snapshot" not in messages
-    assert "raw_unadjusted_close" not in messages
-    assert "price_basis" not in messages
+    draft = safe_load(draft_path.read_text(encoding="utf-8"))
+    assert isinstance(draft, dict)
+    snapshot = draft["input_snapshot"]
+    assert isinstance(snapshot, dict)
+    assert "price_snapshot" not in snapshot
+    facts = snapshot["facts"]
+    assert isinstance(facts, list)
+    assert facts[0]["fact_kind"] == "market_price"
+    assert facts[0]["price_basis"] == "last_close_unadjusted"
 
 
 def test_packet_scaffold_without_raw_close_exits_3(

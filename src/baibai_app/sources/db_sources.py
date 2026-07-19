@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from baibai_app.sources.types import (
@@ -35,6 +34,7 @@ from baibai_engine.read_api import (
     portfolio_ledger_document,
     reconcile_portfolio,
     research_packet_publication,
+    safe_load,
     screening_run_payload,
     screening_run_payloads,
     screening_selection_payloads,
@@ -217,7 +217,7 @@ class _DashboardConfig(BaseModel):
 
 
 def load_macro_dashboard_config(path: Path) -> tuple[MacroGroupConfig, ...]:
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw = safe_load(path.read_text(encoding="utf-8"))
     config = _DashboardConfig.model_validate(raw)
     identifiers = [item.id for group in config.groups for item in group.series]
     if len(identifiers) != len(set(identifiers)):

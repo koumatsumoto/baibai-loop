@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 from datetime import datetime
 from decimal import Decimal, localcontext
 from pathlib import Path
@@ -18,21 +17,15 @@ from baibai_engine.research.decision_packet import (
     IndependentReview,
     _round_payload_decimal,
     decision_packet_core_hash,
-    decision_packet_json_schema,
     evaluate_decision_packet,
-    independent_review_json_schema,
     load_decision_packet,
     load_independent_review,
     result_to_payload,
 )
-from baibai_engine.validation.cli import main as validation_main
-from baibai_engine.validation.decision_packet import validate_decision_packet_file
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
 REVIEW_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
-SCHEMA = ROOT / "records/_schemas/decision-packet.json"
-REVIEW_SCHEMA = ROOT / "records/_schemas/decision-review.json"
 
 
 def _raw() -> dict[str, object]:
@@ -199,7 +192,7 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     ],
 )
 def test_screening_fv_bridge_rejects_invalid_contract_values(
-    field: str, value: object, message: str, tmp_path: Path
+    field: str, value: object, message: str
 ) -> None:
     raw = _raw()
     snapshot = raw["input_snapshot"]
@@ -213,15 +206,6 @@ def test_screening_fv_bridge_rejects_invalid_contract_values(
 
     with pytest.raises(ValueError, match=message):
         _document(raw)
-
-    path = tmp_path / "records/03-thesis/2026/07/2026-07-03-2331-decision.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
-    findings = validate_decision_packet_file(path)
-    assert any(
-        finding.severity == "error" and finding.location == "estimates.screening_fv_bridge"
-        for finding in findings
-    )
 
 
 def test_screening_fv_bridge_accepts_two_physical_lines() -> None:
@@ -558,11 +542,6 @@ def test_observed_trailing_multiple_requires_one_valid_named_local_anchor() -> N
     not_applicable = _evaluate(fcfe_raw).five_year_base_break_even
     assert not_applicable is not None
     assert not_applicable.observed_trailing_multiple_status == "not_applicable"
-
-
-def test_generated_schema_matches_tracked_contract() -> None:
-    assert json.loads(SCHEMA.read_text(encoding="utf-8")) == decision_packet_json_schema()
-    assert json.loads(REVIEW_SCHEMA.read_text(encoding="utf-8")) == independent_review_json_schema()
 
 
 def test_packet_requires_input_snapshot() -> None:
@@ -1240,58 +1219,19 @@ def test_changed_second_pass_requires_packet_regeneration() -> None:
     assert any("changed the proposal" in error for error in result.errors)
 
 
-def test_validator_and_read_only_cli_use_same_result(
+def test_read_only_cli_uses_domain_result(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = tmp_path / "records/03-thesis/2026/07/2026-07-03-2331-decision.yaml"
-    path.parent.mkdir(parents=True)
+    path = tmp_path / "2026-07-03-2331-decision.yaml"
     path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
     (path.parent / "2331-decision-review.yaml").write_text(
         REVIEW_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8"
     )
-
-    findings = validate_decision_packet_file(path)
-    assert [finding.severity for finding in findings] == ["warning"]
-    assert validation_main(["--root", str(tmp_path), "--target", "decision-packet"]) == 0
-    capsys.readouterr()
 
     assert decision_main([str(path)]) == 0
     output = yaml.safe_load(capsys.readouterr().out)
     assert output["packet_status"] == "ready_with_warnings"
     assert output["decision_readiness"] == "ready"
-
-
-@pytest.mark.parametrize(
-    ("filename", "message"),
-    [
-        ("2026-07-03-9999-decision.yaml", "filename ticker"),
-        ("2026-07-04-2331-decision.yaml", "filename date"),
-        ("noncanonical-2331-decision.yaml", "must use YYYY-MM-DD"),
-    ],
-)
-def test_validator_rejects_canonical_filename_identity_mismatch(
-    tmp_path: Path, filename: str, message: str
-) -> None:
-    path = tmp_path / "records/03-thesis/2026/07" / filename
-    path.parent.mkdir(parents=True)
-    path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
-    (path.parent / "2331-decision-review.yaml").write_text(
-        REVIEW_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8"
-    )
-
-    findings = validate_decision_packet_file(path)
-
-    assert any(message in finding.message for finding in findings)
-
-
-def test_validator_rejects_canonical_path_date_mismatch(tmp_path: Path) -> None:
-    path = tmp_path / "records/03-thesis/2025/12/2026-07-03-2331-decision.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
-
-    findings = validate_decision_packet_file(path)
-
-    assert any("path year/month" in finding.message for finding in findings)
 
 
 def test_independent_review_hash_changes_with_initial_proposal() -> None:

@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-import yaml
 
 from baibai_engine.screening.run_store import (
     RunStoreAmbiguousError,
@@ -13,7 +12,6 @@ from baibai_engine.screening.run_store import (
     RunStoreNotFoundError,
     ScreeningRunReader,
     ScreeningRunStore,
-    import_screening_runs,
     initialize_run_store,
 )
 
@@ -136,48 +134,6 @@ def test_run_parent_and_candidates_are_one_transaction(tmp_path: Path) -> None:
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM screening_candidate").fetchone()[0] == 0
-
-
-def test_import_is_create_only_all_transaction_and_preserves_payload(tmp_path: Path) -> None:
-    source = tmp_path / "records"
-    first_path = source / "2026" / "07" / "2026-07-07.yaml"
-    second_path = source / "2026" / "07" / "2026-07-08.yaml"
-    first_path.parent.mkdir(parents=True)
-    first = _run(as_of="2026-07-07", run_at="2026-07-08T01:00:00+09:00")
-    second = _run()
-    first_path.write_text(yaml.safe_dump(first, allow_unicode=True), encoding="utf-8")
-    second_path.write_text(yaml.safe_dump(second, allow_unicode=True), encoding="utf-8")
-    database = tmp_path / "runs.sqlite"
-
-    assert import_screening_runs(source, db_path=database) == (2, 0)
-    assert import_screening_runs(source, db_path=database) == (0, 2)
-
-    runs = [
-        ScreeningRunReader(database).resolve_run(as_of_date="2026-07-07"),
-        ScreeningRunReader(database).resolve_run(as_of_date="2026-07-08"),
-    ]
-    assert runs[0] is not None
-    assert runs[0].payload == first
-    assert runs[1] is not None
-    assert runs[1].payload == second
-    assert runs[1].run_at == second["run_at"]
-    assert runs[1].candidates == tuple(second["candidates"])  # type: ignore[arg-type]
-
-    changed = dict(second)
-    changed["universe_size"] = 1
-    second_path.write_text(yaml.safe_dump(changed, allow_unicode=True), encoding="utf-8")
-    third_path = source / "2026" / "07" / "2026-07-09.yaml"
-    third_path.write_text(
-        yaml.safe_dump(
-            _run(as_of="2026-07-09", run_at="2026-07-10T01:00:00+09:00"),
-            allow_unicode=True,
-        ),
-        encoding="utf-8",
-    )
-    with pytest.raises(RunStoreConflictError):
-        import_screening_runs(source, db_path=database)
-    with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 2
 
 
 def test_selection_binds_explicit_run_and_read_facade_exposes_metadata(tmp_path: Path) -> None:

@@ -8,11 +8,11 @@ from pathlib import Path
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.screening.cli import build_parser, ticker_profile_command
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.ticker_profile import build_ticker_profile
+from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 _ASOF = date(2026, 5, 29)
@@ -318,7 +318,8 @@ class PortfolioBlockTests(unittest.TestCase):
 
 
 def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: int) -> None:
-    LedgerStoreService(root / "app.sqlite").import_document(
+    seed_ledger(
+        root / "app.sqlite",
         PortfolioLedgerDocument.model_validate(
             {
                 "schema_version": 2,
@@ -370,5 +371,5 @@ def _write_portfolio_ledger(root: Path, *, ticker: str, sector: str, price_yen: 
                 ],
                 "overrides": [],
             }
-        )
+        ),
     )

@@ -784,11 +784,9 @@ def _valuation_history(
             (price * snapshot.shares_outstanding) / snapshot.sales_ttm for price in prices
         ]
 
-    # R2 P0 fix: per_forward was added to VALUATION_METRICS in Phase 1 but its
-    # history was not populated, so self_range_percentile / sigma_gap for the
-    # new metric were always None and the gate silently fell back to per_trailing.
-    # Reconstruct historical per_forward by holding forecast EPS constant against
-    # the adjusted close history, matching the per_trailing convention.
+    # Historical forward PER holds forecast EPS constant against adjusted close,
+    # matching the trailing-PER history convention and keeping range metrics
+    # available for the forward valuation input.
     per_forward_history: list[float] = []
     if snapshot.per_forward is not None and snapshot.per_forward != 0:
         per_forward_basis = latest_price / snapshot.per_forward

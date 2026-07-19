@@ -20,14 +20,14 @@ from tools.research_price_watch import (
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.position.ledger import load_portfolio_ledger
-from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_packet import (
     decision_packet_core_hash,
     independent_review_hash,
     load_decision_packet,
     load_independent_review,
 )
-from baibai_engine.research.importer import import_research_records
+from baibai_engine.research.store import ResearchStoreService
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -184,7 +184,32 @@ def _run(
     source = packets_root or _packet_root(tmp_path)
     db_path = tmp_path / "app.sqlite"
     if source.is_dir():
-        import_research_records(source, tmp_path / "no-position-records", db_path=db_path)
+        packet_path = next(
+            path
+            for path in source.rglob("*-decision.yaml")
+            if not path.name.endswith("-review.yaml")
+        )
+        packet = load_decision_packet(packet_path)
+        packet_id = (
+            f"packet-{packet.input_snapshot.as_of:%Y%m%d}-{packet.input_snapshot.ticker}-test"
+        )
+        service = ResearchStoreService(db_path)
+        if packet.independent_review_ref is None:
+            service.publish_packet(packet_id, packet.model_dump(mode="json"))
+            review_path = packet_path.with_name(
+                packet_path.name.replace("-decision.yaml", "-decision-review.yaml")
+            )
+            service.publish_review(
+                packet_id,
+                load_independent_review(review_path).model_dump(mode="json"),
+            )
+        else:
+            review = load_independent_review(packet_path.with_name(packet.independent_review_ref))
+            service.publish_packet_with_review(
+                packet_id,
+                packet.model_dump(mode="json"),
+                review.model_dump(mode="json"),
+            )
         document = load_portfolio_ledger(ledger)
         document = document.model_copy(
             update={
@@ -194,7 +219,7 @@ def _run(
                 )
             }
         )
-        LedgerStoreService(db_path).import_document(document)
+        seed_ledger(db_path, document)
     else:
         db_path = tmp_path / "missing-app.sqlite"
     exit_code = main(
@@ -227,7 +252,7 @@ def test_resolved_join_keeps_history_and_excludes_ledger_only_rows(
 
     exit_code, payload, stderr = _run(tmp_path, capsys, sqlite_path=market)
 
-    assert exit_code == 0
+    assert exit_code == 0, stderr
     assert stderr == ""
     rows = payload["rows"]
     assert len(rows) == 1
@@ -277,14 +302,14 @@ def test_packet_only_ticker_is_included_as_unheld(
     market = tmp_path / "market.sqlite"
     _market_sqlite(market)
 
-    exit_code, payload, _ = _run(
+    exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
         sqlite_path=market,
         ledger=_opening_only_ledger(tmp_path),
     )
 
-    assert exit_code == 0
+    assert exit_code == 0, stderr
     assert payload["rows"][0]["current_portfolio_status"] == "unheld"
     assert payload["rows"][0]["reservation_history"] == []
 
@@ -397,7 +422,7 @@ def test_latest_reject_is_excluded_from_watch_rows(
         sqlite_path=sqlite_path,
     )
 
-    assert exit_code == 0
+    assert exit_code == 0, stderr
     assert stderr == ""
     assert payload["rows"] == []
     assert payload["coverage"]["excluded_latest_reject_tickers"] == ["2331"]
@@ -673,7 +698,7 @@ def test_reject_packet_is_bound_by_db_revision_not_legacy_review_ref(
         sqlite_path=sqlite_path,
     )
 
-    assert exit_code == 0
+    assert exit_code == 0, stderr
     assert payload["rows"] == []
     assert payload["coverage"]["excluded_latest_reject_tickers"] == ["2331"]
     assert stderr == ""

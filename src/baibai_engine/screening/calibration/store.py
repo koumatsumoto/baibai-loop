@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 
 from .forward import ForwardReturnRow
@@ -44,7 +45,7 @@ def _require_current_cache(root: Path) -> None:
             "calibration cache version is missing; run calibration-build --force"
         )
     try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        payload = safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise CalibrationCacheError(
             "calibration cache version is invalid; run calibration-build --force"
@@ -86,7 +87,7 @@ def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
     if not path.exists():
         raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
     try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        payload = safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise CalibrationCacheError(
             "calibration cache metadata is invalid; run calibration-build --force"

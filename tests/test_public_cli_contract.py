@@ -12,13 +12,13 @@ from baibai_engine.position.cli import build_parser as position_parser
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.ledger import PortfolioLedgerDocument, load_portfolio_ledger
 from baibai_engine.position.outcome_store import PortfolioOutcomeStore
-from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
 from baibai_engine.research.opportunity_cli import main as opportunity_main
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.cli.app import build_parser as screening_parser
 from baibai_engine.screening.run_store import ScreeningRunStore
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -36,7 +36,8 @@ def _payload(text: str) -> dict[str, object]:
 
 def _import_ledger(db_path: Path, source: Path = LEDGER_FIXTURE) -> None:
     document = load_portfolio_ledger(source)
-    LedgerStoreService(db_path).import_document(
+    seed_ledger(
+        db_path,
         document.model_copy(
             update={
                 "market_prices": tuple(
@@ -44,7 +45,7 @@ def _import_ledger(db_path: Path, source: Path = LEDGER_FIXTURE) -> None:
                     for price in document.market_prices
                 )
             }
-        )
+        ),
     )
 
 
@@ -251,7 +252,7 @@ def test_ledger_cli_labels_migration_events_as_initialization(
         }
     )
     db_path = tmp_path / "app.sqlite"
-    LedgerStoreService(db_path).import_document(document)
+    seed_ledger(db_path, document)
 
     assert position_main(["ledger", "--db", str(db_path)]) == 0
     payload = _payload(capsys.readouterr().out)

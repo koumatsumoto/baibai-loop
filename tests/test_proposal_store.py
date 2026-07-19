@@ -26,6 +26,7 @@ from baibai_engine.proposals.store import (
 from baibai_engine.research.opportunity import plan_limit
 from baibai_engine.research.opportunity_cli import main as research_main
 from baibai_engine.research.store import ResearchStoreService
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -51,7 +52,8 @@ def _database(path: Path, *, with_review: bool = True) -> None:
         packet["judgment"]["sizing_action"] = "none"  # type: ignore[index]
         service.publish_packet(PACKET_ID, packet)
     ledger = PortfolioLedgerDocument.model_validate(_raw(LEDGER))
-    LedgerStoreService(path).import_document(
+    seed_ledger(
+        path,
         ledger.model_copy(
             update={
                 "market_prices": tuple(
@@ -59,7 +61,7 @@ def _database(path: Path, *, with_review: bool = True) -> None:
                     for price in ledger.market_prices
                 )
             }
-        )
+        ),
     )
 
 

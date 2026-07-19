@@ -15,7 +15,6 @@ from baibai_engine.position.ledger import (
     load_portfolio_ledger,
     reconcile_portfolio,
 )
-from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.research.decision_cli import main as decision_cli_main
 from baibai_engine.research.decision_packet import (
     DecisionPacketDocument,
@@ -35,6 +34,7 @@ from baibai_engine.research.execution_policy import (
     max_acceptable_price,
     portfolio_input_from_snapshot,
 )
+from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
 PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
@@ -54,7 +54,8 @@ def _raw(path: Path) -> dict[str, object]:
 def _app_db(tmp_path: Path) -> Path:
     path = tmp_path / "app.sqlite"
     document = load_portfolio_ledger(LEDGER)
-    LedgerStoreService(path).import_document(
+    seed_ledger(
+        path,
         document.model_copy(
             update={
                 "market_prices": tuple(
@@ -62,7 +63,7 @@ def _app_db(tmp_path: Path) -> Path:
                     for price in document.market_prices
                 )
             }
-        )
+        ),
     )
     return path
 
