@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from .sqlite import connect_read_only
+
+type MacroGranularity = Literal["daily", "weekly", "monthly", "yearly"]
 
 
 def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object] | None:
@@ -85,8 +88,15 @@ def macro_indicator_series(
     path: Path,
     *,
     series_id: str,
-    limit: int = 36,
+    start: date | None = None,
+    end: date | None = None,
+    granularity: MacroGranularity = "daily",
+    limit: int | None = 36,
 ) -> dict[str, object] | None:
+    if granularity not in {"daily", "weekly", "monthly", "yearly"}:
+        raise ValueError(f"unsupported macro granularity: {granularity}")
+    if start is not None and end is not None and end < start:
+        raise ValueError("macro indicator end must be on or after start")
     if not path.is_file():
         return None
     connection = connect_read_only(path)
@@ -96,6 +106,8 @@ def macro_indicator_series(
         ).fetchone()
         if series is None:
             return None
+        start_text = start.isoformat() if start is not None else None
+        end_text = end.isoformat() if end is not None else None
         rows = connection.execute(
             """
             SELECT observed_at, value, unit FROM (
@@ -105,16 +117,22 @@ def macro_indicator_series(
                        ) AS rank
                 FROM observations
                 WHERE series_id = ? AND fetch_status = 'ok'
+                  AND (? IS NULL OR observed_at >= ?)
+                  AND (? IS NULL OR observed_at <= ?)
             )
             WHERE rank = 1
-            ORDER BY observed_at DESC
-            LIMIT ?
+            ORDER BY observed_at ASC
             """,
-            (series_id, limit),
+            (series_id, start_text, start_text, end_text, end_text),
         ).fetchall()
     finally:
         connection.close()
-    points = [{"observed_at": str(row[0]), "value": float(row[1])} for row in reversed(rows)]
+    points = [{"observed_at": str(row[0]), "value": float(row[1])} for row in rows]
+    points = _aggregate_period_end(points, granularity=granularity)
+    if limit is not None:
+        if limit < 1:
+            raise ValueError("macro indicator limit must be positive")
+        points = points[-limit:]
     return {
         "series_id": series_id,
         "name": str(series[0]),
@@ -123,7 +141,33 @@ def macro_indicator_series(
     }
 
 
+def _aggregate_period_end(
+    points: list[dict[str, object]],
+    *,
+    granularity: MacroGranularity,
+) -> list[dict[str, object]]:
+    if granularity == "daily":
+        return points
+    period_end: dict[tuple[int, ...], dict[str, object]] = {}
+    for point in points:
+        observed_at = date.fromisoformat(str(point["observed_at"]))
+        key: tuple[int, ...]
+        match granularity:
+            case "weekly":
+                iso_year, iso_week, _ = observed_at.isocalendar()
+                key = (iso_year, iso_week)
+            case "monthly":
+                key = (observed_at.year, observed_at.month)
+            case "yearly":
+                key = (observed_at.year,)
+            case _:
+                raise AssertionError(f"unreachable macro granularity: {granularity}")
+        period_end[key] = point
+    return list(period_end.values())
+
+
 __all__ = [
+    "MacroGranularity",
     "latest_macro_context_payload",
     "list_macro_context_payloads",
     "macro_context_payload",

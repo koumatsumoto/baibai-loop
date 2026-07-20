@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from baibai_app.sources.db_sources import DbCandidatesSource, DbMacroSource, DbProgramSource
@@ -17,6 +18,7 @@ from baibai_app.sources.protocols import (
 from baibai_app.sources.types import CandidatesRun, PacketDetail, ResearchRevision, TaskRecord
 from baibai_engine.read_api import (
     HoldingSnapshot,
+    MacroGranularity,
     PortfolioLedgerError,
     PortfolioSnapshot,
 )
@@ -51,6 +53,8 @@ from .models import (
     TaskView,
     WarningView,
 )
+
+type MacroPeriod = Literal["1y", "5y", "10y", "max"]
 
 _JST = ZoneInfo("Asia/Tokyo")
 _NUMERIC_FIELDS = (
@@ -336,7 +340,13 @@ def build_security_detail(
     )
 
 
-def build_macro(source: DbMacroSource, *, as_of: date) -> MacroView:
+def build_macro(
+    source: DbMacroSource,
+    *,
+    as_of: date,
+    period: MacroPeriod = "1y",
+    granularity: MacroGranularity = "daily",
+) -> MacroView:
     raw_context = source.context(as_of=as_of)
     context = None
     if raw_context is not None:
@@ -361,10 +371,16 @@ def build_macro(source: DbMacroSource, *, as_of: date) -> MacroView:
             changes_since_previous=_string_items(raw_context.get("changes_since_previous")),
         )
     groups: list[MacroGroupView] = []
+    period_start = _macro_period_start(as_of, period=period)
     for group in source.groups:
         series_views: list[MacroSeriesView] = []
         for configured in group.series:
-            raw_series = source.series(configured.series_id)
+            raw_series = source.series(
+                configured.series_id,
+                start=period_start,
+                end=as_of,
+                granularity=granularity,
+            )
             if raw_series is None:
                 raise ValueError(f"configured macro series is unavailable: {configured.series_id}")
             series_views.append(
@@ -390,7 +406,24 @@ def build_macro(source: DbMacroSource, *, as_of: date) -> MacroView:
         )
         for item in source.contexts()
     ]
-    return MacroView(as_of=as_of, context=context, context_history=history, groups=groups)
+    return MacroView(
+        as_of=as_of,
+        period=period,
+        granularity=granularity,
+        context=context,
+        context_history=history,
+        groups=groups,
+    )
+
+
+def _macro_period_start(as_of: date, *, period: MacroPeriod) -> date | None:
+    if period == "max":
+        return None
+    years = {"1y": 1, "5y": 5, "10y": 10}[period]
+    try:
+        return as_of.replace(year=as_of.year - years)
+    except ValueError:
+        return as_of.replace(year=as_of.year - years, day=28)
 
 
 def _mapping_items(value: object) -> list[Mapping[str, object]]:

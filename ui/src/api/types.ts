@@ -279,6 +279,8 @@ export interface MacroGroupView {
 
 export interface MacroView {
   as_of: string
+  period: '1y' | '5y' | '10y' | 'max'
+  granularity: 'daily' | 'weekly' | 'monthly' | 'yearly'
   context: MacroContextView | null
   context_history: MacroContextRevisionView[]
   groups: MacroGroupView[]

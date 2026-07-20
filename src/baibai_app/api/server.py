@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -103,8 +103,15 @@ def create_app(
     def macro(
         sources: _SourceDependency,
         as_of: date | None = None,
+        period: Literal["1y", "5y", "10y", "max"] = "1y",
+        granularity: Literal["daily", "weekly", "monthly", "yearly"] = "daily",
     ) -> MacroView:
-        return build_macro(sources.macro, as_of=as_of or datetime.now(_JST).date())
+        return build_macro(
+            sources.macro,
+            as_of=as_of or datetime.now(_JST).date(),
+            period=period,
+            granularity=granularity,
+        )
 
     @app.get("/api/program", response_model=ProgramStateView)
     def program(sources: _SourceDependency) -> ProgramStateView:

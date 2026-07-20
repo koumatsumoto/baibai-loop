@@ -16,6 +16,7 @@ from baibai_engine.position.ledger import (
 from baibai_engine.research.decision_packet import DecisionPacketError, load_decision_packet
 
 from .macro import (
+    MacroGranularity,
     latest_macro_context_payload,
     list_macro_context_payloads,
     macro_context_payload,
@@ -44,6 +45,7 @@ from .tasks import list_task_payloads, task_store_exists
 __all__ = [
     "DecisionPacketError",
     "HoldingSnapshot",
+    "MacroGranularity",
     "PortfolioLedgerError",
     "PortfolioSnapshot",
     "latest_macro_context_payload",

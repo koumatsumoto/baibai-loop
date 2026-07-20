@@ -19,6 +19,7 @@ from baibai_app.sources.types import (
     TaskRecord,
 )
 from baibai_engine.read_api import (
+    MacroGranularity,
     PortfolioSnapshot,
     latest_macro_context_payload,
     latest_reviewed_shortlist_payload,
@@ -249,8 +250,22 @@ class DbMacroSource:
     def contexts(self) -> list[dict[str, object]]:
         return list_macro_context_payloads(self._app_db_path)
 
-    def series(self, series_id: str) -> dict[str, object] | None:
-        return macro_indicator_series(self._indicators_db_path, series_id=series_id)
+    def series(
+        self,
+        series_id: str,
+        *,
+        start: date | None,
+        end: date,
+        granularity: MacroGranularity,
+    ) -> dict[str, object] | None:
+        return macro_indicator_series(
+            self._indicators_db_path,
+            series_id=series_id,
+            start=start,
+            end=end,
+            granularity=granularity,
+            limit=None,
+        )
 
 
 class DbCandidatesSource:

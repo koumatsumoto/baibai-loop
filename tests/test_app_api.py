@@ -14,7 +14,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         health = client.get("/api/health")
         dashboard = client.get("/api/dashboard")
         screening = client.get("/api/screening/latest")
-        macro = client.get("/api/macro?as_of=2026-07-19")
+        macro = client.get("/api/macro?as_of=2026-07-19&period=5y&granularity=yearly")
         detail = client.get("/api/securities/2331")
 
         assert health.status_code == 200
@@ -25,6 +25,8 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         assert screening.status_code == 200
         assert screening.json()["run"]["candidate_count"] == 3
         assert macro.status_code == 200
+        assert macro.json()["period"] == "5y"
+        assert macro.json()["granularity"] == "yearly"
         assert macro.json()["context"] is None
         assert [group["title"] for group in macro.json()["groups"]] == [
             "金利・金融条件",
@@ -37,6 +39,12 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         fallback = client.get("/securities/2331")
         assert fallback.status_code == 200
         assert "ui/ を build" in fallback.text
+
+
+def test_macro_api_rejects_unknown_period_and_granularity(app_records_root: Path) -> None:
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+        assert client.get("/api/macro?period=20y").status_code == 422
+        assert client.get("/api/macro?granularity=quarterly").status_code == 422
 
 
 def test_api_reads_the_explicit_application_database(app_records_root: Path) -> None:
