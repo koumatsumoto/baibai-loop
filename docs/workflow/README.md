@@ -3,7 +3,7 @@ title: "Workflow"
 summary: "各工程がinputをoutputへ変換する方法と品質境界の入口。e2e順序はoperations、artifact契約はreferenceを参照する。"
 doc_type: workflow-index
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-20
 ---
 
 # Workflow
@@ -25,7 +25,7 @@ flowchart LR
 | 工程 | input | output | doc |
 | --- | --- | --- | --- |
 | macro | indicator series、一次source、refresh trigger | material delta contextまたは変更なし | [`macro.md`](./macro.md) |
-| screening | point-in-time market/financial data、rules | candidates、audit pool、selection | [`screening.md`](./screening.md) |
+| screening | point-in-time market/financial data、rules | screening run、audit pool、machine selection | [`screening.md`](./screening.md) |
 | research | shortlist、一次IR、ledger annotation | decision packet、independent review、defer/reject | [`research.md`](./research.md) |
 | position | human result、packet/review、ledger、market close | ledger draft、holding review、outcome | [`position.md`](./position.md) |
 | playbook | candidate evidence pattern | research checklist | [`playbooks.md`](./playbooks.md) |

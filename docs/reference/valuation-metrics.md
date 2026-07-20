@@ -3,7 +3,7 @@ title: "Valuation metrics"
 summary: "screeningで使うvaluation指標の定義、単位、欠損、算出仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-20
 ---
 
 # valuation-metrics — valuation 指標の算出仕様
@@ -129,7 +129,7 @@ Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけ�
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 
-自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、candidates には直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
+自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、screening runのcandidate recordには直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
 
 - `price_history_sessions_750d`: 直近 750 暦日のうち bar が存在する営業日数
 - `price_history_coverage_750d`: 上記 / 当日 scope 内の最大値(最も密な銘柄が取引カレンダーの近似)
@@ -197,9 +197,9 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 - 取得不能・算出不能は **明示的に `null`**（省略しない）
 - 決算期またぎの一時的欠損: 確報確定まで `null` 運用
-- 会計方針変更・特損計上等で一時的歪み: research 側で「反対仮説」に記録、candidates の指標値は素直に採用（事実層のため）
+- 会計方針変更・特損計上等で一時的歪み: research 側で「反対仮説」に記録、screening runの指標値は素直に採用（事実層のため）
 
 ## 15. 参考
 
-- [`../workflow/screening.md`](../workflow/screening.md): universe / evidence pattern screen / candidates
+- [`../workflow/screening.md`](../workflow/screening.md): universe / evidence pattern screen / screening run
 - [`./data-sources.md`](./data-sources.md): データソース Tier 一覧

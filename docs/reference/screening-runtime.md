@@ -3,7 +3,7 @@ title: "Screening runtime"
 summary: "screening CLI、provider、SQLite schema、cache coverage、runtime設定の実装仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-16
+last_reviewed: 2026-07-20
 ---
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
@@ -12,7 +12,7 @@ last_reviewed: 2026-07-16
 
 ## 1. Scope
 
-- 対象は `candidates` の自動生成と、`research` 選定を補助する `select` まで
+- 対象は screening runの自動生成と、`research` 選定を補助する `select` まで
 - `research` 自動採用判定は対象外
 - `kabuステーション API` と `JPX Market Explorer` は source of truth に使わない
 
@@ -46,7 +46,7 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 
 金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、audit の対象になる。
 
-`ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近 candidates 記録・prior research を 1 つの事実 packet として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation は candidates 記録から引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
+`ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近screening runのcandidate record・prior research を 1 つの事実 packet として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation はそのcandidate recordから引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
 
 `listing_span_days` は J-Quants 銘柄 master に上場日が無いため、cache 内の最古 daily bar からの経過日数を proxy にする。bars cache の窓は asof−1200 暦日なので、上場が古い銘柄は ~1200 日で頭打ちになる（新規上場は実日数）。上場年数の実値ではなく「最低これだけの履歴がある」下限として読む。
 
@@ -67,7 +67,7 @@ cache / SQLite の配置先は固定 (env override 廃止):
 
 - `EDINET_API_KEY`: `extract-edinet-metrics` 実行時に必要。`run` は SQLite の EDINET metrics を必須入力として扱うため、標準運用では `run` 前に EDINET metrics を抽出しておく
 - `SCREENING_RULES_PATH`: `select` / `run` が使う screening rules / selection profile YAML の既定 path override。CLI の明示 `--rules-path` を最優先し、次に env、最後に `records/_config/screening-rules/` の既定を解決する
-- JPX 公開規制情報 URL（CSV / Excel / HTML）。`records/_config/screening-rules/2026-06-19T000000+0900.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し candidates YAML を生成しない:
+- JPX 公開規制情報 URL（CSV / Excel / HTML）。`records/_config/screening-rules/2026-06-19T000000+0900.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し screening runをpublishしない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
   - `JPX_REORGANIZATION_URL` 整理銘柄
@@ -118,7 +118,7 @@ python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 - HTML は `https://www.jpx.co.jp/` 配下の許可済み URL に限定し、source-specific parser で fail-fast に扱う
 - 特別注意銘柄は `JPX_SPECIAL_CAUTION_INDEX_URL` が設定されていれば、JPX の「個別銘柄信用取引残高表」index から最新の `mtdailyk*.xls` link を解決してから Excel を取得する。index 未設定時は `JPX_SPECIAL_CAUTION_URL` の固定 URL を使う
 - 規制情報の取得失敗は fail-fast
-- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制 flag は candidates に記録される必須事実であり(除外判断は `selection.liquidity` が担う)、warning-only では扱わない
+- `universe.required_jpx_flags` の source が欠ける場合は fail-fast する。JPX 規制 flag は screening runのcandidate recordに記録される必須事実であり(除外判断は `selection.liquidity` が担う)、warning-only では扱わない
 - JPX 公開規制情報は latest snapshot しか取得できないため、SQLite には `fetched_at_utc` を記録する。通常の coverage 検証では `asof` と `fetched_at_utc` が 7 weekday 超乖離していれば fail-fast する（祝日は引かない近似）
 - `screening run` は JPX を取得しない。historical backfill で latest snapshot を過去 `asof` に固定するリスクを許容する場合は、先に `bootstrap-cache --asof` で SQLite に保存し、`verify-cache-coverage --allow-stale-jpx` と `run --allow-stale-jpx` を明示する
 
@@ -156,7 +156,7 @@ python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 
 - `data/screening/market.sqlite` は screening input の local canonical store。J-Quants / EDINET / JPX の provider fetch は normalized table と `source_coverage` を直接更新する
 - `.cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の cache。削除しても SQLite の metric rows は残る
-- `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit を `freshness_warnings` として candidates YAML に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
+- `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit をYAML viewの`freshness_warnings`に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
 - `records/` はmethod/configとplaybookだけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
 - `screening run` は開始時に `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない
 - `JQuantsProvider` / `EDINETProvider` / `JPXProvider` は bootstrap / extract 系コマンドでは SQLite miss 後に provider API へ進み、取得結果を SQLite に直接保存する。`screening run` では `cache_only` で構築され、run 中の追加取得を禁止する
@@ -169,7 +169,7 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 - `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end, dps_actual_annual, dps_forecast_annual)` — 主キー `(ticker, disclosed_at)`。DPS は `DivAnn`（実績年間・FY 開示）と `FDivAnn`→`NxFDivAnn`（進行期の予想年間）から取る
 - `jquants_master_snapshots(snapshot_date, ticker, name, market, sector_33, is_common_stock)` — 主キー `(snapshot_date, ticker)`。異なるrequested as-ofをappend-onlyに保持し、同日再取得だけを置換する。`screening run`はrequested as-ofと同日のsnapshotだけを使う。current-state補助出力の`ticker-profile` / `market-snapshot`とgeneric latest readerはDB全体の`MAX(snapshot_date)`に属するrowだけを読み、過去snapshotからtickerを補完しない。calibrationの`read_eq_master_asof`だけはcohort日以下の直前snapshotを`prior_snapshot`として返せる
 - `jquants_earnings_calendar(announcement_date, ticker)` — 主キー `(announcement_date, ticker)`。schema version を変えずに既存 SQLite を読めるよう物理名だけを維持する互換 table で、論理 source と writer/reader の権威は JPX (`jpx_earnings_calendar`) にある
-- `disclosures` raw JSON（SQLite 未収録）— 任意 cache。`Code` / `Date` / `Title` などの同義 key も reader 側で受け付ける。title keyword scan のみで金額や財務影響は解釈しない。読み取り coverage は `file_count` / `event_count` / `skipped_record_count` / `unsupported_record_count` / `load_errors` として candidates YAML の status / fallback に反映する
+- `disclosures` raw JSON（SQLite 未収録）— 任意 cache。`Code` / `Date` / `Title` などの同義 key も reader 側で受け付ける。title keyword scan のみで金額や財務影響は解釈しない。読み取り coverage は `file_count` / `event_count` / `skipped_record_count` / `unsupported_record_count` / `load_errors` としてscreening runのYAML viewにあるstatus / fallbackへ反映する
 - `jquants_market_calendar(day, is_business_day)` — 主キー `(day)`。`HolidayDivision` "1" / "2" を business day=1、それ以外を 0 として記録
 - `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, disclosure_status, withdrawal_status, submit_datetime, doc_description, period_start, period_end)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
 - `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, capex_source, failure_reasons)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する。`source_*` は research で一次資料へ戻るための traceability として保持する。`source_period_start/end` は EDINET documents metadata であり、半期報告書では実際の CF 測定期間と一致しないことがある
