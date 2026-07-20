@@ -37,7 +37,7 @@ templateは[`tools/research_decision_report/findings-template.yaml`](../../tools
 - dated catalyst、未開示・blocked、monitoring trigger
 - source document title、公表日、取得status（`ok / missing / stale / failed / blocked`）
 
-candidate shortlist report（OP3）の`research`に挙げた確認事項は、primary-research setに選ばれた銘柄について`assigned_questions` / `growth_quality` / `domain_findings`のいずれかでansweredにするか、一次情報で確認できなければ`unknowns`へ残す。researchを正当化した論点を黙って落とさない。
+OP3 reviewed shortlist narrative（OP3）の`research`に挙げた確認事項は、primary-research setに選ばれた銘柄について`assigned_questions` / `growth_quality` / `domain_findings`のいずれかでansweredにするか、一次情報で確認できなければ`unknowns`へ残す。researchを正当化した論点を黙って落とさない。
 
 `decision_context.entry_timing`は、購入提案がある場合に必須とする。選択銘柄の直近のdated material event（決算、guidance更新等）と、そのeventの**前に**買う理由（またはeventが判断のload-bearingではない理由）を1〜3行で書く。event結果が判断を変え得るのに先回りして買う場合、その非対称性（待つコストと先回りのrisk）を明示する。rendererは購入提案があるのに`entry_timing`が無い場合に停止し、選択銘柄のfindingsから直近dated catalystを購入方法の隣へ機械表示する。
 

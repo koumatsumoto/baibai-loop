@@ -802,7 +802,7 @@ def test_status_waits_for_human_shortlist_before_packet_scaffold(
 
     assert code == 0
     assert payload["workspace_status"] == "awaiting_primary_research_selection"
-    assert "candidate-report" in str(payload["next_command"])
+    assert "/shortlist" in str(payload["next_command"])
 
 
 def test_status_points_to_first_missing_shortlist_lane(

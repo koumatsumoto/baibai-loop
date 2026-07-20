@@ -254,7 +254,7 @@ def test_screening_tolerates_missing_or_invalid_metrics() -> None:
     row = view.rows[0]
     assert row.per_trailing is None
     assert row.er_annual is None
-    assert row.held is True
+    assert row.portfolio_state == "held"
     assert row.has_research is True
 
 
