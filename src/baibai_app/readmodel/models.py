@@ -23,6 +23,7 @@ class HoldingView(BaseModel):
     fv_gap_pct: float | None
     latest_packet_id: str | None
     recommendation: str | None
+    next_earnings_date: str | None = None
 
 
 class ReservationView(BaseModel):
@@ -56,6 +57,14 @@ class TaskView(BaseModel):
     overdue: bool
 
 
+class UpcomingEventView(BaseModel):
+    event_date: date
+    kind: Literal["earnings", "reservation_expiry", "macro_valid_until"]
+    ticker: str | None
+    label: str
+    days_until: int
+
+
 class DashboardView(BaseModel):
     generated_at: datetime
     ledger_exists: bool
@@ -73,6 +82,7 @@ class DashboardView(BaseModel):
     holdings: list[HoldingView]
     reservations: list[ReservationView]
     warnings: list[WarningView]
+    upcoming_events: list[UpcomingEventView]
     open_tasks: list[TaskView]
     next_task: TaskView | None
     next_event: TaskView | None

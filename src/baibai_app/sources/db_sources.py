@@ -33,6 +33,7 @@ from baibai_engine.read_api import (
     list_research_review_publications,
     list_task_payloads,
     macro_indicator_series,
+    next_earnings_dates,
     portfolio_ledger_document,
     reconcile_portfolio,
     research_packet_publication,
@@ -65,6 +66,9 @@ class DbMarketPriceSource:
 
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
         return latest_unadjusted_closes(self._path, tickers)
+
+    def next_earnings_dates(self, tickers: Sequence[str], *, asof: date) -> Mapping[str, date]:
+        return next_earnings_dates(self._path, tickers, asof=asof)
 
 
 class DbProgramSource:

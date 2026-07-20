@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarCheck2, CalendarDays, ChartNoAxesCombined, CircleAlert } from 'lucide-react'
+import { CalendarCheck2, CalendarClock, CalendarDays, ChartNoAxesCombined, CircleAlert } from 'lucide-react'
 import { Pie, PieChart } from 'recharts'
 
 import { fetchJson } from '../api/client'
-import type { DashboardView, HoldingView, ProgramStateView, TaskView, WarningView } from '../api/types'
+import type {
+  DashboardView,
+  HoldingView,
+  OperationSessionView,
+  PortfolioOutcomeView,
+  ProgramStateView,
+  ProposalView,
+  TaskView,
+  UpcomingEventView,
+  WarningView,
+} from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { PctBadge } from '../components/PctBadge'
@@ -150,7 +160,8 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           {[
             { label: '総資産', value: data.total_capital_yen, detail: `${data.holdings.length} 銘柄を保有`, color: 'bg-foreground' },
             { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${data.deployed_pct.toFixed(1)}%`, color: 'bg-chart-1' },
-            { label: '購入余力', value: data.available_cash_yen, detail: data.reserved_cash_yen === null ? '利用可能な現金' : `予約 ${yenFormatter.format(data.reserved_cash_yen)}`, color: 'bg-chart-2' },
+            { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${data.cash_pct.toFixed(1)}%`, color: 'bg-chart-2' },
+            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${data.reserved_pct.toFixed(1)}%`, color: 'bg-chart-3' },
           ].map((metric) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-5 first:pt-0 last:pb-0" key={metric.label}>
               <div className="flex min-w-0 items-center gap-3">
@@ -302,6 +313,142 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
   )
 }
 
+const eventKindLabel: Record<UpcomingEventView['kind'], string> = {
+  earnings: '決算',
+  reservation_expiry: '予約期限',
+  macro_valid_until: 'マクロ期限',
+}
+
+function eventCountdownLabel(daysUntil: number) {
+  if (daysUntil <= 0) return '本日'
+  if (daysUntil === 1) return '明日'
+  return `あと ${daysUntil} 日`
+}
+
+function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
+  return (
+    <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b px-5 py-5 sm:px-6">
+        <div className="flex items-center gap-2">
+          <CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" />
+          <div><CardTitle>今後 14 日のイベント</CardTitle><CardDescription className="mt-1">決算・予約期限・マクロ期限</CardDescription></div>
+        </div>
+        <Badge variant="secondary">{events.length} 件</Badge>
+      </CardHeader>
+      {events.length === 0 ? (
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">今後 14 日のイベントはありません。</CardContent>
+      ) : (
+        <div className="divide-y">
+          {events.map((event) => (
+            <div className="grid grid-cols-[112px_84px_1fr] items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
+              <time className="font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatDate(event.event_date)}</time>
+              <Badge className="w-fit" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
+              <div className="flex min-w-0 items-center gap-2">
+                <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
+                {event.ticker ? (
+                  <Link className="truncate font-medium underline-offset-4 hover:underline" to={`/securities/${event.ticker}`}>
+                    <span className="font-mono">{event.ticker}</span>{event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}
+                  </Link>
+                ) : (
+                  <span className="truncate text-muted-foreground">{event.label}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function planField(payload: Record<string, unknown>, key: string): unknown {
+  const plan = payload.planned_limit
+  if (typeof plan !== 'object' || plan === null) return undefined
+  return (plan as Record<string, unknown>)[key]
+}
+
+function OperationCard({ operations }: { operations: OperationSessionView[] }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle>Operation</CardTitle><CardDescription>active checkpoint / completed result</CardDescription></CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        {operations.length === 0 ? <p className="text-muted-foreground">session はありません。</p> : operations.map((item) => (
+          <div className="grid gap-1 border-b pb-3 last:border-0 last:pb-0" key={item.operation_id}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{item.session_kind}{item.ticker && <span className="ml-2 font-mono text-xs text-muted-foreground">{item.ticker}</span>}</span>
+              <Badge variant="outline">{item.status}</Badge>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="truncate font-mono">{item.operation_id}</span>
+              <AsOfBadge compact value={item.started_at} />
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ProposalCard({ proposals }: { proposals: ProposalView[] }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle>Trade proposal</CardTitle><CardDescription>指値・数量・期限</CardDescription></CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        {proposals.length === 0 ? <p className="text-muted-foreground">proposal はありません。</p> : proposals.map((item) => {
+          const limit = planField(item.payload, 'limit_price_yen')
+          const quantity = planField(item.payload, 'quantity')
+          const expiresAt = planField(item.payload, 'expires_at')
+          return (
+            <div className="grid gap-1.5 border-b pb-3 last:border-0 last:pb-0" key={item.proposal_id}>
+              <div className="flex items-center justify-between gap-2">
+                <Link className="font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${item.ticker}`}>{item.ticker}</Link>
+                <Badge variant="outline">{item.status}</Badge>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                <span>指値 <span className="font-mono tabular-nums text-foreground">{typeof limit === 'string' || typeof limit === 'number' ? yenFormatter.format(Number(limit)) : '—'}</span></span>
+                <span>数量 <span className="font-mono tabular-nums text-foreground">{typeof quantity === 'number' ? `${quantity.toLocaleString('ja-JP')} 株` : '—'}</span></span>
+                <span>期限 <span className="font-mono tabular-nums text-foreground">{typeof expiresAt === 'string' ? formatDate(expiresAt.slice(0, 10)) : '—'}</span></span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground">
+                <span className="truncate font-mono" title={item.packet_id}>{item.packet_id}</span>
+                <span>作成 {formatDate(item.created_at.slice(0, 10))}</span>
+                {item.decided_at && <span>決定 {formatDate(item.decided_at.slice(0, 10))}</span>}
+              </div>
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none">payload 全体</summary>
+                <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-[11px] leading-relaxed">{JSON.stringify(item.payload, null, 2)}</pre>
+              </details>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
+}
+
+function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle>Portfolio outcome</CardTitle><CardDescription>期間評価 (TWR vs benchmark)</CardDescription></CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        {outcomes.length === 0 ? <p className="text-muted-foreground">保存済み outcome はありません。</p> : outcomes.map((item) => (
+          <div className="grid gap-1.5 border-b pb-3 last:border-0 last:pb-0" key={item.outcome_id}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{item.horizon} · {item.period_end_date}</span>
+              <Badge variant="outline">{item.status}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              <span>ポート TWR <PctBadge className="text-xs" value={item.portfolio_twr_pct} /></span>
+              <span>ベンチマーク <PctBadge className="text-xs" value={item.benchmark_cumulative_return_pct} /></span>
+            </div>
+            {item.reason && <p className="text-xs text-muted-foreground">{item.reason}</p>}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
   const [program, setProgram] = useState<ProgramStateView | null>(null)
@@ -345,38 +492,13 @@ export function DashboardPage() {
           <NextCard event label="NEXT EVENT" task={data.next_event} />
         </section>
 
+        <UpcomingEventsCard events={data.upcoming_events} />
+
         {program && (
           <section className="grid gap-4 lg:grid-cols-3" aria-label="運用・提案・評価">
-            <Card>
-              <CardHeader><CardTitle>Operation</CardTitle><CardDescription>active checkpoint / completed result</CardDescription></CardHeader>
-              <CardContent className="grid gap-2 text-sm">
-                {program.operations.length === 0 ? <p className="text-muted-foreground">session はありません。</p> : program.operations.map((item) => (
-                  <div className="flex items-center justify-between gap-2" key={item.operation_id}>
-                    <span className="truncate font-mono text-xs">{item.operation_id}</span><Badge variant="outline">{item.status}</Badge>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader><CardTitle>Trade proposal</CardTitle><CardDescription>人間が報告した current state</CardDescription></CardHeader>
-              <CardContent className="grid gap-2 text-sm">
-                {program.proposals.length === 0 ? <p className="text-muted-foreground">proposal はありません。</p> : program.proposals.map((item) => (
-                  <div className="flex items-center justify-between gap-2" key={item.proposal_id}>
-                    <span className="font-mono text-xs">{item.ticker} · {item.proposal_id}</span><Badge variant="outline">{item.status}</Badge>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader><CardTitle>Portfolio outcome</CardTitle><CardDescription>保存済みの期間評価</CardDescription></CardHeader>
-              <CardContent className="grid gap-2 text-sm">
-                {program.outcomes.length === 0 ? <p className="text-muted-foreground">保存済み outcome はありません。</p> : program.outcomes.map((item) => (
-                  <div className="flex items-center justify-between gap-2" key={item.outcome_id}>
-                    <span>{item.horizon} · {item.period_end_date}</span><Badge variant="outline">{item.status}</Badge>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <OperationCard operations={program.operations} />
+            <ProposalCard proposals={program.proposals} />
+            <OutcomeCard outcomes={program.outcomes} />
           </section>
         )}
 
@@ -409,7 +531,9 @@ export function DashboardPage() {
               <TableBody>
                 {data.reservations.map((reservation) => (
                   <TableRow key={reservation.reservation_id}>
-                    <TableCell className="pl-5 font-mono font-semibold sm:pl-6">{reservation.ticker}</TableCell>
+                    <TableCell className="pl-5 sm:pl-6">
+                      <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
+                    </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
                       <span className="ml-2 text-xs text-muted-foreground">× {yenFormatter.format(Number(reservation.price_guard_yen))}</span>

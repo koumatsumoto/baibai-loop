@@ -43,4 +43,39 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
     return {str(row[0]): (float(row[2]), date.fromisoformat(str(row[1]))) for row in rows}
 
 
-__all__ = ["latest_unadjusted_closes"]
+def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> dict[str, date]:
+    """Return each ticker's earliest scheduled JPX earnings announcement on/after ``asof``.
+
+    Reads the licensed market store's JPX earnings calendar read-only (physical table
+    ``jquants_earnings_calendar``, logical source ``jpx_earnings_calendar``). A missing
+    file or a ticker with no announcement on/after ``asof`` yields no entry, so callers
+    treat the earnings date as unknown rather than surfacing a stale schedule.
+    """
+
+    if not tickers or not path.is_file():
+        return {}
+    unique = list(dict.fromkeys(tickers))
+    placeholders = ",".join("?" for _ in unique)
+    connection = connect_read_only(path)
+    try:
+        # The f-string only expands "?" placeholders; every value is parameter-bound.
+        rows = connection.execute(
+            f"""
+            SELECT ticker, MIN(announcement_date) AS next_date
+            FROM jquants_earnings_calendar
+            WHERE ticker IN ({placeholders}) AND announcement_date >= ?
+            GROUP BY ticker
+            """,  # nosec B608
+            [*unique, asof.isoformat()],
+        ).fetchall()
+    finally:
+        connection.close()
+    result: dict[str, date] = {}
+    for row in rows:
+        if row[1] is None:
+            continue
+        result[str(row[0])] = date.fromisoformat(str(row[1]))
+    return result
+
+
+__all__ = ["latest_unadjusted_closes", "next_earnings_dates"]

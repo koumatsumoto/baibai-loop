@@ -13,6 +13,7 @@ export interface HoldingView {
   fv_gap_pct: number | null
   latest_packet_id: string | null
   recommendation: string | null
+  next_earnings_date: string | null
 }
 
 export interface ReservationView {
@@ -46,6 +47,14 @@ export interface TaskView {
   overdue: boolean
 }
 
+export interface UpcomingEventView {
+  event_date: string
+  kind: 'earnings' | 'reservation_expiry' | 'macro_valid_until'
+  ticker: string | null
+  label: string
+  days_until: number
+}
+
 export interface DashboardView {
   generated_at: string
   ledger_exists: boolean
@@ -63,6 +72,7 @@ export interface DashboardView {
   holdings: HoldingView[]
   reservations: ReservationView[]
   warnings: WarningView[]
+  upcoming_events: UpcomingEventView[]
   open_tasks: TaskView[]
   next_task: TaskView | null
   next_event: TaskView | null
