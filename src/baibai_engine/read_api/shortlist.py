@@ -27,4 +27,28 @@ def list_reviewed_shortlist_payloads(path: Path) -> list[dict[str, object]]:
     return result
 
 
-__all__ = ["list_reviewed_shortlist_payloads"]
+def latest_reviewed_shortlist_payload(path: Path) -> dict[str, object] | None:
+    """Return the current cockpit shortlist without loading canonical history."""
+
+    if not path.is_file():
+        return None
+    connection = connect_read_only(path)
+    try:
+        row = connection.execute(
+            """
+            SELECT payload FROM reviewed_shortlist
+            ORDER BY as_of DESC, published_at DESC, shortlist_id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    payload = json.loads(str(row[0]))
+    if not isinstance(payload, dict):
+        raise ValueError("reviewed shortlist payload must be an object")
+    return payload
+
+
+__all__ = ["latest_reviewed_shortlist_payload", "list_reviewed_shortlist_payloads"]

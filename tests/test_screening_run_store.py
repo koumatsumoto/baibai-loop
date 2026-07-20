@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 
+from baibai_engine.appdb.json import canonical_json
+from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.screening.cli.app import main as screening_main
 from baibai_engine.screening.run_store import (
     RunStoreAmbiguousError,
     RunStoreConflictError,
@@ -14,6 +20,9 @@ from baibai_engine.screening.run_store import (
     ScreeningRunStore,
     initialize_run_store,
 )
+from baibai_engine.screening.run_store import read as run_store_read
+from baibai_engine.screening.run_store.migrations import MIGRATIONS
+from baibai_engine.screening.run_store.store import _application_git_commit
 
 
 def _run(
@@ -63,11 +72,11 @@ def _selection(ticker: str = "1301") -> dict[str, object]:
 def test_run_store_has_independent_forward_schema(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
 
-    assert initialize_run_store(database) == 1
-    assert initialize_run_store(database) == 1
+    assert initialize_run_store(database) == 2
+    assert initialize_run_store(database) == 2
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
         tables = {
             row[0]
             for row in connection.execute(
@@ -80,6 +89,73 @@ def test_run_store_has_independent_forward_schema(tmp_path: Path) -> None:
             "screening_selection",
             "selection_entry",
         } <= tables
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(screening_run)").fetchall()
+        }
+        assert "application_git_commit" in columns
+
+
+def test_v1_migration_verifies_candidate_rows_before_compacting_payload(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    payload = _run()
+    _write_v1_run(database, payload, run_revision_id="run-v1")
+
+    assert initialize_run_store(database) == 2
+
+    with sqlite3.connect(database) as connection:
+        stored = json.loads(connection.execute("SELECT payload FROM screening_run").fetchone()[0])
+        assert stored == {key: value for key, value in payload.items() if key != "candidates"}
+        assert len(connection.execute("SELECT payload FROM screening_candidate").fetchall()) == 1
+
+
+def test_read_only_reader_accepts_v1_store_until_writer_migrates(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    payload = _run()
+    _write_v1_run(database, payload, run_revision_id="run-v1")
+
+    run = ScreeningRunReader(database).latest_run()
+
+    assert run is not None
+    assert run.application_git_commit is None
+    assert list(run.candidates) == payload["candidates"]
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_v1_migration_rolls_back_when_candidate_rows_differ(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    payload = _run()
+    _write_v1_run(database, payload, run_revision_id="run-v1")
+    with sqlite3.connect(database) as connection:
+        changed = dict(payload["candidates"][0])  # type: ignore[index]
+        changed["name"] = "不一致"
+        connection.execute(
+            "UPDATE screening_candidate SET payload = ?",
+            (canonical_json(changed),),
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="differ from candidate rows"):
+        initialize_run_store(database)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(screening_run)").fetchall()
+        }
+        assert "application_git_commit" not in columns
+
+
+def test_v1_migration_is_safe_under_concurrent_initialization(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    _write_v1_run(database, _run(), run_revision_id="run-v1")
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        versions = list(executor.map(lambda _: initialize_run_store(database), range(4)))
+
+    assert versions == [2, 2, 2, 2]
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert len(connection.execute("PRAGMA table_info(screening_run)").fetchall()) == 10
 
 
 def test_run_publication_is_immutable_and_same_asof_keeps_revisions(tmp_path: Path) -> None:
@@ -104,6 +180,115 @@ def test_run_publication_is_immutable_and_same_asof_keeps_revisions(tmp_path: Pa
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT count(*) FROM screening_run").fetchone()[0] == 2
         assert connection.execute("SELECT count(*) FROM screening_candidate").fetchone()[0] == 2
+
+
+def test_run_read_keeps_one_snapshot_while_prune_commits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    published = store.publish_run(_run(), run_revision_id="run-snapshot")
+    parent_loaded = Event()
+    continue_read = Event()
+    prune_started = Event()
+    original = run_store_read._run_from_row
+
+    def delayed_run_from_row(
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> object:
+        parent_loaded.set()
+        assert continue_read.wait(timeout=2)
+        return original(connection, row)
+
+    monkeypatch.setattr(run_store_read, "_run_from_row", delayed_run_from_row)
+
+    def prune() -> object:
+        prune_started.set()
+        return store.prune(keep=0)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        read_future = executor.submit(
+            ScreeningRunReader(database).get_run,
+            published.publication_id,
+        )
+        assert parent_loaded.wait(timeout=2)
+        prune_future = executor.submit(prune)
+        assert prune_started.wait(timeout=2)
+        continue_read.set()
+        run = read_future.result(timeout=2)
+        prune_future.result(timeout=2)
+
+    assert run is not None
+    assert len(run.candidates) == 1
+    assert ScreeningRunReader(database).get_run(published.publication_id) is None
+
+
+def test_run_payload_is_metadata_only_and_exposes_application_git_commit(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    payload = _run()
+    commit = "a" * 40
+    store = ScreeningRunStore(database, git_commit_factory=lambda: commit)
+
+    publication = store.publish_run(payload, run_revision_id="run-revision-metadata")
+
+    assert publication.inserted is True
+    with sqlite3.connect(database) as connection:
+        raw_payload, stored_commit = connection.execute(
+            "SELECT payload, application_git_commit FROM screening_run"
+        ).fetchone()
+    metadata = json.loads(raw_payload)
+    assert metadata == {key: value for key, value in payload.items() if key != "candidates"}
+    assert "candidates" not in metadata
+    assert len(raw_payload) < 100_000
+    assert stored_commit == commit
+    run = ScreeningRunReader(database).get_run("run-revision-metadata")
+    assert run is not None
+    assert run.application_git_commit == commit
+    assert list(run.candidates) == payload["candidates"]
+
+
+@pytest.mark.parametrize("git_commit", [None, "not-a-git-hash"])
+def test_run_publish_allows_unavailable_git_commit(
+    tmp_path: Path,
+    git_commit: str | None,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    ScreeningRunStore(database, git_commit_factory=lambda: git_commit).publish_run(_run())
+    run = ScreeningRunReader(database).latest_run()
+    assert run is not None
+    assert run.application_git_commit is None
+
+
+def test_application_git_commit_is_bound_to_application_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Path(__file__).resolve().parents[1]
+    expected = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "--verify", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    monkeypatch.chdir(tmp_path)
+
+    assert _application_git_commit() == expected
+
+
+def test_identical_run_metadata_does_not_hide_candidate_drift(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    payload = _run()
+    store.publish_run(payload)
+    changed = dict(payload)
+    candidate = dict(payload["candidates"][0])  # type: ignore[index]
+    candidate["name"] = "別名"
+    changed["candidates"] = [candidate]
+
+    with pytest.raises(RunStoreConflictError, match="differs"):
+        store.publish_run(changed)
 
 
 def test_run_parent_and_candidates_are_one_transaction(tmp_path: Path) -> None:
@@ -209,7 +394,9 @@ def test_selection_rejects_unknown_or_cross_run_source(tmp_path: Path) -> None:
         )
 
 
-def test_convenience_queries_fail_on_ambiguous_revision(tmp_path: Path) -> None:
+def test_asof_queries_fail_on_ambiguous_revision_and_latest_is_deterministic(
+    tmp_path: Path,
+) -> None:
     database = tmp_path / "runs.sqlite"
     store = ScreeningRunStore(database)
     store.publish_run(
@@ -241,8 +428,127 @@ def test_convenience_queries_fail_on_ambiguous_revision(tmp_path: Path) -> None:
         _run(run_at="2026-07-09T03:00:00+09:00"),
         run_revision_id="current-b",
     )
-    with pytest.raises(RunStoreAmbiguousError):
-        reader.latest_run()
+    latest = reader.latest_run()
+    assert latest is not None
+    assert latest.run_revision_id == "current-b"
+
+
+def test_prune_keeps_newest_generations_and_removes_dependent_cache_rows(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    for day in range(1, 6):
+        as_of = f"2026-07-{day:02d}"
+        payload = _run(as_of=as_of, run_at=f"{as_of}T15:00:00+09:00")
+        candidate = dict(payload["candidates"][0])  # type: ignore[index]
+        candidate["padding"] = str(day) * 200_000
+        payload["candidates"] = [candidate]
+        store.publish_run(payload, run_revision_id=f"run-{day}")
+    store.publish_selection(
+        run_revision_id="run-1",
+        profile="default",
+        macro_context_id=None,
+        payload=_selection(),
+        selection_id="selection-parent",
+    )
+    store.publish_selection(
+        run_revision_id="run-1",
+        profile="default",
+        macro_context_id=None,
+        payload=_selection(),
+        selection_id="selection-child",
+        source_selection_id="selection-parent",
+    )
+    store.publish_selection(
+        run_revision_id="run-5",
+        profile="default",
+        macro_context_id=None,
+        payload=_selection(),
+        selection_id="selection-kept",
+    )
+
+    result = store.prune(keep=3)
+
+    assert result.kept_runs == 3
+    assert result.deleted_runs == 2
+    assert result.deleted_candidates == 2
+    assert result.deleted_selections == 2
+    assert result.bytes_after < result.bytes_before
+    reader = ScreeningRunReader(database)
+    assert [run.run_revision_id for run in reader.list_runs()] == ["run-5", "run-4", "run-3"]
+    assert reader.get_selection("selection-parent") is None
+    assert reader.get_selection("selection-child") is None
+    assert reader.get_selection("selection-kept") is not None
+    store.publish_run(
+        _run(as_of="2026-07-06", run_at="2026-07-06T15:00:00+09:00"),
+        run_revision_id="run-6",
+    )
+    assert reader.get_run("run-6") is not None
+
+
+def test_prune_rejects_negative_keep(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="zero or greater"):
+        ScreeningRunStore(tmp_path / "runs.sqlite").prune(keep=-1)
+
+
+def test_prune_handles_more_runs_than_sqlite_variable_limit(tmp_path: Path) -> None:
+    database = tmp_path / "runs.sqlite"
+    initialize_run_store(database)
+    with sqlite3.connect(database) as connection:
+        connection.executemany(
+            """
+            INSERT INTO screening_run (
+                run_revision_id, public_run_id, run_date, asof_date, run_at,
+                universe_size, rules_ref, created_at, payload, application_git_commit
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                (
+                    f"run-{index:04d}",
+                    "screening-20260708",
+                    "2026-07-08",
+                    "2026-07-08",
+                    f"2026-07-08T12:00:00.{index:04d}+09:00",
+                    0,
+                    None,
+                    "2026-07-20T00:00:00+00:00",
+                    "{}",
+                    None,
+                )
+                for index in range(1_005)
+            ),
+        )
+
+    result = ScreeningRunStore(database).prune(keep=3)
+
+    assert result.deleted_runs == 1_002
+    assert len(ScreeningRunReader(database).list_runs()) == 3
+
+
+def test_prune_cli_keeps_three_generations_by_default(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = tmp_path / "runs.sqlite"
+    store = ScreeningRunStore(database)
+    for day in range(1, 5):
+        as_of = f"2026-07-{day:02d}"
+        store.publish_run(
+            _run(as_of=as_of, run_at=f"{as_of}T15:00:00+09:00"),
+            run_revision_id=f"run-{day}",
+        )
+
+    assert screening_main(["prune", "--runs-db", str(database)]) == 0
+
+    output = safe_load(capsys.readouterr().out)
+    assert output["kept_runs"] == 3
+    assert output["deleted_runs"] == 1
+    assert [run.run_revision_id for run in ScreeningRunReader(database).list_runs()] == [
+        "run-4",
+        "run-3",
+        "run-2",
+    ]
 
 
 def test_reader_connection_is_query_only(tmp_path: Path) -> None:
@@ -368,3 +674,57 @@ def test_run_rejects_missing_or_mistyped_evidence_fields(
 
     with pytest.raises(ValueError, match=message):
         ScreeningRunStore(tmp_path / "runs.sqlite").publish_run(payload)
+
+
+def _write_v1_run(
+    database: Path,
+    payload: dict[str, object],
+    *,
+    run_revision_id: str,
+) -> None:
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        for statement in MIGRATIONS[0].statements:
+            connection.execute(statement)
+        connection.execute("PRAGMA user_version = 1")
+        connection.execute(
+            """
+            INSERT INTO screening_run (
+                run_revision_id, public_run_id, run_date, asof_date, run_at,
+                universe_size, rules_ref, created_at, payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_revision_id,
+                payload["run_id"],
+                payload["run_date"],
+                payload["asof_date"],
+                payload["run_at"],
+                payload["universe_size"],
+                None,
+                "2026-07-20T00:00:00+00:00",
+                canonical_json(payload),
+            ),
+        )
+        candidate = payload["candidates"][0]  # type: ignore[index]
+        assert isinstance(candidate, dict)
+        connection.execute(
+            """
+            INSERT INTO screening_candidate (
+                run_revision_id, ordinal, ticker, sector_33, per_forward,
+                per_trailing, pbr, dividend_yield, er_annual, payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_revision_id,
+                0,
+                candidate["ticker"],
+                candidate["sector_33"],
+                candidate["per_forward"],
+                candidate["per_trailing"],
+                candidate["pbr"],
+                candidate["metrics"]["dividend_yield"],  # type: ignore[index]
+                candidate["metrics"]["er_annual"],  # type: ignore[index]
+                canonical_json(candidate),
+            ),
+        )

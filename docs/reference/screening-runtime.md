@@ -8,7 +8,7 @@ last_reviewed: 2026-07-20
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
 
-`data/screening/runs.sqlite` のimmutable run publicationを担う screening CLI の実装正本。週次 screening の入力と実行条件、依存、失敗時の扱いを定義する。
+`data/screening/runs.sqlite` のtransactionalなrun cache publicationを担う screening CLI の実装正本。週次 screening の入力と実行条件、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
@@ -32,6 +32,7 @@ python -m baibai_engine.screening.cli ticker-profile --ticker XXXX [--asof YYYY-
 python -m baibai_engine.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
 python -m baibai_engine.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
 python -m baibai_engine.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
+python -m baibai_engine.screening.cli prune [--keep N] [--runs-db PATH]
 ```
 
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
@@ -43,6 +44,8 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
 `select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `records/_config/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) を支援する。
+
+`prune --keep N` は as-of、run timestamp、revision ID の新しい順に N 世代を残し、対象 run のcandidateとmachine selectionをtransaction内で削除してから`VACUUM`する。既定は3世代。run storeは再生成可能なcacheであり、canonicalなreviewed shortlist、research、proposal、holding reviewはapplication DBのsnapshotを読む。
 
 金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、audit の対象になる。
 
@@ -126,7 +129,7 @@ python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 
 - `--asof` は対象営業日を表す
 - `run_date` は `asof_date` と同値にする
-- canonical出力はrun storeのimmutable revision。`--output-path`はAI連携用のephemeral YAML view
+- 機械出力はrun storeのprunable revision cache。`--output-path`はAI連携用のephemeral YAML view
 - 同一 path が既に存在する場合は fail-fast
 - 非営業日の `--asof` は fail-fast
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import io
 import tempfile
 import unittest
@@ -207,6 +208,48 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertFalse(screening["in_candidates"])
             self.assertIn("not present", str(screening["note"]))
 
+    def test_screening_uses_only_latest_stored_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            runs_path = root / "runs.sqlite"
+            _write_candidates(runs_path)
+            latest = ScreeningRunStore(runs_path).publish_run(
+                {
+                    "run_date": "2026-05-30",
+                    "asof_date": "2026-05-30",
+                    "universe_size": 1,
+                    "filters": {},
+                    "generated_by": "test",
+                    "data_sources": [],
+                    "run_at": "2026-05-30T09:00:00+09:00",
+                    "run_id": "screening-20260530",
+                    "candidates": [
+                        {
+                            "ticker": "BBBB",
+                            "name": "同業ペア",
+                            "evidence_hits": [],
+                            "metrics": {},
+                        }
+                    ],
+                    "provider_status_lines": [],
+                    "fallback_lines": [],
+                }
+            )
+
+            packet = build_ticker_profile(
+                sqlite_path=root / "market.sqlite",
+                ticker="AAAA",
+                asof_date=date(2026, 5, 30),
+                runs_db_path=runs_path,
+                app_db_path=root / "app.sqlite",
+            )
+
+            screening = packet["screening"]
+            assert isinstance(screening, dict)
+            self.assertEqual(screening["candidates_ref"], latest.publication_id)
+            self.assertEqual(screening["candidates_asof"], "2026-05-30")
+            self.assertFalse(screening["in_candidates"])
+
     def test_master_and_sector_peers_use_only_latest_global_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -251,6 +294,14 @@ class TickerProfileCliTests(unittest.TestCase):
         self.assertEqual(args.ticker, "8303")
         self.assertEqual(args.asof, "2026-06-08")
         self.assertTrue(args.sqlite_path.endswith("market.sqlite"))
+
+    def test_parser_documents_latest_stored_run_default(self) -> None:
+        parser = build_parser()
+        action = next(
+            item for item in parser._actions if isinstance(item, argparse._SubParsersAction)
+        )
+        help_text = " ".join(action.choices["ticker-profile"].format_help().split())
+        self.assertIn("default: latest stored run", help_text)
 
     def test_command_rejects_invalid_ticker(self) -> None:
         exit_code = ticker_profile_command(

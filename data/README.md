@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | `app/baibai.sqlite` | canonical application DB | —（`db backup` の出力から file-level で復元） |
 | `screening/market.sqlite` | rebuildable L1 | `uv run baibai-engine screening bootstrap-cache --asof YYYY-MM-DD` と `uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD` |
-| `screening/runs.sqlite` | rebuildable L2 | market coverage を確認して `uv run baibai-engine screening run --asof YYYY-MM-DD` |
+| `screening/runs.sqlite` | rebuildable L2 | market coverage を確認して `uv run baibai-engine screening run --asof YYYY-MM-DD`。容量に応じて `uv run baibai-engine screening prune --keep 3` |
 | `screening/calibration/` | rebuildable L2 calibration store | `uv run baibai-engine screening calibration-build --start YYYY-MM-DD --end YYYY-MM-DD --force` |
 | `indicators/macro.sqlite` | rebuildable L1 | provider 系列ごとに `uv run baibai-engine macro refresh <series-id> --start YYYY-MM-DD --end YYYY-MM-DD` |
 

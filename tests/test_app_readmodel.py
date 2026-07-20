@@ -154,6 +154,7 @@ def _run(*, metrics: object = None) -> CandidatesRun:
         asof_date=date(2026, 7, 8),
         universe_size=3744,
         source_path="run-revision-20260708",
+        application_git_commit=None,
         rows=(row,),
     )
 

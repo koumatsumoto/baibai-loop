@@ -92,15 +92,11 @@ def create_app(
         )
 
     @app.get("/api/screening/latest", response_model=ScreeningView)
-    def screening(
-        sources: _SourceDependency,
-        run_revision_id: str | None = None,
-    ) -> ScreeningView:
+    def screening(sources: _SourceDependency) -> ScreeningView:
         return build_screening(
             sources.candidates,
             sources.ledger,
             sources.research,
-            run_revision_id=run_revision_id,
         )
 
     @app.get("/api/macro", response_model=MacroView)

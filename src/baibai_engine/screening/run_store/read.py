@@ -20,6 +20,7 @@ class RunPublication:
     run_at: str
     universe_size: int
     rules_ref: str | None
+    application_git_commit: str | None
     payload: dict[str, Any]
     candidates: tuple[dict[str, Any], ...]
 
@@ -48,6 +49,7 @@ class ScreeningRunReader:
 
     def get_run(self, run_revision_id: str) -> RunPublication | None:
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
             row = connection.execute(
                 "SELECT * FROM screening_run WHERE run_revision_id = ?",
                 (run_revision_id,),
@@ -56,6 +58,7 @@ class ScreeningRunReader:
 
     def list_runs(self) -> list[RunPublication]:
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
             rows = connection.execute(
                 """
                 SELECT * FROM screening_run
@@ -66,19 +69,23 @@ class ScreeningRunReader:
 
     def latest_run(self) -> RunPublication | None:
         with closing(self._connect()) as connection:
-            latest = connection.execute("SELECT max(asof_date) FROM screening_run").fetchone()[0]
-            if latest is None:
-                return None
-            rows = connection.execute(
-                "SELECT * FROM screening_run WHERE asof_date = ? ORDER BY run_at, run_revision_id",
-                (latest,),
-            ).fetchall()
-            if len(rows) > 1:
-                raise RunStoreAmbiguousError(
-                    f"multiple latest run revisions for as_of_date {latest}; "
-                    "specify run_revision_id"
-                )
-            return _run_from_row(connection, rows[0])
+            connection.execute("BEGIN")
+            row = connection.execute(
+                """
+                SELECT * FROM screening_run
+                ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            return None if row is None else _run_from_row(connection, row)
+
+    def latest_as_of_before(self, as_of_date: str) -> str | None:
+        with closing(self._connect()) as connection:
+            value = connection.execute(
+                "SELECT max(asof_date) FROM screening_run WHERE asof_date < ?",
+                (as_of_date,),
+            ).fetchone()[0]
+            return None if value is None else str(value)
 
     def resolve_run(
         self,
@@ -91,6 +98,7 @@ class ScreeningRunReader:
         if as_of_date is None:
             raise ValueError("run_revision_id or as_of_date is required")
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
             rows = connection.execute(
                 "SELECT * FROM screening_run WHERE asof_date = ? ORDER BY run_at, run_revision_id",
                 (as_of_date,),
@@ -103,6 +111,7 @@ class ScreeningRunReader:
 
     def previous_run(self, *, before_as_of_date: str) -> RunPublication | None:
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
             latest = connection.execute(
                 "SELECT max(asof_date) FROM screening_run WHERE asof_date < ?",
                 (before_as_of_date,),
@@ -122,6 +131,7 @@ class ScreeningRunReader:
 
     def get_selection(self, selection_id: str) -> SelectionPublication | None:
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
             row = connection.execute(
                 """
                 SELECT s.*, r.asof_date
@@ -153,6 +163,7 @@ class ScreeningRunReader:
             parameters.append(profile)
         where = "" if not clauses else " WHERE " + " AND ".join(clauses)
         with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
             # The optional clauses are fixed above and every value is bound.
             rows = connection.execute(
                 """
@@ -191,6 +202,7 @@ def _run_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> RunPublic
         run_at=str(row["run_at"]),
         universe_size=int(row["universe_size"]),
         rules_ref=None if row["rules_ref"] is None else str(row["rules_ref"]),
+        application_git_commit=_application_git_commit(row),
         payload=dict(decode_payload(row["payload"])),
         candidates=tuple(dict(decode_payload(item[0])) for item in candidates),
     )
@@ -217,6 +229,16 @@ def _selection_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Sel
         payload=dict(decode_payload(row["payload"])),
         entries=tuple(dict(decode_payload(item[0])) for item in entries),
     )
+
+
+def _application_git_commit(row: sqlite3.Row) -> str | None:
+    try:
+        value = row["application_git_commit"]
+    except IndexError:
+        return None
+    if value is None:
+        return None
+    return str(value)
 
 
 __all__ = [

@@ -35,6 +35,7 @@ from .cache import (
 )
 from .common import _parse_iso_date
 from .providers import ProviderBundle
+from .prune import prune_command
 from .query import (
     market_snapshot_command,
     select_command,
@@ -64,6 +65,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="overwrite an existing candidates YAML output path",
     )
+
+    prune_parser = subparsers.add_parser(
+        "prune",
+        help="delete old screening run cache generations and vacuum the store",
+    )
+    prune_parser.add_argument(
+        "--keep",
+        type=int,
+        default=3,
+        help="number of newest run generations to keep (default: 3)",
+    )
+    prune_parser.add_argument("--runs-db", help="screening run store path")
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
@@ -207,7 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     profile_parser.add_argument(
         "--run-revision-id",
-        help="explicit screening run revision (default: greatest eligible as-of)",
+        help="explicit screening run revision (default: latest stored run)",
     )
 
     calibration_build_parser = subparsers.add_parser(
@@ -318,6 +331,12 @@ def main(argv: list[str] | None = None) -> int:
     load_project_env()
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "prune":
+        return prune_command(
+            keep=args.keep,
+            runs_db_path=Path(args.runs_db) if args.runs_db else None,
+        )
 
     if args.command == "select":
         # select reads immutable run/context publications and local rule config;

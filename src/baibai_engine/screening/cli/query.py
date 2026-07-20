@@ -252,10 +252,8 @@ def _load_selection_inputs_db(
         previous = reader.get_run(previous_run_revision_id)
         if previous is None:
             raise ValueError(f"unknown previous_run_revision_id: {previous_run_revision_id}")
-        prior_dates = [
-            item.as_of_date for item in reader.list_runs() if item.as_of_date < run.as_of_date
-        ]
-        if not prior_dates or previous.as_of_date != max(prior_dates):
+        prior_as_of = reader.latest_as_of_before(run.as_of_date)
+        if prior_as_of is None or previous.as_of_date != prior_as_of:
             raise ValueError(
                 "previous run revision must belong to the greatest as-of before the current run"
             )

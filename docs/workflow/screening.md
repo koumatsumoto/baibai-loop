@@ -3,7 +3,7 @@ title: "Workflow — screening"
 summary: "point-in-time cacheからcandidate、audit pool、selectionを決定論的に生成し、人間レビューgateへ渡す工程。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-20
 related_docs:
   - "../operations/decision-cycle.md"
   - "../reference/screening-runtime.md"
@@ -54,7 +54,9 @@ coverage commandは単独で実行し、後続commandのexit 0で失敗を隠さ
 
 ## Deterministic run
 
-`run --asof`は同じcache、rules、ASOFから同じcandidate outputを作り、rebuildable run storeへimmutable publicationとして保存する。同一ASOFの再実行は別の`run_revision_id`を持つ。`--output-path`はDB publicationのYAML viewが必要な場合だけ指定し、raw全量をcanonical judgmentとしてcommitしない。
+`run --asof`は同じcache、rules、ASOFから同じcandidate outputを作り、rebuildable run storeへtransactionalにpublishする。同一ASOFの再実行は別の`run_revision_id`を持つ。`--output-path`はDB publicationのYAML viewが必要な場合だけ指定し、raw全量をcanonical judgmentとしてcommitしない。
+
+run storeは最新数世代を保持するcacheであり、容量に応じて`baibai-engine screening prune --keep N`で削除する。既定は3世代。run削除後もapplication DBのreviewed shortlist以降は各snapshotだけで読める。
 
 candidateは次を区別する。
 

@@ -291,12 +291,9 @@ def _load_candidates_entry(
                 f"{run.as_of_date} > {asof_date.isoformat()}"
             )
     else:
-        eligible_dates = {
-            item.as_of_date
-            for item in reader.list_runs()
-            if item.as_of_date <= asof_date.isoformat()
-        }
-        run = None if not eligible_dates else reader.resolve_run(as_of_date=max(eligible_dates))
+        run = reader.latest_run()
+        if run is not None and run.as_of_date > asof_date.isoformat():
+            run = None
     if run is None:
         if run_revision_id is not None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")

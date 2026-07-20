@@ -76,6 +76,7 @@ class CandidatesRun:
     asof_date: date
     universe_size: int
     source_path: str
+    application_git_commit: str | None
     rows: tuple[dict[str, object], ...]
 
 
