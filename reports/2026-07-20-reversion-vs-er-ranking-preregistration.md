@@ -26,6 +26,36 @@ E[r] 合計降順の本番 ranking が carry（配当+自社株買い利回り�
 
 **採用時の実装**: `selection/payload.py` の sort_key 主キーを対象 key へ変更（欠損は最後尾・従キーに現行 `er_annual` + playbook 順 + strength key を残す）。diversity cap・screen gate・E[r] モデル自体は変更しない（#480 対象外）。
 
+## 1. 判定（3 仮説すべて棄却 — 本番 ranking は E[r] 降順を維持）
+
+計測 store: #483 修正後の `--force` 再構築（46 cohort、rules_hash `f4f3cfffe012f4d9`、歴史 cohort は `future_snapshot` 近似、6m design 22 / confirm 18 cohort、1y confirm 12 cohort）。
+
+**H-R1（reversion 主キー化）: 棄却**。採用条件 1 を両窓で大差で不充足（上回るどころか大幅に劣後）。
+
+| 6m mean median excess / trap | design | confirm |
+| --- | --- | --- |
+| er_ranked_top10 | +4.5% / 12.3% | +3.1% / 16.7% |
+| reversion_ranked_top10 | **−6.4% / 25.9%** | **−11.4% / 35.6%** |
+| reversion_ranked_top5 | −8.3% / 30.0% | −12.2% / 40.0% |
+
+1y も同方向（reversion_ranked_top10: design −11.1% / confirm −19.9%、trap 41.8% / 50.8%）。implied upside の深さ単独の順位付けは value trap を集約する。#291 の監視事項（deep discount の実現減衰）と同根の、より強い証拠。
+
+**H-R2（blend / view score 型）: 棄却**。view_score_ranked_top10 の 6m は design −0.7% / confirm −3.9% で、両窓とも er_ranked_top10 に劣後（採用条件 1 不充足）。trap も 17.7% / 29.4% と悪化。
+
+**H-R3（carry 無効力）: 棄却 — 方向が逆**。`er_carry_annual` の 6m 軸 rank IC は design 0.226 / confirm 0.161 で、`er_reversion_annual`（0.128 / 0.066）を両窓で上回り、`er_annual`（0.207 / 0.129）に匹敵〜上回る。1y も同順（carry 0.273/0.225 > er 0.253/0.185 > reversion 0.163/0.099）。**この計測窓（バリュー・株主還元優位レジーム）では carry が最強の順位シグナル**であり、「carry 偏重 E[r] は割安の証拠にならない」という doctrine 命題は「割安の因果的証拠」の話としては保つが、「forward return の予測順位」としての carry を弱める根拠にはならない。
+
+**処置（事前登録どおり + 表示の追随）**:
+
+- 本番 selection ranking は現状維持（`er_annual` 降順）。sort key・E[r] モデル・screen gate に変更なし。
+- 一時益 flag（#481）が carry 汚染（4849 型の予想配当嵩上げ）を warning として補足する。carry の順位寄与自体は削らない。
+- **cockpit の既定 sort は E[r] 降順へ戻す**。表示専用の割安 score（reversion + 0.5×capped carry − flag 減点）順は、この replay で er_ranked に一貫して劣後・trap 増のため、既定の視認順としては業務目標（お買い得の発見率）に反する。割安 score は「dislocation lens」として sort 可能な列に残す（reversion 主導候補を意図的に見る用途は、機械採用でなく人間の research 選定に限る）。
+
+**残す監視**: recommended_rank_top5 の confirm 劣化（−2.2%、#291 の top-5 逆転監視と同件）は継続監視。レジーム転換（バリュー→グロース）時は carry 優位の再計測が必要。
+
+## 2. 絶対水準の注記
+
+er_ranked_top10 の 6m excess は #291 計測時（+8.0/+6.6）より低い（+4.5/+3.1）。store 基盤（rules 2026-07-06・cohort 追加・future_snapshot 近似の明示化）が異なるため絶対水準は直接比較しない。本判定はすべて同一 store 内の view 間相対比較で閉じている。
+
 ## 3. 検証・再現
 
 ```bash

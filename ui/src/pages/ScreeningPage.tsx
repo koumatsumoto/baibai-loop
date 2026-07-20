@@ -162,7 +162,7 @@ export function ScreeningPage() {
   const [perMax, setPerMax] = useState('')
   const [pbrMax, setPbrMax] = useState('')
   const [dividendMin, setDividendMin] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('bargain_score')
+  const [sortKey, setSortKey] = useState<SortKey>('er_annual')
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [showAll, setShowAll] = useState(false)
 
@@ -277,7 +277,7 @@ export function ScreeningPage() {
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <strong className="text-sm text-foreground">{rows.length.toLocaleString('ja-JP')} 件</strong>
-          <span>default: 割安score 降順（= reversion + 0.5×min(carry, 15%) − 0.005×品質flag数。特別配当等の異常carryはclip。表示順のview scoreでcanonical rankingではない）/ null は末尾</span>
+          <span>default: E[r] 降順（canonical ranking と同順・calibration replay で trap 最小）。割安score（= reversion + 0.5×min(carry, 15%) − 0.005×品質flag数）は dislocation lens 用の sort 可能列 / null は末尾</span>
           {!showAll && rows.length > 500 && <span>先頭 500 件を表示</span>}
           <code className="ml-auto hidden max-w-md truncate font-mono lg:block" title={data.run.source_path}>{data.run.source_path}</code>
         </div>
