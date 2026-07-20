@@ -79,7 +79,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 report の共通 field：
 
-- `context_id` / `as_of` / `valid_until` / `published_at`
+- `context_id` / `as_of` / `valid_until` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening selectはpoint-in-time整合のため`as_of ≤ selection ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近ASOFのselectへ恒常的にbindされない
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
 - `sections`：下表の固定順8セクション。各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`investment_connection`を持つ

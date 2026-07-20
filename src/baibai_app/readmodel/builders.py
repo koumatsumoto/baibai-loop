@@ -215,11 +215,28 @@ def build_screening(
     selections: list[MachineSelectionView] = []
     shortlists: list[ReviewedShortlistView] = []
     if isinstance(candidates, DbCandidatesSource):
-        selected_id = None if run is None else run.source_path
-        selections = [
-            _machine_selection_view(item)
-            for item in candidates.selections(run_revision_id=selected_id)
-        ]
+        # Operative run: judgment publications (selection / reviewed shortlist) bind to a
+        # specific run revision. A newer revision of the same as-of (e.g. a determinism
+        # re-run) must not present the cockpit with an empty machine-selection view, so
+        # when the latest run has no selection we fall back to the newest selection's run
+        # and keep the candidates table, selections, and shortlist join coherent.
+        all_selections = candidates.selections()
+        run_selections = (
+            [item for item in all_selections if str(item["run_revision_id"]) == run.source_path]
+            if run is not None
+            else []
+        )
+        if run is not None and not run_selections and all_selections:
+            newest = max(all_selections, key=lambda item: str(item["created_at"]))
+            fallback_run = candidates.run(str(newest["run_revision_id"]))
+            if fallback_run is not None:
+                run = fallback_run
+                run_selections = [
+                    item
+                    for item in all_selections
+                    if str(item["run_revision_id"]) == run.source_path
+                ]
+        selections = [_machine_selection_view(item) for item in run_selections]
         shortlists = [_reviewed_shortlist_view(item) for item in candidates.reviewed_shortlists()]
     if run is None:
         return ScreeningView(

@@ -277,6 +277,10 @@ class DbCandidatesSource:
         raw = screening_run_payload(self._runs_path)
         return None if raw is None else self._parse_run(raw)
 
+    def run(self, run_revision_id: str) -> CandidatesRun | None:
+        raw = screening_run_payload(self._runs_path, run_revision_id=run_revision_id)
+        return None if raw is None else self._parse_run(raw)
+
     def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
         return screening_selection_payloads(
             self._runs_path,
