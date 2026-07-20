@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from baibai_engine.market.jquants import JQuantsProviderError, parse_jquants_code
+from baibai_engine.market.jquants import JQuantsProviderError, parse_jquants_code_parts
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +35,7 @@ def code_quality(value: Any) -> tuple[str | None, str]:
     if value in (None, ""):
         return None, "rejected"
     try:
-        ticker, common_code = _parse_with_common_flag(value)
+        ticker, common_code = parse_jquants_code_parts(value)
     except JQuantsProviderError:
         return None, "rejected"
     if not common_code:
@@ -47,22 +47,12 @@ def normalize_ticker_or_none(value: Any) -> str | None:
     if value in (None, ""):
         return None
     try:
-        ticker, common_code = _parse_with_common_flag(value)
+        ticker, common_code = parse_jquants_code_parts(value)
     except JQuantsProviderError:
         return None
     if not common_code:
         return None
     return ticker
-
-
-def _parse_with_common_flag(value: Any) -> tuple[str, bool]:
-    """Mirror JQuantsProvider's 5-char common-code suffix handling."""
-    raw = str(value or "").strip().upper()
-    if len(raw) == 4:
-        return parse_jquants_code(raw), True
-    if len(raw) == 5 and raw[:4].isalnum():
-        return parse_jquants_code(raw), raw.endswith("0")
-    raise JQuantsProviderError(f"invalid J-Quants code: {value!r}")
 
 
 def is_common_stock_flag(record: Mapping[str, Any]) -> bool:

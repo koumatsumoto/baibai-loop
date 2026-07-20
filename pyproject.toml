@@ -71,6 +71,14 @@ packages = ["src/baibai_engine", "src/baibai_app"]
 "src/baibai_engine/macro/indicators/series.yaml" = "baibai_engine/macro/indicators/series.yaml"
 "src/baibai_engine/macro/indicators/providers/manual_data.yaml" = "baibai_engine/macro/indicators/providers/manual_data.yaml"
 
+# Constrain the sdist to the buildable source packages (plus the metadata
+# hatchling always adds: pyproject.toml, README.md, PKG-INFO). Without this the
+# sdist walks the whole tree and, when uv's build copy loses VCS-ignore
+# detection, sweeps in the gitignored operational data/ store (SQLite market
+# history), inflating the archive by hundreds of MB.
+[tool.hatch.build.targets.sdist]
+only-include = ["src/baibai_engine", "src/baibai_app"]
+
 [tool.ruff]
 # Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites
 # `except (A, B):` into the legal-but-ambiguous `except A, B:` form.
@@ -143,7 +151,6 @@ addopts = [
 ]
 xfail_strict = true
 markers = [
-  "integration: touches external services or local integration boundaries",
   "property: property-based tests",
   "slow: long-running tests",
 ]
@@ -169,7 +176,7 @@ skips = ["B101"]
 [tool.mutmut]
 paths_to_mutate = ["src/baibai_engine", "src/baibai_app"]
 tests_dir = "tests"
-runner = "python -m pytest -q -m 'not slow and not integration'"
+runner = "python -m pytest -q -m 'not slow'"
 
 # Import-direction contracts encode the subsystem dependency DAG
 # (macro / screening / position / research / shared) so a structural edit that
