@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,55 @@ from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+# Real operational stores that a test must never open. App DB and run store resolve
+# their default from these env vars; the indicators store has no env override and is
+# guarded by fingerprint detection alone.
+_REAL_DB_DEFAULTS = (
+    Path("data/app/baibai.sqlite"),
+    Path("data/screening/runs.sqlite"),
+    Path("data/indicators/macro.sqlite"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_databases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point env-resolved DB paths at a per-test tmp location.
+
+    A test that omits an explicit path resolves the default operational DB. Forcing
+    ``BAIBAI_DB`` / ``BAIBAI_RUNS_DB`` to tmp guarantees such a test opens an isolated
+    file instead. Explicit path arguments still take precedence, so fixtures that pass
+    tmp paths are unaffected.
+    """
+    db_root = tmp_path / "isolated-db"
+    db_root.mkdir()
+    monkeypatch.setenv("BAIBAI_DB", str(db_root / "app.sqlite"))
+    monkeypatch.setenv("BAIBAI_RUNS_DB", str(db_root / "runs.sqlite"))
+
+
+def _database_fingerprint(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return (stat.st_size, stat.st_mtime_ns)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _guard_real_databases() -> Iterator[None]:
+    """Fail the session closed if any test mutates a real operational database.
+
+    A safety net for isolation gaps the env redirect cannot cover: a hard-coded real
+    path or the indicators store, which has no env override. Detection rather than
+    prevention, but it turns silent corruption into a loud failure.
+    """
+    before = {path: _database_fingerprint(path) for path in _REAL_DB_DEFAULTS}
+    yield
+    mutated = [
+        str(path) for path in _REAL_DB_DEFAULTS if _database_fingerprint(path) != before[path]
+    ]
+    if mutated:
+        raise AssertionError("tests mutated real operational database(s): " + ", ".join(mutated))
 
 
 @pytest.fixture

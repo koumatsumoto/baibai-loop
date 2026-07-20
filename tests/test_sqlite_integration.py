@@ -24,7 +24,7 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.screening.cli import ProviderBundle, run_command
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.providers import EDINETProvider, JPXProvider, JQuantsProvider
-from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.screening.run_store import ScreeningRunReader, run_store_path
 from baibai_engine.screening.sqlite_cache import open_connection
 from tests.helpers.screening_sqlite import add_source_coverage
 
@@ -343,9 +343,7 @@ class ScreeningRunOverSqliteTests(unittest.TestCase):
                     now=datetime(asof.year, asof.month, asof.day, 9, 0, tzinfo=JST),
                 )
 
-                publication = ScreeningRunReader(
-                    workspace / "data" / "screening" / "runs.sqlite"
-                ).latest_run()
+                publication = ScreeningRunReader(run_store_path()).latest_run()
                 self.assertIn(exit_code, (0, 2))
                 self.assertIsNotNone(publication, "screening run should be published")
                 assert publication is not None
