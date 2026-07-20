@@ -6,7 +6,9 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
+
+# The fixed git invocation reads local application provenance without a shell.
+import subprocess  # nosec B404
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
@@ -630,7 +632,8 @@ def _application_git_commit() -> str | None:
     ):
         return None
     try:
-        result = subprocess.run(
+        # The argument vector and application source root are fixed above.
+        result = subprocess.run(  # nosec B603, B607
             ["git", "-C", str(source_root), "rev-parse", "--verify", "HEAD"],
             check=True,
             capture_output=True,
