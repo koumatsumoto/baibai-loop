@@ -1,4 +1,5 @@
 import { cn } from '../lib/utils'
+import { EMPTY, formatPct } from '../lib/format'
 
 interface PctBadgeProps {
   value: number | null
@@ -7,9 +8,8 @@ interface PctBadgeProps {
 }
 
 export function PctBadge({ value, fraction = false, className }: PctBadgeProps) {
-  if (value === null) return <span className={cn('text-muted-foreground', className)}>—</span>
+  if (value === null) return <span className={cn('text-muted-foreground', className)}>{EMPTY}</span>
   const percentage = fraction ? value * 100 : value
-  const sign = percentage > 0 ? '+' : ''
   return (
     <span className={cn(
       'font-mono font-medium tabular-nums',
@@ -18,7 +18,7 @@ export function PctBadge({ value, fraction = false, className }: PctBadgeProps) 
       percentage === 0 && 'text-muted-foreground',
       className,
     )}>
-      {sign}{percentage.toFixed(1)}%
+      {formatPct(value, { fraction, sign: true })}
     </span>
   )
 }

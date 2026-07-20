@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarCheck2, CalendarClock, CalendarDays, ChartNoAxesCombined, CircleAlert } from 'lucide-react'
+import { CalendarCheck2, CalendarClock, CalendarDays, CircleAlert } from 'lucide-react'
 import { Pie, PieChart } from 'recharts'
 
 import { fetchJson } from '../api/client'
@@ -17,73 +17,24 @@ import type {
 } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
+import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { StaleBadge } from '../components/StaleBadge'
+import { TradingViewButton } from '../components/TradingViewButton'
 import { YenAmount } from '../components/YenAmount'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
-import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
+import { EMPTY, formatJstDate, formatPct, formatYen } from '../lib/format'
 import { cn } from '../lib/utils'
-import { tradingViewChartUrl } from '../lib/trading-view'
 
 const allocationConfig = {
   holdings: { label: '保有株式', color: 'var(--chart-1)' },
   available: { label: '購入余力', color: 'var(--chart-2)' },
   reserved: { label: '予約', color: 'var(--chart-3)' },
 } satisfies ChartConfig
-
-const yenFormatter = new Intl.NumberFormat('ja-JP', {
-  style: 'currency',
-  currency: 'JPY',
-  maximumFractionDigits: 0,
-})
-
-function formatDate(value: string | null) {
-  if (value === null) return '日時なし'
-  return new Intl.DateTimeFormat('ja-JP', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    weekday: 'short',
-  }).format(new Date(`${value}T00:00:00+09:00`))
-}
-
-function PageState({ title, message }: { title: string; message: string }) {
-  return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid min-h-[60vh] max-w-5xl place-items-center px-6 text-center">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{message}</h1>
-        </div>
-      </main>
-    </>
-  )
-}
-
-function TradingViewButton({ ticker }: { ticker: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button asChild size="icon-sm" variant="ghost">
-          <a
-            aria-label={`${ticker} の TradingView チャートを開く`}
-            href={tradingViewChartUrl(ticker)}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            <ChartNoAxesCombined aria-hidden="true" />
-          </a>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>TradingView でチャートを開く</TooltipContent>
-    </Tooltip>
-  )
-}
 
 function NextCard({ label, task, event = false }: { label: string; task: TaskView | null; event?: boolean }) {
   const date = event ? task?.event_date ?? task?.due_date ?? null : task?.due_date ?? null
@@ -101,7 +52,7 @@ function NextCard({ label, task, event = false }: { label: string; task: TaskVie
       <CardContent className="px-5">
         {task ? (
           <div className="grid gap-3">
-            <time className="w-fit rounded-md bg-muted px-2.5 py-1.5 font-mono text-sm font-semibold tabular-nums text-foreground ring-1 ring-foreground/10" dateTime={date ?? undefined}>{formatDate(date)}</time>
+            <time className="w-fit rounded-md bg-muted px-2.5 py-1.5 font-mono text-sm font-semibold tabular-nums text-foreground ring-1 ring-foreground/10" dateTime={date ?? undefined}>{formatJstDate(date)}</time>
             <p className="font-medium leading-snug">{event && task.event_label ? task.event_label : task.title}</p>
             {event && task.event_label && <p className="truncate text-xs text-muted-foreground">{task.title}</p>}
           </div>
@@ -137,7 +88,7 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                     content={<ChartTooltipContent formatter={(value, name) => (
                       <div className="flex w-full min-w-40 items-center justify-between gap-4">
                         <span className="text-muted-foreground">{allocationConfig[String(name) as keyof typeof allocationConfig]?.label ?? String(name)}</span>
-                        <span className="font-mono font-medium tabular-nums">{yenFormatter.format(Number(value))}</span>
+                        <span className="font-mono font-medium tabular-nums">{formatYen(Number(value))}</span>
                       </div>
                     )} hideLabel />}
                   />
@@ -159,9 +110,9 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
         <div className="grid content-center divide-y p-5 sm:p-6">
           {[
             { label: '総資産', value: data.total_capital_yen, detail: `${data.holdings.length} 銘柄を保有`, color: 'bg-foreground' },
-            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${data.deployed_pct.toFixed(1)}%`, color: 'bg-chart-1' },
-            { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${data.cash_pct.toFixed(1)}%`, color: 'bg-chart-2' },
-            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${data.reserved_pct.toFixed(1)}%`, color: 'bg-chart-3' },
+            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1' },
+            { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${formatPct(data.cash_pct)}`, color: 'bg-chart-2' },
+            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3' },
           ].map((metric) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-5 first:pt-0 last:pb-0" key={metric.label}>
               <div className="flex min-w-0 items-center gap-3">
@@ -181,8 +132,8 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
 }
 
 function warningCopy(warning: WarningView) {
-  const actual = `${warning.actual_pct.toFixed(2)}%`
-  const threshold = `${warning.warning_pct.toFixed(2)}%`
+  const actual = formatPct(warning.actual_pct, { digits: 2 })
+  const threshold = formatPct(warning.warning_pct, { digits: 2 })
   if (warning.code === 'portfolio.ticker-concentration') {
     return {
       title: `銘柄集中度 · ${warning.key}`,
@@ -216,19 +167,19 @@ function warningCopy(warning: WarningView) {
 function PortfolioWarnings({ warnings }: { warnings: WarningView[] }) {
   if (warnings.length === 0) return null
   return (
-    <div className="border-t bg-amber-50/60 px-5 py-4 sm:px-6" aria-label="ポートフォリオ確認事項">
+    <div className="border-t bg-warning-surface px-5 py-4 sm:px-6" aria-label="ポートフォリオ確認事項">
       <div className="grid gap-3">
         {warnings.map((warning) => {
           const copy = warningCopy(warning)
           return (
-            <div className="flex gap-3 text-sm text-amber-950" key={`${warning.code}-${warning.scope}-${warning.key}`}>
-              <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden="true" />
+            <div className="flex gap-3 text-sm text-warning-foreground" key={`${warning.code}-${warning.scope}-${warning.key}`}>
+              <CircleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <strong className="font-medium">{copy.title}</strong>
-                  {warning.overridden && <Badge className="border-amber-300 bg-transparent text-amber-800" variant="outline">確認済み</Badge>}
+                  {warning.overridden && <Badge className="border-warning/40 bg-transparent text-warning" variant="outline">確認済み</Badge>}
                 </div>
-                <p className="mt-0.5 text-xs leading-relaxed text-amber-900/80">{copy.description}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-warning-foreground/80">{copy.description}</p>
               </div>
             </div>
           )
@@ -286,8 +237,8 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
                 <TableCell className="text-muted-foreground">{holding.sector}</TableCell>
                 <TableCell className="text-right font-mono tabular-nums">{holding.quantity.toLocaleString('ja-JP')}</TableCell>
                 <TableCell className="text-right">
-                  <span className="flex items-baseline justify-end gap-2 font-mono text-sm tabular-nums text-muted-foreground"><span className="text-[10px] font-medium">取得</span>{averageCostYen === null ? '—' : yenFormatter.format(averageCostYen)}</span>
-                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{yenFormatter.format(Number(holding.market_price_yen))}</span>
+                  <span className="flex items-baseline justify-end gap-2 font-mono text-sm tabular-nums text-muted-foreground"><span className="text-[10px] font-medium">取得</span>{averageCostYen === null ? EMPTY : formatYen(averageCostYen)}</span>
+                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{formatYen(Number(holding.market_price_yen))}</span>
                   {marketPriceAsOf === null && <AsOfBadge className="mt-1 justify-end" compact value={holding.market_price_as_of} />}
                 </TableCell>
                 <TableCell className="text-right">
@@ -341,7 +292,7 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
         <div className="divide-y">
           {events.map((event) => (
             <div className="grid grid-cols-[112px_84px_1fr] items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
-              <time className="font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatDate(event.event_date)}</time>
+              <time className="font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDate(event.event_date)}</time>
               <Badge className="w-fit" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
               <div className="flex min-w-0 items-center gap-2">
                 <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
@@ -405,14 +356,14 @@ function ProposalCard({ proposals }: { proposals: ProposalView[] }) {
                 <Badge variant="outline">{item.status}</Badge>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                <span>指値 <span className="font-mono tabular-nums text-foreground">{typeof limit === 'string' || typeof limit === 'number' ? yenFormatter.format(Number(limit)) : '—'}</span></span>
-                <span>数量 <span className="font-mono tabular-nums text-foreground">{typeof quantity === 'number' ? `${quantity.toLocaleString('ja-JP')} 株` : '—'}</span></span>
-                <span>期限 <span className="font-mono tabular-nums text-foreground">{typeof expiresAt === 'string' ? formatDate(expiresAt.slice(0, 10)) : '—'}</span></span>
+                <span>指値 <span className="font-mono tabular-nums text-foreground">{typeof limit === 'string' || typeof limit === 'number' ? formatYen(Number(limit)) : EMPTY}</span></span>
+                <span>数量 <span className="font-mono tabular-nums text-foreground">{typeof quantity === 'number' ? `${quantity.toLocaleString('ja-JP')} 株` : EMPTY}</span></span>
+                <span>期限 <span className="font-mono tabular-nums text-foreground">{typeof expiresAt === 'string' ? formatJstDate(expiresAt.slice(0, 10)) : EMPTY}</span></span>
               </div>
               <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground">
                 <span className="truncate font-mono" title={item.packet_id}>{item.packet_id}</span>
-                <span>作成 {formatDate(item.created_at.slice(0, 10))}</span>
-                {item.decided_at && <span>決定 {formatDate(item.decided_at.slice(0, 10))}</span>}
+                <span>作成 {formatJstDate(item.created_at.slice(0, 10))}</span>
+                {item.decided_at && <span>決定 {formatJstDate(item.decided_at.slice(0, 10))}</span>}
               </div>
               <details className="text-xs text-muted-foreground">
                 <summary className="cursor-pointer select-none">payload 全体</summary>
@@ -475,7 +426,10 @@ export function DashboardPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
             <p className="mt-1 text-sm text-muted-foreground">資産状況と次のアクション</p>
           </div>
-          <AsOfBadge stale={data.ledger_stale} value={data.ledger_as_of} />
+          <div className="flex items-center gap-2">
+            {data.ledger_stale && <StaleBadge />}
+            <AsOfBadge value={data.ledger_as_of} />
+          </div>
         </header>
 
         {data.ledger_error && (
@@ -536,7 +490,7 @@ export function DashboardPage() {
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
-                      <span className="ml-2 text-xs text-muted-foreground">× {yenFormatter.format(Number(reservation.price_guard_yen))}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
                     </TableCell>
                     <TableCell className="text-right"><YenAmount className="font-medium" value={reservation.reserved_yen} /></TableCell>
                     <TableCell className="pr-5 text-right sm:pr-6"><AsOfBadge compact value={reservation.expires_at} /></TableCell>
@@ -560,7 +514,7 @@ export function DashboardPage() {
             <div className="divide-y">
               {data.open_tasks.map((task) => (
                 <article className="grid items-center gap-2 px-5 py-4 sm:grid-cols-[160px_1fr_auto] sm:px-6" key={task.task_id}>
-                  <time className="font-mono text-sm font-medium tabular-nums" dateTime={task.due_date}>{formatDate(task.due_date)}</time>
+                  <time className="font-mono text-sm font-medium tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
                   <strong className="text-sm font-medium">{task.title}</strong>
                   {task.overdue && <Badge variant="destructive">期限超過</Badge>}
                 </article>

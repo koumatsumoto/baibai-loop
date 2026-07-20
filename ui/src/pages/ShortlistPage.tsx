@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChartNoAxesCombined } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type {
@@ -10,14 +9,16 @@ import type {
   ScreeningView,
 } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { StaleBadge } from '../components/StaleBadge'
+import { TradingViewButton } from '../components/TradingViewButton'
 import { Badge } from '../components/ui/badge'
-import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { cn, formatJstDateTime } from '../lib/utils'
-import { tradingViewChartUrl } from '../lib/trading-view'
+import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
+import { LABEL } from '../lib/labels'
+import { cn } from '../lib/utils'
 
 // OP3 narrative sections in render order (mirrors decision-cycle OP3 の判断項目).
 const NARRATIVE_SECTIONS: readonly (readonly [keyof NarrativeText, string])[] = [
@@ -45,7 +46,7 @@ type NarrativeText = {
 const PLOSS_TONE: Record<string, string> = {
   低: 'bg-positive/15 text-positive',
   中低: 'bg-positive/15 text-positive',
-  中: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  中: 'bg-warning/15 text-warning',
   要精査: 'bg-destructive/15 text-destructive',
   高: 'bg-destructive/15 text-destructive',
 }
@@ -69,11 +70,11 @@ function fvGapPct(audit: Record<string, unknown> | null): number | null {
 }
 
 function yen(value: number | null, digits = 0) {
-  return value === null ? '—' : `${value.toLocaleString('ja-JP', { maximumFractionDigits: digits })} 円`
+  return value === null ? EMPTY : `${formatNumber(value, digits)} 円`
 }
 
 function plain(value: number | null, digits = 1) {
-  return value === null ? '—' : value.toLocaleString('ja-JP', { maximumFractionDigits: digits })
+  return value === null ? EMPTY : formatNumber(value, digits)
 }
 
 function FactRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -88,7 +89,7 @@ function FactRow({ label, children }: { label: string; children: React.ReactNode
 function MachineFacts({ audit, row }: { audit: Record<string, unknown> | null; row: CandidateRowView | null }) {
   if (audit === null && row === null) {
     return (
-      <p className="rounded-md border border-dashed p-3 text-sm text-amber-700 dark:text-amber-400">
+      <p className="rounded-md border border-dashed p-3 text-sm text-warning">
         この shortlist の source run 世代は cache から prune 済みです。機械値は再現できないため narrative のみ表示しています。
       </p>
     )
@@ -125,7 +126,7 @@ function MachineFacts({ audit, row }: { audit: Record<string, unknown> | null; r
         <PctBadge fraction value={row?.gap_from_52w_low ?? null} />
       </FactRow>
       <FactRow label="売買代金">{row?.avg_turnover_oku === null || row?.avg_turnover_oku === undefined ? '—' : `${plain(row.avg_turnover_oku)} 億円/日`}</FactRow>
-      <FactRow label="次回決算予定"><span className="text-right">{row?.next_earnings_date ?? '未定/JPX未公表'}</span></FactRow>
+      <FactRow label="次回決算予定"><span className="text-right">{row?.next_earnings_date ?? LABEL.earningsTbd}</span></FactRow>
       <FactRow label="データ品質">
         {row && row.data_quality_flags.length > 0
           ? <span className="flex flex-wrap justify-end gap-1">{row.data_quality_flags.map((flag) => <Badge className="text-[10px]" key={flag} variant="outline">{flag}</Badge>)}</span>
@@ -168,15 +169,8 @@ function SelectedCard({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {narrative && <Badge className={cn('font-semibold', PLOSS_TONE[narrative.ploss] ?? 'bg-amber-500/15 text-amber-700')}>永久損失(暫定): {narrative.ploss}</Badge>}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button asChild size="icon-sm" variant="ghost">
-                <a aria-label={`${entry.ticker} の TradingView`} href={tradingViewChartUrl(entry.ticker)} rel="noopener noreferrer" target="_blank"><ChartNoAxesCombined aria-hidden="true" /></a>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>TradingView でチャートを開く</TooltipContent>
-          </Tooltip>
+          {narrative && <Badge className={cn('font-semibold', PLOSS_TONE[narrative.ploss] ?? 'bg-warning/15 text-warning')}>永久損失(暫定): {narrative.ploss}</Badge>}
+          <TradingViewButton ticker={entry.ticker} />
         </div>
       </CardHeader>
       <CardContent className="grid gap-0 px-5 py-4 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-6">
@@ -199,20 +193,6 @@ function SelectedCard({
         </div>
       </CardContent>
     </Card>
-  )
-}
-
-function PageState({ title, message }: { title: string; message: string }) {
-  return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid min-h-[60vh] max-w-5xl place-items-center px-6 text-center">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{message}</h1>
-        </div>
-      </main>
-    </>
   )
 }
 
@@ -269,8 +249,8 @@ export function ShortlistPage() {
           </div>
           <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
             {[
-              ['基準 (AS OF)', shortlist.as_of],
-              ['公表 (PUBLISHED)', formatJstDateTime(shortlist.published_at)],
+              [LABEL.asOf, shortlist.as_of],
+              [LABEL.published, formatJstDateTime(shortlist.published_at)],
               ['SELECTED', String(selected.length)],
               ['REJECTED', String(rejected.length)],
             ].map(([label, value]) => (
@@ -285,8 +265,8 @@ export function ShortlistPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <Badge className="font-mono text-[10px]" variant="secondary">{shortlist.shortlist_id}</Badge>
           <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/screening">全通過 candidates を見る →</Link>
-          {machineMissing && <span className="text-amber-700 dark:text-amber-400">source selection が最新 run に無いため機械値は非表示です</span>}
-          {data.run?.stale && <Badge className="text-[10px]" variant="outline">run stale ({data.run.asof_date})</Badge>}
+          {machineMissing && <span className="text-warning">source selection が最新 run に無いため機械値は非表示です</span>}
+          {data.run?.stale && <StaleBadge className="text-[10px]" detail={data.run.asof_date} />}
         </div>
 
         <div className="grid gap-4">
