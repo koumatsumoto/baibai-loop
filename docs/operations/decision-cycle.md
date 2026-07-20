@@ -48,12 +48,12 @@ dirty worktreeの所有不明、public `--help`不明、入力矛盾では停止
 
 ## Opportunity path
 
-1. `screening run`が返す`run_revision_id`を明示して`select`する。
-2. machine recommendationを人間/AIが比較し、source `selection_id`へ束縛したshortlist draftを`screening shortlist publish`する。machine結果をreviewed shortlistと呼ばない。
-3. reviewed shortlistからresearch workspaceを作り、一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。
+1. `screening run`が返す`run_revision_id`を明示して`select --audit-top 20`する。
+2. audit poolから[human-review gate](#opportunity-human-review-gate-op3)の件数契約で候補を選び、各selected銘柄へOP3 narrative、各rejected銘柄へ具体的な非選択理由を付けたshortlist draftを、source `selection_id`へ束縛して`screening shortlist publish`する。machine recommendationをreviewed shortlistと呼ばない。
+3. 人間がレビュー面からprimary-research setを選び、その銘柄のresearch workspaceを作って一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。
 4. packetとindependent reviewを`research promote`し、返された`packet_id` / `review_id`をsessionから参照する。
 5. planning-only limitの出力からproposalを作る。proposalは`pending`で始まり、人間の報告だけを`proposal decide`で記録する。
-6. review済みHTMLはephemeral projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
+6. reviewed shortlistは`baibai-app`の`/shortlist`レビュー面、research decision reportはephemeral HTML projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
 
 ```bash
 uv run baibai-engine screening run --asof YYYY-MM-DD
@@ -67,6 +67,18 @@ uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/scree
 ```
 
 `approve`時はcurrent DBのpacket、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。
+
+<a id="opportunity-human-review-gate-op3"></a>
+
+### Opportunity human-review gate (OP3)
+
+一次リサーチの前に、比較可能な候補群を人間へ渡すレビューgateを置く。1銘柄へ先に決め打ちしない。
+
+- **件数契約**: `audit_pool`上位20件から8〜10候補をshortlistへ入れる。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。`recommendations`のproduction capはこの件数を決めない。
+- **判断の記録**: selected銘柄は`ShortlistEntry.narrative`（なぜ安いか / 一時的か / 構造的か / 5年耐性 / unlock / 最強countercase / 深掘り論点 / 深掘り価値 / 暫定判断と暫定`ploss`）を必須にし、rejected銘柄は「順位が低い」「予算外」だけでない具体的理由を必須にする。draftは[`tools/shortlist/draft-template.yaml`](../../tools/shortlist/draft-template.yaml)を写して記入し、`screening shortlist publish`でapplication DBへ一次記録する。narrativeをephemeral HTMLに残さない。
+- **開示スキャン**: narrativeを書く前に、新規候補（前回reviewed shortlistを確認できないfull reviewでは全候補）について会社IR・TDnetの直近開示をタイトルレベルで確認し、screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）をnarrativeの`why` / `counter`へ反映する。
+- **差分確認**: 直近の前回reviewed shortlist（application DB）がある週次runでは、今回とticker集合を`new / continued / exited`で比較する。`continued`は前回narrativeを自動継承せず、audit順位差・価格・最新開示・最強countercaseを再確認したうえでmaterial changeがなければ再利用する。前回を確認できないrunは差分を推定せず全候補を確認する。
+- **primary-research set**: `/shortlist`レビュー面（narrativeとselection audit_poolのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 <a id="human-result-path"></a>
 

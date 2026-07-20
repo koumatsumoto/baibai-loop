@@ -381,7 +381,7 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
         return _status_payload(
             workspace_status="awaiting_primary_research_selection",
             selected_ticker=None,
-            next_command="review candidate-report and fill selection.yaml shortlist",
+            next_command="review the /shortlist gate and fill selection.yaml shortlist",
         )
 
     missing_lanes = [

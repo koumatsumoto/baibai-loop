@@ -18,7 +18,7 @@ screeningは全上場銘柄から割安ゾーンを機械抽出し、observed、
 
 - `run`: point-in-timeの財務・価格・JPX factsからcandidate poolを作る。
 - `select`: candidateを既存rulesでrankし、production recommendationsと監査用audit poolを出す。
-- AI: audit poolから[`decision-cycle` OP3](../operations/decision-cycle.md#opportunity-path)のhuman-review shortlist reportを作る。
+- AI: audit poolから[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)のnarrative付きreviewed shortlistを作り、`baibai-app`の`/shortlist`レビュー面で人間へ提示する。
 - human: reportからprimary-research setを選ぶ。
 - research: primary-research setを一次情報、永久損失、3年/5年scenarioで比較し、最良0〜1件を決める。
 
@@ -73,8 +73,8 @@ AI judgment、割安の原因、将来予測、採用結論をcandidateへ書か
 | candidate pool | screen通過全件 | select/calibration | rebuildable |
 | `recommendations` | production rule/cap適用後の通常表示 | operator | rebuildable |
 | `audit_pool` | diversity/cap切断前のrank上位N件を監査 | AI/reviewer | rebuildable |
-| reviewed shortlist | audit poolからOP3の件数契約で採否・理由を明示 | human review | application DB |
-| primary-research set | human-review shortlistから人間が選択 | research | workspace |
+| reviewed shortlist | audit poolからOP3の件数契約でselected narrative / rejected理由を明示 | human review | application DB |
+| primary-research set | reviewed shortlistのレビュー面から人間が選択 | research | workspace |
 
 `--audit-top 20`は候補抜けを監査するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capはreviewed shortlistの件数を決めない。review後はsource `selection_id`とrun/profile/context metadataを含むstrict draftを`baibai-engine screening shortlist publish`で明示publishする。machine recommendationをreview済みとして代用しない。
 
