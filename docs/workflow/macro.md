@@ -98,8 +98,22 @@ report の共通 field：
 | 4 | インフレ・コスト | CPI、賃金、輸入物価、commodity | 売価転嫁とmargin経路を示す |
 | 5 | 為替・流動性 | USD/JPY、金利差、net liquidity、credit OAS、VIX/MOVE | risk appetite、funding、共通tail riskを示す |
 | 6 | 日本固有 | BOJ政策、国内賃金物価、鉱工業生産、海外投資家フロー | 日本企業の需要・費用・為替感応度への接続を示す |
-| 7 | シナリオと接続 | セクション2〜6を支持・反証する系列 | base / bear / bull、sector tilt、research優先度ヒント、sizing cautionを判断面に置く |
+| 7 | シナリオと接続 | セクション2〜6を支持・反証する系列、市場内部（`screening market-snapshot`のbenchmark 20d/60d・breadth・regime）、日本株バリュエーションアンカー | base / bear / bull、バーゲン地形、sector tilt、research優先度ヒント、sizing cautionを判断面に置く |
 | 8 | 監視ポイント | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを明記する |
+
+### Decision-grade 深度契約（opportunity cycleの前提）
+
+macro contextの用途は2つあり、深度要件が異なる。**delta更新**（monitoring condition発火やmaterial change時の部分的な見直し）は変化した経路の事実確認で足りる。**decision-grade context**（opportunity cycleのshortlist作成が前提にする環境認識）は、銘柄選定のリスクリワード判断の土台になるため、次の深度契約を満たす。
+
+- **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`はTier-1中心に15本以上。
+- **日本の需要fact最低ライン**: セクション3または6に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
+- **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
+- **バーゲン地形**: セクション7に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeをfactとして引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」をjudgmentとして書く。
+- **日本株バリュエーションアンカー**: セクション7に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
+- **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各research_priority_hintとsector tiltは、どの候補タイプ・sectorに効くかを判別できる形で書く。
+- **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
+
+published contextがこの契約を満たさない、またはas_of以降にmonitoring pointのdated eventを跨いだ場合、opportunity cycleはshortlist作成前にdecision-grade refreshを行う。
 
 各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
 
@@ -120,7 +134,7 @@ report の共通 field：
 
 **分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context revisionにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。比較可能な時点からの変化は、結論を確定させた後にRegime summaryのfactとして接続する。
 
-**更新のきっかけ**：macro-contextは定期的には生成せず、discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、またはpublished contextのmonitoring conditionが発火したときだけ更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
+**更新のきっかけ**：macro-contextは定期的には生成せず、(a) discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、(b) published contextのmonitoring conditionが発火したとき、(c) opportunity cycleの前提となるcontextが[Decision-grade 深度契約](#decision-grade-深度契約opportunity-cycleの前提)を満たさないとき、のいずれかで更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
 
 ## ③ ナレッジ：8 分析レンズ
 
@@ -131,7 +145,7 @@ report の共通 field：
 3. **金融環境の合成**：`us.nfci` を `vix`・`us.move`・クレジット OAS と突き合わせ、slow-burn（広範化前の局所ストレス）を読む。
 4. **リスク選好の温度計**：`btc_usd` + `vix` + `credit.us_hy_oas`/`credit.us_ccc_oas` + `us.nfci`。BTC は先行温度計になりやすい（単独 driver にはしない）。
 5. **景気サイクル・breadth**：`us.initial_claims` + `us.industrial_production` + `copper` + `us.russell2000` + `us.10y_3m_spread`。`us.sox` は AI/半導体サイクルと日本半導体株の先行ゲージ。
-6. **バリュエーション・ERP**：`us.sp500_earnings_yield` − `us.10y` ＝ ERP。益回り < 名目金利（ERP≤0）は警戒域。`us.sp500_cape` で長期割高度。
+6. **バリュエーション・ERP**：`us.sp500_earnings_yield` − `us.10y` ＝ 米ERP。益回り < 名目金利（ERP≤0）は警戒域。`us.sp500_cape` で長期割高度。**日本側は市場全体PER/益回り（日経・JPX公表値またはin-house universe中央値）− JGB 10y** を同じ構図で読み、個別FVアンカーの外側検算に使う。
 7. **グローバル中銀の同期**：`us.fed_funds.upper` + `jp.policy_rate` + `ecb.policy_rate`。1 国でなく同期を読む。
 8. **エネルギー・地政学**：`wti`/`brent` + `gold`。日本はエネルギー輸入依存が高く（中東 ~95%・ホルムズ ~74%）原油 spike が通貨・スタグフレーションに直結するため `usd_jpy` と併読。
 

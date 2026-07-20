@@ -39,7 +39,7 @@ templateは[`tools/research_decision_report/findings-template.yaml`](../../tools
 
 OP3 reviewed shortlist narrative（OP3）の`research`に挙げた確認事項は、primary-research setに選ばれた銘柄について`assigned_questions` / `growth_quality` / `domain_findings`のいずれかでansweredにするか、一次情報で確認できなければ`unknowns`へ残す。researchを正当化した論点を黙って落とさない。
 
-`decision_context.entry_timing`は、購入提案がある場合に必須とする。選択銘柄の直近のdated material event（決算、guidance更新等）と、そのeventの**前に**買う理由（またはeventが判断のload-bearingではない理由）を1〜3行で書く。event結果が判断を変え得るのに先回りして買う場合、その非対称性（待つコストと先回りのrisk）を明示する。rendererは購入提案があるのに`entry_timing`が無い場合に停止し、選択銘柄のfindingsから直近dated catalystを購入方法の隣へ機械表示する。
+`decision_context.entry_timing`は、購入提案がある場合に必須とする。選択銘柄の直近のdated material event（決算、guidance更新等）と、そのeventの**前に**買う理由（またはeventが判断のload-bearingではない理由）を1〜3行で書く。event結果が判断を変え得るのに先回りして買う場合、その非対称性（待つコストと先回りのrisk）を明示する。銘柄固有eventに加えて、published macro contextの`monitoring_points`にあるdated event（FOMC・BOJ会合・主要統計）と注文有効期間の位置関係を確認し、macro eventがproposal窓に重なる場合はその扱いを1行書く。rendererは購入提案があるのに`entry_timing`が無い場合に停止し、選択銘柄のfindingsから直近dated catalystを購入方法の隣へ機械表示する。
 
 各evidenceは`observed / derived / estimate / management_claim`を区別し、packetの`source_id`へjoinする。URL、retrieved_at、as-of、used_forはpacket sourceを正本とし、findingsへ重複させない。外部sourceのdocument title / published_at / statusだけを`source_metadata`で補う。未知source ID、不正ticker、shortlist不一致、as-of不一致は生成を停止する。
 
