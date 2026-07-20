@@ -16,12 +16,12 @@ from baibai_app.sources.protocols import (
     TaskSource,
 )
 from baibai_app.sources.types import CandidatesRun, PacketDetail, ResearchRevision, TaskRecord
-from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.read_api import (
     HoldingSnapshot,
     MacroGranularity,
     PortfolioLedgerError,
     PortfolioSnapshot,
+    macro_series_names,
 )
 
 from .models import (
@@ -359,9 +359,7 @@ def build_macro(
     context = None
     if raw_context is not None:
         valid_until = date.fromisoformat(str(raw_context["valid_until"]))
-        series_names = {
-            definition.series_id: definition.name for definition in load_definitions().series
-        }
+        series_names = macro_series_names()
         context = MacroContextView(
             context_id=str(raw_context["context_id"]),
             as_of=date.fromisoformat(str(raw_context["as_of"])),

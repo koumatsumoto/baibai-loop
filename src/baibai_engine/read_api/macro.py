@@ -15,6 +15,11 @@ from .sqlite import connect_read_only
 type MacroGranularity = Literal["daily", "weekly", "monthly", "yearly"]
 
 
+def macro_series_names() -> dict[str, str]:
+    """Return canonical macro series display names for read-only consumers."""
+    return {item.series_id: item.name for item in load_definitions().series}
+
+
 def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object] | None:
     if not path.is_file():
         return None
@@ -196,4 +201,5 @@ __all__ = [
     "list_macro_context_payloads",
     "macro_context_payload",
     "macro_indicator_series",
+    "macro_series_names",
 ]

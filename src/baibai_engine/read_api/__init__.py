@@ -21,6 +21,7 @@ from .macro import (
     list_macro_context_payloads,
     macro_context_payload,
     macro_indicator_series,
+    macro_series_names,
 )
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
@@ -66,6 +67,7 @@ __all__ = [
     "load_portfolio_ledger",
     "macro_context_payload",
     "macro_indicator_series",
+    "macro_series_names",
     "operation_session",
     "portfolio_ledger_document",
     "reconcile_portfolio",

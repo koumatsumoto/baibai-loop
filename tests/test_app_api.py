@@ -141,8 +141,7 @@ def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
     db_path = app_records_root / "data/app/baibai.sqlite"
     document = MacroContextDocument.model_validate(macro_context_payload())
     MacroContextService(db_path).publish(document, expected_head=None)
-    definitions = mocker.patch("baibai_app.readmodel.builders.load_definitions")
-    definitions.return_value.series = ()
+    mocker.patch("baibai_app.readmodel.builders.macro_series_names", return_value={})
 
     with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/macro?as_of=2026-07-19")
