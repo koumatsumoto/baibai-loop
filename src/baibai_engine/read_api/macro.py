@@ -29,7 +29,7 @@ def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object
             """
             SELECT payload FROM macro_context
             WHERE as_of <= ?
-            ORDER BY as_of DESC, published_at DESC, context_id DESC
+            ORDER BY published_at DESC, as_of DESC, context_id DESC
             LIMIT 1
             """,
             (as_of.isoformat(),),
@@ -51,7 +51,7 @@ def list_macro_context_payloads(path: Path) -> list[dict[str, object]]:
     try:
         rows = connection.execute(
             "SELECT payload FROM macro_context "
-            "ORDER BY as_of DESC, published_at DESC, context_id DESC"
+            "ORDER BY published_at DESC, as_of DESC, context_id DESC"
         ).fetchall()
     finally:
         connection.close()
