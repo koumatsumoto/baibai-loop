@@ -271,6 +271,9 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] manual indicator seed importは重複YAML key、未知・非manual series、manual系列欠落、
       field / unit / source不一致、naive datetime、同一instant重複、非有限値をDB書き込み前に
       拒否し、manual read / refreshがseed外のrowを書き込まないか
+- [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
+      macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
+      fixture で検証するか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。

@@ -3,7 +3,7 @@ title: "Workflow — macro analysis"
 summary: "マクロ環境分析：指標と一次情報から、個別5年期待値を変えるmaterial deltaと共通riskを必要時だけmacro-context recordに残す。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-11
+last_reviewed: 2026-07-20
 ---
 
 # Workflow — マクロ環境分析
@@ -22,19 +22,22 @@ uv run baibai-engine macro search 失業率              # 名前/alias/category
 uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-engine macro get jp.policy_rate --latest
 uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
+uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        # provider が提供する全履歴を同期
 uv run baibai-engine macro import-manual     # git seed の manual 観測を同期
 ```
 
 `get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` は frequency 別の鮮度窓（daily は 1 暦日、weekly は 14 日、monthly は 70 日）内の cache があればそれを返し、古い場合は最新確認用の短い窓（daily は 14 日、weekly は 60 日、monthly は 370 日）を provider で再取得する。環境認識を書く直前は、判断に使う主要 series を `refresh` で直近窓ごと再取得してから `get --latest` を読む。
 
+`refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。`manual` 系列は対象外であり、`import-manual` だけが同期する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
+
 ### データソース registry
 
 | Provider | 取得 | 担当ドメイン | 確認手順・既知の caveat |
 | --- | --- | --- | --- |
-| `fred_csv` | 無認証 CSV | 米マクロ・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性・NFCI・JP 失業率 | 系列 ID を `fredgraph.csv?id=<ID>` の header で実 fetch 確認。**廃止系列あり**（JP OECD CPI は 2021 停止、金 LBMA は 2025/5 停止）。金・SOX は `yahoo`。 |
+| `fred_csv` | 無認証 CSV | 米マクロ・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性・NFCI・JP 失業率/賃金/実質実効為替 | 系列 ID を `fredgraph.csv?id=<ID>` の header で実 fetch 確認。ICE BofA OAS は直近 3 年、S&P / Dow は直近 10 年が現在の配信範囲。**廃止系列あり**（JP OECD CPI は 2021 停止、金 LBMA は 2025/5 停止）。金・SOX は `yahoo`。 |
 | `frb_h15` | 無認証 CSV | 米国債金利・スプレッド | 1 package を series 横断に 1 回 DL |
 | `ecb_fx` | 無認証 ZIP | JPY クロス（USD/EUR/AUD） | JPY と基軸通貨の比で算出 |
-| `estat` | API（`ESTAT_APP_ID`） | JP 公式マクロ（CPI・鉱工業生産 等） | JP CPI の一次ソース。`statsDataId` は e-Stat で確認 |
+| `estat` | API（`ESTAT_APP_ID`） | JP 公式マクロ（CPI 総合・サービス、鉱工業生産 等） | JP CPI の一次ソース。`statsDataId` と分類 code は e-Stat で確認 |
 | `jquants_flows` | 認証（`JQUANTS_API_KEY`） | JP 市場内部（海外投資家フロー） | screening と同じ credential |
 | `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | `mblong.xlsx` を openpyxl で読む |
 | `boj_mutan` | 無認証 HTML + xlsx | BOJ 無担保コール O/N 確報 | 年別 index から `mdYYYYMMDD.xlsx` を辿り、確報 workbook の平均値を読む。公表タイミングは BOJ の日次更新予定に従う |
@@ -54,6 +57,10 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2026-01-01 --end 202
 ```
 
 `import-manual` は manual 系列を seed の全行へ同期する。同じ seed の再 import は observation と provider run の件数・内容を変えない。manual 系列の `get` は imported row だけを読み、`refresh` は書き込みを拒否して `import-manual` を案内する。`macro.sqlite` は schema / series registry / manual seed と各 provider API から再構築する L1 store であり、manual 観測の backup は持たない。
+
+### cockpit で期間と粒度を読む
+
+`baibai-app` の Macro ページは期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` を全チャートへ適用する。`/api/macro` も同じ query parameter を受け、週次・月次・年次は各期間の最終観測値を返す。既定は `1y + daily` である。`series.yaml` に `tradingview_symbol` がある系列だけ、チャートカードから TradingView の該当 symbol を新規 tab で開く。
 
 ### 運用テスト（series / provider を変更したら必ず回す）
 
