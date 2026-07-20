@@ -24,6 +24,7 @@ _EVENT_RISK_TAGS = frozenset(
         "split_adjustment_recent",
         "earnings_scheduled",
         "freshness_warning",
+        "forecast_special_gain",
     }
 )
 
@@ -89,6 +90,11 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
         tags.append("earnings_scheduled")
     if candidate.get("freshness_warnings"):
         tags.append("freshness_warning")
+    # 会社予想の純利益>経常は特別益をほぼ確定する。forward PER / 予想配当 / E[r] carry
+    # が一時益で嵩上げされた value trap を triage で必ず表面化させ、research 側の
+    # 会社予想 normalize (経常ベースへの丸め) へ誘導する。
+    if mapping_or_empty(candidate.get("metrics")).get("forecast_special_gain_flag") is True:
+        tags.append("forecast_special_gain")
     return dedupe_strings(tags)
 
 

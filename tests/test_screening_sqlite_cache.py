@@ -23,7 +23,7 @@ from baibai_engine.screening.sqlite_cache import (
     store_jquants_market_calendar,
     store_jquants_master,
 )
-from baibai_engine.screening.sqlite_reader import range_covered
+from baibai_engine.screening.sqlite_reader import range_covered, read_fin_summaries
 from tests.helpers.screening_sqlite import make_master_records
 
 
@@ -203,6 +203,46 @@ class SQLiteCacheTest(unittest.TestCase):
                 conn.close()
             self.assertEqual(stored["9715"], 360.26)
             self.assertEqual(stored["7203"], 306.89)
+
+    def test_fin_summaries_forecast_profit_pair_round_trips_by_period(self) -> None:
+        # 予想純利益/経常は forecast_eps と同一予想期から採って保存・読戻す。当期予想
+        # EPS(FEPS)がある四半期開示は当期ペア(FNP/FOdP)、FEPS 空の本決算開示は翌期
+        # ペア(NxFNp/NxFOdP)を採る。純利益>経常の行が一時益 flag の一次入力になる。
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {
+                        "Code": "48490",
+                        "DisclosedDate": "2026-05-13",
+                        "FEPS": "138.72",
+                        "FNP": "5464000000",
+                        "FOdP": "3406000000",
+                        "NxFNp": "900000000",
+                        "NxFOdP": "1200000000",
+                    },
+                    {
+                        "Code": "97150",
+                        "DisclosedDate": "2026-04-30",
+                        "FEPS": "",
+                        "NxFEPS": "360.26",
+                        "FNP": "5464000000",
+                        "FOdP": "3406000000",
+                        "NxFNp": "2000000000",
+                        "NxFOdP": "2500000000",
+                    },
+                ],
+                requested_start=date(2026, 4, 30),
+                requested_end=date(2026, 5, 13),
+            )
+            summaries = read_fin_summaries(db, date(2026, 4, 30), date(2026, 5, 13))
+            assert summaries is not None
+            by_ticker = {summary.ticker: summary for summary in summaries}
+            self.assertEqual(by_ticker["4849"].forecast_profit, 5464000000.0)
+            self.assertEqual(by_ticker["4849"].forecast_ordinary_profit, 3406000000.0)
+            self.assertEqual(by_ticker["9715"].forecast_profit, 2000000000.0)
+            self.assertEqual(by_ticker["9715"].forecast_ordinary_profit, 2500000000.0)
 
     def test_fin_summaries_shifted_chunk_refetch_keeps_coverage_contiguous(self) -> None:
         """A later bootstrap anchors chunk boundaries at a new asof, so a re-fetch only

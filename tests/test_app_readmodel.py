@@ -303,6 +303,18 @@ def _candidate_row(row: dict[str, object]):
     return _candidate_row_view(row, held=set(), reserved=set(), researched=set())
 
 
+def test_data_quality_flags_include_forecast_special_gain() -> None:
+    view = _candidate_row({"ticker": "4849", "metrics": {"forecast_special_gain_flag": True}})
+
+    assert "一時益予想" in view.data_quality_flags
+
+
+def test_data_quality_flags_omit_forecast_special_gain_when_false() -> None:
+    view = _candidate_row({"ticker": "4849", "metrics": {"forecast_special_gain_flag": False}})
+
+    assert "一時益予想" not in view.data_quality_flags
+
+
 def test_bargain_score_is_none_when_both_er_components_missing() -> None:
     view = _candidate_row({"ticker": "0000", "metrics": {}})
 

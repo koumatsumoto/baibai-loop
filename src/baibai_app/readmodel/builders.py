@@ -733,6 +733,8 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("鮮度warning")
     if row.get("split_adjustment_flag") is True:
         flags.append("分割補正")
+    if metrics.get("forecast_special_gain_flag") is True:
+        flags.append("一時益予想")
     return flags
 
 

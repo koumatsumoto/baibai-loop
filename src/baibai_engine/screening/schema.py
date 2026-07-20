@@ -156,6 +156,10 @@ class FinancialSnapshot:
     # Positive = dilution, negative = buyback. None if prior-year share count
     # is missing or zero.
     net_share_change_yoy: float | None = None
+    # 会社予想で純利益>経常となる行の data-quality flag。税負担が通常正である以上、
+    # 純利益>経常は特別益の存在をほぼ確定する。forward PER / 予想配当 / E[r] carry が
+    # 一時益で嵩上げされた value trap を判断前に表面化させる warning (rank・E[r] は変えない)。
+    forecast_special_gain_flag: bool = False
 
     @field_validator(
         "per_forward",
