@@ -108,6 +108,7 @@ def test_portfolio_input_is_adapted_from_the_canonical_ledger_snapshot() -> None
     assert policy_portfolio.reserved_cash_yen == snapshot.reserved_cash_yen
     assert policy_portfolio.total_capital_yen == snapshot.total_capital_yen
     assert policy_portfolio.dry_powder_floor_yen == snapshot.total_capital_yen // 5
+    assert policy_portfolio.max_ticker_concentration_pct == 10.0
 
 
 def test_balanced_policy_uses_buy_now_when_ask_is_within_ceiling_without_warning() -> None:
@@ -272,7 +273,7 @@ def test_policy_warns_when_the_order_would_exceed_ticker_concentration() -> None
     raw = _raw(POLICY)
     portfolio = raw["portfolio"]
     assert isinstance(portfolio, dict)
-    portfolio["ticker_exposure_yen"] = 620000
+    portfolio["ticker_exposure_yen"] = 900000
 
     proposal = _proposal(raw)
 

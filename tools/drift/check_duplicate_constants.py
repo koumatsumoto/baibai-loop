@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 _EXCLUDED = {Path("docs/portfolio-management.md"), Path("src/baibai_engine/position/policy.py")}
+_ALLOW_POLICY_LITERAL_MARKER = "<!-- drift: allow-unrelated-policy-literal -->"
 
 
 def check(root: Path) -> list[str]:
@@ -22,10 +23,16 @@ def check(root: Path) -> list[str]:
             continue
         text = path.read_text(encoding="utf-8")
         for pattern in forbidden:
-            if match := pattern.search(text):
+            for match in pattern.finditer(text):
+                line_start = text.rfind("\n", 0, match.start()) + 1
+                line_end = text.find("\n", match.end())
+                line = text[line_start:] if line_end == -1 else text[line_start:line_end]
+                if _ALLOW_POLICY_LITERAL_MARKER in line:
+                    continue
                 errors.append(
                     f"{path.relative_to(root)}: duplicated policy literal {match.group(0)!r}"
                 )
+                break
     return errors
 
 

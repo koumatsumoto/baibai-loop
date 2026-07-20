@@ -16,7 +16,7 @@ PORTFOLIO_POLICY: dict[str, Any] = {
         "override_max_days": 31,
     },
     "risk_budget": {
-        "max_ticker_concentration_pct": 6.0,
+        "max_ticker_concentration_pct": 10.0,
         "max_sector_concentration_pct": 40.0,
         "max_common_factor_concentration_pct": 35.0,
         "max_adv_participation_pct": 5.0,
