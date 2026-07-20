@@ -21,6 +21,7 @@ from baibai_app.sources.types import (
 from baibai_engine.read_api import (
     PortfolioSnapshot,
     latest_macro_context_payload,
+    latest_reviewed_shortlist_payload,
     list_holding_review_publications,
     list_macro_context_payloads,
     list_operation_sessions,
@@ -28,7 +29,6 @@ from baibai_engine.read_api import (
     list_proposal_payloads,
     list_research_packet_publications,
     list_research_review_publications,
-    list_reviewed_shortlist_payloads,
     list_task_payloads,
     macro_indicator_series,
     portfolio_ledger_document,
@@ -36,7 +36,6 @@ from baibai_engine.read_api import (
     research_packet_publication,
     safe_load,
     screening_run_payload,
-    screening_run_payloads,
     screening_selection_payloads,
     task_store_exists,
 )
@@ -263,16 +262,6 @@ class DbCandidatesSource:
         raw = screening_run_payload(self._runs_path)
         return None if raw is None else self._parse_run(raw)
 
-    def run(self, run_revision_id: str) -> CandidatesRun | None:
-        raw = screening_run_payload(
-            self._runs_path,
-            run_revision_id=run_revision_id,
-        )
-        return None if raw is None else self._parse_run(raw)
-
-    def publications(self) -> list[dict[str, object]]:
-        return screening_run_payloads(self._runs_path)
-
     def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
         return screening_selection_payloads(
             self._runs_path,
@@ -280,7 +269,8 @@ class DbCandidatesSource:
         )
 
     def reviewed_shortlists(self) -> list[dict[str, object]]:
-        return list_reviewed_shortlist_payloads(self._app_path)
+        latest = latest_reviewed_shortlist_payload(self._app_path)
+        return [] if latest is None else [latest]
 
     @staticmethod
     def _parse_run(raw: dict[str, object]) -> CandidatesRun:
@@ -295,6 +285,7 @@ class DbCandidatesSource:
             asof_date=date.fromisoformat(str(raw["as_of_date"])),
             universe_size=int(str(raw["universe_size"])),
             source_path=str(raw["run_revision_id"]),
+            application_git_commit=_optional_text(raw.get("application_git_commit")),
             rows=tuple(candidates),
         )
 

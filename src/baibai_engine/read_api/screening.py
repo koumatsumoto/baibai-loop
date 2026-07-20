@@ -7,12 +7,6 @@ from pathlib import Path
 from baibai_engine.screening.run_store import ScreeningRunReader
 
 
-def screening_run_payloads(path: Path) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
-    return [_run_payload(item) for item in ScreeningRunReader(path).list_runs()]
-
-
 def screening_run_payload(
     path: Path,
     *,
@@ -62,6 +56,7 @@ def _run_payload(run: object) -> dict[str, object]:
         "run_at": run.run_at,
         "universe_size": run.universe_size,
         "rules_ref": run.rules_ref,
+        "application_git_commit": run.application_git_commit,
         "payload": run.payload,
         "candidates": list(run.candidates),
     }
@@ -69,6 +64,5 @@ def _run_payload(run: object) -> dict[str, object]:
 
 __all__ = [
     "screening_run_payload",
-    "screening_run_payloads",
     "screening_selection_payloads",
 ]

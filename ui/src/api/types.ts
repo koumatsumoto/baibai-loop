@@ -116,6 +116,7 @@ export interface ScreeningRunView {
   universe_size: number
   candidate_count: number
   source_path: string
+  application_git_commit: string | null
 }
 
 export interface CandidateRowView {
@@ -148,17 +149,8 @@ export interface CandidateRowView {
 export interface ScreeningView {
   run: ScreeningRunView | null
   rows: CandidateRowView[]
-  runs: ScreeningPublicationView[]
   selections: MachineSelectionView[]
   reviewed_shortlists: ReviewedShortlistView[]
-}
-
-export interface ScreeningPublicationView {
-  run_revision_id: string
-  run_id: string
-  asof_date: string
-  run_at: string
-  candidate_count: number
 }
 
 export interface MachineSelectionView {

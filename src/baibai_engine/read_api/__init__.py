@@ -36,10 +36,9 @@ from .research import (
 )
 from .screening import (
     screening_run_payload,
-    screening_run_payloads,
     screening_selection_payloads,
 )
-from .shortlist import list_reviewed_shortlist_payloads
+from .shortlist import latest_reviewed_shortlist_payload, list_reviewed_shortlist_payloads
 from .tasks import list_task_payloads, task_store_exists
 
 __all__ = [
@@ -48,6 +47,7 @@ __all__ = [
     "PortfolioLedgerError",
     "PortfolioSnapshot",
     "latest_macro_context_payload",
+    "latest_reviewed_shortlist_payload",
     "list_holding_review_payloads",
     "list_holding_review_publications",
     "list_macro_context_payloads",
@@ -71,7 +71,6 @@ __all__ = [
     "research_packet_publication",
     "safe_load",
     "screening_run_payload",
-    "screening_run_payloads",
     "screening_selection_payloads",
     "task_store_exists",
 ]

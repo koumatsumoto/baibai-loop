@@ -125,6 +125,7 @@ class ScreeningRunView(BaseModel):
     universe_size: int
     candidate_count: int
     source_path: str
+    application_git_commit: str | None
 
 
 class CandidateRowView(BaseModel):
@@ -157,17 +158,8 @@ class CandidateRowView(BaseModel):
 class ScreeningView(BaseModel):
     run: ScreeningRunView | None
     rows: list[CandidateRowView]
-    runs: list[ScreeningPublicationView]
     selections: list[MachineSelectionView]
     reviewed_shortlists: list[ReviewedShortlistView]
-
-
-class ScreeningPublicationView(BaseModel):
-    run_revision_id: str
-    run_id: str
-    asof_date: date
-    run_at: datetime
-    candidate_count: int
 
 
 class MachineSelectionView(BaseModel):

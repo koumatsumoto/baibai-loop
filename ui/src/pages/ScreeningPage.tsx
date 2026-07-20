@@ -134,14 +134,12 @@ export function ScreeningPage() {
   const [sortKey, setSortKey] = useState<SortKey>('er_annual')
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [showAll, setShowAll] = useState(false)
-  const [selectedRun, setSelectedRun] = useState<string | null>(null)
 
   useEffect(() => {
-    const suffix = selectedRun ? `?run_revision_id=${encodeURIComponent(selectedRun)}` : ''
-    fetchJson<ScreeningView>(`/api/screening/latest${suffix}`).then(setData).catch((reason: unknown) => {
+    fetchJson<ScreeningView>('/api/screening/latest').then(setData).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : 'Screening を読み込めませんでした')
     })
-  }, [selectedRun])
+  }, [])
 
   const sectors = useMemo(() => Array.from(new Set(data?.rows.map((row) => row.sector_33).filter((value): value is string => value !== null))).sort((a, b) => a.localeCompare(b, 'ja')), [data])
 
@@ -200,11 +198,6 @@ export function ScreeningPage() {
             ))}
           </dl>
         </header>
-
-        <Card className="gap-3 py-5 shadow-sm">
-          <CardHeader className="px-5 sm:px-6"><CardTitle className="text-base">Run publications</CardTitle><CardDescription>同一 as-of の再実行も別 revision として表示します</CardDescription></CardHeader>
-          <CardContent className="flex flex-wrap gap-2 px-5 sm:px-6">{data.runs.map((run) => <Button key={run.run_revision_id} onClick={() => setSelectedRun(run.run_revision_id)} size="sm" variant={run.run_revision_id === data.run?.source_path ? 'default' : 'outline'}>{run.asof_date} · {run.candidate_count}</Button>)}</CardContent>
-        </Card>
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Machine recommendations</CardTitle><CardDescription>機械 selection。review 済み判断ではありません</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">selection 未作成</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.recommendations.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div>{selection.audit_pool.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Audit pool: {selection.audit_pool.length} 件（recommendation とは別）</p>}</div>)}</CardContent></Card>

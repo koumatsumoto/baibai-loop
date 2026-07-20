@@ -45,7 +45,6 @@ from .models import (
     ReviewedShortlistEntryView,
     ReviewedShortlistView,
     ScenarioView,
-    ScreeningPublicationView,
     ScreeningRunView,
     ScreeningView,
     SecurityDetailView,
@@ -192,35 +191,23 @@ def build_screening(
     candidates: CandidatesSource,
     ledger: LedgerSource,
     research: ResearchSource,
-    *,
-    run_revision_id: str | None = None,
 ) -> ScreeningView:
     """Build the latest candidates table with portfolio/research annotations."""
 
-    if isinstance(candidates, DbCandidatesSource) and run_revision_id is not None:
-        run = candidates.run(run_revision_id)
-    else:
-        run = candidates.latest_run()
-    runs: list[ScreeningPublicationView] = []
+    run = candidates.latest_run()
     selections: list[MachineSelectionView] = []
     shortlists: list[ReviewedShortlistView] = []
     if isinstance(candidates, DbCandidatesSource):
-        runs = [_screening_publication_view(item) for item in candidates.publications()]
         selected_id = None if run is None else run.source_path
         selections = [
             _machine_selection_view(item)
             for item in candidates.selections(run_revision_id=selected_id)
         ]
-        shortlists = [
-            _reviewed_shortlist_view(item)
-            for item in candidates.reviewed_shortlists()
-            if selected_id is None or str(item.get("run_revision_id")) == selected_id
-        ]
+        shortlists = [_reviewed_shortlist_view(item) for item in candidates.reviewed_shortlists()]
     if run is None:
         return ScreeningView(
             run=None,
             rows=[],
-            runs=runs,
             selections=selections,
             reviewed_shortlists=shortlists,
         )
@@ -229,20 +216,8 @@ def build_screening(
     return ScreeningView(
         run=_screening_run_view(run),
         rows=[_candidate_row_view(row, held=held, researched=researched) for row in run.rows],
-        runs=runs,
         selections=selections,
         reviewed_shortlists=shortlists,
-    )
-
-
-def _screening_publication_view(raw: Mapping[str, object]) -> ScreeningPublicationView:
-    candidates = raw.get("candidates")
-    return ScreeningPublicationView(
-        run_revision_id=str(raw["run_revision_id"]),
-        run_id=str(raw["public_run_id"]),
-        asof_date=date.fromisoformat(str(raw["as_of_date"])),
-        run_at=datetime.fromisoformat(str(raw["run_at"])),
-        candidate_count=len(candidates) if isinstance(candidates, list) else 0,
     )
 
 
@@ -574,6 +549,7 @@ def _screening_run_view(run: CandidatesRun) -> ScreeningRunView:
         universe_size=run.universe_size,
         candidate_count=len(run.rows),
         source_path=run.source_path,
+        application_git_commit=run.application_git_commit,
     )
 
 
