@@ -28,6 +28,15 @@ def test_markdown_link_gate_rejects_missing_target(tmp_path: Path) -> None:
     ]
 
 
+def test_markdown_link_gate_scans_data_docs(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "README.md").write_text("[broken](./missing.md)\n", encoding="utf-8")
+    assert check_markdown_links.check(tmp_path) == [
+        "data/README.md: missing Markdown link target ./missing.md"
+    ]
+
+
 def test_cli_doc_gate_rejects_missing_and_phantom_commands(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         "[project]\n[project.scripts]\nbaibai-engine = 'pkg:main'\n", encoding="utf-8"
