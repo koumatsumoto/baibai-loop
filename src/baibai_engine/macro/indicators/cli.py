@@ -38,7 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     refresh_parser = subparsers.add_parser("refresh", help="force provider refresh for series")
     refresh_parser.add_argument("series_ids", nargs="+")
     refresh_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
-    refresh_parser.add_argument("--start", required=True, type=date.fromisoformat)
+    refresh_range = refresh_parser.add_mutually_exclusive_group(required=True)
+    refresh_range.add_argument("--start", type=date.fromisoformat)
+    refresh_range.add_argument("--all-history", action="store_true")
     refresh_parser.add_argument("--end", required=True, type=date.fromisoformat)
 
     import_manual_parser = subparsers.add_parser(
@@ -69,13 +71,17 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             case "refresh":
                 for series_id in args.series_ids:
-                    result = service.get_range(
-                        series_id,
-                        start=args.start,
-                        end=args.end,
-                        refresh=True,
-                    )
-                    _print_observations(result)
+                    if args.all_history:
+                        result = service.refresh_all_history(series_id, end=args.end)
+                        _print_refresh_summary(result)
+                    else:
+                        result = service.get_range(
+                            series_id,
+                            start=args.start,
+                            end=args.end,
+                            refresh=True,
+                        )
+                        _print_observations(result)
                 return 0
             case "import-manual":
                 manual_result = service.import_manual_seed(args.seed)
@@ -129,6 +135,15 @@ def _print_observations(result: QueryResult) -> None:
             f"{result.series.series_id}\t{item.observed_at.isoformat()}\t{item.value:g}\t"
             f"{item.unit}\t{result.series.provider}\t{source}"
         )
+
+
+def _print_refresh_summary(result: QueryResult) -> None:
+    first = result.observations[0].observed_at.isoformat() if result.observations else "-"
+    last = result.observations[-1].observed_at.isoformat() if result.observations else "-"
+    print(
+        f"{result.series.series_id}\t{result.series.provider}\t"
+        f"{len(result.observations)}\t{first}\t{last}"
+    )
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -278,6 +279,7 @@ class MacroSeriesView(BaseModel):
     label: str
     name: str
     unit: str
+    tradingview_symbol: str | None
     points: list[MacroPointView]
 
 
@@ -288,6 +290,8 @@ class MacroGroupView(BaseModel):
 
 class MacroView(BaseModel):
     as_of: date
+    period: Literal["1y", "5y", "10y", "max"]
+    granularity: Literal["daily", "weekly", "monthly", "yearly"]
     context: MacroContextView | None
     context_history: list[MacroContextRevisionView]
     groups: list[MacroGroupView]

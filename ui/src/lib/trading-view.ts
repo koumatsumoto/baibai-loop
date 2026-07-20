@@ -1,4 +1,8 @@
 export function tradingViewChartUrl(ticker: string) {
-  const symbol = encodeURIComponent(`TSE:${ticker}`)
+  return tradingViewSymbolChartUrl(`TSE:${ticker}`)
+}
+
+export function tradingViewSymbolChartUrl(rawSymbol: string) {
+  const symbol = encodeURIComponent(rawSymbol)
   return `https://www.tradingview.com/chart/?symbol=${symbol}`
 }

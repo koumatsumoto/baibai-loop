@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
@@ -53,7 +54,7 @@ class MultplProvider:
             context=context,
         )
         value = parse_multpl_current(text, series.provider_series_id)
-        observed_at = datetime.now(UTC).date()
+        observed_at = _today_jst()
         if start <= observed_at <= end:
             return [record_observation(series, observed_at=observed_at, value=value)]
         return []
@@ -64,3 +65,7 @@ def parse_multpl_current(text: str, slug: str) -> float:
     if match is None:
         raise IndicatorsProviderError(f"multpl: cannot parse current value for {slug}")
     return float(match.group(1).replace(",", ""))
+
+
+def _today_jst() -> date:
+    return datetime.now(ZoneInfo("Asia/Tokyo")).date()

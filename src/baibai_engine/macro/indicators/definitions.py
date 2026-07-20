@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import cast
 from baibai_engine.foundation.yaml_io import safe_load
 
 DEFAULT_DEFINITIONS_PATH = Path(__file__).with_name("series.yaml")
+_TRADINGVIEW_SYMBOL_RE = re.compile(r"[A-Za-z0-9._-]+:[A-Za-z0-9._!/-]+\Z")
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,7 @@ class SeriesDefinition:
     priority: int = 100
     notes: str | None = None
     aliases: tuple[str, ...] = ()
+    tradingview_symbol: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,7 @@ def _parse_series(raw: object) -> SeriesDefinition:
         priority=_optional_int(entry, "priority") or 100,
         notes=_optional_str(entry, "notes"),
         aliases=tuple(str(alias) for alias in _list(entry.get("aliases"))),
+        tradingview_symbol=_optional_tradingview_symbol(entry),
     )
 
 
@@ -105,3 +109,15 @@ def _optional_int(entry: Mapping[str, object], key: str) -> int | None:
     if isinstance(value, int):
         return value
     raise ValueError(f"indicator definition field {key!r} must be an integer")
+
+
+def _optional_tradingview_symbol(entry: Mapping[str, object]) -> str | None:
+    value = entry.get("tradingview_symbol")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or _TRADINGVIEW_SYMBOL_RE.fullmatch(value) is None:
+        raise ValueError(
+            "indicator definition field 'tradingview_symbol' must be a non-empty "
+            "EXCHANGE:SYMBOL string"
+        )
+    return value

@@ -13,7 +13,7 @@ from .base import (
     MacroDataProvider,
 )
 from .boj import BojProvider, parse_boj_xlsx
-from .boj_mutan import BojMutanProvider, parse_boj_mutan_xlsx
+from .boj_timeseries import BojTimeSeriesProvider, parse_boj_timeseries_json
 from .ecb_fx import EcbFxProvider, parse_ecb_fx_csv
 from .estat import EStatProvider, parse_estat_json
 from .frb_h15 import FrbH15Provider, parse_h15_csv
@@ -29,7 +29,7 @@ __all__ = [
     "IndicatorsProviderError",
     "MacroDataProvider",
     "fetch_observations",
-    "parse_boj_mutan_xlsx",
+    "parse_boj_timeseries_json",
     "parse_boj_xlsx",
     "parse_ecb_fx_csv",
     "parse_estat_json",
@@ -51,7 +51,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         EcbFxProvider(),
         ManualProvider(),
         BojProvider(),
-        BojMutanProvider(),
+        BojTimeSeriesProvider(),
         EStatProvider(),
         JQuantsFlowsProvider(),
         MofJgbProvider(),

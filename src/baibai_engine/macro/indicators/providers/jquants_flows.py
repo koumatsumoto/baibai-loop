@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from baibai_engine.foundation.env import load_project_env
 
@@ -13,7 +13,6 @@ from .base import (
     HttpSession,
     IndicatorsProviderError,
     parse_float,
-    record_observation,
 )
 
 # screening と同じ資格情報を使う。env 名は screening 側 (ScreeningConfig.from_env が読む
@@ -48,8 +47,9 @@ _METRIC_COLUMNS: Mapping[str, MetricColumns] = {
     ),
 }
 
-# 観測日は公表日 (point-in-time の入手日) を主、無ければ集計週末日にフォールバックする。
+# 集計週末を観測日、公表日を vintage として、週次 fact と利用可能時点を分ける。
 _PUBLISHED_DATE_KEYS: ColumnKeys = ("PubDate", "PublishedDate")
+_START_DATE_KEYS: ColumnKeys = ("StDate", "StartDate")
 _END_DATE_KEYS: ColumnKeys = ("EnDate", "EndDate")
 
 
@@ -91,10 +91,10 @@ def parse_trades_spec(
             f"supported: {supported}"
         )
     balance_keys, buy_keys, sell_keys = columns
-    observations: list[ObservationRecord] = []
+    observations_by_identity: dict[tuple[date, date], ObservationRecord] = {}
     for row in rows:
         # 日付・数値はレンジ外行も検証して、列が欠けた schema 崩れを必ず捕捉する。
-        observed_at = _row_date(row)
+        published_at = _row_date(row)
         value = _net_value(
             row,
             balance_keys=balance_keys,
@@ -102,9 +102,36 @@ def parse_trades_spec(
             sell_keys=sell_keys,
             metric=series.provider_series_id,
         )
-        if start <= observed_at <= end:
-            observations.append(record_observation(series, observed_at=observed_at, value=value))
-    return observations
+        if start <= published_at <= end:
+            period_end = _optional_row_date(row, _END_DATE_KEYS) or published_at
+            period_start = _optional_row_date(row, _START_DATE_KEYS) or period_end
+            if not start <= period_end <= end:
+                continue
+            observation = ObservationRecord(
+                series_id=series.series_id,
+                observed_at=period_end,
+                value=value,
+                unit=series.unit,
+                source_url=series.source_url,
+                period_start=period_start,
+                period_end=period_end,
+                vintage_at=datetime(
+                    published_at.year,
+                    published_at.month,
+                    published_at.day,
+                    tzinfo=UTC,
+                ),
+            )
+            identity = (period_end, published_at)
+            current = observations_by_identity.get(identity)
+            if current is not None:
+                if observation != current:
+                    raise IndicatorsProviderError(
+                        "jquants_flows has conflicting values for the same period and publication"
+                    )
+                continue
+            observations_by_identity[identity] = observation
+    return [observations_by_identity[key] for key in sorted(observations_by_identity)]
 
 
 def _read_api_key() -> str:
@@ -161,6 +188,11 @@ def _row_date(row: Mapping[str, object]) -> date:
         tried = ", ".join((*_PUBLISHED_DATE_KEYS, *_END_DATE_KEYS))
         raise IndicatorsProviderError(f"jquants_flows row missing a date column; tried {tried}")
     return _parse_date(raw)
+
+
+def _optional_row_date(row: Mapping[str, object], keys: ColumnKeys) -> date | None:
+    raw = _coalesce(row, keys)
+    return None if raw is None else _parse_date(raw)
 
 
 def _net_value(

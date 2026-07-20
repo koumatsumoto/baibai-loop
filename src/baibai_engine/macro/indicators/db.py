@@ -187,7 +187,12 @@ def search_series(conn: sqlite3.Connection, query: str) -> tuple[SeriesDefinitio
 def insert_observations(
     conn: sqlite3.Connection,
     observations: list[ObservationRecord],
+    *,
+    deduplicate_unchanged: bool = True,
 ) -> None:
+    rows = _observation_rows(observations)
+    if deduplicate_unchanged:
+        rows = _observation_rows_without_unchanged_vintages(conn, rows)
     conn.executemany(
         "INSERT INTO observations("
         "series_id, observed_at, period_start, period_end, value, unit, vintage_at, "
@@ -197,21 +202,101 @@ def insert_observations(
         "period_start = excluded.period_start, period_end = excluded.period_end, "
         "value = excluded.value, unit = excluded.unit, fetch_status = excluded.fetch_status, "
         "source_url = excluded.source_url",
-        [
-            (
-                item.series_id,
-                item.observed_at.isoformat(),
-                item.period_start.isoformat() if item.period_start else None,
-                item.period_end.isoformat() if item.period_end else None,
-                item.value,
-                item.unit,
-                (item.vintage_at or datetime.now(UTC)).isoformat(),
-                item.fetch_status,
-                item.source_url,
-            )
-            for item in observations
-        ],
+        rows,
     )
+
+
+def _observation_rows(observations: list[ObservationRecord]) -> list[tuple[object, ...]]:
+    if not observations:
+        return []
+    default_vintage = datetime.now(UTC)
+    return [
+        (
+            item.series_id,
+            item.observed_at.isoformat(),
+            item.period_start.isoformat() if item.period_start else None,
+            item.period_end.isoformat() if item.period_end else None,
+            item.value,
+            item.unit,
+            (item.vintage_at or default_vintage).isoformat(),
+            item.fetch_status,
+            item.source_url,
+        )
+        for item in observations
+    ]
+
+
+def _observation_rows_without_unchanged_vintages(
+    conn: sqlite3.Connection,
+    rows: list[tuple[object, ...]],
+) -> list[tuple[object, ...]]:
+    latest: dict[tuple[str, str], tuple[object, ...]] = {}
+    by_series: dict[str, list[str]] = {}
+    for series_id, observed_at, *_ in rows:
+        by_series.setdefault(cast(str, series_id), []).append(cast(str, observed_at))
+    for series_id, observed_dates in by_series.items():
+        for row in conn.execute(
+            "WITH ranked AS ("
+            "SELECT series_id, observed_at, period_start, period_end, value, unit, "
+            "vintage_at, fetch_status, source_url, "
+            "ROW_NUMBER() OVER (PARTITION BY series_id, observed_at "
+            "ORDER BY vintage_at DESC) AS rank "
+            "FROM observations WHERE series_id = ? AND observed_at BETWEEN ? AND ?"
+            ") SELECT series_id, observed_at, period_start, period_end, value, unit, "
+            "vintage_at, fetch_status, source_url FROM ranked WHERE rank = 1",
+            (series_id, min(observed_dates), max(observed_dates)),
+        ):
+            latest[(str(row["series_id"]), str(row["observed_at"]))] = tuple(row)
+
+    kept: list[tuple[object, ...]] = []
+    for row in sorted(rows, key=lambda item: (str(item[0]), str(item[1]), str(item[6]))):
+        key = (cast(str, row[0]), cast(str, row[1]))
+        current = latest.get(key)
+        if (
+            current is not None
+            and str(row[6]) >= str(current[6])
+            and _same_observation(row, current)
+        ):
+            latest[key] = row
+            continue
+        kept.append(row)
+        if current is None or str(row[6]) >= str(current[6]):
+            latest[key] = row
+    return kept
+
+
+def _same_observation(left: tuple[object, ...], right: tuple[object, ...]) -> bool:
+    content_indexes = (2, 3, 4, 5, 7, 8)
+    return all(left[index] == right[index] for index in content_indexes)
+
+
+def delete_unchanged_vintages(conn: sqlite3.Connection, series_id: str) -> int:
+    changes_before = conn.total_changes
+    conn.execute(
+        "WITH ordered AS ("
+        "SELECT rowid AS row_id, "
+        "ROW_NUMBER() OVER (PARTITION BY series_id, observed_at ORDER BY vintage_at) AS position, "
+        "period_start, period_end, value, unit, fetch_status, source_url, "
+        "LAG(period_start) OVER window AS previous_period_start, "
+        "LAG(period_end) OVER window AS previous_period_end, "
+        "LAG(value) OVER window AS previous_value, "
+        "LAG(unit) OVER window AS previous_unit, "
+        "LAG(fetch_status) OVER window AS previous_fetch_status, "
+        "LAG(source_url) OVER window AS previous_source_url "
+        "FROM observations WHERE series_id = ? "
+        "WINDOW window AS (PARTITION BY series_id, observed_at ORDER BY vintage_at)"
+        ") DELETE FROM observations WHERE rowid IN ("
+        "SELECT row_id FROM ordered WHERE position > 1 "
+        "AND period_start IS previous_period_start "
+        "AND period_end IS previous_period_end "
+        "AND value IS previous_value "
+        "AND unit IS previous_unit "
+        "AND fetch_status IS previous_fetch_status "
+        "AND source_url IS previous_source_url"
+        ")",
+        (series_id,),
+    )
+    return conn.total_changes - changes_before
 
 
 def record_provider_run(
@@ -264,17 +349,22 @@ def observations_in_range(
     start: date,
     end: date,
 ) -> tuple[ObservationRecord, ...]:
+    end_text = end.isoformat()
     rows = conn.execute(
-        "SELECT o.* FROM observations o WHERE o.series_id = ? "
+        "SELECT o.* FROM observations o JOIN series s USING(series_id) "
+        "WHERE o.series_id = ? "
         "AND o.observed_at BETWEEN ? AND ? "
         "AND o.fetch_status = 'ok' "
+        "AND (s.provider != 'jquants_flows' OR substr(o.vintage_at, 1, 10) <= ?) "
         "AND o.vintage_at = ("
         "SELECT MAX(inner_o.vintage_at) FROM observations inner_o "
         "WHERE inner_o.series_id = o.series_id "
         "AND inner_o.observed_at = o.observed_at "
-        "AND inner_o.fetch_status = 'ok'"
+        "AND inner_o.fetch_status = 'ok' "
+        "AND (s.provider != 'jquants_flows' "
+        "OR substr(inner_o.vintage_at, 1, 10) <= ?)"
         ") ORDER BY o.observed_at",
-        (series_id, start.isoformat(), end.isoformat()),
+        (series_id, start.isoformat(), end_text, end_text, end_text),
     ).fetchall()
     return tuple(_observation_from_row(row) for row in rows)
 
@@ -286,17 +376,23 @@ def latest_observation(
     on_or_before: date | None = None,
     on_or_after: date | None = None,
 ) -> ObservationRecord | None:
+    cutoff = on_or_before.isoformat() if on_or_before is not None else None
     row = conn.execute(
-        "SELECT * FROM observations WHERE series_id = ? AND fetch_status = 'ok' "
+        "SELECT o.* FROM observations o JOIN series s USING(series_id) "
+        "WHERE o.series_id = ? AND o.fetch_status = 'ok' "
         "AND (? IS NULL OR observed_at <= ?) "
         "AND (? IS NULL OR observed_at >= ?) "
+        "AND (s.provider != 'jquants_flows' OR ? IS NULL "
+        "OR substr(o.vintage_at, 1, 10) <= ?) "
         "ORDER BY observed_at DESC, vintage_at DESC LIMIT 1",
         (
             series_id,
-            on_or_before.isoformat() if on_or_before is not None else None,
-            on_or_before.isoformat() if on_or_before is not None else None,
+            cutoff,
+            cutoff,
             on_or_after.isoformat() if on_or_after is not None else None,
             on_or_after.isoformat() if on_or_after is not None else None,
+            cutoff,
+            cutoff,
         ),
     ).fetchone()
     return _observation_from_row(row) if row is not None else None

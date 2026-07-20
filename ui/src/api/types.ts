@@ -269,6 +269,7 @@ export interface MacroSeriesView {
   label: string
   name: string
   unit: string
+  tradingview_symbol: string | null
   points: MacroPointView[]
 }
 
@@ -279,6 +280,8 @@ export interface MacroGroupView {
 
 export interface MacroView {
   as_of: string
+  period: '1y' | '5y' | '10y' | 'max'
+  granularity: 'daily' | 'weekly' | 'monthly' | 'yearly'
   context: MacroContextView | null
   context_history: MacroContextRevisionView[]
   groups: MacroGroupView[]

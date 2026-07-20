@@ -9,6 +9,7 @@ series:
     provider_series_id: RIFLGFCY10_N.B
     source_id: fed-h15
     source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    tradingview_symbol: TVC:US10Y
     aliases: [米10Y利回り, 米10Y, US 10Y, DGS10, us_10y_treasury]
   - series_id: us.2y
     name: 米2Y利回り
@@ -20,6 +21,7 @@ series:
     provider_series_id: RIFLGFCY02_N.B
     source_id: fed-h15
     source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    tradingview_symbol: TVC:US02Y
     aliases: [米2Y利回り, 米2Y, US 2Y, DGS2]
   - series_id: us.10y_2y_spread
     name: 10Y-2Yスプレッド
@@ -108,6 +110,7 @@ series:
     provider_series_id: VIXCLS
     source_id: fred-vixcls
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+    tradingview_symbol: CBOE:VIX
     aliases: [VIX, volatility]
   - series_id: wti
     name: WTI原油
@@ -119,6 +122,7 @@ series:
     provider_series_id: DCOILWTICO
     source_id: fred-dcoilwtico
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO
+    tradingview_symbol: NYMEX:CL1!
     aliases: [WTI, WTI原油]
   - series_id: brent
     name: Brent原油
@@ -130,6 +134,7 @@ series:
     provider_series_id: DCOILBRENTEU
     source_id: fred-dcoilbrenteu
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
+    tradingview_symbol: TVC:UKOIL
     aliases: [Brent, Brent原油, brent_oil]
   - series_id: usd_jpy
     name: USD/JPY
@@ -141,6 +146,7 @@ series:
     provider_series_id: USDJPY
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    tradingview_symbol: FX:USDJPY
     aliases: [USD/JPY, ドル円]
   - series_id: eur_jpy
     name: EUR/JPY
@@ -152,6 +158,7 @@ series:
     provider_series_id: EURJPY
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    tradingview_symbol: FX:EURJPY
     aliases: [EUR/JPY, ユーロ円]
   - series_id: aud_jpy
     name: AUD/JPY
@@ -163,6 +170,7 @@ series:
     provider_series_id: AUDJPY
     source_id: ecb-fx
     source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    tradingview_symbol: FX:AUDJPY
     aliases: [AUD/JPY, 豪ドル円]
   - series_id: jp.10y
     name: 日本10Y国債利回り
@@ -174,6 +182,7 @@ series:
     provider_series_id: 10年
     source_id: mof-jgbcm-all
     source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP10Y
     notes: 財務省「国債金利情報」の全履歴CSV。流通市場の固定利付国債実勢価格から算出した主要年限別の半年複利最終利回り。
     aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
   - series_id: jp.policy_rate
@@ -182,11 +191,11 @@ series:
     geography: japan
     frequency: daily
     unit: percent
-    provider: boj_mutan
-    provider_series_id: average_final
-    source_id: boj-mutan-final
-    source_url: https://www.boj.or.jp/statistics/market/short/mutan/index.htm
-    notes: 日本銀行「コール市場関連統計（毎営業日）」の無担保コールO/N物レート確報・平均。金融政策の実効短期金利として読む。
+    provider: boj_timeseries
+    provider_series_id: FM01:STRDCLUCON
+    source_id: boj-timeseries-strdclucon
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行時系列統計データ検索APIの無担保コールO/N物レート平均(日次)。金融政策の実効短期金利として読む。
     aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール, boj_policy_rate]
   - series_id: jp.unemployment
     name: 日本失業率
@@ -199,6 +208,30 @@ series:
     source_id: fred-lrunttttjpm156s
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LRUNTTTTJPM156S
     aliases: [日本失業率, JP unemployment, 失業率]
+  - series_id: jp.hourly_earnings
+    name: 日本製造業時間当たり賃金
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: LCEAMN01JPM661S
+    source_id: fred-lceamn01jpm661s
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LCEAMN01JPM661S
+    notes: OECD Main Economic Indicators の製造業時間当たり賃金指数(2015=100、季節調整済)。家計所得と企業の人件費圧力を同じ系列で継続監視する。
+    aliases: [日本時間当たり賃金, 日本賃金指数, JP hourly earnings, LCEAMN01JPM661S]
+  - series_id: jp.real_effective_exchange_rate
+    name: 日本実質実効為替レート
+    category: fx
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: RBJPBIS
+    source_id: fred-rbjpbis
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RBJPBIS
+    notes: BIS broad real effective exchange rate index(2020=100)。貿易相手国との相対物価を含む円の実質的な購買力と競争力を読む。
+    aliases: [日本実質実効為替, 円実質実効為替, JP REER, RBJPBIS]
   - series_id: jp.nikkei225
     name: 日経225
     category: equity-index
@@ -209,6 +242,7 @@ series:
     provider_series_id: NIKKEI225
     source_id: fred-nikkei225
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
+    tradingview_symbol: TVC:NI225
     aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225, nikkei_225]
   - series_id: us.sp500
     name: S&P500
@@ -220,6 +254,7 @@ series:
     provider_series_id: SP500
     source_id: fred-sp500
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500
+    tradingview_symbol: SP:SPX
     notes: FRED SP500は直近約10年のみ保持(ライセンス制約)。直近の調整・下落分析には十分
     aliases: [S&P500, SP500, エスアンドピー500, 米国株, 米国株指数]
   - series_id: us.nasdaq
@@ -232,6 +267,7 @@ series:
     provider_series_id: NASDAQCOM
     source_id: fred-nasdaqcom
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NASDAQCOM
+    tradingview_symbol: NASDAQ:IXIC
     aliases: [NASDAQ, ナスダック, NASDAQCOM, Nasdaq Composite, ナスダック総合]
   - series_id: us.dow
     name: ダウ工業株30種
@@ -243,6 +279,7 @@ series:
     provider_series_id: DJIA
     source_id: fred-djia
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DJIA
+    tradingview_symbol: TVC:DJI
     aliases: [ダウ, Dow, DJIA, Dow Jones, ダウ平均, ダウ工業株30種]
   - series_id: credit.us_hy_oas
     name: 米ハイイールドOAS
@@ -288,6 +325,7 @@ series:
     provider_series_id: CBBTCUSD
     source_id: fred-cbbtcusd
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CBBTCUSD
+    tradingview_symbol: COINBASE:BTCUSD
     aliases: [BTC, Bitcoin, ビットコイン, BTCUSD]
   - series_id: usd_index.broad
     name: 米ドル指数broad
@@ -348,6 +386,18 @@ series:
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
     notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
     aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
+  - series_id: jp.cpi.services
+    name: 日本CPIサービス
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: estat
+    provider_series_id: "0003427113?cdCat01=0220&cdArea=00000&cdTab=1"
+    source_id: estat-cpi-services
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: e-Stat CPI表 0003427113 を cdCat01=0220(サービス)・cdArea=00000(全国)・cdTab=1(指数)に絞る。国内サービス価格の粘着性を読む。
+    aliases: [日本サービスCPI, サービス物価, JP services CPI, 全国サービスCPI]
   - series_id: jp.foreign_flows
     name: 海外投資家ネット買い越し額(週次)
     category: flows
@@ -358,7 +408,7 @@ series:
     provider_series_id: foreigners_net_value
     source_id: jquants-trades-spec
     source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
-    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)を公表日付で記録
+    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
     aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
   - series_id: us.real_10y
     name: 米10Y実質金利(TIPS)
@@ -514,6 +564,7 @@ series:
     provider_series_id: GC=F
     source_id: yahoo-gc-f
     source_url: https://query1.finance.yahoo.com/v8/finance/chart/GC=F
+    tradingview_symbol: COMEX:GC1!
     notes: COMEX金先物フロント限月(日次終値)。実質金利・ドル・債務貨幣化のstore-of-value温度計。BTCと並べてデジタルゴールド命題を読む。FRED LBMA系列廃止のためYahooで取得
     aliases: [金, ゴールド, gold, XAU, 金価格, gold_futures]
   - series_id: copper
@@ -526,6 +577,7 @@ series:
     provider_series_id: HG=F
     source_id: yahoo-hg-f
     source_url: https://query1.finance.yahoo.com/v8/finance/chart/HG=F
+    tradingview_symbol: COMEX:HG1!
     notes: COMEX銅先物フロント限月(日次終値)。世界景気の先行ゲージ(Dr.Copper)。銅/金レシオでリスク選好・成長期待を読む
     aliases: [銅, copper, HG, Dr Copper, 銅価格]
   - series_id: us.move
@@ -550,6 +602,7 @@ series:
     provider_series_id: ^RUT
     source_id: yahoo-rut
     source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5ERUT
+    tradingview_symbol: TVC:RUT
     notes: 米小型株指数(日次)。大型グロース/小型バリューのローテーション・市場breadth・内需循環の温度計。S&P500との相対で局面を読む
     aliases: [ラッセル2000, Russell 2000, RUT, 米小型株, small caps]
   - series_id: us.sox
@@ -562,6 +615,7 @@ series:
     provider_series_id: ^SOX
     source_id: yahoo-sox
     source_url: https://query1.finance.yahoo.com/v8/finance/chart/%5ESOX
+    tradingview_symbol: NASDAQ:SOX
     notes: PHLX半導体指数(日次)。AI/半導体サイクルの先行ゲージで、日本の半導体株は本指数に高感応。proprietary指数でFRED非対応のためYahooで取得
     aliases: [SOX, 半導体指数, sox_semiconductor, フィラデルフィア半導体, PHLX Semiconductor]
   - series_id: ecb.policy_rate
@@ -586,6 +640,7 @@ series:
     provider_series_id: SI=F
     source_id: yahoo-si-f
     source_url: https://query1.finance.yahoo.com/v8/finance/chart/SI=F
+    tradingview_symbol: COMEX:SI1!
     notes: COMEX銀先物フロント限月(日次終値)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
     aliases: [銀, シルバー, silver, XAG, 銀価格, silver_futures]
   - series_id: us.gdp_growth
