@@ -122,6 +122,43 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
     assert response.json()["reviewed_shortlists"][0]["shortlist_id"] == (
         "shortlist-20260708-test-newer"
     )
+    assert response.json()["reviewed_shortlists"][0]["as_of"] == run.as_of_date
+
+
+def test_screening_api_falls_back_to_selection_bound_run(app_records_root: Path) -> None:
+    """A selection-less newer revision (determinism re-run) must not blank the cockpit."""
+
+    runs_path = app_records_root / "data/screening/runs.sqlite"
+    app_path = app_records_root / "data/app/baibai.sqlite"
+    reader = ScreeningRunReader(runs_path)
+    run = reader.latest_run()
+    assert run is not None
+    output = io.StringIO()
+    assert (
+        select_command(
+            asof_date=date.fromisoformat(run.as_of_date),
+            top=10,
+            run_revision_id=run.run_revision_id,
+            runs_db_path=runs_path,
+            app_db_path=app_path,
+            stdout=output,
+        )
+        == 0
+    )
+    repeated = dict(run.payload)
+    repeated["candidates"] = list(run.candidates)
+    repeated["run_at"] = "2026-07-08T14:00:00+09:00"
+    newer = ScreeningRunStore(runs_path).publish_run(repeated)
+    assert newer.publication_id != run.run_revision_id
+    latest = reader.latest_run()
+    assert latest is not None
+    assert latest.run_revision_id == newer.publication_id
+
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+        payload = client.get("/api/screening/latest").json()
+    assert payload["run"]["source_path"] == run.run_revision_id
+    assert payload["selections"]
+    assert all(item["run_revision_id"] == run.run_revision_id for item in payload["selections"])
 
 
 def test_select_rejects_unknown_run_revision(app_records_root: Path) -> None:

@@ -23,6 +23,7 @@ from .macro import (
     macro_indicator_series,
     macro_series_names,
 )
+from .market import latest_unadjusted_closes
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
 from .proposals import list_proposal_payloads
@@ -51,6 +52,7 @@ __all__ = [
     "PortfolioSnapshot",
     "latest_macro_context_payload",
     "latest_reviewed_shortlist_payload",
+    "latest_unadjusted_closes",
     "list_holding_review_payloads",
     "list_holding_review_publications",
     "list_macro_context_payloads",

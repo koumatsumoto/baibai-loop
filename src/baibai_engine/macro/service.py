@@ -102,7 +102,7 @@ class MacroContextService:
                 """
                 SELECT payload FROM macro_context
                 WHERE as_of <= ?
-                ORDER BY as_of DESC, published_at DESC, context_id DESC
+                ORDER BY published_at DESC, as_of DESC, context_id DESC
                 LIMIT 1
                 """,
                 (as_of.isoformat(),),

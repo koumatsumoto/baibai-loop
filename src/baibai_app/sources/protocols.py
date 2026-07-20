@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from datetime import date
 from typing import Protocol
 
 from baibai_app.sources.types import (
@@ -18,6 +20,10 @@ class LedgerSource(Protocol):
     def exists(self) -> bool: ...
 
     def snapshot(self) -> PortfolioSnapshot: ...
+
+
+class MarketPriceSource(Protocol):
+    def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]: ...
 
 
 class ResearchSource(Protocol):

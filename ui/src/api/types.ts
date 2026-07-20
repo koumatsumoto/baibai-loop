@@ -113,6 +113,7 @@ export interface ScreeningRunView {
   run_id: string
   run_date: string
   asof_date: string
+  run_at: string
   universe_size: number
   candidate_count: number
   source_path: string
@@ -138,6 +139,7 @@ export interface CandidateRowView {
   er_annual: number | null
   er_reversion_annual: number | null
   er_carry_annual: number | null
+  bargain_score: number | null
   net_cash_to_market_cap: number | null
   fcf_yield: number | null
   ocf_yield: number | null
@@ -195,6 +197,7 @@ export interface ReviewedShortlistView {
   shortlist_id: string
   selection_id: string
   run_revision_id: string
+  as_of: string
   published_at: string
   entries: ReviewedShortlistEntryView[]
 }

@@ -123,6 +123,7 @@ class ScreeningRunView(BaseModel):
     run_id: str
     run_date: date
     asof_date: date
+    run_at: datetime
     universe_size: int
     candidate_count: int
     source_path: str
@@ -149,6 +150,7 @@ class CandidateRowView(BaseModel):
     er_annual: float | None
     er_reversion_annual: float | None
     er_carry_annual: float | None
+    bargain_score: float | None
     net_cash_to_market_cap: float | None
     fcf_yield: float | None
     ocf_yield: float | None
@@ -206,6 +208,7 @@ class ReviewedShortlistView(BaseModel):
     shortlist_id: str
     selection_id: str
     run_revision_id: str
+    as_of: date
     published_at: datetime
     entries: list[ReviewedShortlistEntryView]
 

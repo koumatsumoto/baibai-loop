@@ -91,6 +91,32 @@ def test_publish_is_immutable_and_requires_compare_and_swap_head(tmp_path: Path)
     assert rows == [(first.context_id, None), (second.context_id, first.context_id)]
 
 
+def test_latest_context_orders_by_publication_not_data_as_of(tmp_path: Path) -> None:
+    """A later-published context with an earlier market as_of is the operative judgment."""
+
+    path = tmp_path / "app.sqlite"
+    service = MacroContextService(path)
+    newer_as_of = _document(
+        context_id="macro-context-2026-07-19-first",
+        as_of="2026-07-19",
+        published_at="2026-07-19T12:00:00+09:00",
+    )
+    service.publish(newer_as_of, expected_head=None)
+    later_published = _document(
+        context_id="macro-context-2026-07-17-refresh",
+        as_of="2026-07-17",
+        published_at="2026-07-19T18:00:00+09:00",
+    )
+    service.publish(later_published, expected_head=newer_as_of.context_id)
+
+    assert service.latest_for(date(2026, 7, 19)) == later_published
+    payload = latest_macro_context_payload(path, as_of=date(2026, 7, 19))
+    assert payload is not None
+    assert payload["context_id"] == later_published.context_id
+    # Point-in-time discipline is unchanged: as_of after the query date stays ineligible.
+    assert service.latest_for(date(2026, 7, 18)) == later_published
+
+
 def test_explicit_future_context_is_rejected(tmp_path: Path) -> None:
     service = MacroContextService(tmp_path / "app.sqlite")
     document = _document()

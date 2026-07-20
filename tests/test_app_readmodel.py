@@ -5,6 +5,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from baibai_app.readmodel.builders import (
+    _candidate_row_view,
     build_dashboard,
     build_screening,
     build_security_detail,
@@ -88,6 +89,14 @@ class StubCandidates:
         return self._run
 
 
+class StubMarket:
+    def __init__(self, closes: dict[str, tuple[float, date]] | None = None):
+        self._closes = closes or {}
+
+    def latest_closes(self, tickers):
+        return {ticker: self._closes[ticker] for ticker in tickers if ticker in self._closes}
+
+
 def _snapshot() -> PortfolioSnapshot:
     holding = HoldingSnapshot(
         ticker="4432",
@@ -152,6 +161,7 @@ def _run(*, metrics: object = None) -> CandidatesRun:
         run_id="screening-20260708",
         run_date=date(2026, 7, 8),
         asof_date=date(2026, 7, 8),
+        run_at=datetime(2026, 7, 8, 12, 0, tzinfo=JST),
         universe_size=3744,
         source_path="run-revision-20260708",
         application_git_commit=None,
@@ -165,6 +175,7 @@ def test_dashboard_calculates_unrealized_pnl_and_fv_gap_with_expected_sign() -> 
         StubResearch([_revision()]),
         StubTasks([]),
         StubCandidates(_run()),
+        StubMarket(),
     )
 
     holding = view.holdings[0]
@@ -181,6 +192,7 @@ def test_dashboard_keeps_fv_fields_empty_without_packet() -> None:
         StubResearch([]),
         StubTasks([]),
         StubCandidates(_run()),
+        StubMarket(),
     )
 
     holding = view.holdings[0]
@@ -223,12 +235,15 @@ def test_dashboard_returns_task_data_when_ledger_is_absent_or_invalid() -> None:
             ),
         ]
     )
-    absent = build_dashboard(StubLedger(None), StubResearch([]), tasks, StubCandidates(None))
+    absent = build_dashboard(
+        StubLedger(None), StubResearch([]), tasks, StubCandidates(None), StubMarket()
+    )
     invalid = build_dashboard(
         StubLedger(None, error="missing market price"),
         StubResearch([]),
         tasks,
         StubCandidates(None),
+        StubMarket(),
     )
 
     assert absent.ledger_exists is False
@@ -251,6 +266,7 @@ def test_screening_tolerates_missing_or_invalid_metrics() -> None:
 
     assert view.run is not None
     assert view.run.candidate_count == 1
+    assert view.run.run_at == datetime(2026, 7, 8, 12, 0, tzinfo=JST)
     row = view.rows[0]
     assert row.per_trailing is None
     assert row.er_annual is None
@@ -260,7 +276,13 @@ def test_screening_tolerates_missing_or_invalid_metrics() -> None:
 
 def test_security_detail_is_none_only_when_all_sources_are_empty() -> None:
     assert (
-        build_security_detail("0000", StubLedger(None), StubResearch([]), StubCandidates(None))
+        build_security_detail(
+            "0000",
+            StubLedger(None),
+            StubResearch([]),
+            StubCandidates(None),
+            StubMarket(),
+        )
         is None
     )
     detail = build_security_detail(
@@ -268,9 +290,82 @@ def test_security_detail_is_none_only_when_all_sources_are_empty() -> None:
         StubLedger(_snapshot()),
         StubResearch([_revision()]),
         StubCandidates(_run(metrics={"er_annual": 0.1})),
+        StubMarket(),
     )
     assert detail is not None
     assert detail.latest_packet is not None
     assert detail.latest_packet.permanent_loss_risk_count == 7
     assert detail.candidate_row is not None
     assert detail.candidate_row.er_annual == 0.1
+
+
+def _candidate_row(row: dict[str, object]):
+    return _candidate_row_view(row, held=set(), reserved=set(), researched=set())
+
+
+def test_bargain_score_is_none_when_both_er_components_missing() -> None:
+    view = _candidate_row({"ticker": "0000", "metrics": {}})
+
+    assert view.er_reversion_annual is None
+    assert view.er_carry_annual is None
+    assert view.bargain_score is None
+
+
+def test_bargain_score_full_reversion_half_carry_less_flag_discount() -> None:
+    with_flags = _candidate_row(
+        {
+            "ticker": "1234",
+            "metrics": {"er_reversion_annual": 0.10, "er_carry_annual": 0.04},
+            "split_adjustment_flag": True,
+            "freshness_warnings": ["stale"],
+        }
+    )
+    carry_only = _candidate_row({"ticker": "5678", "metrics": {"er_carry_annual": 0.06}})
+    anomalous_carry = _candidate_row(
+        {"ticker": "9012", "metrics": {"er_reversion_annual": -0.01, "er_carry_annual": 0.94}}
+    )
+
+    # 0.10 + 0.5*0.04 - 0.005*2 flags
+    assert len(with_flags.data_quality_flags) == 2
+    assert with_flags.bargain_score == 0.11
+    # reversion missing counts as 0.0; carry enters at half weight, no flags
+    assert carry_only.bargain_score == 0.03
+    # a special-dividend / anomalous carry is clipped at 15% so it cannot dominate the order
+    assert anomalous_carry.bargain_score == round(-0.01 + 0.5 * 0.15, 6)
+
+
+def test_holding_uses_market_close_when_strictly_newer_than_ledger() -> None:
+    view = build_dashboard(
+        StubLedger(_snapshot()),
+        StubResearch([_revision()]),
+        StubTasks([]),
+        StubCandidates(_run()),
+        StubMarket({"4432": (11.0, date(2026, 7, 19))}),
+    )
+
+    holding = view.holdings[0]
+    assert holding.market_price_yen == "11"
+    assert holding.market_price_as_of == datetime(2026, 7, 19, 15, 30, tzinfo=JST)
+    assert holding.market_value_yen == 1100
+    assert holding.unrealized_pnl_yen == 300
+    assert holding.unrealized_pnl_pct == 37.5
+    assert holding.fv_gap_pct == 9.1
+    assert view.holdings_market_value_yen == 1100
+    assert view.total_capital_yen == 2100
+
+
+def test_holding_keeps_ledger_price_when_market_close_is_not_newer() -> None:
+    view = build_dashboard(
+        StubLedger(_snapshot()),
+        StubResearch([_revision()]),
+        StubTasks([]),
+        StubCandidates(_run()),
+        StubMarket({"4432": (999.0, date(2026, 7, 18))}),
+    )
+
+    holding = view.holdings[0]
+    assert holding.market_price_yen == "10"
+    assert holding.market_price_as_of == NOW
+    assert holding.market_value_yen == 1000
+    assert view.holdings_market_value_yen == 1000
+    assert view.total_capital_yen == 2000

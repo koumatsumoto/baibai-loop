@@ -14,7 +14,7 @@ import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { cn } from '../lib/utils'
+import { cn, formatJstDateTime } from '../lib/utils'
 import { tradingViewChartUrl } from '../lib/trading-view'
 
 type SortDirection = 'asc' | 'desc'
@@ -162,7 +162,7 @@ export function ScreeningPage() {
   const [perMax, setPerMax] = useState('')
   const [pbrMax, setPbrMax] = useState('')
   const [dividendMin, setDividendMin] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('er_annual')
+  const [sortKey, setSortKey] = useState<SortKey>('bargain_score')
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [showAll, setShowAll] = useState(false)
 
@@ -219,8 +219,8 @@ export function ScreeningPage() {
             {data.run.stale && <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">run stale — as-of {data.run.asof_date}（7 日超）</Badge>}
             <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
               {[
-                ['RUN', data.run.run_date],
-                ['AS OF', data.run.asof_date],
+                ['基準 (AS OF)', data.run.asof_date],
+                ['実行 (RUN AT)', formatJstDateTime(data.run.run_at)],
                 ['UNIVERSE', data.run.universe_size.toLocaleString('ja-JP')],
                 ['CANDIDATES', data.run.candidate_count.toLocaleString('ja-JP')],
               ].map(([label, value]) => (
@@ -277,7 +277,7 @@ export function ScreeningPage() {
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <strong className="text-sm text-foreground">{rows.length.toLocaleString('ja-JP')} 件</strong>
-          <span>default: E[r] 降順 / null は末尾</span>
+          <span>default: 割安score 降順（= reversion + 0.5×min(carry, 15%) − 0.005×品質flag数。特別配当等の異常carryはclip。表示順のview scoreでcanonical rankingではない）/ null は末尾</span>
           {!showAll && rows.length > 500 && <span>先頭 500 件を表示</span>}
           <code className="ml-auto hidden max-w-md truncate font-mono lg:block" title={data.run.source_path}>{data.run.source_path}</code>
         </div>
@@ -296,6 +296,7 @@ export function ScreeningPage() {
                 <SortHeader column="per_forward" direction={direction} label="PER(F)" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="pbr" direction={direction} label="PBR" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="dividend_yield" direction={direction} label="配当" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="bargain_score" direction={direction} label="割安score" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="er_annual" direction={direction} label="E[r]" onSort={onSort} right sortKey={sortKey} />
                 <TableHead className="text-right">rev/carry</TableHead>
                 <SortHeader column="net_cash_to_market_cap" direction={direction} label="Net cash" onSort={onSort} right sortKey={sortKey} />
@@ -324,6 +325,7 @@ export function ScreeningPage() {
                   <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.pbr} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.dividend_yield} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.bargain_score} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.er_annual} /></TableCell>
                   <TableCell className="text-right"><ErSplitCell carry={row.er_carry_annual} reversion={row.er_reversion_annual} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.net_cash_to_market_cap} /></TableCell>

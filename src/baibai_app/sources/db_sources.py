@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import date
+from collections.abc import Mapping, Sequence
+from datetime import date, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,6 +23,7 @@ from baibai_engine.read_api import (
     PortfolioSnapshot,
     latest_macro_context_payload,
     latest_reviewed_shortlist_payload,
+    latest_unadjusted_closes,
     list_holding_review_publications,
     list_macro_context_payloads,
     list_operation_sessions,
@@ -54,6 +55,16 @@ class DbLedgerSource:
         if document is None:
             raise ValueError("portfolio ledger has not been initialized")
         return reconcile_portfolio(document)
+
+
+class DbMarketPriceSource:
+    """Read the latest observed close per ticker from the licensed market store."""
+
+    def __init__(self, market_db_path: Path) -> None:
+        self._path = market_db_path.resolve()
+
+    def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
+        return latest_unadjusted_closes(self._path, tickers)
 
 
 class DbProgramSource:
@@ -277,6 +288,10 @@ class DbCandidatesSource:
         raw = screening_run_payload(self._runs_path)
         return None if raw is None else self._parse_run(raw)
 
+    def run(self, run_revision_id: str) -> CandidatesRun | None:
+        raw = screening_run_payload(self._runs_path, run_revision_id=run_revision_id)
+        return None if raw is None else self._parse_run(raw)
+
     def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
         return screening_selection_payloads(
             self._runs_path,
@@ -298,6 +313,7 @@ class DbCandidatesSource:
             run_id=str(raw["public_run_id"]),
             run_date=date.fromisoformat(str(raw["run_date"])),
             asof_date=date.fromisoformat(str(raw["as_of_date"])),
+            run_at=datetime.fromisoformat(str(raw["run_at"])),
             universe_size=int(str(raw["universe_size"])),
             source_path=str(raw["run_revision_id"]),
             application_git_commit=_optional_text(raw.get("application_git_commit")),
