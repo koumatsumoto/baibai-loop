@@ -23,6 +23,7 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
     placeholders = ",".join("?" for _ in unique)
     connection = connect_read_only(path)
     try:
+        # The f-string only expands "?" placeholders; every value is parameter-bound.
         rows = connection.execute(
             f"""
             SELECT ticker, traded_at, close FROM (
@@ -34,7 +35,7 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
                 WHERE ticker IN ({placeholders}) AND close IS NOT NULL
             )
             WHERE rank = 1
-            """,
+            """,  # nosec B608
             unique,
         ).fetchall()
     finally:
