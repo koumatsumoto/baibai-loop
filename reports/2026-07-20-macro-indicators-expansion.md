@@ -20,7 +20,7 @@ macro indicators の取得 cache と cockpit を、金利・為替・インフ�
 | `jp.hourly_earnings` | 家計所得と製造業人件費圧力 | OECD MEI / FRED `LCEAMN01JPM661S` | 2015=100・月次・季調済 | 1955-01-01〜2026-04-01、856点 |
 | `jp.cpi.services` | 国内サービス価格の粘着性 | 総務省 CPI / e-Stat `0003427113`、全国・サービス・指数 | 指数・月次 | 1970-01-01〜2026-05-01、677点 |
 
-選定根拠と取得品質の判断は [issue #465 comment](https://github.com/koumatsumoto/baibai-loop/issues/465#issuecomment-5018978051) に置く。日本株 breadth、日本株 valuation / ERP、provider 公表カレンダーは安定した一次取得契約または数値 observation schema への適合を確認できず、実装可否の人間判断対象である。
+選定根拠と取得品質の判断は [issue #465 comment](https://github.com/koumatsumoto/baibai-loop/issues/465#issuecomment-5018978051) に置く。日本株 breadth、日本株 valuation / ERP、provider 公表カレンダーは安定した一次取得契約または数値 observation schema への適合を確認できないため、[ユーザー判断](https://github.com/koumatsumoto/baibai-loop/issues/465#issuecomment-5019665895)に基づき実装対象外とする。
 
 ## 全履歴 backfill
 
