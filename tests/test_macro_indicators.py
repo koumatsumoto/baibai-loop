@@ -836,6 +836,12 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_all_history_uses_provider_floor_and_forces_fetch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
+            _write_observation(
+                database,
+                "us.fed_funds.upper",
+                observed_at=date(1950, 1, 1),
+                value=1.0,
+            )
             observation = ObservationRecord(
                 series_id="us.fed_funds.upper",
                 observed_at=date(1954, 7, 1),
@@ -856,6 +862,48 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(result.observations, (observation,))
             self.assertEqual(fetch.call_args.kwargs["start"], date(1900, 1, 1))
             self.assertEqual(fetch.call_args.kwargs["end"], date(2026, 7, 20))
+            conn = open_connection(database)
+            try:
+                first = conn.execute(
+                    "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
+                    ("us.fed_funds.upper",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(first, "1954-07-01")
+
+    def test_failed_full_history_refresh_preserves_existing_observations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_observation(
+                database,
+                "us.fed_funds.upper",
+                observed_at=date(1950, 1, 1),
+                value=1.0,
+            )
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    side_effect=IndicatorsProviderError("unavailable"),
+                ),
+                patch("baibai_engine.macro.indicators.service.time.sleep"),
+                self.assertRaisesRegex(IndicatorsProviderError, "unavailable"),
+            ):
+                IndicatorsService(database).refresh_all_history(
+                    "us.fed_funds.upper",
+                    end=date(2026, 7, 20),
+                )
+
+            conn = open_connection(database)
+            try:
+                first = conn.execute(
+                    "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
+                    ("us.fed_funds.upper",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(first, "1950-01-01")
 
     def test_refresh_all_history_excludes_manual_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

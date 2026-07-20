@@ -156,23 +156,31 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path)
         try:
             series = db.get_series(conn, series_id)
+            if series.provider == "manual":
+                raise IndicatorsProviderError(
+                    f"manual series {series_id} is synchronized with macro import-manual"
+                )
+            if series.provider == "boj_mutan":
+                start = date(max(2001, end.year - 1), 1, 1)
+            else:
+                try:
+                    configured_start = _ALL_HISTORY_START_BY_PROVIDER[series.provider]
+                except KeyError:
+                    raise IndicatorsProviderError(
+                        f"all-history start is not configured for provider {series.provider}"
+                    ) from None
+                start = end if configured_start is None else configured_start
+            observations = self._fetch_and_store(
+                conn,
+                series,
+                start=start,
+                end=end,
+                trim_before_first=series.provider == "fred_csv",
+            )
+            ordered = sorted(observations, key=lambda item: item.observed_at)
+            return QueryResult(series, tuple(ordered), cache_hit=False)
         finally:
             conn.close()
-        if series.provider == "manual":
-            raise IndicatorsProviderError(
-                f"manual series {series_id} is synchronized with macro import-manual"
-            )
-        if series.provider == "boj_mutan":
-            start = date(max(2001, end.year - 1), 1, 1)
-        else:
-            try:
-                configured_start = _ALL_HISTORY_START_BY_PROVIDER[series.provider]
-            except KeyError:
-                raise IndicatorsProviderError(
-                    f"all-history start is not configured for provider {series.provider}"
-                ) from None
-            start = end if configured_start is None else configured_start
-        return self.get_range(series_id, start=start, end=end, refresh=True)
 
     def get_latest(self, series_id: str, *, refresh: bool = False) -> QueryResult:
         end = datetime.now(UTC).date()
@@ -223,12 +231,21 @@ class IndicatorsService:
         start: date,
         end: date,
         context: FetchContext | None = None,
+        trim_before_first: bool = False,
     ) -> list[ObservationRecord]:
         started_at = datetime.now(UTC)
         try:
             observations = _fetch_observations_with_retry(
                 series, start=start, end=end, context=context
             )
+            if trim_before_first and observations:
+                # FRED's current licensed delivery window defines reproducible
+                # all-history coverage for a series.
+                first_observed_at = min(item.observed_at for item in observations)
+                conn.execute(
+                    "DELETE FROM observations WHERE series_id = ? AND observed_at < ?",
+                    (series.series_id, first_observed_at.isoformat()),
+                )
             db.insert_observations(conn, observations)
             db.record_provider_run(
                 conn,
@@ -245,6 +262,7 @@ class IndicatorsService:
             conn.commit()
             return observations
         except Exception as exc:
+            conn.rollback()
             db.record_provider_run(
                 conn,
                 provider=series.provider,
