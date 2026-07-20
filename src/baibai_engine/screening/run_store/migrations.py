@@ -2,13 +2,50 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
+
+from baibai_engine.appdb.json import canonical_json
 
 
 @dataclass(frozen=True, slots=True)
 class Migration:
     version: int
     statements: tuple[str, ...]
+    transform: Callable[[sqlite3.Connection], None] | None = None
+
+
+def _strip_embedded_candidates(connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        "SELECT run_revision_id, payload FROM screening_run ORDER BY run_revision_id"
+    ).fetchall()
+    for run_revision_id, raw_payload in rows:
+        payload = json.loads(str(raw_payload))
+        if not isinstance(payload, dict) or not isinstance(payload.get("candidates"), list):
+            raise sqlite3.IntegrityError(
+                f"run payload candidates are unavailable: {run_revision_id}"
+            )
+        stored_candidates = [
+            json.loads(str(row[0]))
+            for row in connection.execute(
+                """
+                SELECT payload FROM screening_candidate
+                WHERE run_revision_id = ? ORDER BY ordinal
+                """,
+                (run_revision_id,),
+            ).fetchall()
+        ]
+        if canonical_json(payload["candidates"]) != canonical_json(stored_candidates):
+            raise sqlite3.IntegrityError(
+                f"run payload candidates differ from candidate rows: {run_revision_id}"
+            )
+        del payload["candidates"]
+        connection.execute(
+            "UPDATE screening_run SET payload = ? WHERE run_revision_id = ?",
+            (canonical_json(payload), run_revision_id),
+        )
 
 
 MIGRATIONS = (
@@ -85,6 +122,11 @@ MIGRATIONS = (
             ) STRICT, WITHOUT ROWID
             """,
         ),
+    ),
+    Migration(
+        version=2,
+        statements=("ALTER TABLE screening_run ADD COLUMN application_git_commit TEXT",),
+        transform=_strip_embedded_candidates,
     ),
 )
 

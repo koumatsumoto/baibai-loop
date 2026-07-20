@@ -1,4 +1,4 @@
-"""Immutable publication boundary for screening runs and machine selections."""
+"""Transactional publication boundary for prunable screening cache entries."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
@@ -39,6 +40,16 @@ class PublicationResult:
     inserted: bool
 
 
+@dataclass(frozen=True, slots=True)
+class PruneResult:
+    kept_runs: int
+    deleted_runs: int
+    deleted_candidates: int
+    deleted_selections: int
+    bytes_before: int
+    bytes_after: int
+
+
 def run_store_path(path: Path | None = None) -> Path:
     if path is not None:
         return path.expanduser()
@@ -57,19 +68,26 @@ def connect_rw(path: Path | None = None) -> sqlite3.Connection:
 
 def initialize_run_store(path: Path | None = None) -> int:
     with closing(connect_rw(path)) as connection:
-        current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        for migration in MIGRATIONS:
-            if migration.version <= current:
-                continue
-            if migration.version != current + 1:
-                raise RuntimeError(
-                    "run store migration sequence gap: "
-                    f"database={current}, next={migration.version}"
-                )
+        while True:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                current = int(connection.execute("PRAGMA user_version").fetchone()[0])
+                migration = next(
+                    (item for item in MIGRATIONS if item.version > current),
+                    None,
+                )
+                if migration is None:
+                    connection.commit()
+                    return current
+                if migration.version != current + 1:
+                    raise RuntimeError(
+                        "run store migration sequence gap: "
+                        f"database={current}, next={migration.version}"
+                    )
                 for statement in migration.statements:
                     connection.execute(statement)
+                if migration.transform is not None:
+                    migration.transform(connection)
                 if connection.execute("PRAGMA foreign_key_check").fetchall():
                     raise sqlite3.IntegrityError(
                         f"foreign key check failed during run store migration {migration.version}"
@@ -79,21 +97,21 @@ def initialize_run_store(path: Path | None = None) -> int:
             except BaseException:
                 connection.rollback()
                 raise
-            current = migration.version
-        return current
 
 
 class ScreeningRunStore:
-    """The only writer for immutable run-store publications."""
+    """The only writer for transactionally published run-cache entries."""
 
     def __init__(
         self,
         path: Path | None = None,
         *,
         id_factory: Callable[[], uuid.UUID] = uuid.uuid4,
+        git_commit_factory: Callable[[], str | None] | None = None,
     ) -> None:
         self._path = path
         self._id_factory = id_factory
+        self._git_commit_factory = git_commit_factory or _application_git_commit
 
     def publish_run(
         self,
@@ -102,6 +120,7 @@ class ScreeningRunStore:
         run_revision_id: str | None = None,
     ) -> PublicationResult:
         prepared = _prepare_run(payload)
+        application_git_commit = _normalize_git_commit(self._git_commit_factory())
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -110,12 +129,128 @@ class ScreeningRunStore:
                     connection,
                     prepared,
                     run_revision_id=run_revision_id,
+                    application_git_commit=application_git_commit,
                 )
                 connection.commit()
                 return result
             except BaseException:
                 connection.rollback()
                 raise
+
+    def prune(self, *, keep: int = 3) -> PruneResult:
+        if keep < 0:
+            raise ValueError("keep must be zero or greater")
+        initialize_run_store(self._path)
+        path = run_store_path(self._path)
+        bytes_before = path.stat().st_size
+        deleted_candidates = 0
+        deleted_selections = 0
+        with closing(connect_rw(self._path)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                ordered = connection.execute(
+                    """
+                    SELECT run_revision_id FROM screening_run
+                    ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC
+                    """
+                ).fetchall()
+                deleted_ids = [str(row[0]) for row in ordered[keep:]]
+                if deleted_ids:
+                    connection.execute(
+                        """
+                        CREATE TEMP TABLE prune_run_id (
+                            run_revision_id TEXT PRIMARY KEY
+                        ) WITHOUT ROWID
+                        """
+                    )
+                    connection.executemany(
+                        "INSERT INTO prune_run_id (run_revision_id) VALUES (?)",
+                        ((run_revision_id,) for run_revision_id in deleted_ids),
+                    )
+                    deleted_candidates = int(
+                        connection.execute(
+                            """
+                            SELECT count(*) FROM screening_candidate
+                            WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
+                            """
+                        ).fetchone()[0]
+                    )
+                    deleted_selections = int(
+                        connection.execute(
+                            """
+                            SELECT count(*) FROM screening_selection
+                            WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
+                            """
+                        ).fetchone()[0]
+                    )
+                    connection.execute(
+                        """
+                        DELETE FROM selection_entry WHERE selection_id IN (
+                            SELECT selection_id FROM screening_selection
+                            WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
+                        )
+                        """
+                    )
+                    while True:
+                        remaining = int(
+                            connection.execute(
+                                """
+                                SELECT count(*) FROM screening_selection
+                                WHERE run_revision_id IN (
+                                    SELECT run_revision_id FROM prune_run_id
+                                )
+                                """
+                            ).fetchone()[0]
+                        )
+                        if remaining == 0:
+                            break
+                        cursor = connection.execute(
+                            """
+                            DELETE FROM screening_selection
+                            WHERE run_revision_id IN (
+                                SELECT run_revision_id FROM prune_run_id
+                            )
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM screening_selection AS child
+                                  WHERE child.source_selection_id =
+                                        screening_selection.selection_id
+                              )
+                            """
+                        )
+                        if cursor.rowcount == 0:
+                            raise sqlite3.IntegrityError(
+                                "screening selection dependency cycle blocks prune"
+                            )
+                    connection.execute(
+                        """
+                        DELETE FROM screening_candidate
+                        WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
+                        """
+                    )
+                    connection.execute(
+                        """
+                        DELETE FROM screening_run
+                        WHERE run_revision_id IN (SELECT run_revision_id FROM prune_run_id)
+                        """
+                    )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+            try:
+                connection.execute("VACUUM")
+            except sqlite3.Error as error:
+                raise sqlite3.OperationalError(
+                    "run rows were pruned but VACUUM failed; rerun prune to compact the store"
+                ) from error
+        return PruneResult(
+            kept_runs=min(keep, len(ordered)),
+            deleted_runs=len(deleted_ids),
+            deleted_candidates=deleted_candidates,
+            deleted_selections=deleted_selections,
+            bytes_before=bytes_before,
+            bytes_after=path.stat().st_size,
+        )
 
     def publish_selection(
         self,
@@ -229,6 +364,7 @@ class ScreeningRunStore:
         prepared: _PreparedRun,
         *,
         run_revision_id: str | None = None,
+        application_git_commit: str | None,
     ) -> PublicationResult:
         existing = connection.execute(
             """
@@ -243,7 +379,23 @@ class ScreeningRunStore:
                 raise RunStoreConflictError(
                     "run identity already belongs to a different run_revision_id"
                 )
-            if str(existing[1]) != prepared.payload_json:
+            stored_candidates = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT payload FROM screening_candidate
+                    WHERE run_revision_id = ? ORDER BY ordinal
+                    """,
+                    (identifier,),
+                ).fetchall()
+            )
+            expected_candidates = tuple(
+                canonical_json(candidate.payload) for candidate in prepared.candidates
+            )
+            if (
+                str(existing[1]) != prepared.payload_json
+                or stored_candidates != expected_candidates
+            ):
                 raise RunStoreConflictError(
                     f"run differs from existing immutable publication: {identifier}"
                 )
@@ -257,8 +409,8 @@ class ScreeningRunStore:
             """
             INSERT INTO screening_run (
                 run_revision_id, public_run_id, run_date, asof_date, run_at,
-                universe_size, rules_ref, created_at, payload
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                universe_size, rules_ref, created_at, payload, application_git_commit
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 identifier,
@@ -270,6 +422,7 @@ class ScreeningRunStore:
                 prepared.rules_ref,
                 datetime.now(UTC).isoformat(),
                 prepared.payload_json,
+                application_git_commit,
             ),
         )
         for ordinal, candidate in enumerate(prepared.candidates):
@@ -377,7 +530,9 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
         universe_size=universe_size,
         rules_ref=rules_ref,
         candidates=tuple(candidates),
-        payload_json=canonical_json(payload),
+        payload_json=canonical_json(
+            {key: value for key, value in payload.items() if key != "candidates"}
+        ),
     )
 
 
@@ -466,8 +621,38 @@ def decode_payload(value: object) -> Mapping[str, Any]:
     return decoded
 
 
+def _application_git_commit() -> str | None:
+    source_root = Path(__file__).resolve().parents[4]
+    if not (
+        (source_root / ".git").exists()
+        and (source_root / "pyproject.toml").is_file()
+        and (source_root / "src/baibai_engine").is_dir()
+    ):
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(source_root), "rev-parse", "--verify", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    commit = result.stdout.strip().lower()
+    return commit if re.fullmatch(r"[0-9a-f]{40,64}", commit) else None
+
+
+def _normalize_git_commit(value: str | None) -> str | None:
+    if value is None:
+        return None
+    commit = value.strip().lower()
+    return commit if re.fullmatch(r"[0-9a-f]{40,64}", commit) else None
+
+
 __all__ = [
     "DEFAULT_RUN_STORE_PATH",
+    "PruneResult",
     "PublicationResult",
     "RunStoreAmbiguousError",
     "RunStoreConflictError",

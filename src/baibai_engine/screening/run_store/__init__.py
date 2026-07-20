@@ -3,6 +3,7 @@
 from .read import RunPublication, ScreeningRunReader, SelectionPublication
 from .store import (
     DEFAULT_RUN_STORE_PATH,
+    PruneResult,
     PublicationResult,
     RunStoreAmbiguousError,
     RunStoreConflictError,
@@ -14,6 +15,7 @@ from .store import (
 
 __all__ = [
     "DEFAULT_RUN_STORE_PATH",
+    "PruneResult",
     "PublicationResult",
     "RunPublication",
     "RunStoreAmbiguousError",
