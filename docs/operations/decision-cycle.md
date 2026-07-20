@@ -126,7 +126,7 @@ risk override、estimated exit tax設定、market priceも各typed draftを作�
 3. packet / reviewをpromoteし、DB sourceから`holding-review-build`する。
 4. load-bearing scalar、packet revision、ledger state、`thesis health`、税引後代替価値を検証する。
 5. 人間確認後だけ`holding-review publish`し、IDと`hold / add / reduce / exit`をsessionに記録する。
-6. `reduce / exit`判定に沿って人間が発注し約定したら、その事実だけを`sell-result-draft`で記録する。builderはcurrent ledgerの保有数量とFIFO原価を検証したexecution(side=sell) draftを作り、人間確認後だけ`apply-draft --confirmed`で反映する。判断元のholding review IDを`--decision-reference`で紐付ける。broker手数料は`--fees-yen`（cost event）、確定した譲渡益税は`--tax-yen`（confirmed_tax event）で同一draftに載せる。指値計画は機械支援せず、人間がholding reviewを見て発注する。
+6. `reduce / exit`判定に沿って人間が発注し約定したら、その事実だけを`sell-result-draft`で記録する。builderはcurrent ledgerの保有数量とFIFO原価を検証したexecution(side=sell) draftを作り、人間確認後だけ`apply-draft --confirmed`で反映する。判断元のholding review IDを`--decision-reference`で紐付ける。broker手数料は`--fees-yen`（cost event）、確定した譲渡益税は`--tax-yen`（confirmed_tax event）で同一draftに載せる。指値計画は機械支援せず、人間がholding reviewを見て発注する。約定日が最終market price観測から`market_price_max_age_days`（7日）を超える場合はreconcileがprice stalenessで拒否するため、先に`market-price-draft`を適用する。同時刻・同値の分割約定は1件に合算するか`--occurred-at`を分け、手数料・税が無い場合はフラグを省略する（`0`指定は拒否される）。
 
 ```bash
 uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite --sqlite data/screening/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml

@@ -136,6 +136,87 @@ def test_sell_draft_apply_reduces_holding_and_realizes_fifo_pnl(
     assert sell.decision_reference == DECISION_REF
 
 
+def test_sell_quantity_not_multiple_of_board_lot_is_rejected(tmp_path: Path) -> None:
+    service = _seed(tmp_path / "app.sqlite")
+    with pytest.raises(PortfolioLedgerError, match="multiple of board_lot"):
+        build_sell_execution_draft(
+            service,
+            occurred_at=OCCURRED_AT,
+            ticker="2331",
+            quantity=150,
+            price_yen=Decimal("1100"),
+        )
+
+
+def test_sell_fees_and_tax_over_proceeds_and_cash_are_rejected(tmp_path: Path) -> None:
+    service = _seed(tmp_path / "app.sqlite")
+    with pytest.raises(PortfolioLedgerError, match="insufficient available cash"):
+        build_sell_execution_draft(
+            service,
+            occurred_at=OCCURRED_AT,
+            ticker="2331",
+            quantity=100,
+            price_yen=Decimal("1100"),
+            fees_yen=11_000_000,
+        )
+
+
+def test_identical_sell_parameters_after_apply_are_rejected_as_duplicate(tmp_path: Path) -> None:
+    service = _seed(tmp_path / "app.sqlite")
+    first = build_sell_execution_draft(
+        service,
+        occurred_at=OCCURRED_AT,
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1100"),
+    )
+    apply_draft(service, first, human_confirmed=True)
+    with pytest.raises(ValueError, match="event_id must be unique"):
+        build_sell_execution_draft(
+            service,
+            occurred_at=OCCURRED_AT,
+            ticker="2331",
+            quantity=100,
+            price_yen=Decimal("1100"),
+        )
+
+
+def test_cli_rejects_zero_quantity_zero_price_and_negative_fees(tmp_path: Path) -> None:
+    db = tmp_path / "app.sqlite"
+    _seed(db)
+    base = [
+        "sell-result-draft",
+        "--root",
+        str(tmp_path),
+        "--db",
+        str(db),
+        "--ticker",
+        "2331",
+        "--occurred-at",
+        OCCURRED_AT.isoformat(),
+    ]
+    assert main([*base, "--quantity", "0", "--price-yen", "1100", "--out", "q0.yaml"]) == 2
+    with pytest.raises(SystemExit) as excinfo:
+        main([*base, "--quantity", "100", "--price-yen", "0", "--out", "p0.yaml"])
+    assert excinfo.value.code == 2
+    assert (
+        main(
+            [
+                *base,
+                "--quantity",
+                "100",
+                "--price-yen",
+                "1100",
+                "--fees-yen",
+                "-500",
+                "--out",
+                "f.yaml",
+            ]
+        )
+        == 2
+    )
+
+
 def test_sell_draft_records_fees_and_tax_as_cost_and_tax_events(tmp_path: Path) -> None:
     db = tmp_path / "app.sqlite"
     service = _seed(db)
