@@ -208,6 +208,30 @@ series:
     source_id: fred-lrunttttjpm156s
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LRUNTTTTJPM156S
     aliases: [日本失業率, JP unemployment, 失業率]
+  - series_id: jp.hourly_earnings
+    name: 日本製造業時間当たり賃金
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: LCEAMN01JPM661S
+    source_id: fred-lceamn01jpm661s
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LCEAMN01JPM661S
+    notes: OECD Main Economic Indicators の製造業時間当たり賃金指数(2015=100、季節調整済)。家計所得と企業の人件費圧力を同じ系列で継続監視する。
+    aliases: [日本時間当たり賃金, 日本賃金指数, JP hourly earnings, LCEAMN01JPM661S]
+  - series_id: jp.real_effective_exchange_rate
+    name: 日本実質実効為替レート
+    category: fx
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: RBJPBIS
+    source_id: fred-rbjpbis
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RBJPBIS
+    notes: BIS broad real effective exchange rate index(2020=100)。貿易相手国との相対物価を含む円の実質的な購買力と競争力を読む。
+    aliases: [日本実質実効為替, 円実質実効為替, JP REER, RBJPBIS]
   - series_id: jp.nikkei225
     name: 日経225
     category: equity-index
@@ -362,6 +386,18 @@ series:
     source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
     notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
     aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
+  - series_id: jp.cpi.services
+    name: 日本CPIサービス
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: estat
+    provider_series_id: "0003427113?cdCat01=0220&cdArea=00000&cdTab=1"
+    source_id: estat-cpi-services
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: e-Stat CPI表 0003427113 を cdCat01=0220(サービス)・cdArea=00000(全国)・cdTab=1(指数)に絞る。国内サービス価格の粘着性を読む。
+    aliases: [日本サービスCPI, サービス物価, JP services CPI, 全国サービスCPI]
   - series_id: jp.foreign_flows
     name: 海外投資家ネット買い越し額(週次)
     category: flows

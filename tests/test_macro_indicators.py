@@ -759,6 +759,9 @@ class IndicatorsRegistryTests(unittest.TestCase):
             "jp.policy_rate": ("boj_mutan", "policy"),
             "jp.10y": ("mof_jgb", "rates"),
             "jp.unemployment": ("fred_csv", "labor"),
+            "jp.hourly_earnings": ("fred_csv", "labor"),
+            "jp.real_effective_exchange_rate": ("fred_csv", "fx"),
+            "jp.cpi.services": ("estat", "inflation"),
             "credit.us_hy_oas": ("fred_csv", "credit"),
             "credit.us_ccc_oas": ("fred_csv", "credit"),
             "btc_usd": ("fred_csv", "crypto"),
@@ -768,6 +771,19 @@ class IndicatorsRegistryTests(unittest.TestCase):
             self.assertIn(series_id, by_id)
             self.assertEqual(by_id[series_id].provider, provider)
             self.assertEqual(by_id[series_id].category, category)
+
+        self.assertEqual(
+            by_id["jp.hourly_earnings"].provider_series_id,
+            "LCEAMN01JPM661S",
+        )
+        self.assertEqual(
+            by_id["jp.real_effective_exchange_rate"].provider_series_id,
+            "RBJPBIS",
+        )
+        self.assertEqual(
+            by_id["jp.cpi.services"].provider_series_id,
+            "0003427113?cdCat01=0220&cdArea=00000&cdTab=1",
+        )
 
     def test_every_series_id_maps_to_a_single_provider(self) -> None:
         series_ids = [series.series_id for series in load_definitions().series]
