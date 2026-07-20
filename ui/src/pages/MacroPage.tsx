@@ -9,6 +9,10 @@ import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+
+type MacroPeriod = MacroView['period']
+type MacroGranularity = MacroView['granularity']
 
 function PageState({ message }: { message: string }) {
   return <><AppShell /><main className="grid min-h-[60vh] place-items-center px-6 text-center"><h1 className="text-xl font-semibold">{message}</h1></main></>
@@ -42,11 +46,25 @@ function SeriesChart({ series }: { series: MacroSeriesView }) {
 export function MacroPage() {
   const [data, setData] = useState<MacroView | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [period, setPeriod] = useState<MacroPeriod>('1y')
+  const [granularity, setGranularity] = useState<MacroGranularity>('daily')
+  const [loading, setLoading] = useState(true)
   useEffect(() => {
-    fetchJson<MacroView>('/api/macro').then(setData).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : 'Macro を読み込めませんでした')
-    })
-  }, [])
+    const controller = new AbortController()
+    setError(null)
+    setLoading(true)
+    const query = new URLSearchParams({ period, granularity })
+    fetchJson<MacroView>(`/api/macro?${query}`, { signal: controller.signal })
+      .then(setData)
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return
+        setError(reason instanceof Error ? reason.message : 'Macro を読み込めませんでした')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [period, granularity])
   if (error) return <PageState message={error} />
   if (!data) return <PageState message="Macro を読み込んでいます…" />
   const context = data.context
@@ -68,7 +86,17 @@ export function MacroPage() {
         )}
         {data.context_history.length > 0 && <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Published history</CardTitle><CardDescription>immutable revisions</CardDescription></CardHeader><CardContent className="grid gap-2 px-5">{data.context_history.map((revision) => <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-2 last:border-0" key={revision.context_id}><div><p className="text-sm font-medium">{revision.summary}</p><p className="font-mono text-xs text-muted-foreground">{revision.context_id}</p></div><time className="text-xs text-muted-foreground" dateTime={revision.as_of}>{revision.as_of}</time></div>)}</CardContent></Card>}
       </section>
-      <section className="grid gap-5"><div><p className="text-sm font-medium text-muted-foreground">Fact</p><h2 className="text-2xl font-semibold tracking-tight">Macro indicators</h2></div>{data.groups.map((group) => <div className="grid gap-4" key={group.title}><h3 className="text-lg font-semibold">{group.title}</h3><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{group.series.map((series) => <SeriesChart key={series.series_id} series={series} />)}</div></div>)}</section>
+      <section className="grid gap-5">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div><p className="text-sm font-medium text-muted-foreground">Fact</p><h2 className="text-2xl font-semibold tracking-tight">Macro indicators</h2></div>
+          <div className="flex flex-wrap gap-3 rounded-xl border bg-card p-3 shadow-sm">
+            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">期間</span><Select onValueChange={(value) => setPeriod(value as MacroPeriod)} value={period}><SelectTrigger aria-label="表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1y">1年</SelectItem><SelectItem value="5y">5年</SelectItem><SelectItem value="10y">10年</SelectItem><SelectItem value="max">全期間</SelectItem></SelectContent></Select></label>
+            <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">粒度</span><Select onValueChange={(value) => setGranularity(value as MacroGranularity)} value={granularity}><SelectTrigger aria-label="表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="daily">日次</SelectItem><SelectItem value="weekly">週次</SelectItem><SelectItem value="monthly">月次</SelectItem><SelectItem value="yearly">年次</SelectItem></SelectContent></Select></label>
+            {loading && <span className="self-end pb-2 text-xs text-muted-foreground">更新中…</span>}
+          </div>
+        </div>
+        {data.groups.map((group) => <div className="grid gap-4" key={group.title}><h3 className="text-lg font-semibold">{group.title}</h3><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{group.series.map((series) => <SeriesChart key={series.series_id} series={series} />)}</div></div>)}
+      </section>
     </main></>
   )
 }

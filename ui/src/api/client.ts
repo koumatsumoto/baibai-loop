@@ -8,8 +8,9 @@ export class ApiError extends Error {
   }
 }
 
-export async function fetchJson<T>(path: string): Promise<T> {
+export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
+    ...init,
     headers: { Accept: 'application/json' },
   })
   if (!response.ok) {
