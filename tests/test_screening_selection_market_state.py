@@ -196,6 +196,35 @@ class SelectionMarketStateTests(unittest.TestCase):
         self.assertTrue(item["split_adjustment_flag"])
         self.assertIn("split_adjustment_recent", item["risk_tags"])
 
+    def test_forecast_special_gain_flag_becomes_risk_tag(self) -> None:
+        # 会社予想の純利益>経常は特別益をほぼ確定する。forward PER / 予想配当 / E[r]
+        # carry が一時益で嵩上げされた value trap を triage で表面化させ、event_warnings
+        # にも写す (rank は変えない warning 境界)。
+        gain_hit = dict(_CALM_CANDIDATE)
+        gain_hit["metrics"] = {
+            "ocf_yield": 0.12,
+            "net_cash_to_market_cap": 0.3,
+            "er_annual": 0.05,
+            "forecast_special_gain_flag": True,
+        }
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=(candidate_record_from_mapping(gain_hit),),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+            audit_top=10,
+        )
+        item = self._recommendations(payload)[0]
+        self.assertIn("forecast_special_gain", item["risk_tags"])
+        audit_pool = payload["audit_pool"]
+        assert isinstance(audit_pool, list)
+        self.assertIn("forecast_special_gain", audit_pool[0]["event_warnings"])
+
     def test_sweep_payload_records_market_regime(self) -> None:
         payload = build_selection_sweep_payload(
             asof_date=_ASOF,

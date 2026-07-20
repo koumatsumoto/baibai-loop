@@ -73,6 +73,7 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="dividend_yield", direction=1),
     AxisSpec(name="er_annual", direction=1),
     AxisSpec(name="er_reversion_annual", direction=1),
+    AxisSpec(name="er_carry_annual", direction=1),
     AxisSpec(name="smg_per_forward", direction=-1),
     AxisSpec(name="smg_per_trailing", direction=-1),
     AxisSpec(name="smg_pbr", direction=-1),
@@ -342,7 +343,32 @@ def _evaluate_selection(
         result[f"er_population_top{top_n}"] = _group_stats(
             [excess[row.ticker] for row in population_by_er[:top_n]]
         )
+    # 仮想 replay: reversion 主導の順位付け (#480 H-R1/H-R2)。er_ranked と同じ
+    # screen 通過集合の key 差し替えで、carry 偏重が top-N の forward excess に
+    # 与える影響を分離する。view score は cockpit 表示 blend と同型 (品質 flag
+    # 減点は panel に無いため除外) 。
+    reversion_passers = sorted(
+        (row for row in population if row.pass_screen and row.er_reversion_annual is not None),
+        key=lambda row: row.er_reversion_annual or 0.0,
+        reverse=True,
+    )
+    view_score_passers = sorted(
+        (row for row in population if row.pass_screen and row.er_reversion_annual is not None),
+        key=_view_score_key,
+        reverse=True,
+    )
+    for top_n in SELECTION_TOP_NS:
+        result[f"reversion_ranked_top{top_n}"] = _group_stats(
+            [excess[row.ticker] for row in reversion_passers[:top_n]]
+        )
+        result[f"view_score_ranked_top{top_n}"] = _group_stats(
+            [excess[row.ticker] for row in view_score_passers[:top_n]]
+        )
     return result
+
+
+def _view_score_key(row: PanelRow) -> float:
+    return (row.er_reversion_annual or 0.0) + 0.5 * min(row.er_carry_annual or 0.0, 0.15)
 
 
 def _evaluate_gates(

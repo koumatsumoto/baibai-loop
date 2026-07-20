@@ -960,6 +960,46 @@ class ScreeningProviderTests(unittest.TestCase):
         assert q3 is not None
         self.assertEqual(q3.forecast_eps, 300.0)
 
+    def test_normalize_financial_summary_reads_current_forecast_profit_pair(self) -> None:
+        # 当期予想 EPS(FEPS)が埋まる四半期開示では当期予想の純利益/経常(FNP/FOdP)を採る。
+        # 翌期キー(NxFNp/NxFOdP)が併存しても当期側を採り、期をまたがない。
+        summary = normalize_financial_summary(
+            {
+                "Code": "48490",
+                "DiscDate": "2026-05-13T00:00:00",
+                "FEPS": "138.72",
+                "NxFEPS": "120.0",
+                "FNP": "5464000000",
+                "FOdP": "3406000000",
+                "NxFNp": "900000000",
+                "NxFOdP": "1200000000",
+            }
+        )
+        assert summary is not None
+        self.assertEqual(summary.forecast_profit, 5464000000.0)
+        self.assertEqual(summary.forecast_ordinary_profit, 3406000000.0)
+
+    def test_normalize_financial_summary_pairs_forecast_profit_with_next_year_on_fy(self) -> None:
+        # 本決算開示で FEPS が空なら forecast_eps は NxFEPS に落ちる。純利益/経常も
+        # 同じ翌期ペア(NxFNp/NxFOdP)を採り、当期の FNP/FOdP と期をまたいで比較しない
+        # (期ズレ比較は一時益 flag の誤検出になる)。
+        summary = normalize_financial_summary(
+            {
+                "Code": "48490",
+                "DiscDate": "2026-04-01T00:00:00",
+                "FEPS": "",
+                "NxFEPS": "120.0",
+                "FNP": "5464000000",
+                "FOdP": "3406000000",
+                "NxFNp": "2000000000",
+                "NxFOdP": "2500000000",
+            }
+        )
+        assert summary is not None
+        self.assertEqual(summary.forecast_eps, 120.0)
+        self.assertEqual(summary.forecast_profit, 2000000000.0)
+        self.assertEqual(summary.forecast_ordinary_profit, 2500000000.0)
+
     def test_normalize_financial_summary_preserves_fiscal_period_fields(self) -> None:
         summary = normalize_financial_summary(
             {

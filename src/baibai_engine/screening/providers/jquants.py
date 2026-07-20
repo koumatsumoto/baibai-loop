@@ -68,6 +68,10 @@ class JQuantsFinancialSummary:
     operating_profit: float | None = None
     ordinary_profit: float | None = None
     profit: float | None = None
+    # 会社予想の当期純利益・経常利益。forecast_eps と同一予想期 (当期予想 or 翌期予想)
+    # から採ったペアで、両方揃うときだけ純利益>経常の一時益 flag を機械判定できる。
+    forecast_profit: float | None = None
+    forecast_ordinary_profit: float | None = None
     fiscal_period: str | None = None
     fiscal_year_end: date | None = None
     period_start: date | None = None
@@ -93,6 +97,8 @@ class JQuantsFinancialSummary:
         "operating_profit",
         "ordinary_profit",
         "profit",
+        "forecast_profit",
+        "forecast_ordinary_profit",
         "dps_actual_annual",
         "dps_forecast_annual",
     )
@@ -257,6 +263,16 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
     ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
     if not common_code:
         return None
+    # 会社予想の純利益/経常のペアは forecast_eps と同一予想期から採る。当期予想 EPS
+    # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
+    # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
+    # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
+    if coalesce_field(record, "FEPS") is not None:
+        forecast_profit = to_float(coalesce_field(record, "FNP"))
+        forecast_ordinary_profit = to_float(coalesce_field(record, "FOdP"))
+    else:
+        forecast_profit = to_float(coalesce_field(record, "NxFNp"))
+        forecast_ordinary_profit = to_float(coalesce_field(record, "NxFOdP"))
     # すべて `coalesce_field` 経由にして 0.0 の数値フィールドを欠損と誤判定しないようにする
     # (EPS=0 の赤字転換点、Sales=0 の新規事業初期、OP=0 の損益分岐点ちょうど、など)。
     return JQuantsFinancialSummary(
@@ -325,6 +341,8 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
             coalesce_field(record, "OrdinaryProfit", "ordinary_profit", "OdP")
         ),
         profit=to_float(coalesce_field(record, "Profit", "profit", "NP")),
+        forecast_profit=forecast_profit,
+        forecast_ordinary_profit=forecast_ordinary_profit,
         fiscal_period=to_period(
             coalesce_field(record, "TypeOfCurrentPeriod", "type_of_current_period")
         ),

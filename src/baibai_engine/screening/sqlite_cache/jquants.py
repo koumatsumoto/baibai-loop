@@ -51,9 +51,10 @@ def store_jquants_fin_summaries(
                 INSERT OR REPLACE INTO jquants_fin_summaries(
                   ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding,
                   sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit,
-                  profit, fiscal_period, fiscal_year_end, period_start, period_end,
+                  profit, forecast_profit, forecast_ordinary_profit,
+                  fiscal_period, fiscal_year_end, period_start, period_end,
                   dps_actual_annual, dps_forecast_annual
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -183,6 +184,16 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
         if ticker is None or disclosed_at is None:
             rejected_count += 1
             continue
+        # 会社予想の純利益/経常のペアは forecast_eps と同一予想期から採る。当期予想 EPS
+        # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
+        # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
+        # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
+        if first(record, "FEPS") is not None:
+            forecast_profit = to_float(first(record, "FNP"))
+            forecast_ordinary_profit = to_float(first(record, "FOdP"))
+        else:
+            forecast_profit = to_float(first(record, "NxFNp"))
+            forecast_ordinary_profit = to_float(first(record, "NxFOdP"))
         rows.append(
             (
                 ticker,
@@ -229,6 +240,8 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                 to_float(first(record, "OperatingProfit", "operating_profit", "OP")),
                 to_float(first(record, "OrdinaryProfit", "ordinary_profit", "OdP")),
                 to_float(first(record, "Profit", "profit", "NP")),
+                forecast_profit,
+                forecast_ordinary_profit,
                 to_str_or_none(
                     first(record, "TypeOfCurrentPeriod", "type_of_current_period", "CurPerType")
                 ),

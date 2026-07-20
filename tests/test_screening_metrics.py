@@ -13,7 +13,7 @@ if str(SRC) not in sys.path:
 from baibai_engine.screening.metrics import _resolve_dividend_carry, build_metrics
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
-from baibai_engine.screening.schema import SecurityMaster, TTMQuality
+from baibai_engine.screening.schema import FinancialSnapshot, SecurityMaster, TTMQuality
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
@@ -44,6 +44,8 @@ def _summary(
     period_end: date | None = None,
     dps_actual_annual: float | None = None,
     dps_forecast_annual: float | None = None,
+    forecast_profit: float | None = None,
+    forecast_ordinary_profit: float | None = None,
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -57,6 +59,8 @@ def _summary(
         operating_profit=operating_profit,
         ordinary_profit=None,
         profit=None,
+        forecast_profit=forecast_profit,
+        forecast_ordinary_profit=forecast_ordinary_profit,
         fiscal_period=fiscal_period,
         fiscal_year_end=fiscal_year_end,
         period_start=period_start,
@@ -151,6 +155,55 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertAlmostEqual(per_trailing, (100.0 + 399) / 18.0, places=5)
         # short_history_flag must be derived from bars <= asof only. 400d history < 750d ⇒ True.
         self.assertTrue(result.derived["130A"].short_history_flag)
+
+    def _forecast_gain_snapshot(
+        self, *, forecast_profit: float | None, forecast_ordinary_profit: float | None
+    ) -> FinancialSnapshot:
+        asof = date(2026, 7, 1)
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 40)},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        asof - timedelta(days=30),
+                        forecast_profit=forecast_profit,
+                        forecast_ordinary_profit=forecast_ordinary_profit,
+                    )
+                ]
+            },
+            edinet_by_ticker={},
+        )
+        return result.financials["130A"]
+
+    def test_forecast_special_gain_flag_set_when_net_income_exceeds_ordinary(self) -> None:
+        # 会社予想で純利益>経常なら特別益をほぼ確定する (税負担が通常正)。flag を立てる。
+        snapshot = self._forecast_gain_snapshot(
+            forecast_profit=5_464_000_000.0, forecast_ordinary_profit=3_406_000_000.0
+        )
+        self.assertTrue(snapshot.forecast_special_gain_flag)
+
+    def test_forecast_special_gain_flag_clear_when_net_income_not_above_ordinary(self) -> None:
+        # 純利益<=経常 (通常の税負担後) では立てない。
+        snapshot = self._forecast_gain_snapshot(
+            forecast_profit=2_400_000_000.0, forecast_ordinary_profit=3_406_000_000.0
+        )
+        self.assertFalse(snapshot.forecast_special_gain_flag)
+
+    def test_forecast_special_gain_flag_clear_when_either_forecast_missing(self) -> None:
+        # 片方でも欠損なら比較不能なので立てない (誤検出回避)。
+        self.assertFalse(
+            self._forecast_gain_snapshot(
+                forecast_profit=5_464_000_000.0, forecast_ordinary_profit=None
+            ).forecast_special_gain_flag
+        )
+        self.assertFalse(
+            self._forecast_gain_snapshot(
+                forecast_profit=None, forecast_ordinary_profit=3_406_000_000.0
+            ).forecast_special_gain_flag
+        )
 
     def test_market_cap_adjusts_shares_for_split_after_disclosure(self) -> None:
         """開示後の分割 (権利落ち bar の adjustment_factor) を株数へ補正する。

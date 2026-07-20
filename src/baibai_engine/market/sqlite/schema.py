@@ -13,7 +13,7 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
-SQLITE_SCHEMA_VERSION = 12
+SQLITE_SCHEMA_VERSION = 13
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 _REQUIRED_TABLES = (
@@ -62,6 +62,8 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "operating_profit",
         "ordinary_profit",
         "profit",
+        "forecast_profit",
+        "forecast_ordinary_profit",
         "fiscal_period",
         "fiscal_year_end",
         "period_start",
@@ -190,6 +192,8 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   operating_profit REAL,
   ordinary_profit REAL,
   profit REAL,
+  forecast_profit REAL,
+  forecast_ordinary_profit REAL,
   fiscal_period TEXT,
   fiscal_year_end TEXT,
   period_start TEXT,
