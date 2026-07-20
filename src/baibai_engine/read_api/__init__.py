@@ -32,9 +32,7 @@ from .research import (
     list_holding_review_publications,
     list_research_packet_payloads,
     list_research_packet_publications,
-    list_research_review_payloads,
     list_research_review_publications,
-    research_packet_payload,
     research_packet_publication,
 )
 from .screening import (
@@ -61,7 +59,6 @@ __all__ = [
     "list_proposal_payloads",
     "list_research_packet_payloads",
     "list_research_packet_publications",
-    "list_research_review_payloads",
     "list_research_review_publications",
     "list_reviewed_shortlist_payloads",
     "list_task_payloads",
@@ -74,7 +71,6 @@ __all__ = [
     "operation_session",
     "portfolio_ledger_document",
     "reconcile_portfolio",
-    "research_packet_payload",
     "research_packet_publication",
     "safe_load",
     "screening_run_payload",

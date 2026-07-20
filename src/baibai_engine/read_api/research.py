@@ -8,10 +8,6 @@ from pathlib import Path
 from .sqlite import connect_read_only
 
 
-def research_packet_payload(path: Path, *, packet_id: str) -> dict[str, object] | None:
-    return _one(path, "research_packet", "packet_id", packet_id)
-
-
 def list_research_packet_payloads(
     path: Path,
     *,
@@ -22,19 +18,6 @@ def list_research_packet_payloads(
         "research_packet",
         where=None if ticker is None else ("ticker = ?", (ticker,)),
         order="as_of DESC, published_at DESC, packet_id DESC",
-    )
-
-
-def list_research_review_payloads(
-    path: Path,
-    *,
-    packet_id: str | None = None,
-) -> list[dict[str, object]]:
-    return _many(
-        path,
-        "research_review",
-        where=None if packet_id is None else ("packet_id = ?", (packet_id,)),
-        order="reviewed_at DESC, review_id DESC",
     )
 
 
@@ -108,26 +91,6 @@ def list_holding_review_publications(
     )
 
 
-def _one(
-    path: Path,
-    table: str,
-    key_column: str,
-    key: str,
-) -> dict[str, object] | None:
-    if not path.is_file():
-        return None
-    connection = connect_read_only(path)
-    try:
-        row = connection.execute(
-            # Private callers provide fixed schema identifiers; the value stays bound.
-            f"SELECT payload FROM {table} WHERE {key_column} = ?",  # nosec B608
-            (key,),
-        ).fetchone()
-    finally:
-        connection.close()
-    return None if row is None else _object(str(row[0]))
-
-
 def _many(
     path: Path,
     table: str,
@@ -189,8 +152,6 @@ __all__ = [
     "list_holding_review_publications",
     "list_research_packet_payloads",
     "list_research_packet_publications",
-    "list_research_review_payloads",
     "list_research_review_publications",
-    "research_packet_payload",
     "research_packet_publication",
 ]
