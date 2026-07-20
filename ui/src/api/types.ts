@@ -230,11 +230,67 @@ export interface MacroMaterialDeltaView {
   materiality: string
   summary: string
   used_for: string
+  source_ids: string[]
 }
 
 export interface MacroSizingCautionView {
   severity: string
   summary: string
+  source_ids: string[]
+}
+
+export interface MacroSeriesReferenceView {
+  series_id: string
+  name: string
+}
+
+export interface MacroFactSummaryView {
+  summary: string
+  source_ids: string[]
+}
+
+export interface MacroSectionJudgmentView {
+  summary: string
+  direction: string
+  confidence: string
+  source_ids: string[]
+}
+
+export interface MacroInvestmentConnectionView {
+  summary: string
+  sector_tilts: string[]
+  research_priority_hints: string[]
+  source_ids: string[]
+}
+
+export interface MacroScenarioView {
+  case: string
+  direction: string
+  summary: string
+  conditions: string[]
+  investment_implications: string[]
+  source_ids: string[]
+}
+
+export interface MacroMonitoringPointView {
+  event: string
+  condition: string
+  view_change: string
+  summary: string
+  source_ids: string[]
+}
+
+export interface MacroContextSectionView {
+  section_id: string
+  series: MacroSeriesReferenceView[]
+  fact_summary: MacroFactSummaryView[]
+  judgment: MacroSectionJudgmentView
+  investment_connection: MacroInvestmentConnectionView
+  change_since_previous: string | null
+  material_deltas: MacroMaterialDeltaView[]
+  sizing_cautions: MacroSizingCautionView[]
+  scenarios: MacroScenarioView[]
+  monitoring_points: MacroMonitoringPointView[]
 }
 
 export interface MacroContextView {
@@ -244,11 +300,7 @@ export interface MacroContextView {
   published_at: string
   summary: string
   stale: boolean
-  material_deltas: MacroMaterialDeltaView[]
-  sizing_cautions: MacroSizingCautionView[]
-  research_questions: string[]
-  refresh_triggers: string[]
-  changes_since_previous: string[]
+  sections: MacroContextSectionView[]
 }
 
 export interface MacroContextRevisionView {

@@ -240,11 +240,67 @@ class MacroMaterialDeltaView(BaseModel):
     materiality: str
     summary: str
     used_for: str
+    source_ids: list[str]
 
 
 class MacroSizingCautionView(BaseModel):
     severity: str
     summary: str
+    source_ids: list[str]
+
+
+class MacroSeriesReferenceView(BaseModel):
+    series_id: str
+    name: str
+
+
+class MacroFactSummaryView(BaseModel):
+    summary: str
+    source_ids: list[str]
+
+
+class MacroSectionJudgmentView(BaseModel):
+    summary: str
+    direction: str
+    confidence: str
+    source_ids: list[str]
+
+
+class MacroInvestmentConnectionView(BaseModel):
+    summary: str
+    sector_tilts: list[str]
+    research_priority_hints: list[str]
+    source_ids: list[str]
+
+
+class MacroScenarioView(BaseModel):
+    case: str
+    direction: str
+    summary: str
+    conditions: list[str]
+    investment_implications: list[str]
+    source_ids: list[str]
+
+
+class MacroMonitoringPointView(BaseModel):
+    event: str
+    condition: str
+    view_change: str
+    summary: str
+    source_ids: list[str]
+
+
+class MacroContextSectionView(BaseModel):
+    section_id: str
+    series: list[MacroSeriesReferenceView]
+    fact_summary: list[MacroFactSummaryView]
+    judgment: MacroSectionJudgmentView
+    investment_connection: MacroInvestmentConnectionView
+    change_since_previous: str | None
+    material_deltas: list[MacroMaterialDeltaView]
+    sizing_cautions: list[MacroSizingCautionView]
+    scenarios: list[MacroScenarioView]
+    monitoring_points: list[MacroMonitoringPointView]
 
 
 class MacroContextView(BaseModel):
@@ -254,11 +310,7 @@ class MacroContextView(BaseModel):
     published_at: datetime
     summary: str
     stale: bool
-    material_deltas: list[MacroMaterialDeltaView]
-    sizing_cautions: list[MacroSizingCautionView]
-    research_questions: list[str]
-    refresh_triggers: list[str]
-    changes_since_previous: list[str]
+    sections: list[MacroContextSectionView]
 
 
 class MacroContextRevisionView(BaseModel):

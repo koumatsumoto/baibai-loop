@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from baibai_app.api.server import create_app
 from baibai_app.cli import main
+from baibai_engine.appdb.json import canonical_json
+from baibai_engine.macro.models import MacroContextDocument
+from baibai_engine.macro.service import MacroContextService
+from tests.helpers.macro_context import macro_context_payload
 
 
 def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None:
@@ -52,6 +57,100 @@ def test_macro_api_rejects_unknown_period_and_granularity(app_records_root: Path
     with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
         assert client.get("/api/macro?period=20y").status_code == 422
         assert client.get("/api/macro?granularity=quarterly").status_code == 422
+
+
+def test_macro_api_renders_eight_section_context_and_series_names(
+    app_records_root: Path,
+) -> None:
+    db_path = app_records_root / "data/app/baibai.sqlite"
+    document = MacroContextDocument.model_validate(macro_context_payload())
+    MacroContextService(db_path).publish(document, expected_head=None)
+
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/macro?as_of=2026-07-19")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [section["section_id"] for section in body["context"]["sections"]] == [
+        "regime_summary",
+        "rates_policy",
+        "growth_demand",
+        "inflation_costs",
+        "fx_liquidity",
+        "japan_specific",
+        "scenarios_connections",
+        "monitoring_points",
+    ]
+    assert body["context"]["sections"][0]["series"] == [
+        {
+            "series_id": "us.10y",
+            "name": "米10Y利回り",
+        }
+    ]
+    assert body["context"]["sections"][6]["scenarios"][0]["case"] == "base"
+    assert body["context_history"][0]["context_id"] == document.context_id
+
+
+def test_macro_api_displays_common_fields_for_sectionless_revision(
+    app_records_root: Path,
+) -> None:
+    db_path = app_records_root / "data/app/baibai.sqlite"
+    payload = {
+        "schema_version": 2,
+        "kind": "macro-context",
+        "context_id": "macro-context-2026-07-19-sectionless",
+        "as_of": "2026-07-19",
+        "valid_until": "2026-08-19",
+        "published_at": "2026-07-19T12:00:00+09:00",
+        "summary": "共通 field の表示確認",
+    }
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO macro_context(
+                context_id, as_of, valid_until, published_at, supersedes_id, payload
+            ) VALUES (?, ?, ?, ?, NULL, ?)
+            """,
+            (
+                payload["context_id"],
+                payload["as_of"],
+                payload["valid_until"],
+                payload["published_at"],
+                canonical_json(payload),
+            ),
+        )
+
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/macro?as_of=2026-07-19")
+
+    assert response.status_code == 200
+    assert response.json()["context"] == {
+        "context_id": payload["context_id"],
+        "as_of": payload["as_of"],
+        "valid_until": payload["valid_until"],
+        "published_at": payload["published_at"],
+        "summary": payload["summary"],
+        "stale": False,
+        "sections": [],
+    }
+
+
+def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
+    app_records_root: Path, mocker
+) -> None:
+    db_path = app_records_root / "data/app/baibai.sqlite"
+    document = MacroContextDocument.model_validate(macro_context_payload())
+    MacroContextService(db_path).publish(document, expected_head=None)
+    definitions = mocker.patch("baibai_app.readmodel.builders.load_definitions")
+    definitions.return_value.series = ()
+
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/macro?as_of=2026-07-19")
+
+    assert response.status_code == 200
+    assert response.json()["context"]["sections"][0]["series"] == [
+        {"series_id": "us.10y", "name": "us.10y"}
+    ]
 
 
 def test_api_reads_the_explicit_application_database(app_records_root: Path) -> None:
