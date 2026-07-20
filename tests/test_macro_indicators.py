@@ -905,6 +905,44 @@ class IndicatorsServiceTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(first, "1950-01-01")
 
+    def test_empty_full_history_refresh_fails_and_preserves_existing_observations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_observation(
+                database,
+                "us.fed_funds.upper",
+                observed_at=date(1950, 1, 1),
+                value=1.0,
+            )
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[],
+                ),
+                self.assertRaisesRegex(IndicatorsProviderError, "returned no observations"),
+            ):
+                IndicatorsService(database).refresh_all_history(
+                    "us.fed_funds.upper",
+                    end=date(2026, 7, 20),
+                )
+
+            conn = open_connection(database)
+            try:
+                first = conn.execute(
+                    "SELECT MIN(observed_at) FROM observations WHERE series_id = ?",
+                    ("us.fed_funds.upper",),
+                ).fetchone()[0]
+                latest_status = conn.execute(
+                    "SELECT status FROM provider_runs WHERE series_id = ? "
+                    "ORDER BY finished_at DESC LIMIT 1",
+                    ("us.fed_funds.upper",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(first, "1950-01-01")
+            self.assertEqual(latest_status, "failed")
+
     def test_refresh_all_history_excludes_manual_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"

@@ -176,6 +176,7 @@ class IndicatorsService:
                 start=start,
                 end=end,
                 trim_before_first=series.provider == "fred_csv",
+                require_observations=True,
             )
             ordered = sorted(observations, key=lambda item: item.observed_at)
             return QueryResult(series, tuple(ordered), cache_hit=False)
@@ -232,12 +233,17 @@ class IndicatorsService:
         end: date,
         context: FetchContext | None = None,
         trim_before_first: bool = False,
+        require_observations: bool = False,
     ) -> list[ObservationRecord]:
         started_at = datetime.now(UTC)
         try:
             observations = _fetch_observations_with_retry(
                 series, start=start, end=end, context=context
             )
+            if require_observations and not observations:
+                raise IndicatorsProviderError(
+                    f"all-history refresh returned no observations for {series.series_id}"
+                )
             if trim_before_first and observations:
                 # FRED's current licensed delivery window defines reproducible
                 # all-history coverage for a series.
