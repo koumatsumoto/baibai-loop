@@ -487,10 +487,14 @@ def test_position_cli_exposes_human_result_and_holding_build_subcommands() -> No
         "holding-review-build",
         "market-price-draft",
         "record-result",
+        "sell-result-draft",
     }
 
 
-@pytest.mark.parametrize("command", ["holding-review-build", "market-price-draft", "record-result"])
+@pytest.mark.parametrize(
+    "command",
+    ["holding-review-build", "market-price-draft", "record-result", "sell-result-draft"],
+)
 def test_position_human_boundary_subcommand_help_is_public(command: str) -> None:
     with pytest.raises(SystemExit) as excinfo:
         position_main([command, "--help"])
@@ -596,6 +600,26 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "reservation-1",
                 "--out",
                 ".cache/ledger/draft.yaml",
+            ],
+        ),
+        (
+            position_parser,
+            [
+                "sell-result-draft",
+                "--db",
+                "data/app/baibai.sqlite",
+                "--ticker",
+                "1234",
+                "--quantity",
+                "100",
+                "--price-yen",
+                "1100",
+                "--occurred-at",
+                "2026-07-12T10:00:00+09:00",
+                "--decision-reference",
+                "holding-review-20260712-1234-position-1",
+                "--out",
+                ".cache/ledger/sell-draft.yaml",
             ],
         ),
         (

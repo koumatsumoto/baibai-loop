@@ -39,6 +39,7 @@ from baibai_engine.position.drafts import (
     build_event_draft,
     build_meta_draft,
     build_override_draft,
+    build_sell_execution_draft,
     load_draft,
     write_draft,
 )
@@ -205,6 +206,20 @@ def build_parser() -> argparse.ArgumentParser:
     result_parser.add_argument("--expires-at", type=_datetime_argument)
     result_parser.add_argument("--approved-at", type=_datetime_argument)
     result_parser.add_argument("--out", type=Path, required=True)
+    sell_parser = subparsers.add_parser(
+        "sell-result-draft",
+        help="turn a human-reported sell fill into a FIFO-checked execution ledger draft",
+    )
+    sell_parser.add_argument("--root", type=Path, default=Path.cwd())
+    sell_parser.add_argument("--db", type=Path)
+    sell_parser.add_argument("--ticker", required=True)
+    sell_parser.add_argument("--quantity", type=int, required=True)
+    sell_parser.add_argument("--price-yen", type=_decimal_argument, required=True)
+    sell_parser.add_argument("--occurred-at", type=_datetime_argument, required=True)
+    sell_parser.add_argument("--fees-yen", type=int)
+    sell_parser.add_argument("--tax-yen", type=int)
+    sell_parser.add_argument("--decision-reference")
+    sell_parser.add_argument("--out", type=Path, required=True)
     apply_parser = subparsers.add_parser(
         "apply-draft", help="apply a source-bound ledger draft after explicit human confirmation"
     )
@@ -297,6 +312,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         )
     if args.command == "record-result":
         return _run_record_result(args, now=now)
+    if args.command == "sell-result-draft":
+        return _run_sell_result_draft(args)
     if args.command == "apply-draft":
         try:
             result = apply_draft(
@@ -707,6 +724,44 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
             "proposal_id": args.proposal_ref,
             "output": None if output_path is None else str(output_path),
             "event_ids": list(event_ids),
+        },
+        sys.stdout,
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    return 0
+
+
+def _run_sell_result_draft(args: argparse.Namespace) -> int:
+    source_event_ids: set[str] = set()
+    try:
+        output_path = _draft_output_path(args.root, args.out, label="sell result ledger draft")
+        draft = build_sell_execution_draft(
+            LedgerStoreService(args.db),
+            occurred_at=args.occurred_at,
+            ticker=args.ticker,
+            quantity=args.quantity,
+            price_yen=args.price_yen,
+            fees_yen=args.fees_yen,
+            tax_yen=args.tax_yen,
+            decision_reference=args.decision_reference,
+        )
+        source_event_ids = {event.event_id for event in draft.source.events}
+        write_draft(output_path, draft)
+    except (OSError, LedgerConflictError, PortfolioLedgerError, ValueError) as error:
+        print(f"error: failed to build sell result draft: {error}", file=sys.stderr)
+        return 2
+    event_ids = [
+        event.event_id
+        for event in draft.replacement.events
+        if event.event_id not in source_event_ids
+    ]
+    yaml.safe_dump(
+        {
+            "status": "draft_created",
+            "output": str(output_path),
+            "ticker": args.ticker,
+            "event_ids": event_ids,
         },
         sys.stdout,
         sort_keys=False,

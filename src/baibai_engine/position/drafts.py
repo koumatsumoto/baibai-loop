@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -22,7 +24,7 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.store import LedgerApplyResult, LedgerStoreService
 
-DraftKind = Literal["event", "record-result", "market-price", "override", "meta"]
+DraftKind = Literal["event", "record-result", "sell-result", "market-price", "override", "meta"]
 HumanEvent = ContributionEvent | WithdrawalEvent | IncomeEvent | CostEvent | ConfirmedTaxEvent
 
 
@@ -111,6 +113,108 @@ def build_meta_draft(
     )
 
 
+def build_sell_execution_draft(
+    service: LedgerStoreService,
+    *,
+    occurred_at: datetime,
+    ticker: str,
+    quantity: int,
+    price_yen: Decimal,
+    fees_yen: int | None = None,
+    tax_yen: int | None = None,
+    decision_reference: str | None = None,
+) -> LedgerDraft:
+    """Record a human-reported sell fill as a source-bound execution draft.
+
+    The sell consumes FIFO cost from current holdings; ``reconcile_portfolio``
+    rejects a quantity above the reconciled holding, a non board-lot quantity,
+    and any confirmed fee or tax that overdraws available cash. Broker fees and
+    the confirmed capital-gain tax are recorded as their own cost / tax events so
+    realized proceeds and cost stay separable in replay. ``decision_reference``
+    binds the sell to the holding review that judged the reduce / exit.
+    """
+
+    source = service.load()
+    suffix = _sell_event_suffix(
+        occurred_at=occurred_at,
+        ticker=ticker,
+        quantity=quantity,
+        price_yen=price_yen,
+        decision_reference=decision_reference,
+    )
+    occurred_at_text = occurred_at.isoformat()
+    additions: list[dict[str, object]] = [
+        {
+            "event_id": f"human-sell-{suffix}",
+            "type": "execution",
+            "occurred_at": occurred_at_text,
+            "execution_id": f"sell-execution-{suffix}",
+            "ticker": ticker,
+            "side": "sell",
+            "quantity": quantity,
+            "price_yen": str(price_yen),
+            "decision_reference": decision_reference,
+        }
+    ]
+    if fees_yen is not None:
+        additions.append(
+            {
+                "event_id": f"human-sell-fee-{suffix}",
+                "type": "cost",
+                "occurred_at": occurred_at_text,
+                "ticker": ticker,
+                "cost_kind": "commission",
+                "amount_yen": fees_yen,
+            }
+        )
+    if tax_yen is not None:
+        additions.append(
+            {
+                "event_id": f"human-sell-tax-{suffix}",
+                "type": "tax_confirmed",
+                "occurred_at": occurred_at_text,
+                "ticker": ticker,
+                "tax_kind": "capital_gain",
+                "amount_yen": tax_yen,
+            }
+        )
+    raw = source.model_dump(mode="json")
+    raw["events"] = sorted(
+        [*raw["events"], *additions],
+        key=lambda item: datetime.fromisoformat(str(item["occurred_at"])),
+    )
+    raw["as_of"] = max(source.as_of, occurred_at).isoformat()
+    replacement = PortfolioLedgerDocument.model_validate(raw)
+    reconcile_portfolio(replacement)
+    return LedgerDraft(
+        kind="sell-result",
+        expected_head=service.append_head(),
+        source=source,
+        replacement=replacement,
+        confirmation_required=True,
+    )
+
+
+def _sell_event_suffix(
+    *,
+    occurred_at: datetime,
+    ticker: str,
+    quantity: int,
+    price_yen: Decimal,
+    decision_reference: str | None,
+) -> str:
+    raw = "|".join(
+        (
+            decision_reference or "",
+            ticker,
+            str(quantity),
+            str(price_yen),
+            occurred_at.isoformat(),
+        )
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
 def write_draft(path: Path, draft: LedgerDraft) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x", encoding="utf-8") as stream:
@@ -147,6 +251,7 @@ __all__ = [
     "build_event_draft",
     "build_meta_draft",
     "build_override_draft",
+    "build_sell_execution_draft",
     "load_draft",
     "write_draft",
 ]

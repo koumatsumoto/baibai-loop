@@ -32,7 +32,7 @@ proposalはpacket/reviewとcurrent ledgerから作成し、`pending / approved /
 3. `apply-draft --confirmed`がexpected append head、置換対象price/meta、proposal / reservation binding、domain invariantをtransaction内で再検証する。
 4. staleならno-writeとし、current DBからdraftを再生成する。
 
-cash eventは`event-draft`、risk overrideは`override-draft`、tax estimate設定は`meta-draft`、market closeは`market-price-draft`を使う。opening balanceはmigration専用であり、日常CLIから追加しない。
+cash eventは`event-draft`、risk overrideは`override-draft`、tax estimate設定は`meta-draft`、market closeは`market-price-draft`、売却約定は`sell-result-draft`を使う。opening balanceはmigration専用であり、日常CLIから追加しない。
 
 ## Event replay
 
@@ -56,6 +56,10 @@ ledgerはaction単位のappend-only eventでcash、reservation、execution、rel
 | `exit` | thesis brokenまたは確認済み永久損失が優先される |
 
 含み損だけでは売らない。FV到達はreview triggerであり自動exitではない。
+
+`reduce / exit`判定に沿って人間が発注し約定したら、`sell-result-draft`で売却を記録する。builderはcurrent ledgerの保有数量とFIFO原価を検証したexecution(side=sell) draftを作り、`--decision-reference`でholding review IDを紐付ける。broker手数料は`--fees-yen`（cost event）、確定した譲渡益税は`--tax-yen`（confirmed_tax event）で同一draftに載せ、実現損益はreplayのcash増分とFIFO原価消費から導出する。保有数量を超えるsellはfail-closedで拒否する。sell指値計画は機械支援しない。
+
+売却記録の前提: 約定日（`--occurred-at`）はledgerの`as_of`を前進させるため、最終market price観測から`market_price_max_age_days`（7日）を超えているとreconcileがprice stalenessでfail-closedする — 先に`market-price-draft`を適用してから売却draftを作る。同時刻・同値の分割約定は1件に合算するか`--occurred-at`を分ける（決定論のevent_idが同一パラメータの二重記録を拒否する）。手数料・税が無い場合はフラグ自体を省略する（`0`指定は拒否される）。
 
 ## Portfolio outcome
 
