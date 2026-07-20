@@ -134,7 +134,7 @@ decision packetで見積りの根拠を検証するときの分析レンズ / re
 ## 5. 責務境界
 
 - **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・thesis healthと税引後代替で保有を見直す規律を扱う。個別銘柄のpacketやentry/exit設計は扱わない。
-- **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、個別期待値へ影響するmaterial deltaと共通riskを短く残す。記事本文や取得ログは保存しない。
+- **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、個別期待値へ影響するmaterial deltaと共通riskを分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **レビュー済み候補一覧 (reviewed shortlist)**：人間がscreening通過候補を確認したcanonical snapshot。application DBに置き、source run revisionへの束縛を保つ。
 - **個別銘柄research / decision packet**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical packetへ固定する。

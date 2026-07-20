@@ -1,6 +1,6 @@
 ---
 title: "Workflow — macro analysis"
-summary: "マクロ環境分析：指標と一次情報から、個別5年期待値を変えるmaterial deltaと共通riskを必要時だけmacro-context recordに残す。"
+summary: "マクロ環境分析：指標と一次情報から、世界・日本の局面と投資接続を8セクションのmacro-context reportに残す。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-20
@@ -77,20 +77,50 @@ uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
 uv run baibai-engine macro context show --latest --asof 2026-07-19
 ```
 
-主な field：
+report の共通 field：
 
 - `context_id` / `as_of` / `valid_until` / `published_at`
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
-- `material_deltas`：discount rate、demand、funding、common tailのどれが変わったか、方向・重要度・使い道・根拠input
-- `sizing_cautions`：個別の投入額を決めないが、proposalで可視化する共通risk
-- `research_questions` / `refresh_triggers` / `changes_since_previous`
+- `sections`：下表の固定順8セクション。各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`investment_connection`を持つ
+- `sections[0].change_since_previous`：Regime summaryで比較可能なpublished contextからの変化を示す。比較対象がない場合はその旨を示す
+- `material_deltas` / `sizing_cautions`：セクション2〜7の判断として置く。material deltaはchannel / direction / materiality / used_for、sizing cautionはseverityを持つ
+- `scenarios`：セクション7にbase / bear / bullの固定順で置き、成立条件と投資上の含意を分ける
+- `monitoring_points`：セクション8にevent、条件、条件成立時の見方の変更を置く
+
+### 8セクションの作成順
+
+| 順 | セクション | 確認するfact | judgmentと投資接続 |
+| --- | --- | --- | --- |
+| 1 | Regime summary | 成長・インフレ・金融条件の水準と方向、比較可能な時点からの変化 | 現局面を一文で定め、以降の読み順を示す |
+| 2 | 金利・金融政策 | 政策金利、イールドカーブ、実質金利、主要中銀の方向 | discount rate経路とmaterial deltaを示す |
+| 3 | 景気・需要 | PMI、雇用、消費、生産、景気breadth | セクター需要とresearch着手順への含意を示す |
+| 4 | インフレ・コスト | CPI、賃金、輸入物価、commodity | 売価転嫁とmargin経路を示す |
+| 5 | 為替・流動性 | USD/JPY、金利差、net liquidity、credit OAS、VIX/MOVE | risk appetite、funding、共通tail riskを示す |
+| 6 | 日本固有 | BOJ政策、国内賃金物価、鉱工業生産、海外投資家フロー | 日本企業の需要・費用・為替感応度への接続を示す |
+| 7 | シナリオと接続 | セクション2〜6を支持・反証する系列 | base / bear / bull、sector tilt、research優先度ヒント、sizing cautionを判断面に置く |
+| 8 | 監視ポイント | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを明記する |
+
+各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
+
+### 入門者向けの指標の読み方
+
+指標は単独で結論にせず、方向・水準・市場予想との差・改定を分け、同じ経路の反証指標と組にして読む。系列の一次sourceと取得上の制約は[`../reference/data-sources.md`](../reference/data-sources.md)を参照する。
+
+| 指標群 | 基本の読み方 | 必ず組み合わせる確認 |
+| --- | --- | --- |
+| 政策金利・国債金利 | 政策の現在地と市場が織り込む将来経路を分ける。長期金利上昇は割引率の上昇要因になりやすい | 実質金利、期待インフレ、イールドカーブ |
+| PMI・生産・雇用・消費 | 50などの基準、水準の方向、雇用の遅行性を区別する | 新規受注、失業保険申請、生産、実質消費 |
+| CPI・賃金・輸入物価 | 総合と基調、前年比と前月比を分ける。賃金上昇は需要とcostの両経路を持つ | service CPI、実質賃金、為替、原油・銅 |
+| 為替・金利差 | 為替だけで因果を確定せず、金融政策差とrisk-offを分ける | 日米金利、VIX、trade-weighted dollar |
+| 流動性・credit・volatility | net liquidityは構成系列を同じ単位にそろえる。OASやVIX/MOVEの上昇は資金調達・risk appetiteの悪化を示し得る | NFCI、HY/CCC OAS、株式breadth |
+| 日本固有系列 | BOJ、賃金物価、海外需要、投資家フローを順に接続する | USD/JPY、実質実効為替、鉱工業生産 |
 
 **revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。revision には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
 
-**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context revisionにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。過去のcontextとの連続性は、結論を確定させた後に`changes_since_previous`として事後的に接続する。
+**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context revisionにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。比較可能な時点からの変化は、結論を確定させた後にRegime summaryのfactとして接続する。
 
-**更新のきっかけ**：macro-contextは定期的には生成せず、discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、または前回の`refresh_triggers`が発火したときだけ更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
+**更新のきっかけ**：macro-contextは定期的には生成せず、discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、またはpublished contextのmonitoring conditionが発火したときだけ更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
 
 ## ③ ナレッジ：8 分析レンズ
 

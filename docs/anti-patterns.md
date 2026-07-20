@@ -183,7 +183,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 再発防止チェックリスト
 
 - [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、staleはwarning）
-- [ ] `inputs`のinput_id、`material_deltas` / `sizing_cautions` のsource_ids、statusを照合したか
+- [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / investment connection / material delta / sizing cautionのsource_ids、statusを照合したか
 - [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
 - [ ] material deltaが個別仮説に影響する場合だけ、decision packetの判断と反証にsource付きで接続したか
 - [ ] **機械化チェック**: macro context publishのmodel / source / future / stale negative testを実行したか
@@ -209,7 +209,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       あれば、最新 release / statement / minutes が出ているかを必ず確認
 - [ ] macro context の `inputs.articles[]` / `inputs.indicator_series[]` に、判断へ使った外部記事・指標 series と
       `used_for` を残したか
-- [ ] 次に更新すべき大型 event は `refresh_triggers[]` に具体的に残したか
+- [ ] 次に更新すべき大型eventはsection 8の`monitoring_points`に具体日付・条件・見方の変更を残したか
 - [ ] 「随時」「○月下旬」「前後」のような曖昧表現を避け、確認できた具体日付を書く
 - [ ] historical calibration panel が cohort as-of 以下の master snapshot を読み、latest snapshot へ fallback していないか
 
@@ -274,6 +274,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
       macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
       fixture で検証するか
+- [ ] macro context は固定順8セクション、series定義とinputへの参照、source ID、base / bear / bull、
+      monitoring condition、section 2〜7内のmaterial delta / sizing cautionをnegative fixtureで検証するか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
