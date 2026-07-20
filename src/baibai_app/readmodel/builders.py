@@ -292,6 +292,7 @@ def _reviewed_shortlist_view(raw: Mapping[str, object]) -> ReviewedShortlistView
         shortlist_id=str(raw["shortlist_id"]),
         selection_id=str(raw["selection_id"]),
         run_revision_id=str(raw["run_revision_id"]),
+        as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         entries=[
             ReviewedShortlistEntryView.model_validate(item)
@@ -740,6 +741,7 @@ def _screening_run_view(run: CandidatesRun, *, today: date) -> ScreeningRunView:
         run_id=run.run_id,
         run_date=run.run_date,
         asof_date=run.asof_date,
+        run_at=run.run_at,
         universe_size=run.universe_size,
         candidate_count=len(run.rows),
         source_path=run.source_path,

@@ -122,6 +122,7 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
     assert response.json()["reviewed_shortlists"][0]["shortlist_id"] == (
         "shortlist-20260708-test-newer"
     )
+    assert response.json()["reviewed_shortlists"][0]["as_of"] == run.as_of_date
 
 
 def test_screening_api_falls_back_to_selection_bound_run(app_records_root: Path) -> None:

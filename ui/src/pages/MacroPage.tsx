@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
+import { formatJstDateTime } from '../lib/utils'
 import { tradingViewSymbolChartUrl } from '../lib/trading-view'
 
 type MacroPeriod = MacroView['period']
@@ -127,12 +128,12 @@ export function MacroPage() {
           <Card className="shadow-sm">
             <CardHeader className="border-b">
               <div className="flex flex-wrap items-center gap-2"><CardTitle>{context.summary}</CardTitle>{context.stale && <Badge variant="destructive">STALE</Badge>}</div>
-              <CardDescription>{context.context_id} · as-of {context.as_of} · valid until {context.valid_until}</CardDescription>
+              <CardDescription>{context.context_id} · 基準 (as-of) {context.as_of} · 公表 {formatJstDateTime(context.published_at)} · valid until {context.valid_until}</CardDescription>
             </CardHeader>
           </Card>
           {context.sections.length === 0 ? <Alert><CircleAlert /><AlertTitle>Summary 表示</AlertTitle><AlertDescription>この revision は共通 field のみを表示します。</AlertDescription></Alert> : context.sections.map((section) => <ReportSection key={section.section_id} section={section} />)}
         </>}
-        {data.context_history.length > 0 && <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Published history</CardTitle><CardDescription>immutable revisions</CardDescription></CardHeader><CardContent className="grid gap-2 px-5">{data.context_history.map((revision) => <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-2 last:border-0" key={revision.context_id}><div><p className="text-sm font-medium">{revision.summary}</p><p className="font-mono text-xs text-muted-foreground">{revision.context_id}</p></div><time className="text-xs text-muted-foreground" dateTime={revision.as_of}>{revision.as_of}</time></div>)}</CardContent></Card>}
+        {data.context_history.length > 0 && <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Published history</CardTitle><CardDescription>immutable revisions</CardDescription></CardHeader><CardContent className="grid gap-2 px-5">{data.context_history.map((revision) => <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-2 last:border-0" key={revision.context_id}><div><p className="text-sm font-medium">{revision.summary}</p><p className="font-mono text-xs text-muted-foreground">{revision.context_id}</p></div><div className="text-right font-mono text-xs text-muted-foreground tabular-nums"><div>基準 {revision.as_of}</div><div>公表 {formatJstDateTime(revision.published_at)}</div></div></div>)}</CardContent></Card>}
       </section>
       <section className="grid gap-5">
         <div className="flex flex-wrap items-end justify-between gap-4">

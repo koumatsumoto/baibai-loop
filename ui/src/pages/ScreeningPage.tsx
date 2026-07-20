@@ -14,7 +14,7 @@ import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { cn } from '../lib/utils'
+import { cn, formatJstDateTime } from '../lib/utils'
 import { tradingViewChartUrl } from '../lib/trading-view'
 
 type SortDirection = 'asc' | 'desc'
@@ -219,8 +219,8 @@ export function ScreeningPage() {
             {data.run.stale && <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">run stale — as-of {data.run.asof_date}（7 日超）</Badge>}
             <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
               {[
-                ['RUN', data.run.run_date],
-                ['AS OF', data.run.asof_date],
+                ['基準 (AS OF)', data.run.asof_date],
+                ['実行 (RUN AT)', formatJstDateTime(data.run.run_at)],
                 ['UNIVERSE', data.run.universe_size.toLocaleString('ja-JP')],
                 ['CANDIDATES', data.run.candidate_count.toLocaleString('ja-JP')],
               ].map(([label, value]) => (

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -313,6 +313,7 @@ class DbCandidatesSource:
             run_id=str(raw["public_run_id"]),
             run_date=date.fromisoformat(str(raw["run_date"])),
             asof_date=date.fromisoformat(str(raw["as_of_date"])),
+            run_at=datetime.fromisoformat(str(raw["run_at"])),
             universe_size=int(str(raw["universe_size"])),
             source_path=str(raw["run_revision_id"]),
             application_git_commit=_optional_text(raw.get("application_git_commit")),

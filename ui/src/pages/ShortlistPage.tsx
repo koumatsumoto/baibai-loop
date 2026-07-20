@@ -16,7 +16,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { cn } from '../lib/utils'
+import { cn, formatJstDateTime } from '../lib/utils'
 import { tradingViewChartUrl } from '../lib/trading-view'
 
 // OP3 narrative sections in render order (mirrors decision-cycle OP3 の判断項目).
@@ -269,10 +269,10 @@ export function ShortlistPage() {
           </div>
           <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
             {[
-              ['AS OF', shortlist.published_at.slice(0, 10)],
+              ['基準 (AS OF)', shortlist.as_of],
+              ['公表 (PUBLISHED)', formatJstDateTime(shortlist.published_at)],
               ['SELECTED', String(selected.length)],
               ['REJECTED', String(rejected.length)],
-              ['RUN', data.run ? data.run.asof_date : '—'],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</dt>

@@ -113,6 +113,7 @@ export interface ScreeningRunView {
   run_id: string
   run_date: string
   asof_date: string
+  run_at: string
   universe_size: number
   candidate_count: number
   source_path: string
@@ -196,6 +197,7 @@ export interface ReviewedShortlistView {
   shortlist_id: string
   selection_id: string
   run_revision_id: string
+  as_of: string
   published_at: string
   entries: ReviewedShortlistEntryView[]
 }

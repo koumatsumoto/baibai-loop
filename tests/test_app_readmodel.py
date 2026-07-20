@@ -161,6 +161,7 @@ def _run(*, metrics: object = None) -> CandidatesRun:
         run_id="screening-20260708",
         run_date=date(2026, 7, 8),
         asof_date=date(2026, 7, 8),
+        run_at=datetime(2026, 7, 8, 12, 0, tzinfo=JST),
         universe_size=3744,
         source_path="run-revision-20260708",
         application_git_commit=None,
@@ -265,6 +266,7 @@ def test_screening_tolerates_missing_or_invalid_metrics() -> None:
 
     assert view.run is not None
     assert view.run.candidate_count == 1
+    assert view.run.run_at == datetime(2026, 7, 8, 12, 0, tzinfo=JST)
     row = view.rows[0]
     assert row.per_trailing is None
     assert row.er_annual is None

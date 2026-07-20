@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +74,7 @@ class CandidatesRun:
     run_id: str
     run_date: date
     asof_date: date
+    run_at: datetime
     universe_size: int
     source_path: str
     application_git_commit: str | None
