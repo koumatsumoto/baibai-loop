@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,7 @@ from baibai_engine.position.ledger import (
     HoldingSnapshot,
     PortfolioLedgerError,
     PortfolioSnapshot,
+    ReservationSnapshot,
 )
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -90,11 +91,31 @@ class StubCandidates:
 
 
 class StubMarket:
-    def __init__(self, closes: dict[str, tuple[float, date]] | None = None):
+    def __init__(
+        self,
+        closes: dict[str, tuple[float, date]] | None = None,
+        earnings: dict[str, date] | None = None,
+    ):
         self._closes = closes or {}
+        self._earnings = earnings or {}
 
     def latest_closes(self, tickers):
         return {ticker: self._closes[ticker] for ticker in tickers if ticker in self._closes}
+
+    def next_earnings_dates(self, tickers, *, asof):
+        return {
+            ticker: self._earnings[ticker]
+            for ticker in tickers
+            if ticker in self._earnings and self._earnings[ticker] >= asof
+        }
+
+
+class StubMacro:
+    def __init__(self, context: dict[str, object] | None = None):
+        self._context = context
+
+    def context(self, *, as_of):
+        return self._context
 
 
 def _snapshot() -> PortfolioSnapshot:
@@ -364,6 +385,87 @@ def test_holding_uses_market_close_when_strictly_newer_than_ledger() -> None:
     assert holding.fv_gap_pct == 9.1
     assert view.holdings_market_value_yen == 1100
     assert view.total_capital_yen == 2100
+
+
+def _snapshot_with_reservation(*, expires_at: datetime) -> PortfolioSnapshot:
+    base = _snapshot()
+    reservation = ReservationSnapshot(
+        reservation_id="reservation-8929-pending",
+        order_id="order-8929",
+        ticker="8929",
+        sector="不動産業",
+        common_factors=(),
+        decision_reference=None,
+        remaining_quantity=100,
+        price_guard_yen=Decimal("1200"),
+        reserved_yen=120_000,
+        expires_at=expires_at,
+    )
+    return PortfolioSnapshot(
+        **{
+            field: getattr(base, field)
+            for field in base.__dataclass_fields__
+            if field != "active_reservations"
+        },
+        active_reservations=(reservation,),
+    )
+
+
+def test_holding_carries_next_earnings_date_from_market_source() -> None:
+    today = datetime.now(JST).date()
+    earnings_date = today + timedelta(days=3)
+    view = build_dashboard(
+        StubLedger(_snapshot()),
+        StubResearch([_revision()]),
+        StubTasks([]),
+        StubCandidates(_run()),
+        StubMarket(earnings={"4432": earnings_date}),
+    )
+
+    assert view.holdings[0].next_earnings_date == earnings_date.isoformat()
+
+
+def test_upcoming_events_merges_earnings_reservation_macro_within_window_in_order() -> None:
+    today = datetime.now(JST).date()
+    earnings_date = today + timedelta(days=10)
+    reservation_expiry = today + timedelta(days=5)
+    macro_valid_until = today + timedelta(days=5)
+    view = build_dashboard(
+        StubLedger(
+            _snapshot_with_reservation(
+                expires_at=datetime.combine(reservation_expiry, time(15, 30), tzinfo=JST)
+            )
+        ),
+        StubResearch([_revision()]),
+        StubTasks([]),
+        StubCandidates(_run()),
+        StubMarket(earnings={"4432": earnings_date}),
+        macro=StubMacro({"valid_until": macro_valid_until.isoformat()}),
+    )
+
+    events = view.upcoming_events
+    assert [(item.kind, item.days_until) for item in events] == [
+        ("reservation_expiry", 5),
+        ("macro_valid_until", 5),
+        ("earnings", 10),
+    ]
+    assert events[0].ticker == "8929"
+    assert events[2].ticker == "4432"
+    assert events[2].label == "ウイングアーク１ｓｔ"
+
+
+def test_upcoming_events_excludes_dates_outside_the_fourteen_day_window() -> None:
+    today = datetime.now(JST).date()
+    view = build_dashboard(
+        StubLedger(_snapshot()),
+        StubResearch([_revision()]),
+        StubTasks([]),
+        StubCandidates(_run()),
+        StubMarket(earnings={"4432": today + timedelta(days=30)}),
+        macro=StubMacro({"valid_until": (today - timedelta(days=1)).isoformat()}),
+    )
+
+    assert view.upcoming_events == []
 
 
 def test_holding_keeps_ledger_price_when_market_close_is_not_newer() -> None:

@@ -23,7 +23,7 @@ from .macro import (
     macro_indicator_series,
     macro_series_names,
 )
-from .market import latest_unadjusted_closes
+from .market import latest_unadjusted_closes, next_earnings_dates
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
 from .proposals import list_proposal_payloads
@@ -70,6 +70,7 @@ __all__ = [
     "macro_context_payload",
     "macro_indicator_series",
     "macro_series_names",
+    "next_earnings_dates",
     "operation_session",
     "portfolio_ledger_document",
     "reconcile_portfolio",

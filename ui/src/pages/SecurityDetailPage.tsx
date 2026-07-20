@@ -33,12 +33,17 @@ function ScreeningMetrics({ row }: { row: CandidateRowView }) {
   return (
     <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
       <Field label="時価総額"><span className="font-mono tabular-nums">{row.market_cap_oku === null ? '—' : `${row.market_cap_oku.toLocaleString('ja-JP')} 億円`}</span></Field>
+      <Field label="割安スコア"><span className="font-mono tabular-nums">{row.bargain_score ?? '—'}</span></Field>
       <Field label="PER / forward"><span className="font-mono tabular-nums">{row.per_trailing ?? '—'} / {row.per_forward ?? '—'}</span></Field>
       <Field label="PBR"><span className="font-mono tabular-nums">{row.pbr ?? '—'}</span></Field>
+      <Field label="EV/EBITDA"><span className="font-mono tabular-nums">{row.ev_ebitda ?? '—'}</span></Field>
+      <Field label="P/S"><span className="font-mono tabular-nums">{row.p_s ?? '—'}</span></Field>
+      <Field label="PCFR"><span className="font-mono tabular-nums">{row.pcfr ?? '—'}</span></Field>
       <Field label="配当利回り"><FractionMetric value={row.dividend_yield} /></Field>
       <Field label="E[r] (rev/carry)"><span className="font-mono tabular-nums"><FractionMetric value={row.er_annual} /> (<FractionMetric value={row.er_reversion_annual} /> / <FractionMetric value={row.er_carry_annual} />)</span></Field>
       <Field label="Net cash / MC"><FractionMetric value={row.net_cash_to_market_cap} /></Field>
       <Field label="FCF yield"><FractionMetric value={row.fcf_yield} /></Field>
+      <Field label="OCF yield"><FractionMetric value={row.ocf_yield} /></Field>
       <Field label="売上 / 営業益 YoY"><span className="font-mono tabular-nums"><FractionMetric value={row.sales_yoy} /> / <FractionMetric value={row.operating_profit_yoy} /></span></Field>
       <Field label="20d"><FractionMetric value={row.price_change_20d} /></Field>
       <Field label="52w low gap"><FractionMetric value={row.gap_from_52w_low} /></Field>
@@ -136,6 +141,7 @@ export function SecurityDetailPage() {
                 <Field label="FV"><YenAmount value={data.holding.fair_value_yen} /></Field>
                 <Field label="FV乖離"><PctBadge value={data.holding.fv_gap_pct} /></Field>
                 <Field label="判断"><Badge className="font-mono uppercase" variant="outline">{data.holding.recommendation ?? '—'}</Badge></Field>
+                <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? '—'}</span></Field>
               </dl>
             </CardContent>
           </Card>

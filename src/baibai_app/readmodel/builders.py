@@ -12,6 +12,7 @@ from baibai_app.sources.db_sources import DbCandidatesSource, DbMacroSource, DbP
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
+    MacroContextSource,
     MarketPriceSource,
     ResearchSource,
     TaskSource,
@@ -61,8 +62,14 @@ from .models import (
     ScreeningView,
     SecurityDetailView,
     TaskView,
+    UpcomingEventView,
     WarningView,
 )
+
+_EVENT_WINDOW_DAYS = 14
+# Order same-day events so the read most likely to gate an imminent action leads:
+# an earnings print, then a reservation lapse, then the macro context expiry.
+_EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1, "macro_valid_until": 2}
 
 type MacroPeriod = Literal["1y", "5y", "10y", "max"]
 
@@ -112,6 +119,8 @@ def build_dashboard(
     tasks: TaskSource,
     candidates: CandidatesSource,
     market: MarketPriceSource,
+    *,
+    macro: MacroContextSource | None = None,
 ) -> DashboardView:
     """Build the cockpit first view without performing storage I/O directly."""
 
@@ -124,6 +133,7 @@ def build_dashboard(
     open_tasks, next_task, next_event = _task_views(tasks.list_tasks(), today=today)
     tasks_exist = tasks.exists()
     research_load_errors = research.load_errors()
+    macro_valid_until = _macro_valid_until(macro, as_of=today)
 
     if not ledger.exists():
         return _empty_dashboard(
@@ -135,6 +145,9 @@ def build_dashboard(
             next_event=next_event,
             tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
+            upcoming_events=_upcoming_events(
+                today=today, holdings=[], reservations=[], macro_valid_until=macro_valid_until
+            ),
         )
     try:
         snapshot = ledger.snapshot()
@@ -148,15 +161,21 @@ def build_dashboard(
             next_event=next_event,
             tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
+            upcoming_events=_upcoming_events(
+                today=today, holdings=[], reservations=[], macro_valid_until=macro_valid_until
+            ),
         )
 
-    market_closes = market.latest_closes([holding.ticker for holding in snapshot.holdings])
+    holding_tickers = [holding.ticker for holding in snapshot.holdings]
+    market_closes = market.latest_closes(holding_tickers)
+    earnings_dates = market.next_earnings_dates(holding_tickers, asof=today)
     holdings = [
         _holding_view(
             holding,
             revision=latest_research.get(holding.ticker),
             candidate_name=candidate_names.get(holding.ticker),
             market_close=market_closes.get(holding.ticker),
+            next_earnings_date=earnings_dates.get(holding.ticker),
         )
         for holding in snapshot.holdings
     ]
@@ -209,6 +228,12 @@ def build_dashboard(
         holdings=holdings,
         reservations=reservations,
         warnings=warnings,
+        upcoming_events=_upcoming_events(
+            today=today,
+            holdings=holdings,
+            reservations=reservations,
+            macro_valid_until=macro_valid_until,
+        ),
         open_tasks=open_tasks,
         next_task=next_task,
         next_event=next_event,
@@ -342,6 +367,9 @@ def build_security_detail(
             revision=latest_revision,
             candidate_name=candidate_name,
             market_close=market.latest_closes([ticker]).get(ticker),
+            next_earnings_date=market.next_earnings_dates(
+                [ticker], asof=datetime.now(_JST).date()
+            ).get(ticker),
         )
         if holding_snapshot is not None
         else None
@@ -555,6 +583,7 @@ def _empty_dashboard(
     next_event: TaskView | None,
     tasks_exist: bool,
     research_load_errors: list[str],
+    upcoming_events: list[UpcomingEventView],
 ) -> DashboardView:
     return DashboardView(
         generated_at=generated_at,
@@ -573,6 +602,7 @@ def _empty_dashboard(
         holdings=[],
         reservations=[],
         warnings=[],
+        upcoming_events=upcoming_events,
         open_tasks=open_tasks,
         next_task=next_task,
         next_event=next_event,
@@ -608,6 +638,7 @@ def _holding_view(
     revision: ResearchRevision | None,
     candidate_name: str | None,
     market_close: tuple[float, date] | None = None,
+    next_earnings_date: date | None = None,
 ) -> HoldingView:
     # The canonical ledger price is a human-confirmed observation; when the read-only
     # market store carries a strictly newer close, value the holding on that close so the
@@ -645,7 +676,77 @@ def _holding_view(
         fv_gap_pct=fv_gap,
         latest_packet_id=revision.packet_id if revision is not None else None,
         recommendation=revision.recommendation if revision is not None else None,
+        next_earnings_date=(
+            next_earnings_date.isoformat() if next_earnings_date is not None else None
+        ),
     )
+
+
+def _macro_valid_until(macro: MacroContextSource | None, *, as_of: date) -> date | None:
+    if macro is None:
+        return None
+    context = macro.context(as_of=as_of)
+    if context is None:
+        return None
+    raw = context.get("valid_until")
+    return date.fromisoformat(str(raw)) if raw is not None else None
+
+
+def _upcoming_events(
+    *,
+    today: date,
+    holdings: list[HoldingView],
+    reservations: list[ReservationView],
+    macro_valid_until: date | None,
+) -> list[UpcomingEventView]:
+    """Collapse holding earnings, reservation expiries, and the macro context expiry
+    into one chronological list within the next ``_EVENT_WINDOW_DAYS`` days.
+
+    The window is inclusive on both ends: an event dated today (days_until 0) through
+    ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped so the
+    cockpit only shows what needs attention now.
+    """
+
+    window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)
+    events: list[UpcomingEventView] = []
+    for holding in holdings:
+        if holding.next_earnings_date is None:
+            continue
+        event_date = date.fromisoformat(holding.next_earnings_date)
+        if today <= event_date <= window_end:
+            events.append(
+                UpcomingEventView(
+                    event_date=event_date,
+                    kind="earnings",
+                    ticker=holding.ticker,
+                    label=holding.company_name or holding.ticker,
+                    days_until=(event_date - today).days,
+                )
+            )
+    for reservation in reservations:
+        event_date = reservation.expires_at.date()
+        if today <= event_date <= window_end:
+            events.append(
+                UpcomingEventView(
+                    event_date=event_date,
+                    kind="reservation_expiry",
+                    ticker=reservation.ticker,
+                    label=reservation.ticker,
+                    days_until=(event_date - today).days,
+                )
+            )
+    if macro_valid_until is not None and today <= macro_valid_until <= window_end:
+        events.append(
+            UpcomingEventView(
+                event_date=macro_valid_until,
+                kind="macro_valid_until",
+                ticker=None,
+                label="マクロcontext有効期限",
+                days_until=(macro_valid_until - today).days,
+            )
+        )
+    events.sort(key=lambda item: (item.event_date, _EVENT_KIND_ORDER[item.kind], item.ticker or ""))
+    return events
 
 
 def _format_market_price(value: float) -> str:
