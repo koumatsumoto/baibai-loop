@@ -33,6 +33,13 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
             "為替・物価",
             "景気・市場",
         ]
+        macro_series = {
+            series["series_id"]: series
+            for group in macro.json()["groups"]
+            for series in group["series"]
+        }
+        assert macro_series["us.10y"]["tradingview_symbol"] == "TVC:US10Y"
+        assert macro_series["jp.pmi_manufacturing"]["tradingview_symbol"] is None
         assert detail.status_code == 200
         assert detail.json()["ticker"] == "2331"
         assert detail.json()["latest_packet"]["permanent_loss_risk_count"] == 7

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+
+from baibai_engine.macro.indicators.definitions import load_definitions
 
 from .sqlite import connect_read_only
 
@@ -137,7 +140,17 @@ def macro_indicator_series(
         "series_id": series_id,
         "name": str(series[0]),
         "unit": str(series[1]),
+        "tradingview_symbol": _tradingview_symbols().get(series_id),
         "points": points,
+    }
+
+
+@lru_cache(maxsize=1)
+def _tradingview_symbols() -> dict[str, str]:
+    return {
+        item.series_id: item.tradingview_symbol
+        for item in load_definitions().series
+        if item.tradingview_symbol is not None
     }
 
 

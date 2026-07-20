@@ -279,6 +279,7 @@ class MacroSeriesView(BaseModel):
     label: str
     name: str
     unit: str
+    tradingview_symbol: str | None
     points: list[MacroPointView]
 
 

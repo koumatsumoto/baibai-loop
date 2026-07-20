@@ -389,6 +389,11 @@ def build_macro(
                     label=configured.label,
                     name=str(raw_series["name"]),
                     unit=str(raw_series["unit"]),
+                    tradingview_symbol=(
+                        str(raw_series["tradingview_symbol"])
+                        if raw_series.get("tradingview_symbol") is not None
+                        else None
+                    ),
                     points=[
                         MacroPointView.model_validate(item)
                         for item in _mapping_items(raw_series["points"])

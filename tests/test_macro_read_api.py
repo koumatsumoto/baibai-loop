@@ -54,6 +54,9 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
         f"{year}-12-31" for year in range(2016, 2026)
     ]
     assert yearly[-1]["value"] == float(end.toordinal())
+    series = macro_indicator_series(database, series_id="us.10y")
+    assert series is not None
+    assert series["tradingview_symbol"] == "TVC:US10Y"
 
 
 def test_macro_indicator_series_filters_range_before_aggregation_and_keeps_latest_vintage(

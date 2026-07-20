@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CircleAlert } from 'lucide-react'
+import { ChartNoAxesCombined, CircleAlert } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 import { fetchJson } from '../api/client'
@@ -7,9 +7,12 @@ import type { MacroSeriesView, MacroView } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
+import { tradingViewSymbolChartUrl } from '../lib/trading-view'
 
 type MacroPeriod = MacroView['period']
 type MacroGranularity = MacroView['granularity']
@@ -23,7 +26,10 @@ function SeriesChart({ series }: { series: MacroSeriesView }) {
   return (
     <Card className="gap-3 py-5 shadow-sm">
       <CardHeader className="px-5">
-        <CardTitle className="text-base">{series.label}</CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">{series.label}</CardTitle>
+          {series.tradingview_symbol && <Tooltip><TooltipTrigger asChild><Button asChild size="icon-sm" variant="ghost"><a aria-label={`${series.label} の TradingView チャートを開く`} href={tradingViewSymbolChartUrl(series.tradingview_symbol)} rel="noopener noreferrer" target="_blank"><ChartNoAxesCombined aria-hidden="true" /></a></Button></TooltipTrigger><TooltipContent>TradingView でチャートを開く</TooltipContent></Tooltip>}
+        </div>
         <CardDescription>{series.series_id} · {series.unit}</CardDescription>
       </CardHeader>
       <CardContent className="px-3 sm:px-5">

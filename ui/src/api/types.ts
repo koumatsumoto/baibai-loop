@@ -269,6 +269,7 @@ export interface MacroSeriesView {
   label: string
   name: string
   unit: string
+  tradingview_symbol: string | null
   points: MacroPointView[]
 }
 

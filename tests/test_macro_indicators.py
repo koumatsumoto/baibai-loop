@@ -781,6 +781,40 @@ class IndicatorsRegistryTests(unittest.TestCase):
             self.assertEqual(by_id[series_id].category, "equity-index")
             self.assertEqual(by_id[series_id].provider, "fred_csv")
 
+    def test_tradingview_symbols_cover_major_market_series(self) -> None:
+        by_id = load_definitions().by_id()
+        configured = {
+            series_id: definition.tradingview_symbol
+            for series_id, definition in by_id.items()
+            if definition.tradingview_symbol is not None
+        }
+
+        self.assertGreaterEqual(len(configured), 10)
+        self.assertEqual(configured["us.10y"], "TVC:US10Y")
+        self.assertEqual(configured["usd_jpy"], "FX:USDJPY")
+        self.assertEqual(configured["vix"], "CBOE:VIX")
+        self.assertEqual(configured["jp.nikkei225"], "TVC:NI225")
+        self.assertEqual(configured["us.sp500"], "SP:SPX")
+        self.assertIsNone(by_id["jp.pmi_manufacturing"].tradingview_symbol)
+
+    def test_tradingview_symbol_rejects_invalid_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            definitions = Path(tmp) / "series.yaml"
+            canonical = Path("src/baibai_engine/macro/indicators/series.yaml").read_text(
+                encoding="utf-8"
+            )
+            definitions.write_text(
+                canonical.replace(
+                    "tradingview_symbol: TVC:US10Y",
+                    "tradingview_symbol: invalid symbol",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "EXCHANGE:SYMBOL"):
+                load_definitions(definitions)
+
 
 class IndicatorsServiceTests(unittest.TestCase):
     def test_refresh_all_history_uses_provider_floor_and_forces_fetch(self) -> None:
