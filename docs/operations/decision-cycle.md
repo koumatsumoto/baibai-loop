@@ -126,6 +126,7 @@ risk override、estimated exit tax設定、market priceも各typed draftを作�
 3. packet / reviewをpromoteし、DB sourceから`holding-review-build`する。
 4. load-bearing scalar、packet revision、ledger state、`thesis health`、税引後代替価値を検証する。
 5. 人間確認後だけ`holding-review publish`し、IDと`hold / add / reduce / exit`をsessionに記録する。
+6. `reduce / exit`判定に沿って人間が発注し約定したら、その事実だけを`sell-result-draft`で記録する。builderはcurrent ledgerの保有数量とFIFO原価を検証したexecution(side=sell) draftを作り、人間確認後だけ`apply-draft --confirmed`で反映する。判断元のholding review IDを`--decision-reference`で紐付ける。broker手数料は`--fees-yen`（cost event）、確定した譲渡益税は`--tax-yen`（confirmed_tax event）で同一draftに載せる。指値計画は機械支援せず、人間がholding reviewを見て発注する。
 
 ```bash
 uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite --sqlite data/screening/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
@@ -137,9 +138,11 @@ uv run baibai-engine research promote --workspace .cache/opportunity/ASOF_DATE/h
 uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --packet-id PACKET_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
 uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input /tmp/holding-review.yaml
 uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --packet-id PACKET_ID
+uv run baibai-engine position sell-result-draft --db data/app/baibai.sqlite --ticker XXXX --quantity 100 --price-yen 1100 --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --decision-reference HOLDING_REVIEW_ID --out /tmp/sell-draft.yaml
+uv run baibai-engine position apply-draft /tmp/sell-draft.yaml --db data/app/baibai.sqlite --confirmed
 ```
 
-価格下落だけでは売らない。FV到達はreview triggerであり、thesis break、永久損失、current 5年期待値、税・費用控除後の代替価値から判断する。
+価格下落だけでは売らない。FV到達はreview triggerであり、thesis break、永久損失、current 5年期待値、税・費用控除後の代替価値から判断する。保有数量を超えるsellはbuilderがfail-closedで拒否する。
 
 <a id="annual-outcome-path"></a>
 
