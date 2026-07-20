@@ -138,6 +138,7 @@ export interface CandidateRowView {
   er_annual: number | null
   er_reversion_annual: number | null
   er_carry_annual: number | null
+  bargain_score: number | null
   net_cash_to_market_cap: number | null
   fcf_yield: number | null
   ocf_yield: number | null

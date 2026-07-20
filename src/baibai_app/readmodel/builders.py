@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -12,6 +12,7 @@ from baibai_app.sources.db_sources import DbCandidatesSource, DbMacroSource, DbP
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
+    MarketPriceSource,
     ResearchSource,
     TaskSource,
 )
@@ -66,6 +67,9 @@ from .models import (
 type MacroPeriod = Literal["1y", "5y", "10y", "max"]
 
 _JST = ZoneInfo("Asia/Tokyo")
+# Daily bars carry a trade date only; stamp the display timestamp at the TSE close so
+# a market-derived price reads as an end-of-session observation.
+_MARKET_CLOSE_TIME = time(15, 30)
 _NUMERIC_FIELDS = (
     "market_cap_oku",
     "avg_turnover_oku",
@@ -107,6 +111,7 @@ def build_dashboard(
     research: ResearchSource,
     tasks: TaskSource,
     candidates: CandidatesSource,
+    market: MarketPriceSource,
 ) -> DashboardView:
     """Build the cockpit first view without performing storage I/O directly."""
 
@@ -145,11 +150,13 @@ def build_dashboard(
             research_load_errors=research_load_errors,
         )
 
+    market_closes = market.latest_closes([holding.ticker for holding in snapshot.holdings])
     holdings = [
         _holding_view(
             holding,
             revision=latest_research.get(holding.ticker),
             candidate_name=candidate_names.get(holding.ticker),
+            market_close=market_closes.get(holding.ticker),
         )
         for holding in snapshot.holdings
     ]
@@ -178,7 +185,13 @@ def build_dashboard(
         )
         for item in snapshot.warnings
     ]
-    total = snapshot.total_capital_yen
+    # Re-total from the displayed holding values so a fresher market close flows into the
+    # header aggregates. Cash legs stay canonical; total = cash + reserved + market value,
+    # the same identity reconcile_portfolio uses, so the ledger-only case is unchanged.
+    holdings_market_value = sum(item.market_value_yen for item in holdings)
+    available_cash = snapshot.available_cash_yen
+    reserved_cash = snapshot.reserved_cash_yen
+    total = available_cash + reserved_cash + holdings_market_value
     return DashboardView(
         generated_at=now,
         ledger_exists=True,
@@ -186,13 +199,13 @@ def build_dashboard(
         ledger_as_of=snapshot.as_of,
         ledger_stale=snapshot.as_of.date() <= today - timedelta(days=7),
         total_capital_yen=total,
-        available_cash_yen=snapshot.available_cash_yen,
-        reserved_cash_yen=snapshot.reserved_cash_yen,
-        holdings_market_value_yen=snapshot.holdings_market_value_yen,
+        available_cash_yen=available_cash,
+        reserved_cash_yen=reserved_cash,
+        holdings_market_value_yen=holdings_market_value,
         deployed_cost_yen=snapshot.deployed_cost_yen,
-        cash_pct=_percentage(snapshot.available_cash_yen, total, digits=1),
-        reserved_pct=_percentage(snapshot.reserved_cash_yen, total, digits=1),
-        deployed_pct=_percentage(snapshot.holdings_market_value_yen, total, digits=1),
+        cash_pct=_percentage(available_cash, total, digits=1),
+        reserved_pct=_percentage(reserved_cash, total, digits=1),
+        deployed_pct=_percentage(holdings_market_value, total, digits=1),
         holdings=holdings,
         reservations=reservations,
         warnings=warnings,
@@ -296,6 +309,7 @@ def build_security_detail(
     ledger: LedgerSource,
     research: ResearchSource,
     candidates: CandidatesSource,
+    market: MarketPriceSource,
 ) -> SecurityDetailView | None:
     """Build one security page, returning None only when no source knows the ticker."""
 
@@ -326,6 +340,7 @@ def build_security_detail(
             holding_snapshot,
             revision=latest_revision,
             candidate_name=candidate_name,
+            market_close=market.latest_closes([ticker]).get(ticker),
         )
         if holding_snapshot is not None
         else None
@@ -591,13 +606,27 @@ def _holding_view(
     *,
     revision: ResearchRevision | None,
     candidate_name: str | None,
+    market_close: tuple[float, date] | None = None,
 ) -> HoldingView:
-    pnl = holding.market_value_yen - holding.deployed_cost_yen
+    # The canonical ledger price is a human-confirmed observation; when the read-only
+    # market store carries a strictly newer close, value the holding on that close so the
+    # cockpit does not lag stale ledger prices. Anything not newer keeps the ledger value.
+    price_value = float(holding.market_price_yen)
+    price_display = str(holding.market_price_yen)
+    market_value = holding.market_value_yen
+    price_as_of = holding.market_price_observed_at
+    if market_close is not None:
+        close_price, close_date = market_close
+        if close_date > holding.market_price_observed_at.date():
+            price_value = close_price
+            price_display = _format_market_price(close_price)
+            market_value = round(close_price * holding.quantity)
+            price_as_of = datetime.combine(close_date, _MARKET_CLOSE_TIME, tzinfo=_JST)
+    pnl = market_value - holding.deployed_cost_yen
     fair_value = revision.current_fair_value_yen if revision is not None else None
-    market_price = holding.market_price_yen
     fv_gap = (
-        round((fair_value - float(market_price)) / float(market_price) * 100, 1)
-        if fair_value is not None and market_price != 0
+        round((fair_value - price_value) / price_value * 100, 1)
+        if fair_value is not None and price_value != 0
         else None
     )
     return HoldingView(
@@ -606,9 +635,9 @@ def _holding_view(
         sector=holding.sector,
         quantity=holding.quantity,
         deployed_cost_yen=holding.deployed_cost_yen,
-        market_price_yen=str(market_price),
-        market_price_as_of=holding.market_price_observed_at,
-        market_value_yen=holding.market_value_yen,
+        market_price_yen=price_display,
+        market_price_as_of=price_as_of,
+        market_value_yen=market_value,
         unrealized_pnl_yen=pnl,
         unrealized_pnl_pct=_percentage(pnl, holding.deployed_cost_yen, digits=2),
         fair_value_yen=fair_value,
@@ -616,6 +645,12 @@ def _holding_view(
         latest_packet_id=revision.packet_id if revision is not None else None,
         recommendation=revision.recommendation if revision is not None else None,
     )
+
+
+def _format_market_price(value: float) -> str:
+    """Render a market close like the ledger's decimal price, dropping a bare .0."""
+
+    return str(int(value)) if value.is_integer() else str(value)
 
 
 def _task_views(
@@ -725,16 +760,33 @@ def _candidate_row_view(
     metrics = metrics_raw if isinstance(metrics_raw, Mapping) else {}
     values = {name: _number(row.get(name)) for name in _NUMERIC_FIELDS}
     values.update({name: _number(metrics.get(name)) for name in _METRIC_FIELDS})
+    flags = _data_quality_flags(row, metrics)
     return CandidateRowView(
         ticker=ticker,
         name=_text(row.get("name")),
         sector_33=_text(row.get("sector_33")),
         next_earnings_date=_text(row.get("next_earnings_date")),
-        data_quality_flags=_data_quality_flags(row, metrics),
+        data_quality_flags=flags,
+        bargain_score=_bargain_score(
+            values["er_reversion_annual"], values["er_carry_annual"], len(flags)
+        ),
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
         **values,
     )
+
+
+def _bargain_score(reversion: float | None, carry: float | None, flag_count: int) -> float | None:
+    # Display-only ordering that centers the evidence of cheapness. Reversion (the pull
+    # back to fair value) carries full weight; carry (dividend / buyback yield) is a
+    # holding-period return, so it enters at half weight and is clipped at 15%/y — a carry
+    # beyond that is a special dividend or a data anomaly, not a sustainable yield, and must
+    # not dominate the ordering. Each data-quality flag is a small confidence discount.
+    # This is a cockpit view score, not a canonical ranking.
+    if reversion is None and carry is None:
+        return None
+    clipped_carry = min(carry or 0.0, 0.15)
+    return round((reversion or 0.0) + 0.5 * clipped_carry - 0.005 * flag_count, 6)
 
 
 def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -23,6 +23,7 @@ from baibai_engine.read_api import (
     PortfolioSnapshot,
     latest_macro_context_payload,
     latest_reviewed_shortlist_payload,
+    latest_unadjusted_closes,
     list_holding_review_publications,
     list_macro_context_payloads,
     list_operation_sessions,
@@ -54,6 +55,16 @@ class DbLedgerSource:
         if document is None:
             raise ValueError("portfolio ledger has not been initialized")
         return reconcile_portfolio(document)
+
+
+class DbMarketPriceSource:
+    """Read the latest observed close per ticker from the licensed market store."""
+
+    def __init__(self, market_db_path: Path) -> None:
+        self._path = market_db_path.resolve()
+
+    def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
+        return latest_unadjusted_closes(self._path, tickers)
 
 
 class DbProgramSource:

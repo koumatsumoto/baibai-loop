@@ -31,6 +31,7 @@ from baibai_app.sources.db_sources import (
     DbCandidatesSource,
     DbLedgerSource,
     DbMacroSource,
+    DbMarketPriceSource,
     DbProgramSource,
     DbResearchSource,
     DbTaskSource,
@@ -48,6 +49,7 @@ class _Sources:
     candidates: DbCandidatesSource
     macro: DbMacroSource
     program: DbProgramSource
+    market: DbMarketPriceSource
 
 
 def create_app(
@@ -89,6 +91,7 @@ def create_app(
             sources.research,
             sources.tasks,
             sources.candidates,
+            sources.market,
         )
 
     @app.get("/api/screening/latest", response_model=ScreeningView)
@@ -127,6 +130,7 @@ def create_app(
             sources.ledger,
             sources.research,
             sources.candidates,
+            sources.market,
         )
         if view is None:
             raise HTTPException(status_code=404, detail="unknown ticker")
@@ -167,6 +171,7 @@ def _build_sources(request: Request) -> _Sources:
             request.app.state.macro_groups,
         ),
         program=DbProgramSource(db_path),
+        market=DbMarketPriceSource(root / "data/screening/market.sqlite"),
     )
 
 

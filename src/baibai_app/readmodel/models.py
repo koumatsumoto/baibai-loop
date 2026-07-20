@@ -149,6 +149,7 @@ class CandidateRowView(BaseModel):
     er_annual: float | None
     er_reversion_annual: float | None
     er_carry_annual: float | None
+    bargain_score: float | None
     net_cash_to_market_cap: float | None
     fcf_yield: float | None
     ocf_yield: float | None
