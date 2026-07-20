@@ -14,10 +14,25 @@ from baibai_engine.screening.shortlist import (
 )
 
 
+def _narrative() -> dict[str, str]:
+    return {
+        "ploss": "中低",
+        "why": "一時的な受注端境で売られている",
+        "temporary": "翌期の受注残は積み上がっている",
+        "structural": "構造的な需要毀損の証拠はない",
+        "survive": "net cashで5年の下振れに耐えられる",
+        "unlock": "自己株買いと増配で還元余地がある",
+        "counter": "受注が構造的に鈍化している可能性",
+        "research": "受注残と粗利率の推移を一次IRで確認",
+        "value": "FV乖離が大きく深掘り価値が高い",
+        "prov": "深掘り最優先",
+    }
+
+
 def _shortlist() -> ReviewedShortlist:
     return ReviewedShortlist.model_validate(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "kind": "reviewed-shortlist",
             "shortlist_id": "shortlist-20260719-base",
             "selection_id": "selection-test",
@@ -27,7 +42,12 @@ def _shortlist() -> ReviewedShortlist:
             "profile": "default",
             "macro_context_id": "macro-context-2026-07-19-base",
             "entries": [
-                {"ticker": "2331", "decision": "selected", "reason": "一次IRへ進める"},
+                {
+                    "ticker": "2331",
+                    "decision": "selected",
+                    "reason": "一次IRへ進める",
+                    "narrative": _narrative(),
+                },
                 {"ticker": "0001", "decision": "rejected", "reason": "根拠が弱い"},
             ],
         }
@@ -67,6 +87,23 @@ def test_shortlist_rejects_duplicate_ticker_and_missing_selected() -> None:
     payload["entries"] = [
         {"ticker": "2331", "decision": "rejected", "reason": "a"},
         {"ticker": "2331", "decision": "rejected", "reason": "b"},
+    ]
+    with pytest.raises(ValidationError):
+        ReviewedShortlist.model_validate(payload)
+
+
+def test_shortlist_selected_entry_requires_narrative() -> None:
+    payload = _shortlist().payload()
+    payload["entries"] = [{"ticker": "2331", "decision": "selected", "reason": "深掘りへ"}]
+    with pytest.raises(ValidationError):
+        ReviewedShortlist.model_validate(payload)
+
+
+def test_shortlist_rejected_entry_forbids_narrative() -> None:
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {"ticker": "2331", "decision": "selected", "reason": "深掘りへ", "narrative": _narrative()},
+        {"ticker": "0001", "decision": "rejected", "reason": "弱い", "narrative": _narrative()},
     ]
     with pytest.raises(ValidationError):
         ReviewedShortlist.model_validate(payload)

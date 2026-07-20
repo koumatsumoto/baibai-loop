@@ -23,6 +23,21 @@ from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunSt
 from baibai_engine.screening.shortlist_cli import publish_shortlist
 
 
+def _selected_narrative() -> dict[str, str]:
+    return {
+        "ploss": "中低",
+        "why": "一時的な受注端境で売られている",
+        "temporary": "翌期受注残は積み上がる",
+        "structural": "構造的な需要毀損はない",
+        "survive": "net cashで5年耐える",
+        "unlock": "還元強化の余地",
+        "counter": "受注が構造鈍化する可能性",
+        "research": "受注残と粗利率を一次IRで確認",
+        "value": "FV乖離が大きい",
+        "prov": "深掘り最優先",
+    }
+
+
 def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
     app_records_root: Path,
     capsys: pytest.CaptureFixture[str],
@@ -65,7 +80,7 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "kind": "reviewed-shortlist",
                 "shortlist_id": "shortlist-20260708-test",
                 "selection_id": outputs[0]["selection_id"],
@@ -79,6 +94,7 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
                         "ticker": "2331",
                         "decision": "selected",
                         "reason": "一次IRへ進める",
+                        "narrative": _selected_narrative(),
                     }
                 ],
             },
@@ -192,7 +208,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "kind": "reviewed-shortlist",
                 "shortlist_id": "shortlist-20260708-weak-ref",
                 "selection_id": selection_id,
@@ -201,7 +217,14 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
                 "published_at": "2026-07-08T16:00:00+09:00",
                 "profile": selection["profile"],
                 "macro_context_id": input_refs["macro_context_ref"],
-                "entries": [{"ticker": "2331", "decision": "selected", "reason": "一次IRへ進める"}],
+                "entries": [
+                    {
+                        "ticker": "2331",
+                        "decision": "selected",
+                        "reason": "一次IRへ進める",
+                        "narrative": _selected_narrative(),
+                    }
+                ],
             },
             sort_keys=False,
             allow_unicode=True,

@@ -1,0 +1,42 @@
+# Reviewed shortlist draft (operator-authored, per cycle).
+#
+# The OP3 human-review gate: pick 8〜10 candidates from the run's audit_pool and
+# record the judgment here, then publish it as the canonical reviewed shortlist:
+#
+#   uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml \
+#     --db data/app/baibai.sqlite --runs-db data/screening/runs.sqlite
+#
+# publish binds the draft to its source selection: selection_id / run_revision_id
+# / as_of / profile / macro_context_id must match the selection, and every ticker
+# must be in that run's candidates. selected entries require `narrative`; rejected
+# entries must omit it and give a concrete reason (not "順位が低い" / "予算外").
+# The published narrative is read by the baibai-app /shortlist review surface.
+
+schema_version: 2
+kind: reviewed-shortlist
+shortlist_id: "shortlist-YYYYMMDD-<slug>"   # matches ^shortlist-\d{8}-[a-z0-9-]+$
+selection_id: "<selection_id from `screening select`>"
+run_revision_id: "<run_revision_id from `screening run`>"
+as_of: "YYYY-MM-DD"
+published_at: "YYYY-MM-DDTHH:MM:SS+09:00"    # must carry a timezone
+profile: "<selection profile>"
+macro_context_id: null                        # or the bound published macro context id
+entries:
+  - ticker: "XXXX"
+    decision: selected
+    reason: "1 行サマリ（レビュー面のカード見出しに出る）"
+    narrative:
+      ploss: "中"                             # 低 / 中低 / 中 / 要精査 / 高
+      why: "なぜ安くなっている可能性があるか"
+      temporary: "一時的な問題である可能性"
+      structural: "構造的な問題である可能性"
+      survive: "財務的に 5 年間耐えられそうか"
+      unlock: "何が改善すれば株主価値が上がるか"
+      counter: "最も強い反対仮説"
+      research: "個別リサーチで確認する事項"
+      value: "この候補を深掘りする価値"
+      prov: "暫定判断（1 行）"
+      sector_label: null                      # optional; defaults to the screen's sector_33
+  - ticker: "YYYY"
+    decision: rejected
+    reason: "非選択の具体的理由"
