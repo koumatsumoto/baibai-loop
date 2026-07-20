@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 from baibai_engine.screening.calibration.cli import calibration_evaluate_command
 from baibai_engine.screening.calibration.evaluation import (
     _spearman,
+    _view_score_key,
     evaluate_cohorts,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
@@ -248,6 +249,57 @@ class EvaluateCohortsTest(unittest.TestCase):
         pop_top5 = selection["er_population_top5"]
         assert isinstance(pop_top5, dict)
         self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
+
+    def test_reversion_ranked_virtual_replay_orders_by_reversion_not_er(self) -> None:
+        # screen 通過 20 銘柄で er_annual と er_reversion_annual の順位を逆にし、
+        # forward return を reversion 順に揃える → reversion_ranked_top5 は
+        # er_ranked_top5 (carry が押し上げた高 er 群 = 低リターン側) を上回る。
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        n = 120
+        for i in range(n):
+            ticker = f"{3000 + i}"
+            row = _panel_row(ticker, per_trailing=10.0, rank=(i + 1 if i < 20 else None))
+            if i < 20:
+                row = replace(
+                    row,
+                    er_annual=0.02 + 0.004 * i,
+                    er_reversion_annual=0.02 - 0.001 * i,
+                    er_carry_annual=0.005 * i,
+                    pass_screen=True,
+                )
+            panel.append(row)
+            forwards.append(_forward_row(ticker, -0.001 * i))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        horizon = result["6m"]
+        assert isinstance(horizon, dict)
+        cohorts = horizon["cohorts"]
+        assert isinstance(cohorts, list)
+        selection = cohorts[0]["selection"]
+        assert isinstance(selection, dict)
+        reversion_top5 = selection["reversion_ranked_top5"]
+        er_top5 = selection["er_ranked_top5"]
+        assert isinstance(reversion_top5, dict)
+        assert isinstance(er_top5, dict)
+        self.assertEqual(reversion_top5["n"], 5)
+        reversion_median = reversion_top5["median_excess"]
+        er_median = er_top5["median_excess"]
+        assert isinstance(reversion_median, float)
+        assert isinstance(er_median, float)
+        # reversion top-5 は i=0..4 (return 最高群)、er top-5 は i=19..15 (最低群)。
+        self.assertGreater(reversion_median, er_median)
+        view_top5 = selection["view_score_ranked_top5"]
+        assert isinstance(view_top5, dict)
+        self.assertEqual(view_top5["n"], 5)
+
+    def test_view_score_key_caps_carry_contribution(self) -> None:
+        base = _panel_row("9999", per_trailing=10.0, rank=1)
+        capped = replace(base, er_reversion_annual=0.01, er_carry_annual=0.94)
+        uncapped = replace(base, er_reversion_annual=0.01, er_carry_annual=0.10)
+        missing_carry = replace(base, er_reversion_annual=0.01, er_carry_annual=None)
+        self.assertAlmostEqual(_view_score_key(capped), 0.01 + 0.5 * 0.15)
+        self.assertAlmostEqual(_view_score_key(uncapped), 0.01 + 0.5 * 0.10)
+        self.assertAlmostEqual(_view_score_key(missing_carry), 0.01)
 
     def test_er_calibration_compares_centered_reversion_with_centered_price_return(self) -> None:
         panel: list[PanelRow] = []
