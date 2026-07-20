@@ -3,7 +3,7 @@ title: "Workflow — screening evidence patterns"
 summary: "screening の型別 evidence と、個別 research で確認する人間向け checklist。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-20
 ---
 
 # Workflow — Screening Evidence Patterns
@@ -14,7 +14,7 @@ last_reviewed: 2026-07-12
 
 - 閾値・除外条件・pattern の選定順: `records/_config/screening-rules/*.yaml`
 - pattern ごとの research checklist: `records/_playbooks/<playbook_id>/YYYY-MM-DDTHHMMSS+0900.md`
-- candidates / selection の公開 field: screening modelとpublic CLI YAML contract
+- screening run / selection の公開 field: screening modelとpublic CLI YAML contract
 
 Markdown 本文に固定の H2 構成を要求しない。decision packet は playbook 本文を参照せず、候補の source data と個別の判断を記録する。
 

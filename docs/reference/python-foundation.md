@@ -3,7 +3,7 @@ title: "Python foundation"
 summary: "Python の runtime・依存管理・lint・型検査・validation 境界・テスト・セキュリティ・CI 一致の正本。"
 doc_type: reference
 status: active
-last_reviewed: 2026-05-04
+last_reviewed: 2026-07-20
 source_paths:
   - "../../src/baibai_engine/"
   - "../../tests/"
@@ -121,7 +121,7 @@ Pydantic は「外部から入る値」と「永続化境界」に使う。す�
 
 CLI は orchestration に寄せ、外部境界は provider `Protocol` で切る。テスト fake は Protocol を満たせばよく、具象 provider の private 実装に依存しない。
 
-ファイル書き込みは `write_text_atomic()` を使う。candidates YAML は運用上の成果物なので、途中でプロセスが落ちても partial file を残さないことを優先する。
+ファイル書き込みは `write_text_atomic()` を使う。screening runのYAML viewは運用上の成果物なので、途中でプロセスが落ちても partial file を残さないことを優先する。
 
 provider では次を守る。
 

@@ -3,7 +3,7 @@ title: "Anti-patterns"
 summary: "投資判断、data、schema、validator、AI運用で繰り返し防ぐ失敗パターンとcommit前checklist。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-14
+last_reviewed: 2026-07-20
 ---
 
 # anti-patterns
@@ -100,12 +100,12 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 根本原因
 - 株価が極端に動いた (>= ±50%) のに「需給」「業績」「セクター回転」のいずれかで説明できる
   と決めつけ、corporate action (split / 合併 / TOB / 上場区分変更) の可能性を忘れる
-- candidates パイプラインが split 調整しているか、`record_date` ベースか `effective_date`
+- screening runのprice系列が split 調整しているか、`record_date` ベースか `effective_date`
   ベースかを確認しない
 
 ### 再発防止チェックリスト
 
-- [ ] candidates 由来の `price_change_60d` / `price_change_20d` が **±50% を超える銘柄**は、
+- [ ] screening run出力の `price_change_60d` / `price_change_20d` が **±50% を超える銘柄**は、
       research に進める前に以下を確認:
   - [ ] EDINET の臨時報告書・有価証券届出書で 60 日 / 20 営業日 期間内の corporate action
         (株式分割 / 併合 / 合併 / TOB / 第三者割当) を確認
@@ -121,10 +121,10 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ## 4. AP-04: schema / 実装の意味を読まずに推測で解釈する
 
 ### 観測された症状
-- candidates の `sector_relative_strength_percentile: 1.0` を「同業種内で最も強い銘柄」と
+- screening runのcandidate recordにある `sector_relative_strength_percentile: 1.0` を「同業種内で最も強い銘柄」と
   解釈。実装は `_rank_to_percentiles` で sector level の rank (electronics sector が全 33
   業種中で強い) を返す。個別銘柄の同業種内相対強度ではない
-- candidates / macro context YAML schema の追加プロパティ可否を確認せず `note` / `previous_change`
+- screening run / macro context schema の追加プロパティ可否を確認せず `note` / `previous_change`
   を勝手に追加 → validate error
 - 旧 outlook YAML schema の `source_refs` が brief YAML パスに限定されることを確認せず
   research-log.md を指定 → validate error
@@ -136,7 +136,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 ### 再発防止チェックリスト
 
-- [ ] candidates / macro context / research の field を新規に解釈・記述する前に、対応する
+- [ ] screening run / macro context / research の field を新規に解釈・記述する前に、対応する
       engine modelとpublic CLI contractを読み返したか
 - [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`src/baibai_engine/screening/`)
       で計算ロジックを確認したか
@@ -158,12 +158,12 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 ### 再発防止チェックリスト
 
-- [ ] candidates などの事実層に以下のような解釈表現が含まれていないか:
+- [ ] L1 / L2の機械store（market / macro series / screening run）に以下のような解釈表現が含まれていないか:
   - [ ] 「示唆する」「観測される」「受けて」「背景に」「意味する」
   - [ ] 「正当化材料」「early evidence hit」「顕在化」「構造要因」
   - [ ] 「注目すべき」「重要な」「焦点となる」 (Major/Notable は閾値ラベルでありこの意味では
         使わない)
-- [ ] candidates などの事実層に解釈・因果推論・予測を混ぜていないか
+- [ ] L1 / L2の機械store（market / macro series / screening run）に解釈・因果推論・予測を混ぜていないか
 - [ ] 解釈・因果推論・予測は macro context / research の分析層に移したか
 - [ ] macro context で使った外部記事・統計は source metadata として残し、記事本文や網羅的 fact を repo に蓄積していないか
 
@@ -298,9 +298,9 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 観測された症状
 - research 対象銘柄なのに、会社IRを読まず、screening 数値や外部分析だけで採用 / 見送り判断を書く
 - 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
-  会社IR・取引所・candidates で再確認せず research / trade に取り込む
+  会社IR・取引所・screening run出力で再確認せず research / trade に取り込む
 - 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
-- 直前の `rejected` 判定、最新 candidates からの不在、universe drop、macro context headwind などの
+- 直前の `rejected` 判定、最新screening run出力からの不在、universe drop、macro context headwind などの
   system output を、override log なしに外部分析で上書きする
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
 
@@ -319,7 +319,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] 会社IR未確認のまま `judgment.recommendation: buy` にしていないか。未確認なら`defer`または
       `reject`にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
-      取引所 calendar・candidates のいずれかで再確認したか
+      取引所 calendar・screening run出力のいずれかで再確認したか
 - [ ] 外部 AI セッション・証券レポート・アナリストノートを使う場合、records に原稿管理を増やさず、採用した事実と再計算結果だけを本文に残したか
 - [ ] 外部 AI の出力を review 後に修正する場合、修正・未採用の判断を research 本文の確認ログに残したか
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか

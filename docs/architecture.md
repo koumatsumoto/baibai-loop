@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の package、store、CLI、read-only app 契約の正本。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-19
+last_reviewed: 2026-07-20
 ---
 
 # Architecture
@@ -38,7 +38,7 @@ baibai-loop
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
 | `market` | market price / calendar の取得と L1 SQLite | engine 内部 |
 | `macro` | indicator series と published macro context | `baibai-engine macro` |
-| `screening` | candidates、selection、reviewed shortlist、calibration | `baibai-engine screening` |
+| `screening` | screening run、machine selection、reviewed shortlist、calibration | `baibai-engine screening` |
 | `research` | opportunity workspace、decision packet / review、planning-only limit | `baibai-engine research` |
 | `position` | event replay、draft / apply、holding review、outcome | `baibai-engine position` |
 | `tasks` | task current state | `baibai-engine task` |
@@ -90,7 +90,7 @@ public entry point は次の2本だけである。
 | layer | examples | rule |
 | --- | --- | --- |
 | L1 fact | market price、calendar、macro series | provider由来を保持し、再取得可能なstoreへ置く |
-| L2 machine analysis | candidates、E[r]、FV anchor、selection | observed / derived / estimateを区別し、judgmentと呼ばない |
+| L2 machine analysis | screening run、E[r]、FV anchor、machine selection | observed / derived / estimateを区別し、judgmentと呼ばない |
 | L3 judgment / operation | macro context、shortlist、research、proposal、ledger、task、operation | application DBを正本にし、人間境界をwrite-timeに検証する |
 
 fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。
