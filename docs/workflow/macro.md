@@ -22,6 +22,7 @@ uv run baibai-engine macro search 失業率              # 名前/alias/category
 uv run baibai-engine macro get jp.nikkei225 --start 2026-05-20 --end 2026-06-22
 uv run baibai-engine macro get jp.policy_rate --latest
 uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   # provider を強制再取得
+uv run baibai-engine macro import-manual     # git seed の manual 観測を同期
 ```
 
 `get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` は frequency 別の鮮度窓（daily は 1 暦日、weekly は 14 日、monthly は 70 日）内の cache があればそれを返し、古い場合は最新確認用の短い窓（daily は 14 日、weekly は 60 日、monthly は 370 日）を provider で再取得する。環境認識を書く直前は、判断に使う主要 series を `refresh` で直近窓ごと再取得してから `get --latest` を読む。
@@ -38,11 +39,21 @@ uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   
 | `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | `mblong.xlsx` を openpyxl で読む |
 | `boj_mutan` | 無認証 HTML + xlsx | BOJ 無担保コール O/N 確報 | 年別 index から `mdYYYYMMDD.xlsx` を辿り、確報 workbook の平均値を読む。公表タイミングは BOJ の日次更新予定に従う |
 | `mof_jgb` | 無認証 CSV | JP 国債金利（主要年限） | `jgbcm_all.csv` と当月 `jgbcm.csv` を CP932 で読み、和暦の基準日を ISO date に正規化する |
-| `manual` | ローカル file | 倒産件数・PMI | clean な無料 API が無い。`providers/manual_data.yaml` に手動更新し一次ソースで検証 |
+| `manual` | ローカル file | 倒産件数・PMI | clean な無料 API が無い。`providers/manual_data.yaml` を一次ソースで検証して編集し、`import-manual` で同期 |
 | `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
 | `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | HTML 構造変更で壊れる脆さ。追加時は `--latest` で live 確認 |
 
 新ソース追加＝provider モジュールを 1 つ足して `series.yaml` に series を登録する（`providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
+
+manual 観測の正本は git 追跡の `src/baibai_engine/macro/indicators/providers/manual_data.yaml` である。各行は `series_id`、`observed_at`、`value`、`unit`、`source_url`、UTC の `entered_at` を持ち、`series.yaml` の manual 系列と unit / source URL を一致させる。一次ソースを確認して seed を編集し、次を実行する。
+
+```bash
+uv run baibai-engine macro import-manual
+uv run baibai-engine macro get jp.bankruptcies --start 2026-01-01 --end 2026-12-31
+uv run baibai-engine macro get jp.pmi_manufacturing --start 2026-01-01 --end 2026-12-31
+```
+
+`import-manual` は manual 系列を seed の全行へ同期する。同じ seed の再 import は observation と provider run の件数・内容を変えない。manual 系列の `get` は imported row だけを読み、`refresh` は書き込みを拒否して `import-manual` を案内する。`macro.sqlite` は schema / series registry / manual seed と各 provider API から再構築する L1 store であり、manual 観測の backup は持たない。
 
 ### 運用テスト（series / provider を変更したら必ず回す）
 

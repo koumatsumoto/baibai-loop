@@ -19,7 +19,7 @@ from .estat import EStatProvider, parse_estat_json
 from .frb_h15 import FrbH15Provider, parse_h15_csv
 from .fred import FredProvider, parse_fred_csv
 from .jquants_flows import JQuantsFlowsProvider, parse_trades_spec
-from .manual import ManualProvider, parse_manual_entries
+from .manual import ManualProvider, parse_manual_entries, parse_manual_seed
 from .mof_jgb import MofJgbProvider, parse_mof_jgb_csv
 from .multpl import MultplProvider, parse_multpl_current
 from .yahoo import YahooChartProvider, parse_yahoo_chart
@@ -36,6 +36,7 @@ __all__ = [
     "parse_fred_csv",
     "parse_h15_csv",
     "parse_manual_entries",
+    "parse_manual_seed",
     "parse_mof_jgb_csv",
     "parse_multpl_current",
     "parse_trades_spec",
