@@ -48,6 +48,7 @@ from .models import (
     OperationSessionView,
     PacketDetailView,
     PortfolioOutcomeView,
+    PortfolioState,
     ProgramStateView,
     ProposalView,
     ResearchRevisionView,
@@ -76,6 +77,7 @@ _NUMERIC_FIELDS = (
     "pcfr",
     "price_change_20d",
     "gap_from_52w_low",
+    "sector_relative_strength_percentile",
 )
 _METRIC_FIELDS = (
     "dividend_yield",
@@ -86,7 +88,10 @@ _METRIC_FIELDS = (
     "fcf_yield",
     "ocf_yield",
     "equity_ratio",
+    "sales_yoy",
+    "operating_profit_yoy",
 )
+_STALE_RUN_AGE = timedelta(days=7)
 
 
 def build_program_state(source: DbProgramSource) -> ProgramStateView:
@@ -223,11 +228,15 @@ def build_screening(
             selections=selections,
             reviewed_shortlists=shortlists,
         )
-    held = _held_tickers(ledger)
+    held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
+    today = datetime.now(_JST).date()
     return ScreeningView(
-        run=_screening_run_view(run),
-        rows=[_candidate_row_view(row, held=held, researched=researched) for row in run.rows],
+        run=_screening_run_view(run, today=today),
+        rows=[
+            _candidate_row_view(row, held=held, reserved=reserved, researched=researched)
+            for row in run.rows
+        ],
         selections=selections,
         reviewed_shortlists=shortlists,
     )
@@ -309,10 +318,17 @@ def build_security_detail(
         if latest_revision is not None
         else None
     )
+    reserved_here = (
+        {ticker}
+        if snapshot is not None
+        and any(item.ticker == ticker for item in snapshot.active_reservations)
+        else set()
+    )
     candidate_row = (
         _candidate_row_view(
             raw_candidate,
             held={ticker} if holding_snapshot is not None else set(),
+            reserved=reserved_here,
             researched={ticker} if revisions else set(),
         )
         if raw_candidate is not None
@@ -344,7 +360,9 @@ def build_security_detail(
             for item in research.holding_reviews(ticker=ticker)
         ],
         candidate_row=candidate_row,
-        candidate_run=_screening_run_view(run) if run is not None else None,
+        candidate_run=(
+            _screening_run_view(run, today=datetime.now(_JST).date()) if run is not None else None
+        ),
     )
 
 
@@ -625,12 +643,47 @@ def _safe_snapshot(ledger: LedgerSource) -> PortfolioSnapshot | None:
         return None
 
 
-def _held_tickers(ledger: LedgerSource) -> set[str]:
+def _held_and_reserved_tickers(ledger: LedgerSource) -> tuple[set[str], set[str]]:
     snapshot = _safe_snapshot(ledger)
-    return {item.ticker for item in snapshot.holdings} if snapshot is not None else set()
+    if snapshot is None:
+        return set(), set()
+    held = {item.ticker for item in snapshot.holdings}
+    reserved = {item.ticker for item in snapshot.active_reservations}
+    return held, reserved
 
 
-def _screening_run_view(run: CandidatesRun) -> ScreeningRunView:
+def _portfolio_state(ticker: str, *, held: set[str], reserved: set[str]) -> PortfolioState:
+    is_held = ticker in held
+    is_reserved = ticker in reserved
+    if is_held and is_reserved:
+        return "held_and_reserved"
+    if is_held:
+        return "held"
+    if is_reserved:
+        return "reserved"
+    return "unheld"
+
+
+def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]) -> list[str]:
+    """Surface stale/incomplete data so no metric is trusted silently in the table."""
+
+    flags: list[str] = []
+    ttm_quality = row.get("ttm_quality")
+    if isinstance(ttm_quality, Mapping) and any(value != "exact" for value in ttm_quality.values()):
+        flags.append("TTM非exact")
+    if metrics.get("edinet_failure_reasons"):
+        flags.append("EDINET失敗")
+    lag = metrics.get("bs_carry_forward_lag_days")
+    if isinstance(lag, (int, float)) and not isinstance(lag, bool) and lag > 0:
+        flags.append("BS前期繰越")
+    if row.get("freshness_warnings"):
+        flags.append("鮮度warning")
+    if row.get("split_adjustment_flag") is True:
+        flags.append("分割補正")
+    return flags
+
+
+def _screening_run_view(run: CandidatesRun, *, today: date) -> ScreeningRunView:
     return ScreeningRunView(
         run_id=run.run_id,
         run_date=run.run_date,
@@ -639,6 +692,7 @@ def _screening_run_view(run: CandidatesRun) -> ScreeningRunView:
         candidate_count=len(run.rows),
         source_path=run.source_path,
         application_git_commit=run.application_git_commit,
+        stale=run.asof_date <= today - _STALE_RUN_AGE,
     )
 
 
@@ -646,6 +700,7 @@ def _candidate_row_view(
     row: Mapping[str, object],
     *,
     held: set[str],
+    reserved: set[str],
     researched: set[str],
 ) -> CandidateRowView:
     ticker = str(row.get("ticker", ""))
@@ -658,7 +713,8 @@ def _candidate_row_view(
         name=_text(row.get("name")),
         sector_33=_text(row.get("sector_33")),
         next_earnings_date=_text(row.get("next_earnings_date")),
-        held=ticker in held,
+        data_quality_flags=_data_quality_flags(row, metrics),
+        portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
         **values,
     )

@@ -6,6 +6,7 @@ import './styles.css'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 const ScreeningPage = lazy(() => import('./pages/ScreeningPage').then((module) => ({ default: module.ScreeningPage })))
+const ShortlistPage = lazy(() => import('./pages/ShortlistPage').then((module) => ({ default: module.ShortlistPage })))
 const MacroPage = lazy(() => import('./pages/MacroPage').then((module) => ({ default: module.MacroPage })))
 const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
 
@@ -25,6 +26,7 @@ function App() {
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/screening" element={<ScreeningPage />} />
+            <Route path="/shortlist" element={<ShortlistPage />} />
             <Route path="/macro" element={<MacroPage />} />
             <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
           </Routes>

@@ -117,7 +117,10 @@ export interface ScreeningRunView {
   candidate_count: number
   source_path: string
   application_git_commit: string | null
+  stale: boolean
 }
+
+export type PortfolioState = 'unheld' | 'held' | 'reserved' | 'held_and_reserved'
 
 export interface CandidateRowView {
   ticker: string
@@ -139,10 +142,14 @@ export interface CandidateRowView {
   fcf_yield: number | null
   ocf_yield: number | null
   equity_ratio: number | null
+  sales_yoy: number | null
+  operating_profit_yoy: number | null
+  sector_relative_strength_percentile: number | null
   price_change_20d: number | null
   gap_from_52w_low: number | null
   next_earnings_date: string | null
-  held: boolean
+  data_quality_flags: string[]
+  portfolio_state: PortfolioState
   has_research: boolean
 }
 
@@ -163,10 +170,25 @@ export interface MachineSelectionView {
   audit_pool: Record<string, unknown>[]
 }
 
+export interface ShortlistNarrativeView {
+  ploss: string
+  why: string
+  temporary: string
+  structural: string
+  survive: string
+  unlock: string
+  counter: string
+  research: string
+  value: string
+  prov: string
+  sector_label: string | null
+}
+
 export interface ReviewedShortlistEntryView {
   ticker: string
   decision: string
   reason: string
+  narrative: ShortlistNarrativeView | null
 }
 
 export interface ReviewedShortlistView {

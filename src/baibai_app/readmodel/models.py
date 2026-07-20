@@ -127,6 +127,10 @@ class ScreeningRunView(BaseModel):
     candidate_count: int
     source_path: str
     application_git_commit: str | None
+    stale: bool
+
+
+type PortfolioState = Literal["unheld", "held", "reserved", "held_and_reserved"]
 
 
 class CandidateRowView(BaseModel):
@@ -149,10 +153,14 @@ class CandidateRowView(BaseModel):
     fcf_yield: float | None
     ocf_yield: float | None
     equity_ratio: float | None
+    sales_yoy: float | None
+    operating_profit_yoy: float | None
+    sector_relative_strength_percentile: float | None
     price_change_20d: float | None
     gap_from_52w_low: float | None
     next_earnings_date: str | None
-    held: bool
+    data_quality_flags: list[str]
+    portfolio_state: PortfolioState
     has_research: bool
 
 
@@ -173,10 +181,25 @@ class MachineSelectionView(BaseModel):
     audit_pool: list[dict[str, object]]
 
 
+class ShortlistNarrativeView(BaseModel):
+    ploss: str
+    why: str
+    temporary: str
+    structural: str
+    survive: str
+    unlock: str
+    counter: str
+    research: str
+    value: str
+    prov: str
+    sector_label: str | None = None
+
+
 class ReviewedShortlistEntryView(BaseModel):
     ticker: str
     decision: str
     reason: str
+    narrative: ShortlistNarrativeView | None = None
 
 
 class ReviewedShortlistView(BaseModel):
