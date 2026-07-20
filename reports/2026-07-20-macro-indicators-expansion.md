@@ -24,7 +24,9 @@ macro indicators の取得 cache と cockpit を、金利・為替・インフ�
 
 ## 全履歴 backfill
 
-実データ `data/indicators/macro.sqlite` の clone に、全非 manual provider の強制取得と manual seed import を適用する。取得前は 55系列・45,324観測・15,831,040 bytes、取得後は58系列・269,931系列日・112,963,584 bytes（`du -h`: 108MiB）である。vintage 行と読取索引は provider revision と集約性能に使うため保持する。
+実データ `data/indicators/macro.sqlite` の clone に、全非 manual provider の強制取得と manual seed import を適用する。取得前は55系列・45,324観測・15,831,040 bytes、取得後は58系列・277,353観測・276,546系列日・91,275,264 bytes（`du -h`: 88M）である。値・単位・期間・取得状態・source が変わる vintage と読取索引は revision と集約性能に使うため保持し、同内容の連続 vintage は observation に重ねない。
+
+全系列 refresh の連続実行では、同内容の observation は増えず、実行間に値が動いた Yahoo commodity 3点だけが revision として増える。provider identity と一致しない `jp.policy_rate` の cache 20行は同期時に除かれ、同系列は BOJ API の6,994系列日だけを保持する。内容が同じ4組は人間が入力した manual seed の明示的 vintage であり、`import-manual` の12 observation 契約として保持する。
 
 FRED 35系列は現在の `fredgraph.csv` を個別取得し、全系列で `MIN(observed_at)` を先頭行と機械照合する。結果は `series=35 / mismatches=0` である。ICE BofA OAS 3系列はFREDの現在の配信範囲が直近3年、S&P 500 / Dow は直近10年であり、現在のCSV先頭日を再現可能な境界とする。
 
@@ -36,9 +38,9 @@ FRED 35系列は現在の `fredgraph.csv` を個別取得し、全系列で `MIN
 | `multpl` | 3 | 2026-06-27〜2026-07-20 | 11 | provider は current level だけを返す |
 | `estat` | 2 | 1970-01-01〜2026-05-01 | 1,354 | CPI 現行表の月次範囲 |
 | `boj` | 1 | 1970-01-01〜2026-06-01 | 678 | 長期時系列 workbook の収録範囲 |
-| `boj_mutan` | 1 | 2025-01-06〜2026-07-16 | 378 | 日別 file 巡回を直近2暦年に限定 |
+| `boj_timeseries` | 1 | 1998-01-05〜2026-07-15 | 6,994 | BOJ 時系列統計データ検索API `FM01:STRDCLUCON` の収録範囲 |
 | `mof_jgb` | 1 | 1986-07-05〜2026-07-16 | 9,903 | 財務省全履歴 CSV の10年列開始日まで |
-| `jquants_flows` | 1 | 2022-04-14〜2026-07-16 | 224 | 利用契約は2021-07-20以後、TSE Prime データは2022-04-14から存在 |
+| `jquants_flows` | 1 | 2022-04-08〜2026-07-10 | 223 | 利用契約の要求窓は運用日から5年。225公表行を集計週末のobservationと公表日のvintageへ分け、同内容revisionを整理する |
 | `manual` | 2 | 2026-01-01〜2026-04-01 | 8 | git 管理 seed 12 observation を `import-manual` で同期 |
 
 ## API と cockpit
@@ -47,11 +49,11 @@ FRED 35系列は現在の `fredgraph.csv` を個別取得し、全系列で `MIN
 
 | period / granularity | groups / series | points | response bytes | elapsed |
 | --- | --- | ---: | ---: | ---: |
-| `1y / daily` | 3 / 8 | 1,510 | 66,635 | 37.8ms |
-| `5y / weekly` | 3 / 8 | 1,343 | 59,608 | 22.0ms |
-| `10y / monthly` | 3 / 8 | 662 | 30,064 | 30.6ms |
-| `max / yearly` | 3 / 8 | 276 | 13,302 | 88.6ms |
-| `max / daily` | 3 / 8 | 54,080 | 2,357,012 | 144.0ms |
+| `1y / daily` | 3 / 8 | 1,505 | 66,420 | 26.6ms |
+| `5y / weekly` | 3 / 8 | 1,524 | 67,507 | 23.6ms |
+| `10y / monthly` | 3 / 8 | 764 | 34,528 | 24.1ms |
+| `max / yearly` | 3 / 8 | 303 | 14,467 | 93.7ms |
+| `max / daily` | 3 / 8 | 60,696 | 2,642,048 | 155.4ms |
 
 未知の `period` と `granularity` はともに HTTP 422 を返す。初期表示は3グループ・8系列、`1y / daily` である。Chrome の実画面で `10年 / 月次` を選ぶと、全チャート用に `/api/macro?period=10y&granularity=monthly` を再取得する。
 

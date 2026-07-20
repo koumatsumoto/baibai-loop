@@ -191,11 +191,11 @@ series:
     geography: japan
     frequency: daily
     unit: percent
-    provider: boj_mutan
-    provider_series_id: average_final
-    source_id: boj-mutan-final
-    source_url: https://www.boj.or.jp/statistics/market/short/mutan/index.htm
-    notes: 日本銀行「コール市場関連統計（毎営業日）」の無担保コールO/N物レート確報・平均。金融政策の実効短期金利として読む。
+    provider: boj_timeseries
+    provider_series_id: FM01:STRDCLUCON
+    source_id: boj-timeseries-strdclucon
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行時系列統計データ検索APIの無担保コールO/N物レート平均(日次)。金融政策の実効短期金利として読む。
     aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール, boj_policy_rate]
   - series_id: jp.unemployment
     name: 日本失業率
@@ -408,7 +408,7 @@ series:
     provider_series_id: foreigners_net_value
     source_id: jquants-trades-spec
     source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
-    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)を公表日付で記録
+    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
     aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
   - series_id: us.real_10y
     name: 米10Y実質金利(TIPS)

@@ -46,10 +46,23 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
     yearly = _points(database, "yearly", start=start, end=end)
 
     expected_weeks = {day.isocalendar()[:2] for day in _days(start, end)}
+    expected_week_ends: dict[tuple[int, int], date] = {}
+    expected_month_ends: dict[tuple[int, int], date] = {}
+    for day in _days(start, end):
+        expected_week_ends[day.isocalendar()[:2]] = day
+        expected_month_ends[(day.year, day.month)] = day
     assert len(daily) == len(observations)
     assert len(weekly) == len(expected_weeks)
     assert len(monthly) == 120
     assert len(yearly) == 10
+    assert weekly == [
+        {"observed_at": day.isoformat(), "value": float(day.toordinal())}
+        for day in expected_week_ends.values()
+    ]
+    assert monthly == [
+        {"observed_at": day.isoformat(), "value": float(day.toordinal())}
+        for day in expected_month_ends.values()
+    ]
     assert [point["observed_at"] for point in yearly] == [
         f"{year}-12-31" for year in range(2016, 2026)
     ]
@@ -96,6 +109,54 @@ def test_macro_indicator_series_filters_range_before_aggregation_and_keeps_lates
     )
 
     assert points == [{"observed_at": "2026-01-02", "value": 2.5}]
+
+
+def test_macro_indicator_series_applies_jquants_publication_cutoff(tmp_path: Path) -> None:
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id="jp.foreign_flows",
+                    observed_at=date(2024, 8, 23),
+                    value=value,
+                    unit="jpy",
+                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
+                    period_start=date(2024, 8, 19),
+                    period_end=date(2024, 8, 23),
+                    vintage_at=vintage_at,
+                )
+                for value, vintage_at in (
+                    (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
+                    (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
+                )
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    august = macro_indicator_series(
+        database,
+        series_id="jp.foreign_flows",
+        start=date(2024, 8, 1),
+        end=date(2024, 8, 31),
+        limit=None,
+    )
+    september = macro_indicator_series(
+        database,
+        series_id="jp.foreign_flows",
+        start=date(2024, 8, 1),
+        end=date(2024, 9, 30),
+        limit=None,
+    )
+
+    assert august is not None
+    assert august["points"] == [{"observed_at": "2024-08-23", "value": -408854431.0}]
+    assert september is not None
+    assert september["points"] == [{"observed_at": "2024-08-23", "value": -400000000.0}]
 
 
 def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> None:

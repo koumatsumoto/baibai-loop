@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
@@ -29,11 +30,12 @@ PROVIDER_FETCH_ATTEMPTS = 2
 PROVIDER_FETCH_RETRY_BACKOFF_SECONDS = 1.0
 _ALL_HISTORY_START_BY_PROVIDER = {
     "boj": date(1957, 1, 1),
+    "boj_timeseries": date(1998, 1, 1),
     "ecb_fx": date(1999, 1, 1),
     "estat": date(1970, 1, 1),
     "frb_h15": date(1962, 1, 1),
     "fred_csv": date(1900, 1, 1),
-    "jquants_flows": date(2017, 1, 1),
+    "jquants_flows": None,
     "mof_jgb": date(1974, 1, 1),
     "multpl": None,
     "yahoo": date(1970, 1, 1),
@@ -87,7 +89,7 @@ class IndicatorsService:
             for series_id in manual_ids:
                 conn.execute("DELETE FROM observations WHERE series_id = ?", (series_id,))
             conn.execute("DELETE FROM provider_runs WHERE provider = 'manual'")
-            db.insert_observations(conn, observations)
+            db.insert_observations(conn, observations, deduplicate_unchanged=False)
             for series_id, entries in grouped.items():
                 entered_at = max(item.vintage_at for item in entries if item.vintage_at is not None)
                 conn.execute(
@@ -160,15 +162,20 @@ class IndicatorsService:
                 raise IndicatorsProviderError(
                     f"manual series {series_id} is synchronized with macro import-manual"
                 )
-            if series.provider == "boj_mutan":
-                start = date(max(2001, end.year - 1), 1, 1)
-            else:
-                try:
-                    configured_start = _ALL_HISTORY_START_BY_PROVIDER[series.provider]
-                except KeyError:
+            try:
+                configured_start = _ALL_HISTORY_START_BY_PROVIDER[series.provider]
+            except KeyError:
+                raise IndicatorsProviderError(
+                    f"all-history start is not configured for provider {series.provider}"
+                ) from None
+            if series.provider == "jquants_flows":
+                start = _years_before(_today_jst(), 5)
+                if end < start:
                     raise IndicatorsProviderError(
-                        f"all-history start is not configured for provider {series.provider}"
-                    ) from None
+                        f"all-history end {end.isoformat()} precedes the J-Quants Light "
+                        f"history floor {start.isoformat()}"
+                    )
+            else:
                 start = end if configured_start is None else configured_start
             observations = self._fetch_and_store(
                 conn,
@@ -176,6 +183,8 @@ class IndicatorsService:
                 start=start,
                 end=end,
                 trim_before_first=series.provider == "fred_csv",
+                remove_other_sources=True,
+                replace_requested_range=series.provider == "jquants_flows",
                 require_observations=True,
             )
             ordered = sorted(observations, key=lambda item: item.observed_at)
@@ -233,6 +242,8 @@ class IndicatorsService:
         end: date,
         context: FetchContext | None = None,
         trim_before_first: bool = False,
+        remove_other_sources: bool = False,
+        replace_requested_range: bool = False,
         require_observations: bool = False,
     ) -> list[ObservationRecord]:
         started_at = datetime.now(UTC)
@@ -252,7 +263,32 @@ class IndicatorsService:
                     "DELETE FROM observations WHERE series_id = ? AND observed_at < ?",
                     (series.series_id, first_observed_at.isoformat()),
                 )
+            if remove_other_sources and observations:
+                conn.execute(
+                    "DELETE FROM observations WHERE series_id = ? AND source_url != ? "
+                    "AND observed_at BETWEEN ? AND ? AND substr(vintage_at, 1, 10) <= ?",
+                    (
+                        series.series_id,
+                        series.source_url,
+                        start.isoformat(),
+                        end.isoformat(),
+                        end.isoformat(),
+                    ),
+                )
+            if replace_requested_range and observations:
+                first_observed_at = min(item.observed_at for item in observations)
+                conn.execute(
+                    "DELETE FROM observations WHERE series_id = ? "
+                    "AND observed_at BETWEEN ? AND ? AND substr(vintage_at, 1, 10) <= ?",
+                    (
+                        series.series_id,
+                        min(start, first_observed_at).isoformat(),
+                        end.isoformat(),
+                        end.isoformat(),
+                    ),
+                )
             db.insert_observations(conn, observations)
+            db.delete_unchanged_vintages(conn, series.series_id)
             db.record_provider_run(
                 conn,
                 provider=series.provider,
@@ -282,6 +318,17 @@ class IndicatorsService:
             )
             conn.commit()
             raise
+
+
+def _years_before(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year - years)
+    except ValueError:
+        return value.replace(year=value.year - years, day=28)
+
+
+def _today_jst() -> date:
+    return datetime.now(ZoneInfo("Asia/Tokyo")).date()
 
 
 def _provider_run_coverage_end(

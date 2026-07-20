@@ -105,7 +105,7 @@ def macro_indicator_series(
     connection = connect_read_only(path)
     try:
         series = connection.execute(
-            "SELECT name, unit FROM series WHERE series_id = ?", (series_id,)
+            "SELECT name, unit, provider FROM series WHERE series_id = ?", (series_id,)
         ).fetchone()
         if series is None:
             return None
@@ -122,11 +122,22 @@ def macro_indicator_series(
                 WHERE series_id = ? AND fetch_status = 'ok'
                   AND (? IS NULL OR observed_at >= ?)
                   AND (? IS NULL OR observed_at <= ?)
+                  AND (? != 'jquants_flows' OR ? IS NULL
+                       OR substr(vintage_at, 1, 10) <= ?)
             )
             WHERE rank = 1
             ORDER BY observed_at ASC
             """,
-            (series_id, start_text, start_text, end_text, end_text),
+            (
+                series_id,
+                start_text,
+                start_text,
+                end_text,
+                end_text,
+                str(series[2]),
+                end_text,
+                end_text,
+            ),
         ).fetchall()
     finally:
         connection.close()

@@ -19,6 +19,7 @@ from baibai_engine.macro.indicators.cli import build_parser, main
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     ObservationRecord,
+    delete_unchanged_vintages,
     get_series,
     has_ok_coverage,
     initialize_database,
@@ -33,7 +34,7 @@ from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_de
 from baibai_engine.macro.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
-    parse_boj_mutan_xlsx,
+    parse_boj_timeseries_json,
     parse_boj_xlsx,
     parse_ecb_fx_csv,
     parse_estat_json,
@@ -45,10 +46,6 @@ from baibai_engine.macro.indicators.providers import (
     parse_multpl_current,
     parse_trades_spec,
     parse_yahoo_chart,
-)
-from baibai_engine.macro.indicators.providers.boj_mutan import (
-    BojMutanProvider,
-    parse_boj_mutan_old_average,
 )
 from baibai_engine.macro.indicators.providers.manual import MANUAL_DATA_PATH
 from baibai_engine.macro.indicators.service import IndicatorsService
@@ -187,6 +184,142 @@ class IndicatorsDBTests(unittest.TestCase):
 
             self.assertEqual(len(observations), 1)
             self.assertEqual(observations[0].value, 4.41)
+
+    def test_jquants_range_excludes_vintages_published_after_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(
+                    conn,
+                    [
+                        ObservationRecord(
+                            series_id="jp.foreign_flows",
+                            observed_at=date(2024, 8, 23),
+                            value=value,
+                            unit="jpy",
+                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
+                            period_start=date(2024, 8, 19),
+                            period_end=date(2024, 8, 23),
+                            vintage_at=vintage_at,
+                        )
+                        for value, vintage_at in (
+                            (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
+                            (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
+                        )
+                    ],
+                )
+
+                august = observations_in_range(
+                    conn,
+                    "jp.foreign_flows",
+                    date(2024, 8, 1),
+                    date(2024, 8, 31),
+                )
+                september = observations_in_range(
+                    conn,
+                    "jp.foreign_flows",
+                    date(2024, 8, 1),
+                    date(2024, 9, 30),
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual([item.value for item in august], [-408854431.0])
+            self.assertEqual([item.value for item in september], [-400000000.0])
+
+    def test_insert_observations_skips_unchanged_later_vintage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                common = {
+                    "series_id": "us.10y",
+                    "observed_at": date(2026, 5, 1),
+                    "unit": "percent",
+                    "source_url": "https://example.com/us10y.csv",
+                }
+                insert_observations(
+                    conn,
+                    [
+                        ObservationRecord(
+                            **common,
+                            value=4.39,
+                            vintage_at=datetime(2026, 5, 2, tzinfo=UTC),
+                        )
+                    ],
+                )
+                insert_observations(
+                    conn,
+                    [
+                        ObservationRecord(
+                            **common,
+                            value=4.39,
+                            vintage_at=datetime(2026, 5, 3, tzinfo=UTC),
+                        ),
+                        ObservationRecord(
+                            **common,
+                            value=4.41,
+                            vintage_at=datetime(2026, 5, 4, tzinfo=UTC),
+                        ),
+                        ObservationRecord(
+                            **common,
+                            value=4.39,
+                            vintage_at=datetime(2026, 5, 5, tzinfo=UTC),
+                        ),
+                    ],
+                )
+                rows = conn.execute(
+                    "SELECT value, vintage_at FROM observations WHERE series_id = ? "
+                    "AND observed_at = ? ORDER BY vintage_at",
+                    ("us.10y", "2026-05-01"),
+                ).fetchall()
+            finally:
+                conn.close()
+
+            self.assertEqual(
+                [(row["value"], row["vintage_at"]) for row in rows],
+                [
+                    (4.39, "2026-05-02T00:00:00+00:00"),
+                    (4.41, "2026-05-04T00:00:00+00:00"),
+                    (4.39, "2026-05-05T00:00:00+00:00"),
+                ],
+            )
+
+    def test_delete_unchanged_vintages_preserves_changed_and_reverted_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(
+                    conn,
+                    [
+                        ObservationRecord(
+                            series_id="us.10y",
+                            observed_at=date(2026, 5, 1),
+                            value=value,
+                            unit="percent",
+                            source_url="https://example.com/us10y.csv",
+                            vintage_at=datetime(2026, 5, day, tzinfo=UTC),
+                        )
+                        for day, value in ((1, 4.39), (2, 4.39), (3, 4.41), (4, 4.39))
+                    ],
+                    deduplicate_unchanged=False,
+                )
+
+                deleted = delete_unchanged_vintages(conn, "us.10y")
+                values = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT value FROM observations WHERE series_id = ? ORDER BY vintage_at",
+                        ("us.10y",),
+                    )
+                ]
+            finally:
+                conn.close()
+
+            self.assertEqual(deleted, 1)
+            self.assertEqual(values, [4.39, 4.41, 4.39])
 
     def test_zero_record_provider_run_is_not_cache_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -517,57 +650,6 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "missing column 10年"):
             parse_mof_jgb_csv(series, text, start=date(2026, 7, 8), end=date(2026, 7, 8))
 
-    def test_parse_boj_mutan_xlsx_extracts_average_rate(self) -> None:
-        content = _boj_mutan_workbook_bytes(average=0.978)
-        series = _series("boj_mutan", "average_final")
-
-        observation = parse_boj_mutan_xlsx(series, content, observed_at=date(2026, 7, 8))
-
-        self.assertEqual(observation.observed_at, date(2026, 7, 8))
-        self.assertEqual(observation.value, 0.978)
-
-    def test_parse_boj_mutan_xlsx_rejects_missing_average(self) -> None:
-        content = _boj_workbook_bytes([("最高\nMaximum", 1.03)])
-        series = _series("boj_mutan", "average_final")
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "Average"):
-            parse_boj_mutan_xlsx(series, content, observed_at=date(2026, 7, 8))
-
-    def test_parse_boj_mutan_old_average_accepts_cp932_and_utf8(self) -> None:
-        self.assertEqual(
-            parse_boj_mutan_old_average("<html>平均 0.477％</html>".encode("cp932")),
-            0.477,
-        )
-        self.assertEqual(
-            parse_boj_mutan_old_average("<td>平均</td><td>0.478%</td>".encode()),
-            0.478,
-        )
-
-    def test_boj_mutan_fetch_reads_old_archive_link_and_average(self) -> None:
-        series = _series("boj_mutan", "average_final")
-        menu_url = "https://www3.boj.or.jp/market/jp/menuold_m_2025.htm"
-        page_url = "https://www3.boj.or.jp/market/jp/stat/md250930.htm"
-        session = _RoutingSession(
-            {
-                menu_url: _FakeResponse(
-                    '<a href="stat/md250930.htm">2025年9月30日</a>'.encode("cp932")
-                ),
-                page_url: _FakeResponse("<html><body>平均 0.477％</body></html>".encode("cp932")),
-            }
-        )
-
-        observations = BojMutanProvider().fetch(
-            series,
-            start=date(2025, 9, 30),
-            end=date(2025, 9, 30),
-            session=session,
-        )
-
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2025, 9, 30))
-        self.assertEqual(observations[0].value, 0.477)
-        self.assertEqual(session.urls, [menu_url, page_url])
-
     def test_parse_estat_json_filters_range_and_skips_nonnumeric(self) -> None:
         series = _series("estat", "0003427113", unit="index")
         text = json.dumps(
@@ -677,6 +759,79 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "cannot parse current value"):
             parse_multpl_current("<html>no current sentence here</html>", "shiller-pe")
 
+    def test_multpl_uses_japan_operation_date(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        response = _FakeResponse(b"Current Shiller PE Ratio is 40.70")
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 7, 20),
+        ):
+            observations = fetch_observations(
+                series,
+                start=date(2026, 7, 20),
+                end=date(2026, 7, 20),
+                session=_StaticSession(response),
+            )
+
+        self.assertEqual([item.observed_at for item in observations], [date(2026, 7, 20)])
+
+    def test_parse_boj_timeseries_json_filters_range_and_nulls(self) -> None:
+        series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
+        text = json.dumps(
+            {
+                "STATUS": 200,
+                "RESULTSET": [
+                    {
+                        "SERIES_CODE": "STRDCLUCON",
+                        "VALUES": {
+                            "SURVEY_DATES": [19980104, 19980105, 19980106],
+                            "VALUES": [None, 0.49, 0.42],
+                        },
+                    }
+                ],
+            }
+        )
+
+        observations = parse_boj_timeseries_json(
+            series,
+            text,
+            start=date(1998, 1, 5),
+            end=date(1998, 1, 5),
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(1998, 1, 5))
+        self.assertEqual(observations[0].value, 0.49)
+
+    def test_parse_boj_timeseries_json_rejects_malformed_payload(self) -> None:
+        series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
+        for payload, message in (
+            ({"STATUS": 500, "MESSAGE": "failed"}, "status"),
+            (
+                {
+                    "STATUS": 200,
+                    "RESULTSET": [
+                        {
+                            "SERIES_CODE": "STRDCLUCON",
+                            "VALUES": {"SURVEY_DATES": [19980105], "VALUES": []},
+                        }
+                    ],
+                },
+                "lengths differ",
+            ),
+        ):
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(IndicatorsProviderError, message),
+            ):
+                parse_boj_timeseries_json(
+                    series,
+                    json.dumps(payload),
+                    start=date(1998, 1, 1),
+                    end=date(1998, 1, 31),
+                )
+
     def test_split_stats_data_id_extracts_narrowing_params(self) -> None:
         from baibai_engine.macro.indicators.providers.estat import _split_stats_data_id
 
@@ -693,6 +848,13 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_parse_trades_spec_filters_range_and_uses_foreign_balance(self) -> None:
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
         rows = [
+            {
+                "PubDate": "2026-05-08",
+                "EnDate": "2026-04-25",
+                "FrgnBuy": 900,
+                "FrgnSell": 800,
+                "FrgnBal": 100,
+            },
             {
                 "PubDate": "2026-05-08",
                 "EnDate": "2026-05-02",
@@ -717,12 +879,14 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         ]
 
         observations = parse_trades_spec(
-            series, rows, start=date(2026, 5, 8), end=date(2026, 5, 15)
+            series, rows, start=date(2026, 5, 1), end=date(2026, 5, 15)
         )
 
         self.assertEqual(len(observations), 2)
-        self.assertEqual(observations[0].observed_at, date(2026, 5, 8))
+        self.assertEqual(observations[0].observed_at, date(2026, 5, 2))
         self.assertEqual(observations[0].value, 500.0)
+        self.assertEqual(observations[0].vintage_at, datetime(2026, 5, 8, tzinfo=UTC))
+        self.assertEqual(observations[1].observed_at, date(2026, 5, 9))
         self.assertEqual(observations[1].value, -800.0)
         self.assertEqual(observations[0].unit, "jpy")
 
@@ -734,6 +898,44 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].value, 500.0)
+
+    def test_parse_trades_spec_keeps_each_period_for_duplicate_publication_date(
+        self,
+    ) -> None:
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        rows = [
+            {
+                "PubDate": "2024-09-10",
+                "StDate": "2024-08-19",
+                "EnDate": "2024-08-23",
+                "FrgnBal": -408854431,
+            },
+            {
+                "PubDate": "2024-09-10",
+                "StDate": "2024-08-26",
+                "EnDate": "2024-08-30",
+                "FrgnBal": -237009201,
+            },
+        ]
+
+        observations = parse_trades_spec(
+            series,
+            rows,
+            start=date(2024, 8, 1),
+            end=date(2024, 9, 30),
+        )
+
+        self.assertEqual(len(observations), 2)
+        self.assertEqual(observations[0].observed_at, date(2024, 8, 23))
+        self.assertEqual(observations[0].period_start, date(2024, 8, 19))
+        self.assertEqual(observations[0].period_end, date(2024, 8, 23))
+        self.assertEqual(observations[0].value, -408854431.0)
+        self.assertEqual(observations[1].observed_at, date(2024, 8, 30))
+        self.assertEqual(observations[1].period_start, date(2024, 8, 26))
+        self.assertEqual(observations[1].period_end, date(2024, 8, 30))
+        self.assertEqual(observations[1].value, -237009201.0)
+        self.assertEqual(observations[0].vintage_at, datetime(2024, 9, 10, tzinfo=UTC))
+        self.assertEqual(observations[1].vintage_at, datetime(2024, 9, 10, tzinfo=UTC))
 
     def test_parse_trades_spec_rejects_missing_foreign_columns(self) -> None:
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
@@ -756,7 +958,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         by_id = load_definitions().by_id()
         expected = {
             "jp.nikkei225": ("fred_csv", "equity-index"),
-            "jp.policy_rate": ("boj_mutan", "policy"),
+            "jp.policy_rate": ("boj_timeseries", "policy"),
             "jp.10y": ("mof_jgb", "rates"),
             "jp.unemployment": ("fred_csv", "labor"),
             "jp.hourly_earnings": ("fred_csv", "labor"),
@@ -814,22 +1016,23 @@ class IndicatorsRegistryTests(unittest.TestCase):
         self.assertIsNone(by_id["jp.pmi_manufacturing"].tradingview_symbol)
 
     def test_tradingview_symbol_rejects_invalid_format(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            definitions = Path(tmp) / "series.yaml"
-            canonical = Path("src/baibai_engine/macro/indicators/series.yaml").read_text(
-                encoding="utf-8"
-            )
-            definitions.write_text(
-                canonical.replace(
-                    "tradingview_symbol: TVC:US10Y",
-                    "tradingview_symbol: invalid symbol",
-                    1,
-                ),
-                encoding="utf-8",
-            )
+        canonical = Path("src/baibai_engine/macro/indicators/series.yaml").read_text(
+            encoding="utf-8"
+        )
+        for invalid in ("invalid symbol", ":", "TVC:", ":US10Y", "A:B:C"):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:
+                definitions = Path(tmp) / "series.yaml"
+                definitions.write_text(
+                    canonical.replace(
+                        "tradingview_symbol: TVC:US10Y",
+                        f'tradingview_symbol: "{invalid}"',
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
 
-            with self.assertRaisesRegex(ValueError, "EXCHANGE:SYMBOL"):
-                load_definitions(definitions)
+                with self.assertRaisesRegex(ValueError, "EXCHANGE:SYMBOL"):
+                    load_definitions(definitions)
 
 
 class IndicatorsServiceTests(unittest.TestCase):
@@ -904,6 +1107,127 @@ class IndicatorsServiceTests(unittest.TestCase):
             finally:
                 conn.close()
             self.assertEqual(first, "1950-01-01")
+
+    def test_refresh_all_history_uses_jquants_light_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(
+                    conn,
+                    [
+                        ObservationRecord(
+                            series_id="jp.foreign_flows",
+                            observed_at=observed_at,
+                            value=1.0,
+                            unit="jpy",
+                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
+                            vintage_at=vintage_at,
+                        )
+                        for observed_at, vintage_at in (
+                            (date(2021, 6, 1), datetime(2026, 1, 1, tzinfo=UTC)),
+                            (date(2025, 1, 1), datetime(2026, 1, 1, tzinfo=UTC)),
+                            (date(2025, 6, 1), datetime(2026, 2, 1, tzinfo=UTC)),
+                        )
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            observation = ObservationRecord(
+                series_id="jp.foreign_flows",
+                observed_at=date(2025, 12, 26),
+                value=1.0,
+                unit="jpy",
+                source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
+                vintage_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service._today_jst",
+                    return_value=date(2026, 7, 20),
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[observation],
+                ) as fetch,
+            ):
+                IndicatorsService(database).refresh_all_history(
+                    "jp.foreign_flows",
+                    end=date(2026, 1, 1),
+                )
+
+            self.assertEqual(fetch.call_args.kwargs["start"], date(2021, 7, 20))
+            conn = open_connection(database)
+            try:
+                observed_dates = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT observed_at FROM observations WHERE series_id = ? "
+                        "ORDER BY observed_at",
+                        ("jp.foreign_flows",),
+                    )
+                ]
+            finally:
+                conn.close()
+            self.assertEqual(
+                observed_dates,
+                ["2021-06-01", "2025-06-01", "2025-12-26"],
+            )
+
+    def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(
+                    conn,
+                    [
+                        ObservationRecord(
+                            series_id="jp.policy_rate",
+                            observed_at=observed_at,
+                            value=0.978,
+                            unit="percent",
+                            source_url="https://example.com/another-provider",
+                            vintage_at=datetime(2026, 7, 10, tzinfo=UTC),
+                        )
+                        for observed_at in (date(2026, 7, 9), date(2027, 1, 5))
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            observation = ObservationRecord(
+                series_id="jp.policy_rate",
+                observed_at=date(1998, 1, 5),
+                value=0.49,
+                unit="percent",
+                source_url="https://www.stat-search.boj.or.jp/api/v1/getDataCode",
+                vintage_at=datetime.now(UTC),
+            )
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                return_value=[observation],
+            ) as fetch:
+                IndicatorsService(database).refresh_all_history(
+                    "jp.policy_rate",
+                    end=date(2026, 7, 20),
+                )
+
+            self.assertEqual(fetch.call_args.kwargs["start"], date(1998, 1, 1))
+            conn = open_connection(database)
+            try:
+                stale_source_dates = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT observed_at FROM observations WHERE series_id = ? "
+                        "AND source_url != ? ORDER BY observed_at",
+                        ("jp.policy_rate", observation.source_url),
+                    )
+                ]
+            finally:
+                conn.close()
+            self.assertEqual(stale_source_dates, ["2027-01-05"])
 
     def test_empty_full_history_refresh_fails_and_preserves_existing_observations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1472,16 +1796,6 @@ def _boj_workbook_bytes(rows: list[tuple[object, ...]]) -> bytes:
     return buffer.getvalue()
 
 
-def _boj_mutan_workbook_bytes(*, average: float) -> bytes:
-    return _boj_workbook_bytes(
-        [
-            ("無担保コールＯ／Ｎ物レート（7月8日＜水＞確報）", None, None),
-            (None, "平均\nAverage", average),
-            (None, "最高\nMaximum", 1.03),
-        ]
-    )
-
-
 def _write_observation_with_coverage(
     db: Path,
     series_id: str,
@@ -1564,24 +1878,6 @@ class _StaticSession:
         stream: bool = False,
     ) -> _FakeResponse:
         return self.response
-
-
-class _RoutingSession:
-    def __init__(self, responses: dict[str, _FakeResponse]) -> None:
-        self.responses = responses
-        self.urls: list[str] = []
-
-    def get(
-        self,
-        url: str,
-        *,
-        params: dict[str, str] | None = None,
-        headers: Mapping[str, str] | None = None,
-        timeout: int,
-        stream: bool = False,
-    ) -> _FakeResponse:
-        self.urls.append(url)
-        return self.responses[url]
 
 
 class _FakeResponse:
