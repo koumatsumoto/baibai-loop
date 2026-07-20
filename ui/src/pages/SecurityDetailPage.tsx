@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ChartNoAxesCombined } from 'lucide-react'
 
 import { ApiError, fetchJson } from '../api/client'
 import type { CandidateRowView, SecurityDetailView } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
+import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { TradingViewButton } from '../components/TradingViewButton'
 import { YenAmount } from '../components/YenAmount'
 import { Badge } from '../components/ui/badge'
-import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Separator } from '../components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
+import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
-import { tradingViewChartUrl } from '../lib/trading-view'
 
 function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -48,24 +48,9 @@ function ScreeningMetrics({ row }: { row: CandidateRowView }) {
       <Field label="20d"><FractionMetric value={row.price_change_20d} /></Field>
       <Field label="52w low gap"><FractionMetric value={row.gap_from_52w_low} /></Field>
       <Field label="sector RS%"><FractionMetric value={row.sector_relative_strength_percentile} /></Field>
-      <Field label="次決算"><span className="font-mono tabular-nums">{row.next_earnings_date ?? '—'}</span></Field>
+      <Field label="次決算"><span className="font-mono tabular-nums">{row.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
       <Field label="データ品質"><span className="text-sm">{row.data_quality_flags.length === 0 ? 'なし' : row.data_quality_flags.join(' / ')}</span></Field>
     </dl>
-  )
-}
-
-function PageState({ ticker, message, back = false }: { ticker: string; message: string; back?: boolean }) {
-  return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid min-h-[60vh] max-w-5xl place-items-center px-6 text-center">
-        <div>
-          <p className="font-mono text-sm font-medium text-muted-foreground">{ticker}</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{message}</h1>
-          {back && <Button asChild className="mt-6" variant="outline"><Link to="/screening"><ArrowLeft />Screening に戻る</Link></Button>}
-        </div>
-      </main>
-    </>
   )
 }
 
@@ -85,9 +70,9 @@ export function SecurityDetailPage() {
     })
   }, [ticker])
 
-  if (notFound) return <PageState back message="この銘柄の記録はありません" ticker={`404 / ${ticker}`} />
-  if (error) return <PageState message={error} ticker={ticker} />
-  if (!data) return <PageState message="銘柄情報を読み込んでいます…" ticker={ticker} />
+  if (notFound) return <PageState back message="この銘柄の記録はありません" mono title={`404 / ${ticker}`} />
+  if (error) return <PageState message={error} mono title={ticker} />
+  if (!data) return <PageState message="銘柄情報を読み込んでいます…" mono title={ticker} />
 
   const packet = data.latest_packet
   const averageCostYen = data.holding && data.holding.quantity !== 0
@@ -114,9 +99,7 @@ export function SecurityDetailPage() {
             <p className="mt-2 text-lg font-medium">{data.company_name ?? '名称なし'}</p>
             <p className="mt-1 text-sm text-muted-foreground">{data.sector ?? 'sector —'}</p>
           </div>
-          <Button asChild variant="outline">
-            <a href={tradingViewChartUrl(data.ticker)} rel="noopener noreferrer" target="_blank"><ChartNoAxesCombined />TradingView</a>
-          </Button>
+          <TradingViewButton labeled ticker={data.ticker} />
         </header>
 
         {data.holding && (
@@ -141,7 +124,7 @@ export function SecurityDetailPage() {
                 <Field label="FV"><YenAmount value={data.holding.fair_value_yen} /></Field>
                 <Field label="FV乖離"><PctBadge value={data.holding.fv_gap_pct} /></Field>
                 <Field label="判断"><Badge className="font-mono uppercase" variant="outline">{data.holding.recommendation ?? '—'}</Badge></Field>
-                <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? '—'}</span></Field>
+                <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
               </dl>
             </CardContent>
           </Card>
@@ -203,7 +186,7 @@ export function SecurityDetailPage() {
             <CardContent className="py-8 text-center text-sm text-muted-foreground">research 記録なし</CardContent>
           ) : (
             <Table>
-              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>as of</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
+              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data.revisions.map((revision) => (
                   <TableRow key={revision.packet_id}>
@@ -228,7 +211,7 @@ export function SecurityDetailPage() {
             <CardContent className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</CardContent>
           ) : (
             <Table>
-              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>as of</TableHead><TableHead>action</TableHead><TableHead>packet</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
+              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>action</TableHead><TableHead>packet</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data.holding_reviews.map((review) => (
                   <TableRow key={review.holding_review_id}>
@@ -247,7 +230,7 @@ export function SecurityDetailPage() {
           <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-start justify-between gap-4">
               <div><CardTitle>Screening 指標</CardTitle><CardDescription className="mt-1">latest screening</CardDescription></div>
-              {data.candidate_run && <span className="font-mono text-xs tabular-nums text-muted-foreground">as of {data.candidate_run.asof_date}</span>}
+              {data.candidate_run && <span className="font-mono text-xs tabular-nums text-muted-foreground">{LABEL.asOf} {data.candidate_run.asof_date}</span>}
             </CardHeader>
             <CardContent><ScreeningMetrics row={data.candidate_row} /></CardContent>
           </Card>

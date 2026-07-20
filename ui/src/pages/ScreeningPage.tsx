@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowDown, ArrowUp, ArrowUpDown, ChartNoAxesCombined, Search } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type { CandidateRowView, PortfolioState, ScreeningView } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { StaleBadge } from '../components/StaleBadge'
+import { TradingViewButton } from '../components/TradingViewButton'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
@@ -13,9 +16,9 @@ import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { cn, formatJstDateTime } from '../lib/utils'
-import { tradingViewChartUrl } from '../lib/trading-view'
+import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
+import { LABEL } from '../lib/labels'
+import { cn } from '../lib/utils'
 
 type SortDirection = 'asc' | 'desc'
 type SortKey = keyof CandidateRowView
@@ -74,8 +77,8 @@ function SortHeader({
 
 function Metric({ value, digits = 2 }: { value: number | null; digits?: number }) {
   return value === null
-    ? <span className="text-muted-foreground">—</span>
-    : <span className="font-mono tabular-nums">{value.toLocaleString('ja-JP', { maximumFractionDigits: digits })}</span>
+    ? <span className="text-muted-foreground">{EMPTY}</span>
+    : <span className="font-mono tabular-nums">{formatNumber(value, digits)}</span>
 }
 
 const PORTFOLIO_STATE_LABEL: Record<PortfolioState, string | null> = {
@@ -106,40 +109,6 @@ function ErSplitCell({ reversion, carry }: { reversion: number | null; carry: nu
     <span className="font-mono text-xs tabular-nums">
       <PctBadge fraction value={reversion} /><span className="mx-0.5 text-muted-foreground">/</span><PctBadge fraction value={carry} />
     </span>
-  )
-}
-
-function TradingViewButton({ ticker }: { ticker: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button asChild size="icon-sm" variant="ghost">
-          <a
-            aria-label={`${ticker} の TradingView チャートを開く`}
-            href={tradingViewChartUrl(ticker)}
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            <ChartNoAxesCombined aria-hidden="true" />
-          </a>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>TradingView でチャートを開く</TooltipContent>
-    </Tooltip>
-  )
-}
-
-function PageState({ title, message }: { title: string; message: string }) {
-  return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid min-h-[60vh] max-w-5xl place-items-center px-6 text-center">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">{message}</h1>
-        </div>
-      </main>
-    </>
   )
 }
 
@@ -216,11 +185,11 @@ export function ScreeningPage() {
             <p className="mt-1 text-sm text-muted-foreground">最新の候補を比較・絞り込み</p>
           </div>
           <div className="flex flex-col items-start gap-2 lg:items-end">
-            {data.run.stale && <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">run stale — as-of {data.run.asof_date}（7 日超）</Badge>}
+            {data.run.stale && <StaleBadge detail={`${LABEL.asOf} ${data.run.asof_date}（7 日超）`} />}
             <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
               {[
-                ['基準 (AS OF)', data.run.asof_date],
-                ['実行 (RUN AT)', formatJstDateTime(data.run.run_at)],
+                [LABEL.asOf, data.run.asof_date],
+                [LABEL.run, formatJstDateTime(data.run.run_at)],
                 ['UNIVERSE', data.run.universe_size.toLocaleString('ja-JP')],
                 ['CANDIDATES', data.run.candidate_count.toLocaleString('ja-JP')],
               ].map(([label, value]) => (
@@ -235,7 +204,7 @@ export function ScreeningPage() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Machine recommendations</CardTitle><CardDescription>機械 selection。review 済み判断ではありません</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">selection 未作成</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.recommendations.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div>{selection.audit_pool.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Audit pool: {selection.audit_pool.length} 件（recommendation とは別）</p>}</div>)}</CardContent></Card>
-          <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Reviewed shortlist</CardTitle><CardDescription>AI / 人間 review 後に明示 publish された判断 gate</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.reviewed_shortlists.length === 0 ? <p className="text-sm font-medium text-amber-700">reviewed shortlist 未作成</p> : data.reviewed_shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">selected {selectedCount} 件・rejected {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/shortlist">レビュー面を開く（narrative + 機械値）→</Link></Button></CardContent></Card>
+          <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Reviewed shortlist</CardTitle><CardDescription>AI / 人間 review 後に明示 publish された判断 gate</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.reviewed_shortlists.length === 0 ? <p className="text-sm font-medium text-warning">reviewed shortlist 未作成</p> : data.reviewed_shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">selected {selectedCount} 件・rejected {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/shortlist">レビュー面を開く（narrative + 機械値）→</Link></Button></CardContent></Card>
         </div>
 
         <Card className="gap-4 py-5 shadow-sm">
@@ -335,7 +304,7 @@ export function ScreeningPage() {
                   <TableCell className="text-right"><PctBadge fraction value={row.price_change_20d} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.gap_from_52w_low} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.sector_relative_strength_percentile} /></TableCell>
-                  <TableCell className="font-mono tabular-nums">{row.next_earnings_date ?? '—'}</TableCell>
+                  <TableCell className="font-mono tabular-nums">{row.next_earnings_date ?? LABEL.earningsTbd}</TableCell>
                   <TableCell><DataQualityCell flags={row.data_quality_flags} /></TableCell>
                   <TableCell><PortfolioStateBadge state={row.portfolio_state} /></TableCell>
                   <TableCell>{row.has_research ? <Badge variant="outline">有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>

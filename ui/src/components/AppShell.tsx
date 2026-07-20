@@ -1,5 +1,6 @@
 import { Link, NavLink } from 'react-router-dom'
 
+import { ThemeToggle } from './ThemeToggle'
 import { Badge } from './ui/badge'
 import { cn } from '../lib/utils'
 
@@ -31,7 +32,10 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <Badge className="ml-auto hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
+        <div className="ml-auto flex items-center gap-2">
+          <Badge className="hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   )

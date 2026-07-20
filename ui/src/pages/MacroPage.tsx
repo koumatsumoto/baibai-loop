@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'react'
-import { ChartNoAxesCombined, CircleAlert } from 'lucide-react'
+import { CircleAlert } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 import { fetchJson } from '../api/client'
 import type { MacroContextSectionView, MacroSeriesView, MacroView } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { PageState } from '../components/PageState'
+import { StaleBadge } from '../components/StaleBadge'
+import { TradingViewButton } from '../components/TradingViewButton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
-import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { formatJstDateTime } from '../lib/utils'
-import { tradingViewSymbolChartUrl } from '../lib/trading-view'
+import { formatJstDateTime } from '../lib/format'
+import { LABEL } from '../lib/labels'
 
 type MacroPeriod = MacroView['period']
 type MacroGranularity = MacroView['granularity']
@@ -29,10 +30,6 @@ const sectionTitles: Record<string, string> = {
   monitoring_points: '8. 監視ポイント',
 }
 
-function PageState({ message }: { message: string }) {
-  return <><AppShell /><main className="grid min-h-[60vh] place-items-center px-6 text-center"><h1 className="text-xl font-semibold">{message}</h1></main></>
-}
-
 function SeriesChart({ series }: { series: MacroSeriesView }) {
   const config = { value: { label: series.label, color: 'var(--chart-1)' } } satisfies ChartConfig
   return (
@@ -40,7 +37,7 @@ function SeriesChart({ series }: { series: MacroSeriesView }) {
       <CardHeader className="px-5">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base">{series.label}</CardTitle>
-          {series.tradingview_symbol && <Tooltip><TooltipTrigger asChild><Button asChild size="icon-sm" variant="ghost"><a aria-label={`${series.label} の TradingView チャートを開く`} href={tradingViewSymbolChartUrl(series.tradingview_symbol)} rel="noopener noreferrer" target="_blank"><ChartNoAxesCombined aria-hidden="true" /></a></Button></TooltipTrigger><TooltipContent>TradingView でチャートを開く</TooltipContent></Tooltip>}
+          {series.tradingview_symbol && <TradingViewButton name={series.label} symbol={series.tradingview_symbol} />}
         </div>
         <CardDescription>{series.series_id} · {series.unit}</CardDescription>
       </CardHeader>
@@ -134,13 +131,13 @@ export function MacroPage() {
         {!context ? <Alert><CircleAlert /><AlertTitle>Published context なし</AlertTitle><AlertDescription>指標は fact として表示します。投資判断用 context は publish 後に現れます。</AlertDescription></Alert> : <>
           <Card className="shadow-sm">
             <CardHeader className="border-b">
-              <div className="flex flex-wrap items-center gap-2"><CardTitle>{context.summary}</CardTitle>{context.stale && <Badge variant="destructive">STALE</Badge>}</div>
-              <CardDescription>{context.context_id} · 基準 (as-of) {context.as_of} · 公表 {formatJstDateTime(context.published_at)} · valid until {context.valid_until}</CardDescription>
+              <div className="flex flex-wrap items-center gap-2"><CardTitle>{context.summary}</CardTitle>{context.stale && <StaleBadge />}</div>
+              <CardDescription>{context.context_id} · {LABEL.asOf} {context.as_of} · {LABEL.published} {formatJstDateTime(context.published_at)} · valid until {context.valid_until}</CardDescription>
             </CardHeader>
           </Card>
           {context.sections.length === 0 ? <Alert><CircleAlert /><AlertTitle>Summary 表示</AlertTitle><AlertDescription>この revision は共通 field のみを表示します。</AlertDescription></Alert> : context.sections.map((section) => <ReportSection key={section.section_id} section={section} />)}
         </>}
-        {data.context_history.length > 0 && <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Published history</CardTitle><CardDescription>immutable revisions</CardDescription></CardHeader><CardContent className="grid gap-2 px-5">{data.context_history.map((revision) => <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-2 last:border-0" key={revision.context_id}><div><p className="text-sm font-medium">{revision.summary}</p><p className="font-mono text-xs text-muted-foreground">{revision.context_id}</p></div><div className="text-right font-mono text-xs text-muted-foreground tabular-nums"><div>基準 {revision.as_of}</div><div>公表 {formatJstDateTime(revision.published_at)}</div></div></div>)}</CardContent></Card>}
+        {data.context_history.length > 0 && <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Published history</CardTitle><CardDescription>immutable revisions</CardDescription></CardHeader><CardContent className="grid gap-2 px-5">{data.context_history.map((revision) => <div className="flex flex-wrap items-baseline justify-between gap-2 border-b py-2 last:border-0" key={revision.context_id}><div><p className="text-sm font-medium">{revision.summary}</p><p className="font-mono text-xs text-muted-foreground">{revision.context_id}</p></div><div className="text-right font-mono text-xs text-muted-foreground tabular-nums"><div>{LABEL.asOf} {revision.as_of}</div><div>{LABEL.published} {formatJstDateTime(revision.published_at)}</div></div></div>)}</CardContent></Card>}
       </section>
       <section className="grid gap-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
