@@ -9,6 +9,15 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, TextIO
 
+from baibai_engine.market.sqlite import (
+    SQLiteSchemaError,
+    count_overlapping_source_coverage,
+    count_source_coverage,
+    delete_overlapping_source_coverage,
+    delete_source_coverage,
+    open_connection,
+    source_coverage_sources,
+)
 from baibai_engine.screening.providers.edinet import (
     EdinetMetricRecord,
     EDINETProviderError,
@@ -74,6 +83,76 @@ def _print_cache_coverage_issues(
         "run bootstrap-cache --asof and extract-edinet-metrics, then rerun coverage verification.",
         file=stream,
     )
+
+
+def invalidate_coverage_command(
+    *,
+    sqlite_path: Path,
+    source: str,
+    start: date | None = None,
+    end: date | None = None,
+    stdout: TextIO | None = None,
+) -> int:
+    """Delete a source's coverage rows so the next bootstrap-cache refetches it.
+
+    `source_coverage` gates read-through re-fetching: a complete window is never
+    re-fetched. A migration that cannot backfill existing rows needs those rows
+    re-pulled, so this removes the coverage bookkeeping (the cache is rebuildable)
+    and the next `bootstrap-cache --asof` repopulates it. With `--start`/`--end`
+    only windows overlapping that range are removed; without them the whole source
+    is invalidated. The target row count is printed before the delete; no confirm
+    prompt, because the cache can always be rebuilt.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    if (start is None) != (end is None):
+        print("--start and --end must be given together", file=sys.stderr)
+        return 1
+    if start is not None and end is not None and start > end:
+        print(
+            f"--start {start.isoformat()} must not be after --end {end.isoformat()}",
+            file=sys.stderr,
+        )
+        return 1
+    if not sqlite_path.exists():
+        print(f"SQLite cache not found: {sqlite_path}", file=sys.stderr)
+        return 1
+    try:
+        conn = open_connection(sqlite_path)
+    except (SQLiteSchemaError, sqlite3.Error) as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    try:
+        known = source_coverage_sources(conn)
+        if source not in known:
+            known_list = ", ".join(known) if known else "(none)"
+            print(
+                f"unknown coverage source {source!r}; known sources: {known_list}",
+                file=sys.stderr,
+            )
+            return 1
+        if start is not None and end is not None:
+            window = f"{start.isoformat()}..{end.isoformat()}"
+            target = count_overlapping_source_coverage(conn, source, start, end)
+        else:
+            window = "all windows"
+            target = count_source_coverage(conn, source)
+        print(
+            f"invalidate-coverage: removing {target} source_coverage row(s) "
+            f"for source={source} ({window})",
+            file=out,
+        )
+        if start is not None and end is not None:
+            delete_overlapping_source_coverage(conn, source, start, end)
+        else:
+            delete_source_coverage(conn, source)
+        conn.commit()
+    finally:
+        conn.close()
+    print(
+        "invalidate-coverage done; run `bootstrap-cache --asof` to refetch the source",
+        file=out,
+    )
+    return 0
 
 
 def extract_edinet_metrics_command(

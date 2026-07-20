@@ -166,7 +166,7 @@ python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 
 ### 11.1 SQLite Schema
 
-SQLite は以下のテーブルを `data/screening/market.sqlite` に作成する。schema は `PRAGMA user_version` で現行版だけをサポートし、古い schema は migrate せず fail-fast する。
+SQLite は以下のテーブルを `data/screening/market.sqlite` に作成する。schema は `PRAGMA user_version` で版管理し、forward-only migration で進化する。v13 を初期基準とし、`open_connection` は既存 store が `13 <= version < 最新` なら再取得なしで in-place に前進 migrate し、`13` 未満（前進経路で復元できない）や最新超は「削除して再取得」で fail-fast する。新規 store は最新 DDL で直接作成する。migration 完走後の shape は DDL と一致するため、shape 検証は列順まで含めて厳密に照合する。列順が変わる変更（列の並べ替え・削除）は `ALTER TABLE ADD COLUMN` が末尾追加で列順検証に落ちるため、table 再作成 migration（`market.sqlite.rebuild_table`）で書く。schema を変える実装者は `SQLITE_SCHEMA_VERSION` を bump し（`migrations.py` に次の連番 `Migration` を追加すると `LATEST_VERSION` が追随する）migration を書く。
 
 - `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップ。**この table は coverage の SSOT であり、completeness は行データから導出する**（全営業日が全市場分の行を持つので欠損は present date 間のギャップとして観測でき、`source_coverage` の bookkeeping に穴があっても行が揃っていれば re-fetch しない）。`source_coverage` は status / record_count の整合チェックにのみ併用する
 - `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, forecast_profit, forecast_ordinary_profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end, dps_actual_annual, dps_forecast_annual)` — 主キー `(ticker, disclosed_at)`。DPS は `DivAnn`（実績年間・FY 開示）と `FDivAnn`→`NxFDivAnn`（進行期の予想年間）から取る。`forecast_profit` / `forecast_ordinary_profit` は会社予想の当期純利益・経常利益で、`forecast_eps` と同一予想期のペア（当期予想 `FNP`/`FOdP`、本決算開示で FEPS 空なら翌期予想 `NxFNp`/`NxFOdP`）から取り、純利益>経常の一時益 data-quality flag（`forecast_special_gain`）の一次入力にする
@@ -181,7 +181,7 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 
 ### 11.2 Volume と再生成の考え方
 
-`data/screening/market.sqlite` は local store であり git 管理しない。容量増加は repo 履歴ではなくローカルディスクの問題として扱う。SQLite を作り直す場合は raw JSON からの migration ではなく、`bootstrap-cache --asof` と `extract-edinet-metrics --asof` で必要 window を provider から再取得して補完する。
+`data/screening/market.sqlite` は local store であり git 管理しない。容量増加は repo 履歴ではなくローカルディスクの問題として扱う。schema 変更は forward-only migration で in-place に進めるため、schema bump のたびに全再取得する必要はない。既存 row を migration で backfill できない変更（新 field を provider から埋め直す等）は、`screening invalidate-coverage --source <name> [--start --end]` で該当 `source_coverage` を削除して bootstrap 対象に戻し、`bootstrap-cache --asof` で該当 window を再取得する。store を丸ごと作り直す場合も raw JSON からの migration ではなく `bootstrap-cache --asof` と `extract-edinet-metrics --asof` で provider から補完する。`invalidate-coverage` は削除対象行数を表示してから削除する（cache は再生成可能なため確認プロンプトは無い）。既知でない source 名は既知一覧を示して拒否する。
 
 ## 12. J-Quants rate limit と bootstrap コスト
 

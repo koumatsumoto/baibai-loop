@@ -8,6 +8,7 @@ from .app import build_parser, main
 from .cache import (
     bootstrap_cache_command,
     extract_edinet_metrics_command,
+    invalidate_coverage_command,
     verify_cache_coverage_command,
 )
 from .providers import ProviderBundle
@@ -23,6 +24,7 @@ __all__ = [
     "bootstrap_cache_command",
     "build_parser",
     "extract_edinet_metrics_command",
+    "invalidate_coverage_command",
     "main",
     "market_snapshot_command",
     "run_command",
