@@ -31,6 +31,7 @@ from .cache import (
     _print_cache_coverage_issues,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
+    invalidate_coverage_command,
     verify_cache_coverage_command,
 )
 from .common import _parse_iso_date
@@ -98,6 +99,29 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=540,
         help="EDINET document-list lookback window in calendar days (default 540)",
+    )
+
+    invalidate_parser = subparsers.add_parser(
+        "invalidate-coverage",
+        help="delete source_coverage rows so the next bootstrap-cache refetches a source",
+    )
+    invalidate_parser.add_argument(
+        "--source",
+        required=True,
+        help="coverage source name to invalidate (rejected with the known list if unknown)",
+    )
+    invalidate_parser.add_argument(
+        "--start",
+        help="restrict to coverage windows overlapping from this date (YYYY-MM-DD)",
+    )
+    invalidate_parser.add_argument(
+        "--end",
+        help="restrict to coverage windows overlapping to this date (YYYY-MM-DD)",
+    )
+    invalidate_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
 
     coverage_parser = subparsers.add_parser(
@@ -406,6 +430,16 @@ def main(argv: list[str] | None = None) -> int:
             required_asofs=args.required_asofs,
             required_metrics=args.required_metrics,
             output_path=Path(args.out) if args.out else None,
+            start=_parse_iso_date(args.start) if args.start else None,
+            end=_parse_iso_date(args.end) if args.end else None,
+        )
+
+    if args.command == "invalidate-coverage":
+        # invalidate-coverage only edits local source_coverage bookkeeping; no
+        # provider credentials are needed.
+        return invalidate_coverage_command(
+            sqlite_path=Path(args.sqlite_path),
+            source=args.source,
             start=_parse_iso_date(args.start) if args.start else None,
             end=_parse_iso_date(args.end) if args.end else None,
         )

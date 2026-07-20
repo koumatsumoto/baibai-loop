@@ -23,6 +23,8 @@ from .convert import (
     to_str_or_none,
 )
 from .coverage import (
+    count_overlapping_source_coverage,
+    count_source_coverage,
     daily_bars_covered_by_data,
     date_range_row_count,
     delete_date_range,
@@ -31,9 +33,16 @@ from .coverage import (
     range_covered,
     record_range_source_coverage,
     record_source_coverage,
+    source_coverage_sources,
     table_row_count,
 )
 from .jquants import store_jquants_daily_bars, store_jquants_market_calendar
+from .migrations import (
+    BASELINE_VERSION,
+    LATEST_VERSION,
+    Migration,
+    rebuild_table,
+)
 from .schema import (
     SCHEMA_VERSION,
     SQLITE_SCHEMA_VERSION,
@@ -44,12 +53,17 @@ from .schema import (
 )
 
 __all__ = [
+    "BASELINE_VERSION",
+    "LATEST_VERSION",
     "SCHEMA_VERSION",
     "SQLITE_SCHEMA_VERSION",
+    "Migration",
     "NormalizedRows",
     "SQLiteSchemaError",
     "code_quality",
     "connect_current",
+    "count_overlapping_source_coverage",
+    "count_source_coverage",
     "daily_bars_covered_by_data",
     "date_iso",
     "date_range_row_count",
@@ -63,8 +77,10 @@ __all__ = [
     "optional_date",
     "optional_float",
     "range_covered",
+    "rebuild_table",
     "record_range_source_coverage",
     "record_source_coverage",
+    "source_coverage_sources",
     "store_jquants_daily_bars",
     "store_jquants_market_calendar",
     "table_row_count",

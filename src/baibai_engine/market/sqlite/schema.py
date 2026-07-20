@@ -1,10 +1,27 @@
-"""Current-only SQLite schema: DDL, versioning, and shape validation.
+"""Current-schema DDL, forward-only versioning, and shape validation.
 
 This is the single physical store (`market.sqlite`): the market price/calendar
 tables and the screening fundamentals/regulation tables share one file, one
 schema version, and one connection path. Market owns the schema so the
 price-data layer can open and validate the store without importing screening,
 while screening reuses the same DDL for its fundamentals tables.
+
+Schema evolution is forward-only (see `migrations.py`). The store holds a large,
+API-rate-limited cache, so `open_connection` upgrades an existing file in place
+rather than forcing a full re-fetch: a store at `BASELINE_VERSION..LATEST` is
+migrated forward, and only a store below the baseline is rejected fail-fast with
+"delete and rebuild". `_SCHEMA_SQL` and `SQLITE_SCHEMA_VERSION` always describe
+the latest schema, so a fresh store is created directly at the latest DDL and the
+shape check compares an existing store against it exactly (column order included).
+
+To change the schema: bump `SQLITE_SCHEMA_VERSION` (by adding the next `Migration`
+in `migrations.py`, which `LATEST_VERSION` tracks), update `_SCHEMA_SQL` and the
+`_REQUIRED_*` tables here to the new shape, and write the migration. A change that
+reorders or drops columns must rebuild the table (see `migrations.rebuild_table`),
+because an `ALTER TABLE ... ADD COLUMN` appends at the tail and would fail the
+strict column-order check. To force a re-fetch of a source whose rows a migration
+cannot backfill, invalidate its `source_coverage` (`screening invalidate-coverage`)
+so the next `bootstrap-cache` repopulates it.
 """
 
 from __future__ import annotations
@@ -13,7 +30,11 @@ import sqlite3
 from collections.abc import Mapping
 from pathlib import Path
 
-SQLITE_SCHEMA_VERSION = 13
+from .migrations import BASELINE_VERSION, LATEST_VERSION, MIGRATIONS
+
+# The latest schema version. It tracks the newest migration so the version literal
+# and the migration list cannot drift; a coupling test pins downstream readers.
+SQLITE_SCHEMA_VERSION = LATEST_VERSION
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 _REQUIRED_TABLES = (
@@ -310,12 +331,18 @@ class SQLiteSchemaError(RuntimeError):
 
 
 def open_connection(db_path: Path) -> sqlite3.Connection:
-    """Open the current SQLite cache, creating current tables on first use."""
+    """Open the SQLite cache, creating or forward-migrating it to the latest schema.
+
+    A fresh file is created directly at the latest DDL. An existing file at
+    `BASELINE_VERSION..LATEST` is migrated forward in place (no re-fetch); one
+    below the baseline or above the latest is rejected fail-fast. After either
+    path the store matches the current shape, which is then validated.
+    """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
-        tables = _existing_tables(conn)
-        if tables:
+        if _existing_tables(conn):
+            _upgrade_existing_store(conn)
             validate_current_schema(conn)
         else:
             conn.executescript(_SCHEMA_SQL)
@@ -325,6 +352,45 @@ def open_connection(db_path: Path) -> sqlite3.Connection:
     except Exception:
         conn.close()
         raise
+
+
+def _upgrade_existing_store(conn: sqlite3.Connection) -> None:
+    """Route an existing store: no-op at latest, forward-migrate, or fail-fast."""
+    current = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+    if current == SQLITE_SCHEMA_VERSION:
+        return
+    if not (BASELINE_VERSION <= current < SQLITE_SCHEMA_VERSION):
+        raise SQLiteSchemaError(
+            "unsupported screening SQLite schema; remove the SQLite file and rebuild it with "
+            "`bootstrap-cache --asof` and `extract-edinet-metrics` "
+            f"(found user_version={current}, supported range "
+            f"{BASELINE_VERSION}..{SQLITE_SCHEMA_VERSION})"
+        )
+    _apply_migrations(conn, current)
+
+
+def _apply_migrations(conn: sqlite3.Connection, current: int) -> None:
+    """Apply each pending migration in order, one per immediate transaction."""
+    for migration in MIGRATIONS:
+        if migration.version <= current:
+            continue
+        if migration.version != current + 1:
+            raise SQLiteSchemaError(
+                "market migration sequence gap: "
+                f"store at {current}, next migration {migration.version}"
+            )
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in migration.statements:
+                conn.execute(statement)
+            if migration.transform is not None:
+                migration.transform(conn)
+            conn.execute(f"PRAGMA user_version = {migration.version}")
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        current = migration.version
 
 
 def connect_current(sqlite_path: Path) -> sqlite3.Connection | None:
