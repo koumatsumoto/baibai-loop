@@ -14,6 +14,7 @@ from unittest.mock import patch
 import openpyxl
 import requests
 
+from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators.cli import main
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
@@ -39,6 +40,7 @@ from baibai_engine.macro.indicators.providers import (
     parse_fred_csv,
     parse_h15_csv,
     parse_manual_entries,
+    parse_manual_seed,
     parse_mof_jgb_csv,
     parse_multpl_current,
     parse_trades_spec,
@@ -48,6 +50,7 @@ from baibai_engine.macro.indicators.providers.boj_mutan import (
     BojMutanProvider,
     parse_boj_mutan_old_average,
 )
+from baibai_engine.macro.indicators.providers.manual import MANUAL_DATA_PATH
 from baibai_engine.macro.indicators.service import IndicatorsService
 
 
@@ -333,11 +336,12 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_parse_manual_entries_filters_range_inclusive(self) -> None:
         series = _series("manual", "jp_pmi_manufacturing", unit="index")
         raw = {
-            "jp_pmi_manufacturing": [
-                {"date": date(2026, 1, 1), "value": 49.6},
-                {"date": date(2026, 2, 1), "value": 48.9},
-                {"date": date(2026, 3, 1), "value": 50.1},
-            ]
+            "schema_version": 1,
+            "observations": [
+                _manual_entry("test.series", "2026-01-01", 49.6, unit="index"),
+                _manual_entry("test.series", "2026-02-01", 48.9, unit="index"),
+                _manual_entry("test.series", "2026-03-01", 50.1, unit="index"),
+            ],
         }
 
         observations = parse_manual_entries(
@@ -350,16 +354,22 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         )
         self.assertEqual(observations[0].value, 48.9)
 
-    def test_parse_manual_entries_rejects_unknown_provider_series_id(self) -> None:
+    def test_parse_manual_entries_rejects_missing_series_id(self) -> None:
         series = _series("manual", "jp_unknown", unit="count")
-        raw = {"jp_pmi_manufacturing": [{"date": date(2026, 1, 1), "value": 49.6}]}
+        raw = {
+            "schema_version": 1,
+            "observations": [_manual_entry("other.series", "2026-01-01", 49.6)],
+        }
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "jp_unknown"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "test.series"):
             parse_manual_entries(series, raw, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_manual_entries_accepts_iso_string_date_and_int_value(self) -> None:
         series = _series("manual", "jp_bankruptcies_tsr", unit="count")
-        raw = {"jp_bankruptcies_tsr": [{"date": "2026-03-01", "value": 950}]}
+        raw = {
+            "schema_version": 1,
+            "observations": [_manual_entry("test.series", "2026-03-01", 950)],
+        }
 
         observations = parse_manual_entries(
             series, raw, start=date(2026, 1, 1), end=date(2026, 12, 31)
@@ -368,6 +378,54 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 3, 1))
         self.assertEqual(observations[0].value, 950.0)
+
+    def test_canonical_manual_seed_matches_registry_and_preserves_all_vintages(self) -> None:
+        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+
+        observations = parse_manual_seed(load_definitions(), raw)
+
+        self.assertEqual(len(observations), 12)
+        self.assertEqual(
+            {item.series_id for item in observations},
+            {"jp.bankruptcies", "jp.pmi_manufacturing"},
+        )
+        self.assertTrue(all(item.vintage_at is not None for item in observations))
+
+    def test_parse_manual_seed_normalizes_offsets_and_rejects_same_instant(self) -> None:
+        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+        bankruptcies = [
+            item
+            for item in raw["observations"]
+            if item["series_id"] == "jp.bankruptcies" and str(item["observed_at"]) == "2026-01-01"
+        ]
+        bankruptcies[0]["entered_at"] = "2026-07-21T00:00:00+09:00"
+        bankruptcies[1]["entered_at"] = "2026-07-20T15:30:00+00:00"
+
+        observations = parse_manual_seed(load_definitions(), raw)
+
+        first_date = [
+            item
+            for item in observations
+            if item.series_id == "jp.bankruptcies" and item.observed_at == date(2026, 1, 1)
+        ]
+        self.assertEqual(
+            [item.vintage_at for item in first_date],
+            [
+                datetime(2026, 7, 20, 15, 0, tzinfo=UTC),
+                datetime(2026, 7, 20, 15, 30, tzinfo=UTC),
+            ],
+        )
+
+        bankruptcies[1]["entered_at"] = "2026-07-20T15:00:00+00:00"
+        with self.assertRaisesRegex(IndicatorsProviderError, "duplicate"):
+            parse_manual_seed(load_definitions(), raw)
+
+    def test_parse_manual_seed_rejects_unbounded_integer(self) -> None:
+        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+        raw["observations"][0]["value"] = 10**10000
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "must be finite"):
+            parse_manual_seed(load_definitions(), raw)
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
@@ -725,6 +783,196 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
 
 class IndicatorsServiceTests(unittest.TestCase):
+    def test_import_manual_seed_is_idempotent_and_replaces_manual_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            service = IndicatorsService(database)
+
+            first = service.import_manual_seed()
+            with sqlite3.connect(database) as connection:
+                before = connection.execute(
+                    """
+                    SELECT series_id, observed_at, value, unit, vintage_at, source_url
+                    FROM observations
+                    WHERE series_id IN ('jp.bankruptcies', 'jp.pmi_manufacturing')
+                    ORDER BY series_id, observed_at, vintage_at
+                    """
+                ).fetchall()
+                counts_before = (
+                    connection.execute("SELECT count(*) FROM observations").fetchone()[0],
+                    connection.execute("SELECT count(*) FROM provider_runs").fetchone()[0],
+                )
+            second = service.import_manual_seed()
+            with sqlite3.connect(database) as connection:
+                after = connection.execute(
+                    """
+                    SELECT series_id, observed_at, value, unit, vintage_at, source_url
+                    FROM observations
+                    WHERE series_id IN ('jp.bankruptcies', 'jp.pmi_manufacturing')
+                    ORDER BY series_id, observed_at, vintage_at
+                    """
+                ).fetchall()
+                counts_after = (
+                    connection.execute("SELECT count(*) FROM observations").fetchone()[0],
+                    connection.execute("SELECT count(*) FROM provider_runs").fetchone()[0],
+                )
+
+            self.assertEqual(first.series_count, 2)
+            self.assertEqual(first.observation_count, 12)
+            self.assertEqual(second, first)
+            self.assertEqual(after, before)
+            self.assertEqual(counts_after, counts_before)
+
+    def test_import_manual_seed_rejects_unknown_series_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            database = root / "macro.sqlite"
+            seed = root / "manual.yaml"
+            raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+            raw["observations"].append(_manual_entry("jp.unknown", "2026-01-01", 1))
+            seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
+
+            with self.assertRaisesRegex(IndicatorsProviderError, "unknown series jp.unknown"):
+                IndicatorsService(database).import_manual_seed(seed)
+
+            self.assertFalse(database.exists())
+
+    def test_import_manual_seed_rejects_duplicate_yaml_key_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            database = root / "macro.sqlite"
+            seed = root / "manual.yaml"
+            service = IndicatorsService(database)
+            service.import_manual_seed()
+            with sqlite3.connect(database) as connection:
+                before = connection.execute(
+                    "SELECT * FROM observations ORDER BY series_id, observed_at, vintage_at"
+                ).fetchall()
+            seed.write_text(
+                MANUAL_DATA_PATH.read_text(encoding="utf-8").replace(
+                    "    value: 820\n",
+                    "    value: 820\n    value: 999\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "duplicate YAML mapping key: 'value'"):
+                service.import_manual_seed(seed)
+
+            with sqlite3.connect(database) as connection:
+                after = connection.execute(
+                    "SELECT * FROM observations ORDER BY series_id, observed_at, vintage_at"
+                ).fetchall()
+            self.assertEqual(after, before)
+
+    def test_import_manual_seed_selects_latest_vintage_across_offsets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            database = root / "macro.sqlite"
+            seed = root / "manual.yaml"
+            raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+            bankruptcies = [
+                item
+                for item in raw["observations"]
+                if item["series_id"] == "jp.bankruptcies"
+                and str(item["observed_at"]) == "2026-01-01"
+            ]
+            bankruptcies[0].update(
+                value=100,
+                entered_at="2026-07-21T00:00:00+09:00",
+            )
+            bankruptcies[1].update(
+                value=200,
+                entered_at="2026-07-20T23:00:00+00:00",
+            )
+            seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
+            service = IndicatorsService(database)
+
+            service.import_manual_seed(seed)
+            ranged = service.get_range(
+                "jp.bankruptcies",
+                start=date(2026, 1, 1),
+                end=date(2026, 1, 1),
+            )
+            latest = service.get_latest("jp.bankruptcies")
+
+            self.assertEqual(ranged.observations[0].value, 200)
+            self.assertEqual(
+                ranged.observations[0].vintage_at, datetime(2026, 7, 20, 23, tzinfo=UTC)
+            )
+            self.assertEqual(latest.observations[-1].observed_at, date(2026, 4, 1))
+            with sqlite3.connect(database) as connection:
+                stored_offsets = connection.execute(
+                    """
+                    SELECT DISTINCT substr(vintage_at, -6)
+                    FROM observations
+                    WHERE series_id IN ('jp.bankruptcies', 'jp.pmi_manufacturing')
+                    """
+                ).fetchall()
+            self.assertEqual(stored_offsets, [("+00:00",)])
+
+    def test_manual_reads_never_restore_rows_removed_from_seed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            database = root / "macro.sqlite"
+            seed = root / "manual.yaml"
+            raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+            removed = raw["observations"].pop(0)
+            seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
+            service = IndicatorsService(database)
+
+            service.import_manual_seed(seed)
+            result = service.get_range(
+                "jp.bankruptcies",
+                start=date(2026, 1, 1),
+                end=date(2026, 12, 31),
+            )
+
+            self.assertTrue(result.cache_hit)
+            with sqlite3.connect(database) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT count(*) FROM observations WHERE series_id = 'jp.bankruptcies'"
+                    ).fetchone()[0],
+                    7,
+                )
+                self.assertIsNone(
+                    connection.execute(
+                        """
+                        SELECT 1 FROM observations
+                        WHERE series_id = ? AND observed_at = ? AND vintage_at = ?
+                        """,
+                        (
+                            removed["series_id"],
+                            str(removed["observed_at"]),
+                            str(removed["entered_at"]),
+                        ),
+                    ).fetchone()
+                )
+            with self.assertRaisesRegex(IndicatorsProviderError, "import-manual"):
+                service.get_range(
+                    "jp.bankruptcies",
+                    start=date(2026, 1, 1),
+                    end=date(2026, 12, 31),
+                    refresh=True,
+                )
+
+    def test_import_manual_cli_reports_seed_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+
+            self.assertEqual(main(["import-manual", "--db", str(database)]), 0)
+
+            with sqlite3.connect(database) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT count(*) FROM observations WHERE series_id IN (?, ?)",
+                        ("jp.bankruptcies", "jp.pmi_manufacturing"),
+                    ).fetchone()[0],
+                    12,
+                )
+
     def test_get_range_normalizes_provider_order_to_ascending(self) -> None:
         # ECB FX (and any newest-first provider) returns observations descending;
         # get_range must normalize to ascending observed_at on the provider-fetch path.
@@ -1007,6 +1255,23 @@ def _series(provider: str, provider_series_id: str, *, unit: str = "percent") ->
         source_id="test-source",
         source_url="https://example.com/data.csv",
     )
+
+
+def _manual_entry(
+    series_id: str,
+    observed_at: str,
+    value: int | float,
+    *,
+    unit: str = "count",
+) -> dict[str, object]:
+    return {
+        "series_id": series_id,
+        "observed_at": observed_at,
+        "value": value,
+        "unit": unit,
+        "source_url": "https://example.com/data.csv",
+        "entered_at": "2026-07-20T00:00:00+00:00",
+    }
 
 
 def _boj_workbook_bytes(rows: list[tuple[object, ...]]) -> bytes:

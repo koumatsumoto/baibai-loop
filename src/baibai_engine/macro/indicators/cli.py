@@ -12,6 +12,7 @@ from baibai_engine.foundation.env import load_project_env
 from .db import DEFAULT_DB_PATH, IndicatorsSchemaError
 from .definitions import SeriesDefinition
 from .providers import IndicatorsProviderError
+from .providers.manual import MANUAL_DATA_PATH
 from .service import IndicatorsService, QueryResult
 
 
@@ -39,6 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
     refresh_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     refresh_parser.add_argument("--start", required=True, type=date.fromisoformat)
     refresh_parser.add_argument("--end", required=True, type=date.fromisoformat)
+
+    import_manual_parser = subparsers.add_parser(
+        "import-manual",
+        help="replace manual observations from the canonical git-tracked seed",
+    )
+    import_manual_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    import_manual_parser.add_argument("--seed", type=Path, default=MANUAL_DATA_PATH)
 
     return parser
 
@@ -68,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
                         refresh=True,
                     )
                     _print_observations(result)
+                return 0
+            case "import-manual":
+                manual_result = service.import_manual_seed(args.seed)
+                print(f"series_count\t{manual_result.series_count}")
+                print(f"observation_count\t{manual_result.observation_count}")
                 return 0
     except KeyError as exc:
         message = exc.args[0] if exc.args else str(exc)

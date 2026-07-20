@@ -57,7 +57,7 @@ engine 内の domain は app に依存しない。app は `read_api` と query s
 | `data/app/baibai.sqlite` | canonical application DB | task、macro context、reviewed shortlist、research revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | `data/screening/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input | market / screening provider |
 | `data/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
-| `data/indicators/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series | macro indicator service |
+| `data/indicators/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
 application DB の default path は `data/app/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
 
