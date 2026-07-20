@@ -21,6 +21,7 @@ from baibai_engine.read_api import (
     MacroGranularity,
     PortfolioLedgerError,
     PortfolioSnapshot,
+    macro_series_names,
 )
 
 from .models import (
@@ -30,10 +31,17 @@ from .models import (
     HoldingView,
     MachineSelectionView,
     MacroContextRevisionView,
+    MacroContextSectionView,
     MacroContextView,
+    MacroFactSummaryView,
     MacroGroupView,
+    MacroInvestmentConnectionView,
     MacroMaterialDeltaView,
+    MacroMonitoringPointView,
     MacroPointView,
+    MacroScenarioView,
+    MacroSectionJudgmentView,
+    MacroSeriesReferenceView,
     MacroSeriesView,
     MacroSizingCautionView,
     MacroView,
@@ -351,6 +359,7 @@ def build_macro(
     context = None
     if raw_context is not None:
         valid_until = date.fromisoformat(str(raw_context["valid_until"]))
+        series_names = macro_series_names()
         context = MacroContextView(
             context_id=str(raw_context["context_id"]),
             as_of=date.fromisoformat(str(raw_context["as_of"])),
@@ -358,17 +367,10 @@ def build_macro(
             published_at=datetime.fromisoformat(str(raw_context["published_at"])),
             summary=str(raw_context["summary"]),
             stale=valid_until < as_of,
-            material_deltas=[
-                MacroMaterialDeltaView.model_validate(item)
-                for item in _mapping_items(raw_context.get("material_deltas"))
+            sections=[
+                _macro_context_section_view(item, series_names=series_names)
+                for item in _optional_mapping_items(raw_context.get("sections"))
             ],
-            sizing_cautions=[
-                MacroSizingCautionView.model_validate(item)
-                for item in _mapping_items(raw_context.get("sizing_cautions"))
-            ],
-            research_questions=_string_items(raw_context.get("research_questions")),
-            refresh_triggers=_string_items(raw_context.get("refresh_triggers")),
-            changes_since_previous=_string_items(raw_context.get("changes_since_previous")),
         )
     groups: list[MacroGroupView] = []
     period_start = _macro_period_start(as_of, period=period)
@@ -435,6 +437,55 @@ def _mapping_items(value: object) -> list[Mapping[str, object]]:
     if not isinstance(value, list) or not all(isinstance(item, Mapping) for item in value):
         raise ValueError("expected an array of objects")
     return [item for item in value if isinstance(item, Mapping)]
+
+
+def _optional_mapping_items(value: object) -> list[Mapping[str, object]]:
+    if value is None:
+        return []
+    return _mapping_items(value)
+
+
+def _macro_context_section_view(
+    raw: Mapping[str, object], *, series_names: Mapping[str, str]
+) -> MacroContextSectionView:
+    series_ids = _string_items(raw.get("series_ids"))
+    return MacroContextSectionView(
+        section_id=str(raw["section_id"]),
+        series=[
+            MacroSeriesReferenceView(
+                series_id=series_id, name=series_names.get(series_id, series_id)
+            )
+            for series_id in series_ids
+        ],
+        fact_summary=[
+            MacroFactSummaryView.model_validate(item)
+            for item in _mapping_items(raw.get("fact_summary"))
+        ],
+        judgment=MacroSectionJudgmentView.model_validate(raw["judgment"]),
+        investment_connection=MacroInvestmentConnectionView.model_validate(
+            raw["investment_connection"]
+        ),
+        change_since_previous=(
+            str(raw["change_since_previous"])
+            if raw.get("change_since_previous") is not None
+            else None
+        ),
+        material_deltas=[
+            MacroMaterialDeltaView.model_validate(item)
+            for item in _mapping_items(raw.get("material_deltas"))
+        ],
+        sizing_cautions=[
+            MacroSizingCautionView.model_validate(item)
+            for item in _mapping_items(raw.get("sizing_cautions"))
+        ],
+        scenarios=[
+            MacroScenarioView.model_validate(item) for item in _mapping_items(raw.get("scenarios"))
+        ],
+        monitoring_points=[
+            MacroMonitoringPointView.model_validate(item)
+            for item in _mapping_items(raw.get("monitoring_points"))
+        ],
+    )
 
 
 def _string_items(value: object) -> list[str]:

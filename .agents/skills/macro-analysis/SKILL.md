@@ -12,19 +12,20 @@ description: 金利・為替・流動性・需要・資金調達・共通tail ri
 ## Trigger
 
 - discount rate、需要、資金調達、common tailにmaterial changeがある。
-- 主要event後、または既存macro contextのrefresh triggerが発火した。
+- 主要event後、またはpublished contextのmonitoring conditionが発火した。
 - 個別packetのscenario/claimを変える外部経路を確認する。
 
 定期だからという理由だけでrecordを作らない。materialでなければ根拠を短く返して終了する。
 
 ## 手順
 
-1. `baibai-engine macro context head`と`context show --latest --asof <date>`で既存contextの`as_of / valid_until / refresh_triggers`を確認する。
+1. `baibai-engine macro context head`と`context show --latest --asof <date>`でpublished contextの`as_of / valid_until / monitoring_points`を確認する。
 2. 変化channelを`discount rate / demand / funding / common tail`から選ぶ。
 3. 判断に必要なseriesと一次sourceだけ取得する。
 4. series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。
-5. 個別packetのどのscenario/claimを変えるかを1〜3行で示す。
-6. materialならstrict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。初回publishだけはexpected headを省略する。
+5. workflowの固定順に沿ってRegime summaryから監視ポイントまで8セクションを作る。各セクションでseries、fact、judgment、投資接続を分け、セクション7にbase / bear / bull・sector tilt・research優先度ヒント・sizing caution、セクション8に見方を変える条件を置く。
+6. 個別packetのどのscenario/claimを変えるかを1〜3行で示す。
+7. materialならstrict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。初回publishだけはexpected headを省略する。
 
 ## 禁止
 

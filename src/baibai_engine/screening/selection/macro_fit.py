@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from baibai_engine.foundation.coerce import string_sequence
 from baibai_engine.macro.context import MacroContext, macro_context_diagnostics
 
 
@@ -20,7 +19,6 @@ def macro_context_summary(
             "sizing_cautions": [],
             "warnings": ["macro_context_missing"],
         }
-    payload = macro_context.payload
     diagnostics = macro_context_diagnostics(macro_context, asof_date=asof_date)
     return {
         "context_id": macro_context.context_id,
@@ -29,6 +27,6 @@ def macro_context_summary(
         "material_deltas": diagnostics["material_deltas"],
         "sizing_cautions": diagnostics["sizing_cautions"],
         "warnings": diagnostics["warnings"],
-        "research_questions": string_sequence(payload.get("research_questions")),
-        "refresh_triggers": string_sequence(payload.get("refresh_triggers")),
+        "research_questions": diagnostics["research_questions"],
+        "refresh_triggers": diagnostics["refresh_triggers"],
     }

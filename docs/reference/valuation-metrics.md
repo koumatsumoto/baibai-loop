@@ -103,7 +103,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 ### 8.1 業種分類粒度
 
 - **東証 33 業種** を初期値として採用
-- macro contextは業種tiltを持たず、スクリーニングの比較基準は33業種に固定する
+- macro contextのsector tiltはresearch着手順を考えるjudgment入力とし、スクリーニングの比較基準は33業種に固定する
 - 粒度を変更する場合は本ファイルを更新
 
 ### 8.2 中央値算出
