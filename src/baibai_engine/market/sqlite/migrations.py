@@ -79,11 +79,15 @@ def rebuild_table(
             raise ValueError(f"invalid column identifier: {column!r}")
     temp_table = f"_migrate_{table}"
     column_list = ", ".join(columns)
-    conn.execute(f"ALTER TABLE {table} RENAME TO {temp_table}")
+    # The interpolated names are migration-author constants validated against
+    # _IDENTIFIER above; SQLite DDL cannot take identifiers as bind parameters.
+    conn.execute(f"ALTER TABLE {table} RENAME TO {temp_table}")  # nosec B608
     for statement in create_statements:
         conn.execute(statement)
-    conn.execute(f"INSERT INTO {table}({column_list}) SELECT {column_list} FROM {temp_table}")
-    conn.execute(f"DROP TABLE {temp_table}")
+    conn.execute(
+        f"INSERT INTO {table}({column_list}) SELECT {column_list} FROM {temp_table}"  # nosec B608
+    )
+    conn.execute(f"DROP TABLE {temp_table}")  # nosec B608
 
 
 __all__ = [
