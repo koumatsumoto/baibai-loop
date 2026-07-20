@@ -125,6 +125,103 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
     assert response.json()["reviewed_shortlists"][0]["as_of"] == run.as_of_date
 
 
+def test_reviewed_shortlist_publish_prints_reevaluation_task_suggestions(
+    app_records_root: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runs_path = app_records_root / "data/screening/runs.sqlite"
+    app_path = app_records_root / "data/app/baibai.sqlite"
+    run_payload = yaml.safe_load(
+        """\
+run_id: screening-20260715
+run_date: "2026-07-15"
+asof_date: "2026-07-15"
+universe_size: 3
+run_at: "2026-07-15T12:00:00+09:00"
+candidates:
+  - ticker: "2331"
+    name: ALSOK
+    sector_33: サービス業
+    per_trailing: 12.0
+    metrics: {er_annual: 0.12}
+    evidence_hits: []
+    next_earnings_date: "2026-07-30"
+  - ticker: "0001"
+    name: Sample One
+    sector_33: 情報・通信業
+    metrics: {}
+    evidence_hits: []
+    next_earnings_date: "2026-08-06"
+  - ticker: "0002"
+    name: Sample Two
+    sector_33: 小売業
+    metrics: {}
+    evidence_hits: []
+"""
+    )
+    run_revision_id = ScreeningRunStore(runs_path).publish_run(run_payload).publication_id
+    stdout = io.StringIO()
+    assert (
+        select_command(
+            asof_date=date(2026, 7, 15),
+            top=10,
+            run_revision_id=run_revision_id,
+            runs_db_path=runs_path,
+            app_db_path=app_path,
+            stdout=stdout,
+        )
+        == 0
+    )
+    selection_payload = yaml.safe_load(stdout.getvalue())
+    assert isinstance(selection_payload, dict)
+    selection_id = str(selection_payload["selection_id"])
+    profile = str(selection_payload["selection"]["profile"])
+
+    draft = app_records_root / "shortlist-triggers.yaml"
+    draft.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 2,
+                "kind": "reviewed-shortlist",
+                "shortlist_id": "shortlist-20260715-trigger",
+                "selection_id": selection_id,
+                "run_revision_id": run_revision_id,
+                "as_of": "2026-07-15",
+                "published_at": "2026-07-15T15:00:00+09:00",
+                "profile": profile,
+                "macro_context_id": None,
+                "entries": [
+                    {
+                        "ticker": "2331",
+                        "decision": "selected",
+                        "reason": "一次IRへ進める",
+                        "narrative": _selected_narrative(),
+                    },
+                    {"ticker": "0001", "decision": "rejected", "reason": "決算前で見送り"},
+                    {"ticker": "0002", "decision": "rejected", "reason": "決算日が読めない"},
+                ],
+            },
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+    assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
+    captured = capsys.readouterr()
+
+    yaml.safe_load(captured.out)  # stdout stays a single machine-readable YAML document
+    assert (
+        "baibai-engine task add --kind follow-up --ticker 0001 "
+        '--title "0001 決算で見送り判断を再評価" '
+        "--due 2026-08-06 --event-date 2026-08-06 "
+        '--event-label "0001 決算"'
+    ) in captured.err
+    assert "0002" in captured.err
+    assert "決算日未公表" in captured.err
+    assert "2331" not in captured.err
+
+
 def test_screening_api_falls_back_to_selection_bound_run(app_records_root: Path) -> None:
     """A selection-less newer revision (determinism re-run) must not blank the cockpit."""
 

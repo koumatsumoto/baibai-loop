@@ -12,6 +12,7 @@ from baibai_engine.screening.shortlist import (
     SelectionBinding,
     ShortlistConflictError,
 )
+from baibai_engine.screening.shortlist_cli import reevaluation_task_suggestions
 
 
 def _narrative() -> dict[str, str]:
@@ -107,3 +108,26 @@ def test_shortlist_rejected_entry_forbids_narrative() -> None:
     ]
     with pytest.raises(ValidationError):
         ReviewedShortlist.model_validate(payload)
+
+
+def test_reevaluation_suggestion_emits_runnable_task_add_for_rejected_with_earnings_date() -> None:
+    suggestions = reevaluation_task_suggestions(
+        _shortlist(), {"2331": "2026-07-30", "0001": "2026-08-06"}
+    )
+
+    assert suggestions == [
+        "baibai-engine task add --kind follow-up --ticker 0001 "
+        '--title "0001 決算で見送り判断を再評価" '
+        "--due 2026-08-06 --event-date 2026-08-06 "
+        '--event-label "0001 決算"'
+    ]
+
+
+def test_reevaluation_suggestion_notes_missing_earnings_date() -> None:
+    suggestions = reevaluation_task_suggestions(_shortlist(), {"2331": "2026-07-30", "0001": None})
+
+    assert len(suggestions) == 1
+    note = suggestions[0]
+    assert note.startswith("# 0001")
+    assert "決算日未公表" in note
+    assert "--ticker 0001" in note
