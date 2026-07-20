@@ -68,10 +68,27 @@ def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> No
     )
     path = tmp_path / ".claude" / "skills" / "demo" / "SKILL.md"
     path.parent.mkdir(parents=True)
-    path.write_text("cap is 6%\n", encoding="utf-8")
+    path.write_text("cap is 10%\n", encoding="utf-8")
     assert check_duplicate_constants.check(tmp_path) == [
-        ".claude/skills/demo/SKILL.md: duplicated policy literal '6%'"
+        ".claude/skills/demo/SKILL.md: duplicated policy literal '10%'"
     ]
+
+
+def test_duplicate_policy_constant_gate_allows_marked_unrelated_literal(tmp_path: Path) -> None:
+    policy = tmp_path / "src/baibai_engine/position/policy.py"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(
+        (ROOT / "src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    path = tmp_path / "docs" / "unrelated-rate.md"
+    path.parent.mkdir()
+    path.write_text(
+        "欠損率は 10% である <!-- drift: allow-unrelated-policy-literal -->\n",
+        encoding="utf-8",
+    )
+
+    assert check_duplicate_constants.check(tmp_path) == []
 
 
 def test_duplicate_policy_constant_gate_rejects_japanese_monthly_contribution(

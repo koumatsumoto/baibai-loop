@@ -147,7 +147,7 @@ python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 
 - 有効な evidence pattern が必須とする TTM metric の `ttm_quality != exact` が universe の 5% 以上、または 20 銘柄以上
 - EDINET metrics は `run` の必須 coverage。metrics 抽出済みでも個別 metric が `unavailable` になる場合だけ partial warning の対象にする
-- 業績悪化フィルタ入力欠損が universe の 10% 以上
+- 業績悪化フィルタ入力欠損が universe の 10% 以上 <!-- drift: allow-unrelated-policy-literal -->
 
 ## 10. Exit Codes
 

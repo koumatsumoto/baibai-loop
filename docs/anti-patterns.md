@@ -35,7 +35,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ## 1. AP-01: 一次情報を直接確認せず二次情報・推測で書く
 
 ### 観測された症状
-- 122 条関税を「13% 上乗せ」と書いた (Federal Register 一次情報は 10% ad valorem)。
+- 122 条関税を「13% 上乗せ」と書いた (Federal Register 一次情報は 10% ad valorem)。 <!-- drift: allow-unrelated-policy-literal -->
   trade-weighted estimate の二次情報を引用元なしに断定した
 - TSMC 「Capex $52-56B レンジ」「先端プロセス 70-80% 配分」「2026 年売上 +30%」を
   Q1 release から確認したと書いた (実際は Q4 transcript / IR archive 由来)
@@ -56,8 +56,8 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] その URL を実際に WebFetch / curl で取得し、本文に記載があることを確認したか
 - [ ] **source の policy / rate / date / scenario が本文主張と一致しているか** (URL を貼っただけで終わらせない)
   - 例: 「Section 122 trade-weighted 13%」と書く場合、貼った Global Trade Alert source の中で
-        13.0% は **15% シナリオ** の数値であり、10% 法定 (Proclamation 11012) 前提と整合しない。
-        10% 前提なら 11.4-11.5%、15% シナリオを使うなら法定が 15% の場合の話だと明記する
+        13.0% は **15% シナリオ** の数値であり、10% 法定 (Proclamation 11012) 前提と整合しない。 <!-- drift: allow-unrelated-policy-literal -->
+        10% 前提なら 11.4-11.5%、15% シナリオを使うなら法定が 15% の場合の話だと明記する <!-- drift: allow-unrelated-policy-literal -->
   - 例: 「BEA 公表」と書く場合、その URL が press release / FRED / BEA Schedule のどれか、
         対象月 (March 2026 vs April 2026) が一致するか、speech だけで release ではないか
 - [ ] 「業界レポート」「アナリスト試算」「外部分析の trade-weighted estimate」などの二次値は、

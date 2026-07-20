@@ -2093,7 +2093,7 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
         "current_and_reserved_yen": 200_000,
         "prospective_yen": 500_000,
         "prospective_pct": 4.81,
-        "warning_pct": 6,
+        "warning_pct": 10,
     }
     assert exposure["sector"]["current_and_reserved_yen"] == 200_000
     assert exposure["sector"]["prospective_yen"] == 500_000
@@ -2254,7 +2254,7 @@ def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit
             "--target-session",
             TARGET_SESSION,
             "--budget-max-yen",
-            "500000",
+            "900000",
         ],
         capsys,
     )
@@ -2262,7 +2262,8 @@ def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit
     assert code == 0
     assert payload["status"] == "planned_limit"
     assert payload["limit_price_yen"] == 1000
-    assert payload["portfolio_exposure"]["ticker"]["prospective_yen"] == 700_000
+    assert payload["portfolio_exposure"]["ticker"]["prospective_yen"] == 1_100_000
+    assert payload["portfolio_exposure"]["ticker"]["warning_pct"] == 10.0
     assert "prospective_ticker_concentration_exceeds_warning" in payload["warnings"]
 
 

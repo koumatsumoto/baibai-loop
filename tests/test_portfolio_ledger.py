@@ -286,6 +286,63 @@ def test_ticker_sector_and_common_factor_include_active_reservation() -> None:
     assert warnings[("common_factor", "labor-automation")].actual_pct == 3.25
 
 
+def test_ticker_concentration_at_ten_percent_does_not_warn() -> None:
+    raw = _raw()
+    events = raw["events"]
+    assert isinstance(events, list)
+    opening = events[0]
+    pending = events[-1]
+    assert isinstance(opening, dict)
+    assert isinstance(pending, dict)
+    opening["amount_yen"] = 10_000_500
+    pending.update(
+        {
+            "ticker": "2331",
+            "sector": "サービス業",
+            "common_factors": ["labor-automation"],
+            "price_guard_yen": 8_220,
+        }
+    )
+
+    snapshot = reconcile_portfolio(_document(raw))
+
+    assert snapshot.total_capital_yen == 10_420_000
+    assert snapshot.holdings[0].market_value_yen == 220_000
+    assert snapshot.active_reservations[0].reserved_yen == 822_000
+    assert not any(
+        warning.code == "portfolio.ticker-concentration" for warning in snapshot.warnings
+    )
+
+
+def test_ticker_concentration_above_ten_percent_warns_with_active_reservation() -> None:
+    raw = _raw()
+    events = raw["events"]
+    assert isinstance(events, list)
+    opening = events[0]
+    pending = events[-1]
+    assert isinstance(opening, dict)
+    assert isinstance(pending, dict)
+    opening["amount_yen"] = 10_000_500
+    pending.update(
+        {
+            "ticker": "2331",
+            "sector": "サービス業",
+            "common_factors": ["labor-automation"],
+            "price_guard_yen": 8_221,
+        }
+    )
+
+    snapshot = reconcile_portfolio(_document(raw))
+
+    warning = next(
+        item for item in snapshot.warnings if item.code == "portfolio.ticker-concentration"
+    )
+    assert warning.key == "2331"
+    assert warning.actual_pct == 10.0
+    assert warning.warning_pct == 10.0
+    assert warning.overridden is False
+
+
 def test_dry_powder_is_a_warning_instead_of_a_cash_error() -> None:
     policy = copy.deepcopy(PORTFOLIO_POLICY)
     cash = policy["cash_management"]

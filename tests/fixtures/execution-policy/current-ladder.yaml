@@ -38,7 +38,7 @@ portfolio:
   ticker_exposure_yen: 220000
   sector_exposure_yen: 220000
   common_factor_exposure_yen: {labor-automation: 220000}
-  max_ticker_concentration_pct: 6.0
+  max_ticker_concentration_pct: 10.0
   max_sector_concentration_pct: 40.0
   max_common_factor_concentration_pct: 35.0
   existing_warning_codes: []

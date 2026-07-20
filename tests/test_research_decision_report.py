@@ -215,10 +215,10 @@ def _proposal(workspace: Path, *, status: str) -> dict[str, object]:
             "common_factor_empty_tickers": [],
             "ticker": {
                 "key": "2331",
-                "current_and_reserved_yen": 100_000,
-                "prospective_yen": 100_000 + notional,
-                "prospective_pct": 6.13,
-                "warning_pct": 6.0,
+                "current_and_reserved_yen": 300_000,
+                "prospective_yen": 300_000 + notional,
+                "prospective_pct": 10.13,
+                "warning_pct": 10.0,
             },
             "sector": {
                 "key": "サービス業",
@@ -343,7 +343,7 @@ def test_render_planned_limit_after_passing_hash_bound_review(tmp_path: Path) ->
     assert "ledger_warning:portfolio.ticker-concentration" in document
     assert "portfolio exposure（同一as-of）" in document
     assert "5,000,000円" in document
-    assert "6.13%" in document
+    assert "10.13%" in document
     assert "24.13%" in document
     assert "42.13%" in document
     assert "ledger fallback" in document
