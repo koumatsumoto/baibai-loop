@@ -370,8 +370,9 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             prior = read_eq_master_asof(db, second - timedelta(days=1))
             self.assertEqual(prior.status, "prior_snapshot")
             self.assertEqual(prior.snapshot_date, first)
-            unavailable = read_eq_master_asof(db, first - timedelta(days=1))
-            self.assertEqual(unavailable.status, "unavailable")
+            fallback = read_eq_master_asof(db, first - timedelta(days=1))
+            self.assertEqual(fallback.status, "future_snapshot")
+            self.assertEqual(fallback.snapshot_date, first)
             latest = read_eq_master(db)
             assert latest is not None
             self.assertNotIn("8000", {row.code for row in latest})

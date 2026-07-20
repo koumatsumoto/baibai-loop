@@ -136,7 +136,7 @@ class ReadEqMasterTests(unittest.TestCase):
             assert masters is not None
             self.assertEqual(masters[0].name, "NewName")
 
-    def test_asof_reader_never_falls_forward_to_a_future_snapshot(self) -> None:
+    def test_asof_reader_prefers_prior_and_falls_back_to_earliest_future_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             conn = open_connection(db)
@@ -156,6 +156,18 @@ class ReadEqMasterTests(unittest.TestCase):
             self.assertEqual(prior.status, "prior_snapshot")
             self.assertEqual(prior.snapshot_date, date(2025, 1, 31))
             self.assertEqual([master.code for master in prior.masters], ["1301"])
+
+            fallback = read_eq_master_asof(db, date(2025, 1, 1))
+            self.assertEqual(fallback.status, "future_snapshot")
+            self.assertEqual(fallback.snapshot_date, date(2025, 1, 31))
+            self.assertEqual([master.code for master in fallback.masters], ["1301"])
+
+    def test_asof_reader_is_unavailable_without_any_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            conn.commit()
+            conn.close()
 
             unavailable = read_eq_master_asof(db, date(2025, 1, 1))
             self.assertEqual(unavailable.status, "unavailable")

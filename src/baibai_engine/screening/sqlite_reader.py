@@ -51,10 +51,14 @@ class MasterSnapshotRead:
 
 
 def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
-    """Read only the newest master snapshot at or before ``asof``.
+    """Read the newest master snapshot at or before ``asof``.
 
-    This intentionally never falls forward to the current snapshot: calibration
-    needs the historical membership that was knowable at the cohort date.
+    Snapshot collection starts at the first locally stored date, so cohorts
+    before it can never have a point-in-time snapshot. For those dates this
+    falls back to the earliest stored snapshot and labels the read
+    ``future_snapshot``: the approximation keeps historical cohorts measurable
+    for diagnostics, while the calibration authority contract excludes every
+    non-``exact_date`` read from production evidence.
     """
     if not sqlite_path.exists():
         return MasterSnapshotRead((), None, "unavailable")
@@ -62,10 +66,16 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
     if conn is None:
         return MasterSnapshotRead((), None, "unavailable")
     try:
+        status = "prior_snapshot"
         snapshot = conn.execute(
             "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date <= ?",
             (asof.isoformat(),),
         ).fetchone()[0]
+        if snapshot is None:
+            status = "future_snapshot"
+            snapshot = conn.execute(
+                "SELECT MIN(snapshot_date) FROM jquants_master_snapshots"
+            ).fetchone()[0]
         if snapshot is None:
             return MasterSnapshotRead((), None, "unavailable")
         rows = conn.execute(
@@ -88,7 +98,7 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
             for ticker, name, market, sector_33, is_common in rows
         ),
         snapshot_date,
-        "exact_date" if snapshot_date == asof else "prior_snapshot",
+        "exact_date" if snapshot_date == asof else status,
     )
 
 
@@ -198,6 +208,7 @@ def read_fin_summaries(
             "SELECT ticker, disclosed_at, forecast_eps, eps_ttm, bps, "
             "shares_outstanding, sales, cfo, cash_eq, total_assets, equity, "
             "operating_profit, ordinary_profit, profit, "
+            "forecast_profit, forecast_ordinary_profit, "
             "fiscal_period, fiscal_year_end, period_start, period_end, "
             "dps_actual_annual, dps_forecast_annual "
             "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
@@ -224,6 +235,8 @@ def read_fin_summaries(
             operating_profit,
             ordinary_profit,
             profit,
+            forecast_profit,
+            forecast_ordinary_profit,
             fiscal_period,
             fiscal_year_end,
             period_start,
@@ -248,6 +261,8 @@ def read_fin_summaries(
                     operating_profit=optional_float(operating_profit),
                     ordinary_profit=optional_float(ordinary_profit),
                     profit=optional_float(profit),
+                    forecast_profit=optional_float(forecast_profit),
+                    forecast_ordinary_profit=optional_float(forecast_ordinary_profit),
                     fiscal_period=fiscal_period if fiscal_period else None,
                     fiscal_year_end=optional_date(fiscal_year_end),
                     period_start=optional_date(period_start),
