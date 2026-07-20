@@ -27,6 +27,17 @@ LATEST_CACHE_MAX_AGE_DAYS = {
 }
 PROVIDER_FETCH_ATTEMPTS = 2
 PROVIDER_FETCH_RETRY_BACKOFF_SECONDS = 1.0
+_ALL_HISTORY_START_BY_PROVIDER = {
+    "boj": date(1957, 1, 1),
+    "ecb_fx": date(1999, 1, 1),
+    "estat": date(1970, 1, 1),
+    "frb_h15": date(1962, 1, 1),
+    "fred_csv": date(1900, 1, 1),
+    "jquants_flows": date(2017, 1, 1),
+    "mof_jgb": date(1974, 1, 1),
+    "multpl": None,
+    "yahoo": date(1970, 1, 1),
+}
 
 
 @dataclass(frozen=True)
@@ -140,6 +151,28 @@ class IndicatorsService:
             return QueryResult(series, tuple(ordered), cache_hit=cache_hit)
         finally:
             conn.close()
+
+    def refresh_all_history(self, series_id: str, *, end: date) -> QueryResult:
+        conn = db.open_connection(self.db_path)
+        try:
+            series = db.get_series(conn, series_id)
+        finally:
+            conn.close()
+        if series.provider == "manual":
+            raise IndicatorsProviderError(
+                f"manual series {series_id} is synchronized with macro import-manual"
+            )
+        if series.provider == "boj_mutan":
+            start = date(max(2001, end.year - 1), 1, 1)
+        else:
+            try:
+                configured_start = _ALL_HISTORY_START_BY_PROVIDER[series.provider]
+            except KeyError:
+                raise IndicatorsProviderError(
+                    f"all-history start is not configured for provider {series.provider}"
+                ) from None
+            start = end if configured_start is None else configured_start
+        return self.get_range(series_id, start=start, end=end, refresh=True)
 
     def get_latest(self, series_id: str, *, refresh: bool = False) -> QueryResult:
         end = datetime.now(UTC).date()

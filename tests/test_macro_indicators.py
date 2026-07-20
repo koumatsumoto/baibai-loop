@@ -15,7 +15,7 @@ import openpyxl
 import requests
 
 from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.macro.indicators.cli import main
+from baibai_engine.macro.indicators.cli import build_parser, main
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     ObservationRecord,
@@ -783,6 +783,58 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
 
 class IndicatorsServiceTests(unittest.TestCase):
+    def test_refresh_all_history_uses_provider_floor_and_forces_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            observation = ObservationRecord(
+                series_id="us.fed_funds.upper",
+                observed_at=date(1954, 7, 1),
+                value=1.13,
+                unit="percent",
+                source_url="https://example.com/data.csv",
+                vintage_at=datetime.now(UTC),
+            )
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                return_value=[observation],
+            ) as fetch:
+                result = IndicatorsService(database).refresh_all_history(
+                    "us.fed_funds.upper",
+                    end=date(2026, 7, 20),
+                )
+
+            self.assertEqual(result.observations, (observation,))
+            self.assertEqual(fetch.call_args.kwargs["start"], date(1900, 1, 1))
+            self.assertEqual(fetch.call_args.kwargs["end"], date(2026, 7, 20))
+
+    def test_refresh_all_history_excludes_manual_series(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+
+            with self.assertRaisesRegex(IndicatorsProviderError, "import-manual"):
+                IndicatorsService(database).refresh_all_history(
+                    "jp.bankruptcies",
+                    end=date(2026, 7, 20),
+                )
+
+    def test_refresh_cli_requires_one_range_mode(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["refresh", "us.10y", "--all-history", "--end", "2026-07-20"])
+        self.assertTrue(args.all_history)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "refresh",
+                    "us.10y",
+                    "--start",
+                    "2026-01-01",
+                    "--all-history",
+                    "--end",
+                    "2026-07-20",
+                ]
+            )
+
     def test_import_manual_seed_is_idempotent_and_replaces_manual_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
