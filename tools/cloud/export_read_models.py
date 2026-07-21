@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import shutil
 import sys
-from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -27,57 +28,17 @@ from baibai_app.readmodel.builders import (
     build_security_detail,
 )
 from baibai_app.readmodel.models import DashboardView, MetaBatch, ScreeningView
-from baibai_app.sources.db_sources import (
-    DbCandidatesSource,
-    DbLedgerSource,
-    DbMacroSource,
-    DbMarketPriceSource,
-    DbMetaSource,
-    DbProgramSource,
-    DbResearchSource,
-    DbTaskSource,
-    load_macro_dashboard_config,
-)
+from baibai_app.sources.db_sources import DbCandidatesSource
+from baibai_app.sources.factory import build_sources
 from baibai_app.sources.types import CandidatesRun
 from baibai_engine.read_api import screening_run_payload
 
 _JST = ZoneInfo("Asia/Tokyo")
 _MACRO_PERIODS = ("1y", "5y", "10y", "max")
 _MACRO_GRANULARITIES = ("daily", "weekly", "monthly", "yearly")
-
-
-@dataclass(frozen=True, slots=True)
-class _Stores:
-    ledger: DbLedgerSource
-    research: DbResearchSource
-    tasks: DbTaskSource
-    candidates: DbCandidatesSource
-    macro: DbMacroSource
-    program: DbProgramSource
-    market: DbMarketPriceSource
-    meta: DbMetaSource
-    runs_db_path: Path
-
-
-def _build_stores(root: Path) -> _Stores:
-    db_path = (root / "data/app/baibai.sqlite").resolve()
-    runs_db_path = (root / "data/screening/runs.sqlite").resolve()
-    indicators_db_path = (root / "data/indicators/macro.sqlite").resolve()
-    return _Stores(
-        ledger=DbLedgerSource(db_path),
-        research=DbResearchSource(db_path),
-        tasks=DbTaskSource(db_path),
-        candidates=DbCandidatesSource(runs_db_path, db_path),
-        macro=DbMacroSource(
-            db_path,
-            indicators_db_path,
-            load_macro_dashboard_config(root / "records/_config/macro-dashboard.yaml"),
-        ),
-        program=DbProgramSource(db_path),
-        market=DbMarketPriceSource(root / "data/screening/market.sqlite"),
-        meta=DbMetaSource(db_path, runs_db_path, indicators_db_path),
-        runs_db_path=runs_db_path,
-    )
+# Same shape the ledger and run store enforce at write time; re-checked here so a
+# store-derived string never reaches filename composition unvalidated.
+_TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
 
 
 def export_read_models(
@@ -86,10 +47,19 @@ def export_read_models(
     *,
     batch: MetaBatch | None = None,
 ) -> list[Path]:
-    """Write every serving JSON under ``output_dir`` and return the written paths."""
+    """Write every serving JSON under ``output_dir`` and return the written paths.
 
-    stores = _build_stores(root)
+    ``views/`` is recreated from scratch so it always carries the complete image of
+    one export and no stale per-ticker view survives a shrinking target set;
+    ``history/`` only appends. ``views/meta.json`` is written last so its freshness
+    claim exists only after every other file has been written successfully.
+    """
+
+    stores = build_sources(root)
     views_dir = output_dir / "views"
+    if views_dir.is_dir():
+        shutil.rmtree(views_dir)
+    views_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
 
     dashboard = build_dashboard(
@@ -113,10 +83,11 @@ def export_read_models(
             macro = build_macro(stores.macro, as_of=as_of, period=period, granularity=granularity)
             written.append(_write_model(views_dir / f"macro--{period}-{granularity}.json", macro))
 
-    written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
-
     cached_candidates = _CachedLatestRunCandidates(stores.candidates)
     for ticker in _security_tickers(dashboard, screening):
+        if _TICKER_FORMAT.fullmatch(ticker) is None:
+            _warn(f"ticker has an unexpected format: {ticker!r}; security view skipped")
+            continue
         detail = build_security_detail(
             ticker,
             stores.ledger,
@@ -130,6 +101,8 @@ def export_read_models(
         written.append(_write_model(views_dir / f"security--{ticker}.json", detail))
 
     written.extend(_write_history(output_dir, screening, runs_db_path=stores.runs_db_path))
+
+    written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
     return written
 
 
@@ -177,13 +150,21 @@ def _write_history(
     else:
         _warn("no machine selection is published; history/select skipped")
     raw_run = screening_run_payload(runs_db_path)
-    if raw_run is not None:
-        path = output_dir / "history/candidate-pool" / f"{raw_run['as_of_date']}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(raw_run, ensure_ascii=False), encoding="utf-8")
-        written.append(path)
-    else:
+    if raw_run is None:
         _warn("no screening run is published; history/candidate-pool skipped")
+        return written
+    try:
+        pool_asof = date.fromisoformat(str(raw_run["as_of_date"]))
+    except ValueError:
+        _warn(
+            f"run as_of_date has an unexpected format: {raw_run['as_of_date']!r}; "
+            "history/candidate-pool skipped"
+        )
+        return written
+    path = output_dir / "history/candidate-pool" / f"{pool_asof.isoformat()}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(raw_run, ensure_ascii=False), encoding="utf-8")
+    written.append(path)
     return written
 
 

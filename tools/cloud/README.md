@@ -23,7 +23,9 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> [--batch dail
 - `history/select/<asof>.json`（machine selection のサマリ。無期限保持する軽量履歴）
 - `history/candidate-pool/<asof>.json`（candidate pool 全件の機械出力。31 日で削除する履歴）
 
-views の JSON は `baibai-app` の対応 API response と同形（pydantic `model_dump_json`）。
+`views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の「無期限保持 / 31 日で削除」は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
+
+views の JSON は `baibai-app` の対応 API response と同形（pydantic `model_dump_json`）。`meta.json` は全 view / history の書き込み成功後に最後に書くので、途中失敗した出力 dir が新鮮さを主張する事態を避ける。
 
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
