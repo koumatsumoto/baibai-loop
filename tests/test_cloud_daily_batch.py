@@ -201,7 +201,7 @@ def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_pa
 
 def test_daily_batch_stops_on_step_failure_with_stderr_summary(tmp_path: Path) -> None:
     script = _success_script()
-    script["screening run"] = [CommandResult(2, "", "boom\nprovider unavailable\n")]
+    script["screening run"] = [CommandResult(1, "", "boom\nprovider unavailable\n")]
     runner = ScriptedRunner(script)
 
     with pytest.raises(BatchStepError) as excinfo:
@@ -209,9 +209,67 @@ def test_daily_batch_stops_on_step_failure_with_stderr_summary(tmp_path: Path) -
 
     message = str(excinfo.value)
     assert "screening-run" in message
-    assert "exit 2" in message
+    assert "exit 1" in message
     assert "provider unavailable" in message
     assert "screening select" not in runner.call_keys()
+
+
+def test_daily_batch_continues_when_run_reports_partial_warning(tmp_path: Path, capsys) -> None:
+    script = _success_script()
+    script["screening run"] = [
+        CommandResult(
+            2,
+            "screening run done: status=partial warning; run_revision_id=rev-1; "
+            "output=None; universe=3800; candidates=42\n"
+            "screening run partial warning reasons:\n- ttm_quality 非 exact 件数: 10\n",
+            "",
+        )
+    ]
+    runner = ScriptedRunner(script)
+
+    exit_code = run_daily_batch(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+
+    assert exit_code == 0
+    assert "export" in runner.call_keys()
+    assert "partial warning (run is published" in capsys.readouterr().out
+
+
+def test_daily_batch_defers_macro_refresh_failure_until_after_export(tmp_path: Path) -> None:
+    script = _success_script()
+    script["macro refresh"] = [
+        CommandResult(1, "", "provider down\n"),
+        OK,
+        OK,
+    ]
+    runner = ScriptedRunner(script)
+
+    exit_code = run_daily_batch(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+
+    assert exit_code == 1
+    keys = runner.call_keys()
+    assert keys.count("macro refresh") == 3
+    assert "macro import-manual" in keys
+    assert "export" in keys
+
+
+def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
+    script = _success_script()
+    script["macro list"] = [CommandResult(1, "", "boom\n")]
+    runner = ScriptedRunner(script)
+
+    exit_code = run_daily_batch(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+
+    assert exit_code == 1
+    keys = runner.call_keys()
+    assert "macro refresh" not in keys
+    assert "macro import-manual" in keys
+    assert "export" in keys
 
 
 def test_daily_batch_stops_when_run_output_lacks_run_revision_id(tmp_path: Path) -> None:

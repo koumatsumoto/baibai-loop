@@ -7,6 +7,13 @@ Order: business-day gate -> screening cache coverage (bootstrap on demand) ->
 holds no business logic, so the stable CLI contract stays the only coupling.
 Each step prints its command line and an ``exit <code> (<seconds>s)`` line to
 stdout so a scheduled workflow log is readable as-is.
+
+Failure policy: the screening chain is fatal (without a publishable run there
+is nothing new to export), while macro series refresh failures are deferred —
+the export still publishes the fresh screening result and the batch exits
+non-zero afterwards so a scheduled workflow still reports the failure.
+``screening run`` exit 2 is a published run with partial-quality warnings and
+the chain continues.
 """
 
 from __future__ import annotations
@@ -232,7 +239,13 @@ def run_daily_batch(
         name="screening-run",
         argv=(_ENGINE, "screening", "run", "--asof", asof_arg),
         cwd=root,
+        allowed_exit_codes=(0, 2),
     )
+    if run_result.returncode == 2:
+        print(
+            "note: screening run finished with partial warning (run is published; reasons above)",
+            flush=True,
+        )
     run_revision_id = _parse_run_revision_id(run_result.stdout)
 
     select_result = _run_step(
@@ -253,34 +266,48 @@ def run_daily_batch(
     selection_id = _parse_selection_id(select_result.stdout)
     print(f"selection_id={selection_id}", flush=True)
 
-    macro_list = _run_step(
-        runner,
-        name="macro-list",
-        argv=(_ENGINE, "macro", "list"),
-        cwd=root,
-        echo_stdout=False,
-    )
-    for window_days, series_ids in _macro_refresh_groups(_parse_macro_series(macro_list.stdout)):
-        start = target - timedelta(days=window_days)
-        _run_step(
+    # Macro series refresh must not block publishing the fresh screening result:
+    # failures here are deferred to the final exit code after the export step.
+    deferred_failures: list[str] = []
+    refresh_groups: list[tuple[int, list[str]]] = []
+    try:
+        macro_list = _run_step(
             runner,
-            name=f"macro-refresh-{window_days}d",
-            argv=(
-                _ENGINE,
-                "macro",
-                "refresh",
-                *series_ids,
-                "--start",
-                start.isoformat(),
-                "--end",
-                asof_arg,
-            ),
+            name="macro-list",
+            argv=(_ENGINE, "macro", "list"),
             cwd=root,
             echo_stdout=False,
         )
-    _run_step(
-        runner, name="macro-import-manual", argv=(_ENGINE, "macro", "import-manual"), cwd=root
-    )
+        refresh_groups = _macro_refresh_groups(_parse_macro_series(macro_list.stdout))
+    except BatchStepError as exc:
+        deferred_failures.append(str(exc))
+    for window_days, series_ids in refresh_groups:
+        start = target - timedelta(days=window_days)
+        try:
+            _run_step(
+                runner,
+                name=f"macro-refresh-{window_days}d",
+                argv=(
+                    _ENGINE,
+                    "macro",
+                    "refresh",
+                    *series_ids,
+                    "--start",
+                    start.isoformat(),
+                    "--end",
+                    asof_arg,
+                ),
+                cwd=root,
+                echo_stdout=False,
+            )
+        except BatchStepError as exc:
+            deferred_failures.append(str(exc))
+    try:
+        _run_step(
+            runner, name="macro-import-manual", argv=(_ENGINE, "macro", "import-manual"), cwd=root
+        )
+    except BatchStepError as exc:
+        deferred_failures.append(str(exc))
 
     _run_step(
         runner,
@@ -302,6 +329,14 @@ def run_daily_batch(
         f"asof={asof_arg}; run_revision_id={run_revision_id}; selection_id={selection_id}",
         flush=True,
     )
+    if deferred_failures:
+        print(
+            f"error: export published, but {len(deferred_failures)} macro step(s) failed:",
+            file=sys.stderr,
+        )
+        for failure in deferred_failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
     return 0
 
 
