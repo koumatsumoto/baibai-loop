@@ -17,7 +17,12 @@ export function clearViewPassword(): void {
   localStorage.removeItem(VIEW_PASSWORD_KEY)
 }
 
-type AuthRequiredListener = () => void
+// `rejected`: a stored password was present and got cleared (a 401 answer or a value the
+// request layer refuses). `required`: no stored password, so this is a first prompt. The
+// gate uses this to distinguish a repeat prompt from the initial one.
+export type AuthRequiredReason = 'required' | 'rejected'
+
+type AuthRequiredListener = (reason: AuthRequiredReason) => void
 
 const authRequiredListeners = new Set<AuthRequiredListener>()
 
@@ -30,6 +35,6 @@ export function subscribeAuthRequired(listener: AuthRequiredListener): () => voi
 }
 
 /** Fire the auth-required signal so the password gate takes over. */
-export function notifyAuthRequired(): void {
-  for (const listener of authRequiredListeners) listener()
+export function notifyAuthRequired(reason: AuthRequiredReason): void {
+  for (const listener of authRequiredListeners) listener(reason)
 }

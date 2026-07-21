@@ -70,7 +70,7 @@ describe('fetchJson headers', () => {
 })
 
 describe('fetchJson 401 handling', () => {
-  it('clears the stored password and signals auth-required on a 401 from /api/', async () => {
+  it('clears the stored password and signals it was rejected on a 401 from /api/', async () => {
     setViewPassword('rejected-secret')
     const listener = vi.fn()
     const unsubscribe = subscribeAuthRequired(listener)
@@ -79,6 +79,38 @@ describe('fetchJson 401 handling', () => {
       await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
       expect(getViewPassword()).toBeNull()
       expect(listener).toHaveBeenCalledTimes(1)
+      expect(listener).toHaveBeenCalledWith('rejected')
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('signals a first prompt (required) on a 401 with no stored password', async () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'unauthorized' }, 401))
+    try {
+      await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
+      expect(listener).toHaveBeenCalledWith('required')
+    } finally {
+      unsubscribe()
+    }
+  })
+})
+
+describe('fetchJson non-Latin-1 password self-recovery', () => {
+  it('drops an unusable stored password and triggers the gate before any request', async () => {
+    // Header values are Latin-1 ByteStrings; a non-ASCII value makes Headers.set throw
+    // before the request. The client must recover, not dead-end.
+    setViewPassword('ひみつ')
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
+    try {
+      await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
+      expect(getViewPassword()).toBeNull()
+      expect(listener).toHaveBeenCalledWith('rejected')
+      expect(fetchMock).not.toHaveBeenCalled()
     } finally {
       unsubscribe()
     }
