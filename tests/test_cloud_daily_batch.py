@@ -68,7 +68,28 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "macro refresh": [OK, OK, OK],
         "macro import-manual": [OK],
         "export": [OK],
+        "screening prune": [OK],
     }
+
+
+def _seed_runs(root: Path, rows: list[tuple[str, str, str]]) -> None:
+    db = root / "data/screening/runs.sqlite"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "CREATE TABLE screening_run("
+            "run_revision_id TEXT PRIMARY KEY, asof_date TEXT NOT NULL, "
+            "run_at TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO screening_run(run_revision_id, asof_date, run_at, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            [(rev, asof, run_at, run_at) for rev, asof, run_at in rows],
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _seed_calendar(root: Path, rows: dict[date, int]) -> None:
@@ -106,6 +127,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "macro refresh",
         "macro import-manual",
         "export",
+        "screening prune",
     ]
 
     run_argv = runner.calls[1]
@@ -256,6 +278,26 @@ def test_daily_batch_defers_macro_refresh_failure_until_after_export(tmp_path: P
     assert "export" in keys
 
 
+def test_daily_batch_passes_previous_run_revision_when_resolvable(tmp_path: Path) -> None:
+    _seed_runs(
+        tmp_path,
+        [
+            ("rev-old-1", "2026-07-17", "2026-07-17T18:00:00+09:00"),
+            ("rev-old-2", "2026-07-17", "2026-07-17T19:00:00+09:00"),
+            ("rev-cur", "2026-07-21", "2026-07-21T18:00:00+09:00"),
+        ],
+    )
+    runner = ScriptedRunner(_success_script())
+
+    exit_code = run_daily_batch(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+
+    assert exit_code == 0
+    select_argv = next(argv for argv in runner.calls if _key(argv) == "screening select")
+    assert select_argv[-2:] == ["--previous-run-revision-id", "rev-old-2"]
+
+
 def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
     script["macro list"] = [CommandResult(1, "", "boom\n")]
@@ -319,7 +361,7 @@ def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert runner.calls[0][3:] == ["--asof", today.isoformat()]
-    assert runner.call_keys()[-1] == "export"
+    assert runner.call_keys()[-1] == "screening prune"
 
 
 def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path) -> None:

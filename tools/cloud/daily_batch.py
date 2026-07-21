@@ -2,7 +2,8 @@
 
 Order: business-day gate -> screening cache coverage (bootstrap on demand) ->
 ``screening run`` -> ``screening select`` -> macro series refresh +
-``import-manual`` -> read-model export. Every step goes through the public
+``import-manual`` -> read-model export -> run-store prune. Every step goes
+through the public
 ``baibai-engine`` CLI (or the export script) as a subprocess; this orchestrator
 holds no business logic, so the stable CLI contract stays the only coupling.
 Each step prints its command line and an ``exit <code> (<seconds>s)`` line to
@@ -35,6 +36,7 @@ import yaml
 _JST = ZoneInfo("Asia/Tokyo")
 _ENGINE = "baibai-engine"
 _MARKET_DB_RELPATH = Path("data/screening/market.sqlite")
+_RUNS_DB_RELPATH = Path("data/screening/runs.sqlite")
 _EXPORT_SCRIPT_RELPATH = Path("tools/cloud/export_read_models.py")
 # Refresh window per series frequency, mirroring the provider re-fetch windows
 # the macro `get --latest` freshness check uses (daily 14 / weekly 60 /
@@ -100,6 +102,34 @@ def is_business_day(market_db: Path, day: date) -> bool:
             "refresh the calendar cache before running the daily batch"
         )
     return bool(row[0])
+
+
+def resolve_previous_run_revision(runs_db: Path, asof: date) -> str | None:
+    """Pick the newest revision of the greatest prior as-of, or None when there is none.
+
+    ``select`` compares against the previous run and aborts when the greatest
+    prior as-of has multiple revisions; the daily batch resolves that ambiguity
+    deterministically (newest ``run_at`` / ``created_at`` wins) so repeated runs
+    on the same date never block the chain.
+    """
+
+    if not runs_db.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"{runs_db.resolve().as_uri()}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT run_revision_id FROM screening_run WHERE asof_date < ? "
+            "ORDER BY asof_date DESC, run_at DESC, created_at DESC LIMIT 1",
+            (asof.isoformat(),),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    return str(row[0]) if row is not None else None
 
 
 def _run_step(
@@ -248,18 +278,22 @@ def run_daily_batch(
         )
     run_revision_id = _parse_run_revision_id(run_result.stdout)
 
+    select_argv: list[str] = [
+        _ENGINE,
+        "screening",
+        "select",
+        "--asof",
+        asof_arg,
+        "--run-revision-id",
+        run_revision_id,
+    ]
+    previous_run_revision_id = resolve_previous_run_revision(root / _RUNS_DB_RELPATH, target)
+    if previous_run_revision_id is not None:
+        select_argv.extend(("--previous-run-revision-id", previous_run_revision_id))
     select_result = _run_step(
         runner,
         name="screening-select",
-        argv=(
-            _ENGINE,
-            "screening",
-            "select",
-            "--asof",
-            asof_arg,
-            "--run-revision-id",
-            run_revision_id,
-        ),
+        argv=select_argv,
         cwd=root,
         echo_stdout=False,
     )
@@ -324,6 +358,12 @@ def run_daily_batch(
         ),
         cwd=root,
     )
+    # Prune old run generations last so a prune hiccup never blocks the publish.
+    try:
+        _run_step(runner, name="screening-prune", argv=(_ENGINE, "screening", "prune"), cwd=root)
+    except BatchStepError as exc:
+        deferred_failures.append(str(exc))
+
     print(
         "daily batch done: "
         f"asof={asof_arg}; run_revision_id={run_revision_id}; selection_id={selection_id}",
@@ -331,7 +371,7 @@ def run_daily_batch(
     )
     if deferred_failures:
         print(
-            f"error: export published, but {len(deferred_failures)} macro step(s) failed:",
+            f"error: export published, but {len(deferred_failures)} deferred step(s) failed:",
             file=sys.stderr,
         )
         for failure in deferred_failures:
