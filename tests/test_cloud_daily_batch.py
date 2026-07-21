@@ -352,6 +352,16 @@ def test_daily_batch_passes_previous_run_revision_when_resolvable(tmp_path: Path
     assert select_argv[-2:] == ["--previous-run-revision-id", "old-2"]
 
 
+def test_daily_batch_stops_with_message_when_runs_store_is_corrupt(tmp_path: Path) -> None:
+    runs_db = tmp_path / "data/screening/runs.sqlite"
+    runs_db.parent.mkdir(parents=True, exist_ok=True)
+    runs_db.write_bytes(b"this is not a sqlite database")
+    runner = _runner()
+
+    with pytest.raises(BatchStepError, match="runs store is unreadable"):
+        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
+
+
 def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
     script["macro list"] = [CommandResult(1, "", "boom\n")]

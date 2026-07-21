@@ -302,7 +302,12 @@ def run_daily_batch(
         "--run-revision-id",
         run_revision_id,
     ]
-    previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)
+    try:
+        previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)
+    except sqlite3.Error as exc:
+        raise BatchStepError(
+            f"runs store is unreadable for previous-run resolution: {exc}"
+        ) from exc
     if previous_revision is not None:
         select_argv.extend(("--previous-run-revision-id", previous_revision))
     select_result = _run_step(
