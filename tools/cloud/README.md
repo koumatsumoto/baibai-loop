@@ -40,14 +40,23 @@ uv run python tools/cloud/daily_batch.py --output-dir <dir>
 uv run python tools/cloud/daily_batch.py --asof YYYY-MM-DD --output-dir <dir>
 ```
 
+終了コード:
+
+| exit | 意味 |
+| --- | --- |
+| 0 | 完走。または非営業日（当日 gate で `skip` を出して即終了） |
+| 1 | 致命的失敗で停止（screening chain・営業日判定・calendar 不備。publish に至らない） |
+| 3 | export まで publish 済みだが、繰延べステップ（macro refresh / import-manual / prune）が失敗 |
+
 失敗ポリシー:
 
 - screening 系（coverage / run / select）の失敗は致命的で即停止する（publish できる新しい
-  run が無いため）。ただし `screening run` の exit 2 は品質警告つきの published run であり、
-  警告理由を表示して続行する
+  run が無いため exit 1）。ただし `screening run` の exit 2 は品質警告つきの published run で
+  あり、警告理由を表示して続行する。`verify-cache-coverage` の exit 1 は cache 不足マーカーが
+  ある場合だけ bootstrap へ進み、マーカー無しの exit 1（rules 破損等の crash）は即停止する
 - macro series refresh の失敗は繰延べる: export まで完走して screening 結果は publish し、
-  最後に非 0 で終了する（scheduled workflow の失敗通知は発火し、鮮度は meta の
-  `macro_asof` に現れる）
+  最後に exit 3 で終了する（scheduled workflow の失敗通知は発火し、鮮度は meta の
+  `macro_asof` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
 - `select` の前回 run 比較は、runs store の「target より前の最大 as-of の最新 revision」を
   この script が決定論的に解決して `--previous-run-revision-id` で渡す（同一日の再実行が
   複数 revision を作っても停止しない）
