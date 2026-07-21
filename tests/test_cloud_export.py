@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
+from tools.cloud import export_read_models as export_module
 from tools.cloud.export_read_models import main
 
 from baibai_app.api.server import create_app
@@ -96,14 +97,42 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_records_root: Pat
     assert view.generated_at.tzinfo is not None
 
 
-def test_build_meta_uses_ledger_and_research_when_macro_context_is_absent(
+def test_build_meta_takes_the_latest_judgment_write_across_stores(
     app_records_root: Path,
 ) -> None:
+    # The fixture's newest judgment write without a macro context is a task created
+    # on 2026-07-18; its date-only column is read at JST midnight.
     view = build_meta(_meta_source(app_records_root))
 
     assert view.macro_asof is None
-    assert view.app_db_updated_at == datetime(2026, 7, 3, 9, 0, tzinfo=JST)
+    assert view.app_db_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
     assert view.batch is None
+
+
+def test_build_meta_reflects_a_newly_written_operation_session(
+    app_records_root: Path,
+) -> None:
+    # A judgment write in a table beyond ledger/research/macro must move freshness.
+    started_at = datetime(2026, 8, 1, 9, 30, tzinfo=JST)
+    with sqlite3.connect(app_records_root / "data/app/baibai.sqlite") as connection:
+        connection.execute(
+            """
+            INSERT INTO operation_session(
+                operation_id, session_kind, status, as_of, ticker,
+                started_at, completed_at, payload
+            ) VALUES (?, 'opportunity', 'active', ?, NULL, ?, NULL, ?)
+            """,
+            (
+                "operation-20260801-opportunity",
+                "2026-08-01",
+                started_at.isoformat(),
+                canonical_json({"kind": "opportunity"}),
+            ),
+        )
+
+    view = build_meta(_meta_source(app_records_root))
+
+    assert view.app_db_updated_at == started_at
 
 
 def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
@@ -256,6 +285,55 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
     assert not (output_dir / "views/security--9999.json").exists()
     assert (output_dir / "views/security--2331.json").exists()
     assert "9999" in capsys.readouterr().err
+
+
+def test_export_replaces_views_but_keeps_history(app_records_root: Path, tmp_path: Path) -> None:
+    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    output_dir = tmp_path / "export"
+    stale_view = output_dir / "views/security--0009.json"
+    stale_view.parent.mkdir(parents=True)
+    stale_view.write_text("{}", encoding="utf-8")
+    kept_history = output_dir / "history/select/2026-01-01.json"
+    kept_history.parent.mkdir(parents=True)
+    kept_history.write_text("{}", encoding="utf-8")
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_records_root)]) == 0
+
+    # views/ is the complete image of one export: a view outside the current target
+    # set does not survive.
+    assert not stale_view.exists()
+    assert (output_dir / "views/security--2331.json").exists()
+    # history/ only appends, so a prior day's entry is retained.
+    assert kept_history.exists()
+
+
+def test_export_writes_meta_after_every_other_file(
+    app_records_root: Path, tmp_path: Path, mocker
+) -> None:
+    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    output_dir = tmp_path / "export"
+    real_build_meta = export_module.build_meta
+    seen_before_meta: dict[str, list[str]] = {}
+
+    def _capture(*args: object, **kwargs: object) -> object:
+        views = output_dir / "views"
+        seen_before_meta["views"] = sorted(item.name for item in views.iterdir())
+        seen_before_meta["history"] = sorted(
+            str(item.relative_to(output_dir)) for item in (output_dir / "history").rglob("*.json")
+        )
+        return real_build_meta(*args, **kwargs)
+
+    mocker.patch.object(export_module, "build_meta", side_effect=_capture)
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_records_root)]) == 0
+
+    # meta.json is written only after every view and history file exists, so a run that
+    # fails mid-export never leaves a fresh-claiming meta over stale content.
+    assert "meta.json" not in seen_before_meta["views"]
+    assert "dashboard.json" in seen_before_meta["views"]
+    assert "security--2331.json" in seen_before_meta["views"]
+    assert seen_before_meta["history"]
+    assert (output_dir / "views/meta.json").exists()
 
 
 def test_main_rejects_a_root_without_project_markers(tmp_path: Path) -> None:

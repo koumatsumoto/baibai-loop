@@ -9,8 +9,14 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .sqlite import connect_read_only
+
+# Judgment-layer stores are all JST-domain records. Date-only columns
+# (task dates, holding-review as-of) and any timezone-naive value are read at JST
+# so they compare with the timezone-aware timestamps in the same max().
+_JST = ZoneInfo("Asia/Tokyo")
 
 
 def screening_latest_asof(path: Path) -> date | None:
@@ -44,10 +50,12 @@ def macro_latest_observed_at(path: Path) -> date | None:
 def application_db_updated_at(path: Path) -> datetime | None:
     """Return the newest write instant recorded inside the application database.
 
-    The application database only grows through ledger events, research packet
-    revisions, and macro context revisions, so the max of their stored timestamps
-    is the last judgment-layer update. Timestamps are compared as parsed datetimes
-    because stores may mix timezone offsets.
+    The value is the max over every judgment-layer write timestamp: ledger events,
+    research packets and reviews, holding reviews, macro context revisions, reviewed
+    shortlists, proposals (created and decided), tasks (created and closed), and
+    operation sessions (started and completed). Nullable decision timestamps are
+    excluded until set. Values are normalized to timezone-aware JST before the max
+    so timezone-aware timestamps and date-only columns compare in one pass.
     """
 
     if not path.is_file():
@@ -60,12 +68,35 @@ def application_db_updated_at(path: Path) -> datetime | None:
             UNION ALL
             SELECT published_at FROM research_packet
             UNION ALL
+            SELECT reviewed_at FROM research_review
+            UNION ALL
+            SELECT as_of FROM holding_review
+            UNION ALL
             SELECT published_at FROM macro_context
+            UNION ALL
+            SELECT published_at FROM reviewed_shortlist
+            UNION ALL
+            SELECT created_at FROM proposal
+            UNION ALL
+            SELECT decided_at FROM proposal WHERE decided_at IS NOT NULL
+            UNION ALL
+            SELECT created_at FROM task
+            UNION ALL
+            SELECT closed_at FROM task WHERE closed_at IS NOT NULL
+            UNION ALL
+            SELECT started_at FROM operation_session
+            UNION ALL
+            SELECT completed_at FROM operation_session WHERE completed_at IS NOT NULL
             """
         ).fetchall()
     finally:
         connection.close()
-    return max((datetime.fromisoformat(str(row[0])) for row in rows), default=None)
+    return max((_as_jst_instant(str(row[0])) for row in rows), default=None)
+
+
+def _as_jst_instant(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=_JST)
 
 
 __all__ = [
