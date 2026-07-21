@@ -38,6 +38,14 @@ from baibai_engine.screening.sqlite_coverage import (
 from .common import _date_iso
 from .providers import EDINETAdapter, ProviderBundle
 
+# Market calendar bootstrap window. The unattended daily batch reads the current
+# day's calendar row to gate on business days, so bootstrap fetches a forward
+# window that always contains the run date and the next several weeks. Future
+# rows are harmless to every calendar reader (all use point/range queries) and
+# coverage verification only requires the as-of row itself.
+_CALENDAR_BOOTSTRAP_BACKWARD_DAYS = 7
+_CALENDAR_BOOTSTRAP_FORWARD_DAYS = 45
+
 
 def verify_cache_coverage_command(
     *,
@@ -372,8 +380,15 @@ def bootstrap_cache_command(
             file=out,
             flush=True,
         )
-        print("bootstrap-cache jquants market_calendar: start", file=out, flush=True)
-        calendar = providers.jquants.get_mkt_calendar(asof_date, asof_date)
+        calendar_start = asof_date - timedelta(days=_CALENDAR_BOOTSTRAP_BACKWARD_DAYS)
+        calendar_end = asof_date + timedelta(days=_CALENDAR_BOOTSTRAP_FORWARD_DAYS)
+        print(
+            "bootstrap-cache jquants market_calendar: "
+            f"{calendar_start.isoformat()}..{calendar_end.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        calendar = providers.jquants.get_mkt_calendar(calendar_start, calendar_end)
         print(
             f"bootstrap-cache jquants market_calendar: {len(calendar)} row(s)",
             file=out,
