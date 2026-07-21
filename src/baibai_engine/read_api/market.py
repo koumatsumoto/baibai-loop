@@ -9,6 +9,25 @@ from pathlib import Path
 from .sqlite import connect_read_only
 
 
+def market_calendar_business_day(path: Path, day: date) -> bool | None:
+    """Return whether ``day`` is a trading day, or None when the calendar has no such row.
+
+    Reads the licensed market calendar read-only. The caller checks for a missing
+    file first (so it can report that distinctly); a sqlite error propagates so a
+    corrupt store is not silently treated as an unknown date.
+    """
+
+    connection = connect_read_only(path)
+    try:
+        row = connection.execute(
+            "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
+            (day.isoformat(),),
+        ).fetchone()
+    finally:
+        connection.close()
+    return None if row is None else bool(row[0])
+
+
 def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tuple[float, date]]:
     """Return each ticker's most recent non-null unadjusted close and its trade date.
 
@@ -78,4 +97,4 @@ def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> di
     return result
 
 
-__all__ = ["latest_unadjusted_closes", "next_earnings_dates"]
+__all__ = ["latest_unadjusted_closes", "market_calendar_business_day", "next_earnings_dates"]

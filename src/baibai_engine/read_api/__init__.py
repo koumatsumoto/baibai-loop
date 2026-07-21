@@ -28,7 +28,11 @@ from .macro import (
     macro_indicator_series,
     macro_series_names,
 )
-from .market import latest_unadjusted_closes, next_earnings_dates
+from .market import (
+    latest_unadjusted_closes,
+    market_calendar_business_day,
+    next_earnings_dates,
+)
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
 from .proposals import list_proposal_payloads
@@ -41,6 +45,7 @@ from .research import (
     research_packet_publication,
 )
 from .screening import (
+    previous_run_revision_id,
     screening_run_payload,
     screening_selection_payloads,
 )
@@ -74,9 +79,11 @@ __all__ = [
     "macro_indicator_series",
     "macro_latest_observed_at",
     "macro_series_names",
+    "market_calendar_business_day",
     "next_earnings_dates",
     "operation_session",
     "portfolio_ledger_document",
+    "previous_run_revision_id",
     "reconcile_portfolio",
     "research_packet_publication",
     "safe_load",

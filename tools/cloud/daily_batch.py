@@ -2,28 +2,30 @@
 
 Order: business-day gate -> screening cache coverage (bootstrap on demand) ->
 ``screening run`` -> ``screening select`` -> macro series refresh +
-``import-manual`` -> read-model export -> run-store prune. Every step goes
-through the public
-``baibai-engine`` CLI (or the export script) as a subprocess; this orchestrator
-holds no business logic, so the stable CLI contract stays the only coupling.
-Each step prints its command line and an ``exit <code> (<seconds>s)`` line to
-stdout so a scheduled workflow log is readable as-is.
+``import-manual`` -> read-model export -> run-store prune. Every heavy step goes
+through the public ``baibai-engine`` CLI (or the export script) as a subprocess,
+so the stable CLI contract carries the business logic. The only in-process reads
+are the two ``baibai_engine.read_api`` query-only helpers this orchestrator needs
+before it can build a CLI command: the business-day gate and the previous-run
+resolution for ``select``. Each step prints its command line and an
+``exit <code> (<seconds>s)`` line to stdout so a scheduled workflow log is
+readable as-is.
 
 Failure policy: the screening chain is fatal (without a publishable run there
 is nothing new to export), while macro series refresh failures are deferred —
-the export still publishes the fresh screening result and the batch exits
-non-zero afterwards so a scheduled workflow still reports the failure.
-``screening run`` exit 2 is a published run with partial-quality warnings and
-the chain continues.
+the export still publishes the fresh screening result and the batch exits with
+code 3 afterwards so a scheduled workflow still reports the failure while the
+publish stands. ``screening run`` exit 2 is a published run with partial-quality
+warnings and the chain continues.
 """
 
 from __future__ import annotations
 
 import argparse
-import re
 import sqlite3
 import subprocess  # nosec B404
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -32,6 +34,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yaml
+
+from baibai_engine.read_api import market_calendar_business_day, previous_run_revision_id
 
 _JST = ZoneInfo("Asia/Tokyo")
 _ENGINE = "baibai-engine"
@@ -44,8 +48,12 @@ _EXPORT_SCRIPT_RELPATH = Path("tools/cloud/export_read_models.py")
 _MACRO_REFRESH_WINDOW_DAYS = {"daily": 14, "weekly": 60}
 _MACRO_REFRESH_WINDOW_DEFAULT_DAYS = 370
 _STDERR_SUMMARY_LINES = 20
-
-_RUN_REVISION_RE = re.compile(r"run_revision_id=([^;\s]+)")
+# `verify-cache-coverage` prints this marker on stdout for a genuine cache gap;
+# an exit 1 without it (broken rules, unreadable store) is a crash, not a gap.
+_COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
+# Exit 3 means the screening result was published and exported, but a deferred
+# (macro / prune) step failed afterwards.
+_EXIT_DEFERRED_FAILURE = 3
 
 
 class BatchStepError(RuntimeError):
@@ -79,58 +87,26 @@ def _run_subprocess(argv: Sequence[str], cwd: Path) -> CommandResult:
     return CommandResult(completed.returncode, completed.stdout, completed.stderr)
 
 
-def is_business_day(market_db: Path, day: date) -> bool:
-    """Answer from the market calendar; raise when the calendar cannot answer."""
+def _require_business_day(market_db: Path, day: date) -> bool:
+    """Answer from the market calendar; raise when the calendar cannot answer.
+
+    The calendar read lives in ``baibai_engine.read_api`` so it is drift-guarded
+    with the store schema. A missing file, an uncovered date, and a corrupt store
+    each stop the batch with a distinct message instead of silently continuing.
+    """
 
     if not market_db.is_file():
         raise CalendarCoverageError(f"market SQLite does not exist: {market_db}")
     try:
-        conn = sqlite3.connect(f"{market_db.resolve().as_uri()}?mode=ro", uri=True)
-    except sqlite3.Error as exc:
-        raise CalendarCoverageError(f"unable to open market SQLite: {market_db}: {exc}") from exc
-    try:
-        row = conn.execute(
-            "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
-            (day.isoformat(),),
-        ).fetchone()
+        result = market_calendar_business_day(market_db, day)
     except sqlite3.Error as exc:
         raise CalendarCoverageError(f"market calendar is unreadable in {market_db}: {exc}") from exc
-    finally:
-        conn.close()
-    if row is None:
+    if result is None:
         raise CalendarCoverageError(
             f"market calendar does not cover {day.isoformat()}; "
             "refresh the calendar cache before running the daily batch"
         )
-    return bool(row[0])
-
-
-def resolve_previous_run_revision(runs_db: Path, asof: date) -> str | None:
-    """Pick the newest revision of the greatest prior as-of, or None when there is none.
-
-    ``select`` compares against the previous run and aborts when the greatest
-    prior as-of has multiple revisions; the daily batch resolves that ambiguity
-    deterministically (newest ``run_at`` / ``created_at`` wins) so repeated runs
-    on the same date never block the chain.
-    """
-
-    if not runs_db.is_file():
-        return None
-    try:
-        conn = sqlite3.connect(f"{runs_db.resolve().as_uri()}?mode=ro", uri=True)
-    except sqlite3.Error:
-        return None
-    try:
-        row = conn.execute(
-            "SELECT run_revision_id FROM screening_run WHERE asof_date < ? "
-            "ORDER BY asof_date DESC, run_at DESC, created_at DESC LIMIT 1",
-            (asof.isoformat(),),
-        ).fetchone()
-    except sqlite3.Error:
-        return None
-    finally:
-        conn.close()
-    return str(row[0]) if row is not None else None
+    return result
 
 
 def _run_step(
@@ -169,11 +145,20 @@ def _stderr_summary(stderr: str) -> str:
     return "\n".join(f"  {line}" for line in lines[-_STDERR_SUMMARY_LINES:])
 
 
-def _parse_run_revision_id(stdout: str) -> str:
-    match = _RUN_REVISION_RE.search(stdout)
-    if match is None:
-        raise BatchStepError("screening run output does not contain run_revision_id")
-    return match.group(1)
+def _read_run_revision_id(run_yaml: Path) -> str:
+    """Read run_revision_id from the stable YAML view `screening run --output-path` writes."""
+
+    if not run_yaml.is_file():
+        raise BatchStepError("screening run did not write the --output-path YAML view")
+    try:
+        payload = yaml.safe_load(run_yaml.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise BatchStepError(f"screening run YAML view is unreadable: {exc}") from exc
+    if isinstance(payload, dict):
+        run_revision_id = payload.get("run_revision_id")
+        if isinstance(run_revision_id, str) and run_revision_id:
+            return run_revision_id
+    raise BatchStepError("screening run YAML view does not contain run_revision_id")
 
 
 def _parse_selection_id(stdout: str) -> str:
@@ -221,6 +206,41 @@ def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, lis
     return sorted(groups.items())
 
 
+def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> str:
+    """Run screening and read run_revision_id from the YAML view it writes.
+
+    The run publishes to the store either way; ``--output-path`` mirrors that
+    publication to a throwaway file whose ``run_revision_id`` key is the stable
+    contract (the same field ``select`` echoes as ``selection_id``). Exit 2 is a
+    published run with partial-quality warnings, so the chain continues.
+    """
+
+    with tempfile.TemporaryDirectory() as tmp:
+        run_yaml = Path(tmp) / "screening-run.yaml"
+        result = _run_step(
+            runner,
+            name="screening-run",
+            argv=(
+                _ENGINE,
+                "screening",
+                "run",
+                "--asof",
+                asof_arg,
+                "--output-path",
+                str(run_yaml),
+            ),
+            cwd=root,
+            allowed_exit_codes=(0, 2),
+        )
+        if result.returncode == 2:
+            print(
+                "note: screening run finished with partial warning "
+                "(run is published; reasons above)",
+                flush=True,
+            )
+        return _read_run_revision_id(run_yaml)
+
+
 def run_daily_batch(
     *,
     root: Path,
@@ -230,7 +250,7 @@ def run_daily_batch(
 ) -> int:
     if asof is None:
         target = datetime.now(_JST).date()
-        if not is_business_day(root / _MARKET_DB_RELPATH, target):
+        if not _require_business_day(root / _MARKET_DB_RELPATH, target):
             print(f"skip: {target.isoformat()} は非営業日", flush=True)
             return 0
         print(f"daily batch start: asof={target.isoformat()} (business day)", flush=True)
@@ -251,6 +271,12 @@ def run_daily_batch(
         allowed_exit_codes=(0, 1),
     )
     if verify.returncode != 0:
+        if _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
+            raise BatchStepError(
+                "verify-cache-coverage exited 1 without the coverage-incomplete marker; "
+                "treating it as a crash (broken rules / unreadable store), not a cache gap\n"
+                f"stderr (last {_STDERR_SUMMARY_LINES} lines):\n{_stderr_summary(verify.stderr)}"
+            )
         _run_step(
             runner,
             name="bootstrap-cache",
@@ -265,19 +291,7 @@ def run_daily_batch(
         )
         _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
 
-    run_result = _run_step(
-        runner,
-        name="screening-run",
-        argv=(_ENGINE, "screening", "run", "--asof", asof_arg),
-        cwd=root,
-        allowed_exit_codes=(0, 2),
-    )
-    if run_result.returncode == 2:
-        print(
-            "note: screening run finished with partial warning (run is published; reasons above)",
-            flush=True,
-        )
-    run_revision_id = _parse_run_revision_id(run_result.stdout)
+    run_revision_id = _run_screening_run(runner, root=root, asof_arg=asof_arg)
 
     select_argv: list[str] = [
         _ENGINE,
@@ -288,9 +302,9 @@ def run_daily_batch(
         "--run-revision-id",
         run_revision_id,
     ]
-    previous_run_revision_id = resolve_previous_run_revision(root / _RUNS_DB_RELPATH, target)
-    if previous_run_revision_id is not None:
-        select_argv.extend(("--previous-run-revision-id", previous_run_revision_id))
+    previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)
+    if previous_revision is not None:
+        select_argv.extend(("--previous-run-revision-id", previous_revision))
     select_result = _run_step(
         runner,
         name="screening-select",
@@ -304,6 +318,13 @@ def run_daily_batch(
     # Macro series refresh must not block publishing the fresh screening result:
     # failures here are deferred to the final exit code after the export step.
     deferred_failures: list[str] = []
+
+    def _record_deferred(exc: BatchStepError) -> None:
+        # Surface the failure detail immediately so it is not lost between here
+        # and the final summary if a later step floods the log.
+        print(f"deferred failure: {exc}", file=sys.stderr, flush=True)
+        deferred_failures.append(str(exc))
+
     refresh_groups: list[tuple[int, list[str]]] = []
     try:
         macro_list = _run_step(
@@ -315,7 +336,7 @@ def run_daily_batch(
         )
         refresh_groups = _macro_refresh_groups(_parse_macro_series(macro_list.stdout))
     except BatchStepError as exc:
-        deferred_failures.append(str(exc))
+        _record_deferred(exc)
     for window_days, series_ids in refresh_groups:
         start = target - timedelta(days=window_days)
         try:
@@ -336,13 +357,13 @@ def run_daily_batch(
                 echo_stdout=False,
             )
         except BatchStepError as exc:
-            deferred_failures.append(str(exc))
+            _record_deferred(exc)
     try:
         _run_step(
             runner, name="macro-import-manual", argv=(_ENGINE, "macro", "import-manual"), cwd=root
         )
     except BatchStepError as exc:
-        deferred_failures.append(str(exc))
+        _record_deferred(exc)
 
     _run_step(
         runner,
@@ -363,7 +384,7 @@ def run_daily_batch(
     try:
         _run_step(runner, name="screening-prune", argv=(_ENGINE, "screening", "prune"), cwd=root)
     except BatchStepError as exc:
-        deferred_failures.append(str(exc))
+        _record_deferred(exc)
 
     print(
         "daily batch done: "
@@ -377,7 +398,7 @@ def run_daily_batch(
         )
         for failure in deferred_failures:
             print(f"- {failure}", file=sys.stderr)
-        return 1
+        return _EXIT_DEFERRED_FAILURE
     return 0
 
 

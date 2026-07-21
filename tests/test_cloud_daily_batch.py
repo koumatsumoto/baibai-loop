@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import sqlite3
-import sys
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 from tools.cloud.daily_batch import (
+    _MACRO_REFRESH_WINDOW_DAYS,
+    _MACRO_REFRESH_WINDOW_DEFAULT_DAYS,
     BatchStepError,
     CalendarCoverageError,
     CommandResult,
@@ -15,13 +16,16 @@ from tools.cloud.daily_batch import (
     run_daily_batch,
 )
 
+from baibai_engine.market.sqlite import store_jquants_market_calendar
+from baibai_engine.screening.run_store import ScreeningRunStore
+
 JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)
 
 OK = CommandResult(0, "", "")
 RUN_OK = CommandResult(
     0,
-    "screening run done: status=ok; run_revision_id=rev-1; output=None; "
+    "screening run done: status=ok; run_revision_id=rev-1; output=/tmp/run.yaml; "
     "universe=3800; candidates=42\n",
     "",
 )
@@ -38,19 +42,41 @@ MACRO_LIST_OK = CommandResult(
 
 
 def _key(argv: list[str]) -> str:
-    if argv[0] == sys.executable:
+    if argv[0].endswith("python") or "export_read_models" in " ".join(argv):
         return "export"
     return " ".join(argv[1:3])
 
 
+def _run_yaml_writer(revision_id: str | None) -> Callable[[list[str]], None]:
+    """Mimic `screening run --output-path`: write the YAML view the batch reads."""
+
+    def _writer(argv: list[str]) -> None:
+        idx = argv.index("--output-path")
+        lines = ['asof_date: "2026-07-21"']
+        if revision_id is not None:
+            lines.insert(0, f'run_revision_id: "{revision_id}"')
+        Path(argv[idx + 1]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    return _writer
+
+
 class ScriptedRunner:
-    def __init__(self, results: dict[str, list[CommandResult]]) -> None:
+    def __init__(
+        self,
+        results: dict[str, list[CommandResult]],
+        writers: dict[str, Callable[[list[str]], None]] | None = None,
+    ) -> None:
         self._results = {key: list(queue) for key, queue in results.items()}
+        self._writers = writers or {}
         self.calls: list[list[str]] = []
 
     def __call__(self, argv, cwd) -> CommandResult:
         self.calls.append(list(argv))
-        queue = self._results.get(_key(list(argv)))
+        key = _key(list(argv))
+        writer = self._writers.get(key)
+        if writer is not None:
+            writer(list(argv))
+        queue = self._results.get(key)
         if not queue:
             raise AssertionError(f"unexpected command: {argv}")
         return queue.pop(0)
@@ -72,46 +98,46 @@ def _success_script() -> dict[str, list[CommandResult]]:
     }
 
 
-def _seed_runs(root: Path, rows: list[tuple[str, str, str]]) -> None:
-    db = root / "data/screening/runs.sqlite"
-    db.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db)
-    try:
-        conn.execute(
-            "CREATE TABLE screening_run("
-            "run_revision_id TEXT PRIMARY KEY, asof_date TEXT NOT NULL, "
-            "run_at TEXT NOT NULL, created_at TEXT NOT NULL)"
-        )
-        conn.executemany(
-            "INSERT INTO screening_run(run_revision_id, asof_date, run_at, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            [(rev, asof, run_at, run_at) for rev, asof, run_at in rows],
-        )
-        conn.commit()
-    finally:
-        conn.close()
+def _runner(
+    results: dict[str, list[CommandResult]] | None = None,
+    *,
+    run_revision_id: str | None = "rev-1",
+) -> ScriptedRunner:
+    return ScriptedRunner(
+        results or _success_script(),
+        writers={"screening run": _run_yaml_writer(run_revision_id)},
+    )
 
 
-def _seed_calendar(root: Path, rows: dict[date, int]) -> None:
+def _publish_run(root: Path, *, asof: str, run_at: str, revision_id: str) -> None:
+    store = ScreeningRunStore(root / "data/screening/runs.sqlite")
+    store.publish_run(
+        {
+            "run_id": f"screening-{asof.replace('-', '')}",
+            "run_date": asof,
+            "asof_date": asof,
+            "run_at": run_at,
+            "universe_size": 0,
+            "candidates": [],
+        },
+        run_revision_id=revision_id,
+    )
+
+
+def _seed_calendar(root: Path, rows: dict[date, str]) -> None:
     db = root / "data/screening/market.sqlite"
     db.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db)
-    try:
-        conn.execute(
-            "CREATE TABLE jquants_market_calendar("
-            "day TEXT PRIMARY KEY, is_business_day INTEGER NOT NULL)"
-        )
-        conn.executemany(
-            "INSERT INTO jquants_market_calendar(day, is_business_day) VALUES (?, ?)",
-            [(day.isoformat(), flag) for day, flag in rows.items()],
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    days = sorted(rows)
+    store_jquants_market_calendar(
+        db,
+        [{"Date": day.isoformat(), "HolidayDivision": division} for day, division in rows.items()],
+        requested_start=days[0],
+        requested_end=days[-1],
+    )
 
 
 def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
-    runner = ScriptedRunner(_success_script())
+    runner = _runner()
     output_dir = tmp_path / "serving"
 
     exit_code = run_daily_batch(root=tmp_path, output_dir=output_dir, asof=ASOF, runner=runner)
@@ -132,13 +158,13 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
 
     run_argv = runner.calls[1]
     assert run_argv[:3] == ["baibai-engine", "screening", "run"]
-    assert run_argv[3:] == ["--asof", "2026-07-21"]
+    assert run_argv[3:5] == ["--asof", "2026-07-21"]
+    assert "--output-path" in run_argv
 
     select_argv = runner.calls[2]
     assert select_argv[3:] == ["--asof", "2026-07-21", "--run-revision-id", "rev-1"]
 
     export_argv = runner.calls[8]
-    assert export_argv[0] == sys.executable
     assert export_argv[1].endswith("tools/cloud/export_read_models.py")
     assert export_argv[2:] == [
         "--output-dir",
@@ -151,7 +177,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
 
 
 def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: Path) -> None:
-    runner = ScriptedRunner(_success_script())
+    runner = _runner()
 
     run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
 
@@ -179,15 +205,27 @@ def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: P
     assert ["baibai-engine", "macro", "import-manual"] in runner.calls
 
 
+def test_macro_refresh_windows_match_engine_latest_fetch_lookback() -> None:
+    from baibai_engine.macro.indicators.service import (
+        DEFAULT_LATEST_LOOKBACK_DAYS,
+        LATEST_FETCH_LOOKBACK_DAYS,
+    )
+
+    assert _MACRO_REFRESH_WINDOW_DEFAULT_DAYS == DEFAULT_LATEST_LOOKBACK_DAYS
+    for frequency, expected in LATEST_FETCH_LOOKBACK_DAYS.items():
+        resolved = _MACRO_REFRESH_WINDOW_DAYS.get(frequency, _MACRO_REFRESH_WINDOW_DEFAULT_DAYS)
+        assert resolved == expected
+
+
 def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path) -> None:
     script = _success_script()
     script["screening verify-cache-coverage"] = [
-        CommandResult(1, "SQLite cache coverage incomplete\n", ""),
+        CommandResult(1, "SQLite cache coverage incomplete for --asof 2026-07-21\n", ""),
         OK,
     ]
     script["screening bootstrap-cache"] = [OK]
     script["screening extract-edinet-metrics"] = [OK]
-    runner = ScriptedRunner(script)
+    runner = _runner(script)
 
     exit_code = run_daily_batch(
         root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
@@ -205,15 +243,28 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path
     assert runner.calls[2][3:] == ["--asof", "2026-07-21"]
 
 
+def test_daily_batch_treats_verify_exit1_without_marker_as_crash(tmp_path: Path) -> None:
+    script = _success_script()
+    script["screening verify-cache-coverage"] = [
+        CommandResult(1, "", "Traceback: ConfigError: rules file is corrupt\n")
+    ]
+    runner = _runner(script)
+
+    with pytest.raises(BatchStepError, match="without the coverage-incomplete marker"):
+        run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
+
+    assert "screening bootstrap-cache" not in runner.call_keys()
+    assert "screening run" not in runner.call_keys()
+
+
 def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_path: Path) -> None:
-    incomplete = CommandResult(1, "SQLite cache coverage incomplete\n", "")
-    runner = ScriptedRunner(
-        {
-            "screening verify-cache-coverage": [incomplete, incomplete],
-            "screening bootstrap-cache": [OK],
-            "screening extract-edinet-metrics": [OK],
-        }
-    )
+    incomplete = CommandResult(1, "SQLite cache coverage incomplete for --asof 2026-07-21\n", "")
+    script = {
+        "screening verify-cache-coverage": [incomplete, incomplete],
+        "screening bootstrap-cache": [OK],
+        "screening extract-edinet-metrics": [OK],
+    }
+    runner = _runner(script)
 
     with pytest.raises(BatchStepError, match="recheck"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
@@ -224,7 +275,7 @@ def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_pa
 def test_daily_batch_stops_on_step_failure_with_stderr_summary(tmp_path: Path) -> None:
     script = _success_script()
     script["screening run"] = [CommandResult(1, "", "boom\nprovider unavailable\n")]
-    runner = ScriptedRunner(script)
+    runner = _runner(script)
 
     with pytest.raises(BatchStepError) as excinfo:
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
@@ -242,12 +293,12 @@ def test_daily_batch_continues_when_run_reports_partial_warning(tmp_path: Path, 
         CommandResult(
             2,
             "screening run done: status=partial warning; run_revision_id=rev-1; "
-            "output=None; universe=3800; candidates=42\n"
+            "output=/tmp/run.yaml; universe=3800; candidates=42\n"
             "screening run partial warning reasons:\n- ttm_quality 非 exact 件数: 10\n",
             "",
         )
     ]
-    runner = ScriptedRunner(script)
+    runner = _runner(script)
 
     exit_code = run_daily_batch(
         root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
@@ -258,36 +309,39 @@ def test_daily_batch_continues_when_run_reports_partial_warning(tmp_path: Path, 
     assert "partial warning (run is published" in capsys.readouterr().out
 
 
-def test_daily_batch_defers_macro_refresh_failure_until_after_export(tmp_path: Path) -> None:
+def test_daily_batch_defers_macro_refresh_failure_until_after_export(
+    tmp_path: Path, capsys
+) -> None:
     script = _success_script()
     script["macro refresh"] = [
         CommandResult(1, "", "provider down\n"),
         OK,
         OK,
     ]
-    runner = ScriptedRunner(script)
+    runner = _runner(script)
 
     exit_code = run_daily_batch(
         root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
     )
 
-    assert exit_code == 1
+    assert exit_code == 3
     keys = runner.call_keys()
     assert keys.count("macro refresh") == 3
     assert "macro import-manual" in keys
     assert "export" in keys
+    # The deferred detail is surfaced immediately, not only in the final summary.
+    assert "deferred failure" in capsys.readouterr().err
 
 
 def test_daily_batch_passes_previous_run_revision_when_resolvable(tmp_path: Path) -> None:
-    _seed_runs(
-        tmp_path,
-        [
-            ("rev-old-1", "2026-07-17", "2026-07-17T18:00:00+09:00"),
-            ("rev-old-2", "2026-07-17", "2026-07-17T19:00:00+09:00"),
-            ("rev-cur", "2026-07-21", "2026-07-21T18:00:00+09:00"),
-        ],
+    _publish_run(
+        tmp_path, asof="2026-07-17", run_at="2026-07-17T18:00:00+09:00", revision_id="old-1"
     )
-    runner = ScriptedRunner(_success_script())
+    _publish_run(
+        tmp_path, asof="2026-07-17", run_at="2026-07-17T19:00:00+09:00", revision_id="old-2"
+    )
+    _publish_run(tmp_path, asof="2026-07-21", run_at="2026-07-21T18:00:00+09:00", revision_id="cur")
+    runner = _runner()
 
     exit_code = run_daily_batch(
         root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
@@ -295,29 +349,27 @@ def test_daily_batch_passes_previous_run_revision_when_resolvable(tmp_path: Path
 
     assert exit_code == 0
     select_argv = next(argv for argv in runner.calls if _key(argv) == "screening select")
-    assert select_argv[-2:] == ["--previous-run-revision-id", "rev-old-2"]
+    assert select_argv[-2:] == ["--previous-run-revision-id", "old-2"]
 
 
 def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path) -> None:
     script = _success_script()
     script["macro list"] = [CommandResult(1, "", "boom\n")]
-    runner = ScriptedRunner(script)
+    runner = _runner(script)
 
     exit_code = run_daily_batch(
         root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
     )
 
-    assert exit_code == 1
+    assert exit_code == 3
     keys = runner.call_keys()
     assert "macro refresh" not in keys
     assert "macro import-manual" in keys
     assert "export" in keys
 
 
-def test_daily_batch_stops_when_run_output_lacks_run_revision_id(tmp_path: Path) -> None:
-    script = _success_script()
-    script["screening run"] = [CommandResult(0, "screening run done: status=ok\n", "")]
-    runner = ScriptedRunner(script)
+def test_daily_batch_stops_when_run_view_lacks_run_revision_id(tmp_path: Path) -> None:
+    runner = _runner(run_revision_id=None)
 
     with pytest.raises(BatchStepError, match="run_revision_id"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
@@ -328,7 +380,7 @@ def test_daily_batch_stops_when_run_output_lacks_run_revision_id(tmp_path: Path)
 def test_daily_batch_stops_when_select_output_lacks_selection_id(tmp_path: Path) -> None:
     script = _success_script()
     script["screening select"] = [CommandResult(0, "selection:\n  profile: value_default\n", "")]
-    runner = ScriptedRunner(script)
+    runner = _runner(script)
 
     with pytest.raises(BatchStepError, match="selection_id"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner)
@@ -338,8 +390,8 @@ def test_daily_batch_stops_when_select_output_lacks_selection_id(tmp_path: Path)
 
 def test_daily_batch_skips_non_business_day(tmp_path: Path, capsys) -> None:
     today = datetime.now(JST).date()
-    _seed_calendar(tmp_path, {today: 0})
-    runner = ScriptedRunner({})
+    _seed_calendar(tmp_path, {today: "0"})
+    runner = _runner({})
 
     exit_code = run_daily_batch(
         root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner
@@ -352,8 +404,8 @@ def test_daily_batch_skips_non_business_day(tmp_path: Path, capsys) -> None:
 
 def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
     today = datetime.now(JST).date()
-    _seed_calendar(tmp_path, {today: 1})
-    runner = ScriptedRunner(_success_script())
+    _seed_calendar(tmp_path, {today: "1"})
+    runner = _runner()
 
     exit_code = run_daily_batch(
         root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner
@@ -366,8 +418,8 @@ def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
 
 def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path) -> None:
     today = datetime.now(JST).date()
-    _seed_calendar(tmp_path, {today - timedelta(days=30): 1})
-    runner = ScriptedRunner({})
+    _seed_calendar(tmp_path, {today - timedelta(days=30): "1"})
+    runner = _runner({})
 
     with pytest.raises(CalendarCoverageError, match="does not cover"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
@@ -376,17 +428,19 @@ def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path
 
 
 def test_daily_batch_errors_when_calendar_table_is_missing(tmp_path: Path) -> None:
+    import sqlite3
+
     db = tmp_path / "data/screening/market.sqlite"
     db.parent.mkdir(parents=True)
     sqlite3.connect(db).close()
-    runner = ScriptedRunner({})
+    runner = _runner({})
 
     with pytest.raises(CalendarCoverageError, match="unreadable"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
 
 
 def test_daily_batch_errors_when_market_sqlite_is_absent(tmp_path: Path) -> None:
-    runner = ScriptedRunner({})
+    runner = _runner({})
 
     with pytest.raises(CalendarCoverageError, match="does not exist"):
         run_daily_batch(root=tmp_path, output_dir=tmp_path / "serving", asof=None, runner=runner)
