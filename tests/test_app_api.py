@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -52,6 +53,21 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         fallback = client.get("/securities/2331")
         assert fallback.status_code == 200
         assert "ui/ を build" in fallback.text
+
+
+def test_api_meta_reports_store_freshness(app_records_root: Path) -> None:
+    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/meta")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["screening_asof"] == "2026-07-08"
+    assert body["macro_asof"] is None
+    assert datetime.fromisoformat(body["app_db_updated_at"]) == datetime(
+        2026, 7, 3, 0, 0, tzinfo=UTC
+    )
+    assert body["batch"] is None
+    assert datetime.fromisoformat(body["generated_at"]).tzinfo is not None
 
 
 def test_macro_api_rejects_unknown_period_and_granularity(app_records_root: Path) -> None:

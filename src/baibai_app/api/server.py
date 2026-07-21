@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
+    build_meta,
     build_program_state,
     build_screening,
     build_security_detail,
@@ -23,6 +24,7 @@ from baibai_app.readmodel.builders import (
 from baibai_app.readmodel.models import (
     DashboardView,
     MacroView,
+    MetaView,
     ProgramStateView,
     ScreeningView,
     SecurityDetailView,
@@ -32,6 +34,7 @@ from baibai_app.sources.db_sources import (
     DbLedgerSource,
     DbMacroSource,
     DbMarketPriceSource,
+    DbMetaSource,
     DbProgramSource,
     DbResearchSource,
     DbTaskSource,
@@ -50,6 +53,7 @@ class _Sources:
     macro: DbMacroSource
     program: DbProgramSource
     market: DbMarketPriceSource
+    meta: DbMetaSource
 
 
 def create_app(
@@ -121,6 +125,10 @@ def create_app(
     def program(sources: _SourceDependency) -> ProgramStateView:
         return build_program_state(sources.program)
 
+    @app.get("/api/meta", response_model=MetaView)
+    def meta(sources: _SourceDependency) -> MetaView:
+        return build_meta(sources.meta)
+
     @app.get("/api/securities/{ticker}", response_model=SecurityDetailView)
     def security_detail(
         ticker: str,
@@ -173,6 +181,11 @@ def _build_sources(request: Request) -> _Sources:
         ),
         program=DbProgramSource(db_path),
         market=DbMarketPriceSource(root / "data/screening/market.sqlite"),
+        meta=DbMetaSource(
+            db_path,
+            runs_db_path,
+            root / "data/indicators/macro.sqlite",
+        ),
     )
 
 
