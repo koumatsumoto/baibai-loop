@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import re
 import sqlite3
-import subprocess
+import subprocess  # nosec B404
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -67,7 +67,8 @@ type CommandRunner = Callable[[Sequence[str], Path], CommandResult]
 
 
 def _run_subprocess(argv: Sequence[str], cwd: Path) -> CommandResult:
-    completed = subprocess.run(
+    # Fixed argv list, shell=False: the command line never passes through a shell.
+    completed = subprocess.run(  # nosec B603
         list(argv),
         cwd=cwd,
         capture_output=True,
