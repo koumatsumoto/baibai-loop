@@ -45,11 +45,16 @@ export function AppShell() {
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-3">
-          {meta !== null && <FreshnessMeta meta={meta} />}
+          {meta !== null && <FreshnessMeta className="hidden border-r border-border/60 pr-3 lg:flex" meta={meta} />}
           <Badge className="hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
           <ThemeToggle />
         </div>
       </div>
+      {meta !== null && (
+        <div className="mx-auto max-w-[1600px] border-t px-4 py-1.5 sm:px-6 lg:hidden">
+          <FreshnessMeta className="flex-wrap justify-start" meta={meta} />
+        </div>
+      )}
     </header>
   )
 }
