@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -29,31 +28,9 @@ from baibai_app.readmodel.models import (
     ScreeningView,
     SecurityDetailView,
 )
-from baibai_app.sources.db_sources import (
-    DbCandidatesSource,
-    DbLedgerSource,
-    DbMacroSource,
-    DbMarketPriceSource,
-    DbMetaSource,
-    DbProgramSource,
-    DbResearchSource,
-    DbTaskSource,
-    load_macro_dashboard_config,
-)
+from baibai_app.sources.factory import Sources, build_sources, load_macro_groups
 
 _JST = ZoneInfo("Asia/Tokyo")
-
-
-@dataclass(frozen=True, slots=True)
-class _Sources:
-    ledger: DbLedgerSource
-    research: DbResearchSource
-    tasks: DbTaskSource
-    candidates: DbCandidatesSource
-    macro: DbMacroSource
-    program: DbProgramSource
-    market: DbMarketPriceSource
-    meta: DbMetaSource
 
 
 def create_app(
@@ -76,13 +53,10 @@ def create_app(
         allowed_hosts=["127.0.0.1", "localhost"],
     )
     app.state.root = resolved_root
-    app.state.db_path = (db_path or resolved_root / "data/app/baibai.sqlite").resolve()
-    app.state.runs_db_path = (
-        runs_db_path or resolved_root / "data/screening/runs.sqlite"
-    ).resolve()
-    app.state.macro_groups = load_macro_dashboard_config(
-        resolved_root / "records/_config/macro-dashboard.yaml"
-    )
+    app.state.db_path = db_path
+    app.state.runs_db_path = runs_db_path
+    # Load once at startup so a broken dashboard config fails app creation, not a request.
+    app.state.macro_groups = load_macro_groups(resolved_root)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -162,31 +136,13 @@ def create_app(
     return app
 
 
-def _build_sources(request: Request) -> _Sources:
-    root: Path = request.app.state.root
-    db_path: Path = request.app.state.db_path
-    runs_db_path: Path = request.app.state.runs_db_path
-    return _Sources(
-        ledger=DbLedgerSource(db_path),
-        research=DbResearchSource(db_path),
-        tasks=DbTaskSource(db_path),
-        candidates=DbCandidatesSource(
-            runs_db_path,
-            db_path,
-        ),
-        macro=DbMacroSource(
-            db_path,
-            root / "data/indicators/macro.sqlite",
-            request.app.state.macro_groups,
-        ),
-        program=DbProgramSource(db_path),
-        market=DbMarketPriceSource(root / "data/screening/market.sqlite"),
-        meta=DbMetaSource(
-            db_path,
-            runs_db_path,
-            root / "data/indicators/macro.sqlite",
-        ),
+def _build_sources(request: Request) -> Sources:
+    return build_sources(
+        request.app.state.root,
+        db_path=request.app.state.db_path,
+        runs_db_path=request.app.state.runs_db_path,
+        macro_groups=request.app.state.macro_groups,
     )
 
 
-_SourceDependency = Annotated[_Sources, Depends(_build_sources)]
+_SourceDependency = Annotated[Sources, Depends(_build_sources)]
