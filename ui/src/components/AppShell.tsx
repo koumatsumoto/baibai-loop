@@ -19,12 +19,12 @@ export function AppShell() {
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-6 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-8">
         <Link className="flex shrink-0 items-center gap-2 font-semibold tracking-tight" to="/">
           <span className="grid size-7 place-items-center rounded-lg bg-foreground text-[10px] font-bold tracking-wide text-background">BL</span>
           <span>Baibai-Loop</span>
         </Link>
-        <nav className="flex h-full items-center gap-1" aria-label="メインナビゲーション">
+        <nav className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label="メインナビゲーション">
           {[
             { to: '/', label: 'Dashboard', end: true },
             { to: '/screening', label: 'Screening', end: false },
@@ -44,7 +44,7 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {meta !== null && <FreshnessMeta className="hidden border-r border-border/60 pr-3 lg:flex" meta={meta} />}
           <Badge className="hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
           <ThemeToggle />
