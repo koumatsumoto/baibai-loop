@@ -8,7 +8,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from baibai_app.sources.db_sources import DbCandidatesSource, DbMacroSource, DbProgramSource
+from baibai_app.sources.db_sources import (
+    DbCandidatesSource,
+    DbMacroSource,
+    DbMetaSource,
+    DbProgramSource,
+)
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
@@ -47,6 +52,8 @@ from .models import (
     MacroSeriesView,
     MacroSizingCautionView,
     MacroView,
+    MetaBatch,
+    MetaView,
     OperationSessionView,
     PacketDetailView,
     PortfolioOutcomeView,
@@ -103,6 +110,18 @@ _METRIC_FIELDS = (
     "operating_profit_yoy",
 )
 _STALE_RUN_AGE = timedelta(days=7)
+
+
+def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaView:
+    """Report per-store as-of freshness so a consumer can judge view staleness."""
+
+    return MetaView(
+        generated_at=datetime.now(_JST),
+        screening_asof=source.screening_asof(),
+        macro_asof=source.macro_asof(),
+        app_db_updated_at=source.app_db_updated_at(),
+        batch=batch,
+    )
 
 
 def build_program_state(source: DbProgramSource) -> ProgramStateView:

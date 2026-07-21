@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
+import { PasswordGate } from './components/PasswordGate'
 import { TooltipProvider } from './components/ui/tooltip'
 import './styles.css'
 
@@ -22,15 +23,17 @@ function App() {
   return (
     <TooltipProvider>
       <BrowserRouter>
-        <Suspense fallback={<RouteLoading />}>
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/screening" element={<ScreeningPage />} />
-            <Route path="/shortlist" element={<ShortlistPage />} />
-            <Route path="/macro" element={<MacroPage />} />
-            <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
-          </Routes>
-        </Suspense>
+        <PasswordGate>
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/screening" element={<ScreeningPage />} />
+              <Route path="/shortlist" element={<ShortlistPage />} />
+              <Route path="/macro" element={<MacroPage />} />
+              <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
+            </Routes>
+          </Suspense>
+        </PasswordGate>
       </BrowserRouter>
     </TooltipProvider>
   )

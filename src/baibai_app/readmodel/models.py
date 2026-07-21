@@ -7,6 +7,18 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+type MetaBatch = Literal["daily", "manual"]
+
+
+class MetaView(BaseModel):
+    """Store freshness shown alongside every view and exported as views/meta.json."""
+
+    generated_at: datetime
+    screening_asof: date | None
+    macro_asof: date | None
+    app_db_updated_at: datetime | None
+    batch: MetaBatch | None
+
 
 class HoldingView(BaseModel):
     ticker: str

@@ -21,6 +21,7 @@ from baibai_app.sources.types import (
 from baibai_engine.read_api import (
     MacroGranularity,
     PortfolioSnapshot,
+    application_db_updated_at,
     latest_macro_context_payload,
     latest_reviewed_shortlist_payload,
     latest_unadjusted_closes,
@@ -33,11 +34,13 @@ from baibai_engine.read_api import (
     list_research_review_publications,
     list_task_payloads,
     macro_indicator_series,
+    macro_latest_observed_at,
     next_earnings_dates,
     portfolio_ledger_document,
     reconcile_portfolio,
     research_packet_publication,
     safe_load,
+    screening_latest_asof,
     screening_run_payload,
     screening_selection_payloads,
     task_store_exists,
@@ -281,6 +284,29 @@ class DbMacroSource:
             granularity=granularity,
             limit=None,
         )
+
+
+class DbMetaSource:
+    """Read per-store freshness for the meta view."""
+
+    def __init__(
+        self,
+        app_db_path: Path,
+        runs_db_path: Path,
+        indicators_db_path: Path,
+    ) -> None:
+        self._app_db_path = app_db_path.resolve()
+        self._runs_db_path = runs_db_path.resolve()
+        self._indicators_db_path = indicators_db_path.resolve()
+
+    def screening_asof(self) -> date | None:
+        return screening_latest_asof(self._runs_db_path)
+
+    def macro_asof(self) -> date | None:
+        return macro_latest_observed_at(self._indicators_db_path)
+
+    def app_db_updated_at(self) -> datetime | None:
+        return application_db_updated_at(self._app_db_path)
 
 
 class DbCandidatesSource:

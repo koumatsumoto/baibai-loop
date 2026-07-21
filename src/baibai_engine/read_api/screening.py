@@ -2,9 +2,36 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 from baibai_engine.screening.run_store import ScreeningRunReader
+
+from .sqlite import connect_read_only
+
+
+def previous_run_revision_id(path: Path, asof: date) -> str | None:
+    """Return the newest revision of the greatest prior as-of, or None when none exists.
+
+    Resolves the ambiguity ``screening select`` raises when the greatest prior
+    as-of holds more than one revision: the store's canonical ordering
+    (``asof_date``, ``run_at``, ``run_revision_id`` descending) picks one
+    deterministically. A missing store yields None; a sqlite error propagates so
+    a corrupt store is not silently treated as "no previous run".
+    """
+
+    if not path.is_file():
+        return None
+    connection = connect_read_only(path)
+    try:
+        row = connection.execute(
+            "SELECT run_revision_id FROM screening_run WHERE asof_date < ? "
+            "ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC LIMIT 1",
+            (asof.isoformat(),),
+        ).fetchone()
+    finally:
+        connection.close()
+    return None if row is None else str(row[0])
 
 
 def screening_run_payload(
@@ -63,6 +90,7 @@ def _run_payload(run: object) -> dict[str, object]:
 
 
 __all__ = [
+    "previous_run_revision_id",
     "screening_run_payload",
     "screening_selection_payloads",
 ]

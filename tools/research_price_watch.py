@@ -343,10 +343,11 @@ def _read_market_observations(
         bars_by_ticker: dict[str, dict[date, _RawBar]] = defaultdict(dict)
         if packets:
             placeholders = ",".join("?" for _ in packets)
+            # The f-string only expands "?" placeholders; every value is parameter-bound.
             bar_rows = conn.execute(
                 "SELECT ticker, traded_at, close, adjustment_factor "
                 "FROM jquants_daily_bars "
-                f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
+                f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "  # nosec B608
                 "ORDER BY ticker, traded_at",
                 (*sorted(packets), start.isoformat(), asof.isoformat()),
             ).fetchall()

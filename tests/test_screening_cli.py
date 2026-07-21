@@ -819,7 +819,12 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertIn(("get_eq_master", asof, asof), jquants.calls)
         self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
         self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
-        self.assertIn(("get_mkt_calendar", asof, asof), jquants.calls)
+        # The calendar bootstrap fetches a forward window so the unattended daily
+        # batch can read the current (and upcoming) business-day rows.
+        self.assertIn(
+            ("get_mkt_calendar", asof - timedelta(days=7), asof + timedelta(days=45)),
+            jquants.calls,
+        )
         self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
         self.assertEqual(jpx.bootstrap_calls, [asof])
 
