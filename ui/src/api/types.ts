@@ -1,3 +1,11 @@
+export interface MetaView {
+  generated_at: string
+  screening_asof: string | null
+  macro_asof: string | null
+  app_db_updated_at: string | null
+  batch: 'daily' | 'manual' | null
+}
+
 export interface HoldingView {
   ticker: string
   company_name: string | null

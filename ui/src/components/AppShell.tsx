@@ -1,10 +1,22 @@
+import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 
+import { fetchJson } from '../api/client'
+import type { MetaView } from '../api/types'
+import { FreshnessMeta } from './FreshnessMeta'
 import { ThemeToggle } from './ThemeToggle'
 import { Badge } from './ui/badge'
 import { cn } from '../lib/utils'
 
 export function AppShell() {
+  const [meta, setMeta] = useState<MetaView | null>(null)
+
+  // Meta view is optional infrastructure: when the endpoint is missing or errors, keep
+  // the shell usable and simply omit the freshness strip.
+  useEffect(() => {
+    fetchJson<MetaView>('/api/meta').then(setMeta).catch(() => setMeta(null))
+  }, [])
+
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-6 px-4 sm:px-6 lg:px-8">
@@ -32,7 +44,8 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
+          {meta !== null && <FreshnessMeta meta={meta} />}
           <Badge className="hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
           <ThemeToggle />
         </div>
