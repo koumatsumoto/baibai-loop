@@ -83,7 +83,7 @@ public entry point は次の2本だけである。
 
 ## Read-only app invariants
 
-`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIはDashboard、Screening、Security detail、Macroを提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。
+`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIはDashboard、Screening、Shortlist、Security detail、Macroを提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。`/api/meta`はscreening / macro / application DBのas-of鮮度をstore内timestampから返し（file mtimeに依存しない）、UIは各画面のデータ鮮度として表示する。
 
 ## Data layers
 
