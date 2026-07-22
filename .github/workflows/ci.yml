@@ -85,3 +85,32 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+
+  cloud-worker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            cloud/worker/package-lock.json
+
+      - name: Build UI assets
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify Worker
+        working-directory: cloud/worker
+        run: |
+          npm ci
+          npm run types:check
+          npm run typecheck
+          npm test
+          npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"

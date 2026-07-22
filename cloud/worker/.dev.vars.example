@@ -1,0 +1,3 @@
+# This value is used only to make VIEW_PASSWORD part of generated Env types.
+# Use `wrangler secret put VIEW_PASSWORD` for the deployed Worker.
+VIEW_PASSWORD="local-development-only"

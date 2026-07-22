@@ -1,0 +1,83 @@
+name: cloud-daily-batch
+
+on:
+  schedule:
+    # 18:30 JST: after the 16:30 daily-price update and other 18:00 JPX datasets.
+    - cron: "30 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      asof:
+        description: "Optional YYYY-MM-DD; skips the business-day gate for a manual rerun"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  cancel-in-progress: false
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+      ESTAT_APP_ID: ${{ secrets.ESTAT_APP_ID }}
+      EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
+      MANUAL_ASOF: ${{ inputs.asof }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Sync Python environment
+        run: uv sync --locked
+
+      - name: Pull stores
+        run: tools/cloud/r2_transfer.sh pull-all
+
+      - name: Run daily batch
+        id: batch
+        shell: bash
+        run: |
+          args=(--output-dir "$RUNNER_TEMP/serving")
+          if [[ -n "$MANUAL_ASOF" ]]; then
+            args+=(--asof "$MANUAL_ASOF")
+          fi
+          set +e
+          uv run python tools/cloud/daily_batch.py "${args[@]}"
+          code=$?
+          set -e
+          if [[ $code -ne 0 && $code -ne 3 ]]; then
+            exit "$code"
+          fi
+          if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Upload updated machine stores
+        if: steps.batch.outputs.published == 'true'
+        run: tools/cloud/r2_transfer.sh push-machine
+
+      - name: Upload serving objects
+        if: steps.batch.outputs.published == 'true'
+        run: tools/cloud/r2_transfer.sh upload-serving "$RUNNER_TEMP/serving"
+
+      - name: Report deferred batch failure
+        if: steps.batch.outputs.exit_code == '3'
+        run: exit 3

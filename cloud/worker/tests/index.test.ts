@@ -1,0 +1,186 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { handleRequest } from '../src/index'
+
+const PASSWORD = '1234567890abcdefghijklmnopqrstuv'
+
+function environment(get: ReturnType<typeof vi.fn>) {
+  return {
+    BAIBAI_SERVING: { get } as unknown as R2Bucket,
+    ASSETS: { fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })) } as unknown as Fetcher,
+    VIEW_PASSWORD: PASSWORD,
+  }
+}
+
+function request(path: string, password: string | null = PASSWORD, method = 'GET'): Request {
+  const headers = password === null ? undefined : { Authorization: `Bearer ${password}` }
+  return new Request(`https://example.test${path}`, { method, headers })
+}
+
+function objectBody(body = '{"ok":true}') {
+  return { body: new Response(body).body } as unknown as R2ObjectBody
+}
+
+describe('API authentication', () => {
+  let get: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    get = vi.fn().mockResolvedValue(objectBody())
+  })
+
+  it.each([
+    ['missing credentials', null],
+    ['wrong credentials', 'wrong-password'],
+  ])('returns 401 for %s before reading R2', async (_label, password) => {
+    const response = await handleRequest(request('/api/dashboard', password), environment(get))
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('returns 200 for the exact bearer password', async () => {
+    const response = await handleRequest(request('/api/dashboard'), environment(get))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
+  })
+
+  it('fails closed when VIEW_PASSWORD is absent', async () => {
+    const env = environment(get)
+    env.VIEW_PASSWORD = ''
+    const response = await handleRequest(
+      new Request('https://example.test/api/dashboard', {
+        headers: { Authorization: 'Bearer ' },
+      }),
+      env,
+    )
+
+    expect(response.status).toBe(401)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('redirects HTTP to HTTPS before authentication or R2 access', async () => {
+    const response = await handleRequest(
+      new Request('http://example.test/api/dashboard', {
+        headers: { Authorization: `Bearer ${PASSWORD}` },
+      }),
+      environment(get),
+    )
+
+    expect(response.status).toBe(308)
+    expect(response.headers.get('Location')).toBe('https://example.test/api/dashboard')
+    expect(get).not.toHaveBeenCalled()
+  })
+})
+
+describe('view routing', () => {
+  it.each([
+    ['/api/dashboard', 'views/dashboard.json'],
+    ['/api/screening/latest', 'views/screening_latest.json'],
+    ['/api/program', 'views/program.json'],
+    ['/api/meta', 'views/meta.json'],
+    ['/api/macro', 'views/macro--1y-daily.json'],
+    ['/api/macro?period=max&granularity=yearly', 'views/macro--max-yearly.json'],
+    ['/api/securities/7203', 'views/security--7203.json'],
+  ])('maps %s to the fixed key %s', async (path, expectedKey) => {
+    const get = vi.fn().mockResolvedValue(objectBody())
+    const response = await handleRequest(request(path), environment(get))
+
+    expect(response.status).toBe(200)
+    expect(get).toHaveBeenCalledWith(expectedKey)
+  })
+
+  it.each([
+    '/api/macro?period=../../history&granularity=daily',
+    '/api/macro?period=1y&granularity=hourly',
+  ])('rejects an invalid macro key without reading R2: %s', async (path) => {
+    const get = vi.fn()
+    const response = await handleRequest(request(path), environment(get))
+
+    expect(response.status).toBe(422)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    '/api/securities/7203/extra',
+    '/api/securities/%2e%2e%2fhistory',
+    '/api/unknown',
+    '/api',
+  ])('does not let request input escape the view-key whitelist: %s', async (path) => {
+    const get = vi.fn()
+    const response = await handleRequest(request(path), environment(get))
+
+    expect(response.status).toBe(404)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('lets URL-normalized non-API paths reach static Assets without reading R2', async () => {
+    const get = vi.fn()
+    const response = await handleRequest(
+      request('/api/securities/../../history'),
+      environment(get),
+    )
+
+    expect(response.status).toBe(204)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the materialized view does not exist', async () => {
+    const get = vi.fn().mockResolvedValue(null)
+    const response = await handleRequest(request('/api/dashboard'), environment(get))
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('fails closed with a generic no-store response when R2 throws', async () => {
+    const get = vi.fn().mockRejectedValue(new Error('private R2 detail'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const response = await handleRequest(request('/api/dashboard'), environment(get))
+
+    expect(response.status).toBe(500)
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
+    await expect(response.json()).resolves.toEqual({ detail: 'internal server error' })
+    expect(error).toHaveBeenCalledOnce()
+    error.mockRestore()
+  })
+
+  it('requires authentication before rejecting an unsupported method', async () => {
+    const get = vi.fn()
+    const unauthorized = await handleRequest(
+      request('/api/dashboard', null, 'POST'),
+      environment(get),
+    )
+    const authorized = await handleRequest(request('/api/dashboard', PASSWORD, 'POST'), environment(get))
+
+    expect(unauthorized.status).toBe(401)
+    expect(authorized.status).toBe(405)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('serves health only after authentication and without reading R2', async () => {
+    const get = vi.fn()
+    const response = await handleRequest(request('/api/health'), environment(get))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Strict-Transport-Security')).toContain('max-age=31536000')
+    await expect(response.json()).resolves.toEqual({ status: 'ok' })
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('adds HSTS when delegating an HTTPS navigation to static Assets', async () => {
+    const get = vi.fn()
+    const env = environment(get)
+    const response = await handleRequest(request('/screening'), env)
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get('Strict-Transport-Security')).toContain('max-age=31536000')
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
+    expect(get).not.toHaveBeenCalled()
+  })
+})

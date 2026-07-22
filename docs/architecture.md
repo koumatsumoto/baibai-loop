@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の package、store、CLI、read-only app 契約の正本。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-20
+last_reviewed: 2026-07-22
 ---
 
 # Architecture
@@ -84,6 +84,30 @@ public entry point は次の2本だけである。
 ## Read-only app invariants
 
 `baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIはDashboard、Screening、Shortlist、Security detail、Macroを提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。`/api/meta`はscreening / macro / application DBのas-of鮮度をstore内timestampから返し（file mtimeに依存しない）、UIは各画面のデータ鮮度として表示する。
+
+## Cloud serving layer
+
+クラウド閲覧と日次機械工程は、ローカルのwriter/read-only境界を変えずに次の一方向経路で構成する。
+
+```text
+local baibai.sqlite ──publish──┐
+                              v
+GitHub Actions compute <──> R2 baibai-stores
+          │                    market/runs/macro正本 + baibai replica
+          │ materialize
+          v
+R2 baibai-serving ──binding──> Cloudflare Worker ──> browser
+views + machine history         Bearer認証 + static UI
+```
+
+- `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
+- `baibai-serving` は材料化済み`views/`と機械生成`history/`だけを保持する。`history/select/`は蓄積し、`history/candidate-pool/`はR2 lifecycleで31日後に削除する。public accessを持たない。
+- WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/` keyへ写像する。`history/`とstoresには到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
+- Workers Assetsは`ui/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
+- `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日18:30 JSTに機械工程を実行する。両workflowは同じconcurrency groupでserving世代の混在を防ぐ。
+- ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
+
+具体的な初期構築、publish/pull、手動再実行、password rotationは[`tools/cloud/README.md`](../tools/cloud/README.md)を正本とする。
 
 ## Data layers
 
