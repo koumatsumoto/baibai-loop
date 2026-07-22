@@ -1,9 +1,117 @@
 # tools/cloud — クラウド配信向けのローカルバッチ script
 
-Cloudflare 配信（issue #467 の設計）の compute 側入口。いずれも将来 GitHub Actions
-の workflow がそのまま呼ぶ前提の script で、stable CLI ではない（安定契約は
-`baibai-engine` / `baibai-app` 側にあり、この 2 script は orchestration のみを持つ）。
-ローカル単体でも完結して動き、クラウド資源を一切必要としない。
+Cloudflare 配信（issue #467 の設計）の compute と転送の入口。ここにある Python / shell
+script は GitHub Actions とローカル運用から呼ぶ orchestration で、stable CLI ではない
+（安定契約は `baibai-engine` / `baibai-app` 側にある）。read model の生成と日次 batch は
+ローカル単体でも実行でき、転送 script だけが R2 を使う。
+
+## Cloudflare / GitHub Actions 構成
+
+R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPublic Development URLとcustom domainを無効にする。
+
+| bucket | object | owner |
+| --- | --- | --- |
+| `baibai-stores` | `market.sqlite` / `runs.sqlite` / `macro.sqlite` | `cloud-daily-batch` |
+| `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
+| `baibai-serving` | `views/*.json` | GitHub Actions materialize |
+| `baibai-serving` | `history/select/<asof>.json` | 日次batch、削除しない |
+| `baibai-serving` | `history/candidate-pool/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
+
+資格情報はprincipalごとに分ける。
+
+| principal | 設定 | scope |
+| --- | --- | --- |
+| GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本 | stores + serving read-write |
+| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | storesだけread-write |
+| Wrangler OAuth | `wrangler login` | bucket初期設定、Worker deploy、Worker secret |
+| Worker secret | `VIEW_PASSWORD` | Worker runtimeだけ |
+
+R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
+
+## 初回seedとWorker deploy
+
+初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。
+
+```bash
+tools/cloud/seed.sh
+```
+
+WorkerはUIをbuildしてからdeployする。`VIEW_PASSWORD`はpassword manager等で生成した32文字のCSPRNG英数値を使い、値を引数やshell historyへ書かずpromptへ入力する。
+
+```bash
+cd cloud/worker
+npm ci
+npm run types:check
+npm run typecheck
+npm test
+# 初回 deploy は secret 未設定時に全 API を 401 にする。
+npm run deploy
+npx wrangler secret put VIEW_PASSWORD
+```
+
+workflowがdefault branchに存在する状態で初回materializeを実行する。
+
+```bash
+gh workflow run cloud-materialize.yml --ref main
+gh run list --workflow cloud-materialize.yml --limit 3
+```
+
+materialize完了後、passwordを画面表示・shell引数化せず、全API routeを未認証・誤認証・正認証で検査する。`VERIFY_TICKER`はservingに存在する4文字tickerへ必要に応じて変更する。
+
+```bash
+tools/cloud/verify_worker.sh
+```
+
+## 日常運用
+
+application DBのjudgment更新をクラウド表示へ反映する。
+
+```bash
+tools/cloud/publish.sh
+```
+
+このscriptは`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。
+
+decision-cycleやmacro分析を始める前に、クラウド正本のmachine storeをローカルへ取得する。
+
+```bash
+tools/cloud/pull.sh
+uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
+uv run baibai-engine screening ticker-profile --ticker TICKER
+```
+
+`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。日次batchと同時に実行して世代を跨がないよう、通常は18:30 JST前後とGitHub Actions実行中を避ける。
+
+日次workflowを手動実行する。`asof`省略時は当日JSTをmarket calendarで判定し、非営業日は成功扱いでskipする。過去日を指定すると営業日gateをskipする。
+
+```bash
+gh workflow run cloud-daily-batch.yml --ref main
+gh workflow run cloud-daily-batch.yml --ref main -f asof=YYYY-MM-DD
+gh run list --workflow cloud-daily-batch.yml --limit 10
+```
+
+通常cronは平日09:30 UTC（18:30 JST）。株価日足の16:30 JST更新と、18:00 JST更新のJPX系日次datasetの後に余裕を置く。GitHub Actionsのschedule遅延は許容し、UIのas-ofとworkflow履歴で検知する。
+
+`daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
+
+`*.workers.dev`のHTTP requestはWorkerが認証判定より前に308でHTTPSへredirectし、HTTPS responseはHSTSを返す。UI navigationは必ずこの経路を通り、hashed static assetだけをWorker invocationなしで配信する。
+
+## Password rotation
+
+```bash
+cd cloud/worker
+npx wrangler secret put VIEW_PASSWORD
+```
+
+新しい32文字CSPRNG値をpromptへ入力する。次のAPI 401でbrowserの旧値がlocalStorageから削除され、password入力画面へ戻る。Workerの再deploy、R2変更、application data更新は不要。
+
+## R2 transferの安全境界
+
+- upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
+- pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
+- servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
+- `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。
+- bucket名は`R2_STORES_BUCKET` / `R2_SERVING_BUCKET`で明示的にoverrideできるが、通常は固定defaultを使う。
 
 ## export_read_models.py — read model の材料化
 

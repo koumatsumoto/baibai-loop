@@ -1,0 +1,43 @@
+name: cloud-materialize
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Sync Python environment
+        run: uv sync --locked
+
+      - name: Pull stores
+        run: tools/cloud/r2_transfer.sh pull-all
+
+      - name: Materialize read models
+        run: uv run python tools/cloud/export_read_models.py --output-dir "$RUNNER_TEMP/serving" --batch manual
+
+      - name: Upload serving objects
+        run: tools/cloud/r2_transfer.sh upload-serving "$RUNNER_TEMP/serving"

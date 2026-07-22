@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
+serving_bucket="${R2_SERVING_BUCKET:-baibai-serving}"
+transfer_staging=""
+
+cleanup_staging() {
+  if [[ -n "${transfer_staging}" && -d "${transfer_staging}" ]]; then
+    case "${transfer_staging}" in
+      "${repo_root}"/.r2-transfer.*) rm -r -- "${transfer_staging}" ;;
+      *) printf 'refusing to remove unexpected staging path: %s\n' "${transfer_staging}" >&2 ;;
+    esac
+  fi
+}
+
+trap cleanup_staging EXIT
+
+load_credentials() {
+  if [[ -z "${R2_ACCOUNT_ID:-}" || -z "${R2_ACCESS_KEY_ID:-}" || -z "${R2_SECRET_ACCESS_KEY:-}" ]]; then
+    if [[ -f "${repo_root}/.env" ]]; then
+      set -a
+      # shellcheck disable=SC1091
+      source "${repo_root}/.env"
+      set +a
+    fi
+  fi
+  : "${R2_ACCOUNT_ID:?R2_ACCOUNT_ID is required}"
+  : "${R2_ACCESS_KEY_ID:?R2_ACCESS_KEY_ID is required}"
+  : "${R2_SECRET_ACCESS_KEY:?R2_SECRET_ACCESS_KEY is required}"
+  export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}"
+  export AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}"
+  export AWS_DEFAULT_REGION=auto
+  export AWS_EC2_METADATA_DISABLED=true
+  endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+}
+
+aws_s3() {
+  aws s3 "$@" --endpoint-url "${endpoint}" --only-show-errors --no-progress
+}
+
+store_path() {
+  case "$1" in
+    market.sqlite) printf '%s/data/screening/market.sqlite\n' "${repo_root}" ;;
+    runs.sqlite) printf '%s/data/screening/runs.sqlite\n' "${repo_root}" ;;
+    macro.sqlite) printf '%s/data/indicators/macro.sqlite\n' "${repo_root}" ;;
+    baibai.sqlite) printf '%s/data/app/baibai.sqlite\n' "${repo_root}" ;;
+    *) printf 'unknown store key: %s\n' "$1" >&2; return 2 ;;
+  esac
+}
+
+check_sqlite() {
+  UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+    uv run python "${repo_root}/tools/cloud/sqlite_snapshot.py" check --path "$1"
+}
+
+snapshot_sqlite() {
+  UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+    uv run python "${repo_root}/tools/cloud/sqlite_snapshot.py" create \
+      --source "$1" --output "$2"
+}
+
+pull_keys() {
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  local key target
+  for key in "$@"; do
+    aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
+    check_sqlite "${transfer_staging}/${key}"
+  done
+  for key in "$@"; do
+    target="$(store_path "${key}")"
+    mkdir -p "$(dirname "${target}")"
+    mv -f "${transfer_staging}/${key}" "${target}"
+  done
+  cleanup_staging
+  transfer_staging=""
+}
+
+push_keys() {
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  local key source
+  for key in "$@"; do
+    source="$(store_path "${key}")"
+    snapshot_sqlite "${source}" "${transfer_staging}/${key}"
+    aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
+  done
+  cleanup_staging
+  transfer_staging=""
+}
+
+upload_serving() {
+  local output_dir="$1"
+  if [[ ! -f "${output_dir}/views/meta.json" ]]; then
+    printf 'serving export is incomplete: %s/views/meta.json is missing\n' "${output_dir}" >&2
+    return 2
+  fi
+  aws_s3 sync "${output_dir}/views/" "s3://${serving_bucket}/views/" \
+    --delete --exclude meta.json
+  if [[ -d "${output_dir}/history/select" ]]; then
+    aws_s3 sync "${output_dir}/history/select/" "s3://${serving_bucket}/history/select/"
+  fi
+  if [[ -d "${output_dir}/history/candidate-pool" ]]; then
+    aws_s3 sync "${output_dir}/history/candidate-pool/" \
+      "s3://${serving_bucket}/history/candidate-pool/"
+  fi
+  # Freshness is published only after every view and history upload succeeds.
+  aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
+}
+
+usage() {
+  printf 'usage: %s {pull-all|pull-machine|push-all|push-machine|push-app|upload-serving DIR}\n' "$0" >&2
+}
+
+load_credentials
+case "${1:-}" in
+  pull-all)
+    pull_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
+    ;;
+  pull-machine)
+    pull_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  push-all)
+    push_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
+    ;;
+  push-machine)
+    push_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  push-app)
+    push_keys baibai.sqlite
+    ;;
+  upload-serving)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    upload_serving "$2"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

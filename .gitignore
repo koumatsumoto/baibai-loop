@@ -36,6 +36,8 @@ data/app/
 
 # Local environment files
 .env
+.wrangler/
+.r2-transfer.*
 
 # Local Codex workspace files
 /.codex
