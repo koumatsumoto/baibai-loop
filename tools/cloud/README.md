@@ -30,7 +30,9 @@ R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscript�
 
 ## 初回seedとWorker deploy
 
-初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。
+初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。4 keyの
+いずれかが既に存在する場合は、古いローカルcopyによる正本の巻き戻しを防ぐため何も
+uploadせず停止する。
 
 ```bash
 tools/cloud/seed.sh
@@ -108,6 +110,8 @@ npx wrangler secret put VIEW_PASSWORD
 ## R2 transferの安全境界
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
+- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。machine storeのpushはGitHub Actionsからだけ許可する。
+- 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
 - servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
 - `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。

@@ -83,10 +83,25 @@ push_keys() {
   for key in "$@"; do
     source="$(store_path "${key}")"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
+  done
+  for key in "$@"; do
     aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
   done
   cleanup_staging
   transfer_staging=""
+}
+
+seed_keys() {
+  local key listing
+  for key in "$@"; do
+    listing="$(aws_s3 ls "s3://${stores_bucket}/${key}")"
+    if [[ -n "${listing}" ]]; then
+      printf 'refusing initial seed: s3://%s/%s already exists\n' \
+        "${stores_bucket}" "${key}" >&2
+      return 2
+    fi
+  done
+  push_keys "$@"
 }
 
 upload_serving() {
@@ -109,7 +124,7 @@ upload_serving() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|push-all|push-machine|push-app|upload-serving DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-app|upload-serving DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -120,10 +135,14 @@ case "${1:-}" in
   pull-machine)
     pull_keys market.sqlite runs.sqlite macro.sqlite
     ;;
-  push-all)
-    push_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
+  seed-all)
+    seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
     ;;
   push-machine)
+    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+      printf 'refusing machine-store push outside GitHub Actions\n' >&2
+      exit 2
+    fi
     push_keys market.sqlite runs.sqlite macro.sqlite
     ;;
   push-app)
