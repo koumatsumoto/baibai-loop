@@ -43,7 +43,7 @@ exit 2
 
 
 def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
-    return {
+    environment = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "AWS_LOG": str(log),
@@ -51,6 +51,8 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
         "R2_ACCESS_KEY_ID": "access-for-test",
         "R2_SECRET_ACCESS_KEY": "secret-for-test",
     }
+    environment.pop("GITHUB_ACTIONS", None)
+    return environment
 
 
 def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
