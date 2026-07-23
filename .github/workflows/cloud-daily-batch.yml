@@ -29,6 +29,12 @@ jobs:
       JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
       ESTAT_APP_ID: ${{ secrets.ESTAT_APP_ID }}
       EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
+      # Public JPX regulation pages (not secrets). bootstrap-cache は
+      # universe.required_jpx_flags の 4 source を取得するためこれらを要求する。
+      JPX_SPECIAL_CAUTION_INDEX_URL: https://www.jpx.co.jp/markets/statistics-equities/margin/index.html
+      JPX_REORGANIZATION_URL: https://www.jpx.co.jp/listing/market-alerts/supervision/
+      JPX_TRADING_HALT_URL: https://www.jpx.co.jp/markets/equities/suspended/
+      JPX_DELISTING_WARNING_URL: https://www.jpx.co.jp/listing/stocks/delisted/
       MANUAL_ASOF: ${{ inputs.asof }}
 
     steps:
