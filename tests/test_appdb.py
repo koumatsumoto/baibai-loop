@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.appdb.migrations import LATEST_VERSION, Migration
+from baibai_engine.appdb.migrations import LATEST_VERSION, MIGRATIONS, Migration
 from baibai_engine.appdb.write import (
     backup_database,
     connect_rw,
@@ -79,3 +79,116 @@ def test_backup_includes_uncheckpointed_wal_rows(tmp_path: Path) -> None:
 
 def test_backup_reports_absent_database(tmp_path: Path) -> None:
     assert backup_database(tmp_path / "missing.sqlite") is None
+
+
+def test_migration_v10_rewrites_legacy_vocabulary_rows(tmp_path: Path) -> None:
+    """v9 の実データ形 (旧 table/column/payload key) が v10 で無損失に改名される。"""
+    path = tmp_path / "app.sqlite"
+
+    assert initialize_database(path, migrations=MIGRATIONS[:9]) == 9
+    connection = connect_rw(path)
+    try:
+        connection.execute(
+            "INSERT INTO reviewed_shortlist VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "shortlist-1",
+                "selection-1",
+                "run-1",
+                "2026-07-01",
+                "2026-07-01T10:00:00+09:00",
+                '{"kind": "reviewed-shortlist", "entries": []}',
+            ),
+        )
+        connection.execute(
+            "INSERT INTO research_packet VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "packet-20260701-9999",
+                "9999",
+                "2026-07-01",
+                "buy",
+                "2026-07-01T11:00:00+09:00",
+                None,
+                "{}",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO research_review VALUES (?, ?, ?, ?)",
+            (
+                "review-1",
+                "packet-20260701-9999",
+                "2026-07-01T12:00:00+09:00",
+                '{"reviewed_packet_sha256": "' + "a" * 64 + '"}',
+            ),
+        )
+        connection.execute(
+            "INSERT INTO holding_review VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "holding-review-1",
+                "9999",
+                "2026-07-02",
+                "packet-20260701-9999",
+                None,
+                '{"sources": {"ledger": {"entity_id": "portfolio-ledger"},'
+                ' "holding_packet": {"entity_id": "packet-20260701-9999"},'
+                ' "candidate_packet": null}}',
+            ),
+        )
+        connection.execute(
+            "INSERT INTO proposal VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "proposal-1",
+                "9999",
+                "packet-20260701-9999",
+                "review-1",
+                "2026-07-02T09:00:00+09:00",
+                "pending",
+                None,
+                "{}",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert initialize_database(path) == LATEST_VERSION
+
+    connection = connect_rw(path)
+    try:
+        tables = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"thesis", "thesis_review", "shortlist"} <= tables
+        assert not {"research_packet", "research_review", "reviewed_shortlist"} & tables
+
+        assert connection.execute("SELECT thesis_id FROM thesis").fetchone()[0] == (
+            "packet-20260701-9999"
+        )
+        review_payload = connection.execute("SELECT payload FROM thesis_review").fetchone()[0]
+        assert '"reviewed_thesis_sha256"' in review_payload
+        assert "reviewed_packet_sha256" not in review_payload
+
+        holding = connection.execute(
+            "SELECT thesis_id, candidate_thesis_id, payload FROM holding_review"
+        ).fetchone()
+        assert holding[0] == "packet-20260701-9999"
+        assert holding[1] is None
+        assert tuple(
+            connection.execute(
+                "SELECT json_extract(payload, '$.sources.holding_thesis.entity_id'),"
+                " json_type(payload, '$.sources.candidate_thesis'),"
+                " json_type(payload, '$.sources.holding_packet'),"
+                " json_type(payload, '$.sources.candidate_packet')"
+                " FROM holding_review"
+            ).fetchone()
+        ) == ("packet-20260701-9999", "null", None, None)
+
+        assert tuple(
+            connection.execute("SELECT json_extract(payload, '$.kind') FROM shortlist").fetchone()
+        ) == ("shortlist",)
+        assert tuple(connection.execute("SELECT thesis_id FROM proposal").fetchone()) == (
+            "packet-20260701-9999",
+        )
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()

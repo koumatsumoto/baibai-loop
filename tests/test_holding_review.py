@@ -13,13 +13,13 @@ from baibai_engine.position.holding_review import (
     evaluate_holding_review,
 )
 from baibai_engine.position.ledger import load_portfolio_ledger
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
-    IndependentReview,
-    decision_packet_core_hash,
-    independent_review_hash,
-)
 from baibai_engine.research.store import ResearchStoreService
+from baibai_engine.research.thesis import (
+    IndependentReview,
+    ThesisDocument,
+    independent_review_hash,
+    thesis_core_hash,
+)
 from tests.helpers.db_seed import seed_ledger
 
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
@@ -113,14 +113,14 @@ def test_missing_permanent_loss_axis_is_incomplete() -> None:
     assert any("canonical axes" in message for message in result.errors)
 
 
-def test_packet_unavailable_cannot_produce_a_replacement_verdict() -> None:
+def test_thesis_unavailable_cannot_produce_a_replacement_verdict() -> None:
     raw = _raw("replacement-superior.yaml")
     raw["thesis_health"]["current_5y_estimate"] = {"status": "unresolved"}
     with pytest.raises(ValueError, match="requires a resolved current_5y_estimate"):
         HoldingReviewDocument.model_validate(raw)
 
 
-def test_packet_unavailable_cannot_produce_an_add() -> None:
+def test_thesis_unavailable_cannot_produce_an_add() -> None:
     raw = _raw("underwater-hold.yaml")
     raw["thesis_health"]["current_5y_estimate"] = {"status": "unresolved"}
     raw["add_context"] = {
@@ -223,24 +223,24 @@ def test_stale_evidence_warns() -> None:
 
 
 def _write_current_builder_sources(root: Path) -> None:
-    packet_dir = root / "packets"
-    packet_dir.mkdir()
-    packet = yaml.safe_load(
-        Path("tests/fixtures/decision-packet/2331-decision.yaml").read_text(encoding="utf-8")
+    thesis_dir = root / "theses"
+    thesis_dir.mkdir()
+    thesis = yaml.safe_load(
+        Path("tests/fixtures/thesis/2331-decision.yaml").read_text(encoding="utf-8")
     )
-    packet["input_snapshot"]["facts"][0]["price_basis"] = "last_close_unadjusted"
-    core_hash = decision_packet_core_hash(DecisionPacketDocument.model_validate(packet))
+    thesis["input_snapshot"]["facts"][0]["price_basis"] = "last_close_unadjusted"
+    core_hash = thesis_core_hash(ThesisDocument.model_validate(thesis))
     review = yaml.safe_load(
-        Path("tests/fixtures/decision-packet/2331-decision-review.yaml").read_text(encoding="utf-8")
+        Path("tests/fixtures/thesis/2331-decision-review.yaml").read_text(encoding="utf-8")
     )
-    review["reviewed_packet_sha256"] = core_hash
+    review["reviewed_thesis_sha256"] = core_hash
     review_hash = independent_review_hash(IndependentReview.model_validate(review))
-    packet["human_evidence_override"]["proposal_sha256"] = core_hash
-    packet["human_evidence_override"]["review_sha256"] = review_hash
-    packet_dir.joinpath("2331-decision.yaml").write_text(
-        yaml.safe_dump(packet, sort_keys=False), encoding="utf-8"
+    thesis["human_evidence_override"]["proposal_sha256"] = core_hash
+    thesis["human_evidence_override"]["review_sha256"] = review_hash
+    thesis_dir.joinpath("2331-decision.yaml").write_text(
+        yaml.safe_dump(thesis, sort_keys=False), encoding="utf-8"
     )
-    packet_dir.joinpath("2331-decision-review.yaml").write_text(
+    thesis_dir.joinpath("2331-decision-review.yaml").write_text(
         yaml.safe_dump(review, sort_keys=False), encoding="utf-8"
     )
     ledger = yaml.safe_load(
@@ -268,10 +268,10 @@ def test_holding_review_build_cli_writes_a_validated_draft(
 ) -> None:
     _write_current_builder_sources(tmp_path)
     db_path = tmp_path / "app.sqlite"
-    packet = yaml.safe_load(tmp_path.joinpath("packets/2331-decision.yaml").read_text())
-    review = yaml.safe_load(tmp_path.joinpath("packets/2331-decision-review.yaml").read_text())
-    packet_id = "packet-20260703-2331-r1"
-    ResearchStoreService(db_path).publish_packet_with_review(packet_id, packet, review)
+    thesis = yaml.safe_load(tmp_path.joinpath("theses/2331-decision.yaml").read_text())
+    review = yaml.safe_load(tmp_path.joinpath("theses/2331-decision-review.yaml").read_text())
+    thesis_id = "thesis-20260703-2331-r1"
+    ResearchStoreService(db_path).publish_thesis_with_review(thesis_id, thesis, review)
     ledger = load_portfolio_ledger(tmp_path / "ledger.yaml")
     seed_ledger(
         db_path,
@@ -292,8 +292,8 @@ def test_holding_review_build_cli_writes_a_validated_draft(
             str(tmp_path),
             "--db",
             str(db_path),
-            "--packet-id",
-            packet_id,
+            "--thesis-id",
+            thesis_id,
             "--position-id",
             "position-2331",
             "--out",

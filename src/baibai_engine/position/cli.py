@@ -163,17 +163,17 @@ def build_parser() -> argparse.ArgumentParser:
     holding_review_parser.add_argument("--root", type=Path, default=Path.cwd())
     holding_review_parser.add_argument("--db", type=Path)
     holding_review_parser.add_argument("--holding-review-id")
-    holding_review_parser.add_argument("--packet-id")
-    holding_review_parser.add_argument("--candidate-packet-id")
+    holding_review_parser.add_argument("--thesis-id")
+    holding_review_parser.add_argument("--candidate-thesis-id")
     holding_build_parser = subparsers.add_parser(
         "holding-review-build",
-        help="build a holding review draft from a ready packet, its review, and the ledger",
+        help="build a holding review draft from a ready thesis, its review, and the ledger",
     )
     holding_build_parser.add_argument("--root", type=Path, default=Path.cwd())
     holding_build_parser.add_argument("--db", type=Path)
-    holding_build_parser.add_argument("--packet-id", required=True)
+    holding_build_parser.add_argument("--thesis-id", required=True)
     holding_build_parser.add_argument("--position-id", required=True)
-    holding_build_parser.add_argument("--candidate-packet-id")
+    holding_build_parser.add_argument("--candidate-thesis-id")
     holding_build_parser.add_argument("--out", type=Path, required=True)
     market_price_parser = subparsers.add_parser(
         "market-price-draft",
@@ -281,9 +281,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             return 2
     if args.command == "holding-review":
         if args.operation == "publish":
-            if args.draft is None or args.packet_id is None:
+            if args.draft is None or args.thesis_id is None:
                 print(
-                    "error: holding-review publish requires <draft> and --packet-id",
+                    "error: holding-review publish requires <draft> and --thesis-id",
                     file=sys.stderr,
                 )
                 return 2
@@ -296,8 +296,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if args.command == "holding-review-build":
         return _run_holding_review_build_db(
             db_path=args.db,
-            packet_id=args.packet_id,
-            candidate_packet_id=args.candidate_packet_id,
+            thesis_id=args.thesis_id,
+            candidate_thesis_id=args.candidate_thesis_id,
             position_id=args.position_id,
             root=args.root,
             out=args.out,
@@ -641,9 +641,9 @@ def _run_holding_review_publish(args: argparse.Namespace) -> int:
         )
         ResearchStoreService(args.db).publish_holding_review(
             holding_review_id,
-            args.packet_id,
+            args.thesis_id,
             raw,
-            candidate_packet_id=args.candidate_packet_id,
+            candidate_thesis_id=args.candidate_thesis_id,
         )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
@@ -651,8 +651,8 @@ def _run_holding_review_publish(args: argparse.Namespace) -> int:
     yaml.safe_dump(
         {
             "holding_review_id": holding_review_id,
-            "packet_id": args.packet_id,
-            "candidate_packet_id": args.candidate_packet_id,
+            "thesis_id": args.thesis_id,
+            "candidate_thesis_id": args.candidate_thesis_id,
         },
         sys.stdout,
         sort_keys=False,
@@ -664,8 +664,8 @@ def _run_holding_review_publish(args: argparse.Namespace) -> int:
 def _run_holding_review_build_db(
     *,
     db_path: Path | None,
-    packet_id: str,
-    candidate_packet_id: str | None,
+    thesis_id: str,
+    candidate_thesis_id: str | None,
     position_id: str,
     root: Path,
     out: Path,
@@ -674,8 +674,8 @@ def _run_holding_review_build_db(
         output_path = _draft_output_path(root, out, label="holding review")
         document = build_holding_review_from_db(
             db_path=db_path,
-            holding_packet_id=packet_id,
-            candidate_packet_id=candidate_packet_id,
+            holding_thesis_id=thesis_id,
+            candidate_thesis_id=candidate_thesis_id,
             position_id=position_id,
         )
         result = evaluate_holding_review(document)

@@ -75,7 +75,7 @@ paths=(
   /api/health
   /api/dashboard
   /api/screening/latest
-  /api/program
+  /api/operations
   /api/meta
   "/api/securities/${ticker}"
 )

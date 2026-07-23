@@ -91,7 +91,7 @@ class ReadEqMasterTests(unittest.TestCase):
             _add_source_coverage(
                 conn,
                 source="jquants_master_snapshots",
-                path="records/_data/raw/screening/jquants/get_eq_master.json",
+                path=".cache/screening/raw/jquants/get_eq_master.json",
                 record_count=1,
                 min_date="2026-05-07",
                 max_date="2026-05-07",
@@ -248,7 +248,7 @@ class ReadDailyBarsTests(unittest.TestCase):
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
-                path="records/_data/raw/screening/jquants/"
+                path=".cache/screening/raw/jquants/"
                 "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-03-19.json",
                 record_count=0,
                 min_date=None,
@@ -310,7 +310,7 @@ class ReadFinSummariesTests(unittest.TestCase):
             _add_source_coverage(
                 conn,
                 source="jquants_fin_summaries",
-                path="records/_data/raw/screening/jquants/"
+                path=".cache/screening/raw/jquants/"
                 "get_fin_summary_range-end_dt-2025-10-28-start_dt-2025-09-28.json",
                 record_count=1,
                 min_date="2025-09-28",
@@ -333,7 +333,7 @@ class ReadFinSummariesTests(unittest.TestCase):
             _add_source_coverage(
                 conn,
                 source="jquants_fin_summaries",
-                path="records/_data/raw/screening/jquants/"
+                path=".cache/screening/raw/jquants/"
                 "get_fin_summary_range-end_dt-2025-10-28-start_dt-2025-09-28.json",
                 record_count=0,
                 min_date=None,

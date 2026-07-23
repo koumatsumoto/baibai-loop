@@ -1,4 +1,4 @@
-"""Query-only reviewed-shortlist views."""
+"""Query-only shortlist views."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from pathlib import Path
 from .sqlite import connect_read_only
 
 
-def list_reviewed_shortlist_payloads(path: Path) -> list[dict[str, object]]:
+def list_shortlist_payloads(path: Path) -> list[dict[str, object]]:
     if not path.is_file():
         return []
     connection = connect_read_only(path)
     try:
         rows = connection.execute(
-            "SELECT payload FROM reviewed_shortlist ORDER BY as_of DESC, published_at DESC"
+            "SELECT payload FROM shortlist ORDER BY as_of DESC, published_at DESC"
         ).fetchall()
     finally:
         connection.close()
@@ -22,13 +22,13 @@ def list_reviewed_shortlist_payloads(path: Path) -> list[dict[str, object]]:
     for row in rows:
         payload = json.loads(str(row[0]))
         if not isinstance(payload, dict):
-            raise ValueError("reviewed shortlist payload must be an object")
+            raise ValueError("shortlist payload must be an object")
         result.append(payload)
     return result
 
 
-def latest_reviewed_shortlist_payload(path: Path) -> dict[str, object] | None:
-    """Return the current cockpit shortlist without loading canonical history."""
+def latest_shortlist_payload(path: Path) -> dict[str, object] | None:
+    """Return the current Baibai App shortlist without loading canonical history."""
 
     if not path.is_file():
         return None
@@ -36,7 +36,7 @@ def latest_reviewed_shortlist_payload(path: Path) -> dict[str, object] | None:
     try:
         row = connection.execute(
             """
-            SELECT payload FROM reviewed_shortlist
+            SELECT payload FROM shortlist
             ORDER BY as_of DESC, published_at DESC, shortlist_id DESC
             LIMIT 1
             """
@@ -47,8 +47,8 @@ def latest_reviewed_shortlist_payload(path: Path) -> dict[str, object] | None:
         return None
     payload = json.loads(str(row[0]))
     if not isinstance(payload, dict):
-        raise ValueError("reviewed shortlist payload must be an object")
+        raise ValueError("shortlist payload must be an object")
     return payload
 
 
-__all__ = ["latest_reviewed_shortlist_payload", "list_reviewed_shortlist_payloads"]
+__all__ = ["latest_shortlist_payload", "list_shortlist_payloads"]

@@ -8,7 +8,7 @@ related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"
   - "../workflow/position.md"
-  - "./decision-packet.md"
+  - "./thesis.md"
   - "./portfolio-ledger.md"
 ---
 
@@ -20,19 +20,19 @@ Holding review は、保有 1 件の売買判断を **thesis health** と **税�
 
 売却の主因は **thesis break（事業毀損）** で、これは優先売却候補になる。**フェアバリュー到達は review trigger であって自動の全売りではない**。**価格下落そのものは売却理由にしない**。
 
-holding reviewはDB ledger、holding decision packet、候補packetをimmutable IDで必須参照する。review scalarはsource entityと切り離して信頼しない。
+holding reviewはDB ledger、holding thesis、候補thesisをimmutable IDで必須参照する。review scalarはsource entityと切り離して信頼しない。
 
-`holding-review-build`はpacket IDからpacket/review readinessを確認してDB ledgerと結合する。load-bearing scalarはsourceから生成し、運用担当が手入力で変更しない。
+`holding-review-build`はthesis IDからthesis/review readinessを確認してDB ledgerと結合する。load-bearing scalarはsourceから生成し、運用担当が手入力で変更しない。
 
 ## Inputs
 
 | block | responsibility |
 | --- | --- |
-| `thesis_health` | invalidation 状態、永久損失 7 軸（decision packet と同一）、証拠鮮度、現値起点の 5 年期待総合リターン |
+| `thesis_health` | invalidation 状態、永久損失 7 軸（thesis と同一）、証拠鮮度、現値起点の 5 年期待総合リターン |
 | `valuation_review` | 現値・FV・`current_price_yen >= fair_value_yen` から再計算した review trigger |
 | `replacement_comparison` | 現保有と候補の 5 年期待総合リターン、確定/推定の exit 税、機会費用 edge |
 | `add_context` | 押し目買増しの現値・最大許容価格・available cash・concentration 判定（任意） |
-| `sources` | ledgerとcurrent/candidate decision packetのimmutable ID。publish serviceはrevision driftをrejectする |
+| `sources` | ledgerとcurrent/candidate thesisのimmutable ID。publish serviceはrevision driftをrejectする |
 
 `thesis_health.permanent_loss_axes` は `funding_liquidity / debt_repayment / cash_flow / dilution / customer_concentration / structural_decline / governance_accounting` の 7 軸を各 1 回ちょうど持つ。1 つでも欠けると review は `incomplete` になる。`permanent_loss_conclusion` は **verified な adverse 軸**があるとき `elevated`、partially verified / unverified な adverse を含むとき `unknown`、それ以外は `acceptable` とする。`elevated` だけが全株 exit の条件であり、未確認の懸念で税負担を伴う全株売却を断定しない。
 
@@ -73,12 +73,12 @@ replacement_edge = switch_terminal - hold_terminal
 uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite --sqlite data/screening/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
 uv run baibai-engine position apply-draft /tmp/market-price-draft.yaml --db data/app/baibai.sqlite --confirmed
 uv run baibai-engine research holding-prepare --db data/app/baibai.sqlite --asof ASOF_DATE --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
-uv run baibai-engine research packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+uv run baibai-engine research thesis-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
 uv run baibai-engine research review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
 uv run baibai-engine research promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
-uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --packet-id PACKET_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
+uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --thesis-id THESIS_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
 uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input /tmp/holding-review.yaml
-uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --packet-id PACKET_ID
+uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --thesis-id THESIS_ID
 ```
 
-`ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger entityとappend headに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。`packet-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。独立reviewをscaffoldして完成させ、`promote`が返す`PACKET_ID`をholding reviewへ渡す。buildはpacket/review missing、revision drift、packetとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致で停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --db ... --input`がcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `packet_id`へ束縛してpublishする。完全な手順は[`../operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)を正本とする。
+`ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger entityとappend headに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。`thesis-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。独立reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をholding reviewへ渡す。buildはthesis/review missing、revision drift、thesisとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致で停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --db ... --input`がcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順は[`../operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)を正本とする。

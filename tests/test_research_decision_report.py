@@ -16,13 +16,13 @@ from tools.research_decision_report.render import (
 )
 from tools.research_decision_report.review_scaffold import scaffold
 
-from baibai_engine.research.decision_packet import (
-    decision_packet_core_hash,
-    load_decision_packet,
-)
 from baibai_engine.research.execution_policy import max_acceptable_price
+from baibai_engine.research.thesis import (
+    load_thesis,
+    thesis_core_hash,
+)
 
-FIXTURES = Path(__file__).parent / "fixtures" / "decision-packet"
+FIXTURES = Path(__file__).parent / "fixtures" / "thesis"
 REQUIRED_REVIEW_CHECKS = (
     "source_freshness",
     "user_questions_answered",
@@ -164,19 +164,19 @@ def _comparison(*, selected_ticker: str | None) -> dict[str, object]:
 
 
 def _proposal(workspace: Path, *, status: str) -> dict[str, object]:
-    packet_path = workspace / "2331" / "packet-draft.yaml"
+    thesis_path = workspace / "2331" / "thesis-draft.yaml"
     review_path = workspace / "2331" / "review-draft.yaml"
-    packet = load_decision_packet(packet_path)
+    thesis = load_thesis(thesis_path)
     manifest = yaml.safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
     planned = status == "planned_limit"
-    assert packet.estimates is not None
-    close_yen = int(packet.estimates.entry_price_basis_yen)
+    assert thesis.estimates is not None
+    close_yen = int(thesis.estimates.entry_price_basis_yen)
     quantity = 200 if planned else 0
     proposal: dict[str, object] = {
         "status": status,
         "ticker": "2331",
-        "decision_packet_sha256": _sha256(packet_path),
-        "decision_packet_core_sha256": decision_packet_core_hash(packet),
+        "thesis_sha256": _sha256(thesis_path),
+        "thesis_core_sha256": thesis_core_hash(thesis),
         "independent_review_sha256": _sha256(review_path),
         "source_ledger_entity": manifest["inputs"]["ledger"]["entity_id"],
         "source_ledger_append_head": manifest["inputs"]["ledger"]["append_head"],
@@ -184,7 +184,7 @@ def _proposal(workspace: Path, *, status: str) -> dict[str, object]:
         "price_as_of": "2026-07-03",
         "price_basis": "last_close_unadjusted",
         "close_yen": close_yen,
-        "max_acceptable_price_yen": int(max_acceptable_price(packet, tick_size_yen=Decimal(1))),
+        "max_acceptable_price_yen": int(max_acceptable_price(thesis, tick_size_yen=Decimal(1))),
         "board_lot": 100,
         "budget_min_yen": 200_000,
         "budget_max_yen": 300_000,
@@ -247,15 +247,15 @@ def _review(
     proposal_path: Path | None,
     selected_ticker: str | None,
 ) -> dict[str, object]:
-    packet_path = workspace / "2331" / "packet-draft.yaml"
-    packet = load_decision_packet(packet_path)
+    thesis_path = workspace / "2331" / "thesis-draft.yaml"
+    thesis = load_thesis(thesis_path)
     bindings = review_bindings(
         workspace=workspace,
         findings_path=findings_path,
         proposal_path=proposal_path,
         selected_ticker=selected_ticker,
-        packet_paths={"2331": packet_path},
-        packets={"2331": packet},
+        thesis_paths={"2331": thesis_path},
+        theses={"2331": thesis},
     )
     return {
         "schema_version": 1,
@@ -282,7 +282,7 @@ def _workspace(
     workspace = tmp_path / "opportunity"
     ticker_dir = workspace / "2331"
     ticker_dir.mkdir(parents=True)
-    shutil.copyfile(FIXTURES / "2331-decision.yaml", ticker_dir / "packet-draft.yaml")
+    shutil.copyfile(FIXTURES / "2331-decision.yaml", ticker_dir / "thesis-draft.yaml")
     shutil.copyfile(FIXTURES / "2331-decision-review.yaml", ticker_dir / "review-draft.yaml")
     selection_input = workspace / "inputs" / "selection-output.yaml"
     _write(selection_input, {"run_id": "fixture-selection"})
@@ -435,7 +435,7 @@ def test_render_accepts_repository_relative_workspace(
 
     document = render(**relative_paths)
 
-    assert "2331/packet-draft.yaml" in document
+    assert "2331/thesis-draft.yaml" in document
 
 
 @pytest.mark.parametrize(
@@ -927,12 +927,12 @@ def test_render_rejects_selected_ticker_without_select_disposition(tmp_path: Pat
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
-        ("five_year_base_cagr_pct", 99.99, "CAGR does not match packet"),
-        ("fair_value_yen", 1, "fair value does not match packet"),
-        ("fv_gap_pct", -99.0, "FV gap does not match packet"),
+        ("five_year_base_cagr_pct", 99.99, "CAGR does not match thesis"),
+        ("fair_value_yen", 1, "fair value does not match thesis"),
+        ("fv_gap_pct", -99.0, "FV gap does not match thesis"),
     ],
 )
-def test_render_rejects_comparison_numbers_that_disagree_with_packet(
+def test_render_rejects_comparison_numbers_that_disagree_with_thesis(
     tmp_path: Path, field: str, value: float | int, message: str
 ) -> None:
     paths = _workspace(tmp_path)

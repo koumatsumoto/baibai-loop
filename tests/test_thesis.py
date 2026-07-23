@@ -10,22 +10,22 @@ import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.decision_cli import main as decision_main
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
-    DecisionPacketError,
-    DecisionPacketResult,
+from baibai_engine.research.thesis import (
     IndependentReview,
+    ThesisDocument,
+    ThesisError,
+    ThesisResult,
     _round_payload_decimal,
-    decision_packet_core_hash,
-    evaluate_decision_packet,
-    load_decision_packet,
+    evaluate_thesis,
     load_independent_review,
+    load_thesis,
     result_to_payload,
+    thesis_core_hash,
 )
 
 ROOT = Path(__file__).parents[1]
-FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
-REVIEW_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
+FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
+REVIEW_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 
 
 def _raw() -> dict[str, object]:
@@ -34,8 +34,8 @@ def _raw() -> dict[str, object]:
     return raw
 
 
-def _document(raw: dict[str, object] | None = None) -> DecisionPacketDocument:
-    return DecisionPacketDocument.model_validate(raw or _raw())
+def _document(raw: dict[str, object] | None = None) -> ThesisDocument:
+    return ThesisDocument.model_validate(raw or _raw())
 
 
 def _review_raw() -> dict[str, object]:
@@ -46,10 +46,10 @@ def _review_raw() -> dict[str, object]:
 
 def _bind_review(
     raw: dict[str, object], review_raw: dict[str, object] | None = None
-) -> tuple[DecisionPacketDocument, IndependentReview]:
+) -> tuple[ThesisDocument, IndependentReview]:
     document = _document(raw)
     review = review_raw or _review_raw()
-    review["reviewed_packet_sha256"] = decision_packet_core_hash(document)
+    review["reviewed_thesis_sha256"] = thesis_core_hash(document)
     return document, IndependentReview.model_validate(review)
 
 
@@ -58,9 +58,9 @@ def _evaluate(
     review_raw: dict[str, object] | None = None,
     *,
     now: datetime | None = None,
-) -> DecisionPacketResult:
+) -> ThesisResult:
     document, review = _bind_review(raw, review_raw)
-    return evaluate_decision_packet(document, review=review, now=now)
+    return evaluate_thesis(document, review=review, now=now)
 
 
 def _five_year_base_raw(raw: dict[str, object]) -> dict[str, object]:
@@ -96,18 +96,16 @@ def _screening_fv_bridge() -> dict[str, object]:
     }
 
 
-def test_golden_packet_is_ready_with_explicit_evidence_warning() -> None:
-    result = evaluate_decision_packet(
-        load_decision_packet(FIXTURE), review=load_independent_review(REVIEW_FIXTURE)
-    )
+def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
+    result = evaluate_thesis(load_thesis(FIXTURE), review=load_independent_review(REVIEW_FIXTURE))
 
-    assert result.packet_status == "ready_with_warnings"
+    assert result.thesis_status == "ready_with_warnings"
     assert result.decision_readiness == "ready"
     assert result.errors == ()
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.packet_sha256 == "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
+        result.thesis_sha256 == "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -160,8 +158,8 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     null_snapshot["screening_estimate"] = None
     null_estimates["screening_fv_bridge"] = None
 
-    legacy_hash = decision_packet_core_hash(_document(absent))
-    assert decision_packet_core_hash(_document(explicit_null)) == legacy_hash
+    legacy_hash = thesis_core_hash(_document(absent))
+    assert thesis_core_hash(_document(explicit_null)) == legacy_hash
 
     bridged = copy.deepcopy(absent)
     snapshot = bridged["input_snapshot"]
@@ -170,7 +168,7 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     assert isinstance(estimates, dict)
     snapshot["screening_estimate"] = _screening_estimate()
     estimates["screening_fv_bridge"] = _screening_fv_bridge()
-    bridged_hash = decision_packet_core_hash(_document(bridged))
+    bridged_hash = thesis_core_hash(_document(bridged))
     assert bridged_hash != legacy_hash
 
     changed = copy.deepcopy(bridged)
@@ -179,7 +177,7 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     changed_bridge = changed_estimates["screening_fv_bridge"]
     assert isinstance(changed_bridge, dict)
     changed_bridge["primary_driver"] = "growth"
-    assert decision_packet_core_hash(_document(changed)) != bridged_hash
+    assert thesis_core_hash(_document(changed)) != bridged_hash
 
 
 @pytest.mark.parametrize(
@@ -277,7 +275,7 @@ def test_screening_estimate_sources_require_lineage_without_review_coverage() ->
     assert not any("did not check load-bearing sources" in error for error in result.errors)
 
 
-def test_screening_estimate_requires_packet_as_of_and_local_data_source() -> None:
+def test_screening_estimate_requires_thesis_as_of_and_local_data_source() -> None:
     stale_raw = _raw()
     stale_snapshot = stale_raw["input_snapshot"]
     assert isinstance(stale_snapshot, dict)
@@ -343,7 +341,7 @@ def test_screening_fv_revision_uses_raw_decimal_values() -> None:
 
 def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:
     document = _document()
-    result = evaluate_decision_packet(document)
+    result = evaluate_thesis(document)
     break_even = result.five_year_base_break_even
     assert break_even is not None
     assert break_even.required_total_value_yen is not None
@@ -544,7 +542,7 @@ def test_observed_trailing_multiple_requires_one_valid_named_local_anchor() -> N
     assert not_applicable.observed_trailing_multiple_status == "not_applicable"
 
 
-def test_packet_requires_input_snapshot() -> None:
+def test_thesis_requires_input_snapshot() -> None:
     raw = _raw()
     del raw["input_snapshot"]
 
@@ -553,7 +551,7 @@ def test_packet_requires_input_snapshot() -> None:
 
 
 @pytest.mark.parametrize("value", [None, 0, -1])
-def test_packet_requires_an_explicit_positive_5y_base_return(value: object) -> None:
+def test_thesis_requires_an_explicit_positive_5y_base_return(value: object) -> None:
     raw = _raw()
     estimates = raw["estimates"]
     assert isinstance(estimates, dict)
@@ -654,7 +652,7 @@ def test_snapshot_future_as_of_is_rejected() -> None:
 
     result = _evaluate(raw)
 
-    assert "packet as_of cannot be in the future" in result.errors
+    assert "thesis as_of cannot be in the future" in result.errors
 
 
 def test_future_source_retrieval_is_rejected() -> None:
@@ -777,7 +775,7 @@ def test_snapshot_requires_valuation_fact() -> None:
 
 
 def test_fixture_lineage_is_self_contained_for_clean_checkout() -> None:
-    document = load_decision_packet(FIXTURE)
+    document = load_thesis(FIXTURE)
 
     assert all(
         source.ref is None
@@ -792,7 +790,7 @@ def test_fixture_lineage_is_self_contained_for_clean_checkout() -> None:
     assert "candidate_ref" not in FIXTURE.read_text(encoding="utf-8")
 
 
-def test_missing_risk_axis_makes_packet_incomplete() -> None:
+def test_missing_risk_axis_makes_thesis_incomplete() -> None:
     raw = _raw()
     risks = raw["permanent_loss_risks"]
     assert isinstance(risks, list)
@@ -800,11 +798,11 @@ def test_missing_risk_axis_makes_packet_incomplete() -> None:
 
     result = _evaluate(raw)
 
-    assert result.packet_status == "incomplete"
+    assert result.thesis_status == "incomplete"
     assert any("missing permanent-loss risk axis" in error for error in result.errors)
 
 
-def test_missing_source_reference_makes_packet_incomplete() -> None:
+def test_missing_source_reference_makes_thesis_incomplete() -> None:
     raw = _raw()
     risks = raw["permanent_loss_risks"]
     assert isinstance(risks, list)
@@ -815,7 +813,7 @@ def test_missing_source_reference_makes_packet_incomplete() -> None:
     assert any("risk funding_liquidity requires source_ids" in error for error in result.errors)
 
 
-def test_future_as_of_makes_packet_incomplete() -> None:
+def test_future_as_of_makes_thesis_incomplete() -> None:
     raw = _raw()
     risks = raw["permanent_loss_risks"]
     assert isinstance(risks, list)
@@ -824,7 +822,7 @@ def test_future_as_of_makes_packet_incomplete() -> None:
     result = _evaluate(raw)
 
     assert any(
-        "risk funding_liquidity as_of is after packet as_of" in error for error in result.errors
+        "risk funding_liquidity as_of is after thesis as_of" in error for error in result.errors
     )
 
 
@@ -1170,8 +1168,8 @@ def test_malformed_decimal_is_a_structured_load_error(tmp_path: Path) -> None:
     path = tmp_path / "bad-decision.yaml"
     path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
 
-    with pytest.raises(DecisionPacketError, match="fixed-point notation"):
-        load_decision_packet(path)
+    with pytest.raises(ThesisError, match="fixed-point notation"):
+        load_thesis(path)
 
 
 def test_scientific_decimal_string_is_rejected_like_public_schema() -> None:
@@ -1202,13 +1200,13 @@ def test_buy_candidate_requires_independent_second_pass() -> None:
     raw = _raw()
     raw["independent_review_ref"] = None
 
-    result = evaluate_decision_packet(_document(raw))
+    result = evaluate_thesis(_document(raw))
 
-    assert result.packet_status == "review_required"
+    assert result.thesis_status == "review_required"
     assert result.errors == ("buy recommendation requires an independent second-pass review",)
 
 
-def test_changed_second_pass_requires_packet_regeneration() -> None:
+def test_changed_second_pass_requires_thesis_regeneration() -> None:
     raw = _raw()
     review = _review_raw()
     review["proposal_changed"] = True
@@ -1230,15 +1228,15 @@ def test_read_only_cli_uses_domain_result(
 
     assert decision_main([str(path)]) == 0
     output = yaml.safe_load(capsys.readouterr().out)
-    assert output["packet_status"] == "ready_with_warnings"
+    assert output["thesis_status"] == "ready_with_warnings"
     assert output["decision_readiness"] == "ready"
 
 
 def test_independent_review_hash_changes_with_initial_proposal() -> None:
     raw = copy.deepcopy(_raw())
-    original = decision_packet_core_hash(_document(raw))
+    original = thesis_core_hash(_document(raw))
     estimates = raw["estimates"]
     assert isinstance(estimates, dict)
     estimates["entry_price_basis_yen"] = 1040
 
-    assert decision_packet_core_hash(_document(raw)) != original
+    assert thesis_core_hash(_document(raw)) != original

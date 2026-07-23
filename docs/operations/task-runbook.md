@@ -19,7 +19,7 @@ GitHub Issueはtask管理には使わず、feature、bug、基盤改善、PR del
 
 次のいずれかに該当する作業を task record にします。
 
-- `judgment.recommendation: defer` の decision packet で、再確認する event が特定されている。
+- `judgment.recommendation: defer` の thesis で、再確認する event が特定されている。
 - 既存保有に、決算発表後の holding review 更新がある。
 - screening / research の途中で、実行日付きの判断待ちが発生した。
 - 注文期限や人間入力の到来後に実行する運用確認がある。
@@ -41,7 +41,7 @@ fieldの型・必須項目・enumは`baibai_engine.tasks.Task`とapplication ser
 - `done`: load-bearing question への判断と必要な canonical 更新が完了。
 - `dropped`: current canonical state では task の問いが成立しない、または実行不要。
 
-完了は`baibai-engine task done <task_id>`、不要化は`baibai-engine task drop <task_id>`で記録し、CLIが`closed_at`を設定します。遷移配列や別の監査metadataは追加しません。判断が変わった理由は対象のdecision packet、holding review、ledgerなどの正本へ書き、taskにはcurrent stateと参照だけを残します。
+完了は`baibai-engine task done <task_id>`、不要化は`baibai-engine task drop <task_id>`で記録し、CLIが`closed_at`を設定します。遷移配列や別の監査metadataは追加しません。判断が変わった理由は対象のthesis、holding review、ledgerなどの正本へ書き、taskにはcurrent stateと参照だけを残します。
 
 ## Task の内容
 
@@ -49,7 +49,7 @@ fieldの型・必須項目・enumは`baibai_engine.tasks.Task`とapplication ser
 
 - load-bearing question: 何を確認できれば判断が変わるか。
 - primary sources: company IR、TDnet、EDINET、JPX、人間確認済み ledger など。
-- expected destination: decision packet、holding review、ledger などの更新先。
+- expected destination: thesis、holding review、ledger などの更新先。
 - close condition: task を `done` または `dropped` にできる条件。
 
 `related_refs` には関連 record の repository 相対 path または出典 URL を置きます。逐次の作業ログや進行経緯は task record に複製しません。
@@ -63,7 +63,7 @@ uv run baibai-engine task list --status open
 ```
 
 1. `due_date` / `event_date`、ticker、load-bearing question、expected destination を読む。
-2. current decision packet、holding review、portfolio ledger、人間が報告した broker status と照合する。
+2. current thesis、holding review、portfolio ledger、人間が報告した broker status と照合する。
 3. 入力が一致し、trigger が到来した task を一件選ぶ。一次 IR の公表日程は実行時に再確認する。
 4. 必要な canonical record を更新・検証し、人間確認後に task の current state を更新する。
 

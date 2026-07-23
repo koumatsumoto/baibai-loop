@@ -17,7 +17,7 @@ from baibai_app.readmodel.models import (
     MachineSelectionView,
     MacroView,
     MetaView,
-    ProgramStateView,
+    OperationsView,
     ScreeningView,
     SecurityDetailView,
 )
@@ -82,13 +82,13 @@ def _seed_macro_observations(root: Path) -> None:
         conn.close()
 
 
-def test_build_meta_derives_store_asof_from_fixture_stores(app_records_root: Path) -> None:
-    _seed_macro_observations(app_records_root)
-    MacroContextService(app_records_root / "data/app/baibai.sqlite").publish(
+def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path) -> None:
+    _seed_macro_observations(app_method_root)
+    MacroContextService(app_method_root / "data/app/baibai.sqlite").publish(
         MacroContextDocument.model_validate(macro_context_payload()), expected_head=None
     )
 
-    view = build_meta(_meta_source(app_records_root), batch="daily")
+    view = build_meta(_meta_source(app_method_root), batch="daily")
 
     assert view.screening_asof == date(2026, 7, 8)
     assert view.macro_asof == date(2026, 7, 17)
@@ -98,11 +98,11 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_records_root: Pat
 
 
 def test_build_meta_takes_the_latest_judgment_write_across_stores(
-    app_records_root: Path,
+    app_method_root: Path,
 ) -> None:
     # The fixture's newest judgment write without a macro context is a task created
     # on 2026-07-18; its date-only column is read at JST midnight.
-    view = build_meta(_meta_source(app_records_root))
+    view = build_meta(_meta_source(app_method_root))
 
     assert view.macro_asof is None
     assert view.app_db_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
@@ -110,11 +110,11 @@ def test_build_meta_takes_the_latest_judgment_write_across_stores(
 
 
 def test_build_meta_reflects_a_newly_written_operation_session(
-    app_records_root: Path,
+    app_method_root: Path,
 ) -> None:
     # A judgment write in a table beyond ledger/research/macro must move freshness.
     started_at = datetime(2026, 8, 1, 9, 30, tzinfo=JST)
-    with sqlite3.connect(app_records_root / "data/app/baibai.sqlite") as connection:
+    with sqlite3.connect(app_method_root / "data/app/baibai.sqlite") as connection:
         connection.execute(
             """
             INSERT INTO operation_session(
@@ -130,7 +130,7 @@ def test_build_meta_reflects_a_newly_written_operation_session(
             ),
         )
 
-    view = build_meta(_meta_source(app_records_root))
+    view = build_meta(_meta_source(app_method_root))
 
     assert view.app_db_updated_at == started_at
 
@@ -143,9 +143,9 @@ def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
     assert view.app_db_updated_at is None
 
 
-def test_export_writes_expected_view_tree(app_records_root: Path, tmp_path: Path) -> None:
-    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-    runs_db = app_records_root / "data/screening/runs.sqlite"
+def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    runs_db = app_method_root / "data/screening/runs.sqlite"
     run = ScreeningRunReader(runs_db).latest_run()
     assert run is not None
     ScreeningRunStore(runs_db).publish_selection(
@@ -154,7 +154,7 @@ def test_export_writes_expected_view_tree(app_records_root: Path, tmp_path: Path
         macro_context_id=None,
         payload={
             "recommendations": [{"ticker": "2331", "er_annual": 0.12}],
-            "audit_pool": [{"ticker": "0001"}],
+            "longlist": [{"ticker": "0001"}],
         },
         created_at=datetime(2026, 7, 8, 4, 0, tzinfo=UTC),
     )
@@ -165,7 +165,7 @@ def test_export_writes_expected_view_tree(app_records_root: Path, tmp_path: Path
             "--output-dir",
             str(output_dir),
             "--repo-root",
-            str(app_records_root),
+            str(app_method_root),
             "--batch",
             "daily",
         ]
@@ -176,7 +176,7 @@ def test_export_writes_expected_view_tree(app_records_root: Path, tmp_path: Path
     expected = {
         "dashboard.json",
         "screening_latest.json",
-        "program.json",
+        "operations.json",
         "meta.json",
         "security--0001.json",
         "security--0002.json",
@@ -195,7 +195,7 @@ def test_export_writes_expected_view_tree(app_records_root: Path, tmp_path: Path
     assert screening.run is not None
     assert screening.run.candidate_count == 3
     assert len(screening.selections) == 1
-    ProgramStateView.model_validate_json((views / "program.json").read_text(encoding="utf-8"))
+    OperationsView.model_validate_json((views / "operations.json").read_text(encoding="utf-8"))
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
     assert meta.screening_asof == date(2026, 7, 8)
@@ -216,22 +216,22 @@ def test_export_writes_expected_view_tree(app_records_root: Path, tmp_path: Path
         select_files[0].read_text(encoding="utf-8")
     )
     assert [entry["ticker"] for entry in selection.recommendations] == ["2331"]
-    assert [entry["ticker"] for entry in selection.audit_pool] == ["0001"]
+    assert [entry["ticker"] for entry in selection.longlist] == ["0001"]
 
-    pool_files = sorted((output_dir / "history/candidate-pool").iterdir())
+    pool_files = sorted((output_dir / "history/candidates").iterdir())
     assert [item.name for item in pool_files] == ["2026-07-08.json"]
     pool = json.loads(pool_files[0].read_text(encoding="utf-8"))
     assert [candidate["ticker"] for candidate in pool["candidates"]] == ["2331", "0001", "0002"]
     assert pool["run_revision_id"] == run.run_revision_id
 
 
-def test_exported_views_match_api_responses(app_records_root: Path, tmp_path: Path) -> None:
-    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Path) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     output_dir = tmp_path / "export"
 
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_records_root)]) == 0
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
 
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         api_screening = client.get("/api/screening/latest").json()
         api_macro = client.get("/api/macro?period=1y&granularity=daily").json()
         api_dashboard = client.get("/api/dashboard").json()
@@ -251,9 +251,9 @@ def test_exported_views_match_api_responses(app_records_root: Path, tmp_path: Pa
 
 
 def test_export_skips_security_view_for_ticker_no_source_knows(
-    app_records_root: Path, tmp_path: Path, capsys
+    app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
-    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     payload = {
         "shortlist_id": "shortlist-20260708-value",
         "selection_id": "selection-old",
@@ -262,10 +262,10 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
         "published_at": "2026-07-08T13:00:00+09:00",
         "entries": [{"ticker": "9999", "decision": "rejected", "reason": "決算後に再評価"}],
     }
-    with sqlite3.connect(app_records_root / "data/app/baibai.sqlite") as connection:
+    with sqlite3.connect(app_method_root / "data/app/baibai.sqlite") as connection:
         connection.execute(
             """
-            INSERT INTO reviewed_shortlist(
+            INSERT INTO shortlist(
                 shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
@@ -280,15 +280,15 @@ def test_export_skips_security_view_for_ticker_no_source_knows(
         )
     output_dir = tmp_path / "export"
 
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_records_root)]) == 0
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
 
     assert not (output_dir / "views/security--9999.json").exists()
     assert (output_dir / "views/security--2331.json").exists()
     assert "9999" in capsys.readouterr().err
 
 
-def test_export_replaces_views_but_keeps_history(app_records_root: Path, tmp_path: Path) -> None:
-    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+def test_export_replaces_views_but_keeps_history(app_method_root: Path, tmp_path: Path) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     output_dir = tmp_path / "export"
     stale_view = output_dir / "views/security--0009.json"
     stale_view.parent.mkdir(parents=True)
@@ -297,7 +297,7 @@ def test_export_replaces_views_but_keeps_history(app_records_root: Path, tmp_pat
     kept_history.parent.mkdir(parents=True)
     kept_history.write_text("{}", encoding="utf-8")
 
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_records_root)]) == 0
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
 
     # views/ is the complete image of one export: a view outside the current target
     # set does not survive.
@@ -308,9 +308,9 @@ def test_export_replaces_views_but_keeps_history(app_records_root: Path, tmp_pat
 
 
 def test_export_writes_meta_after_every_other_file(
-    app_records_root: Path, tmp_path: Path, mocker
+    app_method_root: Path, tmp_path: Path, mocker
 ) -> None:
-    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     output_dir = tmp_path / "export"
     real_build_meta = export_module.build_meta
     seen_before_meta: dict[str, list[str]] = {}
@@ -325,7 +325,7 @@ def test_export_writes_meta_after_every_other_file(
 
     mocker.patch.object(export_module, "build_meta", side_effect=_capture)
 
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_records_root)]) == 0
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
 
     # meta.json is written only after every view and history file exists, so a run that
     # fails mid-export never leaves a fresh-claiming meta over stale content.

@@ -217,13 +217,13 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates_ref="test.yaml",
             macro_context_ref=None,
             market_regime=None,
-            audit_top=10,
+            longlist_top=10,
         )
         item = self._recommendations(payload)[0]
         self.assertIn("forecast_special_gain", item["risk_tags"])
-        audit_pool = payload["audit_pool"]
-        assert isinstance(audit_pool, list)
-        self.assertIn("forecast_special_gain", audit_pool[0]["event_warnings"])
+        longlist = payload["longlist"]
+        assert isinstance(longlist, list)
+        self.assertIn("forecast_special_gain", longlist[0]["event_warnings"])
 
     def test_sweep_payload_records_market_regime(self) -> None:
         payload = build_selection_sweep_payload(
@@ -274,7 +274,7 @@ class SelectionMarketStateTests(unittest.TestCase):
                 self.assertIn("assumptions", fair_value)
                 self.assertNotIn("candidate_ref", seed)
 
-    def test_audit_pool_copies_the_decision_seed_estimates(self) -> None:
+    def test_longlist_copies_the_decision_seed_estimates(self) -> None:
         payload = build_selection_payload(
             asof_date=_ASOF,
             candidates=self.candidates,
@@ -285,12 +285,12 @@ class SelectionMarketStateTests(unittest.TestCase):
             candidates_ref="local-candidates.yaml",
             macro_context_ref=None,
             market_regime=None,
-            audit_top=2,
+            longlist_top=2,
         )
         recommendations = {item["ticker"]: item for item in self._recommendations(payload)}
-        audit_pool = payload["audit_pool"]
-        assert isinstance(audit_pool, list)
-        for row in audit_pool:
+        longlist = payload["longlist"]
+        assert isinstance(longlist, list)
+        for row in longlist:
             snapshot = row["estimate_snapshot"]
             assert isinstance(snapshot, Mapping)
             self.assertEqual(snapshot["as_of"], _ASOF.isoformat())

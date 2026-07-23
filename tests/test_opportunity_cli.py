@@ -1,8 +1,8 @@
 """Public CLI contract and golden-path tests for baibai-engine research.
 
 These drive the CLI the way the runbook does — through scaffolds and the workspace,
-never by copying a fixture packet as the operational input. Where a fully-ready
-packet is needed (promotion), it is constructed with the public hashing API to
+never by copying a fixture thesis as the operational input. Where a fully-ready
+thesis is needed (promotion), it is constructed with the public hashing API to
 simulate the operator filling the draft from primary sources.
 """
 
@@ -26,19 +26,19 @@ from baibai_engine.research.close_source import (
     resolve_holding_close_on_basis,
     resolve_previous_business_day_close,
 )
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
+from baibai_engine.research.opportunity_cli import main as opportunity_main
+from baibai_engine.research.thesis import (
     IndependentReview,
     ScreeningEstimate,
-    decision_packet_core_hash,
-    evaluate_decision_packet,
+    ThesisDocument,
+    evaluate_thesis,
+    thesis_core_hash,
 )
-from baibai_engine.research.opportunity_cli import main as opportunity_main
 from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
-REVIEW_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
+FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
+REVIEW_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 
 FIXED_NOW = datetime(2026, 7, 12, 10, 0, tzinfo=JST)
@@ -71,9 +71,9 @@ def _app_db(tmp_path: Path, ledger_path: Path = LEDGER_FIXTURE) -> Path:
     return path
 
 
-def _assert_no_research_packets(db_path: Path) -> None:
+def _assert_no_theses(db_path: Path) -> None:
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT count(*) FROM research_packet").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM thesis").fetchone() == (0,)
 
 
 def _seed_bars(
@@ -154,7 +154,7 @@ def _ledger_with_observed_at(
 
 def _write_selection(
     path: Path,
-    audit_pool: list[dict[str, object]],
+    longlist: list[dict[str, object]],
     *,
     research_selection_target_max: object = 5,
     selection_asof: str | None = "2026-07-03",
@@ -167,13 +167,13 @@ def _write_selection(
         selection_metadata["asof"] = selection_asof
     payload = {
         "recommendations": [],
-        "audit_pool": audit_pool,
+        "longlist": longlist,
         "selection": selection_metadata,
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
-def _audit_row(ticker: str, rank: int = 1) -> dict[str, object]:
+def _longlist_row(ticker: str, rank: int = 1) -> dict[str, object]:
     return {
         "rank": rank,
         "ticker": ticker,
@@ -189,7 +189,7 @@ def _audit_row(ticker: str, rank: int = 1) -> dict[str, object]:
     }
 
 
-def _audit_row_with_estimate(
+def _longlist_row_with_estimate(
     ticker: str,
     rank: int = 1,
     *,
@@ -198,7 +198,7 @@ def _audit_row_with_estimate(
     sector_anchor: object = 1350.0,
     self_anchor: object = 1300.0,
 ) -> dict[str, object]:
-    row = _audit_row(ticker, rank)
+    row = _longlist_row(ticker, rank)
     row["estimate_snapshot"] = {
         "as_of": "2026-07-03",
         "expected_return": {
@@ -236,10 +236,10 @@ def _prepared_workspace(
     sqlite_path: Path,
     ticker: str = "2331",
     *,
-    audit_pool: list[dict[str, object]] | None = None,
+    longlist: list[dict[str, object]] | None = None,
 ) -> Path:
     selection = tmp_path / "selection.yaml"
-    _write_selection(selection, audit_pool or [_audit_row(ticker)])
+    _write_selection(selection, longlist or [_longlist_row(ticker)])
     workspace = tmp_path / "ws"
     assert (
         opportunity_main(
@@ -277,28 +277,28 @@ def _ledger_with_market_price_date(path: Path, observed_on: date) -> Path:
     return _app_db(path.parent, source)
 
 
-def _ready_packet_and_review() -> tuple[dict[str, object], dict[str, object], str]:
-    """Build an override-free ready packet + a matching bound review from the fixture.
+def _ready_thesis_and_review() -> tuple[dict[str, object], dict[str, object], str]:
+    """Build an override-free ready thesis + a matching bound review from the fixture.
 
     All permanent-loss axes are set to acceptable/verified so no human override is
-    needed; the review's reviewed_packet_sha256 is bound to the packet core hash.
+    needed; the review's reviewed_thesis_sha256 is bound to the thesis core hash.
     """
-    packet = safe_load(FIXTURE.read_text(encoding="utf-8"))
-    for risk in packet["permanent_loss_risks"]:
+    thesis = safe_load(FIXTURE.read_text(encoding="utf-8"))
+    for risk in thesis["permanent_loss_risks"]:
         risk["assessment"] = "acceptable"
         risk["evidence_status"] = "verified"
-    packet["judgment"]["permanent_loss_conclusion"] = "acceptable"
-    packet.pop("human_evidence_override", None)
+    thesis["judgment"]["permanent_loss_conclusion"] = "acceptable"
+    thesis.pop("human_evidence_override", None)
     review_filename = "2026-07-03-2331-decision-review.yaml"
-    packet["independent_review_ref"] = review_filename
+    thesis["independent_review_ref"] = review_filename
 
-    document = DecisionPacketDocument.model_validate(packet)
-    core_hash = decision_packet_core_hash(document)
+    document = ThesisDocument.model_validate(thesis)
+    core_hash = thesis_core_hash(document)
 
     review = safe_load(REVIEW_FIXTURE.read_text(encoding="utf-8"))
-    review["reviewed_packet_sha256"] = core_hash
+    review["reviewed_thesis_sha256"] = core_hash
     review["primary_source_check"] = "verified"
-    return packet, review, review_filename
+    return thesis, review, review_filename
 
 
 def _fill_ready_workspace(
@@ -307,7 +307,7 @@ def _fill_ready_workspace(
     *,
     preserve_screening_estimate: bool = False,
 ) -> str:
-    """Simulate the operator filling a scaffolded draft with a ready packet+review."""
+    """Simulate the operator filling a scaffolded draft with a ready thesis+review."""
     selection_path = workspace / "selection.yaml"
     selection = safe_load(selection_path.read_text(encoding="utf-8"))
     selection["shortlist"] = [{"ticker": ticker, "reason": "primary-source research"}]
@@ -320,11 +320,11 @@ def _fill_ready_workspace(
     comparison_path.write_text(
         yaml.safe_dump(comparison, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-    packet, review, review_filename = _ready_packet_and_review()
+    thesis, review, review_filename = _ready_thesis_and_review()
     ticker_dir = workspace / ticker
     ticker_dir.mkdir(parents=True, exist_ok=True)
     if preserve_screening_estimate:
-        scaffold = safe_load((ticker_dir / "packet-draft.yaml").read_text(encoding="utf-8"))
+        scaffold = safe_load((ticker_dir / "thesis-draft.yaml").read_text(encoding="utf-8"))
         scaffold_snapshot = scaffold["input_snapshot"]
         screening_estimate = scaffold_snapshot["screening_estimate"]
         screening_source = next(
@@ -332,20 +332,18 @@ def _fill_ready_workspace(
             for source in scaffold_snapshot["sources"]
             if source["source_id"] == "screening_selection"
         )
-        packet["input_snapshot"]["sources"].append(screening_source)
-        packet["input_snapshot"]["screening_estimate"] = screening_estimate
-        packet["estimates"]["current_fair_value_yen"] = 1481.9088
-        packet["estimates"]["screening_fv_bridge"] = {
+        thesis["input_snapshot"]["sources"].append(screening_source)
+        thesis["input_snapshot"]["screening_estimate"] = screening_estimate
+        thesis["estimates"]["current_fair_value_yen"] = 1481.9088
+        thesis["estimates"]["screening_fv_bridge"] = {
             "primary_driver": "other",
             "note": "Research kept the screening FV anchor with no material revision.",
         }
-        packet["judgment"]["proposed_at"] = FIXED_NOW.isoformat()
+        thesis["judgment"]["proposed_at"] = FIXED_NOW.isoformat()
         review["reviewed_at"] = FIXED_NOW.isoformat()
-        review["reviewed_packet_sha256"] = decision_packet_core_hash(
-            DecisionPacketDocument.model_validate(packet)
-        )
-    (ticker_dir / "packet-draft.yaml").write_text(
-        yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
+        review["reviewed_thesis_sha256"] = thesis_core_hash(ThesisDocument.model_validate(thesis))
+    (ticker_dir / "thesis-draft.yaml").write_text(
+        yaml.safe_dump(thesis, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     (ticker_dir / "review-draft.yaml").write_text(
         yaml.safe_dump(review, sort_keys=False, allow_unicode=True), encoding="utf-8"
@@ -534,16 +532,16 @@ def test_prepare_annotates_held_reserved_without_excluding(
     workspace = _prepared_workspace(tmp_path, sqlite_path, ticker="2331")
 
     selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
-    tickers = [row["ticker"] for row in selection["audit_pool"]]
+    tickers = [row["ticker"] for row in selection["longlist"]]
     assert "2331" in tickers  # annotated, never excluded
-    assert selection["audit_pool"][0]["portfolio_annotation"] in {
+    assert selection["longlist"][0]["portfolio_annotation"] in {
         "held",
         "reserved",
         "held_and_reserved",
     }
 
 
-def test_prepare_empty_audit_pool_is_no_actionable_bargain(
+def test_prepare_empty_longlist_is_no_actionable_bargain(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection = tmp_path / "selection.yaml"
@@ -590,21 +588,21 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
     )
 
     assert code == 0
-    assert payload["audit_pool_size"] == 1
+    assert payload["longlist_size"] == 1
     manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
     selection = safe_load((workspace / "selection.yaml").read_text(encoding="utf-8"))
     comparison = safe_load((workspace / "research-comparison.yaml").read_text(encoding="utf-8"))
     assert manifest["purpose"] == "holding_review"
     assert manifest["holding_ticker"] == "2331"
     assert set(manifest["inputs"]) == {"ledger"}
-    assert [row["ticker"] for row in selection["audit_pool"]] == ["2331"]
+    assert [row["ticker"] for row in selection["longlist"]] == ["2331"]
     assert [row["ticker"] for row in selection["shortlist"]] == ["2331"]
     assert comparison["selected_ticker"] == "2331"
     assert [row["ticker"] for row in comparison["candidates"]] == ["2331"]
     assert (
         opportunity_main(
             [
-                "packet-scaffold",
+                "thesis-scaffold",
                 "--workspace",
                 str(workspace),
                 "--db",
@@ -619,10 +617,10 @@ def test_holding_prepare_builds_fixed_one_ticker_workspace(
         )
         == 0
     )
-    packet = safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
-    assert packet["input_snapshot"]["as_of"] == "2026-07-10"
-    assert packet["input_snapshot"]["sources"][0]["as_of"] == "2026-07-10"
-    assert packet["input_snapshot"]["facts"][0]["as_of"] == "2026-07-10"
+    thesis = safe_load((workspace / "2331/thesis-draft.yaml").read_text(encoding="utf-8"))
+    assert thesis["input_snapshot"]["as_of"] == "2026-07-10"
+    assert thesis["input_snapshot"]["sources"][0]["as_of"] == "2026-07-10"
+    assert thesis["input_snapshot"]["facts"][0]["as_of"] == "2026-07-10"
 
 
 @pytest.mark.parametrize("ticker", ["8929", "9999"])
@@ -714,7 +712,7 @@ def test_prepare_derives_shortlist_slots_from_selection_output(
     selection = tmp_path / "selection.yaml"
     _write_selection(
         selection,
-        [_audit_row(str(1000 + index), rank=index + 1) for index in range(4)],
+        [_longlist_row(str(1000 + index), rank=index + 1) for index in range(4)],
         research_selection_target_max=configured_max,
     )
     code, payload = _run(
@@ -749,7 +747,7 @@ def test_prepare_rejects_invalid_research_selection_target_max(
     selection = tmp_path / "selection.yaml"
     _write_selection(
         selection,
-        [_audit_row("2331")],
+        [_longlist_row("2331")],
         research_selection_target_max=invalid_max,
     )
     code = opportunity_main(
@@ -785,7 +783,7 @@ def test_status_allows_intentional_shortlist_edit(
     assert code == 0
 
 
-def test_status_waits_for_human_shortlist_before_packet_scaffold(
+def test_status_waits_for_human_shortlist_before_thesis_scaffold(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -822,7 +820,7 @@ def test_status_points_to_first_missing_shortlist_lane(
 
     assert code == 0
     assert payload["workspace_status"] == "incomplete"
-    assert payload["next_command"] == "baibai-engine research packet-scaffold --ticker 2331"
+    assert payload["next_command"] == "baibai-engine research thesis-scaffold --ticker 2331"
 
 
 def test_status_waits_for_all_lane_checks_before_comparison(
@@ -834,7 +832,7 @@ def test_status_waits_for_all_lane_checks_before_comparison(
     assert (
         opportunity_main(
             [
-                "packet-scaffold",
+                "thesis-scaffold",
                 "--workspace",
                 str(workspace),
                 "--ticker",
@@ -864,9 +862,9 @@ def test_status_waits_for_all_lane_checks_before_comparison(
     checklist_path.write_text(
         yaml.safe_dump(checklist, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-    packet, _review, _review_filename = _ready_packet_and_review()
-    (workspace / "2331" / "packet-draft.yaml").write_text(
-        yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    thesis, _review, _review_filename = _ready_thesis_and_review()
+    (workspace / "2331" / "thesis-draft.yaml").write_text(
+        yaml.safe_dump(thesis, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
 
     code, payload = _run(["status", "--workspace", str(workspace)], capsys)
@@ -891,7 +889,7 @@ def test_status_reports_external_input_hash_drift_as_exit_4(
     assert code == 4
 
 
-def test_status_rejects_shortlist_ticker_outside_audit_pool(
+def test_status_rejects_shortlist_ticker_outside_longlist(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -899,13 +897,13 @@ def test_status_rejects_shortlist_ticker_outside_audit_pool(
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     selection_file = workspace / "selection.yaml"
     selection = safe_load(selection_file.read_text(encoding="utf-8"))
-    selection["shortlist"] = [{"ticker": "9999", "reason": "not in audit pool"}]
+    selection["shortlist"] = [{"ticker": "9999", "reason": "not in longlist"}]
     selection_file.write_text(yaml.safe_dump(selection, sort_keys=False), encoding="utf-8")
     code = opportunity_main(["status", "--workspace", str(workspace)], now=FIXED_NOW)
     assert code == 3
 
 
-def test_packet_scaffold_requires_primary_research_set_membership(
+def test_thesis_scaffold_requires_primary_research_set_membership(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -920,7 +918,7 @@ def test_packet_scaffold_requires_primary_research_set_membership(
 
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -937,11 +935,11 @@ def test_packet_scaffold_requires_primary_research_set_membership(
     assert not (workspace / "2331").exists()
 
 
-def test_packet_scaffold_confines_research_lane_to_direct_ticker_child(
+def test_thesis_scaffold_confines_research_lane_to_direct_ticker_child(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selection_output = tmp_path / "selection.yaml"
-    _write_selection(selection_output, [_audit_row("../outside")])
+    _write_selection(selection_output, [_longlist_row("../outside")])
     workspace = tmp_path / "ws"
     assert (
         opportunity_main(
@@ -969,7 +967,7 @@ def test_packet_scaffold_confines_research_lane_to_direct_ticker_child(
 
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -995,7 +993,7 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
         [("2331", "2026-07-10", 1000.0, 1.0), ("8929", "2026-07-10", 750.0, 1.0)],
     )
     selection_output = tmp_path / "selection.yaml"
-    _write_selection(selection_output, [_audit_row("2331"), _audit_row("8929", rank=2)])
+    _write_selection(selection_output, [_longlist_row("2331"), _longlist_row("8929", rank=2)])
     workspace = tmp_path / "ws"
     assert (
         opportunity_main(
@@ -1028,7 +1026,7 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
         assert (
             opportunity_main(
                 [
-                    "packet-scaffold",
+                    "thesis-scaffold",
                     "--workspace",
                     str(workspace),
                     "--ticker",
@@ -1053,16 +1051,16 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
         "append_head": LedgerStoreService(_app_db(tmp_path)).append_head(),
     }
     assert (workspace / "manifest.yaml").read_bytes() == manifest_before
-    first_packet = safe_load((workspace / "2331" / "packet-draft.yaml").read_text("utf-8"))
-    second_packet_path = workspace / "8929" / "packet-draft.yaml"
-    second_packet_before = second_packet_path.read_bytes()
-    assert first_packet["input_snapshot"]["ticker"] == "2331"
-    assert safe_load(second_packet_before.decode("utf-8"))["input_snapshot"]["ticker"] == "8929"
+    first_thesis = safe_load((workspace / "2331" / "thesis-draft.yaml").read_text("utf-8"))
+    second_thesis_path = workspace / "8929" / "thesis-draft.yaml"
+    second_thesis_before = second_thesis_path.read_bytes()
+    assert first_thesis["input_snapshot"]["ticker"] == "2331"
+    assert safe_load(second_thesis_before.decode("utf-8"))["input_snapshot"]["ticker"] == "8929"
 
     assert (
         opportunity_main(
             [
-                "packet-scaffold",
+                "thesis-scaffold",
                 "--workspace",
                 str(workspace),
                 "--ticker",
@@ -1076,15 +1074,15 @@ def test_primary_research_lanes_share_lineage_and_remain_isolated(
         )
         == 0
     )
-    assert second_packet_path.read_bytes() == second_packet_before
+    assert second_thesis_path.read_bytes() == second_thesis_before
 
 
 # --------------------------------------------------------------------------- #
-# packet-scaffold
+# thesis-scaffold
 # --------------------------------------------------------------------------- #
 
 
-def test_packet_scaffold_snapshots_raw_close(
+def test_thesis_scaffold_snapshots_raw_close(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1094,7 +1092,7 @@ def test_packet_scaffold_snapshots_raw_close(
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     code, payload = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1111,7 +1109,7 @@ def test_packet_scaffold_snapshots_raw_close(
     assert payload["price_as_of"] == "2026-07-10"
     assert payload["screening_estimate_transferred"] is False
     assert payload["screening_estimate_transfer_reason"] == "estimate_snapshot_missing"
-    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    draft = safe_load((workspace / "2331" / "thesis-draft.yaml").read_text(encoding="utf-8"))
     snapshot = draft["input_snapshot"]
     # The raw close is emitted as the single schema-valid market_price fact, not a
     # bespoke price_snapshot block. price_basis uses the canonical schema enum.
@@ -1130,7 +1128,7 @@ def test_packet_scaffold_snapshots_raw_close(
     assert "screening_estimate" not in snapshot
 
 
-def test_packet_scaffold_transfers_raw_screening_estimate(
+def test_thesis_scaffold_transfers_raw_screening_estimate(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1138,11 +1136,11 @@ def test_packet_scaffold_transfers_raw_screening_estimate(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        audit_pool=[_audit_row_with_estimate("2331")],
+        longlist=[_longlist_row_with_estimate("2331")],
     )
     code, payload = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1157,7 +1155,7 @@ def test_packet_scaffold_transfers_raw_screening_estimate(
     assert code == 0
     assert payload["screening_estimate_transferred"] is True
     assert payload["screening_estimate_transfer_reason"] is None
-    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    draft = safe_load((workspace / "2331" / "thesis-draft.yaml").read_text(encoding="utf-8"))
     snapshot = draft["input_snapshot"]
     assert snapshot["screening_estimate"] == {
         "origin": "estimate",
@@ -1186,7 +1184,7 @@ def test_packet_scaffold_transfers_raw_screening_estimate(
 
     force_code, force_payload = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1201,11 +1199,11 @@ def test_packet_scaffold_transfers_raw_screening_estimate(
     )
     assert force_code == 0
     assert force_payload["screening_estimate_transferred"] is True
-    regenerated = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    regenerated = safe_load((workspace / "2331" / "thesis-draft.yaml").read_text(encoding="utf-8"))
     assert regenerated["input_snapshot"]["screening_estimate"] == snapshot["screening_estimate"]
 
 
-def test_packet_scaffold_reads_hash_bound_selection_not_editable_audit_values(
+def test_thesis_scaffold_reads_hash_bound_selection_not_editable_longlist_values(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1213,11 +1211,11 @@ def test_packet_scaffold_reads_hash_bound_selection_not_editable_audit_values(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        audit_pool=[_audit_row_with_estimate("2331")],
+        longlist=[_longlist_row_with_estimate("2331")],
     )
     workspace_selection_path = workspace / "selection.yaml"
     editable = safe_load(workspace_selection_path.read_text(encoding="utf-8"))
-    editable_row = editable["audit_pool"][0]
+    editable_row = editable["longlist"][0]
     editable_row["expected_return_pct"] = 50.0
     editable_row["fair_value_anchor_yen"] = 9999.0
     editable_row["estimate_snapshot"]["expected_return"]["annual"] = 0.5
@@ -1231,7 +1229,7 @@ def test_packet_scaffold_reads_hash_bound_selection_not_editable_audit_values(
 
     code, payload = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1246,13 +1244,13 @@ def test_packet_scaffold_reads_hash_bound_selection_not_editable_audit_values(
 
     assert code == 0
     assert payload["screening_estimate_transferred"] is True
-    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    draft = safe_load((workspace / "2331" / "thesis-draft.yaml").read_text(encoding="utf-8"))
     estimate = draft["input_snapshot"]["screening_estimate"]
     assert estimate["expected_return_annual_ratio"] == 0.095
     assert estimate["fair_value_anchor_yen"] == 1300.0
 
 
-def test_packet_scaffold_keeps_null_fair_value_without_inventing_anchor(
+def test_thesis_scaffold_keeps_null_fair_value_without_inventing_anchor(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1260,11 +1258,11 @@ def test_packet_scaffold_keeps_null_fair_value_without_inventing_anchor(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        audit_pool=[_audit_row_with_estimate("2331", sector_anchor=None, self_anchor=None)],
+        longlist=[_longlist_row_with_estimate("2331", sector_anchor=None, self_anchor=None)],
     )
     code, payload = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1278,11 +1276,11 @@ def test_packet_scaffold_keeps_null_fair_value_without_inventing_anchor(
     )
     assert code == 0
     assert payload["screening_estimate_transferred"] is True
-    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    draft = safe_load((workspace / "2331" / "thesis-draft.yaml").read_text(encoding="utf-8"))
     assert draft["input_snapshot"]["screening_estimate"]["fair_value_anchor_yen"] is None
 
 
-def test_packet_scaffold_quantizes_screening_anchor_to_packet_precision(
+def test_thesis_scaffold_quantizes_screening_anchor_to_thesis_precision(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1290,14 +1288,14 @@ def test_packet_scaffold_quantizes_screening_anchor_to_packet_precision(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        audit_pool=[
-            _audit_row_with_estimate("2331", sector_anchor=1350.0, self_anchor=1300.123456)
+        longlist=[
+            _longlist_row_with_estimate("2331", sector_anchor=1350.0, self_anchor=1300.123456)
         ],
     )
 
     code, payload = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1312,7 +1310,7 @@ def test_packet_scaffold_quantizes_screening_anchor_to_packet_precision(
 
     assert code == 0
     assert payload["screening_estimate_transferred"] is True
-    draft = safe_load((workspace / "2331" / "packet-draft.yaml").read_text(encoding="utf-8"))
+    draft = safe_load((workspace / "2331" / "thesis-draft.yaml").read_text(encoding="utf-8"))
     estimate = draft["input_snapshot"]["screening_estimate"]
     assert estimate["fair_value_anchor_yen"] == 1300.1235
     ScreeningEstimate.model_validate(estimate)
@@ -1321,24 +1319,24 @@ def test_packet_scaffold_quantizes_screening_anchor_to_packet_precision(
 @pytest.mark.parametrize(
     "row",
     [
-        _audit_row_with_estimate("2331", expected_return_unit="percent"),
+        _longlist_row_with_estimate("2331", expected_return_unit="percent"),
         {
-            **_audit_row_with_estimate("2331"),
+            **_longlist_row_with_estimate("2331"),
             "expected_return_pct": 0.095,
         },
     ],
 )
-def test_packet_scaffold_rejects_malformed_estimate_snapshot(
+def test_thesis_scaffold_rejects_malformed_estimate_snapshot(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     row: dict[str, object],
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1353,18 +1351,18 @@ def test_packet_scaffold_rejects_malformed_estimate_snapshot(
     assert code == 3
 
 
-def test_packet_scaffold_converts_huge_numeric_overflow_to_data_error(
+def test_thesis_scaffold_converts_huge_numeric_overflow_to_data_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    row = _audit_row_with_estimate("2331")
+    row = _longlist_row_with_estimate("2331")
     row["estimate_snapshot"]["expected_return"]["annual"] = 10**400
-    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
 
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1389,7 +1387,7 @@ def test_packet_scaffold_converts_huge_numeric_overflow_to_data_error(
         (0.095, 1_000_000_001, None),
     ],
 )
-def test_packet_scaffold_rejects_values_outside_packet_estimate_contract(
+def test_thesis_scaffold_rejects_values_outside_thesis_estimate_contract(
     tmp_path: Path,
     annual: object,
     sector_anchor: object,
@@ -1397,17 +1395,17 @@ def test_packet_scaffold_rejects_values_outside_packet_estimate_contract(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1005.0, 1.0)])
-    row = _audit_row_with_estimate(
+    row = _longlist_row_with_estimate(
         "2331",
         annual=annual,
         sector_anchor=sector_anchor,
         self_anchor=self_anchor,
     )
-    workspace = _prepared_workspace(tmp_path, sqlite_path, audit_pool=[row])
+    workspace = _prepared_workspace(tmp_path, sqlite_path, longlist=[row])
 
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1436,7 +1434,7 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
     snapshot_asof: str,
 ) -> None:
     selection = tmp_path / "selection.yaml"
-    row = _audit_row_with_estimate("2331")
+    row = _longlist_row_with_estimate("2331")
     row["estimate_snapshot"]["as_of"] = snapshot_asof
     _write_selection(selection, [row], selection_asof=selection_asof)
 
@@ -1458,7 +1456,7 @@ def test_prepare_rejects_selection_estimate_asof_mismatch(
     assert code == 3
 
 
-def test_packet_scaffold_rejects_duplicate_audit_ticker(
+def test_thesis_scaffold_rejects_duplicate_longlist_ticker(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1466,11 +1464,11 @@ def test_packet_scaffold_rejects_duplicate_audit_ticker(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        audit_pool=[_audit_row("2331", 1), _audit_row("2331", 2)],
+        longlist=[_longlist_row("2331", 1), _longlist_row("2331", 2)],
     )
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1485,7 +1483,7 @@ def test_packet_scaffold_rejects_duplicate_audit_ticker(
     assert code == 3
 
 
-def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
+def test_holding_thesis_scaffold_rejects_raw_close_date_before_workspace_asof(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1512,7 +1510,7 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
 
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--db",
@@ -1531,7 +1529,7 @@ def test_holding_packet_scaffold_rejects_raw_close_date_before_workspace_asof(
     assert not (workspace / "2331").exists()
 
 
-def test_packet_scaffold_draft_has_no_structural_schema_errors(
+def test_thesis_scaffold_draft_has_no_structural_schema_errors(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A freshly scaffolded draft must only be flagged for unfilled operator fields,
@@ -1543,7 +1541,7 @@ def test_packet_scaffold_draft_has_no_structural_schema_errors(
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     code, _ = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1556,7 +1554,7 @@ def test_packet_scaffold_draft_has_no_structural_schema_errors(
         capsys,
     )
     assert code == 0
-    draft_path = workspace / "2331" / "packet-draft.yaml"
+    draft_path = workspace / "2331" / "thesis-draft.yaml"
     draft = safe_load(draft_path.read_text(encoding="utf-8"))
     assert isinstance(draft, dict)
     snapshot = draft["input_snapshot"]
@@ -1568,7 +1566,7 @@ def test_packet_scaffold_draft_has_no_structural_schema_errors(
     assert facts[0]["price_basis"] == "last_close_unadjusted"
 
 
-def test_packet_scaffold_without_raw_close_exits_3(
+def test_thesis_scaffold_without_raw_close_exits_3(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1577,7 +1575,7 @@ def test_packet_scaffold_without_raw_close_exits_3(
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1592,7 +1590,7 @@ def test_packet_scaffold_without_raw_close_exits_3(
     assert code == 3
 
 
-def test_packet_scaffold_defers_when_latest_bar_is_adjusted_only(
+def test_thesis_scaffold_defers_when_latest_bar_is_adjusted_only(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # The latest business-day bar has a NULL raw close (adjusted-only); an older bar
@@ -1606,7 +1604,7 @@ def test_packet_scaffold_defers_when_latest_bar_is_adjusted_only(
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     code = opportunity_main(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1621,7 +1619,7 @@ def test_packet_scaffold_defers_when_latest_bar_is_adjusted_only(
     assert code == 3
 
 
-def test_packet_scaffold_blocks_checklist_on_corporate_action(
+def test_thesis_scaffold_blocks_checklist_on_corporate_action(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1629,7 +1627,7 @@ def test_packet_scaffold_blocks_checklist_on_corporate_action(
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     code, payload = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1657,14 +1655,14 @@ def test_packet_scaffold_blocks_checklist_on_corporate_action(
 # --------------------------------------------------------------------------- #
 
 
-def test_review_scaffold_goes_stale_when_packet_hash_changes(
+def test_review_scaffold_goes_stale_when_thesis_hash_changes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
-    # Bind the review to the current packet hash.
+    # Bind the review to the current thesis hash.
     assert (
         opportunity_main(
             ["review-scaffold", "--workspace", str(workspace), "--ticker", "2331", "--force"],
@@ -1672,14 +1670,14 @@ def test_review_scaffold_goes_stale_when_packet_hash_changes(
         )
         == 0
     )
-    # Mutate the packet so the bound review is now stale.
-    packet_path = workspace / "2331" / "packet-draft.yaml"
-    packet = safe_load(packet_path.read_text(encoding="utf-8"))
-    packet["judgment"]["strongest_countercase"] = "A different countercase after re-review."
-    packet_path.write_text(yaml.safe_dump(packet, sort_keys=False), encoding="utf-8")
+    # Mutate the thesis so the bound review is now stale.
+    thesis_path = workspace / "2331" / "thesis-draft.yaml"
+    thesis = safe_load(thesis_path.read_text(encoding="utf-8"))
+    thesis["judgment"]["strongest_countercase"] = "A different countercase after re-review."
+    thesis_path.write_text(yaml.safe_dump(thesis, sort_keys=False), encoding="utf-8")
     # The scaffolded (null) review is not the ready fixture review, so refill the
     # ready review bound to the OLD hash to isolate the staleness gate.
-    _, review, _ = _ready_packet_and_review()
+    _, review, _ = _ready_thesis_and_review()
     (workspace / "2331" / "review-draft.yaml").write_text(
         yaml.safe_dump(review, sort_keys=False), encoding="utf-8"
     )
@@ -1696,7 +1694,7 @@ def test_review_scaffold_goes_stale_when_packet_hash_changes(
         now=FIXED_NOW,
     )
     assert code == 3
-    _assert_no_research_packets(tmp_path / "app.sqlite")
+    _assert_no_theses(tmp_path / "app.sqlite")
 
 
 def test_promote_refuses_when_checklist_pending(
@@ -1725,7 +1723,7 @@ def test_promote_refuses_when_checklist_pending(
         now=FIXED_NOW,
     )
     assert code == 3
-    _assert_no_research_packets(db_path)
+    _assert_no_theses(db_path)
 
 
 def test_promote_rejects_canonical_ledger_append_head_drift(
@@ -1764,7 +1762,7 @@ def test_promote_rejects_canonical_ledger_append_head_drift(
 
     assert code == 4
     assert "append head drift" in capsys.readouterr().err
-    _assert_no_research_packets(db_path)
+    _assert_no_theses(db_path)
 
 
 def test_promote_rejects_non_complete_checklist_status(
@@ -1794,17 +1792,17 @@ def test_promote_rejects_non_complete_checklist_status(
         now=FIXED_NOW,
     )
     assert code == 3
-    _assert_no_research_packets(db_path)
+    _assert_no_theses(db_path)
 
 
 @pytest.mark.parametrize(
     ("field", "value", "error_text"),
     [
-        ("ticker", "8929", "packet ticker is 8929"),
+        ("ticker", "8929", "thesis ticker is 8929"),
         ("as_of", "2026-07-02", "does not match workspace manifest as_of"),
     ],
 )
-def test_promote_rejects_packet_identity_tampering(
+def test_promote_rejects_thesis_identity_tampering(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     field: str,
@@ -1815,16 +1813,16 @@ def test_promote_rejects_packet_identity_tampering(
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
-    packet_path = workspace / "2331/packet-draft.yaml"
-    packet = safe_load(packet_path.read_text(encoding="utf-8"))
-    packet["input_snapshot"][field] = value
-    document = DecisionPacketDocument.model_validate(packet)
-    packet_path.write_text(
-        yaml.safe_dump(packet, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    thesis_path = workspace / "2331/thesis-draft.yaml"
+    thesis = safe_load(thesis_path.read_text(encoding="utf-8"))
+    thesis["input_snapshot"][field] = value
+    document = ThesisDocument.model_validate(thesis)
+    thesis_path.write_text(
+        yaml.safe_dump(thesis, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     review_path = workspace / "2331/review-draft.yaml"
     review = safe_load(review_path.read_text(encoding="utf-8"))
-    review["reviewed_packet_sha256"] = decision_packet_core_hash(document)
+    review["reviewed_thesis_sha256"] = thesis_core_hash(document)
     review_path.write_text(
         yaml.safe_dump(review, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
@@ -1846,10 +1844,10 @@ def test_promote_rejects_packet_identity_tampering(
         == 3
     )
     assert error_text in capsys.readouterr().err
-    _assert_no_research_packets(db_path)
+    _assert_no_theses(db_path)
 
 
-def test_promote_ready_publishes_atomic_packet_and_review(
+def test_promote_ready_publishes_atomic_thesis_and_review(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -1872,15 +1870,15 @@ def test_promote_ready_publishes_atomic_packet_and_review(
     )
     assert code == 0
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT count(*) FROM research_packet").fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM research_review").fetchone()[0] == 1
-    packet = DecisionPacketDocument.model_validate(
-        safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
+        assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 1
+    thesis = ThesisDocument.model_validate(
+        safe_load((workspace / "2331/thesis-draft.yaml").read_text(encoding="utf-8"))
     )
     review = IndependentReview.model_validate(
         safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
     )
-    assert evaluate_decision_packet(packet, review=review, now=FIXED_NOW).errors == ()
+    assert evaluate_thesis(thesis, review=review, now=FIXED_NOW).errors == ()
 
 
 def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
@@ -1891,8 +1889,8 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     workspace = _prepared_workspace(
         tmp_path,
         sqlite_path,
-        audit_pool=[
-            _audit_row_with_estimate(
+        longlist=[
+            _longlist_row_with_estimate(
                 "2331",
                 sector_anchor=1507.0856,
                 self_anchor=1484.5,
@@ -1902,7 +1900,7 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     )
     code, _ = _run(
         [
-            "packet-scaffold",
+            "thesis-scaffold",
             "--workspace",
             str(workspace),
             "--ticker",
@@ -1934,11 +1932,11 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     assert promote_code == 0
     promoted_review = safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
     assert "screening_selection" not in promoted_review["checked_source_ids"]
-    packet = DecisionPacketDocument.model_validate(
-        safe_load((workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"))
+    thesis = ThesisDocument.model_validate(
+        safe_load((workspace / "2331/thesis-draft.yaml").read_text(encoding="utf-8"))
     )
     review = IndependentReview.model_validate(promoted_review)
-    result = evaluate_decision_packet(packet, review=review, now=FIXED_NOW)
+    result = evaluate_thesis(thesis, review=review, now=FIXED_NOW)
     assert result.errors == ()
     assert result.screening_fv_revision_pct is not None
     assert round(float(result.screening_fv_revision_pct), 4) == -0.1746
@@ -1962,8 +1960,8 @@ def test_promote_retry_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert opportunity_main(args, now=FIXED_NOW) == 0
     assert opportunity_main(args, now=FIXED_NOW) == 0
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT count(*) FROM research_packet").fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM research_review").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1971,7 +1969,7 @@ def test_promote_retry_is_idempotent(tmp_path: Path, capsys: pytest.CaptureFixtu
 # --------------------------------------------------------------------------- #
 
 
-def _promoted_packet(tmp_path: Path, sqlite_path: Path) -> Path:
+def _promoted_thesis(tmp_path: Path, sqlite_path: Path) -> Path:
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     db_path = tmp_path / "app.sqlite"
@@ -1990,21 +1988,21 @@ def _promoted_packet(tmp_path: Path, sqlite_path: Path) -> Path:
         )
         == 0
     )
-    # plan-limit accepts an ephemeral packet file; materialize the adjacent review
+    # plan-limit accepts an ephemeral thesis file; materialize the adjacent review
     # under the ref already embedded in the draft without creating a canonical record.
-    ephemeral = tmp_path / "ephemeral-packet"
+    ephemeral = tmp_path / "ephemeral-thesis"
     ephemeral.mkdir()
-    packet_path = ephemeral / "2026-07-03-2331-decision.yaml"
+    thesis_path = ephemeral / "2026-07-03-2331-decision.yaml"
     review_path = ephemeral / "2026-07-03-2331-decision-review.yaml"
-    packet_path.write_text(
-        (workspace / "2331/packet-draft.yaml").read_text(encoding="utf-8"),
+    thesis_path.write_text(
+        (workspace / "2331/thesis-draft.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     review_path.write_text(
         (workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    return packet_path
+    return thesis_path
 
 
 def test_plan_limit_close_within_max_plans_limit_at_close(
@@ -2012,12 +2010,12 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(_app_db(tmp_path)),
             "--sqlite-path",
@@ -2032,10 +2030,10 @@ def test_plan_limit_close_within_max_plans_limit_at_close(
     assert payload["limit_price_yen"] == payload["close_yen"] == 1000
     assert payload["price_basis"] == "last_close_unadjusted"
     assert payload["expires_at"] == "2026-07-13T15:30:00+09:00"
-    assert payload["decision_packet_ref"] == str(packet)
-    assert payload["decision_packet_sha256"] == hashlib.sha256(packet.read_bytes()).hexdigest()
-    assert isinstance(payload["decision_packet_core_sha256"], str)
-    review = packet.with_name("2026-07-03-2331-decision-review.yaml")
+    assert payload["thesis_ref"] == str(thesis)
+    assert payload["thesis_sha256"] == hashlib.sha256(thesis.read_bytes()).hexdigest()
+    assert isinstance(payload["thesis_core_sha256"], str)
+    review = thesis.with_name("2026-07-03-2331-decision-review.yaml")
     assert payload["independent_review_ref"] == str(review)
     assert payload["independent_review_sha256"] == hashlib.sha256(review.read_bytes()).hexdigest()
     assert payload["source_ledger_entity"] == "portfolio-ledger"
@@ -2060,14 +2058,14 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
             ("2331", "2026-07-10", 1000.0, 1.0),
         ],
     )
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
 
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(ledger),
             "--sqlite-path",
@@ -2113,8 +2111,8 @@ def test_plan_limit_revalues_holding_on_proposal_basis_and_derives_exposure(
     code, large_order = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(ledger),
             "--sqlite-path",
@@ -2142,7 +2140,7 @@ def test_plan_limit_active_candidate_reservation_defers_without_second_order(
             ("2331", "2026-07-10", 1000.0, 1.0),
         ],
     )
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     ledger = _ledger_with_observed_at(
         tmp_path,
         "2026-07-09T15:30:00+09:00",
@@ -2152,8 +2150,8 @@ def test_plan_limit_active_candidate_reservation_defers_without_second_order(
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(ledger),
             "--sqlite-path",
@@ -2187,7 +2185,7 @@ def test_plan_limit_counts_same_scope_reservation_and_order_once(
             ("2331", "2026-07-10", 1000.0, 1.0),
         ],
     )
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     ledger = _ledger_with_observed_at(
         tmp_path,
         "2026-07-09T15:30:00+09:00",
@@ -2197,8 +2195,8 @@ def test_plan_limit_counts_same_scope_reservation_and_order_once(
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(ledger),
             "--sqlite-path",
@@ -2239,14 +2237,14 @@ def test_plan_limit_ticker_concentration_warning_does_not_change_status_or_limit
             ("2331", "2026-07-10", 1000.0, 1.0),
         ],
     )
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
 
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(ledger),
             "--sqlite-path",
@@ -2278,7 +2276,7 @@ def test_plan_limit_discloses_other_ticker_with_missing_common_factor_coverage(
             ("2331", "2026-07-10", 1000.0, 1.0),
         ],
     )
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     ledger = _ledger_with_observed_at(
         tmp_path,
         "2026-07-09T15:30:00+09:00",
@@ -2288,8 +2286,8 @@ def test_plan_limit_discloses_other_ticker_with_missing_common_factor_coverage(
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(ledger),
             "--sqlite-path",
@@ -2316,14 +2314,14 @@ def test_plan_limit_falls_back_when_revalued_holding_is_not_whole_yen(
             ("2331", "2026-07-10", 1000.0025, 1.0),
         ],
     )
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     ledger = _ledger_with_observed_at(tmp_path, "2026-07-09T15:30:00+09:00")
 
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(ledger),
             "--sqlite-path",
@@ -2349,12 +2347,12 @@ def test_plan_limit_close_above_max_defers(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 5000.0, 1.0)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(_app_db(tmp_path)),
             "--sqlite-path",
@@ -2378,12 +2376,12 @@ def test_plan_limit_zero_close_defers_without_crashing(
     # lot sizing and crash with a traceback.
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 0.0, 1.0)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(_app_db(tmp_path)),
             "--sqlite-path",
@@ -2403,12 +2401,12 @@ def test_plan_limit_corporate_action_defers(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 0.5)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(_app_db(tmp_path)),
             "--sqlite-path",
@@ -2428,12 +2426,12 @@ def test_plan_limit_missing_adjustment_factor_defers(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, None)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(_app_db(tmp_path)),
             "--sqlite-path",
@@ -2454,13 +2452,13 @@ def test_plan_limit_single_lot_above_budget_max_still_proposes_with_warning(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     # 1 lot = 1000 * 100 = 100,000 > budget_max 90,000.
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(_app_db(tmp_path)),
             "--sqlite-path",
@@ -2487,12 +2485,12 @@ def test_plan_limit_quantity_never_overshoots_budget_max(
     # 100,000 // 50,000 = 2 lots overshoot. The exact floor keeps it at one lot.
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 500.005, 1.0)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     code, payload = _run(
         [
             "plan-limit",
-            "--packet",
-            str(packet),
+            "--thesis",
+            str(thesis),
             "--db",
             str(_app_db(tmp_path)),
             "--sqlite-path",
@@ -2517,14 +2515,14 @@ def test_plan_limit_budget_and_warnings_do_not_change_limit_or_status(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
 
     def run_with_budget(budget_max: str) -> dict[str, object]:
         code, payload = _run(
             [
                 "plan-limit",
-                "--packet",
-                str(packet),
+                "--thesis",
+                str(thesis),
                 "--db",
                 str(_app_db(tmp_path)),
                 "--sqlite-path",
@@ -2551,11 +2549,11 @@ def test_plan_limit_is_deterministic_across_clocks(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
-    packet = _promoted_packet(tmp_path, sqlite_path)
+    thesis = _promoted_thesis(tmp_path, sqlite_path)
     args = [
         "plan-limit",
-        "--packet",
-        str(packet),
+        "--thesis",
+        str(thesis),
         "--db",
         str(_app_db(tmp_path)),
         "--sqlite-path",

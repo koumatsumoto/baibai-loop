@@ -51,7 +51,7 @@ def application_db_updated_at(path: Path) -> datetime | None:
     """Return the newest write instant recorded inside the application database.
 
     The value is the max over every judgment-layer write timestamp: ledger events,
-    research packets and reviews, holding reviews, macro context revisions, reviewed
+    research theses and reviews, holding reviews, macro context revisions, reviewed
     shortlists, proposals (created and decided), tasks (created and closed), and
     operation sessions (started and completed). Nullable decision timestamps are
     excluded until set. Values are normalized to timezone-aware JST before the max
@@ -66,15 +66,15 @@ def application_db_updated_at(path: Path) -> datetime | None:
             """
             SELECT occurred_at FROM ledger_event
             UNION ALL
-            SELECT published_at FROM research_packet
+            SELECT published_at FROM thesis
             UNION ALL
-            SELECT reviewed_at FROM research_review
+            SELECT reviewed_at FROM thesis_review
             UNION ALL
             SELECT as_of FROM holding_review
             UNION ALL
             SELECT published_at FROM macro_context
             UNION ALL
-            SELECT published_at FROM reviewed_shortlist
+            SELECT published_at FROM shortlist
             UNION ALL
             SELECT created_at FROM proposal
             UNION ALL

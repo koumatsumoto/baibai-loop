@@ -16,7 +16,7 @@ from .render import (
     _dict_rows,
     _load_findings,
     _load_mapping,
-    _load_packet,
+    _load_thesis,
     _require_completed_comparison,
     _validate_comparison_values,
     _validate_proposal,
@@ -44,24 +44,24 @@ def scaffold(
     selected_ticker = str(selected) if selected is not None else None
     rows = _comparison_index(comparison)
     findings_by = {item.ticker: item for item in findings.candidates}
-    packet_paths = {}
-    packets = {}
+    thesis_paths = {}
+    theses = {}
     for ticker in tickers:
         if ticker not in rows:
             raise ReportError(f"comparison is missing shortlist ticker {ticker}")
         _require_completed_comparison(rows[ticker], ticker)
-        packet_path, packet = _load_packet(workspace, ticker)
-        _validate_comparison_values(rows[ticker], packet, ticker)
-        _validate_sources(findings_by[ticker], packet)
-        packet_paths[ticker] = packet_path
-        packets[ticker] = packet
+        thesis_path, thesis = _load_thesis(workspace, ticker)
+        _validate_comparison_values(rows[ticker], thesis, ticker)
+        _validate_sources(findings_by[ticker], thesis)
+        thesis_paths[ticker] = thesis_path
+        theses[ticker] = thesis
     if not isinstance(comparison.get("ranking_rationale"), str):
         raise ReportError("research comparison needs ranking_rationale")
     _validate_proposal(
         proposal_path=proposal_path,
         selected_ticker=selected_ticker,
-        packet_path=packet_paths.get(selected_ticker) if selected_ticker else None,
-        packet=packets.get(selected_ticker) if selected_ticker else None,
+        thesis_path=thesis_paths.get(selected_ticker) if selected_ticker else None,
+        thesis=theses.get(selected_ticker) if selected_ticker else None,
         manifest=manifest,
         report_as_of=findings.meta.as_of,
         report_budget_yen=findings.meta.budget_yen,
@@ -79,8 +79,8 @@ def scaffold(
             findings_path=findings_path,
             proposal_path=proposal_path,
             selected_ticker=selected_ticker,
-            packet_paths=packet_paths,
-            packets=packets,
+            thesis_paths=thesis_paths,
+            theses=theses,
         ),
         "checks": [
             {"check_id": check_id, "status": "pending", "note": None}

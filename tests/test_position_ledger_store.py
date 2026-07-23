@@ -138,26 +138,26 @@ def test_proposal_id_is_relational_only_for_db_native_reference(tmp_path: Path) 
     with sqlite3.connect(path) as connection:
         connection.execute(
             """
-            INSERT INTO research_packet(
-                packet_id, ticker, as_of, recommendation, published_at,
+            INSERT INTO thesis(
+                thesis_id, ticker, as_of, recommendation, published_at,
                 supersedes_id, payload
-            ) VALUES ('packet-proposal-test', '2331', '2026-07-19', 'buy',
+            ) VALUES ('thesis-proposal-test', '2331', '2026-07-19', 'buy',
                       '2026-07-19T09:00:00+09:00', NULL, '{}')
             """
         )
         connection.execute(
             """
-            INSERT INTO research_review(review_id, packet_id, reviewed_at, payload)
-            VALUES ('review-proposal-test', 'packet-proposal-test',
+            INSERT INTO thesis_review(review_id, thesis_id, reviewed_at, payload)
+            VALUES ('review-proposal-test', 'thesis-proposal-test',
                     '2026-07-19T09:00:00+09:00', '{}')
             """
         )
         connection.execute(
             """
             INSERT INTO proposal(
-                proposal_id, ticker, packet_id, review_id, created_at,
+                proposal_id, ticker, thesis_id, review_id, created_at,
                 status, decided_at, payload
-            ) VALUES ('prop-20260719-2331-1', '2331', 'packet-proposal-test',
+            ) VALUES ('prop-20260719-2331-1', '2331', 'thesis-proposal-test',
                       'review-proposal-test', '2026-07-19T09:00:00+09:00',
                       'approved', '2026-07-19T09:01:00+09:00', '{}')
             """

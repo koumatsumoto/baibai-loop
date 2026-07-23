@@ -10,9 +10,9 @@ import pytest
 import yaml
 from tools.research_price_watch import (
     ResearchPriceWatchError,
-    _PacketCandidate,
     _read_market_observations,
-    _select_latest_packets,
+    _select_latest_theses,
+    _ThesisCandidate,
     build_parser,
     main,
 )
@@ -20,39 +20,39 @@ from tools.research_price_watch import (
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.position.ledger import load_portfolio_ledger
-from baibai_engine.research.decision_packet import (
-    decision_packet_core_hash,
-    independent_review_hash,
-    load_decision_packet,
-    load_independent_review,
-)
 from baibai_engine.research.store import ResearchStoreService
+from baibai_engine.research.thesis import (
+    independent_review_hash,
+    load_independent_review,
+    load_thesis,
+    thesis_core_hash,
+)
 from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
-PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
-REVIEW = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
+THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
+REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 ASOF = date(2026, 7, 3)
 
 
-def _packet_root(
+def _thesis_root(
     tmp_path: Path,
     *,
     recommendation: Literal["buy", "defer", "reject"] = "buy",
-    packet_asof: date = ASOF,
+    thesis_asof: date = ASOF,
     independent_review_ref: bool = True,
 ) -> Path:
-    root = tmp_path / "packets"
+    root = tmp_path / "theses"
     root.mkdir()
-    canonical_dir = root / f"{packet_asof:%Y}" / f"{packet_asof:%m}"
+    canonical_dir = root / f"{thesis_asof:%Y}" / f"{thesis_asof:%m}"
     canonical_dir.mkdir(parents=True)
-    packet_name = f"{packet_asof.isoformat()}-2331-decision.yaml"
-    review_name = f"{packet_asof.isoformat()}-2331-decision-review.yaml"
+    thesis_name = f"{thesis_asof.isoformat()}-2331-decision.yaml"
+    review_name = f"{thesis_asof.isoformat()}-2331-decision-review.yaml"
 
-    document = load_decision_packet(PACKET)
+    document = load_thesis(THESIS)
     review = load_independent_review(REVIEW)
-    snapshot = document.input_snapshot.model_copy(update={"as_of": packet_asof})
+    snapshot = document.input_snapshot.model_copy(update={"as_of": thesis_asof})
     judgment = document.judgment.model_copy(update={"recommendation": recommendation})
     document = document.model_copy(
         update={
@@ -61,19 +61,19 @@ def _packet_root(
             "independent_review_ref": review_name if independent_review_ref else None,
         }
     )
-    packet_core_hash = decision_packet_core_hash(document)
-    review = review.model_copy(update={"reviewed_packet_sha256": packet_core_hash})
+    core_hash = thesis_core_hash(document)
+    review = review.model_copy(update={"reviewed_thesis_sha256": core_hash})
     override = document.human_evidence_override
     if override is not None:
         override = override.model_copy(
             update={
-                "proposal_sha256": packet_core_hash,
+                "proposal_sha256": core_hash,
                 "review_sha256": independent_review_hash(review),
             }
         )
         document = document.model_copy(update={"human_evidence_override": override})
 
-    (canonical_dir / packet_name).write_text(
+    (canonical_dir / thesis_name).write_text(
         yaml.safe_dump(document.model_dump(mode="json"), sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
@@ -84,12 +84,12 @@ def _packet_root(
     return root
 
 
-def _canonical_packet_path(root: Path, *, packet_asof: date = ASOF) -> Path:
+def _canonical_thesis_path(root: Path, *, thesis_asof: date = ASOF) -> Path:
     return (
         root
-        / f"{packet_asof:%Y}"
-        / f"{packet_asof:%m}"
-        / f"{packet_asof.isoformat()}-2331-decision.yaml"
+        / f"{thesis_asof:%Y}"
+        / f"{thesis_asof:%m}"
+        / f"{thesis_asof.isoformat()}-2331-decision.yaml"
     )
 
 
@@ -175,39 +175,39 @@ def _run(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     *,
-    packets_root: Path | None = None,
+    theses_root: Path | None = None,
     ledger: Path = LEDGER,
     sqlite_path: Path | None = None,
     asof: date = ASOF,
 ) -> tuple[int, dict[str, Any], str]:
     market = sqlite_path or tmp_path / "market.sqlite"
-    source = packets_root or _packet_root(tmp_path)
+    source = theses_root or _thesis_root(tmp_path)
     db_path = tmp_path / "app.sqlite"
     if source.is_dir():
-        packet_path = next(
+        thesis_path = next(
             path
             for path in source.rglob("*-decision.yaml")
             if not path.name.endswith("-review.yaml")
         )
-        packet = load_decision_packet(packet_path)
-        packet_id = (
-            f"packet-{packet.input_snapshot.as_of:%Y%m%d}-{packet.input_snapshot.ticker}-test"
+        thesis = load_thesis(thesis_path)
+        thesis_id = (
+            f"thesis-{thesis.input_snapshot.as_of:%Y%m%d}-{thesis.input_snapshot.ticker}-test"
         )
         service = ResearchStoreService(db_path)
-        if packet.independent_review_ref is None:
-            service.publish_packet(packet_id, packet.model_dump(mode="json"))
-            review_path = packet_path.with_name(
-                packet_path.name.replace("-decision.yaml", "-decision-review.yaml")
+        if thesis.independent_review_ref is None:
+            service.publish_thesis(thesis_id, thesis.model_dump(mode="json"))
+            review_path = thesis_path.with_name(
+                thesis_path.name.replace("-decision.yaml", "-decision-review.yaml")
             )
             service.publish_review(
-                packet_id,
+                thesis_id,
                 load_independent_review(review_path).model_dump(mode="json"),
             )
         else:
-            review = load_independent_review(packet_path.with_name(packet.independent_review_ref))
-            service.publish_packet_with_review(
-                packet_id,
-                packet.model_dump(mode="json"),
+            review = load_independent_review(thesis_path.with_name(thesis.independent_review_ref))
+            service.publish_thesis_with_review(
+                thesis_id,
+                thesis.model_dump(mode="json"),
                 review.model_dump(mode="json"),
             )
         document = load_portfolio_ledger(ledger)
@@ -265,11 +265,11 @@ def test_resolved_join_keeps_history_and_excludes_ledger_only_rows(
         "status": "resolved",
         "current_close_yen": 1000,
         "close_as_of": "2026-07-03",
-        "packet_fair_value_yen": 1300,
-        "packet_fv_gap_pct": 30.0,
-        "packet_entry_price_basis_yen": 1032,
-        "packet_recommendation_at_as_of": "buy",
-        "packet_as_of": "2026-07-03",
+        "thesis_fair_value_yen": 1300,
+        "thesis_fv_gap_pct": 30.0,
+        "thesis_entry_price_basis_yen": 1032,
+        "thesis_recommendation_at_as_of": "buy",
+        "thesis_as_of": "2026-07-03",
         "valuation_model_version": "fv-v1",
         "re_research_required": True,
         "current_decision_status": "not_evaluated",
@@ -296,7 +296,7 @@ def test_resolved_join_keeps_history_and_excludes_ledger_only_rows(
     assert {item["ticker"] for item in rows} == {"2331"}
 
 
-def test_packet_only_ticker_is_included_as_unheld(
+def test_thesis_only_ticker_is_included_as_unheld(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     market = tmp_path / "market.sqlite"
@@ -353,8 +353,8 @@ def test_held_and_reserved_comes_only_from_replayed_state(
     ]
 
 
-def test_latest_packet_selection_uses_asof_not_path_or_mtime() -> None:
-    document = load_decision_packet(PACKET)
+def test_latest_thesis_selection_uses_asof_not_path_or_mtime() -> None:
+    document = load_thesis(THESIS)
     older = document.model_copy(
         update={
             "input_snapshot": document.input_snapshot.model_copy(update={"as_of": date(2026, 7, 2)})
@@ -364,10 +364,10 @@ def test_latest_packet_selection_uses_asof_not_path_or_mtime() -> None:
         update={"judgment": document.judgment.model_copy(update={"recommendation": "defer"})}
     )
 
-    selected = _select_latest_packets(
+    selected = _select_latest_theses(
         [
-            _PacketCandidate(Path("z-newer-mtime.yaml"), older),
-            _PacketCandidate(Path("a-older-mtime.yaml"), newer),
+            _ThesisCandidate(Path("z-newer-mtime.yaml"), older),
+            _ThesisCandidate(Path("a-older-mtime.yaml"), newer),
         ]
     )
 
@@ -375,20 +375,20 @@ def test_latest_packet_selection_uses_asof_not_path_or_mtime() -> None:
 
 
 def test_same_ticker_same_asof_selects_latest_publication() -> None:
-    document = load_decision_packet(PACKET)
+    document = load_thesis(THESIS)
 
-    selected = _select_latest_packets(
+    selected = _select_latest_theses(
         [
-            _PacketCandidate("packet-first", document),
-            _PacketCandidate("packet-second", document),
+            _ThesisCandidate("thesis-first", document),
+            _ThesisCandidate("thesis-second", document),
         ]
     )
 
-    assert selected["2331"].packet_id == "packet-second"
+    assert selected["2331"].thesis_id == "thesis-second"
 
 
 def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
-    document = load_decision_packet(PACKET)
+    document = load_thesis(THESIS)
     older_buy = document.model_copy(
         update={
             "input_snapshot": document.input_snapshot.model_copy(update={"as_of": date(2026, 7, 2)})
@@ -398,10 +398,10 @@ def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
         update={"judgment": document.judgment.model_copy(update={"recommendation": "reject"})}
     )
 
-    selected = _select_latest_packets(
+    selected = _select_latest_theses(
         [
-            _PacketCandidate(Path("older-buy.yaml"), older_buy),
-            _PacketCandidate(Path("latest-reject.yaml"), latest_reject),
+            _ThesisCandidate(Path("older-buy.yaml"), older_buy),
+            _ThesisCandidate(Path("latest-reject.yaml"), latest_reject),
         ]
     )
 
@@ -411,14 +411,14 @@ def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
 def test_latest_reject_is_excluded_from_watch_rows(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    packet_root = _packet_root(tmp_path, recommendation="reject")
+    thesis_root = _thesis_root(tmp_path, recommendation="reject")
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path)
 
     exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
-        packets_root=packet_root,
+        theses_root=thesis_root,
         sqlite_path=sqlite_path,
     )
 
@@ -451,11 +451,11 @@ def test_exact_asof_invalidity_never_falls_back_to_an_older_close(
         close_by_key={("2331", prior): 900.0, ("2331", ASOF): close},
         factor_by_key={("2331", ASOF): factor},
     )
-    document = load_decision_packet(PACKET)
+    document = load_thesis(THESIS)
 
     observation = _read_market_observations(
         sqlite_path,
-        packets={"2331": _PacketCandidate(PACKET, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document)},
         asof=ASOF,
     )["2331"]
 
@@ -473,11 +473,11 @@ def test_missing_exact_asof_bar_never_falls_back_to_an_older_bar(tmp_path: Path)
         close_by_key={("2331", prior): 900.0},
         omitted={("2331", ASOF)},
     )
-    document = load_decision_packet(PACKET)
+    document = load_thesis(THESIS)
 
     observation = _read_market_observations(
         sqlite_path,
-        packets={"2331": _PacketCandidate(PACKET, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document)},
         asof=ASOF,
     )["2331"]
 
@@ -503,8 +503,8 @@ def test_intermediate_factor_invalidates_the_whole_comparison_window(
         sessions=(intermediate, ASOF),
         factor_by_key={("2331", intermediate): factor},
     )
-    document = load_decision_packet(PACKET)
-    earlier_packet = document.model_copy(
+    document = load_thesis(THESIS)
+    earlier_thesis = document.model_copy(
         update={
             "input_snapshot": document.input_snapshot.model_copy(update={"as_of": intermediate})
         }
@@ -512,7 +512,7 @@ def test_intermediate_factor_invalidates_the_whole_comparison_window(
 
     observation = _read_market_observations(
         sqlite_path,
-        packets={"2331": _PacketCandidate(PACKET, earlier_packet)},
+        theses={"2331": _ThesisCandidate(THESIS, earlier_thesis)},
         asof=ASOF,
     )["2331"]
 
@@ -527,12 +527,12 @@ def test_one_ticker_can_be_unresolved_without_suppressing_other_rows(tmp_path: P
         tickers=("2331", "9999"),
         omitted={("9999", ASOF)},
     )
-    document = load_decision_packet(PACKET)
-    packets = {
-        ticker: _PacketCandidate(Path(f"{ticker}.yaml"), document) for ticker in ("2331", "9999")
+    document = load_thesis(THESIS)
+    theses = {
+        ticker: _ThesisCandidate(Path(f"{ticker}.yaml"), document) for ticker in ("2331", "9999")
     }
 
-    observations = _read_market_observations(sqlite_path, packets=packets, asof=ASOF)
+    observations = _read_market_observations(sqlite_path, theses=theses, asof=ASOF)
 
     assert observations["2331"].unresolved_reason is None
     assert observations["9999"].unresolved_reason == "missing_raw_bar:2026-07-03"
@@ -544,11 +544,11 @@ def test_future_bar_is_ignored(tmp_path: Path) -> None:
         sqlite_path,
         future_bars=(("2331", date(2026, 7, 4), 1.0, 0.5),),
     )
-    document = load_decision_packet(PACKET)
+    document = load_thesis(THESIS)
 
     observation = _read_market_observations(
         sqlite_path,
-        packets={"2331": _PacketCandidate(PACKET, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document)},
         asof=ASOF,
     )["2331"]
 
@@ -560,15 +560,15 @@ def test_calendar_internal_day_gap_fails_closed_despite_source_coverage(tmp_path
     sqlite_path = tmp_path / "market.sqlite"
     start = date(2026, 7, 1)
     _market_sqlite(sqlite_path, sessions=(start, ASOF))
-    document = load_decision_packet(PACKET)
-    earlier_packet = document.model_copy(
+    document = load_thesis(THESIS)
+    earlier_thesis = document.model_copy(
         update={"input_snapshot": document.input_snapshot.model_copy(update={"as_of": start})}
     )
 
     with pytest.raises(ResearchPriceWatchError, match="missing row: 2026-07-02"):
         _read_market_observations(
             sqlite_path,
-            packets={"2331": _PacketCandidate(PACKET, earlier_packet)},
+            theses={"2331": _ThesisCandidate(THESIS, earlier_thesis)},
             asof=ASOF,
         )
 
@@ -585,53 +585,53 @@ def test_adjustment_factor_one_uses_a_narrow_float_tolerance(
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path, factor_by_key={("2331", ASOF): factor})
-    document = load_decision_packet(PACKET)
+    document = load_thesis(THESIS)
 
     observation = _read_market_observations(
         sqlite_path,
-        packets={"2331": _PacketCandidate(PACKET, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document)},
         asof=ASOF,
     )["2331"]
 
     assert (observation.unresolved_reason is not None) is unresolved
 
 
-def test_future_packet_is_rejected_before_market_evaluation(
+def test_future_thesis_is_rejected_before_market_evaluation(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    packet_root = _packet_root(tmp_path)
+    thesis_root = _thesis_root(tmp_path)
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path)
 
     exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
-        packets_root=packet_root,
+        theses_root=thesis_root,
         sqlite_path=sqlite_path,
         asof=date(2026, 7, 2),
     )
 
     assert exit_code == 2
     assert payload == {}
-    assert "future decision packet is not allowed" in stderr
+    assert "future thesis is not allowed" in stderr
     assert "Traceback" not in stderr
 
 
-def test_override_expiry_does_not_remove_a_promoted_packet_from_the_watch(
+def test_override_expiry_does_not_remove_a_promoted_thesis_from_the_watch(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     watch_asof = date(2026, 8, 3)
     sessions = tuple(
         ASOF + timedelta(days=offset) for offset in range((watch_asof - ASOF).days + 1)
     )
-    packet_root = _packet_root(tmp_path)
+    thesis_root = _thesis_root(tmp_path)
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path, sessions=sessions)
 
     exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
-        packets_root=packet_root,
+        theses_root=thesis_root,
         sqlite_path=sqlite_path,
         asof=watch_asof,
     )
@@ -655,35 +655,35 @@ def test_tiny_positive_close_is_an_unresolved_row_without_traceback(
     assert stderr == ""
     row = payload["rows"][0]
     assert row["status"] == "unresolved"
-    assert row["packet_fv_gap_pct"] is None
+    assert row["thesis_fv_gap_pct"] is None
     assert row["unresolved_reason"] == "fv_gap_calculation_unresolved"
 
 
-def test_imported_packet_identity_does_not_depend_on_legacy_filename(
+def test_imported_thesis_identity_does_not_depend_on_legacy_filename(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    packet_root = _packet_root(tmp_path)
-    packet_path = _canonical_packet_path(packet_root)
-    packet_path.rename(packet_path.with_name("2331-decision.yaml"))
+    thesis_root = _thesis_root(tmp_path)
+    thesis_path = _canonical_thesis_path(thesis_root)
+    thesis_path.rename(thesis_path.with_name("2331-decision.yaml"))
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path)
 
     exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
-        packets_root=packet_root,
+        theses_root=thesis_root,
         sqlite_path=sqlite_path,
     )
 
     assert exit_code == 0
-    assert payload["coverage"]["packet_tickers"] == ["2331"]
+    assert payload["coverage"]["thesis_tickers"] == ["2331"]
     assert stderr == ""
 
 
-def test_reject_packet_is_bound_by_db_revision_not_legacy_review_ref(
+def test_reject_thesis_is_bound_by_db_revision_not_legacy_review_ref(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    packet_root = _packet_root(
+    thesis_root = _thesis_root(
         tmp_path,
         recommendation="reject",
         independent_review_ref=False,
@@ -694,7 +694,7 @@ def test_reject_packet_is_bound_by_db_revision_not_legacy_review_ref(
     exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
-        packets_root=packet_root,
+        theses_root=thesis_root,
         sqlite_path=sqlite_path,
     )
 
@@ -707,13 +707,13 @@ def test_reject_packet_is_bound_by_db_revision_not_legacy_review_ref(
 def test_successful_run_is_byte_for_byte_read_only(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    packet_root = _packet_root(tmp_path)
+    thesis_root = _thesis_root(tmp_path)
     ledger = tmp_path / "ledger.yaml"
     shutil.copyfile(LEDGER, ledger)
     sqlite_path = tmp_path / "market.sqlite"
     _market_sqlite(sqlite_path)
     inputs = [
-        *sorted(path for path in packet_root.rglob("*") if path.is_file()),
+        *sorted(path for path in thesis_root.rglob("*") if path.is_file()),
         ledger,
         sqlite_path,
     ]
@@ -722,7 +722,7 @@ def test_successful_run_is_byte_for_byte_read_only(
     exit_code, _, _ = _run(
         tmp_path,
         capsys,
-        packets_root=packet_root,
+        theses_root=thesis_root,
         ledger=ledger,
         sqlite_path=sqlite_path,
     )
@@ -741,7 +741,7 @@ def test_error_has_no_stdout_or_traceback(
     exit_code, payload, stderr = _run(
         tmp_path,
         capsys,
-        packets_root=tmp_path / "missing-packets",
+        theses_root=tmp_path / "missing-theses",
         sqlite_path=market,
     )
 

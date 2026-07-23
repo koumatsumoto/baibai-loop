@@ -191,12 +191,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="selection output detail (default: summary)",
     )
     select_parser.add_argument(
-        "--audit-top",
+        "--longlist-top",
         type=int,
         default=0,
         help=(
-            "emit an audit_pool of the top N ranked candidates before diversity/cap "
-            "truncation (0-100; default 0 omits audit_pool for output compatibility)"
+            "emit an longlist of the top N ranked candidates before diversity/cap "
+            "truncation (0-100; default 0 omits longlist for output compatibility)"
         ),
     )
     select_parser.add_argument(
@@ -212,7 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     shortlist_parser = subparsers.add_parser(
         "shortlist",
-        help="publish a reviewed shortlist judgment",
+        help="publish a shortlist judgment",
     )
     shortlist_commands = shortlist_parser.add_subparsers(dest="shortlist_command", required=True)
     shortlist_publish = shortlist_commands.add_parser("publish")
@@ -222,7 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
-        help="emit the single-ticker fact packet (price, relative, regime, events, screening)",
+        help="emit the single-ticker fact thesis (price, relative, regime, events, screening)",
     )
     profile_parser.add_argument("--ticker", required=True, help="4-character ticker code")
     profile_parser.add_argument(
@@ -318,7 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     snapshot_parser = subparsers.add_parser(
         "market-snapshot",
-        help="emit the market state packet (weekly regime history and sector aggregates)",
+        help="emit the market state thesis (weekly regime history and sector aggregates)",
     )
     snapshot_parser.add_argument(
         "--asof",
@@ -371,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
             rules=load_screening_rules(Path(args.rules_path)),
             profile=args.profile,
             detail=args.detail,
-            audit_top=args.audit_top,
+            longlist_top=args.longlist_top,
             output_path=Path(args.output_path) if args.output_path else None,
             force=args.force,
             regime_sqlite_path=Path(args.sqlite_path),

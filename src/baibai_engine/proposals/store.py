@@ -20,11 +20,6 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import PortfolioSnapshot, reconcile_portfolio
 from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.close_source import resolve_previous_business_day_close
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
-    IndependentReview,
-    evaluate_decision_packet,
-)
 from baibai_engine.research.execution_policy import ExecutionPolicyError, max_acceptable_price
 from baibai_engine.research.opportunity import (
     BOARD_LOT,
@@ -32,6 +27,11 @@ from baibai_engine.research.opportunity import (
     _portfolio_annotations,
     _portfolio_exposure,
     _portfolio_warnings,
+)
+from baibai_engine.research.thesis import (
+    IndependentReview,
+    ThesisDocument,
+    evaluate_thesis,
 )
 
 ProposalStatus = Literal["pending", "approved", "deferred", "rejected"]
@@ -139,9 +139,9 @@ class PlannedLimitInput(CanonicalPlannedLimit):
     """Strict ephemeral ``research plan-limit`` output accepted at the boundary."""
 
     status: Literal["planned_limit"]
-    decision_packet_ref: Annotated[str, Field(min_length=1)]
-    decision_packet_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    decision_packet_core_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    thesis_ref: Annotated[str, Field(min_length=1)]
+    thesis_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    thesis_core_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     independent_review_ref: Annotated[str, Field(min_length=1)]
     independent_review_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     source_ref: Annotated[str, Field(min_length=1)]
@@ -163,7 +163,7 @@ class ProposalNotFoundError(ValueError):
 class ProposalRecord:
     proposal_id: str
     ticker: str
-    packet_id: str
+    thesis_id: str
     review_id: str
     created_at: datetime
     status: ProposalStatus
@@ -185,14 +185,14 @@ class ProposalStoreService:
 
     def create(
         self,
-        packet_id: str,
+        thesis_id: str,
         planned_limit: PlannedLimitInput,
         snapshot: PortfolioSnapshot,
         *,
         snapshot_append_head: int,
         created_at: datetime,
     ) -> ProposalRecord:
-        """Create one pending proposal from an immutable ready packet and current ledger."""
+        """Create one pending proposal from an immutable ready thesis and current ledger."""
         _require_aware(created_at, "created_at")
         initialize_database(self._db_path)
         with (
@@ -201,11 +201,11 @@ class ProposalStoreService:
         ):
             connection.execute("BEGIN IMMEDIATE")
             try:
-                packet, review = _ready_packet_and_review(connection, packet_id)
+                thesis, review = _ready_thesis_and_review(connection, thesis_id)
                 _validate_planned_limit(
                     connection,
                     planned_limit,
-                    packet=packet,
+                    thesis=thesis,
                     review=review,
                     snapshot=snapshot,
                     snapshot_append_head=snapshot_append_head,
@@ -213,7 +213,7 @@ class ProposalStoreService:
                     market_db_path=self._market_db_path,
                     market_connection=market_connection,
                     claimed_source_ref=planned_limit.source_ref,
-                    claimed_packet_core_sha256=planned_limit.decision_packet_core_sha256,
+                    claimed_thesis_core_sha256=planned_limit.thesis_core_sha256,
                 )
                 proposal_id = _allocate_proposal_id(
                     connection,
@@ -221,7 +221,7 @@ class ProposalStoreService:
                     created_at=created_at,
                 )
                 payload: dict[str, object] = {
-                    "packet_id": packet_id,
+                    "thesis_id": thesis_id,
                     "review_id": review.review_id,
                     "planned_limit": _canonical_plan(planned_limit).model_dump(mode="python"),
                     "execution_proposal": _execution_proposal(planned_limit),
@@ -229,14 +229,14 @@ class ProposalStoreService:
                 connection.execute(
                     """
                     INSERT INTO proposal (
-                        proposal_id, ticker, packet_id, review_id, created_at,
+                        proposal_id, ticker, thesis_id, review_id, created_at,
                         status, decided_at, payload
                     ) VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?)
                     """,
                     (
                         proposal_id,
                         planned_limit.ticker,
-                        packet_id,
+                        thesis_id,
                         review.review_id,
                         created_at.isoformat(),
                         canonical_json(payload),
@@ -349,51 +349,51 @@ class ProposalStoreService:
         return tuple(_record(cast(sqlite3.Row, row)) for row in rows)
 
 
-def _ready_packet_and_review(
+def _ready_thesis_and_review(
     connection: sqlite3.Connection,
-    packet_id: str,
+    thesis_id: str,
     *,
     review_id: str | None = None,
-) -> tuple[DecisionPacketDocument, IndependentReview]:
-    packet_row = connection.execute(
-        "SELECT payload FROM research_packet WHERE packet_id = ?",
-        (packet_id,),
+) -> tuple[ThesisDocument, IndependentReview]:
+    thesis_row = connection.execute(
+        "SELECT payload FROM thesis WHERE thesis_id = ?",
+        (thesis_id,),
     ).fetchone()
-    if packet_row is None:
-        raise ProposalValidationError(f"unknown research packet: {packet_id}")
-    packet = DecisionPacketDocument.model_validate_json(str(packet_row["payload"]))
+    if thesis_row is None:
+        raise ProposalValidationError(f"unknown research thesis: {thesis_id}")
+    thesis = ThesisDocument.model_validate_json(str(thesis_row["payload"]))
     if review_id is None:
         review_rows = connection.execute(
             """
-            SELECT review_id, payload FROM research_review
-            WHERE packet_id = ?
+            SELECT review_id, payload FROM thesis_review
+            WHERE thesis_id = ?
             ORDER BY reviewed_at DESC, review_id DESC
             """,
-            (packet_id,),
+            (thesis_id,),
         ).fetchall()
         if len(review_rows) != 1:
             raise ProposalValidationError(
-                f"proposal requires exactly one review for packet: {packet_id}"
+                f"proposal requires exactly one review for thesis: {thesis_id}"
             )
         review_row = review_rows[0]
     else:
         review_row = connection.execute(
             """
-            SELECT review_id, payload FROM research_review
-            WHERE packet_id = ? AND review_id = ?
+            SELECT review_id, payload FROM thesis_review
+            WHERE thesis_id = ? AND review_id = ?
             """,
-            (packet_id, review_id),
+            (thesis_id, review_id),
         ).fetchone()
         if review_row is None:
-            raise ProposalConflictError("proposal review no longer matches its packet")
+            raise ProposalConflictError("proposal review no longer matches its thesis")
     review = IndependentReview.model_validate_json(str(review_row["payload"]))
-    result = evaluate_decision_packet(packet, review=review)
+    result = evaluate_thesis(thesis, review=review)
     if result.decision_readiness != "ready" or result.errors:
         detail = "; ".join(result.errors) or result.decision_readiness
-        raise ProposalValidationError(f"research packet is not decision-ready: {detail}")
-    if packet.judgment.recommendation != "buy":
-        raise ProposalValidationError("proposal requires a ready buy research packet")
-    return packet, review
+        raise ProposalValidationError(f"research thesis is not decision-ready: {detail}")
+    if thesis.judgment.recommendation != "buy":
+        raise ProposalValidationError("proposal requires a ready buy research thesis")
+    return thesis, review
 
 
 def _revalidate_approval(
@@ -411,15 +411,15 @@ def _revalidate_approval(
     if not isinstance(raw_input, Mapping):
         raise ProposalConflictError("stored proposal payload is incomplete")
     planned_limit = CanonicalPlannedLimit.model_validate(raw_input)
-    packet, review = _ready_packet_and_review(
+    thesis, review = _ready_thesis_and_review(
         connection,
-        str(row["packet_id"]),
+        str(row["thesis_id"]),
         review_id=str(row["review_id"]),
     )
     _validate_planned_limit(
         connection,
         planned_limit,
-        packet=packet,
+        thesis=thesis,
         review=review,
         snapshot=snapshot,
         snapshot_append_head=snapshot_append_head,
@@ -433,7 +433,7 @@ def _validate_planned_limit(
     connection: sqlite3.Connection,
     planned: CanonicalPlannedLimit,
     *,
-    packet: DecisionPacketDocument,
+    thesis: ThesisDocument,
     review: IndependentReview,
     snapshot: PortfolioSnapshot,
     snapshot_append_head: int,
@@ -441,19 +441,19 @@ def _validate_planned_limit(
     market_db_path: Path,
     market_connection: sqlite3.Connection,
     claimed_source_ref: str | None = None,
-    claimed_packet_core_sha256: str | None = None,
+    claimed_thesis_core_sha256: str | None = None,
 ) -> None:
     """Rebuild the load-bearing planning result from canonical current sources."""
-    result = evaluate_decision_packet(packet, review=review, now=now)
+    result = evaluate_thesis(thesis, review=review, now=now)
     if (
-        claimed_packet_core_sha256 is not None
-        and result.packet_sha256 != claimed_packet_core_sha256
+        claimed_thesis_core_sha256 is not None
+        and result.thesis_sha256 != claimed_thesis_core_sha256
     ):
-        raise ProposalConflictError("current packet differs; create a new proposal")
-    if review.reviewed_packet_sha256 != result.packet_sha256:
+        raise ProposalConflictError("current thesis differs; create a new proposal")
+    if review.reviewed_thesis_sha256 != result.thesis_sha256:
         raise ProposalConflictError("current review differs; create a new proposal")
-    if packet.input_snapshot.ticker != planned.ticker:
-        raise ProposalConflictError("current packet ticker differs; create a new proposal")
+    if thesis.input_snapshot.ticker != planned.ticker:
+        raise ProposalConflictError("current thesis ticker differs; create a new proposal")
 
     current_document, current_head = load_ledger_in_transaction(connection)
     if (
@@ -487,7 +487,7 @@ def _validate_planned_limit(
     if price is None or price.corporate_action_unresolved:
         raise ProposalConflictError("current planning price is unavailable; create a new proposal")
     close = Decimal(str(price.close_yen))
-    expected_max = max_acceptable_price(packet, tick_size_yen=PLANNING_TICK_SIZE_YEN)
+    expected_max = max_acceptable_price(thesis, tick_size_yen=PLANNING_TICK_SIZE_YEN)
     if (
         price.price_as_of != planned.price_as_of
         or close != planned.close_yen
@@ -514,8 +514,8 @@ def _validate_planned_limit(
         sqlite_path=market_path,
         price_as_of=price.price_as_of,
         ticker=planned.ticker,
-        sector=packet.input_snapshot.sector,
-        common_factors=packet.input_snapshot.common_factors,
+        sector=thesis.input_snapshot.sector,
+        common_factors=thesis.input_snapshot.common_factors,
         order_notional_yen=planned.notional_yen,
         market_connection=market_connection,
     )
@@ -554,9 +554,9 @@ def _canonical_plan(planned: PlannedLimitInput) -> CanonicalPlannedLimit:
         planned.model_dump(
             exclude={
                 "status",
-                "decision_packet_ref",
-                "decision_packet_sha256",
-                "decision_packet_core_sha256",
+                "thesis_ref",
+                "thesis_sha256",
+                "thesis_core_sha256",
                 "independent_review_ref",
                 "independent_review_sha256",
                 "source_ref",
@@ -622,7 +622,7 @@ def _record(row: sqlite3.Row) -> ProposalRecord:
     return ProposalRecord(
         proposal_id=str(row["proposal_id"]),
         ticker=str(row["ticker"]),
-        packet_id=str(row["packet_id"]),
+        thesis_id=str(row["thesis_id"]),
         review_id=str(row["review_id"]),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         status=cast(ProposalStatus, str(row["status"])),

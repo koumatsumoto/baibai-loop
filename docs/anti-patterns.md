@@ -142,7 +142,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       で計算ロジックを確認したか
 - [ ] DB publication viewとmodelに従い、独自構造を勝手に追加していないか
 - [ ] `extra: forbid` の model に独自 key を追加していないか
-- [ ] holding review / portfolio outcomeがledger・decision packet・benchmark observationのimmutable IDとscalar driftを検証しているか
+- [ ] holding review / portfolio outcomeがledger・thesis・benchmark observationのimmutable IDとscalar driftを検証しているか
 
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 
@@ -173,7 +173,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - future の macro context を判断時点の情報として使った
 - stale / missing macro context を理由に、決定論的なscreeningまたは候補比較を停止した
 - macroのmaterial deltaを銘柄別の事実や機械rankingへ混入した
-- material deltaが個別5年期待値へ影響するのに、decision packetの根拠・反証へ接続しなかった
+- material deltaが個別5年期待値へ影響するのに、thesisの根拠・反証へ接続しなかった
 
 ### 根本原因
 - macro contextを候補選別用のsector/ranking入力だと誤解する
@@ -185,7 +185,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、staleはwarning）
 - [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / investment connection / material delta / sizing cautionのsource_ids、statusを照合したか
 - [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
-- [ ] material deltaが個別仮説に影響する場合だけ、decision packetの判断と反証にsource付きで接続したか
+- [ ] material deltaが個別仮説に影響する場合だけ、thesisの判断と反証にsource付きで接続したか
 - [ ] **機械化チェック**: macro context publishのmodel / source / future / stale negative testを実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
@@ -220,7 +220,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - 当初の整合チェックを `avg_turnover_oku` 不在時には silently skip するように実装、
   required field 化を忘れた → 抜け道残存
 - schema 管理している nested object が未知 field を許しており、current contract 以外の値を取り込めた
-- `judgment.recommendation: reject` のpacketに買い注文が紐づき、非採用判断と矛盾していた
+- `judgment.recommendation: reject` のthesisに買い注文が紐づき、非採用判断と矛盾していた
 - `except TypeError, ValueError:` のような Python 2 風に見える except をめぐって、レビューで
   「構文エラー」なのか「Python 3.14 の PEP 758 による複数例外捕捉」なのかが混乱した。
   本 repo では可読性とレビュー容易性を優先し、複数例外捕捉は `except (A, B):` に統一する
@@ -235,31 +235,31 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 再発防止チェックリスト
 
 - [ ] validator rule を追加・修正する場合、以下の corner case の test を必ず書く:
-  - [ ] decision packetは7永久損失軸、source/as-of、3年/5年bear/base/bullを欠くと`incomplete`になる
-  - [ ] decision packetは`input_snapshot`、判断時`market_price`、valuation factを欠くと`incomplete`になる
+  - [ ] thesisは7永久損失軸、source/as-of、3年/5年bear/base/bullを欠くと`incomplete`になる
+  - [ ] thesisは`input_snapshot`、判断時`market_price`、valuation factを欠くと`incomplete`になる
   - [ ] snapshot sourceのticker不一致、未来as-of/retrieval、未知source ID、不正unit/typeを拒否する
   - [ ] source retrievalとmarket price observationがAI proposal時刻より後なら拒否する
-  - [ ] canonical packet ID、ticker、as-ofがsnapshot identityと一致する
+  - [ ] canonical thesis ID、ticker、as-ofがsnapshot identityと一致する
   - [ ] AI value captureはsourceを持ち、`not_material`ならrole/decision weightを持たず、`disrupted`ならstructural_decline riskと根拠が接続する
   - [ ] `entry_price_basis: observed_market_price`はsnapshotの判断時priceと一致する
   - [ ] execution policyはstale / historical / synthetic quote、max price超過、cash / dry-powder不足を`defer`にし、全orderがboard lot・合法tick・max priceを守る
   - [ ] local candidate YAML / SQLite pathをtracked decisionの参照先にせず、provider・dataset・retrieved_atをsnapshotへ固定する
   - [ ] scenarioの利益、株数変化、terminal multiple、配当、CAGRを再計算し、配当をterminal priceと二重計上できない
   - [ ] primary evidence不足でhigh confidenceまたは通常sizingのbuyへ進めず、期限付きoverrideと縮小sizingを要求する
-  - [ ] buy proposalのindependent reviewは別agent/session・別artifactで作り、packet hash、reviewer run ID、6 scenario再計算、全load-bearing source照合、変更有無へ束縛される
+  - [ ] buy proposalのindependent reviewは別agent/session・別artifactで作り、thesis hash、reviewer run ID、6 scenario再計算、全load-bearing source照合、変更有無へ束縛される
   - [ ] AI proposalは`proposed_at <= reviewed_at`、一次情報不足overrideは別envelopeでhuman decision reference・認識risk axesを持ち、review後かつ期限内に承認される
-  - [ ] screening E[r] / FVはobserved factへ混ぜずsource付きestimateとして扱い、値の不在・null・範囲外、selection / snapshot / packetのas-of不一致、未知sourceを検証する。FV bridge欠損だけではinvestment readinessをblockせずscreening sourceをindependent reviewのload-bearing集合へ入れない一方、bridge enum、空白note、3物理行以上を拒否し、optional field追加前のpacket core hashを維持する
+  - [ ] screening E[r] / FVはobserved factへ混ぜずsource付きestimateとして扱い、値の不在・null・範囲外、selection / snapshot / thesisのas-of不一致、未知sourceを検証する。FV bridge欠損だけではinvestment readinessをblockせずscreening sourceをindependent reviewのload-bearing集合へ入れない一方、bridge enum、空白note、3物理行以上を拒否し、optional field追加前のthesis core hashを維持する
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
   - [ ] model 管理している **nested object** が未知 field を許していないか
-  - [ ] **既存 packet** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
+  - [ ] **既存 thesis** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
         同 commit で fix する
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、approved proposal ID必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
-- [ ] decision packetがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一packet hashに束縛されるか
-- [ ] 統合reportはHTMLをreview対象にせず、findings / comparison / packet / proposalへ別roleのcontent reviewを行い、manifest・全packet raw/core・proposal hashの変更をstaleとして拒否するか
+- [ ] thesisがapprovedの場合、source snapshot、scenario、independent review、execution inputが同一thesis hashに束縛されるか
+- [ ] 統合reportはHTMLをreview対象にせず、findings / comparison / thesis / proposalへ別roleのcontent reviewを行い、manifest・全thesis raw/core・proposal hashの変更をstaleとして拒否するか
 - [ ] `planned_limit / defer / no actionable bargain`の全経路で、購入方法または注文なしが比較結論と矛盾せず、未知source IDと手書き注文数値を拒否するか
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
@@ -289,7 +289,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) と `docs/workflow/screening.md` の selection block 節
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
-  - [ ] `records/_config/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
+  - [ ] `method/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
         `research_selection_playbook_order` から削除
   - [ ] `src/baibai_engine/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
   - [ ] `src/baibai_engine/screening/rule_config.py` の `<Name>Playbook` class と Union 型
@@ -333,7 +333,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
 - [ ] 候補の不在、universe drop、macro context headwind、concentration warningなどを上書きする場合、
-      decision packetのevidence overrideへ人間判断の根拠と期限を残したか
+      thesisのevidence overrideへ人間判断の根拠と期限を残したか
 - [ ] canonical ledgerの資本・集中度はcurrent + reserved exposureから再計算したか
 - [ ] brokerの`open / filled / cancelled`を人間報告なしに推定していないか
 - [ ] 同一tickerのactive reservationがある間は、元注文の再表示と追加注文を区別できない`planned_limit`を新たに作っていないか

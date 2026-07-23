@@ -275,6 +275,85 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ON portfolio_outcome(period_end_date, horizon, outcome_id)",
         ),
     ),
+    # Domain vocabulary: the per-security judgment artifact is the thesis, the OP3
+    # gate output is the shortlist, and the pre-cap rank pool is the longlist.
+    # Row data is preserved; ID string values in existing rows stay opaque and are
+    # not rewritten. Completed operation_session payloads are immutable final
+    # records and keep their historical keys.
+    Migration(
+        version=10,
+        statements=(
+            "ALTER TABLE reviewed_shortlist RENAME TO shortlist",
+            "DROP INDEX reviewed_shortlist_asof_idx",
+            "CREATE INDEX shortlist_asof_idx ON shortlist(as_of, published_at)",
+            "DROP INDEX reviewed_shortlist_selection_idx",
+            "CREATE INDEX shortlist_selection_idx ON shortlist(selection_id)",
+            """
+            UPDATE shortlist SET payload = json_set(payload, '$.kind', 'shortlist')
+            WHERE json_extract(payload, '$.kind') = 'reviewed-shortlist'
+            """,
+            "ALTER TABLE research_packet RENAME TO thesis",
+            "ALTER TABLE thesis RENAME COLUMN packet_id TO thesis_id",
+            "DROP INDEX research_packet_ticker_idx",
+            "CREATE INDEX thesis_ticker_idx ON thesis(ticker, as_of, published_at, thesis_id)",
+            "ALTER TABLE research_review RENAME TO thesis_review",
+            "ALTER TABLE thesis_review RENAME COLUMN packet_id TO thesis_id",
+            "DROP INDEX research_review_packet_idx",
+            "CREATE INDEX thesis_review_thesis_idx "
+            "ON thesis_review(thesis_id, reviewed_at, review_id)",
+            """
+            UPDATE thesis_review SET payload = json_remove(
+                json_insert(
+                    payload,
+                    '$.reviewed_thesis_sha256',
+                    json_extract(payload, '$.reviewed_packet_sha256')
+                ),
+                '$.reviewed_packet_sha256'
+            )
+            WHERE json_type(payload, '$.reviewed_packet_sha256') IS NOT NULL
+            """,
+            "ALTER TABLE holding_review RENAME COLUMN packet_id TO thesis_id",
+            "ALTER TABLE holding_review RENAME COLUMN candidate_packet_id TO candidate_thesis_id",
+            "DROP INDEX holding_review_packet_idx",
+            "CREATE INDEX holding_review_thesis_idx ON holding_review(thesis_id)",
+            # Key-presence guards use json_type (SQL NULL only when the path is
+            # absent) so keys holding JSON null are renamed too: readers validate
+            # payloads with extra="forbid" and would reject leftover legacy keys.
+            """
+            UPDATE holding_review SET payload = json_remove(
+                json_insert(
+                    payload,
+                    '$.sources.holding_thesis',
+                    CASE
+                        WHEN json_type(payload, '$.sources.holding_packet')
+                            IN ('object', 'array')
+                        THEN json(json_extract(payload, '$.sources.holding_packet'))
+                        ELSE json_extract(payload, '$.sources.holding_packet')
+                    END
+                ),
+                '$.sources.holding_packet'
+            )
+            WHERE json_type(payload, '$.sources.holding_packet') IS NOT NULL
+            """,
+            """
+            UPDATE holding_review SET payload = json_remove(
+                json_insert(
+                    payload,
+                    '$.sources.candidate_thesis',
+                    CASE
+                        WHEN json_type(payload, '$.sources.candidate_packet')
+                            IN ('object', 'array')
+                        THEN json(json_extract(payload, '$.sources.candidate_packet'))
+                        ELSE json_extract(payload, '$.sources.candidate_packet')
+                    END
+                ),
+                '$.sources.candidate_packet'
+            )
+            WHERE json_type(payload, '$.sources.candidate_packet') IS NOT NULL
+            """,
+            "ALTER TABLE proposal RENAME COLUMN packet_id TO thesis_id",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version

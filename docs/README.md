@@ -16,7 +16,7 @@ last_reviewed: 2026-07-14
 
 | やりたいこと | 最初に読む | 必要時に読む | 通常読まない |
 | --- | --- | --- | --- |
-| 買い候補・指値提案 | [`decision-cycle`](./operations/decision-cycle.md) → [`decision-cycle skill`](../.agents/skills/decision-cycle/SKILL.md) | [`screening`](./workflow/screening.md)、[`research`](./workflow/research.md)、[`decision packet`](./reference/decision-packet.md) | improvement-loop、src、fixtures |
+| 買い候補・指値提案 | [`decision-cycle`](./operations/decision-cycle.md) → [`decision-cycle skill`](../.agents/skills/decision-cycle/SKILL.md) | [`screening`](./workflow/screening.md)、[`research`](./workflow/research.md)、[`thesis`](./reference/thesis.md) | improvement-loop、src、fixtures |
 | 人間から注文結果を受け取った | [`decision-cycle#human-result-path`](./operations/decision-cycle.md#human-result-path) | [`position`](./workflow/position.md)、[`portfolio ledger`](./reference/portfolio-ledger.md) | screening、macro |
 | 決算後に保有を見直す | [`decision-cycle#earnings-and-material-event-path`](./operations/decision-cycle.md#earnings-and-material-event-path) | [`research`](./workflow/research.md)、[`position`](./workflow/position.md)、[`holding review`](./reference/holding-review.md) | 全銘柄screening |
 | 年次結果を確認する | [`decision-cycle#annual-outcome-path`](./operations/decision-cycle.md#annual-outcome-path) | [`position`](./workflow/position.md)、[`estimate calibration`](./reference/estimate-calibration.md) | 新規候補selection |
@@ -47,7 +47,7 @@ last_reviewed: 2026-07-14
 | AI・人間・broker責務 | [`doctrine.md`](./doctrine.md) |
 | trigger、e2e順序、operation checkpoint | [`operations/decision-cycle.md`](./operations/decision-cycle.md) |
 | subsystem input/output/failure | 各[`workflow`](./workflow/) |
-| packetの式、lineage、review binding | [`reference/decision-packet.md`](./reference/decision-packet.md) |
+| thesisの式、lineage、review binding | [`reference/thesis.md`](./reference/thesis.md) |
 | ledger event/snapshot/reconciliation | [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md) |
 | holding action contract | [`reference/holding-review.md`](./reference/holding-review.md) |
 | field/type/enum | DB constraint、engine model |
@@ -62,7 +62,7 @@ last_reviewed: 2026-07-14
 | --- | --- |
 | macro context/provider | `workflow/macro.md`、`reference/data-sources.md` |
 | screening/selection/SQLite | `workflow/screening.md`、`reference/screening-runtime.md`、architecture CLI表 |
-| decision packet/review/opportunity | `workflow/research.md`、`reference/decision-packet.md`、decision-cycle recipe |
+| thesis/review/opportunity | `workflow/research.md`、`reference/thesis.md`、decision-cycle recipe |
 | ledger/result/holding/outcome | `workflow/position.md`、対応reference、decision-cycle human-result/holding節 |
 | model/write-time validation/CI | `reference/testing-and-validation.md`、`reference/python-foundation.md` |
 | local skill | AGENTS skill表、canonical skill、Claude symlink、skill inventory gate |

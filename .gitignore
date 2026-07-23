@@ -25,12 +25,6 @@ dist/
 # Disposable local cache for provider byproducts such as EDINET CSV ZIPs.
 .cache/
 
-# Weekly screen output (candidates). Deterministic L2 output over the SQLite
-# store; history is kept on disk as a local store (same durability posture as
-# data/screening/market.sqlite) and is not tracked in git.
-# See docs/components/candidates.md §2.
-records/02-candidates/**/*.yaml
-
 # Canonical application database and consistent manual snapshots
 data/app/
 

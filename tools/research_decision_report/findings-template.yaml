@@ -17,7 +17,7 @@ candidates:
   - heading: ユーザー指定の質問
     conclusion: 一次情報から得た結論
     evidence:
-    - statement: 根拠。数値はpacket fact/scenarioとsourceへ束縛する
+    - statement: 根拠。数値はthesis fact/scenarioとsourceへ束縛する
       kind: observed
       source_ids: [primary-results]
   business_model:

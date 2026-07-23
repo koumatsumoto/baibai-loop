@@ -7,10 +7,10 @@ import pytest
 from pydantic import ValidationError
 
 from baibai_engine.screening.shortlist import (
-    ReviewedShortlist,
-    ReviewedShortlistService,
     SelectionBinding,
+    Shortlist,
     ShortlistConflictError,
+    ShortlistService,
 )
 from baibai_engine.screening.shortlist_cli import reevaluation_task_suggestions
 
@@ -30,11 +30,11 @@ def _narrative() -> dict[str, str]:
     }
 
 
-def _shortlist() -> ReviewedShortlist:
-    return ReviewedShortlist.model_validate(
+def _shortlist() -> Shortlist:
+    return Shortlist.model_validate(
         {
             "schema_version": 2,
-            "kind": "reviewed-shortlist",
+            "kind": "shortlist",
             "shortlist_id": "shortlist-20260719-base",
             "selection_id": "selection-test",
             "run_revision_id": "runrev-test",
@@ -69,13 +69,13 @@ def _binding() -> SelectionBinding:
 
 def test_shortlist_publish_is_immutable_and_identical_retry_is_no_change(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
-    service = ReviewedShortlistService(path)
+    service = ShortlistService(path)
     shortlist = _shortlist()
     service.publish(shortlist, selection=_binding())
     service.publish(shortlist, selection=_binding())
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT count(*) FROM reviewed_shortlist").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM shortlist").fetchone()[0] == 1
     changed = shortlist.model_copy(
         update={"entries": shortlist.entries[:1]},
     )
@@ -90,14 +90,14 @@ def test_shortlist_rejects_duplicate_ticker_and_missing_selected() -> None:
         {"ticker": "2331", "decision": "rejected", "reason": "b"},
     ]
     with pytest.raises(ValidationError):
-        ReviewedShortlist.model_validate(payload)
+        Shortlist.model_validate(payload)
 
 
 def test_shortlist_selected_entry_requires_narrative() -> None:
     payload = _shortlist().payload()
     payload["entries"] = [{"ticker": "2331", "decision": "selected", "reason": "深掘りへ"}]
     with pytest.raises(ValidationError):
-        ReviewedShortlist.model_validate(payload)
+        Shortlist.model_validate(payload)
 
 
 def test_shortlist_rejected_entry_forbids_narrative() -> None:
@@ -107,7 +107,7 @@ def test_shortlist_rejected_entry_forbids_narrative() -> None:
         {"ticker": "0001", "decision": "rejected", "reason": "弱い", "narrative": _narrative()},
     ]
     with pytest.raises(ValidationError):
-        ReviewedShortlist.model_validate(payload)
+        Shortlist.model_validate(payload)
 
 
 def test_reevaluation_suggestion_emits_runnable_task_add_for_rejected_with_earnings_date() -> None:

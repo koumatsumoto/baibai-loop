@@ -13,7 +13,7 @@ related_docs:
 
 # Portfolio management
 
-この文書は資本とpositionの運用方針を定める。個別銘柄のFV、entry、limit、exitはdecision packet、proposal、holding reviewで判断する。機械contractはversioned config、engine model、DB constraintを正本とし、数値fieldをここへ網羅転記しない。
+この文書は資本とpositionの運用方針を定める。個別銘柄のFV、entry、limit、exitはthesis、proposal、holding reviewで判断する。機械contractはversioned config、engine model、DB constraintを正本とし、数値fieldをここへ網羅転記しない。
 
 ## Purpose and boundary
 

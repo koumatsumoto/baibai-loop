@@ -67,12 +67,12 @@ def _guard_real_databases() -> Iterator[None]:
 
 
 @pytest.fixture
-def app_records_root(tmp_path: Path) -> Path:
+def app_method_root(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
-    config_dir = root / "records/_config"
+    config_dir = root / "method"
     config_dir.mkdir(parents=True)
-    (config_dir / "macro-dashboard.yaml").write_text(
-        Path("records/_config/macro-dashboard.yaml").read_text(encoding="utf-8"),
+    (config_dir / "macro-panel.yaml").write_text(
+        Path("method/macro-panel.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     indicators_dir = root / "data/indicators"
@@ -91,16 +91,12 @@ def app_records_root(tmp_path: Path) -> Path:
             }
         ),
     )
-    packet = safe_load(
-        (FIXTURES / "decision-packet/2331-decision.yaml").read_text(encoding="utf-8")
-    )
-    review = safe_load(
-        (FIXTURES / "decision-packet/2331-decision-review.yaml").read_text(encoding="utf-8")
-    )
-    assert isinstance(packet, dict)
+    thesis = safe_load((FIXTURES / "thesis/2331-decision.yaml").read_text(encoding="utf-8"))
+    review = safe_load((FIXTURES / "thesis/2331-decision-review.yaml").read_text(encoding="utf-8"))
+    assert isinstance(thesis, dict)
     assert isinstance(review, dict)
-    ResearchStoreService(db_path).publish_packet_with_review(
-        "packet-20260714-2331-r1", packet, review
+    ResearchStoreService(db_path).publish_thesis_with_review(
+        "thesis-20260714-2331-r1", thesis, review
     )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))

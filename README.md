@@ -34,14 +34,14 @@ AIは提案までを担当し、人間だけが`approve / defer / reject`とbrok
 
 | cycle | 目的 | 主な成果物 |
 | --- | --- | --- |
-| continuous decision cycle | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | operation session、proposal、decision packet/review、human-confirmed ledger、holding review、annual outcome |
+| continuous decision cycle | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | operation session、proposal、thesis/review、human-confirmed ledger、holding review、annual outcome |
 | improvement loop | 見積り方法を計測し、再現可能な変更だけ採用する | preregistration、design/confirm評価、PR、operation test、dated report |
 
 個別銘柄の判断と基盤方法の改善を同じ作業に混ぜません。日常運用で見つけた基盤不備はIssue化し、improvement loopへ渡します。
 
 ## Read-only 運用 UI
 
-frontend を build して local cockpit を起動します。
+frontend を build して Baibai App を起動します。
 
 ```bash
 cd ui
@@ -58,7 +58,7 @@ uv run baibai-app serve
 | --- | --- | --- |
 | L1 observed data | 再取得可能な市場・開示データ | `data/screening/market.sqlite` |
 | L2 derived / estimate | 決定論的screen、指標、E[r]、FV anchor | screening output、local opportunity workspace |
-| L3 judgment / operation | 一次情報を確認した投資・保有判断 | macro context、decision packet/review、proposal、ledger、operation session |
+| L3 judgment / operation | 一次情報を確認した投資・保有判断 | macro context、thesis/review、proposal、ledger、operation session |
 
 E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補探索のlocal outputを判断の正本にせず、採用した入力と判断だけをapplication DBへpublishします。
 
@@ -67,7 +67,7 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 | path | 役割 |
 | --- | --- |
 | `src/baibai_engine/` | domain、application service、application DB、read API |
-| `src/baibai_app/` / `ui/` | read-only local cockpit |
+| `src/baibai_app/` / `ui/` | read-only UI（Baibai App） |
 | `records/` | Git管理のmethod/configとresearch playbook |
 | `data/` | application DBとrebuildable data/run store |
 | `docs/` | doctrine、governance、operations、workflow、reference |
@@ -83,15 +83,15 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 | command | 役割 |
 | --- | --- |
 | `baibai-engine screening` | cache、screening、select、ticker profile、calibration |
-| `baibai-engine research` | opportunity workspace、packet/review scaffold、promotion、前営業日指値 |
-| `baibai-engine research evaluate` | decision packetと既存execution policyの再計算 |
+| `baibai-engine research` | opportunity workspace、thesis/review scaffold、promotion、前営業日指値 |
+| `baibai-engine research evaluate` | thesisと既存execution policyの再計算 |
 | `baibai-engine position` | ledger、typed draft/apply、holding review、portfolio outcome |
 | `baibai-engine macro` | macro indicator seriesとcontext publication |
 | `baibai-engine operation` | current operation workspaceとimmutable final result |
 | `baibai-engine proposal` | trade proposalと人間のcurrent decision |
 | `baibai-engine task` | task current state |
 | `baibai-engine db` | application DB init/info/backup |
-| `baibai-app` | 127.0.0.1固定のread-only cockpit |
+| `baibai-app` | 127.0.0.1固定のread-only UI（Baibai App） |
 
 日常運用の完全なcommand順は[`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md)、各optionはpublic `--help`を正本とします。
 

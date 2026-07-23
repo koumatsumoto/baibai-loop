@@ -1,4 +1,4 @@
-"""CLI for serving the local read-only cockpit."""
+"""CLI for serving the local read-only Baibai App."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ _DEFAULT_PORT = 8712
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-app")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    serve = subparsers.add_parser("serve", help="serve the local read-only cockpit")
+    serve = subparsers.add_parser("serve", help="serve the local read-only Baibai App")
     serve.add_argument("--root", type=Path, default=Path.cwd())
     serve.add_argument("--db", type=Path)
     serve.add_argument("--runs-db", type=Path)
@@ -55,8 +55,8 @@ def main(argv: list[str] | None = None) -> int:
 def _root_error(root: Path) -> str | None:
     if not (root / "pyproject.toml").is_file():
         return f"--root does not contain pyproject.toml: {root}"
-    if not (root / "records").is_dir():
-        return f"--root does not contain records/: {root}"
+    if not (root / "method").is_dir():
+        return f"--root does not contain method/: {root}"
     return None
 
 

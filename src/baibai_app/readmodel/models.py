@@ -33,7 +33,7 @@ class HoldingView(BaseModel):
     unrealized_pnl_pct: float
     fair_value_yen: float | None
     fv_gap_pct: float | None
-    latest_packet_id: str | None
+    latest_thesis_id: str | None
     recommendation: str | None
     next_earnings_date: str | None = None
 
@@ -116,7 +116,7 @@ class OperationSessionView(BaseModel):
 class ProposalView(BaseModel):
     proposal_id: str
     ticker: str
-    packet_id: str
+    thesis_id: str
     review_id: str
     created_at: datetime
     status: str
@@ -135,7 +135,7 @@ class PortfolioOutcomeView(BaseModel):
     benchmark_cumulative_return_pct: float | None = None
 
 
-class ProgramStateView(BaseModel):
+class OperationsView(BaseModel):
     operations: list[OperationSessionView]
     proposals: list[ProposalView]
     outcomes: list[PortfolioOutcomeView]
@@ -192,7 +192,7 @@ class ScreeningView(BaseModel):
     run: ScreeningRunView | None
     rows: list[CandidateRowView]
     selections: list[MachineSelectionView]
-    reviewed_shortlists: list[ReviewedShortlistView]
+    shortlists: list[ShortlistView]
 
 
 class MachineSelectionView(BaseModel):
@@ -202,7 +202,7 @@ class MachineSelectionView(BaseModel):
     macro_context_id: str | None
     created_at: datetime
     recommendations: list[dict[str, object]]
-    audit_pool: list[dict[str, object]]
+    longlist: list[dict[str, object]]
 
 
 class ShortlistNarrativeView(BaseModel):
@@ -219,25 +219,25 @@ class ShortlistNarrativeView(BaseModel):
     sector_label: str | None = None
 
 
-class ReviewedShortlistEntryView(BaseModel):
+class ShortlistEntryView(BaseModel):
     ticker: str
     decision: str
     reason: str
     narrative: ShortlistNarrativeView | None = None
 
 
-class ReviewedShortlistView(BaseModel):
+class ShortlistView(BaseModel):
     shortlist_id: str
     selection_id: str
     run_revision_id: str
     as_of: date
     published_at: datetime
-    entries: list[ReviewedShortlistEntryView]
+    entries: list[ShortlistEntryView]
 
 
 class ResearchRevisionView(BaseModel):
     as_of: date
-    packet_id: str
+    thesis_id: str
     recommendation: str
     confidence: str | None
     current_fair_value_yen: float | None
@@ -250,7 +250,7 @@ class ScenarioView(BaseModel):
     horizon_years: int
 
 
-class PacketDetailView(BaseModel):
+class ThesisDetailView(BaseModel):
     revision: ResearchRevisionView
     entry_price_basis_yen: float | None
     required_5y_base_cagr_pct: float | None
@@ -264,8 +264,8 @@ class PacketDetailView(BaseModel):
 class HoldingReviewView(BaseModel):
     holding_review_id: str
     as_of: date
-    packet_id: str
-    candidate_packet_id: str | None
+    thesis_id: str
+    candidate_thesis_id: str | None
     action: str
     note: str | None
 
@@ -276,7 +276,7 @@ class SecurityDetailView(BaseModel):
     sector: str | None
     holding: HoldingView | None
     revisions: list[ResearchRevisionView]
-    latest_packet: PacketDetailView | None
+    latest_thesis: ThesisDetailView | None
     holding_reviews: list[HoldingReviewView]
     candidate_row: CandidateRowView | None
     candidate_run: ScreeningRunView | None

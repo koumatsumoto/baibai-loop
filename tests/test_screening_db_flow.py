@@ -15,8 +15,8 @@ from baibai_engine.proposals.cli import main as proposal_main
 from baibai_engine.read_api import (
     list_holding_review_payloads,
     list_proposal_payloads,
-    list_research_packet_payloads,
-    list_reviewed_shortlist_payloads,
+    list_shortlist_payloads,
+    list_thesis_payloads,
 )
 from baibai_engine.screening.cli.query import select_command
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
@@ -38,12 +38,12 @@ def _selected_narrative() -> dict[str, str]:
     }
 
 
-def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
-    app_records_root: Path,
+def test_select_and_shortlist_publish_from_explicit_run_revision(
+    app_method_root: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    runs_path = app_records_root / "data/screening/runs.sqlite"
-    app_path = app_records_root / "data/app/baibai.sqlite"
+    runs_path = app_method_root / "data/screening/runs.sqlite"
+    app_path = app_method_root / "data/app/baibai.sqlite"
     run = ScreeningRunReader(runs_path).latest_run()
     assert run is not None
     outputs: list[dict[str, object]] = []
@@ -76,12 +76,12 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
         "previous_candidates_ref": previous.run_revision_id,
     }
 
-    draft = app_records_root / "shortlist.yaml"
+    draft = app_method_root / "shortlist.yaml"
     draft.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 2,
-                "kind": "reviewed-shortlist",
+                "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-test",
                 "selection_id": outputs[0]["selection_id"],
                 "run_revision_id": run.run_revision_id,
@@ -114,23 +114,21 @@ def test_select_and_reviewed_shortlist_publish_from_explicit_run_revision(
     assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
     emitted = yaml.safe_load(capsys.readouterr().out)
     assert emitted["shortlist_id"] == "shortlist-20260708-test-newer"
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/screening/latest")
     assert response.status_code == 200
     assert len(response.json()["selections"]) == 2
-    assert len(response.json()["reviewed_shortlists"]) == 1
-    assert response.json()["reviewed_shortlists"][0]["shortlist_id"] == (
-        "shortlist-20260708-test-newer"
-    )
-    assert response.json()["reviewed_shortlists"][0]["as_of"] == run.as_of_date
+    assert len(response.json()["shortlists"]) == 1
+    assert response.json()["shortlists"][0]["shortlist_id"] == ("shortlist-20260708-test-newer")
+    assert response.json()["shortlists"][0]["as_of"] == run.as_of_date
 
 
-def test_reviewed_shortlist_publish_prints_reevaluation_task_suggestions(
-    app_records_root: Path,
+def test_shortlist_publish_prints_reevaluation_task_suggestions(
+    app_method_root: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    runs_path = app_records_root / "data/screening/runs.sqlite"
-    app_path = app_records_root / "data/app/baibai.sqlite"
+    runs_path = app_method_root / "data/screening/runs.sqlite"
+    app_path = app_method_root / "data/app/baibai.sqlite"
     run_payload = yaml.safe_load(
         """\
 run_id: screening-20260715
@@ -177,12 +175,12 @@ candidates:
     selection_id = str(selection_payload["selection_id"])
     profile = str(selection_payload["selection"]["profile"])
 
-    draft = app_records_root / "shortlist-triggers.yaml"
+    draft = app_method_root / "shortlist-triggers.yaml"
     draft.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 2,
-                "kind": "reviewed-shortlist",
+                "kind": "shortlist",
                 "shortlist_id": "shortlist-20260715-trigger",
                 "selection_id": selection_id,
                 "run_revision_id": run_revision_id,
@@ -222,11 +220,11 @@ candidates:
     assert "2331" not in captured.err
 
 
-def test_screening_api_falls_back_to_selection_bound_run(app_records_root: Path) -> None:
-    """A selection-less newer revision (determinism re-run) must not blank the cockpit."""
+def test_screening_api_falls_back_to_selection_bound_run(app_method_root: Path) -> None:
+    """A selection-less newer revision (determinism re-run) must not blank the Baibai App."""
 
-    runs_path = app_records_root / "data/screening/runs.sqlite"
-    app_path = app_records_root / "data/app/baibai.sqlite"
+    runs_path = app_method_root / "data/screening/runs.sqlite"
+    app_path = app_method_root / "data/app/baibai.sqlite"
     reader = ScreeningRunReader(runs_path)
     run = reader.latest_run()
     assert run is not None
@@ -251,21 +249,21 @@ def test_screening_api_falls_back_to_selection_bound_run(app_records_root: Path)
     assert latest is not None
     assert latest.run_revision_id == newer.publication_id
 
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         payload = client.get("/api/screening/latest").json()
     assert payload["run"]["source_path"] == run.run_revision_id
     assert payload["selections"]
     assert all(item["run_revision_id"] == run.run_revision_id for item in payload["selections"])
 
 
-def test_select_rejects_unknown_run_revision(app_records_root: Path) -> None:
+def test_select_rejects_unknown_run_revision(app_method_root: Path) -> None:
     assert (
         select_command(
             asof_date=date(2026, 7, 8),
             top=10,
             run_revision_id="run-revision-missing",
-            runs_db_path=app_records_root / "data/screening/runs.sqlite",
-            app_db_path=app_records_root / "data/app/baibai.sqlite",
+            runs_db_path=app_method_root / "data/screening/runs.sqlite",
+            app_db_path=app_method_root / "data/app/baibai.sqlite",
             stdout=io.StringIO(),
         )
         == 1
@@ -273,9 +271,9 @@ def test_select_rejects_unknown_run_revision(app_records_root: Path) -> None:
 
 
 def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous(
-    app_records_root: Path,
+    app_method_root: Path,
 ) -> None:
-    runs_path = app_records_root / "data/screening/runs.sqlite"
+    runs_path = app_method_root / "data/screening/runs.sqlite"
     reader = ScreeningRunReader(runs_path)
     current = reader.latest_run()
     assert current is not None
@@ -292,7 +290,7 @@ def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous
             top=10,
             run_revision_id=current.run_revision_id,
             runs_db_path=runs_path,
-            app_db_path=app_records_root / "data/app/baibai.sqlite",
+            app_db_path=app_method_root / "data/app/baibai.sqlite",
             stdout=io.StringIO(),
         )
         == 1
@@ -303,7 +301,7 @@ def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous
             top=10,
             run_revision_id=current.run_revision_id,
             runs_db_path=runs_path,
-            app_db_path=app_records_root / "data/app/baibai.sqlite",
+            app_db_path=app_method_root / "data/app/baibai.sqlite",
             stdout=io.StringIO(),
             previous_run_revision_id=second.publication_id,
         )
@@ -312,11 +310,11 @@ def test_select_requires_explicit_previous_revision_when_prior_asof_is_ambiguous
 
 
 def test_pruned_run_is_a_weak_reference_for_all_application_reads(
-    app_records_root: Path,
+    app_method_root: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    runs_path = app_records_root / "data/screening/runs.sqlite"
-    app_path = app_records_root / "data/app/baibai.sqlite"
+    runs_path = app_method_root / "data/screening/runs.sqlite"
+    app_path = app_method_root / "data/app/baibai.sqlite"
     reader = ScreeningRunReader(runs_path)
     source_run = reader.latest_run()
     assert source_run is not None
@@ -338,12 +336,12 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     assert isinstance(selection, dict)
     input_refs = selection["input_refs"]
     assert isinstance(input_refs, dict)
-    draft = app_records_root / "shortlist-weak-ref.yaml"
+    draft = app_method_root / "shortlist-weak-ref.yaml"
     draft.write_text(
         yaml.safe_dump(
             {
                 "schema_version": 2,
-                "kind": "reviewed-shortlist",
+                "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-weak-ref",
                 "selection_id": selection_id,
                 "run_revision_id": source_run.run_revision_id,
@@ -367,25 +365,25 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     )
     assert publish_shortlist(draft, app_db_path=app_path, runs_db_path=runs_path) == 0
     with sqlite3.connect(app_path) as connection:
-        packet_id, review_id = connection.execute(
+        thesis_id, review_id = connection.execute(
             """
-            SELECT p.packet_id, r.review_id
-            FROM research_packet AS p
-            JOIN research_review AS r USING (packet_id)
+            SELECT p.thesis_id, r.review_id
+            FROM thesis AS p
+            JOIN thesis_review AS r USING (thesis_id)
             LIMIT 1
             """
         ).fetchone()
         connection.execute(
             """
             INSERT INTO holding_review (
-                holding_review_id, ticker, as_of, packet_id, candidate_packet_id, payload
+                holding_review_id, ticker, as_of, thesis_id, candidate_thesis_id, payload
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 "holding-review-weak-ref",
                 "2331",
                 "2026-07-20",
-                packet_id,
+                thesis_id,
                 None,
                 json.dumps({"action": "hold", "note": "継続監視"}, ensure_ascii=False),
             ),
@@ -393,14 +391,14 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
         connection.execute(
             """
             INSERT INTO proposal (
-                proposal_id, ticker, packet_id, review_id, created_at,
+                proposal_id, ticker, thesis_id, review_id, created_at,
                 status, decided_at, payload
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "proposal-weak-ref",
                 "2331",
-                packet_id,
+                thesis_id,
                 review_id,
                 "2026-07-20T12:00:00+09:00",
                 "pending",
@@ -409,8 +407,8 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
             ),
         )
     canonical_before = {
-        "shortlists": list_reviewed_shortlist_payloads(app_path),
-        "research": list_research_packet_payloads(app_path),
+        "shortlists": list_shortlist_payloads(app_path),
+        "research": list_thesis_payloads(app_path),
         "proposals": list_proposal_payloads(app_path),
         "holding_reviews": list_holding_review_payloads(app_path),
     }
@@ -431,8 +429,8 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     assert reader.get_run(source_run.run_revision_id) is None
     assert reader.get_selection(selection_id) is None
     assert canonical_before == {
-        "shortlists": list_reviewed_shortlist_payloads(app_path),
-        "research": list_research_packet_payloads(app_path),
+        "shortlists": list_shortlist_payloads(app_path),
+        "research": list_thesis_payloads(app_path),
         "proposals": list_proposal_payloads(app_path),
         "holding_reviews": list_holding_review_payloads(app_path),
     }
@@ -443,7 +441,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
                 "--db",
                 str(app_path),
                 "--market-db",
-                str(app_records_root / "data/screening/market.sqlite"),
+                str(app_method_root / "data/screening/market.sqlite"),
                 "show",
                 "proposal-weak-ref",
             ]
@@ -451,7 +449,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
         == 0
     )
     assert yaml.safe_load(capsys.readouterr().out)["proposal_id"] == "proposal-weak-ref"
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         responses = {
             path: client.get(path)
             for path in (
@@ -459,7 +457,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
                 "/api/dashboard",
                 "/api/screening/latest",
                 "/api/macro",
-                "/api/program",
+                "/api/operations",
                 "/api/securities/2331",
             )
         }
@@ -467,25 +465,27 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     screening = responses["/api/screening/latest"].json()
     assert screening["run"]["source_path"] == "run-newer"
     assert "runs" not in screening
-    assert screening["reviewed_shortlists"][0]["shortlist_id"] == ("shortlist-20260708-weak-ref")
-    assert responses["/api/program"].json()["proposals"][0]["proposal_id"] == ("proposal-weak-ref")
+    assert screening["shortlists"][0]["shortlist_id"] == ("shortlist-20260708-weak-ref")
+    assert responses["/api/operations"].json()["proposals"][0]["proposal_id"] == (
+        "proposal-weak-ref"
+    )
     security = responses["/api/securities/2331"].json()
-    assert security["revisions"][0]["packet_id"] == packet_id
+    assert security["revisions"][0]["thesis_id"] == thesis_id
     assert security["holding_reviews"][0]["holding_review_id"] == "holding-review-weak-ref"
 
 
 def test_screening_api_returns_bounded_empty_state_after_pruning_all_runs(
-    app_records_root: Path,
+    app_method_root: Path,
 ) -> None:
-    runs_path = app_records_root / "data/screening/runs.sqlite"
+    runs_path = app_method_root / "data/screening/runs.sqlite"
     result = ScreeningRunStore(runs_path).prune(keep=0)
 
     assert result.kept_runs == 0
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/screening/latest")
 
     assert response.status_code == 200
     assert response.json()["run"] is None
     assert response.json()["rows"] == []
     assert response.json()["selections"] == []
-    assert len(response.json()["reviewed_shortlists"]) <= 1
+    assert len(response.json()["shortlists"]) <= 1

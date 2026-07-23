@@ -16,7 +16,7 @@ from baibai_engine.foundation.coerce import (
 
 from .lenses import _durability_lens_of
 
-# audit pool の event_warnings は、価格・EPS・配当の fact を歪め得る
+# longlist の event_warnings は、価格・EPS・配当の fact を歪め得る
 # corporate action / 決算跨ぎ / 開示鮮度の risk tag だけを写す。需給系
 # (previous_candidate / benchmark_laggard) は event ではないので除く。
 _EVENT_RISK_TAGS = frozenset(
@@ -165,10 +165,10 @@ def _selection_candidate_summary(
     return summary
 
 
-def _audit_pool_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
-    """Render one audit-pool row: the pre-shortlist view of a ranked candidate.
+def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str, object]:
+    """Render one longlist row: the pre-shortlist view of a ranked candidate.
 
-    audit pool は diversity/cap による recommendation 切断 *前* の rank 済み集合を
+    longlist は diversity/cap による recommendation 切断 *前* の rank 済み集合を
     そのまま監査するための view。ranking も candidate の値も変えず、rank と主要な
     見積り・warning だけを平らに写す。約定用の price basis はここでは決めない
     (plan-limit が SQLite の raw close を正本にする)ため、market_price は screening
@@ -184,7 +184,7 @@ def _audit_pool_summary(candidate: Mapping[str, object], *, rank: int) -> dict[s
         "ticker": string_or_none(candidate.get("ticker")),
         "name": string_or_none(candidate.get("name")),
         "screening_playbook": string_or_none(candidate.get("selection_playbook")),
-        # er_annual は annual_ratio (0.1 = 10%/年)。audit view は pct で読むので x100。
+        # er_annual は annual_ratio (0.1 = 10%/年)。longlist view は pct で読むので x100。
         "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
         "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
         # market_cap_oku (億円) * 1e8 / 発行株数 = 円/株。FV anchor が使う close と同じ
@@ -195,7 +195,7 @@ def _audit_pool_summary(candidate: Mapping[str, object], *, rank: int) -> dict[s
         "durability_warnings": list(string_sequence(durability_lens.get("caution_reasons"))),
         "event_warnings": [tag for tag in risk_tags if tag in _EVENT_RISK_TAGS],
         "selection_reasons": list(string_sequence(candidate.get("reason_tags"))),
-        # opportunity packet-scaffold は audit_pool から選ばれた銘柄も扱うため、
+        # opportunity thesis-scaffold は longlist から選ばれた銘柄も扱うため、
         # recommendation と同じ raw estimate + provenance contract を渡す。flat fields
         # は人間向け表示であり、転記時の正本にはしない。
         "estimate_snapshot": {

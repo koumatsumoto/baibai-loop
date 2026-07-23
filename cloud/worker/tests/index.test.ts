@@ -80,7 +80,7 @@ describe('view routing', () => {
   it.each([
     ['/api/dashboard', 'views/dashboard.json'],
     ['/api/screening/latest', 'views/screening_latest.json'],
-    ['/api/program', 'views/program.json'],
+    ['/api/operations', 'views/operations.json'],
     ['/api/meta', 'views/meta.json'],
     ['/api/macro', 'views/macro--1y-daily.json'],
     ['/api/macro?period=max&granularity=yearly', 'views/macro--max-yearly.json'],

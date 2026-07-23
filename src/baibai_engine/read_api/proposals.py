@@ -16,7 +16,7 @@ def list_proposal_payloads(path: Path) -> list[dict[str, object]]:
     try:
         with closing(connect_read_only(path)) as connection:
             rows = connection.execute(
-                "SELECT proposal_id, ticker, packet_id, review_id, created_at, "
+                "SELECT proposal_id, ticker, thesis_id, review_id, created_at, "
                 "status, decided_at, payload FROM proposal "
                 "ORDER BY created_at DESC, proposal_id DESC"
             ).fetchall()
@@ -26,7 +26,7 @@ def list_proposal_payloads(path: Path) -> list[dict[str, object]]:
         {
             "proposal_id": row["proposal_id"],
             "ticker": row["ticker"],
-            "packet_id": row["packet_id"],
+            "thesis_id": row["thesis_id"],
             "review_id": row["review_id"],
             "created_at": row["created_at"],
             "status": row["status"],

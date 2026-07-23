@@ -2,7 +2,7 @@
 
 Classifies the market state from price facts only (benchmark trend) as a
 fact-layer artifact: `market-snapshot` の週次履歴、`ticker-profile` の事実
-packet、`select` diagnostics の市場状態 fact として出力し、macro context
+thesis、`select` diagnostics の市場状態 fact として出力し、macro context
 作成の機械入力になる。thresholds are fixed up front and never fitted to past
 data; the label annotates facts and never gates or re-ranks selection
 (期間ではなく valuation と耐性で判断するため、docs/workflow/screening.md)。
@@ -30,7 +30,7 @@ SELLOFF_RETURN_20D_MAX = -0.03
 TREND_WINDOW_BARS = 20
 LONG_TREND_WINDOW_BARS = 60
 
-# market_snapshot uses these for the weekly history packet (fact layer only,
+# market_snapshot uses these for the weekly history thesis (fact layer only,
 # never gates the label). They live here so market_snapshot stays in sync with
 # the regime classifier window.
 BREADTH_MA_WINDOW_BARS = 20

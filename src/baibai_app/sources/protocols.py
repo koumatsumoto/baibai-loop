@@ -9,9 +9,9 @@ from typing import Protocol
 from baibai_app.sources.types import (
     CandidatesRun,
     HoldingReviewSummary,
-    PacketDetail,
     ResearchRevision,
     TaskRecord,
+    ThesisDetail,
 )
 from baibai_engine.read_api import PortfolioSnapshot
 
@@ -35,7 +35,7 @@ class MacroContextSource(Protocol):
 class ResearchSource(Protocol):
     def revisions(self) -> list[ResearchRevision]: ...
 
-    def packet_detail(self, packet_id: str) -> PacketDetail: ...
+    def thesis_detail(self, thesis_id: str) -> ThesisDetail: ...
 
     def holding_reviews(self, *, ticker: str | None = None) -> list[HoldingReviewSummary]: ...
 

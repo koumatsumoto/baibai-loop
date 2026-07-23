@@ -5,7 +5,7 @@ position_id: trade-20260701-9715
 ticker: "9715"
 sources:
   ledger: {entity_id: portfolio-ledger, append_head: 23}
-  holding_packet: {entity_id: packet-test-holding}
+  holding_thesis: {entity_id: thesis-test-holding}
 thesis_health:
   invalidation_status: broken
   permanent_loss_axes:

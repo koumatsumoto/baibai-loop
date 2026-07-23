@@ -9,7 +9,7 @@ import type {
   HoldingView,
   OperationSessionView,
   PortfolioOutcomeView,
-  ProgramStateView,
+  OperationsView,
   ProposalView,
   TaskView,
   UpcomingEventView,
@@ -361,7 +361,7 @@ function ProposalCard({ proposals }: { proposals: ProposalView[] }) {
                 <span>期限 <span className="font-mono tabular-nums text-foreground">{typeof expiresAt === 'string' ? formatJstDate(expiresAt.slice(0, 10)) : EMPTY}</span></span>
               </div>
               <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground">
-                <span className="truncate font-mono" title={item.packet_id}>{item.packet_id}</span>
+                <span className="truncate font-mono" title={item.thesis_id}>{item.thesis_id}</span>
                 <span>作成 {formatJstDate(item.created_at.slice(0, 10))}</span>
                 {item.decided_at && <span>決定 {formatJstDate(item.decided_at.slice(0, 10))}</span>}
               </div>
@@ -402,14 +402,14 @@ function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
 
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
-  const [program, setProgram] = useState<ProgramStateView | null>(null)
+  const [operations, setOperations] = useState<OperationsView | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchJson<DashboardView>('/api/dashboard').then(setData).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
     })
-    fetchJson<ProgramStateView>('/api/program').then(setProgram).catch((reason: unknown) => {
+    fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : '運用状態を読み込めませんでした')
     })
   }, [])
@@ -448,11 +448,11 @@ export function DashboardPage() {
 
         <UpcomingEventsCard events={data.upcoming_events} />
 
-        {program && (
+        {operations && (
           <section className="grid gap-4 lg:grid-cols-3" aria-label="運用・提案・評価">
-            <OperationCard operations={program.operations} />
-            <ProposalCard proposals={program.proposals} />
-            <OutcomeCard outcomes={program.outcomes} />
+            <OperationCard operations={operations.operations} />
+            <ProposalCard proposals={operations.proposals} />
+            <OutcomeCard outcomes={operations.outcomes} />
           </section>
         )}
 

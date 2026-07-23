@@ -65,8 +65,8 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     (output / "views/meta.json").write_text("{}", encoding="utf-8")
     (output / "history/select").mkdir(parents=True)
     (output / "history/select/2026-07-21.json").write_text("{}", encoding="utf-8")
-    (output / "history/candidate-pool").mkdir(parents=True)
-    (output / "history/candidate-pool/2026-07-21.json").write_text("{}", encoding="utf-8")
+    (output / "history/candidates").mkdir(parents=True)
+    (output / "history/candidates/2026-07-21.json").write_text("{}", encoding="utf-8")
 
     subprocess.run(
         [TRANSFER_SCRIPT, "upload-serving", output],

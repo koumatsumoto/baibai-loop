@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     create = commands.add_parser("create")
-    create.add_argument("--packet-id", required=True)
+    create.add_argument("--thesis-id", required=True)
     create.add_argument("--input", type=Path, required=True)
 
     listing = commands.add_parser("list")
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             _emit(
                 _public(
                     service.create(
-                        args.packet_id,
+                        args.thesis_id,
                         planned_limit,
                         snapshot,
                         snapshot_append_head=append_head,
@@ -111,7 +111,7 @@ def _public(record: ProposalRecord) -> dict[str, object]:
     return {
         "proposal_id": record.proposal_id,
         "ticker": record.ticker,
-        "packet_id": record.packet_id,
+        "thesis_id": record.thesis_id,
         "review_id": record.review_id,
         "created_at": record.created_at.isoformat(),
         "status": record.status,

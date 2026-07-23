@@ -58,7 +58,7 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2026-01-01 --end 202
 
 `import-manual` は manual 系列を seed の全行へ同期する。同じ seed の再 import は observation と provider run の件数・内容を変えない。manual 系列の `get` は imported row だけを読み、`refresh` は書き込みを拒否して `import-manual` を案内する。`macro.sqlite` は schema / series registry / manual seed と各 provider API から再構築する L1 store であり、manual 観測の backup は持たない。
 
-### cockpit で期間と粒度を読む
+### Baibai App で期間と粒度を読む
 
 `baibai-app` の Macro ページは期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` を全チャートへ適用する。`/api/macro` も同じ query parameter を受け、週次・月次・年次は各期間の最終観測値を返す。既定は `1y + daily` である。`series.yaml` に `tradingview_symbol` がある系列だけ、チャートカードから TradingView の該当 symbol を新規 tab で開く。
 
@@ -151,14 +151,14 @@ published contextがこの契約を満たさない、またはas_of以降にmoni
 
 ## Material deltaとAIの境界
 
-macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing cautionだけを表す。AIの役割と株主価値の獲得可能性はmacro contextに置かず、企業別decision packetで評価する。
+macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing cautionだけを表す。AIの役割と株主価値の獲得可能性はmacro contextに置かず、企業別thesisで評価する。
 
 ## 接続：判断層にだけ効かせる（screen は macro-blind）
 
 マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
 - **select**（[`./screening.md`](./screening.md)）：material deltaとwarningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
-- **research**：material deltaが個別5年期待値へ影響する場合だけ、decision packetのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
+- **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
 
 ## 誠実性（honesty firewall）
 

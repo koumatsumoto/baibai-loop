@@ -1,4 +1,4 @@
-"""Explicit reviewed-shortlist publication command."""
+"""Explicit shortlist publication command."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.run_store import ScreeningRunReader
 
 from .shortlist import (
-    ReviewedShortlist,
-    ReviewedShortlistService,
     SelectionBinding,
+    Shortlist,
     ShortlistConflictError,
+    ShortlistService,
 )
 
 _DISPOSITION_LABELS: Mapping[str, str] = {"rejected": "見送り"}
@@ -32,7 +32,7 @@ def publish_shortlist(
 ) -> int:
     try:
         raw = safe_load(draft_path.read_text(encoding="utf-8"))
-        shortlist = ReviewedShortlist.model_validate(raw)
+        shortlist = Shortlist.model_validate(raw)
         reader = ScreeningRunReader(runs_db_path)
         selection = reader.get_selection(shortlist.selection_id)
         if selection is None:
@@ -53,7 +53,7 @@ def publish_shortlist(
         next_earnings_by_ticker = {
             str(item["ticker"]): item.get("next_earnings_date") for item in run.candidates
         }
-        published = ReviewedShortlistService(app_db_path).publish(
+        published = ShortlistService(app_db_path).publish(
             shortlist,
             selection=binding,
         )
@@ -68,7 +68,7 @@ def publish_shortlist(
 
 
 def reevaluation_task_suggestions(
-    shortlist: ReviewedShortlist,
+    shortlist: Shortlist,
     next_earnings_by_ticker: Mapping[str, object | None],
 ) -> list[str]:
     """Build ready-to-run task-add lines for every non-selected entry.

@@ -6,7 +6,7 @@ position_id: trade-20260505-9682
 ticker: "9682"
 sources:
   ledger: {entity_id: portfolio-ledger, append_head: 23}
-  holding_packet: {entity_id: packet-test-holding}
+  holding_thesis: {entity_id: thesis-test-holding}
 thesis_health:
   invalidation_status: intact
   permanent_loss_axes:

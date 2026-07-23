@@ -1,7 +1,7 @@
-# Reviewed shortlist draft (operator-authored, per cycle).
+# Shortlist draft (operator-authored, per cycle).
 #
-# The OP3 human-review gate: pick 8〜10 candidates from the run's audit_pool and
-# record the judgment here, then publish it as the canonical reviewed shortlist:
+# The OP3 human-review gate: pick 8〜10 candidates from the run's longlist and
+# record the judgment here, then publish it as the canonical shortlist:
 #
 #   uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml \
 #     --db data/app/baibai.sqlite --runs-db data/screening/runs.sqlite
@@ -13,7 +13,7 @@
 # The published narrative is read by the baibai-app /shortlist review surface.
 
 schema_version: 2
-kind: reviewed-shortlist
+kind: shortlist
 shortlist_id: "shortlist-YYYYMMDD-<slug>"   # matches ^shortlist-\d{8}-[a-z0-9-]+$
 selection_id: "<selection_id from `screening select`>"
 run_revision_id: "<run_revision_id from `screening run`>"

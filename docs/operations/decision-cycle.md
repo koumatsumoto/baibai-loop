@@ -17,7 +17,7 @@ AIは観測・分析・提案・人間報告後の記録を担当し、人間だ
 | 候補抽出・購入機会 | `opportunity` | shortlist比較、research ID、proposal IDまたは見送り理由 |
 | 注文・約定・取消・失効の人間報告 | `pending-result` | proposal / reservationと適用したledger event ID |
 | 入出金・income・cost・tax | `monthly-contribution` | 適用したevent IDとsnapshot差分 |
-| 決算・material event・保有見直し | `earnings-material-event` | packet / review / holding-review IDと判断 |
+| 決算・material event・保有見直し | `earnings-material-event` | thesis / review / holding-review IDと判断 |
 | 年次評価 | `annual-outcome` | outcome IDまたはunresolved理由 |
 | 方法改善 | `improvement` | improvement-loopへのhandoff |
 
@@ -48,25 +48,25 @@ dirty worktreeの所有不明、public `--help`不明、入力矛盾では停止
 
 ## Opportunity path
 
-1. `screening run`が返す`run_revision_id`を明示して`select --audit-top 20`する。
-2. audit poolから[human-review gate](#opportunity-human-review-gate-op3)の件数契約で候補を選び、各selected銘柄へOP3 narrative、各rejected銘柄へ具体的な非選択理由を付けたshortlist draftを、source `selection_id`へ束縛して`screening shortlist publish`する。machine recommendationをreviewed shortlistと呼ばない。
+1. `screening run`が返す`run_revision_id`を明示して`select --longlist-top 20`する。
+2. longlistから[human-review gate](#opportunity-human-review-gate-op3)の件数契約で候補を選び、各selected銘柄へOP3 narrative、各rejected銘柄へ具体的な非選択理由を付けたshortlist draftを、source `selection_id`へ束縛して`screening shortlist publish`する。machine recommendationをshortlistと呼ばない。
 3. 人間がレビュー面からprimary-research setを選び、その銘柄のresearch workspaceを作って一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。
-4. packetとindependent reviewを`research promote`し、返された`packet_id` / `review_id`をsessionから参照する。
+4. thesisとindependent reviewを`research promote`し、返された`thesis_id` / `review_id`をsessionから参照する。
 5. planning-only limitの出力からproposalを作る。proposalは`pending`で始まり、人間の報告だけを`proposal decide`で記録する。
-6. reviewed shortlistは`baibai-app`の`/shortlist`レビュー面、research decision reportはephemeral HTML projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
+6. shortlistは`baibai-app`の`/shortlist`レビュー面、research decision reportはephemeral HTML projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
 
 ```bash
 uv run baibai-engine screening run --asof YYYY-MM-DD
-uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id RUN_REVISION_ID --audit-top 20 --output-path /tmp/selection.yaml
+uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id RUN_REVISION_ID --longlist-top 20 --output-path /tmp/selection.yaml
 uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml
 uv run baibai-engine research prepare --asof YYYY-MM-DD --selection-output /tmp/selection.yaml --db data/app/baibai.sqlite --workspace .cache/opportunity/YYYY-MM-DD
 uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --db data/app/baibai.sqlite
-uv run baibai-engine research plan-limit --packet .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
-uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite create --packet-id PACKET_ID --input /tmp/proposal-input.yaml
+uv run baibai-engine research plan-limit --thesis .cache/opportunity/YYYY-MM-DD/XXXX/thesis-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
+uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite create --thesis-id THESIS_ID --input /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite decide PROPOSAL_ID --decision approve
 ```
 
-`approve`時はcurrent DBのpacket、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。
+`approve`時はcurrent DBのthesis、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。
 
 <a id="opportunity-human-review-gate-op3"></a>
 
@@ -74,13 +74,13 @@ uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/scree
 
 一次リサーチの前に、比較可能な候補群を人間へ渡すレビューgateを置く。1銘柄へ先に決め打ちしない。
 
-- **件数契約**: `audit_pool`上位20件から8〜10候補をshortlistへ入れる。audit poolが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。`recommendations`のproduction capはこの件数を決めない。
+- **件数契約**: `longlist`上位20件から8〜10候補をshortlistへ入れる。longlistが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。`recommendations`のproduction capはこの件数を決めない。
 - **判断の記録**: selected銘柄は`ShortlistEntry.narrative`（なぜ安いか / 一時的か / 構造的か / 5年耐性 / unlock / 最強countercase / 深掘り論点 / 深掘り価値 / 暫定判断と暫定`ploss`）を必須にし、rejected銘柄は「順位が低い」「予算外」だけでない具体的理由を必須にする。draftは[`tools/shortlist/draft-template.yaml`](../../tools/shortlist/draft-template.yaml)を写して記入し、`screening shortlist publish`でapplication DBへ一次記録する。narrativeをephemeral HTMLに残さない。
-- **再評価triggerの接続**: `screening shortlist publish`は成功時、selected以外（rejected）の各entryについて、束縛したrun candidatesの`next_earnings_date`から`baibai-engine task add --kind follow-up --event-date <決算日> ...`をそのまま実行できる形でstderrへ印字する（決算日が未公表なら手動でtrigger日を決める注記）。stdoutはmachine-readableな公開payloadのままにする。「今は買わない」割安候補のdated re-entry triggerは、この提案からfollow-up taskを起票してcockpitのnext_eventへ載せる。write境界は人間に残し、taskをtrigger発火の正本にする。
-- **開示スキャン**: narrativeを書く前に、新規候補（前回reviewed shortlistを確認できないfull reviewでは全候補）について会社IR・TDnetの直近開示をタイトルレベルで確認し、screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）をnarrativeの`why` / `counter`へ反映する。
+- **再評価triggerの接続**: `screening shortlist publish`は成功時、selected以外（rejected）の各entryについて、束縛したrun candidatesの`next_earnings_date`から`baibai-engine task add --kind follow-up --event-date <決算日> ...`をそのまま実行できる形でstderrへ印字する（決算日が未公表なら手動でtrigger日を決める注記）。stdoutはmachine-readableな公開payloadのままにする。「今は買わない」割安候補のdated re-entry triggerは、この提案からfollow-up taskを起票してBaibai Appのnext_eventへ載せる。write境界は人間に残し、taskをtrigger発火の正本にする。
+- **開示スキャン**: narrativeを書く前に、新規候補（前回shortlistを確認できないfull reviewでは全候補）について会社IR・TDnetの直近開示をタイトルレベルで確認し、screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）をnarrativeの`why` / `counter`へ反映する。
 - **macro hintの消化**: shortlist作成の前提となるmacro contextは[decision-grade深度契約](../workflow/macro.md#decision-grade-深度契約opportunity-cycleの前提)を満たすものを使う。selected銘柄のnarrative `research` / `counter`は、published contextのresearch_priority_hints / sizing_cautionsのうち当該銘柄に該当するものを明示的に消化する（該当なしならその判断を書く）。hintを黙って落とさない。
-- **差分確認**: 直近の前回reviewed shortlist（application DB）がある週次runでは、今回とticker集合を`new / continued / exited`で比較する。`continued`は前回narrativeを自動継承せず、audit順位差・価格・最新開示・最強countercaseを再確認したうえでmaterial changeがなければ再利用する。前回を確認できないrunは差分を推定せず全候補を確認する。
-- **primary-research set**: `/shortlist`レビュー面（narrativeとselection audit_poolのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。買う候補が無ければこの段階で`no actionable bargain`終了できる。
+- **差分確認**: 直近の前回shortlist（application DB）がある週次runでは、今回とticker集合を`new / continued / exited`で比較する。`continued`は前回narrativeを自動継承せず、longlist順位差・価格・最新開示・最強countercaseを再確認したうえでmaterial changeがなければ再利用する。前回を確認できないrunは差分を推定せず全候補を確認する。
+- **primary-research set**: `/shortlist`レビュー面（narrativeとselection longlistのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 <a id="human-result-path"></a>
 
@@ -123,9 +123,9 @@ risk override、estimated exit tax設定、market priceも各typed draftを作�
 ## Earnings / material event / holding review
 
 1. 対象holdingと最新完全営業日のraw/unadjusted closeを確認し、`market-price-draft`を人間確認後にapplyする。
-2. DBのcurrent ledgerとpacketから1銘柄workspaceを作り、一次情報のmaterial deltaだけを更新する。
-3. packet / reviewをpromoteし、DB sourceから`holding-review-build`する。
-4. load-bearing scalar、packet revision、ledger state、`thesis health`、税引後代替価値を検証する。
+2. DBのcurrent ledgerとthesisから1銘柄workspaceを作り、一次情報のmaterial deltaだけを更新する。
+3. thesis / reviewをpromoteし、DB sourceから`holding-review-build`する。
+4. load-bearing scalar、thesis revision、ledger state、`thesis health`、税引後代替価値を検証する。
 5. 人間確認後だけ`holding-review publish`し、IDと`hold / add / reduce / exit`をsessionに記録する。
 6. `reduce / exit`判定に沿って人間が発注し約定したら、その事実だけを`sell-result-draft`で記録する。builderはcurrent ledgerの保有数量とFIFO原価を検証したexecution(side=sell) draftを作り、人間確認後だけ`apply-draft --confirmed`で反映する。判断元のholding review IDを`--decision-reference`で紐付ける。broker手数料は`--fees-yen`（cost event）、確定した譲渡益税は`--tax-yen`（confirmed_tax event）で同一draftに載せる。指値計画は機械支援せず、人間がholding reviewを見て発注する。約定日が最終market price観測から`market_price_max_age_days`（7日）を超える場合はreconcileがprice stalenessで拒否するため、先に`market-price-draft`を適用する。同時刻・同値の分割約定は1件に合算するか`--occurred-at`を分け、手数料・税が無い場合はフラグを省略する（`0`指定は拒否される）。
 
@@ -133,12 +133,12 @@ risk override、estimated exit tax設定、market priceも各typed draftを作�
 uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite --sqlite data/screening/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
 uv run baibai-engine position apply-draft /tmp/market-price-draft.yaml --db data/app/baibai.sqlite --confirmed
 uv run baibai-engine research holding-prepare --db data/app/baibai.sqlite --asof ASOF_DATE --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
-uv run baibai-engine research packet-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
+uv run baibai-engine research thesis-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
 uv run baibai-engine research review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
 uv run baibai-engine research promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
-uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --packet-id PACKET_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
+uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --thesis-id THESIS_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
 uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input /tmp/holding-review.yaml
-uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --packet-id PACKET_ID
+uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --thesis-id THESIS_ID
 uv run baibai-engine position sell-result-draft --db data/app/baibai.sqlite --ticker XXXX --quantity 100 --price-yen 1100 --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --decision-reference HOLDING_REVIEW_ID --out /tmp/sell-draft.yaml
 uv run baibai-engine position apply-draft /tmp/sell-draft.yaml --db data/app/baibai.sqlite --confirmed
 ```
@@ -159,7 +159,7 @@ session final payloadにはcanonical ID、人間確認結果、1〜3行の`resul
 
 - public `--help`とrunbookが一致しない
 - coverage、corporate action、価格basis、load-bearing sourceがunresolved
-- packet revision、proposal、reservation、ledger append headがdriftしている
+- thesis revision、proposal、reservation、ledger append headがdriftしている
 - 人間報告またはrequired fieldがない
 - draft作成後にcanonical DBが変わった
 

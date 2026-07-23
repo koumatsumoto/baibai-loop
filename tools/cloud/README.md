@@ -15,7 +15,9 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/select/<asof>.json` | 日次batch、削除しない |
-| `baibai-serving` | `history/candidate-pool/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
+| `baibai-serving` | `history/candidates/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
+
+R2 lifecycle rule（31日削除）の対象prefixは`history/candidates/`に付け替える。旧`history/candidate-pool/`配下の既存objectは既存ruleで自然に失効する。
 
 資格情報はprincipalごとに分ける。
 
@@ -130,12 +132,12 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> [--batch dail
 
 出力（`<dir>` 配下）:
 
-- `views/dashboard.json` / `views/screening_latest.json` / `views/program.json`
+- `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
 - `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）
-- `views/security--<ticker>.json`（保有 + 最新 run 掲載 + reviewed shortlist の ticker）
+- `views/security--<ticker>.json`（保有 + 最新 run 掲載 + shortlist の ticker）
 - `views/meta.json`（生成時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
 - `history/select/<asof>.json`（machine selection のサマリ。無期限保持する軽量履歴）
-- `history/candidate-pool/<asof>.json`（candidate pool 全件の機械出力。31 日で削除する履歴）
+- `history/candidates/<asof>.json`（candidates 全件の機械出力。31 日で削除する履歴）
 
 `views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の「無期限保持 / 31 日で削除」は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
 

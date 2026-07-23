@@ -23,7 +23,7 @@ from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
     build_meta,
-    build_program_state,
+    build_operations_view,
     build_screening,
     build_security_detail,
 )
@@ -75,7 +75,9 @@ def export_read_models(
     screening = build_screening(stores.candidates, stores.ledger, stores.research)
     written.append(_write_model(views_dir / "screening_latest.json", screening))
 
-    written.append(_write_model(views_dir / "program.json", build_program_state(stores.program)))
+    written.append(
+        _write_model(views_dir / "operations.json", build_operations_view(stores.operations))
+    )
 
     as_of = datetime.now(_JST).date()
     for period in _MACRO_PERIODS:
@@ -110,8 +112,8 @@ class _CachedLatestRunCandidates:
     """Serve one parsed latest run to every security-detail build.
 
     ``build_security_detail`` reads the latest run on every call, and the export
-    loops over the full candidate pool, so an uncached source would re-parse the
-    pool once per ticker (quadratic in pool size).
+    loops over all candidates, so an uncached source would re-parse the run once
+    per ticker (quadratic in candidate count).
     """
 
     def __init__(self, inner: DbCandidatesSource) -> None:
@@ -127,11 +129,11 @@ class _CachedLatestRunCandidates:
 
 
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
-    """Enumerate holdings, latest-run candidates, and reviewed-shortlist tickers."""
+    """Enumerate holdings, latest-run candidates, and shortlist tickers."""
 
     tickers = {holding.ticker for holding in dashboard.holdings}
     tickers.update(row.ticker for row in screening.rows)
-    for shortlist in screening.reviewed_shortlists:
+    for shortlist in screening.shortlists:
         tickers.update(entry.ticker for entry in shortlist.entries)
     return sorted(tickers)
 
@@ -151,17 +153,17 @@ def _write_history(
         _warn("no machine selection is published; history/select skipped")
     raw_run = screening_run_payload(runs_db_path)
     if raw_run is None:
-        _warn("no screening run is published; history/candidate-pool skipped")
+        _warn("no screening run is published; history/candidates skipped")
         return written
     try:
-        pool_asof = date.fromisoformat(str(raw_run["as_of_date"]))
+        candidates_asof = date.fromisoformat(str(raw_run["as_of_date"]))
     except ValueError:
         _warn(
             f"run as_of_date has an unexpected format: {raw_run['as_of_date']!r}; "
-            "history/candidate-pool skipped"
+            "history/candidates skipped"
         )
         return written
-    path = output_dir / "history/candidate-pool" / f"{pool_asof.isoformat()}.json"
+    path = output_dir / "history/candidates" / f"{candidates_asof.isoformat()}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(raw_run, ensure_ascii=False), encoding="utf-8")
     written.append(path)
@@ -181,8 +183,8 @@ def _warn(message: str) -> None:
 def _root_error(root: Path) -> str | None:
     if not (root / "pyproject.toml").is_file():
         return f"--repo-root does not contain pyproject.toml: {root}"
-    if not (root / "records").is_dir():
-        return f"--repo-root does not contain records/: {root}"
+    if not (root / "method").is_dir():
+        return f"--repo-root does not contain method/: {root}"
     return None
 
 

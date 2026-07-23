@@ -37,14 +37,14 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | subsystem | src | store | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
 | macro | `src/baibai_engine/macro/` | `data/app/baibai.sqlite`（context）+ `data/indicators/macro.sqlite`（series） | `baibai-engine macro` | 見積り calibration（[`workflow/macro.md`](./docs/workflow/macro.md)、formal loop にしない） |
-| screening | `src/baibai_engine/screening/` | `data/screening/runs.sqlite`（machine）+ `data/app/baibai.sqlite`（reviewed shortlist）+ `records/_config/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| research | `src/baibai_engine/research/` | `data/app/baibai.sqlite` + `records/_playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | decision packet + planning-only limit + holding-review composition |
+| screening | `src/baibai_engine/screening/` | `data/screening/runs.sqlite`（machine）+ `data/app/baibai.sqlite`（shortlist）+ `method/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
+| research | `src/baibai_engine/research/` | `data/app/baibai.sqlite` + `method/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + holding-review composition |
 | position | `src/baibai_engine/position/` | `data/app/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
 | operation / proposal | `src/baibai_engine/operation/`, `src/baibai_engine/proposals/` | `data/app/baibai.sqlite` | `baibai-engine operation` / `baibai-engine proposal` | current workspace + immutable final result / trade decision current state |
 | market | `src/baibai_engine/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | task | `src/baibai_engine/tasks/` | `data/app/baibai.sqlite` | `baibai-engine task` | current task state |
-| app | `src/baibai_app/` | application DBほかdomain storeをread-only合成 | `baibai-app` | 運用cockpitのread model / local API |
+| app | `src/baibai_app/` | application DBほかdomain storeをread-only合成 | `baibai-app` | Baibai Appのread model / local API |
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイ（[`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md)）で見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善である。詳細は各 [`docs/workflow/`](./docs/workflow/) doc を正本とする。
 
@@ -87,7 +87,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・reviewed shortlist・research recordはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
+screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・shortlist・research recordはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
 ## 検証
 

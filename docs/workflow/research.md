@@ -1,24 +1,24 @@
 ---
 title: "Workflow — research"
-summary: "人間が選んだprimary-research setを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をdecision packetへ固定する。"
+summary: "人間が選んだprimary-research setを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をthesisへ固定する。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-15
 related_docs:
   - "./screening.md"
-  - "../reference/decision-packet.md"
+  - "../reference/thesis.md"
   - "../operations/decision-cycle.md"
 ---
 
 # Workflow — 個別銘柄research
 
-researchの目的は、安く見える理由が一時的な誤解か、企業価値の構造的毀損かを区別することである。AIは一次情報、scenario、反証をdecision packet/reviewへ固定し、人間が購入判断とbroker操作を行う。
+researchの目的は、安く見える理由が一時的な誤解か、企業価値の構造的毀損かを区別することである。AIは一次情報、scenario、反証をthesis/reviewへ固定し、人間が購入判断とbroker操作を行う。
 
 ## Input and lineage
 
 | input | 用途 | boundary |
 | --- | --- | --- |
-| selection output / audit pool | 候補抜けとrankingの確認 | canonical judgmentではない |
+| selection output / longlist | 候補抜けとrankingの確認 | canonical judgmentではない |
 | ticker profile | price、relative、events、screen facts | observed/derived/estimateを維持 |
 | company IR / TDnet / EDINET / JPX | load-bearing claim | source URL、公表日、対象期が必須 |
 | canonical ledger snapshot | held/reserved/concentration annotation | 投資価値rankを先に変えない |
@@ -35,7 +35,7 @@ operation sessionでbusiness-model guide pilotの対象に指定したlaneでは
 | stage | artifact | contract |
 | --- | --- | --- |
 | production recommendations | screening selection outputの`recommendations` | rulesの`research_selection_target_max`を適用した通常表示 |
-| reviewed shortlist | OP3 gateのnarrative付き判断（`/shortlist`レビュー面） | 件数と選定手順は[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)を正本とする |
+| shortlist | OP3 gateのnarrative付き判断（`/shortlist`レビュー面） | 件数と選定手順は[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)を正本とする |
 | primary-research set | workspaceの`selection.yaml.shortlist` | 人間がreportから選ぶ。推奨2〜4件で、selection outputの`research_selection_target_max`を上限とする |
 | selected | `research-comparison.yaml.selected_ticker` | 一次情報で全対象を比較した後の最良0〜1件 |
 
@@ -48,7 +48,7 @@ primary-research setの比較は永久損失、5年期待return/FV乖離、portf
 
 ## Parallel research lanes
 
-人間がprimary-research setを複数選んだ場合、共有workspaceのselection output / ledger hashを共通lineageとして、tickerごとの`.cache/opportunity/ASOF_DATE/<ticker>/` laneを作る。一次source確認、永久損失7軸、scenario、packet、独立reviewはlane間で並行できる。各laneは自tickerのdraftとchecklistだけを変更し、他tickerの成果物をcopyまたは上書きしない。
+人間がprimary-research setを複数選んだ場合、共有workspaceのselection output / ledger hashを共通lineageとして、tickerごとの`.cache/opportunity/ASOF_DATE/<ticker>/` laneを作る。一次source確認、永久損失7軸、scenario、thesis、独立reviewはlane間で並行できる。各laneは自tickerのdraftとchecklistだけを変更し、他tickerの成果物をcopyまたは上書きしない。
 
 並行化するのは調査と反証までである。全laneを同じ比較表で評価した後、現在の提案roundの`selected_ticker`は0〜1件に保つ。複数laneがviableなら、最上位の人間判断と必要なcanonical ledger更新を完了してから次のlaneを再比較し、最新ledgerで指値を再計算する。selection時点のledger hashを複数proposalへ使い回さない。
 
@@ -90,7 +90,7 @@ Research FV確定時、screening FV anchorとの差率を`(research_fv / screeni
 このbridgeは改善計測用であり、screening順位、FV anchor、購入提案を自動補正しない。
 scaffold済みscreening estimateを手書きで置換せず、欠損時はbridgeを推定で埋めない。
 
-算術とfield意味は[`../reference/decision-packet.md`](../reference/decision-packet.md)を正本とする。
+算術とfield意味は[`../reference/thesis.md`](../reference/thesis.md)を正本とする。
 
 ## AI value capture
 
@@ -100,45 +100,45 @@ AIはテーマではなく企業別のvalue captureとして評価する。role�
 
 ledgerから`unheld / held / reserved / held_and_reserved`を付け、追加後concentrationと既存proposalの関係を示す。追加資金と通常注文額のplanning baselineは[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。cash、dry powder、集中はwarningであり、永久損失と5年期待値を比較する前のhard filterではない。
 
-## Packet scaffold
+## Thesis scaffold
 
-通常の候補調査は[`operations/decision-cycle.md#opportunity-path`](../operations/decision-cycle.md#opportunity-path)のpublic recipeでworkspaceを作る。`packet-scaffold`はprimary-research setに含まれるtickerのlaneだけに作成し、このgateを保有reviewのために緩めない。workspaceの`ASOF_DATE`に対して`--target-session`には次の取引sessionを指定し、解決したraw close日がmanifest `as_of`と異なる場合は停止する。
+通常の候補調査は[`operations/decision-cycle.md#opportunity-path`](../operations/decision-cycle.md#opportunity-path)のpublic recipeでworkspaceを作る。`thesis-scaffold`はprimary-research setに含まれるtickerのlaneだけに作成し、このgateを保有reviewのために緩めない。workspaceの`ASOF_DATE`に対して`--target-session`には次の取引sessionを指定し、解決したraw close日がmanifest `as_of`と異なる場合は停止する。
 
-決算・material eventによる保有更新は[`operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)の`holding-prepare`を使う。canonical ledgerの実在open holdingが調査対象を決め、audit pool、shortlist、selected tickerを同じ1銘柄に固定するため、screening selection outputを要求しない。どちらのworkspaceでもscaffoldが埋めないjudgmentを推測で補完せず、checklistを`complete / blocked`にする。
+決算・material eventによる保有更新は[`operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)の`holding-prepare`を使う。canonical ledgerの実在open holdingが調査対象を決め、longlist、shortlist、selected tickerを同じ1銘柄に固定するため、screening selection outputを要求しない。どちらのworkspaceでもscaffoldが埋めないjudgmentを推測で補完せず、checklistを`complete / blocked`にする。
 
-packetは次を分離する。
+thesisは次を分離する。
 
 - `input_snapshot`: source付きの最小fact
 - `derived`: formulaとinput IDsを持つ再計算値
 - `estimates`: 3年/5年scenario、FV、required return
 - `judgment`: recommendation、永久損失結論、countercase、sizing、AI value capture
 
-raw candidate YAML、SQLite path依存、検索snippet、fixture copyをcanonical packetへ残さない。
+raw candidate YAML、SQLite path依存、検索snippet、fixture copyをcanonical thesisへ残さない。
 
 ## Independent review
 
-packet authorと別roleが、候補抜け、一次source、scenario算術、永久損失7軸、countercase、代替候補、portfolio annotation、limit/quantityを再確認する。reviewはpacketを直接編集せず、decision-review draftだけを返す。
+thesis authorと別roleが、候補抜け、一次source、scenario算術、永久損失7軸、countercase、代替候補、portfolio annotation、limit/quantityを再確認する。reviewはthesisを直接編集せず、decision-review draftだけを返す。
 
-5年baseのreviewでは`baibai-engine research evaluate <packet>`を実行する。reviewerは既存の`scenario.base_3y_5y` checkをいったん`pending`へ戻し、次を記録・確認した後だけ`complete`へ戻す。
+5年baseのreviewでは`baibai-engine research evaluate <thesis>`を実行する。reviewerは既存の`scenario.base_3y_5y` checkをいったん`pending`へ戻し、次を記録・確認した後だけ`complete`へ戻す。
 
 - base / break-even terminal multipleと、その差であるdownside buffer
 - base / break-even annual earnings growthと、その差であるdownside buffer（percentage points）
 - 観測trailing multipleのfact IDと値、およびbase multipleとの差
 - terminal multiple仮定を維持・修正した判断理由と、proposalへの影響
 
-base terminal multipleが観測trailing multipleを上回る場合は、premiumを支えるpacket内fact IDと、そのfactへ接続する一次source IDを同じcheckに記録する。観測anchorまたはbreak-even計算が解決しない、あるいはpremiumを支える一次情報を特定できない場合はcheckを`complete`にせずpacket authorへ戻す。downside bufferが0以下であること自体は有効な計算結果であり、review不備とはしない。ただし買い提案と必要利回りが整合するかを`decision_impact`で明示し、scenarioやproposalを変える必要がある場合、review draftは`proposal_changed=true`とする。数値が良好であることだけをscenario仮定の根拠にしない。
+base terminal multipleが観測trailing multipleを上回る場合は、premiumを支えるthesis内fact IDと、そのfactへ接続する一次source IDを同じcheckに記録する。観測anchorまたはbreak-even計算が解決しない、あるいはpremiumを支える一次情報を特定できない場合はcheckを`complete`にせずthesis authorへ戻す。downside bufferが0以下であること自体は有効な計算結果であり、review不備とはしない。ただし買い提案と必要利回りが整合するかを`decision_impact`で明示し、scenarioやproposalを変える必要がある場合、review draftは`proposal_changed=true`とする。数値が良好であることだけをscenario仮定の根拠にしない。
 
-`proposal_changed=true`ならpacketへ戻る。packet core hashが変わった後のreviewはstaleで、promotionへ使えない。
+`proposal_changed=true`ならthesisへ戻る。thesis core hashが変わった後のreviewはstaleで、promotionへ使えない。
 
 ## Integrated research report and content review
 
-全lane比較後は[`research-decision-report`](../reference/research-decision-report.md)の共通findings templateへ、指定質問への回答、business model、value capture、growth quality、財務耐久性、業種固有分析、unknown、monitoringを統合する。数値scenario、FV、7軸、採否、指値・数量をfindingsへ複製せず、packet / comparison / proposalからrendererがjoinする。
+全lane比較後は[`research-decision-report`](../reference/research-decision-report.md)の共通findings templateへ、指定質問への回答、business model、value capture、growth quality、財務耐久性、業種固有分析、unknown、monitoringを統合する。数値scenario、FV、7軸、採否、指値・数量をfindingsへ複製せず、thesis / comparison / proposalからrendererがjoinする。
 
 OP3 shortlist narrativeの`research`確認事項は、primary-research setの各銘柄についてfindingsでansweredにするか`unknowns`へ残す。購入提案がある場合は`decision_context.entry_timing`に、選択銘柄の直近dated material eventとevent前に買う判断理由を書く（契約は[`research-decision-report`](../reference/research-decision-report.md)を正本とする）。
 
 growth qualityは開示範囲でvolume、price、mix、upsell/churn、FXへ分ける。海外展開は商品coverage、契約所在地/請求通貨/地域売上、ultimate customer originを別々に評価する。management claimにはその区分を付け、未開示値はunknownに残す。
 
-HTML生成前に、report compilerと別roleが軽量なfindings / comparison / packet / proposalをreviewする。source freshness、指定質問への回答、一次source traceability、fact/estimate分離、countercase/unknown、scenario/FV、横比較/portfolio fit、購入方法bindingの全checkがpassで、reviewed input hashが現在値と一致する場合だけHTMLを生成する。HTMLそのものはreview対象にしない。
+HTML生成前に、report compilerと別roleが軽量なfindings / comparison / thesis / proposalをreviewする。source freshness、指定質問への回答、一次source traceability、fact/estimate分離、countercase/unknown、scenario/FV、横比較/portfolio fit、購入方法bindingの全checkがpassで、reviewed input hashが現在値と一致する場合だけHTMLを生成する。HTMLそのものはreview対象にしない。
 
 ## Result states
 
@@ -146,25 +146,25 @@ HTML生成前に、report compilerと別roleが軽量なfindings / comparison / 
 | --- | --- | --- |
 | `research` | source/check未完 | 一次source取得またはblocked記録 |
 | `reject` | structural decline、永久損失、FV不足等 | 理由を残して終了 |
-| `selected` | 全候補比較後の最良1件 | packet/review |
+| `selected` | 全候補比較後の最良1件 | thesis/review |
 | `defer` | load-bearing fact/corporate action/price basis未解決 | dated taskまたはsource待ち |
-| `no actionable bargain` | viable候補0件 | 正常終了、packetなし |
+| `no actionable bargain` | viable候補0件 | 正常終了、thesisなし |
 
-promotionはpacket/review/hash/application contractが一致するときだけ行い、同じtransactionでimmutable `packet_id` / `review_id`をpublishする。test fixtureのcopyやephemeral draftをcanonical dataとして扱わない。
+promotionはthesis/review/hash/application contractが一致するときだけ行い、同じtransactionでimmutable `thesis_id` / `review_id`をpublishする。test fixtureのcopyやephemeral draftをcanonical dataとして扱わない。
 
 ## Failure / stop conditions
 
 - Tier 1 sourceなしでload-bearing claimを確定しようとしている。
 - corporate actionまたはprice basisがunresolved。
 - 7永久損失軸、3年/5年scenario、countercaseが欠ける。
-- packetとreviewのhashが一致しない。
+- thesisとreviewのhashが一致しない。
 - integrated content reviewが未完、changes required、または入力hashと一致しない。
 - budget fitだけで上位候補を入れ替えている。
 
 ## Validation
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research evaluate .cache/opportunity/YYYY-MM-DD/XXXX/packet-draft.yaml
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research evaluate .cache/opportunity/YYYY-MM-DD/XXXX/thesis-draft.yaml
 UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX
 ```
 
@@ -172,5 +172,5 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research promote --workspace .ca
 
 - [`./screening.md`](./screening.md)
 - [`./position.md`](./position.md)
-- [`../reference/decision-packet.md`](../reference/decision-packet.md)
+- [`../reference/thesis.md`](../reference/thesis.md)
 - [`../portfolio-management.md`](../portfolio-management.md)

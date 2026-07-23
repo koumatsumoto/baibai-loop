@@ -23,7 +23,7 @@ fieldやCLI optionはskillから推測しない。engine modelとpublic `--help`
 | --- | --- | --- |
 | 候補抽出、購入候補、指値 | [`references/opportunity.md`](./references/opportunity.md) | content review済み統合reportとproposalまたは`no actionable bargain`/`defer` |
 | 決算・一次情報確認 | [`references/ir-research.md`](./references/ir-research.md) | load-bearing checkがcomplete/blocked |
-| packetの反証 | [`references/independent-review.md`](./references/independent-review.md) | packet hashに束縛したreview draft |
+| thesisの反証 | [`references/independent-review.md`](./references/independent-review.md) | thesis hashに束縛したreview draft |
 | open/filled/cancelled、保有review、年次結果 | [`references/result-and-holding.md`](./references/result-and-holding.md) | validated draftまたは必要情報の質問 |
 
 複数triggerを同時に始めない。共有data refreshは再利用できるが、成果物と完了条件を分ける。
@@ -57,7 +57,7 @@ dirty worktreeの所有不明、public command不明、入力矛盾では停止�
 
 ## 記録境界
 
-候補抽出では`screening run`の`run_revision_id`を`select --run-revision-id`へ渡し、review後の採否・理由をsource `selection_id`へ束縛したdraftとして`screening shortlist publish`する。machine recommendationをreview済みshortlistとして扱わない。promote済みpacket/reviewはcanonical IDを参照し、同じ内容を複製しない。holding reviewはdraftの検証と人間確認が済んだ後だけ`holding-review publish ... --packet-id`で保存する。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
+候補抽出では`screening run`の`run_revision_id`を`select --run-revision-id`へ渡し、review後の採否・理由をsource `selection_id`へ束縛したdraftとして`screening shortlist publish`する。machine recommendationをshortlistとして扱わない。promote済みthesis/reviewはcanonical IDを参照し、同じ内容を複製しない。holding reviewはdraftの検証と人間確認が済んだ後だけ`holding-review publish ... --thesis-id`で保存する。raw screening全量、検索snippet、長い思考、fixture copy、ephemeral HTMLをcommitしない。
 
 ## 完了
 

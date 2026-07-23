@@ -21,8 +21,8 @@ export function AppShell() {
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-8">
         <Link className="flex shrink-0 items-center gap-2 font-semibold tracking-tight" to="/">
-          <span className="grid size-7 place-items-center rounded-lg bg-foreground text-[10px] font-bold tracking-wide text-background">BL</span>
-          <span>Baibai-Loop</span>
+          <span className="grid size-7 place-items-center rounded-lg bg-foreground text-[10px] font-bold tracking-wide text-background">BA</span>
+          <span>Baibai App</span>
         </Link>
         <nav className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label="メインナビゲーション">
           {[

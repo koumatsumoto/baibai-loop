@@ -1,4 +1,4 @@
-"""Opportunity authoring: prepare a workspace, scaffold packet/review drafts, and
+"""Opportunity authoring: prepare a workspace, scaffold thesis/review drafts, and
 derive a planning-only limit from the previous business day's raw close.
 
 This module is pure logic behind ``baibai-engine research``. It never submits an
@@ -12,7 +12,7 @@ Design boundaries (Issue #359 Milestone A):
 - Investment value is decided before budget rounding. The 20-30万円 guide is a
   sizing annotation, never a hard gate: a single board lot above the guide still
   produces a proposal with a warning rather than an auto-reject.
-- ``promote`` is the only command that publishes a canonical decision packet/review;
+- ``promote`` is the only command that publishes a canonical thesis/review;
   every other command writes only to the rebuildable ``.cache/opportunity/<asof>/``
   workspace.
 - ``defer`` and "no actionable bargain" are normal investment judgments and exit 0.
@@ -47,16 +47,16 @@ from .close_source import (
     resolve_holding_close_on_basis,
     resolve_previous_business_day_close,
 )
-from .decision_packet import (
-    DecisionPacketError,
-    ScreeningEstimate,
-    decision_packet_core_hash,
-    evaluate_decision_packet,
-    load_decision_packet,
-    load_independent_review,
-)
 from .execution_policy import ExecutionPolicyError, max_acceptable_price
 from .store import ResearchConflictError, ResearchStoreService, ResearchValidationError
+from .thesis import (
+    ScreeningEstimate,
+    ThesisError,
+    evaluate_thesis,
+    load_independent_review,
+    load_thesis,
+    thesis_core_hash,
+)
 
 TOOL_VERSION = "opportunity-v1"
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
@@ -139,7 +139,7 @@ class PrepareResult:
     workspace: Path
     actionable: bool
     shortlist_slots: int
-    audit_pool_size: int
+    longlist_size: int
 
 
 def prepare_workspace(
@@ -153,12 +153,12 @@ def prepare_workspace(
     """Build the opportunity workspace from a screening selection output and ledger.
 
     Holdings/reservations are ledger annotations, never hard exclusions: a held or
-    reserved ticker stays a comparable candidate. An empty audit pool is a normal
+    reserved ticker stays a comparable candidate. An empty longlist is a normal
     'no actionable bargain' outcome and still produces a workspace.
     """
     selection = _load_mapping(selection_output, label="selection output")
-    audit_pool = _dict_list(selection.get("audit_pool"))
-    _validate_selection_estimate_asof(selection=selection, audit_pool=audit_pool, asof=asof)
+    longlist = _dict_list(selection.get("longlist"))
+    _validate_selection_estimate_asof(selection=selection, longlist=longlist, asof=asof)
     snapshot, append_head = _load_snapshot(db_path)
 
     manifest_path = workspace / "manifest.yaml"
@@ -169,7 +169,7 @@ def prepare_workspace(
 
     held = {holding.ticker for holding in snapshot.holdings}
     reserved = {reservation.ticker for reservation in snapshot.active_reservations}
-    annotated = [_annotate_candidate(row, held=held, reserved=reserved) for row in audit_pool]
+    annotated = [_annotate_candidate(row, held=held, reserved=reserved) for row in longlist]
     research_selection_target_max = _research_selection_target_max(selection)
     shortlist_slots = (
         min(research_selection_target_max, len(annotated))
@@ -179,7 +179,7 @@ def prepare_workspace(
 
     selection_doc = {
         "as_of": asof.isoformat(),
-        "audit_pool": annotated,
+        "longlist": annotated,
         "shortlist_slots": shortlist_slots,
         "shortlist": [],
         "actionable": bool(annotated),
@@ -214,7 +214,7 @@ def prepare_workspace(
         workspace=workspace,
         actionable=bool(annotated),
         shortlist_slots=shortlist_slots,
-        audit_pool_size=len(annotated),
+        longlist_size=len(annotated),
     )
 
 
@@ -229,8 +229,8 @@ def prepare_holding_workspace(
     """Build a one-ticker research workspace for an actual open holding.
 
     Holding review bypasses screening selection because the canonical ledger is
-    the source of its research target. The fixed audit pool, shortlist, and
-    selected ticker keep the existing packet/review/promotion gates usable
+    the source of its research target. The fixed longlist, shortlist, and
+    selected ticker keep the existing thesis/review/promotion gates usable
     without weakening the normal opportunity-selection contract.
     """
     snapshot, append_head = _load_snapshot(db_path)
@@ -252,7 +252,7 @@ def prepare_holding_workspace(
             f"workspace already prepared (use --force to rebuild): {workspace}"
         )
 
-    audit_pool = [
+    longlist = [
         {
             "rank": 1,
             "ticker": holding.ticker,
@@ -263,12 +263,12 @@ def prepare_holding_workspace(
     ]
     selection_doc = {
         "as_of": asof.isoformat(),
-        "audit_pool": audit_pool,
+        "longlist": longlist,
         "shortlist_slots": 1,
         "shortlist": [{"ticker": ticker, "reason": "open holding review"}],
         "actionable": True,
     }
-    comparison_doc = _research_comparison(asof, audit_pool)
+    comparison_doc = _research_comparison(asof, longlist)
     comparison_doc["selected_ticker"] = ticker
     comparison_doc["ranking_rationale"] = "research target fixed by the canonical open holding"
 
@@ -294,7 +294,7 @@ def prepare_holding_workspace(
         workspace=workspace,
         actionable=True,
         shortlist_slots=1,
-        audit_pool_size=1,
+        longlist_size=1,
     )
 
 
@@ -387,18 +387,18 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
     missing_lanes = [
         ticker
         for ticker in shortlist_tickers
-        if not (_research_lane_dir(workspace, ticker) / "packet-draft.yaml").is_file()
+        if not (_research_lane_dir(workspace, ticker) / "thesis-draft.yaml").is_file()
     ]
     if missing_lanes:
         return _status_payload(
             workspace_status="incomplete",
             selected_ticker=selected_ticker,
-            next_command=f"baibai-engine research packet-scaffold --ticker {missing_lanes[0]}",
+            next_command=f"baibai-engine research thesis-scaffold --ticker {missing_lanes[0]}",
         )
 
     lane_pending: list[str] = []
     lane_blocked: list[str] = []
-    lane_packet_errors: list[str] = []
+    lane_thesis_errors: list[str] = []
     for ticker in shortlist_tickers:
         checklist = _load_checklist(workspace, ticker)
         lane_pending.extend(
@@ -413,17 +413,17 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
             if item.get("status") == "blocked"
             if (check_id := _string_or_none(item.get("check_id"))) is not None
         )
-        lane_packet_errors.extend(
-            f"{ticker}:{error}" for error in _packet_validation_errors(workspace, ticker)
+        lane_thesis_errors.extend(
+            f"{ticker}:{error}" for error in _thesis_validation_errors(workspace, ticker)
         )
-    if lane_pending or lane_packet_errors:
-        first_ticker = (lane_pending or lane_packet_errors)[0].split(":", maxsplit=1)[0]
+    if lane_pending or lane_thesis_errors:
+        first_ticker = (lane_pending or lane_thesis_errors)[0].split(":", maxsplit=1)[0]
         return _status_payload(
             workspace_status="incomplete",
             selected_ticker=selected_ticker,
             pending_checks=lane_pending,
             blocked_checks=lane_blocked,
-            packet_validation_errors=lane_packet_errors,
+            thesis_validation_errors=lane_thesis_errors,
             next_command=f"complete primary research lane for {first_ticker}",
         )
 
@@ -443,7 +443,7 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
         return _status_payload(
             workspace_status="incomplete",
             selected_ticker=selected_ticker,
-            next_command=f"baibai-engine research packet-scaffold --ticker {selected_ticker}",
+            next_command=f"baibai-engine research thesis-scaffold --ticker {selected_ticker}",
         )
 
     checklist = _load_checklist(workspace, selected_ticker)
@@ -458,11 +458,11 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
         for item in checklist
         if item.get("status") == "blocked"
     ]
-    packet_errors = _packet_validation_errors(workspace, selected_ticker)
+    thesis_errors = _thesis_validation_errors(workspace, selected_ticker)
     review_errors = _review_validation_errors(workspace, selected_ticker)
 
     workspace_status = _resolve_workspace_status(
-        pending=pending, blocked=blocked, packet_errors=packet_errors, review_errors=review_errors
+        pending=pending, blocked=blocked, thesis_errors=thesis_errors, review_errors=review_errors
     )
     return _status_payload(
         workspace_status=workspace_status,
@@ -470,7 +470,7 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
         completed_checks=len(completed),
         pending_checks=[value for value in pending if value is not None],
         blocked_checks=[value for value in blocked if value is not None],
-        packet_validation_errors=packet_errors,
+        thesis_validation_errors=thesis_errors,
         review_validation_errors=review_errors,
         next_command=_next_command(workspace_status, selected_ticker),
     )
@@ -480,12 +480,12 @@ def _resolve_workspace_status(
     *,
     pending: Sequence[object],
     blocked: Sequence[object],
-    packet_errors: Sequence[str],
+    thesis_errors: Sequence[str],
     review_errors: Sequence[str],
 ) -> str:
     if blocked:
         return "deferred"
-    if pending or packet_errors:
+    if pending or thesis_errors:
         return "incomplete"
     if review_errors:
         return "ready_for_review"
@@ -497,7 +497,7 @@ def _next_command(workspace_status: str, ticker: str) -> str:
         case "deferred":
             return "resolve blocked checks or defer the candidate"
         case "incomplete":
-            return f"baibai-engine research packet-scaffold --ticker {ticker}"
+            return f"baibai-engine research thesis-scaffold --ticker {ticker}"
         case "ready_for_review":
             return f"baibai-engine research review-scaffold --ticker {ticker}"
         case _:
@@ -511,7 +511,7 @@ def _status_payload(
     completed_checks: int = 0,
     pending_checks: Sequence[str] | None = None,
     blocked_checks: Sequence[str] | None = None,
-    packet_validation_errors: Sequence[str] | None = None,
+    thesis_validation_errors: Sequence[str] | None = None,
     review_validation_errors: Sequence[str] | None = None,
     next_command: str,
 ) -> dict[str, object]:
@@ -521,7 +521,7 @@ def _status_payload(
         "completed_checks": completed_checks,
         "pending_checks": list(pending_checks or []),
         "blocked_checks": list(blocked_checks or []),
-        "packet_validation_errors": list(packet_validation_errors or []),
+        "thesis_validation_errors": list(thesis_validation_errors or []),
         "review_validation_errors": list(review_validation_errors or []),
         "next_command": next_command,
     }
@@ -587,12 +587,12 @@ def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -
     if purpose != "opportunity":
         raise OpportunityDataError(f"manifest purpose is invalid: {purpose}")
 
-    audit_pool = _dict_list(selection.get("audit_pool"))
-    audit_tickers = [str(row.get("ticker") or "") for row in audit_pool]
-    if (not audit_tickers or any(not ticker for ticker in audit_tickers)) and selection.get(
+    longlist = _dict_list(selection.get("longlist"))
+    longlist_tickers = [str(row.get("ticker") or "") for row in longlist]
+    if (not longlist_tickers or any(not ticker for ticker in longlist_tickers)) and selection.get(
         "actionable"
     ):
-        raise OpportunityDataError("workspace audit_pool is invalid")
+        raise OpportunityDataError("workspace longlist is invalid")
     shortlist = _dict_list(selection.get("shortlist"))
     shortlist_slots = selection.get("shortlist_slots")
     if not isinstance(shortlist_slots, int) or shortlist_slots < 0:
@@ -601,14 +601,14 @@ def _validate_editable_drafts(workspace: Path, manifest: Mapping[str, object]) -
     if (
         len(shortlist) > shortlist_slots
         or len(shortlist_tickers) != len(set(shortlist_tickers))
-        or any(ticker not in audit_tickers for ticker in shortlist_tickers)
+        or any(ticker not in longlist_tickers for ticker in shortlist_tickers)
     ):
         raise OpportunityDataError("workspace shortlist is invalid")
 
     candidates = _dict_list(comparison.get("candidates"))
     comparison_tickers = [str(row.get("ticker") or "") for row in candidates]
-    if comparison_tickers != audit_tickers:
-        raise OpportunityDataError("research comparison candidates do not match audit_pool")
+    if comparison_tickers != longlist_tickers:
+        raise OpportunityDataError("research comparison candidates do not match longlist")
     selected = _string_or_none(comparison.get("selected_ticker"))
     if selected is not None and selected not in shortlist_tickers:
         raise OpportunityDataError("selected_ticker is not present in shortlist")
@@ -622,8 +622,8 @@ def _validate_holding_review_drafts(
     ticker = _string_or_none(manifest.get("holding_ticker"))
     if ticker is None:
         raise OpportunityDataError("holding-review manifest is missing holding_ticker")
-    audit_tickers = [
-        str(row.get("ticker") or "") for row in _dict_list(selection.get("audit_pool"))
+    longlist_tickers = [
+        str(row.get("ticker") or "") for row in _dict_list(selection.get("longlist"))
     ]
     shortlist_tickers = [
         str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
@@ -632,7 +632,7 @@ def _validate_holding_review_drafts(
         str(row.get("ticker") or "") for row in _dict_list(comparison.get("candidates"))
     ]
     if (
-        audit_tickers != [ticker]
+        longlist_tickers != [ticker]
         or shortlist_tickers != [ticker]
         or comparison_tickers != [ticker]
         or selection.get("shortlist_slots") != 1
@@ -640,8 +640,7 @@ def _validate_holding_review_drafts(
         or comparison.get("selected_ticker") != ticker
     ):
         raise OpportunityDataError(
-            "holding-review workspace must keep its audit pool, shortlist, "
-            "and selected ticker fixed"
+            "holding-review workspace must keep its longlist, shortlist, and selected ticker fixed"
         )
 
 
@@ -669,11 +668,11 @@ def _require_primary_research_ticker(workspace: Path, ticker: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# packet-scaffold
+# thesis-scaffold
 # --------------------------------------------------------------------------- #
 
 
-def scaffold_packet(
+def scaffold_thesis(
     *,
     workspace: Path,
     ticker: str,
@@ -683,7 +682,7 @@ def scaffold_packet(
     db_path: Path | None = None,
     force: bool = False,
 ) -> dict[str, object]:
-    """Write a packet-draft with observed price facts and a pending checklist.
+    """Write a thesis-draft with observed price facts and a pending checklist.
 
     AI judgment fields are placeholders; only observed/derived known values are
     filled. A missing raw close is a hard exit_code 3 (no guess from an adjusted
@@ -721,14 +720,14 @@ def scaffold_packet(
             f"as_of {asof.isoformat()}; --target-session must be the next trading session"
         )
 
-    packet_path = ticker_dir / "packet-draft.yaml"
-    if packet_path.exists() and not force:
+    thesis_path = ticker_dir / "thesis-draft.yaml"
+    if thesis_path.exists() and not force:
         raise OpportunityConflictError(
-            f"packet draft already exists (use --force to regenerate): {packet_path}"
+            f"thesis draft already exists (use --force to regenerate): {thesis_path}"
         )
     ticker_dir.mkdir(parents=True, exist_ok=True)
 
-    packet_draft = _packet_draft_skeleton(
+    thesis_draft = _thesis_draft_skeleton(
         ticker=ticker,
         asof=asof,
         price=price,
@@ -736,11 +735,11 @@ def scaffold_packet(
         screening_estimate=screening_estimate,
         screening_retrieved_at=retrieved_at,
     )
-    write_text_atomic(packet_path, _dump_yaml(packet_draft))
+    write_text_atomic(thesis_path, _dump_yaml(thesis_draft))
     checklist = _checklist_skeleton(price=price)
     write_text_atomic(ticker_dir / "research-checklist.yaml", _dump_yaml(checklist))
     return {
-        "packet_draft": str(packet_path),
+        "thesis_draft": str(thesis_path),
         "price_as_of": price.price_as_of.isoformat(),
         "close_yen": price.close_yen,
         "corporate_action_unresolved": price.corporate_action_unresolved,
@@ -749,7 +748,7 @@ def scaffold_packet(
     }
 
 
-def _packet_draft_skeleton(
+def _thesis_draft_skeleton(
     *,
     ticker: str,
     asof: date,
@@ -759,7 +758,7 @@ def _packet_draft_skeleton(
     screening_retrieved_at: datetime,
 ) -> dict[str, object]:
     # The observed close is the previous business day's raw/unadjusted close, emitted
-    # as the packet's single market_price fact so the draft is schema-valid on load.
+    # as the thesis's single market_price fact so the draft is schema-valid on load.
     # AI judgment fields are left null so the operator fills them from primary sources;
     # no value is guessed. An adjustment_factor anomaly is surfaced to the corporate
     # action checklist (not the fact), which blocks that check.
@@ -836,14 +835,14 @@ def _screening_estimate_from_selection_output(
         selection_ref.get("path"), label="manifest.inputs.selection_output.path"
     )
     selection = _load_mapping(Path(selection_path), label="selection output")
-    audit_pool = _dict_list(selection.get("audit_pool"))
-    audit_tickers = [str(row.get("ticker") or "") for row in audit_pool]
-    if len(audit_tickers) != len(set(audit_tickers)):
-        raise OpportunityDataError("selection output audit_pool tickers must be unique")
-    matching_rows = [row for row in audit_pool if str(row.get("ticker") or "") == ticker]
+    longlist = _dict_list(selection.get("longlist"))
+    longlist_tickers = [str(row.get("ticker") or "") for row in longlist]
+    if len(longlist_tickers) != len(set(longlist_tickers)):
+        raise OpportunityDataError("selection output longlist tickers must be unique")
+    matching_rows = [row for row in longlist if str(row.get("ticker") or "") == ticker]
     if len(matching_rows) != 1:
         raise OpportunityDataError(
-            f"selection output audit_pool must contain ticker exactly once: {ticker}"
+            f"selection output longlist must contain ticker exactly once: {ticker}"
         )
     row = matching_rows[0]
     if "estimate_snapshot" not in row:
@@ -884,10 +883,10 @@ def _screening_estimate_from_selection_output(
         raise OpportunityDataError("estimate_snapshot model version and assumptions must agree")
 
     displayed_er_pct = _finite_number(
-        row.get("expected_return_pct"), label="audit_pool.expected_return_pct"
+        row.get("expected_return_pct"), label="longlist.expected_return_pct"
     )
     if displayed_er_pct != round(annual * 100, 4):
-        raise OpportunityDataError("estimate_snapshot expected return does not match audit row")
+        raise OpportunityDataError("estimate_snapshot expected return does not match longlist row")
 
     anchors = _required_mapping(
         fair_value.get("anchors"), label="estimate_snapshot.fair_value.anchors"
@@ -907,13 +906,13 @@ def _screening_estimate_from_selection_output(
     displayed_fair_value = row.get("fair_value_anchor_yen")
     if raw_fair_value_anchor_yen is None:
         if displayed_fair_value is not None:
-            raise OpportunityDataError("null estimate anchors do not match audit row fair value")
+            raise OpportunityDataError("null estimate anchors do not match longlist row fair value")
     else:
         displayed_anchor = _finite_number(
-            displayed_fair_value, label="audit_pool.fair_value_anchor_yen"
+            displayed_fair_value, label="longlist.fair_value_anchor_yen"
         )
         if displayed_anchor != round(raw_fair_value_anchor_yen, 4):
-            raise OpportunityDataError("estimate_snapshot fair value does not match audit row")
+            raise OpportunityDataError("estimate_snapshot fair value does not match longlist row")
 
     fair_value_anchor_yen = (
         None
@@ -939,7 +938,7 @@ def _screening_estimate_from_selection_output(
         ScreeningEstimate.model_validate(screening_estimate)
     except (ValidationError, ValueError) as error:
         raise OpportunityDataError(
-            f"screening estimate violates packet contract: {error}"
+            f"screening estimate violates thesis contract: {error}"
         ) from error
     return screening_estimate, None
 
@@ -969,9 +968,9 @@ def _finite_number(value: object, *, label: str) -> float:
 
 
 def _validate_selection_estimate_asof(
-    *, selection: Mapping[str, object], audit_pool: Sequence[Mapping[str, object]], asof: date
+    *, selection: Mapping[str, object], longlist: Sequence[Mapping[str, object]], asof: date
 ) -> None:
-    snapshots = [row["estimate_snapshot"] for row in audit_pool if "estimate_snapshot" in row]
+    snapshots = [row["estimate_snapshot"] for row in longlist if "estimate_snapshot" in row]
     if not snapshots:
         return
     selection_metadata = _required_mapping(selection.get("selection"), label="selection.selection")
@@ -1017,22 +1016,22 @@ def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
 def scaffold_review(
     *, workspace: Path, ticker: str, db_path: Path | None = None, force: bool = False
 ) -> dict[str, object]:
-    """Write a review-draft bound to the current packet core hash.
+    """Write a review-draft bound to the current thesis core hash.
 
-    The review author is a distinct role from the packet author; this scaffold only
+    The review author is a distinct role from the thesis author; this scaffold only
     lays out the recalculation slots and never produces the review conclusions. The
-    bound ``reviewed_packet_sha256`` is what lets ``promote`` detect a stale review.
+    bound ``reviewed_thesis_sha256`` is what lets ``promote`` detect a stale review.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
     _require_primary_research_ticker(workspace, ticker)
     ticker_dir = _research_lane_dir(workspace, ticker)
-    packet_path = ticker_dir / "packet-draft.yaml"
-    if not packet_path.exists():
-        raise OpportunityDataError(f"packet draft not found for {ticker}: {packet_path}")
+    thesis_path = ticker_dir / "thesis-draft.yaml"
+    if not thesis_path.exists():
+        raise OpportunityDataError(f"thesis draft not found for {ticker}: {thesis_path}")
 
-    core_hash = _packet_core_hash_if_valid(packet_path)
+    core_hash = _thesis_core_hash_if_valid(thesis_path)
     review_path = ticker_dir / "review-draft.yaml"
     if review_path.exists() and not force:
         raise OpportunityConflictError(
@@ -1045,7 +1044,7 @@ def scaffold_review(
         "reviewer_identity": None,
         "reviewer_run_id": None,
         "reviewed_at": None,
-        "reviewed_packet_sha256": core_hash,
+        "reviewed_thesis_sha256": core_hash,
         "primary_source_check": None,
         "checked_source_ids": [],
         "recalculated_scenarios": [
@@ -1059,17 +1058,17 @@ def scaffold_review(
         "change_rationale": None,
     }
     write_text_atomic(review_path, _dump_yaml(review_draft))
-    return {"review_draft": str(review_path), "reviewed_packet_sha256": core_hash}
+    return {"review_draft": str(review_path), "reviewed_thesis_sha256": core_hash}
 
 
-def _packet_core_hash_if_valid(packet_path: Path) -> str | None:
+def _thesis_core_hash_if_valid(thesis_path: Path) -> str | None:
     # A fully-filled draft hashes to its core; an incomplete draft cannot be hashed
-    # yet, so the review is bound once the packet is complete.
+    # yet, so the review is bound once the thesis is complete.
     try:
-        document = load_decision_packet(packet_path)
-    except DecisionPacketError:
+        document = load_thesis(thesis_path)
+    except ThesisError:
         return None
-    return decision_packet_core_hash(document)
+    return thesis_core_hash(document)
 
 
 # --------------------------------------------------------------------------- #
@@ -1079,9 +1078,9 @@ def _packet_core_hash_if_valid(packet_path: Path) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class PromoteResult:
-    packet_id: str
+    thesis_id: str
     review_id: str
-    packet_sha256: str
+    thesis_sha256: str
 
 
 def promote(
@@ -1089,14 +1088,14 @@ def promote(
     workspace: Path,
     ticker: str,
     db_path: Path | None,
-    packet_id: str | None,
+    thesis_id: str | None,
     supersedes_id: str | None,
     now: datetime,
 ) -> PromoteResult:
-    """Publish the canonical packet/review only when everything is ready.
+    """Publish the canonical thesis/review only when everything is ready.
 
-    Gates: no pending/blocked checklist item, packet evaluates ready against the
-    adjacent review, review hash matches the packet core hash, schema validity, and
+    Gates: no pending/blocked checklist item, thesis evaluates ready against the
+    adjacent review, review hash matches the thesis core hash, schema validity, and
     path confinement. Reusing an immutable ID with different content is rejected.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
@@ -1107,10 +1106,10 @@ def promote(
         raise OpportunityDataError(f"cannot promote {ticker}: it is not the selected_ticker")
 
     ticker_dir = _research_lane_dir(workspace, ticker)
-    packet_path = ticker_dir / "packet-draft.yaml"
+    thesis_path = ticker_dir / "thesis-draft.yaml"
     review_path = ticker_dir / "review-draft.yaml"
-    if not packet_path.exists() or not review_path.exists():
-        raise OpportunityDataError(f"packet or review draft missing for {ticker}")
+    if not thesis_path.exists() or not review_path.exists():
+        raise OpportunityDataError(f"thesis or review draft missing for {ticker}")
 
     checklist = _load_checklist(workspace, ticker)
     # Allowlist gate: every check must be explicitly "complete". Any other status
@@ -1129,51 +1128,51 @@ def promote(
         )
 
     try:
-        document = load_decision_packet(packet_path)
+        document = load_thesis(thesis_path)
         review = load_independent_review(review_path)
-    except DecisionPacketError as error:
+    except ThesisError as error:
         raise OpportunityDataError(f"draft is not schema-valid: {error}") from error
 
     manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     if document.input_snapshot.ticker != ticker:
         raise OpportunityDataError(
-            f"cannot promote {ticker}: packet ticker is {document.input_snapshot.ticker}"
+            f"cannot promote {ticker}: thesis ticker is {document.input_snapshot.ticker}"
         )
     if document.input_snapshot.as_of != manifest_asof:
         raise OpportunityDataError(
-            f"cannot promote {ticker}: packet as_of {document.input_snapshot.as_of.isoformat()} "
+            f"cannot promote {ticker}: thesis as_of {document.input_snapshot.as_of.isoformat()} "
             f"does not match workspace manifest as_of {manifest_asof.isoformat()}"
         )
 
-    core_hash = decision_packet_core_hash(document)
-    if review.reviewed_packet_sha256 != core_hash:
+    core_hash = thesis_core_hash(document)
+    if review.reviewed_thesis_sha256 != core_hash:
         raise OpportunityDataError(
-            "review is stale: reviewed_packet_sha256 does not match the packet core hash"
+            "review is stale: reviewed_thesis_sha256 does not match the thesis core hash"
         )
     if review.proposal_changed:
         raise OpportunityDataError(
-            "review changed the proposal; regenerate the packet and re-review before promotion"
+            "review changed the proposal; regenerate the thesis and re-review before promotion"
         )
 
-    result = evaluate_decision_packet(document, review=review, now=now)
+    result = evaluate_thesis(document, review=review, now=now)
     if result.decision_readiness != "ready":
-        raise OpportunityDataError(f"packet is not decision-ready: {list(result.errors)}")
+        raise OpportunityDataError(f"thesis is not decision-ready: {list(result.errors)}")
 
     legacy_review_name = f"{document.input_snapshot.as_of:%Y-%m-%d}-{ticker}-decision-review.yaml"
-    # The legacy ref remains part of the packet payload and core hash. Canonical
-    # source binding is the DB packet_id FK; the field is retained as migrated data.
+    # The legacy ref remains part of the thesis payload and core hash. Canonical
+    # source binding is the DB thesis_id FK; the field is retained as migrated data.
     if document.independent_review_ref != legacy_review_name:
         raise OpportunityDataError(
-            "packet independent_review_ref must equal the stable review filename "
+            "thesis independent_review_ref must equal the stable review filename "
             f"{legacy_review_name!r} before promotion"
         )
-    resolved_packet_id = packet_id or (
-        f"packet-{document.input_snapshot.as_of:%Y%m%d}-{ticker}-{review.review_id}"
+    resolved_thesis_id = thesis_id or (
+        f"thesis-{document.input_snapshot.as_of:%Y%m%d}-{ticker}-{review.review_id}"
     )
     try:
-        ResearchStoreService(db_path).publish_packet_with_review(
-            resolved_packet_id,
-            _load_mapping(packet_path, label="decision packet"),
+        ResearchStoreService(db_path).publish_thesis_with_review(
+            resolved_thesis_id,
+            _load_mapping(thesis_path, label="thesis"),
             _load_mapping(review_path, label="independent review"),
             supersedes_id=supersedes_id,
         )
@@ -1182,9 +1181,9 @@ def promote(
     except (ResearchValidationError, ValidationError) as error:
         raise OpportunityDataError(str(error)) from error
     return PromoteResult(
-        packet_id=resolved_packet_id,
+        thesis_id=resolved_thesis_id,
         review_id=review.review_id,
-        packet_sha256=core_hash,
+        thesis_sha256=core_hash,
     )
 
 
@@ -1195,7 +1194,7 @@ def promote(
 
 def plan_limit(
     *,
-    packet: Path,
+    thesis: Path,
     db_path: Path | None,
     sqlite_path: Path,
     target_session: date,
@@ -1212,15 +1211,15 @@ def plan_limit(
     order until human-confirmed broker state is recorded. ``defer`` is a normal
     judgment (exit 0).
     """
-    document = load_decision_packet(packet)
+    document = load_thesis(thesis)
     ticker = document.input_snapshot.ticker
-    review_path = _adjacent_review_path(packet, document.independent_review_ref)
+    review_path = _adjacent_review_path(thesis, document.independent_review_ref)
     review = load_independent_review(review_path) if review_path is not None else None
     defer_reasons: list[str] = []
 
-    result = evaluate_decision_packet(document, review=review, now=now)
+    result = evaluate_thesis(document, review=review, now=now)
     if result.decision_readiness != "ready":
-        defer_reasons.append("packet_not_decision_ready")
+        defer_reasons.append("thesis_not_decision_ready")
 
     price = resolve_previous_business_day_close(
         sqlite_path=sqlite_path, ticker=ticker, target_session=target_session
@@ -1247,9 +1246,9 @@ def plan_limit(
 
     base_output: dict[str, object] = {
         "ticker": ticker,
-        "decision_packet_ref": str(packet),
-        "decision_packet_sha256": _sha256_text(packet.read_text(encoding="utf-8")),
-        "decision_packet_core_sha256": decision_packet_core_hash(document),
+        "thesis_ref": str(thesis),
+        "thesis_sha256": _sha256_text(thesis.read_text(encoding="utf-8")),
+        "thesis_core_sha256": thesis_core_hash(document),
         "independent_review_ref": str(review_path) if review_path is not None else None,
         "independent_review_sha256": (
             _sha256_text(review_path.read_text(encoding="utf-8"))
@@ -1364,7 +1363,7 @@ def _portfolio_exposure(
 ) -> tuple[dict[str, object], list[str], int]:
     """Derive prospective concentration with disclosed common-factor coverage.
 
-    Candidate holdings/reservations use the packet's current factor classification.
+    Candidate holdings/reservations use the thesis's current factor classification.
     Other tickers retain ledger classifications; empty classifications are reported,
     so common-factor exposure remains an explicit lower bound rather than a silent
     claim of complete portfolio coverage.
@@ -1526,13 +1525,13 @@ def _load_checklist(workspace: Path, ticker: str) -> list[dict[str, object]]:
     return _dict_list(payload.get("checks"))
 
 
-def _packet_validation_errors(workspace: Path, ticker: str) -> list[str]:
-    packet_path = _research_lane_dir(workspace, ticker) / "packet-draft.yaml"
-    if not packet_path.exists():
-        return ["packet draft missing"]
+def _thesis_validation_errors(workspace: Path, ticker: str) -> list[str]:
+    thesis_path = _research_lane_dir(workspace, ticker) / "thesis-draft.yaml"
+    if not thesis_path.exists():
+        return ["thesis draft missing"]
     try:
-        load_decision_packet(packet_path)
-    except DecisionPacketError as error:
+        load_thesis(thesis_path)
+    except ThesisError as error:
         return [str(error).splitlines()[0]]
     return []
 
@@ -1543,24 +1542,24 @@ def _review_validation_errors(workspace: Path, ticker: str) -> list[str]:
         return ["review draft missing"]
     try:
         review = load_independent_review(review_path)
-    except DecisionPacketError as error:
+    except ThesisError as error:
         return [str(error).splitlines()[0]]
-    packet_path = _research_lane_dir(workspace, ticker) / "packet-draft.yaml"
-    core_hash = _packet_core_hash_if_valid(packet_path)
-    if core_hash is not None and review.reviewed_packet_sha256 != core_hash:
-        return ["review is stale for the current packet"]
+    thesis_path = _research_lane_dir(workspace, ticker) / "thesis-draft.yaml"
+    core_hash = _thesis_core_hash_if_valid(thesis_path)
+    if core_hash is not None and review.reviewed_thesis_sha256 != core_hash:
+        return ["review is stale for the current thesis"]
     return []
 
 
-def _adjacent_review_path(packet_path: Path, review_ref: str | None) -> Path | None:
+def _adjacent_review_path(thesis_path: Path, review_ref: str | None) -> Path | None:
     if review_ref is None:
         return None
-    root = packet_path.resolve().parent
+    root = thesis_path.resolve().parent
     resolved = (root / review_ref).resolve()
     if not resolved.is_relative_to(root):
-        raise OpportunityDataError("independent_review_ref must stay beside the packet")
+        raise OpportunityDataError("independent_review_ref must stay beside the thesis")
     if not resolved.exists():
-        raise OpportunityDataError(f"independent review not found beside packet: {resolved}")
+        raise OpportunityDataError(f"independent review not found beside thesis: {resolved}")
     return resolved
 
 
@@ -1616,6 +1615,6 @@ __all__ = [
     "prepare_workspace",
     "promote",
     "resolve_previous_business_day_close",
-    "scaffold_packet",
     "scaffold_review",
+    "scaffold_thesis",
 ]

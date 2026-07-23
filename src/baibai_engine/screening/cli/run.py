@@ -440,7 +440,7 @@ def _index_next_earnings(
     entries: Sequence[JPXEarningsCalendarEntry], asof_date: date
 ) -> dict[str, date]:
     # Pick the soonest forthcoming earnings announcement (>= asof_date) per
-    # ticker so research packets can populate next_earnings_date for the
+    # ticker so research theses can populate next_earnings_date for the
     # decision-period kill switch.
     by_ticker: dict[str, date] = {}
     for entry in entries:

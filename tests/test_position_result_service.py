@@ -21,10 +21,10 @@ from baibai_engine.research.store import ResearchStoreService
 from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
-PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
-REVIEW = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
+THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
+REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
-PACKET_ID = "packet-20260711-2331-r1"
+THESIS_ID = "thesis-20260711-2331-r1"
 CREATED_AT = datetime.fromisoformat("2026-07-11T10:02:00+09:00")
 
 
@@ -36,7 +36,7 @@ def _raw(path: Path) -> dict[str, object]:
 
 def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService, str]:
     db = tmp_path / "app.sqlite"
-    ResearchStoreService(db).publish_packet_with_review(PACKET_ID, _raw(PACKET), _raw(REVIEW))
+    ResearchStoreService(db).publish_thesis_with_review(THESIS_ID, _raw(THESIS), _raw(REVIEW))
     ledger = LedgerStoreService(db)
     source = load_portfolio_ledger(LEDGER)
     seed_ledger(
@@ -63,7 +63,7 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
         connection.execute("INSERT INTO jquants_daily_bars VALUES ('2331', '2026-07-10', 1000, 1)")
     planned = PlannedLimitInput.model_validate(
         plan_limit(
-            packet=PACKET,
+            thesis=THESIS,
             db_path=db,
             sqlite_path=market,
             target_session=date(2026, 7, 13),
@@ -73,7 +73,7 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
         )
     )
     proposal = proposals.create(
-        PACKET_ID,
+        THESIS_ID,
         planned,
         snapshot,
         snapshot_append_head=append_head,

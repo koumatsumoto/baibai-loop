@@ -1,4 +1,4 @@
-"""Canonical long-horizon investment decision packet and deterministic checks."""
+"""Canonical long-horizon investment thesis and deterministic checks."""
 
 from __future__ import annotations
 
@@ -68,8 +68,8 @@ ObservedTrailingMultipleStatus = Literal[
 ]
 
 
-class DecisionPacketError(ValueError):
-    """Raised when a packet cannot be evaluated without inventing facts."""
+class ThesisError(ValueError):
+    """Raised when a thesis cannot be evaluated without inventing facts."""
 
 
 def _date(value: object) -> date:
@@ -545,7 +545,7 @@ class IndependentReview(BaseModel):
     reviewer_identity: Annotated[str, Field(min_length=1)]
     reviewer_run_id: Annotated[str, Field(min_length=1)]
     reviewed_at: datetime
-    reviewed_packet_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    reviewed_thesis_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     primary_source_check: Literal["verified", "partially_verified", "unverified"]
     checked_source_ids: tuple[Annotated[str, Field(min_length=1)], ...]
     recalculated_scenarios: tuple[ReviewedScenario, ...]
@@ -571,7 +571,7 @@ class IndependentReview(BaseModel):
         return self
 
 
-class DecisionPacketDocument(BaseModel):
+class ThesisDocument(BaseModel):
     """Strict persisted contract with no legacy thesis compatibility fields."""
 
     model_config = _CONFIG
@@ -621,10 +621,10 @@ class FiveYearBaseBreakEvenResult:
 
 
 @dataclass(frozen=True, slots=True)
-class DecisionPacketResult:
-    packet_status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"]
+class ThesisResult:
+    thesis_status: Literal["incomplete", "review_required", "ready", "ready_with_warnings"]
     decision_readiness: Literal["not_ready", "ready"]
-    packet_sha256: str
+    thesis_sha256: str
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
     scenarios: tuple[ScenarioResult, ...]
@@ -632,51 +632,51 @@ class DecisionPacketResult:
     screening_fv_revision_pct: Decimal | None = None
 
 
-def load_decision_packet(path: Path) -> DecisionPacketDocument:
-    """Load a strict YAML packet."""
+def load_thesis(path: Path) -> ThesisDocument:
+    """Load a strict YAML thesis."""
 
     try:
         raw = safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as error:
-        raise DecisionPacketError(f"failed to load decision packet: {error}") from error
+        raise ThesisError(f"failed to load thesis: {error}") from error
     if not isinstance(raw, Mapping):
-        raise DecisionPacketError("decision packet root must be a mapping")
+        raise ThesisError("thesis root must be a mapping")
     try:
-        return DecisionPacketDocument.model_validate(raw)
+        return ThesisDocument.model_validate(raw)
     except ValidationError as error:
-        raise DecisionPacketError(str(error)) from error
+        raise ThesisError(str(error)) from error
 
 
 def load_independent_review(path: Path) -> IndependentReview:
-    """Load a second-pass artifact independently from its reviewed packet."""
+    """Load a second-pass artifact independently from its reviewed thesis."""
 
     try:
         raw = safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as error:
-        raise DecisionPacketError(f"failed to load independent review: {error}") from error
+        raise ThesisError(f"failed to load independent review: {error}") from error
     if not isinstance(raw, Mapping):
-        raise DecisionPacketError("independent review root must be a mapping")
+        raise ThesisError("independent review root must be a mapping")
     try:
         return IndependentReview.model_validate(raw)
     except ValidationError as error:
-        raise DecisionPacketError(str(error)) from error
+        raise ThesisError(str(error)) from error
 
 
-def evaluate_decision_packet(
-    document: DecisionPacketDocument,
+def evaluate_thesis(
+    document: ThesisDocument,
     *,
     review: IndependentReview | None = None,
     now: datetime | None = None,
-) -> DecisionPacketResult:
+) -> ThesisResult:
     """Recalculate scenarios and determine whether the proposal is decision-ready."""
 
     errors: list[str] = []
     warnings: list[str] = []
     evaluated_at = now or datetime.now(tz=ZoneInfo("Asia/Tokyo"))
     if document.input_snapshot.as_of > evaluated_at.date():
-        errors.append("packet as_of cannot be in the future")
+        errors.append("thesis as_of cannot be in the future")
     if document.judgment.proposed_at.date() < document.input_snapshot.as_of:
-        errors.append("proposal cannot predate packet as_of")
+        errors.append("proposal cannot predate thesis as_of")
     if document.judgment.proposed_at > evaluated_at:
         errors.append("proposal cannot be future-dated")
     source_ids = {source.source_id for source in document.input_snapshot.sources}
@@ -691,7 +691,7 @@ def evaluate_decision_packet(
         if source.ticker != document.input_snapshot.ticker:
             errors.append(f"source {source.source_id} ticker does not match input_snapshot")
         if source.as_of > document.input_snapshot.as_of:
-            errors.append(f"source {source.source_id} is after packet as_of")
+            errors.append(f"source {source.source_id} is after thesis as_of")
         if source.retrieved_at.date() < source.as_of:
             errors.append(f"source {source.source_id} was retrieved before its as_of")
         if source.retrieved_at > evaluated_at:
@@ -719,7 +719,7 @@ def evaluate_decision_packet(
             for item in document.estimates.scenarios
         )
     except (ArithmeticError, OverflowError, ValueError) as error:
-        raise DecisionPacketError(f"scenario calculation failed: {error}") from error
+        raise ThesisError(f"scenario calculation failed: {error}") from error
     _check_derived_metrics(document, errors)
     _check_scenario_fact_inputs(document, errors)
     keys = {(item.horizon_years, item.name) for item in document.estimates.scenarios}
@@ -772,7 +772,7 @@ def evaluate_decision_packet(
     if override is not None and not set(exception_axes).issubset(override.acknowledged_risk_axes):
         errors.append("evidence override must acknowledge every incomplete or adverse risk axis")
 
-    core_hash = decision_packet_core_hash(document)
+    core_hash = thesis_core_hash(document)
     if document.judgment.recommendation == "buy":
         if review is None or document.independent_review_ref is None:
             errors.append("buy recommendation requires an independent second-pass review")
@@ -832,10 +832,10 @@ def evaluate_decision_packet(
         ),
         None,
     )
-    return DecisionPacketResult(
-        packet_status=status,
+    return ThesisResult(
+        thesis_status=status,
         decision_readiness="ready" if status in {"ready", "ready_with_warnings"} else "not_ready",
-        packet_sha256=core_hash,
+        thesis_sha256=core_hash,
         errors=tuple(errors),
         warnings=tuple(warnings),
         scenarios=tuple(
@@ -853,7 +853,7 @@ def evaluate_decision_packet(
     )
 
 
-def decision_packet_core_hash(document: DecisionPacketDocument) -> str:
+def thesis_core_hash(document: ThesisDocument) -> str:
     payload = document.model_dump(mode="json", exclude={"human_evidence_override"})
     if document.input_snapshot.screening_estimate is None:
         input_snapshot = payload.get("input_snapshot")
@@ -866,7 +866,7 @@ def decision_packet_core_hash(document: DecisionPacketDocument) -> str:
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (OverflowError, ValueError) as error:
-        raise DecisionPacketError(f"decision packet cannot be hashed: {error}") from error
+        raise ThesisError(f"thesis cannot be hashed: {error}") from error
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
@@ -876,11 +876,11 @@ def independent_review_hash(review: IndependentReview) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def result_to_payload(result: DecisionPacketResult) -> dict[str, object]:
+def result_to_payload(result: ThesisResult) -> dict[str, object]:
     return {
-        "packet_status": result.packet_status,
+        "thesis_status": result.thesis_status,
         "decision_readiness": result.decision_readiness,
-        "packet_sha256": result.packet_sha256,
+        "thesis_sha256": result.thesis_sha256,
         "errors": list(result.errors),
         "warnings": list(result.warnings),
         "scenarios": [
@@ -902,7 +902,7 @@ def result_to_payload(result: DecisionPacketResult) -> dict[str, object]:
 
 
 def _calculate_screening_fv_revision_pct(
-    document: DecisionPacketDocument,
+    document: ThesisDocument,
 ) -> Decimal | None:
     screening_estimate = document.input_snapshot.screening_estimate
     if screening_estimate is None or screening_estimate.fair_value_anchor_yen is None:
@@ -920,7 +920,7 @@ def _calculate_screening_fv_revision_pct(
 
 
 def _calculate_five_year_base_break_even(
-    document: DecisionPacketDocument,
+    document: ThesisDocument,
     scenario: ScenarioEstimate,
 ) -> FiveYearBaseBreakEvenResult:
     required_return = Decimal(str(document.estimates.required_5y_base_cagr_pct))
@@ -1033,7 +1033,7 @@ def _earnings_growth_status(value: Decimal) -> EarningsGrowthStatus:
 
 
 def _observed_trailing_multiple(
-    document: DecisionPacketDocument,
+    document: ThesisDocument,
     scenario: ScenarioEstimate,
 ) -> tuple[
     ObservedTrailingMultipleStatus,
@@ -1171,9 +1171,7 @@ def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -
     if not all(
         math.isfinite(value) for value in (terminal_earnings, terminal_shares, terminal_price, cagr)
     ):
-        raise DecisionPacketError(
-            f"scenario {horizon}y/{scenario.name} calculation must remain finite"
-        )
+        raise ThesisError(f"scenario {horizon}y/{scenario.name} calculation must remain finite")
     return ScenarioResult(
         horizon_years=horizon,
         name=scenario.name,
@@ -1219,7 +1217,7 @@ def _compare_claims(
             errors.append(f"scenario {key} {label} mismatch: expected {expected}, got {claimed}")
 
 
-def _check_derived_metrics(document: DecisionPacketDocument, errors: list[str]) -> None:
+def _check_derived_metrics(document: ThesisDocument, errors: list[str]) -> None:
     facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
     metric_ids = {metric.metric_id for metric in document.derived.metrics}
     if len(metric_ids) != len(document.derived.metrics):
@@ -1266,7 +1264,7 @@ def _check_derived_metrics(document: DecisionPacketDocument, errors: list[str]) 
             )
 
 
-def _check_snapshot_contract(document: DecisionPacketDocument, errors: list[str]) -> None:
+def _check_snapshot_contract(document: ThesisDocument, errors: list[str]) -> None:
     """Enforce the minimum self-contained decision-time input snapshot."""
 
     facts = document.input_snapshot.facts
@@ -1301,7 +1299,7 @@ def _check_snapshot_contract(document: DecisionPacketDocument, errors: list[str]
 
 
 def _check_screening_fv_bridge(
-    document: DecisionPacketDocument,
+    document: ThesisDocument,
     source_tiers: Mapping[str, str],
     errors: list[str],
     warnings: list[str],
@@ -1310,7 +1308,7 @@ def _check_screening_fv_bridge(
     bridge = document.estimates.screening_fv_bridge
     if screening_estimate is not None:
         if screening_estimate.as_of != document.input_snapshot.as_of:
-            errors.append("input_snapshot.screening_estimate.as_of must equal packet as_of")
+            errors.append("input_snapshot.screening_estimate.as_of must equal thesis as_of")
         if not any(
             source_tiers.get(source_id) == "local_data"
             for source_id in screening_estimate.source_ids
@@ -1326,7 +1324,7 @@ def _check_screening_fv_bridge(
         warnings.append("screening fair-value anchor has no screening_fv_bridge")
 
 
-def _check_scenario_fact_inputs(document: DecisionPacketDocument, errors: list[str]) -> None:
+def _check_scenario_fact_inputs(document: ThesisDocument, errors: list[str]) -> None:
     facts = {fact.fact_id: fact for fact in document.input_snapshot.facts}
     if len(facts) != len(document.input_snapshot.facts):
         errors.append("input_snapshot fact_id must be unique")
@@ -1369,9 +1367,7 @@ def _check_scenario_fact_inputs(document: DecisionPacketDocument, errors: list[s
                 errors.append(f"scenario {key} {label} does not match observed fact {fact_id}")
 
 
-def _check_lineage(
-    document: DecisionPacketDocument, source_ids: set[str], errors: list[str]
-) -> None:
+def _check_lineage(document: ThesisDocument, source_ids: set[str], errors: list[str]) -> None:
     rows: list[tuple[str, date, tuple[str, ...]]] = []
     rows.extend(
         (f"fact {item.fact_id}", item.as_of, item.source_ids)
@@ -1425,9 +1421,9 @@ def _check_lineage(
         if unknown:
             errors.append(f"{label} references unknown sources: {unknown}")
         if as_of > document.input_snapshot.as_of:
-            errors.append(f"{label} as_of is after packet as_of")
+            errors.append(f"{label} as_of is after thesis as_of")
         if (document.input_snapshot.as_of - as_of).days > 400:
-            errors.append(f"{label} is more than 400 days older than packet as_of")
+            errors.append(f"{label} is more than 400 days older than thesis as_of")
         for source_id in references:
             source = sources.get(source_id)
             if source is not None and (as_of - source.as_of).days > 400:
@@ -1435,7 +1431,7 @@ def _check_lineage(
 
 
 def _check_ai_value_capture(
-    document: DecisionPacketDocument,
+    document: ThesisDocument,
     source_ids: set[str],
     risk_by_axis: Mapping[RiskAxis, PermanentLossRisk],
     errors: list[str],
@@ -1466,7 +1462,7 @@ def _risk_conclusion(risks: tuple[PermanentLossRisk, ...]) -> str:
 
 
 def _has_valid_evidence_override(
-    document: DecisionPacketDocument,
+    document: ThesisDocument,
     *,
     review: IndependentReview,
     evaluated_at: datetime,
@@ -1477,7 +1473,7 @@ def _has_valid_evidence_override(
     return (
         document.judgment.proposed_at <= review.reviewed_at <= override.approved_at
         and override.approved_at <= evaluated_at < override.expires_at
-        and override.proposal_sha256 == decision_packet_core_hash(document)
+        and override.proposal_sha256 == thesis_core_hash(document)
         and override.review_id == review.review_id
         and override.review_sha256 == independent_review_hash(review)
         and document.judgment.sizing_action == "reduced"
@@ -1496,8 +1492,8 @@ def _check_review(
     errors: list[str],
     warnings: list[str],
 ) -> None:
-    if review.reviewed_packet_sha256 != expected_hash:
-        errors.append("independent review hash does not match decision packet")
+    if review.reviewed_thesis_sha256 != expected_hash:
+        errors.append("independent review hash does not match thesis")
     if not review.checked_source_ids:
         errors.append("independent review must check at least one source")
     unknown = sorted(set(review.checked_source_ids) - source_ids)
@@ -1512,7 +1508,7 @@ def _check_review(
     ):
         errors.append("verified primary-source review must check a primary source")
     if review.reviewed_at.date() < input_snapshot.as_of:
-        errors.append("independent review cannot predate packet as_of")
+        errors.append("independent review cannot predate thesis as_of")
     if review.reviewed_at < judgment.proposed_at:
         errors.append("independent review cannot predate the AI proposal")
     if review.reviewed_at > evaluated_at:
@@ -1523,10 +1519,10 @@ def _check_review(
         for item in review.recalculated_scenarios
     }
     if len(supplied) != len(review.recalculated_scenarios) or supplied != expected:
-        errors.append("independent review scenario recalculation does not match packet")
+        errors.append("independent review scenario recalculation does not match thesis")
     if review.primary_source_check != "verified":
         warnings.append("independent review did not fully verify primary sources")
     if review.alternative_candidate_check != "compared":
         warnings.append("independent review did not compare an alternative candidate")
     if review.proposal_changed:
-        errors.append("independent review changed the proposal; regenerate the decision packet")
+        errors.append("independent review changed the proposal; regenerate the thesis")

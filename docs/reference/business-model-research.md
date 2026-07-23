@@ -7,12 +7,12 @@ last_reviewed: 2026-07-15
 related_docs:
   - "../workflow/research.md"
   - "./research-decision-report.md"
-  - "../../records/_playbooks/README.md"
+  - "../../method/playbooks/README.md"
 ---
 
 # Business-model research guide
 
-このguideは「なぜ安く見えるか」を扱うscreening playbookとは別に、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot question lensである。business model分類そのものを投資根拠、screening条件、packet fieldにせず、問いの抜けを減らすためだけに使う。pilot期間はoperation sessionで対象に指定したprimary-research laneだけへ適用し、対象外laneへ一律に強制しない。
+このguideは「なぜ安く見えるか」を扱うscreening playbookとは別に、「企業がどう稼ぎ、どのKPIと制約が5年価値を決めるか」を確認するためのpilot question lensである。business model分類そのものを投資根拠、screening条件、thesis fieldにせず、問いの抜けを減らすためだけに使う。pilot期間はoperation sessionで対象に指定したprimary-research laneだけへ適用し、対象外laneへ一律に強制しない。
 
 ## 適用手順
 
@@ -22,7 +22,7 @@ related_docs:
 4. 回答にはsource IDとclaim classを接続し、下記triangulation規約に従う。開示されないKPIを同業平均や推測で埋めない。
 5. どのpilot lensにも適合しない企業を無理に分類せず、[`research workflow`](../workflow/research.md)の共通確認へ戻る。pilot中にlensを追加せず、2〜3件の自然発生run後に維持・修正・撤回・拡張を別Issueで判断する。
 
-findingsでは`answered`を既存の`domain_findings`へ置き、question IDを`heading`、回答とlens適合理由を`conclusion`、根拠を`evidence.statement / kind / source_ids`へ置く。`not_applicable`もbusiness modelの根拠sourceを持つ`domain_findings`として、理由を`conclusion`に明記する。部分回答は確認できた部分だけを`domain_findings`へ置き、未確認部分を`unknowns`へ分ける。source取得不能時は偽のevidenceを作らず、`unknowns`へ`<question_id>: unknown — attempted source / decision impact`として置く。`answered / unknown / not_applicable`、source role、claim class、load-bearing、triangulation statusはguide上のreview語彙であり、新しいYAML field、enum、schema、artifactにしない。必要な区分は既存の`conclusion`、`evidence.statement`、`unknowns`、packet sourceの`used_for`へ文章で残す。
+findingsでは`answered`を既存の`domain_findings`へ置き、question IDを`heading`、回答とlens適合理由を`conclusion`、根拠を`evidence.statement / kind / source_ids`へ置く。`not_applicable`もbusiness modelの根拠sourceを持つ`domain_findings`として、理由を`conclusion`に明記する。部分回答は確認できた部分だけを`domain_findings`へ置き、未確認部分を`unknowns`へ分ける。source取得不能時は偽のevidenceを作らず、`unknowns`へ`<question_id>: unknown — attempted source / decision impact`として置く。`answered / unknown / not_applicable`、source role、claim class、load-bearing、triangulation statusはguide上のreview語彙であり、新しいYAML field、enum、schema、artifactにしない。必要な区分は既存の`conclusion`、`evidence.statement`、`unknowns`、thesis sourceの`used_for`へ文章で残す。
 
 ## Claim triangulation
 
@@ -48,12 +48,12 @@ issuerが作成してEDINET/TDnet/JPX経由で配布した文書はissuer-primar
 | 市場規模・規制・業界成長 | issuer資料だけでは確定しない | 規制当局、政府・業界統計、方法開示済み独立資料が必要 | 独立sourceなしなら`unknown`または幅を持つestimate |
 | 顧客需要・採用・継続・導入効果 | issuerの受注・顧客数など自社KPIの公表範囲まで | 顧客自身の公表、調達記録、独立usage/industry dataのいずれかが必要 | issuer-curated事例だけなら`management_claim`のまま |
 | 競争優位・market share・差別化・pricing power | 自社価格・解約・margin等の公表値まで | 顧客、競合比較、業界統計、規制資料のいずれかが必要 | 裏取り後も優位性の持続は`estimate`。観測factへ昇格しない |
-| pipeline成功・製品hit・承認・稼働効果 | 発売/申請/契約/稼働の公表stageまで | platform、規制当局、partner/customer、独立需要dataのいずれかが必要 | stageと成功確率を分離し、findingsでは`estimate`、数値仮定はpacket `estimates.scenarios`へ置く |
+| pipeline成功・製品hit・承認・稼働効果 | 発売/申請/契約/稼働の公表stageまで | platform、規制当局、partner/customer、独立需要dataのいずれかが必要 | stageと成功確率を分離し、findingsでは`estimate`、数値仮定はthesis `estimates.scenarios`へ置く |
 | 否定・不存在 | 明示された開示scope内で「該当なし」と報告したことまで | registry、規制当局、counterparty、対象範囲を覆う複数経路が必要 | 非開示・検索不発から「競合/集中/riskなし」をobservedにせず`unknown` |
 
-独立sourceがclaimを支持しても、`management_claim`やestimateをobserved factへ変換しない。findingsの有効な`evidence.kind`は`observed / derived / estimate / management_claim`だけで、packetのjudgment namespaceを`kind: judgment`として使わない。複数sourceが同じissuer発表を転載しているだけならtriangulationにならない。
+独立sourceがclaimを支持しても、`management_claim`やestimateをobserved factへ変換しない。findingsの有効な`evidence.kind`は`observed / derived / estimate / management_claim`だけで、thesisのjudgment namespaceを`kind: judgment`として使わない。複数sourceが同じissuer発表を転載しているだけならtriangulationにならない。
 
-同じissuerの決算短信、説明資料、統合報告書、製品newsはdocument数にかかわらず1 source familyとして扱う。同じ通信社記事の転載や同じ調査datasetを引用する複数記事も1 familyである。source familyはtriangulationの独立性を数える概念だけに使い、対象期・公表日・`used_for`が異なるpacketのsource recordとsource IDは個別に維持する。
+同じissuerの決算短信、説明資料、統合報告書、製品newsはdocument数にかかわらず1 source familyとして扱う。同じ通信社記事の転載や同じ調査datasetを引用する複数記事も1 familyである。source familyはtriangulationの独立性を数える概念だけに使い、対象期・公表日・`used_for`が異なるthesisのsource recordとsource IDは個別に維持する。
 
 独立sourceはclaimとsubject、population、期間、地域、metricが一致する範囲だけを支持する。単一customer事例はそのcustomerでの導入事実、partner公表は関係の存在と公表範囲、platform指標は当該platform・cohort・期間の観測だけをcorroborateできる。複数事例への一般化、継続率、pricing power、市場全体の需要、hit確率は母集団dataが無ければestimateのまま保守的scenarioへ置く。矛盾するsourceは都合のよい方だけを採用せず、解消できなければunknownへ戻す。
 
@@ -61,7 +61,7 @@ issuerが作成してEDINET/TDnet/JPX経由で配布した文書はissuer-primar
 
 - issuer発表を確認できた内容は`management_claim`として残す。独立裏取りを必要とするload-bearing claimに適切な独立sourceが無い場合、claimを削除したり`kind: unknown`を作らず、独立裏取り未了とdecision impactを`conclusion`または`unknowns`へ残す。issuer発表自体も確認できない内容だけをunknownとする。issuer-primaryで確定できる過去の公表値は、その値と因果解釈を分離できていればunknownへ戻さない。
 - required questionに回答できないcheckは`blocked`としてよい。`blocked`は個別checkの状態で、laneのdispositionではない。check未完のlaneは`research`に留め、自動的に`reject`へ変えない。
-- 独立裏取りが必要なload-bearing claimをissuer familyだけで支える場合、claimは`management_claim`またはestimateのまま、canonical packetの`judgment.confidence`は最大`medium`とし、そのpositive claimを無条件にbase/FVへ入れない。sourceが矛盾し未解決なら同confidenceを`low`とする。findingsのconfidenceはpacketを上回らず、HTML前content reviewの`primary source traceability`と`countercase and unknowns`で両者を照合する。
+- 独立裏取りが必要なload-bearing claimをissuer familyだけで支える場合、claimは`management_claim`またはestimateのまま、canonical thesisの`judgment.confidence`は最大`medium`とし、そのpositive claimを無条件にbase/FVへ入れない。sourceが矛盾し未解決なら同confidenceを`low`とする。findingsのconfidenceはthesisを上回らず、HTML前content reviewの`primary source traceability`と`countercase and unknowns`で両者を照合する。
 - unresolved claimが、割安と構造的毀損の区別、永久損失軸、またはrequired 5y returnを満たすscenarioの成立にload-bearingで、保守的な範囲も置けない場合だけ購入判断を`defer`する。
 - unknownをbear caseへ保守的に置いても十分な余裕があり、他の一次sourceでpermanent lossを評価できる場合は、confidenceとmonitoring triggerを明示して比較を続けてよい。
 - `reject`は欠損そのものではなく、確認できた事実と保守的scenarioが恒久毀損または必要利回り不足を示す場合に使う。

@@ -19,7 +19,7 @@ export interface HoldingView {
   unrealized_pnl_pct: number
   fair_value_yen: number | null
   fv_gap_pct: number | null
-  latest_packet_id: string | null
+  latest_thesis_id: string | null
   recommendation: string | null
   next_earnings_date: string | null
 }
@@ -102,7 +102,7 @@ export interface OperationSessionView {
 export interface ProposalView {
   proposal_id: string
   ticker: string
-  packet_id: string
+  thesis_id: string
   review_id: string
   created_at: string
   status: 'pending' | 'approved' | 'deferred' | 'rejected'
@@ -121,7 +121,7 @@ export interface PortfolioOutcomeView {
   benchmark_cumulative_return_pct: number | null
 }
 
-export interface ProgramStateView {
+export interface OperationsView {
   operations: OperationSessionView[]
   proposals: ProposalView[]
   outcomes: PortfolioOutcomeView[]
@@ -177,7 +177,7 @@ export interface ScreeningView {
   run: ScreeningRunView | null
   rows: CandidateRowView[]
   selections: MachineSelectionView[]
-  reviewed_shortlists: ReviewedShortlistView[]
+  shortlists: ShortlistView[]
 }
 
 export interface MachineSelectionView {
@@ -187,7 +187,7 @@ export interface MachineSelectionView {
   macro_context_id: string | null
   created_at: string
   recommendations: Record<string, unknown>[]
-  audit_pool: Record<string, unknown>[]
+  longlist: Record<string, unknown>[]
 }
 
 export interface ShortlistNarrativeView {
@@ -204,25 +204,25 @@ export interface ShortlistNarrativeView {
   sector_label: string | null
 }
 
-export interface ReviewedShortlistEntryView {
+export interface ShortlistEntryView {
   ticker: string
   decision: string
   reason: string
   narrative: ShortlistNarrativeView | null
 }
 
-export interface ReviewedShortlistView {
+export interface ShortlistView {
   shortlist_id: string
   selection_id: string
   run_revision_id: string
   as_of: string
   published_at: string
-  entries: ReviewedShortlistEntryView[]
+  entries: ShortlistEntryView[]
 }
 
 export interface ResearchRevisionView {
   as_of: string
-  packet_id: string
+  thesis_id: string
   recommendation: string
   confidence: string | null
   current_fair_value_yen: number | null
@@ -235,7 +235,7 @@ export interface ScenarioView {
   horizon_years: number
 }
 
-export interface PacketDetailView {
+export interface ThesisDetailView {
   revision: ResearchRevisionView
   entry_price_basis_yen: number | null
   required_5y_base_cagr_pct: number | null
@@ -249,8 +249,8 @@ export interface PacketDetailView {
 export interface HoldingReviewView {
   holding_review_id: string
   as_of: string
-  packet_id: string
-  candidate_packet_id: string | null
+  thesis_id: string
+  candidate_thesis_id: string | null
   action: string
   note: string | null
 }
@@ -261,7 +261,7 @@ export interface SecurityDetailView {
   sector: string | null
   holding: HoldingView | null
   revisions: ResearchRevisionView[]
-  latest_packet: PacketDetailView | null
+  latest_thesis: ThesisDetailView | null
   holding_reviews: HoldingReviewView[]
   candidate_row: CandidateRowView | null
   candidate_run: ScreeningRunView | null
