@@ -410,8 +410,8 @@ def run_daily_batch(
 def _root_error(root: Path) -> str | None:
     if not (root / "pyproject.toml").is_file():
         return f"--repo-root does not contain pyproject.toml: {root}"
-    if not (root / "records").is_dir():
-        return f"--repo-root does not contain records/: {root}"
+    if not (root / "method").is_dir():
+        return f"--repo-root does not contain method/: {root}"
     return None
 
 
