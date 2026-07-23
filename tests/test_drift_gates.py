@@ -155,3 +155,48 @@ def test_skill_inventory_gate_rejects_canonical_symlink(tmp_path: Path) -> None:
     (skill / "SKILL.md").symlink_to(external)
     errors = check_skill_inventory.check(tmp_path)
     assert any("canonical skill tree must not contain symlinks" in error for error in errors)
+
+
+def test_legacy_semantics_gate_rejects_records_path_in_reference(tmp_path: Path) -> None:
+    path = tmp_path / "docs" / "reference" / "demo.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("設定は `records/` に置く。\n", encoding="utf-8")
+    assert check_legacy_semantics.check(tmp_path) == [
+        "docs/reference/demo.md: obsolete operation instruction 'records/'"
+    ]
+
+
+def test_legacy_semantics_gate_allows_generic_records_word(tmp_path: Path) -> None:
+    path = tmp_path / "docs" / "demo.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("track records と TaskRecord は正当な一般名詞。\n", encoding="utf-8")
+    assert check_legacy_semantics.check(tmp_path) == []
+
+
+def test_markdown_link_gate_rejects_missing_anchor(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "architecture.md").write_text(
+        "# Architecture\n\n## Cloud serving layer\n", encoding="utf-8"
+    )
+    (tmp_path / "README.md").write_text(
+        "[x](./docs/architecture.md#automation)\n", encoding="utf-8"
+    )
+    assert check_markdown_links.check(tmp_path) == [
+        "README.md: missing Markdown anchor ./docs/architecture.md#automation"
+    ]
+
+
+def test_markdown_link_gate_accepts_heading_and_explicit_anchor(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "architecture.md").write_text(
+        '# Architecture\n\n## Cloud serving layer\n\n<a id="repository-map"></a>\n## Map\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text(
+        "[a](./docs/architecture.md#cloud-serving-layer) "
+        "[b](./docs/architecture.md#repository-map)\n",
+        encoding="utf-8",
+    )
+    assert check_markdown_links.check(tmp_path) == []
