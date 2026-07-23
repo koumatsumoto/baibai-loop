@@ -94,7 +94,13 @@ def export_read_models(
         if _MACRO_CONTEXT_ID_FORMAT.fullmatch(context_id) is None:
             _warn(f"macro context_id has an unexpected format: {context_id!r}; report view skipped")
             continue
-        detail = build_macro_context_detail(stores.macro, context_id=context_id, as_of=as_of)
+        try:
+            detail = build_macro_context_detail(stores.macro, context_id=context_id, as_of=as_of)
+        except ValueError as error:
+            # A not-yet-eligible (future as_of) revision is 404 on the API too; skip it
+            # rather than fail the whole batch.
+            _warn(f"macro report view skipped for {context_id!r}: {error}")
+            continue
         written.append(_write_model(views_dir / f"macro-context--{context_id}.json", detail))
 
     cached_candidates = _CachedLatestRunCandidates(stores.candidates)
