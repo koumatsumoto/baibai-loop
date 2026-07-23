@@ -16,10 +16,10 @@ from baibai_app.sources.db_sources import (
     DbMacroSource,
     DbMarketPriceSource,
     DbMetaSource,
-    DbProgramSource,
+    DbOperationsSource,
     DbResearchSource,
     DbTaskSource,
-    load_macro_dashboard_config,
+    load_macro_panel_config,
 )
 from baibai_app.sources.types import MacroGroupConfig
 
@@ -27,7 +27,7 @@ _APP_DB = "data/app/baibai.sqlite"
 _RUNS_DB = "data/screening/runs.sqlite"
 _INDICATORS_DB = "data/indicators/macro.sqlite"
 _MARKET_DB = "data/screening/market.sqlite"
-_MACRO_DASHBOARD_CONFIG = "records/_config/macro-dashboard.yaml"
+_MACRO_PANEL_CONFIG = "method/macro-panel.yaml"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,16 +39,16 @@ class Sources:
     tasks: DbTaskSource
     candidates: DbCandidatesSource
     macro: DbMacroSource
-    program: DbProgramSource
+    operations: DbOperationsSource
     market: DbMarketPriceSource
     meta: DbMetaSource
     runs_db_path: Path
 
 
 def load_macro_groups(root: Path) -> tuple[MacroGroupConfig, ...]:
-    """Load the macro dashboard config from its canonical repository location."""
+    """Load the macro panel config from its canonical repository location."""
 
-    return load_macro_dashboard_config(root / _MACRO_DASHBOARD_CONFIG)
+    return load_macro_panel_config(root / _MACRO_PANEL_CONFIG)
 
 
 def build_sources(
@@ -76,7 +76,7 @@ def build_sources(
         tasks=DbTaskSource(resolved_db),
         candidates=DbCandidatesSource(resolved_runs, resolved_db),
         macro=DbMacroSource(resolved_db, indicators_db, groups),
-        program=DbProgramSource(resolved_db),
+        operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(root / _MARKET_DB),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
         runs_db_path=resolved_runs,

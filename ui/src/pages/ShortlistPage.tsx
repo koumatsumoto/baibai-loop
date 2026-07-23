@@ -5,7 +5,7 @@ import { fetchJson } from '../api/client'
 import type {
   CandidateRowView,
   MachineSelectionView,
-  ReviewedShortlistEntryView,
+  ShortlistEntryView,
   ScreeningView,
 } from '../api/types'
 import { AppShell } from '../components/AppShell'
@@ -51,7 +51,7 @@ const PLOSS_TONE: Record<string, string> = {
   高: 'bg-destructive/15 text-destructive',
 }
 
-// audit_pool entry は型無し dict で届くので、機械値は明示的に coerce する。
+// longlist entry は型無し dict で届くので、機械値は明示的に coerce する。
 function num(record: Record<string, unknown>, key: string): number | null {
   const value = record[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -62,10 +62,10 @@ function strList(record: Record<string, unknown>, key: string): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
-function fvGapPct(audit: Record<string, unknown> | null): number | null {
-  if (audit === null) return null
-  const fv = num(audit, 'fair_value_anchor_yen')
-  const px = num(audit, 'market_price_yen')
+function fvGapPct(longlistEntry: Record<string, unknown> | null): number | null {
+  if (longlistEntry === null) return null
+  const fv = num(longlistEntry, 'fair_value_anchor_yen')
+  const px = num(longlistEntry, 'market_price_yen')
   return fv !== null && px !== null && px !== 0 ? (fv / px - 1) * 100 : null
 }
 
@@ -86,21 +86,21 @@ function FactRow({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-function MachineFacts({ audit, row }: { audit: Record<string, unknown> | null; row: CandidateRowView | null }) {
-  if (audit === null && row === null) {
+function MachineFacts({ longlistEntry, row }: { longlistEntry: Record<string, unknown> | null; row: CandidateRowView | null }) {
+  if (longlistEntry === null && row === null) {
     return (
       <p className="rounded-md border border-dashed p-3 text-sm text-warning">
         この shortlist の source run 世代は cache から prune 済みです。機械値は再現できないため narrative のみ表示しています。
       </p>
     )
   }
-  const gap = fvGapPct(audit)
-  const eventWarnings = audit ? strList(audit, 'event_warnings') : []
+  const gap = fvGapPct(longlistEntry)
+  const eventWarnings = longlistEntry ? strList(longlistEntry, 'event_warnings') : []
   return (
     <dl>
-      <FactRow label="screening 参考価格">{yen(audit ? num(audit, 'market_price_yen') : null, 1)}</FactRow>
+      <FactRow label="screening 参考価格">{yen(longlistEntry ? num(longlistEntry, 'market_price_yen') : null, 1)}</FactRow>
       <FactRow label="FV アンカー / 乖離">
-        {yen(audit ? num(audit, 'fair_value_anchor_yen') : null)}
+        {yen(longlistEntry ? num(longlistEntry, 'fair_value_anchor_yen') : null)}
         {gap !== null && <span className="ml-2"><PctBadge value={gap} /></span>}
       </FactRow>
       <FactRow label="機械 E[r]"><PctBadge fraction value={row?.er_annual ?? null} /></FactRow>
@@ -144,12 +144,12 @@ function MachineFacts({ audit, row }: { audit: Record<string, unknown> | null; r
 function SelectedCard({
   index,
   entry,
-  audit,
+  longlistEntry,
   row,
 }: {
   index: number
-  entry: ReviewedShortlistEntryView
-  audit: Record<string, unknown> | null
+  entry: ShortlistEntryView
+  longlistEntry: Record<string, unknown> | null
   row: CandidateRowView | null
 }) {
   const narrative = entry.narrative
@@ -174,7 +174,7 @@ function SelectedCard({
         </div>
       </CardHeader>
       <CardContent className="grid gap-0 px-5 py-4 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-6">
-        <MachineFacts audit={audit} row={row} />
+        <MachineFacts longlistEntry={longlistEntry} row={row} />
         <div className="mt-4 grid gap-3 lg:mt-0">
           {narrative
             ? NARRATIVE_SECTIONS.map(([key, heading]) => (
@@ -206,16 +206,16 @@ export function ShortlistPage() {
     })
   }, [])
 
-  const shortlist = data?.reviewed_shortlists[0] ?? null
+  const shortlist = data?.shortlists[0] ?? null
 
   const selection = useMemo<MachineSelectionView | null>(() => {
     if (!data || !shortlist) return null
     return data.selections.find((item) => item.selection_id === shortlist.selection_id) ?? null
   }, [data, shortlist])
 
-  const auditByTicker = useMemo(() => {
+  const longlistByTicker = useMemo(() => {
     const map = new Map<string, Record<string, unknown>>()
-    for (const entry of selection?.audit_pool ?? []) {
+    for (const entry of selection?.longlist ?? []) {
       const ticker = entry.ticker
       if (typeof ticker === 'string') map.set(ticker, entry)
     }
@@ -230,7 +230,7 @@ export function ShortlistPage() {
 
   if (error) return <PageState message={error} title="Shortlist read error" />
   if (!data) return <PageState message="Shortlist を読み込んでいます…" title="Shortlist" />
-  if (!shortlist) return <PageState message="reviewed shortlist はまだ publish されていません" title="Shortlist" />
+  if (!shortlist) return <PageState message="shortlist はまだ publish されていません" title="Shortlist" />
 
   const selected = shortlist.entries.filter((entry) => entry.decision === 'selected')
   const rejected = shortlist.entries.filter((entry) => entry.decision === 'rejected')
@@ -244,7 +244,7 @@ export function ShortlistPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Shortlist レビュー面</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              audit pool から人間 review した深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。
+              longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。
             </p>
           </div>
           <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
@@ -272,7 +272,7 @@ export function ShortlistPage() {
         <div className="grid gap-4">
           {selected.map((entry, index) => (
             <SelectedCard
-              audit={machineMissing ? null : auditByTicker.get(entry.ticker) ?? null}
+              longlistEntry={machineMissing ? null : longlistByTicker.get(entry.ticker) ?? null}
               entry={entry}
               index={index + 1}
               key={entry.ticker}
@@ -284,7 +284,7 @@ export function ShortlistPage() {
         {rejected.length > 0 && (
           <Card className="gap-3 py-5 shadow-sm">
             <CardHeader className="px-5">
-              <CardTitle className="text-base">audit pool から非選択</CardTitle>
+              <CardTitle className="text-base">longlist から非選択</CardTitle>
               <CardDescription>review したが shortlist へ残さなかった理由</CardDescription>
             </CardHeader>
             <CardContent className="px-5">

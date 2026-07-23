@@ -334,7 +334,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )
-                output_path = Path("records/02-candidates/e2e/candidates.yaml")
+                output_path = Path("data/screening/candidates/e2e/candidates.yaml")
                 exit_code = run_command(
                     date(2026, 4, 24),
                     config,
@@ -1216,7 +1216,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1246,7 +1246,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1255,8 +1255,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -1270,7 +1270,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1301,7 +1301,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={
                     "石油・石炭製品": "headwind",
@@ -1314,8 +1314,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
@@ -1354,8 +1354,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=full_buffer,
             )
@@ -1370,7 +1370,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             canonical = self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1382,12 +1382,12 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                     }
                 ],
             )
-            custom = root / "records/02-candidates/e2e/custom-candidates.yaml"
+            custom = root / "data/screening/candidates/e2e/custom-candidates.yaml"
             custom.parent.mkdir(parents=True)
             custom.write_text(canonical.read_text(encoding="utf-8"), encoding="utf-8")
             canonical.unlink()
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "tailwind"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "tailwind"}
             )
 
             buffer = io.StringIO()
@@ -1396,7 +1396,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 macro_context_path=None,
                 candidates_path=custom,
                 top=10,
-                macro_context_root=root / "records/01-macro-context",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
 
@@ -1404,7 +1404,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual(
                 payload["selection"]["input_refs"]["candidates_ref"],
-                "records/02-candidates/e2e/custom-candidates.yaml",
+                "data/screening/candidates/e2e/custom-candidates.yaml",
             )
             self.assertEqual([item["ticker"] for item in self._recommended(payload)], ["1111"])
 
@@ -1414,7 +1414,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1430,7 +1430,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "tailwind"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "tailwind"}
             )
 
             buffer = io.StringIO()
@@ -1439,8 +1439,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 macro_context_path=None,
                 candidates_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
 
@@ -1456,7 +1456,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1484,7 +1484,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1494,8 +1494,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=buffer,
             )
@@ -1526,7 +1526,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 "edinet_source_submit_datetime": "2026-03-03 10:00",
             }
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1548,7 +1548,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1558,8 +1558,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=buffer,
             )
@@ -1573,7 +1573,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1613,7 +1613,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral"},
             )
@@ -1623,8 +1623,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=buffer,
             )
@@ -1641,7 +1641,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1685,7 +1685,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral", "電気機器": "neutral"},
             )
@@ -1695,8 +1695,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=buffer,
             )
@@ -1713,7 +1713,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1751,7 +1751,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral", "電気機器": "neutral"},
             )
@@ -1760,8 +1760,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=buffer,
             )
@@ -1777,7 +1777,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1863,7 +1863,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "neutral"}
             )
 
             buffer = io.StringIO()
@@ -1871,8 +1871,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=buffer,
             )
@@ -1894,7 +1894,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -1920,7 +1920,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral", "電気機器": "neutral"},
             )
@@ -1930,8 +1930,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 detail="full",
                 stdout=buffer,
             )
@@ -1957,7 +1957,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             previous_asof = date(2026, 4, 17)
             previous_tickers = ("1111", "2222", "3333", "4444")
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 previous_asof,
                 candidates=[
                     {
@@ -1971,7 +1971,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2012,7 +2012,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={
                     "機械": "neutral",
@@ -2028,8 +2028,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
 
@@ -2062,10 +2062,10 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                     ("3333", "小売業"),
                 )
             ]
-            self._write_candidates(root / "records/02-candidates", previous_asof, candidates)
-            self._write_candidates(root / "records/02-candidates", asof, candidates)
+            self._write_candidates(root / "data/screening/candidates", previous_asof, candidates)
+            self._write_candidates(root / "data/screening/candidates", asof, candidates)
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 asof,
                 sectors={"機械": "neutral", "電気機器": "neutral", "小売業": "neutral"},
             )
@@ -2075,8 +2075,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
 
@@ -2094,7 +2094,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             asof = date(2026, 4, 24)
             candidates_path = (
                 root
-                / "records/02-candidates"
+                / "data/screening/candidates"
                 / f"{asof:%Y}"
                 / f"{asof:%m}"
                 / f"{asof:%Y-%m-%d}.yaml"
@@ -2105,7 +2105,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 yaml.safe_dump([{"ticker": "1111"}], allow_unicode=True),
                 encoding="utf-8",
             )
-            self._write_macro_context(root / "records/01-macro-context", asof, sectors={})
+            self._write_macro_context(root / "data/screening/macro-context", asof, sectors={})
 
             buffer = io.StringIO()
             stderr = io.StringIO()
@@ -2114,8 +2114,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                     asof_date=asof,
                     macro_context_path=None,
                     top=10,
-                    candidates_root=root / "records/02-candidates",
-                    macro_context_root=root / "records/01-macro-context",
+                    candidates_root=root / "data/screening/candidates",
+                    macro_context_root=root / "data/screening/macro-context",
                     stdout=buffer,
                 )
             self.assertEqual(exit_code, 1)
@@ -2127,7 +2127,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2140,7 +2140,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 date(2026, 5, 1),
                 sectors={"機械": "neutral"},
             )
@@ -2151,11 +2151,12 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 exit_code = select_command(
                     asof_date=asof,
                     macro_context_path=(
-                        root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
+                        root
+                        / "data/screening/macro-context/2026/05/macro-context-2026-05-01-test.yaml"
                     ),
                     top=10,
-                    candidates_root=root / "records/02-candidates",
-                    macro_context_root=root / "records/01-macro-context",
+                    candidates_root=root / "data/screening/candidates",
+                    macro_context_root=root / "data/screening/macro-context",
                     stdout=buffer,
                 )
 
@@ -2167,7 +2168,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2180,7 +2181,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             context_path = self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={}
+                root / "data/screening/macro-context", asof, sectors={}
             )
             context = safe_load(context_path.read_text(encoding="utf-8"))
             assert isinstance(context, dict)
@@ -2195,8 +2196,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                     asof_date=asof,
                     macro_context_path=context_path,
                     top=10,
-                    candidates_root=root / "records/02-candidates",
-                    macro_context_root=root / "records/01-macro-context",
+                    candidates_root=root / "data/screening/candidates",
+                    macro_context_root=root / "data/screening/macro-context",
                     stdout=io.StringIO(),
                 )
 
@@ -2208,7 +2209,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2221,7 +2222,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             context_path = self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={}
+                root / "data/screening/macro-context", asof, sectors={}
             )
             context = safe_load(context_path.read_text(encoding="utf-8"))
             assert isinstance(context, dict)
@@ -2236,8 +2237,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                     asof_date=asof,
                     macro_context_path=context_path,
                     top=10,
-                    candidates_root=root / "records/02-candidates",
-                    macro_context_root=root / "records/01-macro-context",
+                    candidates_root=root / "data/screening/candidates",
+                    macro_context_root=root / "data/screening/macro-context",
                     stdout=io.StringIO(),
                 )
 
@@ -2249,7 +2250,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2262,7 +2263,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             context_path = self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={}
+                root / "data/screening/macro-context", asof, sectors={}
             )
             context = safe_load(context_path.read_text(encoding="utf-8"))
             assert isinstance(context, dict)
@@ -2281,8 +2282,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                     asof_date=asof,
                     macro_context_path=context_path,
                     top=10,
-                    candidates_root=root / "records/02-candidates",
-                    macro_context_root=root / "records/01-macro-context",
+                    candidates_root=root / "data/screening/candidates",
+                    macro_context_root=root / "data/screening/macro-context",
                     stdout=io.StringIO(),
                 )
 
@@ -2294,7 +2295,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2315,8 +2316,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                     asof_date=asof,
                     macro_context_path=context_path,
                     top=10,
-                    candidates_root=root / "records/02-candidates",
-                    macro_context_root=root / "records/01-macro-context",
+                    candidates_root=root / "data/screening/candidates",
+                    macro_context_root=root / "data/screening/macro-context",
                     stdout=io.StringIO(),
                 )
 
@@ -2328,7 +2329,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 5, 20)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2341,7 +2342,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context",
+                root / "data/screening/macro-context",
                 date(2026, 5, 1),
                 sectors={"機械": "neutral"},
             )
@@ -2350,11 +2351,11 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             exit_code = select_command(
                 asof_date=asof,
                 macro_context_path=(
-                    root / "records/01-macro-context/2026/05/macro-context-2026-05-01-test.yaml"
+                    root / "data/screening/macro-context/2026/05/macro-context-2026-05-01-test.yaml"
                 ),
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
 
@@ -2369,7 +2370,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 5, 20)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2387,8 +2388,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
 
@@ -2404,7 +2405,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2418,7 +2419,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "neutral"}
             )
 
             buffer = io.StringIO()
@@ -2426,8 +2427,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
 
@@ -2435,13 +2436,13 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             payload = safe_load(buffer.getvalue())
             self.assertEqual(self._recommended(payload)[0]["ticker"], "1111")
 
-    def test_audit_top_omitted_keeps_output_backward_compatible(self) -> None:
-        """--audit-top 省略時は audit_pool key を出さず既存 output 互換を保つ。"""
+    def test_longlist_top_omitted_keeps_output_backward_compatible(self) -> None:
+        """--longlist-top 省略時は longlist key を出さず既存 output 互換を保つ。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2453,27 +2454,27 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "neutral"}
             )
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
             )
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            self.assertNotIn("audit_pool", payload)
+            self.assertNotIn("longlist", payload)
             self.assertEqual(set(payload), {"recommendations", "selection"})
 
-    def test_audit_pool_caps_at_audit_top_independent_of_recommendation_cap(self) -> None:
-        """audit_pool は diversity/cap 切断前の rank 済み集合の先頭 N 件を返す。
+    def test_longlist_caps_at_longlist_top_independent_of_recommendation_cap(self) -> None:
+        """longlist は diversity/cap 切断前の rank 済み集合の先頭 N 件を返す。
 
-        recommendation は production cap (target_max=5) に従うが、audit_pool は
-        --audit-top 20 まで rank 順で残り、監査 view として cap から独立する。
+        recommendation は production cap (target_max=5) に従うが、longlist は
+        --longlist-top 20 まで rank 順で残り、監査 view として cap から独立する。
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -2488,39 +2489,39 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 }
                 for index in range(25)
             ]
-            self._write_candidates(root / "records/02-candidates", asof, candidates=candidates)
+            self._write_candidates(root / "data/screening/candidates", asof, candidates=candidates)
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "neutral"}
             )
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
-                audit_top=20,
+                longlist_top=20,
             )
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
             recommendations = self._recommended(payload)
-            audit_pool = payload["audit_pool"]
-            self.assertIsInstance(audit_pool, list)
+            longlist = payload["longlist"]
+            self.assertIsInstance(longlist, list)
             self.assertLessEqual(len(recommendations), 5)
-            self.assertEqual(len(audit_pool), 20)
-            self.assertGreater(len(audit_pool), len(recommendations))
+            self.assertEqual(len(longlist), 20)
+            self.assertGreater(len(longlist), len(recommendations))
             # rank は 1..20 で E[r] 降順 (最高 er の 1000 が先頭)。
-            self.assertEqual([row["rank"] for row in audit_pool], list(range(1, 21)))
-            self.assertEqual(audit_pool[0]["ticker"], "1000")
+            self.assertEqual([row["rank"] for row in longlist], list(range(1, 21)))
+            self.assertEqual(longlist[0]["ticker"], "1000")
 
-    def test_audit_pool_entry_reports_pct_and_derived_reference_price(self) -> None:
-        """audit_pool は er_annual を pct 化し、market cap/株数から参考 close を導く。"""
+    def test_longlist_entry_reports_pct_and_derived_reference_price(self) -> None:
+        """longlist は er_annual を pct 化し、market cap/株数から参考 close を導く。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2539,21 +2540,21 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "neutral"}
             )
             buffer = io.StringIO()
             exit_code = select_command(
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
-                audit_top=5,
+                longlist_top=5,
             )
             self.assertEqual(exit_code, 0)
             payload = safe_load(buffer.getvalue())
-            entry = payload["audit_pool"][0]
+            entry = payload["longlist"][0]
             self.assertEqual(
                 set(entry),
                 {
@@ -2596,12 +2597,12 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             self.assertEqual(entry["liquidity_status"], "pass")
             self.assertEqual(entry["screening_playbook"], "valuation-reversion")
 
-    def test_audit_top_out_of_range_returns_usage_error(self) -> None:
+    def test_longlist_top_out_of_range_returns_usage_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[{"ticker": "1111", "name": "x", "sector_33": "機械"}],
             )
@@ -2610,10 +2611,10 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
-                audit_top=101,
+                longlist_top=101,
             )
             self.assertEqual(exit_code, 1)
 
@@ -2622,7 +2623,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
             root = Path(tmpdir)
             asof = date(2026, 4, 24)
             self._write_candidates(
-                root / "records/02-candidates",
+                root / "data/screening/candidates",
                 asof,
                 candidates=[
                     {
@@ -2634,7 +2635,7 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 ],
             )
             self._write_macro_context(
-                root / "records/01-macro-context", asof, sectors={"機械": "neutral"}
+                root / "data/screening/macro-context", asof, sectors={"機械": "neutral"}
             )
             output_path = root / "out/selection.yaml"
 
@@ -2643,8 +2644,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=buffer,
                 output_path=output_path,
             )
@@ -2658,8 +2659,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=io.StringIO(),
                 output_path=output_path,
             )
@@ -2670,8 +2671,8 @@ class LegacyYamlSelectCommandExamples(unittest.TestCase):
                 asof_date=asof,
                 macro_context_path=None,
                 top=10,
-                candidates_root=root / "records/02-candidates",
-                macro_context_root=root / "records/01-macro-context",
+                candidates_root=root / "data/screening/candidates",
+                macro_context_root=root / "data/screening/macro-context",
                 stdout=io.StringIO(),
                 output_path=output_path,
                 force=True,

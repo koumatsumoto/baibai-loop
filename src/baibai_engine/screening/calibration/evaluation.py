@@ -345,7 +345,7 @@ def _evaluate_selection(
         )
     # 仮想 replay: reversion 主導の順位付け (#480 H-R1/H-R2)。er_ranked と同じ
     # screen 通過集合の key 差し替えで、carry 偏重が top-N の forward excess に
-    # 与える影響を分離する。view score は cockpit 表示 blend と同型 (品質 flag
+    # 与える影響を分離する。view score は Baibai App 表示 blend と同型 (品質 flag
     # 減点は panel に無いため除外) 。
     reversion_passers = sorted(
         (row for row in population if row.pass_screen and row.er_reversion_annual is not None),

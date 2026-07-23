@@ -16,10 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import PortfolioSnapshot
 from baibai_engine.position.policy import PORTFOLIO_POLICY
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
-    DecisionPacketResult,
-    decision_packet_core_hash,
+from baibai_engine.research.thesis import (
+    ThesisDocument,
+    ThesisResult,
+    thesis_core_hash,
 )
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
@@ -254,7 +254,7 @@ class ExecutionProposal:
     """A deterministic proposal for human review; it never submits an order."""
 
     ticker: str
-    decision_packet_sha256: str
+    thesis_sha256: str
     max_acceptable_price_yen: Decimal
     required_5y_base_cagr_pct: float
     formula_version: Literal["five-year-base-cagr-v1"]
@@ -410,26 +410,26 @@ def load_execution_policy_input(path: Path) -> ExecutionPolicyInput:
 
 
 def evaluate_execution_policy(
-    document: DecisionPacketDocument,
-    result: DecisionPacketResult,
+    document: ThesisDocument,
+    result: ThesisResult,
     policy_input: ExecutionPolicyInput,
 ) -> ExecutionProposal:
     """Compare four buy tactics without estimating fill probability or price direction."""
 
     if document.input_snapshot.ticker != policy_input.ticker:
-        raise ExecutionPolicyError("decision packet ticker must match execution policy ticker")
+        raise ExecutionPolicyError("thesis ticker must match execution policy ticker")
     if document.input_snapshot.sector != policy_input.sector:
-        raise ExecutionPolicyError("execution policy sector must match the decision packet")
+        raise ExecutionPolicyError("execution policy sector must match the thesis")
     if document.input_snapshot.common_factors != policy_input.common_factors:
-        raise ExecutionPolicyError("execution policy common factors must match the decision packet")
+        raise ExecutionPolicyError("execution policy common factors must match the thesis")
     if result.decision_readiness != "ready":
-        raise ExecutionPolicyError("execution policy requires a decision-ready packet")
-    if result.packet_sha256 != decision_packet_core_hash(document):
-        raise ExecutionPolicyError("execution policy result must match the decision packet")
+        raise ExecutionPolicyError("execution policy requires a decision-ready thesis")
+    if result.thesis_sha256 != thesis_core_hash(document):
+        raise ExecutionPolicyError("execution policy result must match the thesis")
     if document.judgment.recommendation != "buy":
         raise ExecutionPolicyError("execution policy requires a buy recommendation")
     if policy_input.deep_discount_bps != document.estimates.deep_discount_bps:
-        raise ExecutionPolicyError("execution policy deep discount must match the decision packet")
+        raise ExecutionPolicyError("execution policy deep discount must match the thesis")
     max_price = max_acceptable_price(document, tick_size_yen=policy_input.quote.tick_size_yen)
     quote = policy_input.quote
     portfolio = policy_input.portfolio
@@ -490,7 +490,7 @@ def evaluate_execution_policy(
     warnings.extend(concentration_warnings)
     return ExecutionProposal(
         ticker=policy_input.ticker,
-        decision_packet_sha256=result.packet_sha256,
+        thesis_sha256=result.thesis_sha256,
         max_acceptable_price_yen=max_price,
         required_5y_base_cagr_pct=document.estimates.required_5y_base_cagr_pct,
         formula_version="five-year-base-cagr-v1",
@@ -522,8 +522,8 @@ def require_current_execution_input(policy_input: ExecutionPolicyInput, *, now: 
         raise ExecutionPolicyError("execution input has expired for the CLI")
 
 
-def max_acceptable_price(document: DecisionPacketDocument, *, tick_size_yen: Decimal) -> Decimal:
-    """Derive the maximum entry price from the packet's 5-year base scenario."""
+def max_acceptable_price(document: ThesisDocument, *, tick_size_yen: Decimal) -> Decimal:
+    """Derive the maximum entry price from the thesis's 5-year base scenario."""
 
     scenario = next(
         (
@@ -534,7 +534,7 @@ def max_acceptable_price(document: DecisionPacketDocument, *, tick_size_yen: Dec
         None,
     )
     if scenario is None:
-        raise ExecutionPolicyError("decision packet has no 5y/base scenario")
+        raise ExecutionPolicyError("thesis has no 5y/base scenario")
     growth = Decimal(str(scenario.annual_earnings_growth_pct)) / 100
     share_change = Decimal(str(scenario.annual_share_count_change_pct)) / 100
     terminal_earnings = scenario.starting_earnings_yen * (Decimal(1) + growth) ** 5
@@ -705,7 +705,7 @@ def execution_proposal_to_payload(proposal: ExecutionProposal) -> dict[str, obje
 
     return {
         "ticker": proposal.ticker,
-        "decision_packet_sha256": proposal.decision_packet_sha256,
+        "thesis_sha256": proposal.thesis_sha256,
         "max_acceptable_price_yen": str(proposal.max_acceptable_price_yen),
         "required_5y_base_cagr_pct": proposal.required_5y_base_cagr_pct,
         "formula_version": proposal.formula_version,

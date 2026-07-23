@@ -1,15 +1,15 @@
-"""Single-ticker fact packet assembled from the canonical SQLite stores.
+"""Single-ticker fact thesis assembled from the canonical SQLite stores.
 
-The packet is the entry point for AI research on one security: price and
+The thesis is the entry point for AI research on one security: price and
 liquidity facts for any listed ticker (inside or outside the screening
 universe), benchmark- and sector-relative momentum, the market regime at the
 evaluation date, event flags relevant to the kill switch (next earnings, JPX
 regulation), the ticker's latest recorded screening entry, and prior research
-decisions. Every field is a deterministic transform of stored data; the packet
+decisions. Every field is a deterministic transform of stored data; the thesis
 contains no interpretation and no composite score.
 
 Valuation metrics are quoted from the screening run publication rather
-than recomputed, so the packet never disagrees with the screening facts; a
+than recomputed, so the thesis never disagrees with the screening facts; a
 ticker without a candidates entry reports that absence explicitly.
 """
 
@@ -31,7 +31,7 @@ from baibai_engine.read_api.position import (
 from baibai_engine.screening.run_store import ScreeningRunReader
 
 # The application DB ledger is the only portfolio source. This screened fact
-# packet reads its reconciled holdings solely to expose concentration facts.
+# thesis reads its reconciled holdings solely to expose concentration facts.
 from .regime import compute_market_regime
 from .sqlite_reader import read_jpx_earnings_calendar_snapshot
 
@@ -65,7 +65,7 @@ def build_ticker_profile(
     run_revision_id: str | None = None,
     benchmark_ticker: str = _BENCHMARK_TICKER,
 ) -> dict[str, object]:
-    """Assemble the fact packet for ``ticker`` as of ``asof_date``."""
+    """Assemble the fact thesis for ``ticker`` as of ``asof_date``."""
     bars = _load_bars(
         sqlite_path,
         tickers=(ticker,),

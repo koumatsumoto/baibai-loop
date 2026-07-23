@@ -1,4 +1,4 @@
-"""Read-only re-entry watch for tickers with promoted research packets."""
+"""Read-only re-entry watch for tickers with promoted research theses."""
 
 from __future__ import annotations
 
@@ -29,13 +29,13 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.position.store import LedgerConflictError, LedgerSchemaError, LedgerStoreService
 from baibai_engine.read_api import (
-    list_research_packet_publications,
-    list_research_review_publications,
+    list_thesis_publications,
+    list_thesis_review_publications,
 )
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
+from baibai_engine.research.thesis import (
     IndependentReview,
-    evaluate_decision_packet,
+    ThesisDocument,
+    evaluate_thesis,
 )
 
 _GAP_QUANTUM = Decimal("0.000001")
@@ -48,9 +48,9 @@ class ResearchPriceWatchError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class _PacketCandidate:
-    packet_id: str | Path
-    document: DecisionPacketDocument
+class _ThesisCandidate:
+    thesis_id: str | Path
+    document: ThesisDocument
     published_at: datetime = _MIN_UTC
     review: IndependentReview | None = None
 
@@ -80,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m tools.research_price_watch",
         description=(
-            "Emit a read-only YAML watch for latest promoted buy/defer research packets. "
+            "Emit a read-only YAML watch for latest promoted buy/defer research theses. "
             "This command never proposes an order or updates canonical records."
         ),
     )
@@ -119,7 +119,7 @@ def build_watch(
     sqlite_path: Path,
     asof: date,
 ) -> dict[str, object]:
-    latest = _load_latest_promoted_packets(app_db_path, asof=asof)
+    latest = _load_latest_promoted_theses(app_db_path, asof=asof)
     watched = {
         ticker: candidate
         for ticker, candidate in latest.items()
@@ -141,13 +141,13 @@ def build_watch(
 
     observations = _read_market_observations(
         sqlite_path,
-        packets=watched,
+        theses=watched,
         asof=asof,
     )
     rows = [
         _watch_row(
             ticker=ticker,
-            packet=candidate.document,
+            thesis=candidate.document,
             observation=observations[ticker],
             held=ticker in held_tickers,
             reserved=ticker in reserved_tickers,
@@ -163,17 +163,17 @@ def build_watch(
         (row for row in rows if row["status"] == "unresolved"),
         key=lambda row: str(row["ticker"]),
     )
-    all_packet_tickers = set(latest)
+    all_thesis_tickers = set(latest)
     reservation_tickers = set(reservation_history)
     return {
         "market_asof": asof.isoformat(),
         "ledger_as_of": ledger.as_of.isoformat(),
         "rows": resolved + unresolved,
         "coverage": {
-            "packet_tickers": sorted(all_packet_tickers),
+            "thesis_tickers": sorted(all_thesis_tickers),
             "watched_tickers": sorted(watched),
             "reservation_history_tickers": sorted(reservation_tickers),
-            "ledger_only_tickers": sorted(reservation_tickers - all_packet_tickers),
+            "ledger_only_tickers": sorted(reservation_tickers - all_thesis_tickers),
             "excluded_latest_reject_tickers": excluded_reject,
             "resolved_count": len(resolved),
             "unresolved_count": len(unresolved),
@@ -187,65 +187,63 @@ def build_watch(
     }
 
 
-def _load_latest_promoted_packets(
+def _load_latest_promoted_theses(
     app_db_path: Path,
     *,
     asof: date,
-) -> dict[str, _PacketCandidate]:
+) -> dict[str, _ThesisCandidate]:
     if not app_db_path.is_file():
         raise ResearchPriceWatchError(f"application database does not exist: {app_db_path}")
-    reviews_by_packet: dict[str, list[dict[str, object]]] = defaultdict(list)
-    for publication in list_research_review_publications(app_db_path):
-        reviews_by_packet[str(publication["packet_id"])].append(publication)
-    candidates: list[_PacketCandidate] = []
-    for publication in list_research_packet_publications(app_db_path):
-        packet_id = str(publication["packet_id"])
-        packet_payload = publication["payload"]
-        if not isinstance(packet_payload, dict):
-            raise ResearchPriceWatchError(f"packet payload is invalid: {packet_id}")
-        document = DecisionPacketDocument.model_validate(packet_payload)
+    reviews_by_thesis: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for publication in list_thesis_review_publications(app_db_path):
+        reviews_by_thesis[str(publication["thesis_id"])].append(publication)
+    candidates: list[_ThesisCandidate] = []
+    for publication in list_thesis_publications(app_db_path):
+        thesis_id = str(publication["thesis_id"])
+        thesis_payload = publication["payload"]
+        if not isinstance(thesis_payload, dict):
+            raise ResearchPriceWatchError(f"thesis payload is invalid: {thesis_id}")
+        document = ThesisDocument.model_validate(thesis_payload)
         if document.input_snapshot.as_of > asof:
             raise ResearchPriceWatchError(
-                f"future decision packet is not allowed: {packet_id} "
+                f"future thesis is not allowed: {thesis_id} "
                 f"({document.input_snapshot.as_of.isoformat()} > {asof.isoformat()})"
             )
-        review_publications = reviews_by_packet.get(packet_id, [])
+        review_publications = reviews_by_thesis.get(thesis_id, [])
         if not review_publications:
             raise ResearchPriceWatchError(
-                f"promoted decision packet requires an independent review: {packet_id}"
+                f"promoted thesis requires an independent review: {thesis_id}"
             )
         review_payload = review_publications[0]["payload"]
         if not isinstance(review_payload, dict):
-            raise ResearchPriceWatchError(f"review payload is invalid: {packet_id}")
+            raise ResearchPriceWatchError(f"review payload is invalid: {thesis_id}")
         candidates.append(
-            _PacketCandidate(
-                packet_id=packet_id,
+            _ThesisCandidate(
+                thesis_id=thesis_id,
                 published_at=datetime.fromisoformat(str(publication["published_at"])),
                 document=document,
                 review=IndependentReview.model_validate(review_payload),
             )
         )
-    latest = _select_latest_packets(candidates)
+    latest = _select_latest_theses(candidates)
     for ticker, candidate in latest.items():
         if candidate.review is None:  # pragma: no cover - loader invariant
             raise ResearchPriceWatchError(
-                f"promoted decision packet requires an independent review: {candidate.packet_id}"
+                f"promoted thesis requires an independent review: {candidate.thesis_id}"
             )
-        result = evaluate_decision_packet(
+        result = evaluate_thesis(
             candidate.document,
             review=candidate.review,
             now=_historical_integrity_evaluated_at(candidate.document, candidate.review),
         )
         if result.errors or result.decision_readiness != "ready":
-            details = "; ".join(result.errors) or result.packet_status
-            raise ResearchPriceWatchError(
-                f"latest decision packet for {ticker} is not ready: {details}"
-            )
+            details = "; ".join(result.errors) or result.thesis_status
+            raise ResearchPriceWatchError(f"latest thesis for {ticker} is not ready: {details}")
     return latest
 
 
 def _historical_integrity_evaluated_at(
-    document: DecisionPacketDocument,
+    document: ThesisDocument,
     review: IndependentReview,
 ) -> datetime:
     """Rebuild artifact integrity without treating an expired override as a current signal."""
@@ -255,20 +253,20 @@ def _historical_integrity_evaluated_at(
     return max(anchors)
 
 
-def _select_latest_packets(
-    candidates: list[_PacketCandidate],
-) -> dict[str, _PacketCandidate]:
-    by_ticker: dict[str, list[_PacketCandidate]] = defaultdict(list)
+def _select_latest_theses(
+    candidates: list[_ThesisCandidate],
+) -> dict[str, _ThesisCandidate]:
+    by_ticker: dict[str, list[_ThesisCandidate]] = defaultdict(list)
     for candidate in candidates:
         by_ticker[candidate.document.input_snapshot.ticker].append(candidate)
-    selected: dict[str, _PacketCandidate] = {}
+    selected: dict[str, _ThesisCandidate] = {}
     for ticker, ticker_candidates in by_ticker.items():
         selected[ticker] = max(
             ticker_candidates,
             key=lambda item: (
                 item.document.input_snapshot.as_of,
                 item.published_at,
-                item.packet_id,
+                item.thesis_id,
             ),
         )
     return selected
@@ -298,7 +296,7 @@ def _reservation_history(
 def _read_market_observations(
     sqlite_path: Path,
     *,
-    packets: dict[str, _PacketCandidate],
+    theses: dict[str, _ThesisCandidate],
     asof: date,
 ) -> dict[str, _MarketObservation]:
     if not sqlite_path.is_file():
@@ -309,7 +307,7 @@ def _read_market_observations(
         conn.execute("BEGIN")
         validate_current_schema(conn)
         start = min(
-            (candidate.document.input_snapshot.as_of for candidate in packets.values()),
+            (candidate.document.input_snapshot.as_of for candidate in theses.values()),
             default=asof,
         )
         if not range_covered(conn, "jquants_market_calendar", start, asof):
@@ -341,15 +339,15 @@ def _read_market_observations(
         if not calendar[asof]:
             raise ResearchPriceWatchError(f"asof is not a business day: {asof.isoformat()}")
         bars_by_ticker: dict[str, dict[date, _RawBar]] = defaultdict(dict)
-        if packets:
-            placeholders = ",".join("?" for _ in packets)
+        if theses:
+            placeholders = ",".join("?" for _ in theses)
             # The f-string only expands "?" placeholders; every value is parameter-bound.
             bar_rows = conn.execute(
                 "SELECT ticker, traded_at, close, adjustment_factor "
                 "FROM jquants_daily_bars "
                 f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "  # nosec B608
                 "ORDER BY ticker, traded_at",
-                (*sorted(packets), start.isoformat(), asof.isoformat()),
+                (*sorted(theses), start.isoformat(), asof.isoformat()),
             ).fetchall()
             for ticker, traded_at, close, factor in bar_rows:
                 day = date.fromisoformat(str(traded_at))
@@ -360,12 +358,12 @@ def _read_market_observations(
                 )
         return {
             ticker: _observe_ticker(
-                packet=candidate.document,
+                thesis=candidate.document,
                 asof=asof,
                 calendar=calendar,
                 bars=bars_by_ticker[ticker],
             )
-            for ticker, candidate in packets.items()
+            for ticker, candidate in theses.items()
         }
     except (TypeError, ValueError) as error:
         if isinstance(error, ResearchPriceWatchError):
@@ -378,7 +376,7 @@ def _read_market_observations(
 
 def _observe_ticker(
     *,
-    packet: DecisionPacketDocument,
+    thesis: ThesisDocument,
     asof: date,
     calendar: dict[date, bool],
     bars: dict[date, _RawBar],
@@ -386,7 +384,7 @@ def _observe_ticker(
     expected_sessions = [
         day
         for day, is_business_day in calendar.items()
-        if is_business_day and packet.input_snapshot.as_of <= day <= asof
+        if is_business_day and thesis.input_snapshot.as_of <= day <= asof
     ]
     current_bar = bars.get(asof)
     current_close = _valid_close(current_bar.close) if current_bar is not None else None
@@ -429,14 +427,14 @@ def _valid_close(value: float | None) -> float | None:
 def _watch_row(
     *,
     ticker: str,
-    packet: DecisionPacketDocument,
+    thesis: ThesisDocument,
     observation: _MarketObservation,
     held: bool,
     reserved: bool,
     history: list[dict[str, object]],
 ) -> dict[str, object]:
     unresolved = observation.unresolved_reason
-    fair_value = packet.estimates.current_fair_value_yen
+    fair_value = thesis.estimates.current_fair_value_yen
     gap: float | None = None
     if unresolved is None and observation.current_close_yen is not None:
         gap = _calculate_gap(fair_value, observation.current_close_yen)
@@ -447,12 +445,12 @@ def _watch_row(
         "status": "unresolved" if unresolved is not None else "resolved",
         "current_close_yen": _float_number(observation.current_close_yen),
         "close_as_of": observation.close_as_of.isoformat() if observation.close_as_of else None,
-        "packet_fair_value_yen": _decimal_number(fair_value),
-        "packet_fv_gap_pct": gap,
-        "packet_entry_price_basis_yen": _decimal_number(packet.estimates.entry_price_basis_yen),
-        "packet_recommendation_at_as_of": packet.judgment.recommendation,
-        "packet_as_of": packet.input_snapshot.as_of.isoformat(),
-        "valuation_model_version": packet.estimates.valuation_model_version,
+        "thesis_fair_value_yen": _decimal_number(fair_value),
+        "thesis_fv_gap_pct": gap,
+        "thesis_entry_price_basis_yen": _decimal_number(thesis.estimates.entry_price_basis_yen),
+        "thesis_recommendation_at_as_of": thesis.judgment.recommendation,
+        "thesis_as_of": thesis.input_snapshot.as_of.isoformat(),
+        "valuation_model_version": thesis.estimates.valuation_model_version,
         "re_research_required": True,
         "current_decision_status": "not_evaluated",
         "current_portfolio_status": _portfolio_status(held=held, reserved=reserved),
@@ -481,7 +479,7 @@ def _portfolio_status(*, held: bool, reserved: bool) -> str:
 
 
 def _resolved_sort_key(row: dict[str, object]) -> tuple[float, str]:
-    return (-cast(float, row["packet_fv_gap_pct"]), str(row["ticker"]))
+    return (-cast(float, row["thesis_fv_gap_pct"]), str(row["ticker"]))
 
 
 def _decimal_number(value: Decimal) -> int | float:

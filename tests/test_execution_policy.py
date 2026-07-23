@@ -16,14 +16,6 @@ from baibai_engine.position.ledger import (
     reconcile_portfolio,
 )
 from baibai_engine.research.decision_cli import main as decision_cli_main
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
-    DecisionPacketResult,
-    decision_packet_core_hash,
-    evaluate_decision_packet,
-    load_decision_packet,
-    load_independent_review,
-)
 from baibai_engine.research.execution_policy import (
     ExecutionOutcomeInput,
     ExecutionPolicyError,
@@ -34,11 +26,19 @@ from baibai_engine.research.execution_policy import (
     max_acceptable_price,
     portfolio_input_from_snapshot,
 )
+from baibai_engine.research.thesis import (
+    ThesisDocument,
+    ThesisResult,
+    evaluate_thesis,
+    load_independent_review,
+    load_thesis,
+    thesis_core_hash,
+)
 from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
-PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
-REVIEW = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
+THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
+REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 POLICY = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
 OUTCOME = ROOT / "tests/fixtures/execution-policy/not-filled-outcome.yaml"
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
@@ -72,20 +72,20 @@ def _policy(raw: dict[str, object] | None = None) -> ExecutionPolicyInput:
     return ExecutionPolicyInput.model_validate(raw or _raw(POLICY))
 
 
-def _packet() -> tuple[DecisionPacketDocument, DecisionPacketResult]:
-    document = load_decision_packet(PACKET)
-    result = evaluate_decision_packet(document, review=load_independent_review(REVIEW))
+def _thesis() -> tuple[ThesisDocument, ThesisResult]:
+    document = load_thesis(THESIS)
+    result = evaluate_thesis(document, review=load_independent_review(REVIEW))
     assert result.decision_readiness == "ready"
     return document, result
 
 
 def _proposal(raw: dict[str, object] | None = None) -> ExecutionProposal:
-    document, result = _packet()
+    document, result = _thesis()
     return evaluate_execution_policy(document, result, _policy(raw))
 
 
 def test_max_price_is_recalculated_from_5y_base_and_required_return() -> None:
-    document, _ = _packet()
+    document, _ = _thesis()
 
     max_price = max_acceptable_price(document, tick_size_yen=Decimal("1"))
 
@@ -321,12 +321,12 @@ def test_equal_deep_tick_uses_a_single_shallow_order() -> None:
     quote["bid_depth"] = []
     quote["ask_depth"] = []
     raw["deep_discount_bps"] = 0
-    packet_raw = _raw(PACKET)
-    estimates = packet_raw["estimates"]
+    thesis_raw = _raw(THESIS)
+    estimates = thesis_raw["estimates"]
     assert isinstance(estimates, dict)
     estimates["deep_discount_bps"] = 0
-    document = DecisionPacketDocument.model_validate(packet_raw)
-    result = replace(_packet()[1], packet_sha256=decision_packet_core_hash(document))
+    document = ThesisDocument.model_validate(thesis_raw)
+    result = replace(_thesis()[1], thesis_sha256=thesis_core_hash(document))
 
     proposal = evaluate_execution_policy(document, result, _policy(raw))
 
@@ -334,7 +334,7 @@ def test_equal_deep_tick_uses_a_single_shallow_order() -> None:
     assert [(order.tactic, order.quantity) for order in proposal.orders] == [("shallow_limit", 200)]
 
 
-def test_policy_rejects_a_deep_discount_that_is_not_bound_to_the_packet() -> None:
+def test_policy_rejects_a_deep_discount_that_is_not_bound_to_the_thesis() -> None:
     raw = _raw(POLICY)
     raw["deep_discount_bps"] = 200
 
@@ -342,7 +342,7 @@ def test_policy_rejects_a_deep_discount_that_is_not_bound_to_the_packet() -> Non
         _proposal(raw)
 
 
-def test_policy_rejects_sector_and_common_factor_not_bound_to_the_packet() -> None:
+def test_policy_rejects_sector_and_common_factor_not_bound_to_the_thesis() -> None:
     raw = _raw(POLICY)
     raw["sector"] = "情報・通信業"
 
@@ -356,13 +356,13 @@ def test_policy_rejects_sector_and_common_factor_not_bound_to_the_packet() -> No
         _proposal(raw)
 
 
-def test_policy_rejects_packet_that_is_not_decision_ready() -> None:
-    document, result = _packet()
+def test_policy_rejects_thesis_that_is_not_decision_ready() -> None:
+    document, result = _thesis()
     raw = _raw(POLICY)
     not_ready = result.__class__(
-        packet_status="incomplete",
+        thesis_status="incomplete",
         decision_readiness="not_ready",
-        packet_sha256=result.packet_sha256,
+        thesis_sha256=result.thesis_sha256,
         errors=("fixture",),
         warnings=(),
         scenarios=result.scenarios,
@@ -373,28 +373,28 @@ def test_policy_rejects_packet_that_is_not_decision_ready() -> None:
         evaluate_execution_policy(document, not_ready, _policy(raw))
 
 
-def test_policy_rejects_a_ready_packet_that_does_not_recommend_buy() -> None:
-    raw = _raw(PACKET)
+def test_policy_rejects_a_ready_thesis_that_does_not_recommend_buy() -> None:
+    raw = _raw(THESIS)
     judgment = raw["judgment"]
     assert isinstance(judgment, dict)
     judgment["recommendation"] = "defer"
-    document = DecisionPacketDocument.model_validate(raw)
-    result = evaluate_decision_packet(document)
+    document = ThesisDocument.model_validate(raw)
+    result = evaluate_thesis(document)
     assert result.decision_readiness == "ready"
 
     with pytest.raises(ExecutionPolicyError, match="buy recommendation"):
         evaluate_execution_policy(document, result, _policy())
 
 
-def test_policy_rejects_a_result_that_is_bound_to_another_packet() -> None:
-    raw = _raw(PACKET)
+def test_policy_rejects_a_result_that_is_bound_to_another_thesis() -> None:
+    raw = _raw(THESIS)
     estimates = raw["estimates"]
     assert isinstance(estimates, dict)
     estimates["required_5y_base_cagr_pct"] = 9.0
-    changed_document = DecisionPacketDocument.model_validate(raw)
-    original_result = _packet()[1]
+    changed_document = ThesisDocument.model_validate(raw)
+    original_result = _thesis()[1]
 
-    with pytest.raises(ExecutionPolicyError, match="must match the decision packet"):
+    with pytest.raises(ExecutionPolicyError, match="must match the thesis"):
         evaluate_execution_policy(changed_document, original_result, _policy())
 
 
@@ -493,7 +493,7 @@ def test_decision_cli_includes_execution_proposal_when_input_is_supplied(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(POLICY), "--db", str(_app_db(tmp_path))],
+        [str(THESIS), "--execution-input", str(POLICY), "--db", str(_app_db(tmp_path))],
         now=EVALUATED_AT,
     )
 
@@ -509,7 +509,7 @@ def test_decision_cli_rejects_a_historical_execution_input(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(POLICY), "--db", str(_app_db(tmp_path))],
+        [str(THESIS), "--execution-input", str(POLICY), "--db", str(_app_db(tmp_path))],
         now=datetime.fromisoformat("2026-07-11T10:07:00+09:00"),
     )
 
@@ -528,7 +528,7 @@ def test_decision_cli_rejects_an_execution_input_that_has_already_expired(
     )
 
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(input_path), "--db", str(_app_db(tmp_path))],
+        [str(THESIS), "--execution-input", str(input_path), "--db", str(_app_db(tmp_path))],
         now=datetime.fromisoformat("2026-07-11T10:03:00+09:00"),
     )
 
@@ -541,7 +541,7 @@ def test_decision_cli_rejects_execution_input_without_a_canonical_ledger(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(POLICY), "--db", str(tmp_path / "missing.sqlite")],
+        [str(THESIS), "--execution-input", str(POLICY), "--db", str(tmp_path / "missing.sqlite")],
         now=EVALUATED_AT,
     )
 
@@ -562,7 +562,7 @@ def test_decision_cli_rejects_hand_edited_cash_that_differs_from_ledger(
     )
 
     exit_code = decision_cli_main(
-        [str(PACKET), "--execution-input", str(input_path), "--db", str(_app_db(tmp_path))],
+        [str(THESIS), "--execution-input", str(input_path), "--db", str(_app_db(tmp_path))],
         now=EVALUATED_AT,
     )
 

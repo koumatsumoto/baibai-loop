@@ -1,4 +1,4 @@
-"""Read-model DTOs and builders for the local cockpit."""
+"""Read-model DTOs and builders for the local Baibai App."""
 
 from .builders import build_dashboard, build_screening, build_security_detail
 from .models import DashboardView, ScreeningView, SecurityDetailView

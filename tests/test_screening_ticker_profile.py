@@ -134,7 +134,7 @@ class BuildTickerProfileTests(unittest.TestCase):
             assert isinstance(events, dict)
             self.assertIsNone(events["next_earnings_date"])
 
-    def test_packet_covers_price_relative_events_and_screening(self) -> None:
+    def test_thesis_covers_price_relative_events_and_screening(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
@@ -145,19 +145,19 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             _write_candidates(root / "runs.sqlite")
 
-            packet = self._build(root, "AAAA")
+            thesis = self._build(root, "AAAA")
 
-            master = packet["master"]
+            master = thesis["master"]
             assert isinstance(master, dict)
             self.assertEqual(master["sector_33"], "機械")
-            price = packet["price"]
+            price = thesis["price"]
             assert isinstance(price, dict)
             self.assertEqual(price["resolved_date"], _ASOF.isoformat())
             assert isinstance(price["return_5d"], float)
             self.assertAlmostEqual(price["return_5d"], 1.01**5 - 1, places=9)
             self.assertEqual(price["bar_count"], 30)
             self.assertAlmostEqual(price["avg_turnover_20d_oku"], 2.0, places=9)
-            relative = packet["relative"]
+            relative = thesis["relative"]
             assert isinstance(relative, dict)
             assert isinstance(relative["relative_5d"], float)
             self.assertAlmostEqual(relative["relative_5d"], 1.01**5 - 1, places=9)
@@ -166,34 +166,34 @@ class BuildTickerProfileTests(unittest.TestCase):
             self.assertEqual(sector["peer_count"], 1)
             assert isinstance(sector["peer_median_return_20d"], float)
             self.assertLess(sector["peer_median_return_20d"], 0)
-            events = packet["events"]
+            events = thesis["events"]
             assert isinstance(events, dict)
             self.assertEqual(events["next_earnings_date"], "2026-06-10")
             jpx = events["jpx_regulation"]
             assert isinstance(jpx, dict)
             self.assertEqual(jpx["flags"], ["特別注意銘柄"])
-            screening = packet["screening"]
+            screening = thesis["screening"]
             assert isinstance(screening, dict)
             self.assertTrue(screening["in_candidates"])
             entry = screening["entry"]
             assert isinstance(entry, dict)
             self.assertEqual(entry["metrics"], {"ocf_yield": 0.11})
 
-    def test_packet_degrades_explicitly_for_unknown_ticker(self) -> None:
+    def test_thesis_degrades_explicitly_for_unknown_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _insert_bars(root / "market.sqlite", "1321", [200.0] * 30, end=_ASOF)
 
-            packet = self._build(root, "ZZZZ")
+            thesis = self._build(root, "ZZZZ")
 
-            self.assertIsNone(packet["master"])
-            self.assertIsNone(packet["price"])
-            self.assertIsNone(packet["relative"])
-            screening = packet["screening"]
+            self.assertIsNone(thesis["master"])
+            self.assertIsNone(thesis["price"])
+            self.assertIsNone(thesis["relative"])
+            screening = thesis["screening"]
             assert isinstance(screening, dict)
             self.assertFalse(screening["in_candidates"])
 
-    def test_packet_marks_ticker_missing_from_candidates(self) -> None:
+    def test_thesis_marks_ticker_missing_from_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
@@ -201,9 +201,9 @@ class BuildTickerProfileTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             _write_candidates(root / "runs.sqlite")
 
-            packet = self._build(root, "BBBB")
+            thesis = self._build(root, "BBBB")
 
-            screening = packet["screening"]
+            screening = thesis["screening"]
             assert isinstance(screening, dict)
             self.assertFalse(screening["in_candidates"])
             self.assertIn("not present", str(screening["note"]))
@@ -236,7 +236,7 @@ class BuildTickerProfileTests(unittest.TestCase):
                 }
             )
 
-            packet = build_ticker_profile(
+            thesis = build_ticker_profile(
                 sqlite_path=root / "market.sqlite",
                 ticker="AAAA",
                 asof_date=date(2026, 5, 30),
@@ -244,7 +244,7 @@ class BuildTickerProfileTests(unittest.TestCase):
                 app_db_path=root / "app.sqlite",
             )
 
-            screening = packet["screening"]
+            screening = thesis["screening"]
             assert isinstance(screening, dict)
             self.assertEqual(screening["candidates_ref"], latest.publication_id)
             self.assertEqual(screening["candidates_asof"], "2026-05-30")
@@ -273,17 +273,17 @@ class BuildTickerProfileTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            current_packet = self._build(root, "AAAA")
-            old_only_packet = self._build(root, "BBBB")
+            current_thesis = self._build(root, "AAAA")
+            old_only_thesis = self._build(root, "BBBB")
 
-            relative = current_packet["relative"]
+            relative = current_thesis["relative"]
             assert isinstance(relative, dict)
             sector = relative["sector"]
             assert isinstance(sector, dict)
             self.assertEqual(sector["peer_count"], 1)
             assert isinstance(sector["peer_median_return_20d"], float)
             self.assertGreater(sector["peer_median_return_20d"], 0)
-            self.assertIsNone(old_only_packet["master"])
+            self.assertIsNone(old_only_thesis["master"])
 
 
 class TickerProfileCliTests(unittest.TestCase):
@@ -314,7 +314,7 @@ class TickerProfileCliTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 1)
 
-    def test_command_emits_yaml_packet(self) -> None:
+    def test_command_emits_yaml_thesis(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             sqlite_path = root / "market.sqlite"
@@ -348,7 +348,7 @@ class PortfolioBlockTests(unittest.TestCase):
             _insert_reference_rows(sqlite_path)
             _write_portfolio_ledger(root, ticker="BBBB", sector="機械", price_yen=500)
 
-            packet = build_ticker_profile(
+            thesis = build_ticker_profile(
                 sqlite_path=sqlite_path,
                 ticker="AAAA",
                 asof_date=_ASOF,
@@ -356,7 +356,7 @@ class PortfolioBlockTests(unittest.TestCase):
                 app_db_path=root / "app.sqlite",
             )
 
-            portfolio = packet["portfolio"]
+            portfolio = thesis["portfolio"]
             assert isinstance(portfolio, dict)
             self.assertEqual(portfolio["open_position_count"], 1)
             self.assertFalse(portfolio["holds_this_ticker"])

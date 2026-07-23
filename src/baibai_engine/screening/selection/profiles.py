@@ -1,7 +1,7 @@
 """Selection profile resolution.
 
 Built-in profile is ``balanced`` only and its values are inlined into the
-canonical ``records/_config/screening-rules/*.yaml`` so external profile YAML
+canonical ``method/screening-rules/*.yaml`` so external profile YAML
 loading was removed in cleanup round 2. The ``profile_overrides`` parameter
 is kept for in-process callers such as ``selection-ablation`` whose
 ``no_diversity`` variant injects programmatic overrides without a YAML file.

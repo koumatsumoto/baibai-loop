@@ -1,4 +1,4 @@
-"""Canonical reviewed-shortlist judgment and publication service."""
+"""Canonical shortlist judgment and publication service."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class ShortlistNarrative(BaseModel):
     """OP3 human-review judgment for a selected candidate.
 
     Screening は数値の由来を機械出力するが、なぜ深掘りに値するかという判断は
-    ここへ人間/AI が固定する。selected 銘柄でだけ必須にし、reviewed shortlist を
+    ここへ人間/AI が固定する。selected 銘柄でだけ必須にし、shortlist を
     ephemeral な HTML narrative ではなく application DB の一次記録にする。
     """
 
@@ -53,10 +53,10 @@ class ShortlistEntry(BaseModel):
         return self
 
 
-class ReviewedShortlist(BaseModel):
+class Shortlist(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal[2]
-    kind: Literal["reviewed-shortlist"]
+    kind: Literal["shortlist"]
     shortlist_id: str
     selection_id: str = Field(min_length=1)
     run_revision_id: str = Field(min_length=1)
@@ -97,16 +97,16 @@ class SelectionBinding:
     candidate_tickers: frozenset[str]
 
 
-class ReviewedShortlistService:
+class ShortlistService:
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path
 
     def publish(
         self,
-        shortlist: ReviewedShortlist,
+        shortlist: Shortlist,
         *,
         selection: SelectionBinding,
-    ) -> ReviewedShortlist:
+    ) -> Shortlist:
         expected = (
             selection.selection_id,
             selection.run_revision_id,
@@ -136,7 +136,7 @@ class ReviewedShortlistService:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute(
-                    "SELECT payload FROM reviewed_shortlist WHERE shortlist_id = ?",
+                    "SELECT payload FROM shortlist WHERE shortlist_id = ?",
                     (shortlist.shortlist_id,),
                 ).fetchone()
                 if row is not None:
@@ -148,7 +148,7 @@ class ReviewedShortlistService:
                     )
                 connection.execute(
                     """
-                    INSERT INTO reviewed_shortlist (
+                    INSERT INTO shortlist (
                         shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
@@ -169,10 +169,10 @@ class ReviewedShortlistService:
 
 
 __all__ = [
-    "ReviewedShortlist",
-    "ReviewedShortlistService",
     "SelectionBinding",
+    "Shortlist",
     "ShortlistConflictError",
     "ShortlistEntry",
     "ShortlistNarrative",
+    "ShortlistService",
 ]

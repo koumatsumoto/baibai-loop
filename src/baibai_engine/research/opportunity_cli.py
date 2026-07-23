@@ -1,4 +1,4 @@
-"""CLI for opportunity authoring: prepare / status / packet-scaffold /
+"""CLI for opportunity authoring: prepare / status / thesis-scaffold /
 review-scaffold / promote / plan-limit.
 
 Machine output is YAML on stdout only; human explanation and errors go to stderr.
@@ -22,7 +22,6 @@ import yaml
 
 from baibai_engine.foundation.time import JST
 
-from .decision_packet import DecisionPacketError
 from .opportunity import (
     OpportunityError,
     compute_status,
@@ -30,9 +29,10 @@ from .opportunity import (
     prepare_holding_workspace,
     prepare_workspace,
     promote,
-    scaffold_packet,
     scaffold_review,
+    scaffold_thesis,
 )
+from .thesis import ThesisError
 
 
 def _parse_date(raw: str) -> date:
@@ -80,23 +80,23 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--workspace", required=True, type=Path)
     status_parser.add_argument("--db", type=Path)
 
-    packet_parser = subparsers.add_parser(
-        "packet-scaffold", help="scaffold a packet draft with the previous-day raw close"
+    thesis_parser = subparsers.add_parser(
+        "thesis-scaffold", help="scaffold a thesis draft with the previous-day raw close"
     )
-    packet_parser.add_argument("--workspace", required=True, type=Path)
-    packet_parser.add_argument("--db", type=Path)
-    packet_parser.add_argument("--ticker", required=True)
-    packet_parser.add_argument("--sqlite-path", required=True, type=Path)
-    packet_parser.add_argument(
+    thesis_parser.add_argument("--workspace", required=True, type=Path)
+    thesis_parser.add_argument("--db", type=Path)
+    thesis_parser.add_argument("--ticker", required=True)
+    thesis_parser.add_argument("--sqlite-path", required=True, type=Path)
+    thesis_parser.add_argument(
         "--target-session",
         required=True,
         help="the session the limit is planned for (YYYY-MM-DD); the close is the "
         "latest complete business day strictly before it",
     )
-    packet_parser.add_argument("--force", action="store_true")
+    thesis_parser.add_argument("--force", action="store_true")
 
     review_parser = subparsers.add_parser(
-        "review-scaffold", help="scaffold an independent review draft bound to the packet hash"
+        "review-scaffold", help="scaffold an independent review draft bound to the thesis hash"
     )
     review_parser.add_argument("--workspace", required=True, type=Path)
     review_parser.add_argument("--db", type=Path)
@@ -104,18 +104,18 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--force", action="store_true")
 
     promote_parser = subparsers.add_parser(
-        "promote", help="publish the canonical packet/review to the application DB"
+        "promote", help="publish the canonical thesis/review to the application DB"
     )
     promote_parser.add_argument("--workspace", required=True, type=Path)
     promote_parser.add_argument("--ticker", required=True)
     promote_parser.add_argument("--db", type=Path)
-    promote_parser.add_argument("--packet-id")
+    promote_parser.add_argument("--thesis-id")
     promote_parser.add_argument("--supersedes-id")
 
     plan_parser = subparsers.add_parser(
         "plan-limit", help="derive a planning-only limit/defer from the previous-day raw close"
     )
-    plan_parser.add_argument("--packet", required=True, type=Path)
+    plan_parser.add_argument("--thesis", required=True, type=Path)
     plan_parser.add_argument("--db", type=Path)
     plan_parser.add_argument("--sqlite-path", required=True, type=Path)
     plan_parser.add_argument("--target-session", required=True)
@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     {
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
-                        "audit_pool_size": prepared.audit_pool_size,
+                        "longlist_size": prepared.longlist_size,
                         "shortlist_slots": prepared.shortlist_slots,
                         "note": None if prepared.actionable else "no actionable bargain",
                     },
@@ -163,16 +163,16 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     {
                         "workspace": str(prepared.workspace),
                         "actionable": prepared.actionable,
-                        "audit_pool_size": prepared.audit_pool_size,
+                        "longlist_size": prepared.longlist_size,
                         "shortlist_slots": prepared.shortlist_slots,
                     },
                     out,
                 )
             case "status":
                 _emit(compute_status(args.workspace, db_path=args.db), out)
-            case "packet-scaffold":
+            case "thesis-scaffold":
                 _emit(
-                    scaffold_packet(
+                    scaffold_thesis(
                         workspace=args.workspace,
                         ticker=args.ticker,
                         sqlite_path=args.sqlite_path,
@@ -198,21 +198,21 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     workspace=args.workspace,
                     ticker=args.ticker,
                     db_path=args.db,
-                    packet_id=args.packet_id,
+                    thesis_id=args.thesis_id,
                     supersedes_id=args.supersedes_id,
                     now=resolved_now,
                 )
                 _emit(
                     {
-                        "packet_id": promoted.packet_id,
+                        "thesis_id": promoted.thesis_id,
                         "review_id": promoted.review_id,
-                        "packet_sha256": promoted.packet_sha256,
+                        "thesis_sha256": promoted.thesis_sha256,
                     },
                     out,
                 )
             case "plan-limit":
                 payload = plan_limit(
-                    packet=args.packet,
+                    thesis=args.thesis,
                     db_path=args.db,
                     sqlite_path=args.sqlite_path,
                     target_session=_parse_date(args.target_session),
@@ -235,7 +235,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     except OpportunityError as error:
         print(f"error: {error}", file=sys.stderr)
         return error.exit_code
-    except DecisionPacketError as error:
+    except ThesisError as error:
         print(f"error: {error}", file=sys.stderr)
         return 3
     return 0

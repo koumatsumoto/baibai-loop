@@ -14,7 +14,7 @@ const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then(
 function RouteLoading() {
   return (
     <main className="grid min-h-screen place-items-center bg-background px-6 text-center">
-      <p className="text-sm font-medium text-muted-foreground">Baibai-Loop を読み込んでいます…</p>
+      <p className="text-sm font-medium text-muted-foreground">Baibai App を読み込んでいます…</p>
     </main>
   )
 }

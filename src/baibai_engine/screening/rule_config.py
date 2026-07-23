@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from baibai_engine.foundation.yaml_io import safe_load
 
-DEFAULT_RULES_PATH = Path("records/_config/screening-rules/2026-07-06T000000+0900.yaml")
+DEFAULT_RULES_PATH = Path("method/screening-rules/2026-07-06T000000+0900.yaml")
 
 BUILTIN_SELECTION_PROFILES = frozenset({"balanced"})
 

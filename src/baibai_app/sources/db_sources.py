@@ -13,37 +13,37 @@ from baibai_app.sources.types import (
     HoldingReviewSummary,
     MacroGroupConfig,
     MacroSeriesConfig,
-    PacketDetail,
     ResearchRevision,
     ScenarioSummary,
     TaskRecord,
+    ThesisDetail,
 )
 from baibai_engine.read_api import (
     MacroGranularity,
     PortfolioSnapshot,
     application_db_updated_at,
     latest_macro_context_payload,
-    latest_reviewed_shortlist_payload,
+    latest_shortlist_payload,
     latest_unadjusted_closes,
     list_holding_review_publications,
     list_macro_context_payloads,
     list_operation_sessions,
     list_portfolio_outcome_payloads,
     list_proposal_payloads,
-    list_research_packet_publications,
-    list_research_review_publications,
     list_task_payloads,
+    list_thesis_publications,
+    list_thesis_review_publications,
     macro_indicator_series,
     macro_latest_observed_at,
     next_earnings_dates,
     portfolio_ledger_document,
     reconcile_portfolio,
-    research_packet_publication,
     safe_load,
     screening_latest_asof,
     screening_run_payload,
     screening_selection_payloads,
     task_store_exists,
+    thesis_publication,
 )
 
 
@@ -74,8 +74,8 @@ class DbMarketPriceSource:
         return next_earnings_dates(self._path, tickers, asof=asof)
 
 
-class DbProgramSource:
-    """Read proposal, operation, and outcome state for the cockpit."""
+class DbOperationsSource:
+    """Read proposal, operation, and outcome state for the Baibai App."""
 
     def __init__(self, db_path: Path) -> None:
         self._path = db_path.resolve()
@@ -97,35 +97,35 @@ class DbResearchSource:
 
     def revisions(self) -> list[ResearchRevision]:
         reviews = {
-            str(item["packet_id"]): str(item["review_id"])
-            for item in list_research_review_publications(self._path)
+            str(item["thesis_id"]): str(item["review_id"])
+            for item in list_thesis_review_publications(self._path)
         }
         result: list[ResearchRevision] = []
         errors: list[str] = []
-        for publication in list_research_packet_publications(self._path):
-            packet_id = str(publication["packet_id"])
+        for publication in list_thesis_publications(self._path):
+            thesis_id = str(publication["thesis_id"])
             try:
-                result.append(self._revision(publication, review_id=reviews.get(packet_id)))
+                result.append(self._revision(publication, review_id=reviews.get(thesis_id)))
             except (KeyError, TypeError, ValueError):
-                errors.append(packet_id)
+                errors.append(thesis_id)
         self._load_errors = errors
         return result
 
-    def packet_detail(self, packet_id: str) -> PacketDetail:
-        publication = research_packet_publication(self._path, packet_id=packet_id)
+    def thesis_detail(self, thesis_id: str) -> ThesisDetail:
+        publication = thesis_publication(self._path, thesis_id=thesis_id)
         if publication is None:
-            raise ValueError(f"unknown packet_id: {packet_id}")
-        reviews = list_research_review_publications(self._path, packet_id=packet_id)
+            raise ValueError(f"unknown thesis_id: {thesis_id}")
+        reviews = list_thesis_review_publications(self._path, thesis_id=thesis_id)
         revision = self._revision(
             publication,
             review_id=None if not reviews else str(reviews[0]["review_id"]),
         )
-        payload = _mapping(publication["payload"], label="research packet")
-        estimates = _mapping(payload["estimates"], label="packet estimates")
-        judgment = _mapping(payload["judgment"], label="packet judgment")
+        payload = _mapping(publication["payload"], label="research thesis")
+        estimates = _mapping(payload["estimates"], label="thesis estimates")
+        judgment = _mapping(payload["judgment"], label="thesis judgment")
         risks = _mapping_list(payload["permanent_loss_risks"], label="permanent loss risks")
         scenarios = _mapping_list(estimates["scenarios"], label="research scenarios")
-        return PacketDetail(
+        return ThesisDetail(
             revision=revision,
             entry_price_basis_yen=_optional_float(estimates.get("entry_price_basis_yen")),
             required_5y_base_cagr_pct=_optional_float(estimates.get("required_5y_base_cagr_pct")),
@@ -151,8 +151,8 @@ class DbResearchSource:
                     holding_review_id=str(publication["holding_review_id"]),
                     ticker=str(publication["ticker"]),
                     as_of=date.fromisoformat(str(publication["as_of"])),
-                    packet_id=str(publication["packet_id"]),
-                    candidate_packet_id=_optional_text(publication.get("candidate_packet_id")),
+                    thesis_id=str(publication["thesis_id"]),
+                    candidate_thesis_id=_optional_text(publication.get("candidate_thesis_id")),
                     action=str(payload["action"]),
                     note=_optional_text(payload.get("note")),
                 )
@@ -168,16 +168,16 @@ class DbResearchSource:
         *,
         review_id: str | None,
     ) -> ResearchRevision:
-        payload = _mapping(publication["payload"], label="research packet")
-        snapshot = _mapping(payload["input_snapshot"], label="packet input snapshot")
-        estimates = _mapping(payload["estimates"], label="packet estimates")
-        judgment = _mapping(payload["judgment"], label="packet judgment")
+        payload = _mapping(publication["payload"], label="research thesis")
+        snapshot = _mapping(payload["input_snapshot"], label="thesis input snapshot")
+        estimates = _mapping(payload["estimates"], label="thesis estimates")
+        judgment = _mapping(payload["judgment"], label="thesis judgment")
         return ResearchRevision(
             ticker=str(publication["ticker"]),
             company_name=str(snapshot["company_name"]),
             sector=str(snapshot["sector"]),
             as_of=date.fromisoformat(str(publication["as_of"])),
-            packet_id=str(publication["packet_id"]),
+            thesis_id=str(publication["thesis_id"]),
             recommendation=str(publication["recommendation"]),
             confidence=_optional_text(judgment.get("confidence")),
             current_fair_value_yen=_optional_float(estimates.get("current_fair_value_yen")),
@@ -234,12 +234,12 @@ class _DashboardConfig(BaseModel):
     groups: tuple[_GroupConfig, ...] = Field(min_length=1)
 
 
-def load_macro_dashboard_config(path: Path) -> tuple[MacroGroupConfig, ...]:
+def load_macro_panel_config(path: Path) -> tuple[MacroGroupConfig, ...]:
     raw = safe_load(path.read_text(encoding="utf-8"))
     config = _DashboardConfig.model_validate(raw)
     identifiers = [item.id for group in config.groups for item in group.series]
     if len(identifiers) != len(set(identifiers)):
-        raise ValueError("macro dashboard series IDs must be unique")
+        raise ValueError("macro panel series IDs must be unique")
     return tuple(
         MacroGroupConfig(
             title=group.title,
@@ -328,8 +328,8 @@ class DbCandidatesSource:
             run_revision_id=run_revision_id,
         )
 
-    def reviewed_shortlists(self) -> list[dict[str, object]]:
-        latest = latest_reviewed_shortlist_payload(self._app_path)
+    def shortlists(self) -> list[dict[str, object]]:
+        latest = latest_shortlist_payload(self._app_path)
         return [] if latest is None else [latest]
 
     @staticmethod

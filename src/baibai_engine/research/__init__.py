@@ -1,7 +1,7 @@
-"""Decision composition for packets, execution proposals, and holding reviews.
+"""Decision composition for theses, execution proposals, and holding reviews.
 
-This package evaluates decision packets and proposes human-operated execution.
-It also composes a source-bound holding-review draft from a decision packet and
+This package evaluates theses and proposes human-operated execution.
+It also composes a source-bound holding-review draft from a thesis and
 the canonical portfolio ledger.  Portfolio reconciliation and review arithmetic
 remain in :mod:`baibai_engine.position`.
 """

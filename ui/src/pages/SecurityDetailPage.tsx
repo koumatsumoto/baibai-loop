@@ -74,7 +74,7 @@ export function SecurityDetailPage() {
   if (error) return <PageState message={error} mono title={ticker} />
   if (!data) return <PageState message="銘柄情報を読み込んでいます…" mono title={ticker} />
 
-  const packet = data.latest_packet
+  const thesis = data.latest_thesis
   const averageCostYen = data.holding && data.holding.quantity !== 0
     ? data.holding.deployed_cost_yen / data.holding.quantity
     : null
@@ -133,18 +133,18 @@ export function SecurityDetailPage() {
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div><CardTitle>最新の 5 年評価</CardTitle><CardDescription className="mt-1">latest research</CardDescription></div>
-            {packet && <time className="font-mono text-sm tabular-nums text-muted-foreground" dateTime={packet.revision.as_of}>{packet.revision.as_of}</time>}
+            {thesis && <time className="font-mono text-sm tabular-nums text-muted-foreground" dateTime={thesis.revision.as_of}>{thesis.revision.as_of}</time>}
           </CardHeader>
           <CardContent>
-            {!packet ? (
+            {!thesis ? (
               <div className="py-8 text-center text-sm text-muted-foreground">research 記録なし</div>
             ) : (
               <div className="grid gap-6">
                 <div className="grid overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x">
                   {[
-                    ['RECOMMENDATION', packet.revision.recommendation],
-                    ['CONFIDENCE', packet.revision.confidence ?? '—'],
-                    ['FAIR VALUE', <YenAmount key="fv" value={packet.revision.current_fair_value_yen} />],
+                    ['RECOMMENDATION', thesis.revision.recommendation],
+                    ['CONFIDENCE', thesis.revision.confidence ?? '—'],
+                    ['FAIR VALUE', <YenAmount key="fv" value={thesis.revision.current_fair_value_yen} />],
                   ].map(([label, value]) => (
                     <div className="border-b p-4 last:border-b-0 sm:border-b-0" key={String(label)}>
                       <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</p>
@@ -154,24 +154,24 @@ export function SecurityDetailPage() {
                 </div>
 
                 <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                  <Field label="entry price basis"><YenAmount value={packet.entry_price_basis_yen} /></Field>
-                  <Field label="required 5y base CAGR"><PctBadge value={packet.required_5y_base_cagr_pct} /></Field>
-                  <Field label="permanent loss risks"><span className="font-mono tabular-nums">{packet.permanent_loss_risk_count} axes</span></Field>
-                  <Field label="model"><span>{packet.revision.model_version ?? '—'}</span></Field>
+                  <Field label="entry price basis"><YenAmount value={thesis.entry_price_basis_yen} /></Field>
+                  <Field label="required 5y base CAGR"><PctBadge value={thesis.required_5y_base_cagr_pct} /></Field>
+                  <Field label="permanent loss risks"><span className="font-mono tabular-nums">{thesis.permanent_loss_risk_count} axes</span></Field>
+                  <Field label="model"><span>{thesis.revision.model_version ?? '—'}</span></Field>
                 </dl>
 
                 <div className="flex flex-wrap gap-2">
-                  {packet.scenarios.map((scenario) => <Badge key={`${scenario.name}-${scenario.horizon_years}`} variant="secondary">{scenario.name} · {scenario.horizon_years}Y</Badge>)}
+                  {thesis.scenarios.map((scenario) => <Badge key={`${scenario.name}-${scenario.horizon_years}`} variant="secondary">{scenario.name} · {scenario.horizon_years}Y</Badge>)}
                 </div>
 
                 <Separator />
 
                 <dl className="grid gap-6 lg:grid-cols-3">
-                  <Field label="Permanent loss conclusion"><p className="font-normal leading-relaxed">{packet.permanent_loss_conclusion ?? '—'}</p></Field>
-                  <Field label="Strongest countercase"><p className="font-normal leading-relaxed">{packet.strongest_countercase ?? '—'}</p></Field>
-                  <Field label="Sizing action"><p className="font-normal leading-relaxed">{packet.sizing_action ?? '—'}</p></Field>
+                  <Field label="Permanent loss conclusion"><p className="font-normal leading-relaxed">{thesis.permanent_loss_conclusion ?? '—'}</p></Field>
+                  <Field label="Strongest countercase"><p className="font-normal leading-relaxed">{thesis.strongest_countercase ?? '—'}</p></Field>
+                  <Field label="Sizing action"><p className="font-normal leading-relaxed">{thesis.sizing_action ?? '—'}</p></Field>
                 </dl>
-                <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={packet.revision.packet_id}>{packet.revision.packet_id}</code>
+                <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
               </div>
             )}
           </CardContent>
@@ -189,7 +189,7 @@ export function SecurityDetailPage() {
               <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data.revisions.map((revision) => (
-                  <TableRow key={revision.packet_id}>
+                  <TableRow key={revision.thesis_id}>
                     <TableCell className="font-mono tabular-nums">{revision.as_of}</TableCell>
                     <TableCell><Badge className="font-mono uppercase" variant="outline">{revision.recommendation}</Badge></TableCell>
                     <TableCell className="text-right"><YenAmount value={revision.current_fair_value_yen} /></TableCell>
@@ -211,13 +211,13 @@ export function SecurityDetailPage() {
             <CardContent className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</CardContent>
           ) : (
             <Table>
-              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>action</TableHead><TableHead>packet</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
+              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>action</TableHead><TableHead>thesis</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data.holding_reviews.map((review) => (
                   <TableRow key={review.holding_review_id}>
                     <TableCell className="font-mono tabular-nums">{review.as_of}</TableCell>
                     <TableCell><Badge className="font-mono uppercase" variant="outline">{review.action}</Badge></TableCell>
-                    <TableCell><code className="text-xs">{review.packet_id}</code></TableCell>
+                    <TableCell><code className="text-xs">{review.thesis_id}</code></TableCell>
                     <TableCell className="max-w-md text-sm text-muted-foreground">{review.note ?? '—'}</TableCell>
                   </TableRow>
                 ))}

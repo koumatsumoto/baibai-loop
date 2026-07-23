@@ -8,7 +8,7 @@ review trigger, not an automatic sell; a broken thesis is the priority sell
 candidate; a price decline on its own is never a reason to exit.
 
 The draft carries the distilled upstream values (permanent-loss axes and forward
-CAGRs come from the decision packet, the exit-tax basis from the portfolio
+CAGRs come from the thesis, the exit-tax basis from the portfolio
 ledger), so this module stays self-contained and reuses the ledger's confirmed /
 estimated tax split rather than modelling any account tax engine.
 """
@@ -38,7 +38,7 @@ _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=Fal
 _TICKER = r"^[0-9A-Z]{4}$"
 _HORIZON_YEARS = 5
 
-# Canonical permanent-loss axes; identical set to the decision packet. A review
+# Canonical permanent-loss axes; identical set to the thesis. A review
 # that does not cover every axis exactly once is incomplete (parent D2).
 _RISK_AXES: tuple[str, ...] = (
     "funding_liquidity",
@@ -51,7 +51,7 @@ _RISK_AXES: tuple[str, ...] = (
 )
 
 # Primary evidence older than this is stale enough to flag; same window the
-# decision packet uses for permanent-loss evidence.
+# thesis uses for permanent-loss evidence.
 _EVIDENCE_STALE_DAYS = 400
 
 type Action = Literal["hold", "add", "reduce", "exit"]
@@ -265,8 +265,8 @@ class HoldingReviewSources(BaseModel):
     model_config = _CONFIG
 
     ledger: CanonicalSource
-    holding_packet: CanonicalSource
-    candidate_packet: CanonicalSource | None = None
+    holding_thesis: CanonicalSource
+    candidate_thesis: CanonicalSource | None = None
 
 
 class HoldingReviewDocument(BaseModel):
@@ -294,9 +294,9 @@ class HoldingReviewDocument(BaseModel):
     def _validate_replacement_inputs(self) -> HoldingReviewDocument:
         replacement = self.replacement_comparison
         estimate = self.thesis_health.current_5y_estimate
-        if (replacement.status == "evaluated") != (self.sources.candidate_packet is not None):
+        if (replacement.status == "evaluated") != (self.sources.candidate_thesis is not None):
             raise ValueError(
-                "candidate_packet source is required exactly when replacement comparison "
+                "candidate_thesis source is required exactly when replacement comparison "
                 "is evaluated"
             )
         if estimate.status == "unresolved" and self.add_context is not None:
@@ -379,7 +379,7 @@ def evaluate_holding_review(document: HoldingReviewDocument) -> HoldingReviewRes
     if health.current_5y_estimate.status == "unresolved":
         warnings.append(
             "current_5y_estimate is unresolved; forward hold value cannot be "
-            "compared until the decision packet is available"
+            "compared until the thesis is available"
         )
 
     edge, breakeven, edge_zero, tax_basis = _replacement_edge(

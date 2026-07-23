@@ -23,8 +23,8 @@ class LedgerSourceContract:
     def test_exists_false_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).exists() is False
 
-    def test_snapshot_totals_and_holdings(self, app_records_root: Path) -> None:
-        source = self.make_source(app_records_root)
+    def test_snapshot_totals_and_holdings(self, app_method_root: Path) -> None:
+        source = self.make_source(app_method_root)
 
         snapshot = source.snapshot()
 
@@ -43,11 +43,11 @@ class ResearchSourceContract:
     def make_source(self, root: Path) -> ResearchSource:
         raise NotImplementedError
 
-    def test_revisions_and_packet_detail(self, app_records_root: Path) -> None:
-        source = self.make_source(app_records_root)
+    def test_revisions_and_thesis_detail(self, app_method_root: Path) -> None:
+        source = self.make_source(app_method_root)
 
         revisions = source.revisions()
-        detail = source.packet_detail(revisions[0].packet_id)
+        detail = source.thesis_detail(revisions[0].thesis_id)
 
         assert len(revisions) == 1
         assert revisions[0].ticker == "2331"
@@ -72,8 +72,8 @@ class TaskSourceContract:
         assert source.exists() is False
         assert source.list_tasks() == []
 
-    def test_lists_current_task_states(self, app_records_root: Path) -> None:
-        source = self.make_source(app_records_root)
+    def test_lists_current_task_states(self, app_method_root: Path) -> None:
+        source = self.make_source(app_method_root)
 
         tasks = source.list_tasks()
 
@@ -95,8 +95,8 @@ class CandidatesSourceContract:
     def test_latest_run_is_none_when_absent(self, tmp_path: Path) -> None:
         assert self.make_source(tmp_path).latest_run() is None
 
-    def test_latest_run_uses_greatest_run_date(self, app_records_root: Path) -> None:
-        source = self.make_source(app_records_root)
+    def test_latest_run_uses_greatest_run_date(self, app_method_root: Path) -> None:
+        source = self.make_source(app_method_root)
 
         run = source.latest_run()
 

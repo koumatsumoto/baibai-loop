@@ -12,10 +12,10 @@ from baibai_app.readmodel.builders import (
 )
 from baibai_app.sources.types import (
     CandidatesRun,
-    PacketDetail,
     ResearchRevision,
     ScenarioSummary,
     TaskRecord,
+    ThesisDetail,
 )
 from baibai_engine.position.ledger import (
     HoldingSnapshot,
@@ -50,9 +50,9 @@ class StubResearch:
     def revisions(self):
         return list(self._revisions)
 
-    def packet_detail(self, packet_id: str):
-        revision = next(item for item in self._revisions if item.packet_id == packet_id)
-        return PacketDetail(
+    def thesis_detail(self, thesis_id: str):
+        revision = next(item for item in self._revisions if item.thesis_id == thesis_id)
+        return ThesisDetail(
             revision=revision,
             entry_price_basis_yen=10.0,
             required_5y_base_cagr_pct=8.0,
@@ -160,11 +160,11 @@ def _revision() -> ResearchRevision:
         company_name="ウイングアーク１ｓｔ",
         sector="情報・通信業",
         as_of=date(2026, 7, 14),
-        packet_id="packet-20260714-4432-r1",
+        thesis_id="thesis-20260714-4432-r1",
         recommendation="buy",
         confidence="medium",
         current_fair_value_yen=12.0,
-        model_version="decision-packet-v2",
+        model_version="thesis-v2",
         review_id=None,
     )
 
@@ -207,7 +207,7 @@ def test_dashboard_calculates_unrealized_pnl_and_fv_gap_with_expected_sign() -> 
     assert holding.market_price_yen == "10"
 
 
-def test_dashboard_keeps_fv_fields_empty_without_packet() -> None:
+def test_dashboard_keeps_fv_fields_empty_without_thesis() -> None:
     view = build_dashboard(
         StubLedger(_snapshot()),
         StubResearch([]),
@@ -220,7 +220,7 @@ def test_dashboard_keeps_fv_fields_empty_without_packet() -> None:
     assert holding.company_name == "ウイングアーク１ｓｔ"
     assert holding.fair_value_yen is None
     assert holding.fv_gap_pct is None
-    assert holding.latest_packet_id is None
+    assert holding.latest_thesis_id is None
 
 
 def test_dashboard_returns_task_data_when_ledger_is_absent_or_invalid() -> None:
@@ -314,8 +314,8 @@ def test_security_detail_is_none_only_when_all_sources_are_empty() -> None:
         StubMarket(),
     )
     assert detail is not None
-    assert detail.latest_packet is not None
-    assert detail.latest_packet.permanent_loss_risk_count == 7
+    assert detail.latest_thesis is not None
+    assert detail.latest_thesis.permanent_loss_risk_count == 7
     assert detail.candidate_row is not None
     assert detail.candidate_row.er_annual == 0.1
 

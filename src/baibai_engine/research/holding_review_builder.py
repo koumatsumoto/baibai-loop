@@ -2,7 +2,7 @@
 
 The position package owns ledger replay and holding-review arithmetic.  This
 module belongs to research because it assembles their output with the current
-decision packet, without introducing a reverse position-to-thesis dependency.
+thesis, without introducing a reverse position-to-thesis dependency.
 """
 
 from __future__ import annotations
@@ -21,34 +21,34 @@ from baibai_engine.position.holding_review import (
 )
 from baibai_engine.position.ledger import PortfolioLedgerDocument, reconcile_portfolio
 from baibai_engine.position.store import LedgerStoreService
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
+from baibai_engine.research.thesis import (
     IndependentReview,
-    evaluate_decision_packet,
+    ThesisDocument,
+    evaluate_thesis,
 )
 
 
 def build_holding_review_from_db(
     *,
     db_path: Path | None,
-    holding_packet_id: str,
+    holding_thesis_id: str,
     position_id: str,
-    candidate_packet_id: str | None = None,
+    candidate_thesis_id: str | None = None,
 ) -> HoldingReviewDocument:
-    """Build a draft from canonical packet revisions and the current ledger head."""
+    """Build a draft from canonical thesis revisions and the current ledger head."""
     initialize_database(db_path)
     ledger_service = LedgerStoreService(db_path)
     ledger, ledger_append_head = ledger_service.load_with_head()
     with closing(connect_rw(db_path)) as connection:
-        packet = _load_ready_db_packet(connection, holding_packet_id)
+        thesis = _load_ready_db_thesis(connection, holding_thesis_id)
         candidate = (
             None
-            if candidate_packet_id is None
-            else _load_ready_db_packet(connection, candidate_packet_id)
+            if candidate_thesis_id is None
+            else _load_ready_db_thesis(connection, candidate_thesis_id)
         )
     return _compose_holding_review(
         ledger=ledger,
-        packet=packet,
+        thesis=thesis,
         candidate=candidate,
         position_id=position_id,
         sources={
@@ -56,11 +56,11 @@ def build_holding_review_from_db(
                 "entity_id": "portfolio-ledger",
                 "append_head": ledger_append_head,
             },
-            "holding_packet": {"entity_id": holding_packet_id, "append_head": None},
-            "candidate_packet": (
+            "holding_thesis": {"entity_id": holding_thesis_id, "append_head": None},
+            "candidate_thesis": (
                 None
-                if candidate_packet_id is None
-                else {"entity_id": candidate_packet_id, "append_head": None}
+                if candidate_thesis_id is None
+                else {"entity_id": candidate_thesis_id, "append_head": None}
             ),
         },
     )
@@ -69,34 +69,34 @@ def build_holding_review_from_db(
 def _compose_holding_review(
     *,
     ledger: PortfolioLedgerDocument,
-    packet: DecisionPacketDocument,
-    candidate: DecisionPacketDocument | None,
+    thesis: ThesisDocument,
+    candidate: ThesisDocument | None,
     position_id: str,
     sources: dict[str, object],
 ) -> HoldingReviewDocument:
     snapshot = reconcile_portfolio(ledger)
     holding = next(
-        (item for item in snapshot.holdings if item.ticker == packet.input_snapshot.ticker),
+        (item for item in snapshot.holdings if item.ticker == thesis.input_snapshot.ticker),
         None,
     )
     if holding is None:
-        raise HoldingReviewError("holding packet ticker has no open ledger holding")
+        raise HoldingReviewError("holding thesis ticker has no open ledger holding")
     as_of = holding.market_price_observed_at.date()
-    if packet.input_snapshot.as_of != as_of:
+    if thesis.input_snapshot.as_of != as_of:
         raise HoldingReviewError(
-            "decision packet as_of must equal the holding market-price observation date"
+            "thesis as_of must equal the holding market-price observation date"
         )
-    packet_price = _packet_market_price(packet)
-    if packet_price != holding.market_price_yen or holding.market_price_observed_at.date() != as_of:
+    thesis_price = _thesis_market_price(thesis)
+    if thesis_price != holding.market_price_yen or holding.market_price_observed_at.date() != as_of:
         raise HoldingReviewError(
-            "holding packet market price does not match ledger unadjusted close"
+            "holding thesis market price does not match ledger unadjusted close"
         )
-    current_cagr = _base_5y_cagr(packet)
+    current_cagr = _base_5y_cagr(thesis)
     replacement: dict[str, object] = {"status": "no_candidate"}
     if candidate is not None:
         if candidate.input_snapshot.as_of != as_of:
             raise HoldingReviewError(
-                "candidate packet as_of must equal the holding market-price observation date"
+                "candidate thesis as_of must equal the holding market-price observation date"
             )
         if candidate.input_snapshot.ticker == holding.ticker:
             raise HoldingReviewError("replacement candidate ticker must differ from holding ticker")
@@ -122,7 +122,7 @@ def _compose_holding_review(
             },
             "exit_tax": exit_tax,
         }
-    latest_evidence = max(risk.as_of for risk in packet.permanent_loss_risks)
+    latest_evidence = max(risk.as_of for risk in thesis.permanent_loss_risks)
     raw: dict[str, object] = {
         "schema_version": 2,
         "as_of": as_of.isoformat(),
@@ -131,7 +131,7 @@ def _compose_holding_review(
         "sources": sources,
         "thesis_health": {
             "invalidation_status": (
-                "broken" if packet.judgment.permanent_loss_conclusion == "elevated" else "intact"
+                "broken" if thesis.judgment.permanent_loss_conclusion == "elevated" else "intact"
             ),
             "permanent_loss_axes": [
                 {
@@ -139,7 +139,7 @@ def _compose_holding_review(
                     "assessment": risk.assessment,
                     "evidence_status": risk.evidence_status,
                 }
-                for risk in packet.permanent_loss_risks
+                for risk in thesis.permanent_loss_risks
             ],
             "evidence_freshness": {
                 "latest_source_as_of": latest_evidence.isoformat(),
@@ -153,8 +153,8 @@ def _compose_holding_review(
         "valuation_review": {
             "status": "resolved",
             "current_price_yen": _whole_yen(holding.market_price_yen),
-            "fair_value_yen": _whole_yen(packet.estimates.current_fair_value_yen),
-            "review_trigger": holding.market_price_yen >= packet.estimates.current_fair_value_yen,
+            "fair_value_yen": _whole_yen(thesis.estimates.current_fair_value_yen),
+            "review_trigger": holding.market_price_yen >= thesis.estimates.current_fair_value_yen,
         },
         "replacement_comparison": replacement,
         "action": "hold",
@@ -169,16 +169,16 @@ def validate_holding_review_scalars_from_db(
     db_path: Path | None,
 ) -> None:
     ledger_source = document.sources.ledger
-    packet_source = document.sources.holding_packet
-    candidate_source = document.sources.candidate_packet
+    thesis_source = document.sources.holding_thesis
+    candidate_source = document.sources.candidate_thesis
     if ledger_source.entity_id != "portfolio-ledger" or ledger_source.append_head is None:
         raise HoldingReviewError("holding review ledger binding is incomplete")
     if LedgerStoreService(db_path).append_head() != ledger_source.append_head:
         raise HoldingReviewError("holding review ledger source changed after draft build")
     rebuilt = build_holding_review_from_db(
         db_path=db_path,
-        holding_packet_id=packet_source.entity_id,
-        candidate_packet_id=(None if candidate_source is None else candidate_source.entity_id),
+        holding_thesis_id=thesis_source.entity_id,
+        candidate_thesis_id=(None if candidate_source is None else candidate_source.entity_id),
         position_id=document.position_id,
     )
     fields = {
@@ -195,48 +195,48 @@ def validate_holding_review_scalars_from_db(
         raise HoldingReviewError("holding review load-bearing values differ from DB rebuild")
 
 
-def _load_ready_db_packet(connection: sqlite3.Connection, packet_id: str) -> DecisionPacketDocument:
-    packet_row = connection.execute(
-        "SELECT payload FROM research_packet WHERE packet_id = ?", (packet_id,)
+def _load_ready_db_thesis(connection: sqlite3.Connection, thesis_id: str) -> ThesisDocument:
+    thesis_row = connection.execute(
+        "SELECT payload FROM thesis WHERE thesis_id = ?", (thesis_id,)
     ).fetchone()
-    if packet_row is None:
-        raise HoldingReviewError(f"unknown research packet: {packet_id}")
+    if thesis_row is None:
+        raise HoldingReviewError(f"unknown research thesis: {thesis_id}")
     review_rows = connection.execute(
-        "SELECT payload FROM research_review WHERE packet_id = ? ORDER BY reviewed_at DESC",
-        (packet_id,),
+        "SELECT payload FROM thesis_review WHERE thesis_id = ? ORDER BY reviewed_at DESC",
+        (thesis_id,),
     ).fetchall()
     if len(review_rows) != 1:
         raise HoldingReviewError("holding review requires exactly one independent review")
-    packet = DecisionPacketDocument.model_validate(json.loads(str(packet_row["payload"])))
+    thesis = ThesisDocument.model_validate(json.loads(str(thesis_row["payload"])))
     review = IndependentReview.model_validate(json.loads(str(review_rows[0]["payload"])))
-    result = evaluate_decision_packet(packet, review=review)
+    result = evaluate_thesis(thesis, review=review)
     if result.errors or result.decision_readiness != "ready":
         raise HoldingReviewError(
-            "decision packet is not ready for holding review: " + "; ".join(result.errors)
+            "thesis is not ready for holding review: " + "; ".join(result.errors)
         )
-    return packet
+    return thesis
 
 
-def _packet_market_price(packet: DecisionPacketDocument) -> Decimal:
+def _thesis_market_price(thesis: ThesisDocument) -> Decimal:
     fact = next(
         item
-        for item in packet.input_snapshot.facts
-        if item.fact_id == packet.estimates.market_price_fact_id
+        for item in thesis.input_snapshot.facts
+        if item.fact_id == thesis.estimates.market_price_fact_id
     )
-    if fact.price_basis != "last_close_unadjusted" or fact.as_of != packet.input_snapshot.as_of:
-        raise HoldingReviewError("decision packet must use a same-date unadjusted close")
+    if fact.price_basis != "last_close_unadjusted" or fact.as_of != thesis.input_snapshot.as_of:
+        raise HoldingReviewError("thesis must use a same-date unadjusted close")
     if isinstance(fact.value, bool | str):
-        raise HoldingReviewError("decision packet market price must be numeric")
+        raise HoldingReviewError("thesis market price must be numeric")
     return Decimal(str(fact.value))
 
 
-def _base_5y_cagr(packet: DecisionPacketDocument) -> float:
-    result = evaluate_decision_packet(packet)
+def _base_5y_cagr(thesis: ThesisDocument) -> float:
+    result = evaluate_thesis(thesis)
     scenario = next(
         (item for item in result.scenarios if item.horizon_years == 5 and item.name == "base"), None
     )
     if scenario is None:
-        raise HoldingReviewError("decision packet lacks a 5y base scenario")
+        raise HoldingReviewError("thesis lacks a 5y base scenario")
     return scenario.total_return_cagr_pct
 
 

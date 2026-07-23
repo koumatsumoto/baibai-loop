@@ -21,11 +21,11 @@ from baibai_engine.screening.run_store import ScreeningRunStore
 from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).resolve().parents[1]
-DECISION_FIXTURE = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
+DECISION_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
 LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 BENCHMARK_FIXTURE = ROOT / "tests/fixtures/benchmark-observation/topix-1y.yaml"
 EXECUTION_INPUT_FIXTURE = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
-RULES_PATH = ROOT / "records/_config/screening-rules/2026-07-06T000000+0900.yaml"
+RULES_PATH = ROOT / "method/screening-rules/2026-07-06T000000+0900.yaml"
 
 
 def _payload(text: str) -> dict[str, object]:
@@ -317,9 +317,9 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {
-        "packet_status",
+        "thesis_status",
         "decision_readiness",
-        "packet_sha256",
+        "thesis_sha256",
         "errors",
         "warnings",
         "scenarios",
@@ -379,9 +379,9 @@ def test_decision_cli_emits_execution_proposal_shape(
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {
-        "packet_status",
+        "thesis_status",
         "decision_readiness",
-        "packet_sha256",
+        "thesis_sha256",
         "errors",
         "warnings",
         "scenarios",
@@ -412,7 +412,7 @@ def test_decision_cli_emits_execution_proposal_shape(
     assert isinstance(proposal, dict)
     assert set(proposal) == {
         "ticker",
-        "decision_packet_sha256",
+        "thesis_sha256",
         "max_acceptable_price_yen",
         "required_5y_base_cagr_pct",
         "formula_version",
@@ -438,7 +438,7 @@ def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
         "prepare",
         "holding-prepare",
         "status",
-        "packet-scaffold",
+        "thesis-scaffold",
         "review-scaffold",
         "promote",
         "plan-limit",
@@ -451,7 +451,7 @@ def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
         "prepare",
         "holding-prepare",
         "status",
-        "packet-scaffold",
+        "thesis-scaffold",
         "review-scaffold",
         "promote",
         "plan-limit",
@@ -516,7 +516,7 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "2026-07-10",
                 "--run-revision-id",
                 "run-revision-example",
-                "--audit-top",
+                "--longlist-top",
                 "20",
                 "--output-path",
                 "/tmp/selection.yaml",
@@ -552,8 +552,8 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
             opportunity_parser,
             [
                 "plan-limit",
-                "--packet",
-                "packet.yaml",
+                "--thesis",
+                "thesis.yaml",
                 "--db",
                 "data/app/baibai.sqlite",
                 "--sqlite-path",
@@ -628,8 +628,8 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
                 "holding-review-build",
                 "--db",
                 "data/app/baibai.sqlite",
-                "--packet-id",
-                "packet-20260712-1234-r1",
+                "--thesis-id",
+                "thesis-20260712-1234-r1",
                 "--position-id",
                 "position-1",
                 "--out",

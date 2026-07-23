@@ -207,7 +207,7 @@ human_evidence_override:
   decision_reference: user-confirmed-evidence-override-2331
   proposal_sha256: "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
   review_id: review-2331-20260703
-  review_sha256: "8d2ae58994db66079aa707b6aea2f06a0616d8645ae195b7b6d54b68b327b2b3"
+  review_sha256: "022e621a620a8af0812f543c2ac7f8d18861172f9b6e269e8847194a7d55b333"
   approved_by: human
   acknowledged_risk_axes: [customer_concentration]
   approved_at: "2026-07-03T10:30:00+09:00"

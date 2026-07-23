@@ -16,8 +16,8 @@ from baibai_engine.macro.service import MacroContextService
 from tests.helpers.macro_context import macro_context_payload
 
 
-def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None:
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         health = client.get("/api/health")
         dashboard = client.get("/api/dashboard")
         screening = client.get("/api/screening/latest")
@@ -25,7 +25,7 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         detail = client.get("/api/securities/2331")
 
         assert health.status_code == 200
-        assert health.json() == {"status": "ok", "root": str(app_records_root.resolve())}
+        assert health.json() == {"status": "ok", "root": str(app_method_root.resolve())}
         assert dashboard.status_code == 200
         assert dashboard.json()["total_capital_yen"] == 10_419_500
         assert len(dashboard.json()["open_tasks"]) == 2
@@ -50,14 +50,14 @@ def test_api_exposes_read_views_and_spa_fallback(app_records_root: Path) -> None
         assert macro_series["jp.pmi_manufacturing"]["tradingview_symbol"] is None
         assert detail.status_code == 200
         assert detail.json()["ticker"] == "2331"
-        assert detail.json()["latest_packet"]["permanent_loss_risk_count"] == 7
+        assert detail.json()["latest_thesis"]["permanent_loss_risk_count"] == 7
         fallback = client.get("/securities/2331")
         assert fallback.status_code == 200
         assert "ui/ を build" in fallback.text
 
 
-def test_api_meta_reports_store_freshness(app_records_root: Path) -> None:
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/meta")
 
     assert response.status_code == 200
@@ -72,20 +72,20 @@ def test_api_meta_reports_store_freshness(app_records_root: Path) -> None:
     assert datetime.fromisoformat(body["generated_at"]).tzinfo is not None
 
 
-def test_macro_api_rejects_unknown_period_and_granularity(app_records_root: Path) -> None:
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+def test_macro_api_rejects_unknown_period_and_granularity(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         assert client.get("/api/macro?period=20y").status_code == 422
         assert client.get("/api/macro?granularity=quarterly").status_code == 422
 
 
 def test_macro_api_renders_eight_section_context_and_series_names(
-    app_records_root: Path,
+    app_method_root: Path,
 ) -> None:
-    db_path = app_records_root / "data/app/baibai.sqlite"
+    db_path = app_method_root / "data/app/baibai.sqlite"
     document = MacroContextDocument.model_validate(macro_context_payload())
     MacroContextService(db_path).publish(document, expected_head=None)
 
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/macro?as_of=2026-07-19")
 
     assert response.status_code == 200
@@ -111,9 +111,9 @@ def test_macro_api_renders_eight_section_context_and_series_names(
 
 
 def test_macro_api_displays_common_fields_for_sectionless_revision(
-    app_records_root: Path,
+    app_method_root: Path,
 ) -> None:
-    db_path = app_records_root / "data/app/baibai.sqlite"
+    db_path = app_method_root / "data/app/baibai.sqlite"
     payload = {
         "schema_version": 2,
         "kind": "macro-context",
@@ -139,7 +139,7 @@ def test_macro_api_displays_common_fields_for_sectionless_revision(
             ),
         )
 
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/macro?as_of=2026-07-19")
 
     assert response.status_code == 200
@@ -155,14 +155,14 @@ def test_macro_api_displays_common_fields_for_sectionless_revision(
 
 
 def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
-    app_records_root: Path, mocker
+    app_method_root: Path, mocker
 ) -> None:
-    db_path = app_records_root / "data/app/baibai.sqlite"
+    db_path = app_method_root / "data/app/baibai.sqlite"
     document = MacroContextDocument.model_validate(macro_context_payload())
     MacroContextService(db_path).publish(document, expected_head=None)
     mocker.patch("baibai_app.readmodel.builders.macro_series_names", return_value={})
 
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/macro?as_of=2026-07-19")
 
     assert response.status_code == 200
@@ -171,20 +171,20 @@ def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
     ]
 
 
-def test_api_reads_the_explicit_application_database(app_records_root: Path) -> None:
-    default_db = app_records_root / "data/app/baibai.sqlite"
-    alternate_db = app_records_root / "alternate.sqlite"
+def test_api_reads_the_explicit_application_database(app_method_root: Path) -> None:
+    default_db = app_method_root / "data/app/baibai.sqlite"
+    alternate_db = app_method_root / "alternate.sqlite"
     shutil.copy2(default_db, alternate_db)
     default_db.unlink()
 
     with TestClient(
-        create_app(app_records_root, db_path=alternate_db), base_url="http://127.0.0.1"
+        create_app(app_method_root, db_path=alternate_db), base_url="http://127.0.0.1"
     ) as client:
         assert client.get("/api/dashboard").json()["total_capital_yen"] == 10_419_500
 
 
-def test_api_returns_404_for_unknown_security_and_api_route(app_records_root: Path) -> None:
-    with TestClient(create_app(app_records_root), base_url="http://127.0.0.1") as client:
+def test_api_returns_404_for_unknown_security_and_api_route(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         unknown_security = client.get("/api/securities/0000")
         unknown_api = client.get("/api/unknown")
 
@@ -194,8 +194,8 @@ def test_api_returns_404_for_unknown_security_and_api_route(app_records_root: Pa
         assert client.post("/api/dashboard").status_code == 405
 
 
-def test_api_rejects_non_loopback_host(app_records_root: Path) -> None:
-    with TestClient(create_app(app_records_root), base_url="http://attacker.example") as client:
+def test_api_rejects_non_loopback_host(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://attacker.example") as client:
         response = client.get("/api/dashboard")
 
     assert response.status_code == 400
@@ -208,11 +208,11 @@ def test_cli_rejects_wrong_root_without_starting_server(tmp_path: Path, mocker) 
     run.assert_not_called()
 
 
-def test_cli_binds_uvicorn_to_loopback(app_records_root: Path, mocker) -> None:
-    (app_records_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+def test_cli_binds_uvicorn_to_loopback(app_method_root: Path, mocker) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     run = mocker.patch("baibai_app.cli.uvicorn.run")
 
-    assert main(["serve", "--root", str(app_records_root), "--port", "9012"]) == 0
+    assert main(["serve", "--root", str(app_method_root), "--port", "9012"]) == 0
 
     assert run.call_count == 1
     assert run.call_args.kwargs == {"host": "127.0.0.1", "port": 9012}

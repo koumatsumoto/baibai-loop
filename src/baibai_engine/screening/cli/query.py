@@ -127,7 +127,7 @@ def select_command(
     rules: ScreeningRules | None = None,
     profile: str | None = None,
     detail: str = "summary",
-    audit_top: int = 0,
+    longlist_top: int = 0,
     output_path: Path | None = None,
     force: bool = False,
     regime_sqlite_path: Path | None = None,
@@ -141,8 +141,8 @@ def select_command(
     if top < 1:
         print("--top must be greater than zero", file=sys.stderr)
         return 1
-    if not 0 <= audit_top <= 100:
-        print("--audit-top must be between 0 and 100", file=sys.stderr)
+    if not 0 <= longlist_top <= 100:
+        print("--longlist-top must be between 0 and 100", file=sys.stderr)
         return 1
     if output_path is not None and output_path.exists() and not force:
         print(f"output already exists: {output_path}", file=sys.stderr)
@@ -178,7 +178,7 @@ def select_command(
             previous_candidates=inputs.previous_candidates,
             market_regime=_load_market_regime(regime_sqlite_path, asof_date),
             detail=detail,
-            audit_top=audit_top,
+            longlist_top=longlist_top,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -200,7 +200,7 @@ def select_command(
     payload = {"selection_id": publication.publication_id, **payload}
     rendered = yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
     # --output-path 指定時は同じ内容を file と stdout の両方へ出す。file は
-    # local/rebuildable な保存先で、canonical 判断は decision packet だけが担う。
+    # local/rebuildable な保存先で、canonical 判断は thesis だけが担う。
     if output_path is not None:
         write_text_atomic(output_path, rendered)
     out.write(rendered)

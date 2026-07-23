@@ -29,10 +29,10 @@ from baibai_engine.research.store import ResearchStoreService
 from tests.helpers.db_seed import seed_ledger
 
 ROOT = Path(__file__).parents[1]
-PACKET = ROOT / "tests/fixtures/decision-packet/2331-decision.yaml"
-REVIEW = ROOT / "tests/fixtures/decision-packet/2331-decision-review.yaml"
+THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
+REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
-PACKET_ID = "packet-20260711-2331-r1"
+THESIS_ID = "thesis-20260711-2331-r1"
 CREATED_AT = datetime.fromisoformat("2026-07-11T10:02:00+09:00")
 
 
@@ -45,12 +45,12 @@ def _raw(path: Path) -> dict[str, object]:
 def _database(path: Path, *, with_review: bool = True) -> None:
     service = ResearchStoreService(path)
     if with_review:
-        service.publish_packet_with_review(PACKET_ID, _raw(PACKET), _raw(REVIEW))
+        service.publish_thesis_with_review(THESIS_ID, _raw(THESIS), _raw(REVIEW))
     else:
-        packet = _raw(PACKET)
-        packet["judgment"]["recommendation"] = "defer"  # type: ignore[index]
-        packet["judgment"]["sizing_action"] = "none"  # type: ignore[index]
-        service.publish_packet(PACKET_ID, packet)
+        thesis = _raw(THESIS)
+        thesis["judgment"]["recommendation"] = "defer"  # type: ignore[index]
+        thesis["judgment"]["sizing_action"] = "none"  # type: ignore[index]
+        service.publish_thesis(THESIS_ID, thesis)
     ledger = PortfolioLedgerDocument.model_validate(_raw(LEDGER))
     seed_ledger(
         path,
@@ -77,7 +77,7 @@ def _planned(path: Path) -> PlannedLimitInput:
         connection.execute("INSERT INTO jquants_daily_bars VALUES ('2331', '2026-07-10', 1000, 1)")
     return PlannedLimitInput.model_validate(
         plan_limit(
-            packet=PACKET,
+            thesis=THESIS,
             db_path=path,
             sqlite_path=market,
             target_session=date(2026, 7, 13),
@@ -102,7 +102,7 @@ def _service(path: Path) -> ProposalStoreService:
 
 def _create(service: ProposalStoreService, path: Path) -> ProposalRecord:
     return service.create(
-        PACKET_ID,
+        THESIS_ID,
         _planned(path),
         _current_snapshot(path),
         snapshot_append_head=LedgerStoreService(path).append_head(),
@@ -110,20 +110,20 @@ def _create(service: ProposalStoreService, path: Path) -> ProposalRecord:
     )
 
 
-def test_create_uses_db_packet_review_and_current_planning_limit(tmp_path: Path) -> None:
+def test_create_uses_db_thesis_review_and_current_planning_limit(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     _database(path)
     proposal = _create(_service(path), path)
 
     assert proposal.proposal_id == "prop-20260711-2331-1"
     assert proposal.status == "pending"
-    assert proposal.packet_id == PACKET_ID
+    assert proposal.thesis_id == THESIS_ID
     assert proposal.review_id == "review-2331-20260703"
     stored_input = proposal.payload["planned_limit"]
     assert isinstance(stored_input, dict)
     assert stored_input["source_ledger_append_head"] == LedgerStoreService(path).append_head()
     assert "source_ref" not in stored_input
-    assert "decision_packet_sha256" not in stored_input
+    assert "thesis_sha256" not in stored_input
     assert "independent_review_sha256" not in stored_input
     generated = proposal.payload["execution_proposal"]
     assert isinstance(generated, dict)
@@ -147,7 +147,7 @@ def test_create_requires_one_matching_ready_buy_review_without_write(tmp_path: P
 
     with pytest.raises(ProposalValidationError, match="exactly one review"):
         _service(path).create(
-            PACKET_ID,
+            THESIS_ID,
             _planned(path),
             _snapshot(),
             snapshot_append_head=LedgerStoreService(path).append_head(),
@@ -167,7 +167,7 @@ def test_create_rejects_caller_controlled_market_database_without_write(tmp_path
 
     with pytest.raises(ProposalConflictError, match="configured market DB"):
         _service(path).create(
-            PACKET_ID,
+            THESIS_ID,
             planned,
             _current_snapshot(path),
             snapshot_append_head=LedgerStoreService(path).append_head(),
@@ -373,8 +373,8 @@ def test_plan_limit_output_creates_proposal_through_public_clis(
         research_main(
             [
                 "plan-limit",
-                "--packet",
-                str(PACKET),
+                "--thesis",
+                str(THESIS),
                 "--db",
                 str(db),
                 "--sqlite-path",
@@ -397,8 +397,8 @@ def test_plan_limit_output_creates_proposal_through_public_clis(
                 "--market-db",
                 str(market),
                 "create",
-                "--packet-id",
-                PACKET_ID,
+                "--thesis-id",
+                THESIS_ID,
                 "--input",
                 str(output),
             ],

@@ -16,7 +16,7 @@ from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
     build_meta,
-    build_program_state,
+    build_operations_view,
     build_screening,
     build_security_detail,
 )
@@ -24,7 +24,7 @@ from baibai_app.readmodel.models import (
     DashboardView,
     MacroView,
     MetaView,
-    ProgramStateView,
+    OperationsView,
     ScreeningView,
     SecurityDetailView,
 )
@@ -43,7 +43,7 @@ def create_app(
 
     resolved_root = root.resolve()
     app = FastAPI(
-        title="Baibai-Loop cockpit",
+        title="Baibai-Loop Baibai App",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -95,9 +95,9 @@ def create_app(
             granularity=granularity,
         )
 
-    @app.get("/api/program", response_model=ProgramStateView)
-    def program(sources: _SourceDependency) -> ProgramStateView:
-        return build_program_state(sources.program)
+    @app.get("/api/operations", response_model=OperationsView)
+    def operations(sources: _SourceDependency) -> OperationsView:
+        return build_operations_view(sources.operations)
 
     @app.get("/api/meta", response_model=MetaView)
     def meta(sources: _SourceDependency) -> MetaView:

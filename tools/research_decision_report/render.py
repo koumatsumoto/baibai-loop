@@ -26,16 +26,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.policy import PORTFOLIO_POLICY
-from baibai_engine.research.decision_packet import (
-    DecisionPacketDocument,
-    DecisionPacketError,
-    FiveYearBaseBreakEvenResult,
-    decision_packet_core_hash,
-    evaluate_decision_packet,
-    load_decision_packet,
-)
 from baibai_engine.research.execution_policy import ExecutionPolicyError, max_acceptable_price
 from baibai_engine.research.opportunity import BOARD_LOT, PLANNING_TICK_SIZE_YEN
+from baibai_engine.research.thesis import (
+    FiveYearBaseBreakEvenResult,
+    ThesisDocument,
+    ThesisError,
+    evaluate_thesis,
+    load_thesis,
+    thesis_core_hash,
+)
 
 TRADINGVIEW = "https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A{ticker}"
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
@@ -220,7 +220,7 @@ _REVIEW_CHECK_IDS = frozenset(
 )
 
 
-class PacketBinding(BaseModel):
+class ThesisBinding(BaseModel):
     model_config = _CONFIG
 
     ticker: Annotated[str, Field(pattern=_TICKER)]
@@ -234,13 +234,13 @@ class ReviewBindings(BaseModel):
     manifest_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     findings_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
     comparison_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-    packets: Annotated[tuple[PacketBinding, ...], Field(min_length=1)]
+    theses: Annotated[tuple[ThesisBinding, ...], Field(min_length=1)]
     proposal_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None
     selected_ticker: Annotated[str, Field(pattern=_TICKER)] | None
 
-    @field_validator("packets", mode="before")
+    @field_validator("theses", mode="before")
     @classmethod
-    def _packets(cls, value: object) -> object:
+    def _theses(cls, value: object) -> object:
         return _as_tuple(value)
 
 
@@ -435,15 +435,15 @@ def _workspace_path(workspace: Path, ticker: str, filename: str) -> Path:
     return path
 
 
-def _load_packet(workspace: Path, ticker: str) -> tuple[Path, DecisionPacketDocument]:
-    path = _workspace_path(workspace, ticker, "packet-draft.yaml")
+def _load_thesis(workspace: Path, ticker: str) -> tuple[Path, ThesisDocument]:
+    path = _workspace_path(workspace, ticker, "thesis-draft.yaml")
     try:
-        packet = load_decision_packet(path)
-    except (OSError, DecisionPacketError) as error:
-        raise ReportError(f"packet is not schema-valid for {ticker}: {error}") from error
-    if packet.input_snapshot.ticker != ticker:
-        raise ReportError(f"packet ticker mismatch for {ticker}")
-    return path, packet
+        thesis = load_thesis(path)
+    except (OSError, ThesisError) as error:
+        raise ReportError(f"thesis is not schema-valid for {ticker}: {error}") from error
+    if thesis.input_snapshot.ticker != ticker:
+        raise ReportError(f"thesis ticker mismatch for {ticker}")
+    return path, thesis
 
 
 def _evidence_items(findings: CandidateFindings) -> tuple[Evidence, ...]:
@@ -463,10 +463,10 @@ def _source_ids(findings: CandidateFindings) -> set[str]:
     return {source_id for item in _evidence_items(findings) for source_id in item.source_ids}
 
 
-def _validate_sources(findings: CandidateFindings, packet: DecisionPacketDocument) -> None:
-    packet_ids = {source.source_id for source in packet.input_snapshot.sources}
+def _validate_sources(findings: CandidateFindings, thesis: ThesisDocument) -> None:
+    thesis_ids = {source.source_id for source in thesis.input_snapshot.sources}
     used_ids = _source_ids(findings)
-    missing = sorted(used_ids - packet_ids)
+    missing = sorted(used_ids - thesis_ids)
     if missing:
         raise ReportError(f"{findings.ticker} findings reference unknown source_ids: {missing}")
     metadata_ids = {item.source_id for item in findings.source_metadata}
@@ -475,7 +475,7 @@ def _validate_sources(findings: CandidateFindings, packet: DecisionPacketDocumen
         for source_id in used_ids
         if source_id not in metadata_ids
         and next(
-            source for source in packet.input_snapshot.sources if source.source_id == source_id
+            source for source in thesis.input_snapshot.sources if source.source_id == source_id
         ).source_tier
         != "local_data"
     )
@@ -483,7 +483,7 @@ def _validate_sources(findings: CandidateFindings, packet: DecisionPacketDocumen
         raise ReportError(
             f"{findings.ticker} external sources need source_metadata: {missing_metadata}"
         )
-    unknown_metadata = sorted(metadata_ids - packet_ids)
+    unknown_metadata = sorted(metadata_ids - thesis_ids)
     if unknown_metadata:
         raise ReportError(
             f"{findings.ticker} source_metadata references unknown source_ids: {unknown_metadata}"
@@ -527,36 +527,36 @@ def _require_completed_comparison(row: Mapping[str, object], ticker: str) -> Non
 
 
 def _validate_comparison_values(
-    row: Mapping[str, object], packet: DecisionPacketDocument, ticker: str
+    row: Mapping[str, object], thesis: ThesisDocument, ticker: str
 ) -> None:
-    if packet.estimates is None:
-        raise ReportError(f"packet estimates are missing for {ticker}")
+    if thesis.estimates is None:
+        raise ReportError(f"thesis estimates are missing for {ticker}")
     base = next(
         (
             scenario
-            for scenario in packet.estimates.scenarios
+            for scenario in thesis.estimates.scenarios
             if scenario.horizon_years == 5 and scenario.name == "base"
         ),
         None,
     )
     if base is None:
-        raise ReportError(f"packet has no 5y/base scenario for {ticker}")
+        raise ReportError(f"thesis has no 5y/base scenario for {ticker}")
     tolerance = Decimal("0.0001")
     comparison_cagr = _decimal(
         row.get("five_year_base_cagr_pct"), label=f"{ticker} comparison five_year_base_cagr_pct"
     )
-    packet_cagr = Decimal(str(base.claimed_total_return_cagr_pct))
-    if abs(comparison_cagr - packet_cagr) > tolerance:
-        raise ReportError(f"comparison 5y/base CAGR does not match packet for {ticker}")
+    thesis_cagr = Decimal(str(base.claimed_total_return_cagr_pct))
+    if abs(comparison_cagr - thesis_cagr) > tolerance:
+        raise ReportError(f"comparison 5y/base CAGR does not match thesis for {ticker}")
     comparison_fv = _decimal(row.get("fair_value_yen"), label=f"{ticker} comparison fair_value_yen")
-    packet_fv = packet.estimates.current_fair_value_yen
-    if abs(comparison_fv - packet_fv) > tolerance:
-        raise ReportError(f"comparison fair value does not match packet for {ticker}")
-    entry = packet.estimates.entry_price_basis_yen
-    expected_gap = (packet_fv / entry - Decimal(1)) * 100
+    thesis_fv = thesis.estimates.current_fair_value_yen
+    if abs(comparison_fv - thesis_fv) > tolerance:
+        raise ReportError(f"comparison fair value does not match thesis for {ticker}")
+    entry = thesis.estimates.entry_price_basis_yen
+    expected_gap = (thesis_fv / entry - Decimal(1)) * 100
     comparison_gap = _decimal(row.get("fv_gap_pct"), label=f"{ticker} comparison fv_gap_pct")
     if abs(comparison_gap - expected_gap) > Decimal("0.005"):
-        raise ReportError(f"comparison FV gap does not match packet for {ticker}")
+        raise ReportError(f"comparison FV gap does not match thesis for {ticker}")
 
 
 def _validate_selection_dispositions(
@@ -594,7 +594,7 @@ def _validate_exposure_row(
     if set(row) != expected_fields:
         raise ReportError(f"{label} fields do not match the portfolio exposure contract")
     if row.get("key") != expected_key:
-        raise ReportError(f"{label} key does not match the selected packet")
+        raise ReportError(f"{label} key does not match the selected thesis")
     current = _decimal(
         row.get("current_and_reserved_yen"), label=f"{label} current_and_reserved_yen"
     )
@@ -622,7 +622,7 @@ def _validate_portfolio_exposure(
     proposal: Mapping[str, object],
     *,
     selected_ticker: str,
-    packet: DecisionPacketDocument,
+    thesis: ThesisDocument,
     order_notional_yen: Decimal,
     warnings: list[str],
 ) -> None:
@@ -671,7 +671,7 @@ def _validate_portfolio_exposure(
         "prospective_sector_concentration_exceeds_warning": _validate_exposure_row(
             exposure.get("sector"),
             label="portfolio exposure sector",
-            expected_key=packet.input_snapshot.sector,
+            expected_key=thesis.input_snapshot.sector,
             expected_warning_pct=sector_warning_pct,
             total_capital_yen=total_capital,
             order_notional_yen=order_notional_yen,
@@ -681,9 +681,9 @@ def _validate_portfolio_exposure(
         exposure.get("common_factors"), label="portfolio exposure common_factors"
     )
     factor_keys = tuple(str(row.get("key")) for row in factor_rows)
-    if factor_keys != packet.input_snapshot.common_factors:
-        raise ReportError("portfolio exposure common-factor keys do not match the selected packet")
-    for factor, row in zip(packet.input_snapshot.common_factors, factor_rows, strict=True):
+    if factor_keys != thesis.input_snapshot.common_factors:
+        raise ReportError("portfolio exposure common-factor keys do not match the selected thesis")
+    for factor, row in zip(thesis.input_snapshot.common_factors, factor_rows, strict=True):
         warning_expectations[
             f"prospective_common_factor_concentration_exceeds_warning:{factor}"
         ] = _validate_exposure_row(
@@ -764,8 +764,8 @@ def _validate_proposal(
     *,
     proposal_path: Path | None,
     selected_ticker: str | None,
-    packet_path: Path | None,
-    packet: DecisionPacketDocument | None,
+    thesis_path: Path | None,
+    thesis: ThesisDocument | None,
     manifest: Mapping[str, object],
     report_as_of: date,
     report_budget_yen: int,
@@ -775,8 +775,8 @@ def _validate_proposal(
         if proposal_path is not None:
             raise ReportError("proposal is forbidden when selected_ticker is null")
         return None
-    if proposal_path is None or packet_path is None or packet is None:
-        raise ReportError("selected_ticker requires a plan-limit proposal and packet")
+    if proposal_path is None or thesis_path is None or thesis is None:
+        raise ReportError("selected_ticker requires a plan-limit proposal and thesis")
     proposal = _load_mapping(proposal_path, label="plan-limit proposal")
     if proposal.get("ticker") != selected_ticker:
         raise ReportError("proposal ticker does not match selected_ticker")
@@ -784,11 +784,11 @@ def _validate_proposal(
         raise ReportError("proposal status must be planned_limit or defer")
     if proposal.get("price_basis") != "last_close_unadjusted":
         raise ReportError("proposal price_basis must be last_close_unadjusted")
-    if proposal.get("decision_packet_sha256") != _sha256(packet_path):
-        raise ReportError("proposal decision_packet_sha256 does not match selected packet")
-    if proposal.get("decision_packet_core_sha256") != decision_packet_core_hash(packet):
-        raise ReportError("proposal decision_packet_core_sha256 does not match selected packet")
-    review_path = _workspace_path(packet_path.parent.parent, selected_ticker, "review-draft.yaml")
+    if proposal.get("thesis_sha256") != _sha256(thesis_path):
+        raise ReportError("proposal thesis_sha256 does not match selected thesis")
+    if proposal.get("thesis_core_sha256") != thesis_core_hash(thesis):
+        raise ReportError("proposal thesis_core_sha256 does not match selected thesis")
+    review_path = _workspace_path(thesis_path.parent.parent, selected_ticker, "review-draft.yaml")
     if proposal.get("independent_review_sha256") != _sha256(review_path):
         raise ReportError("proposal independent_review_sha256 does not match selected review")
     inputs = manifest.get("inputs")
@@ -818,17 +818,17 @@ def _validate_proposal(
     board_lot = _decimal(proposal.get("board_lot"), label="proposal board_lot")
     if board_lot != BOARD_LOT:
         raise ReportError("proposal board_lot does not match portfolio policy")
-    if packet.estimates is None:
-        raise ReportError("selected packet estimates are missing")
+    if thesis.estimates is None:
+        raise ReportError("selected thesis estimates are missing")
     try:
-        expected_max_price = max_acceptable_price(packet, tick_size_yen=PLANNING_TICK_SIZE_YEN)
+        expected_max_price = max_acceptable_price(thesis, tick_size_yen=PLANNING_TICK_SIZE_YEN)
     except ExecutionPolicyError as error:
         raise ReportError(f"cannot derive proposal max acceptable price: {error}") from error
     proposal_max_price = _decimal(
         proposal.get("max_acceptable_price_yen"), label="proposal max_acceptable_price_yen"
     )
     if proposal_max_price != expected_max_price:
-        raise ReportError("proposal max acceptable price does not match selected packet")
+        raise ReportError("proposal max acceptable price does not match selected thesis")
     if status == "planned_limit":
         if proposal.get("price_as_of") != report_as_of.isoformat():
             raise ReportError("planned_limit price_as_of does not match report as_of")
@@ -840,8 +840,8 @@ def _validate_proposal(
             raise ReportError("proposal budget_max_yen does not match the report budget")
         if budget_min <= 0 or budget_min > budget_max:
             raise ReportError("proposal budget range is invalid")
-        if close_price != packet.estimates.entry_price_basis_yen:
-            raise ReportError("proposal close does not match selected packet entry price")
+        if close_price != thesis.estimates.entry_price_basis_yen:
+            raise ReportError("proposal close does not match selected thesis entry price")
         if limit_price != close_price:
             raise ReportError("planned_limit price must equal the raw close")
         if limit_price <= 0 or limit_price > expected_max_price:
@@ -860,7 +860,7 @@ def _validate_proposal(
         _validate_portfolio_exposure(
             proposal,
             selected_ticker=selected_ticker,
-            packet=packet,
+            thesis=thesis,
             order_notional_yen=notional,
             warnings=warnings,
         )
@@ -883,21 +883,21 @@ def review_bindings(
     findings_path: Path,
     proposal_path: Path | None,
     selected_ticker: str | None,
-    packet_paths: Mapping[str, Path],
-    packets: Mapping[str, DecisionPacketDocument],
+    thesis_paths: Mapping[str, Path],
+    theses: Mapping[str, ThesisDocument],
 ) -> dict[str, object]:
     """Return the compact, deterministic input binding reviewed before HTML rendering."""
     return {
         "manifest_sha256": _sha256(workspace / "manifest.yaml"),
         "findings_sha256": _sha256(findings_path),
         "comparison_sha256": _sha256(workspace / "research-comparison.yaml"),
-        "packets": [
+        "theses": [
             {
                 "ticker": ticker,
-                "sha256": _sha256(packet_paths[ticker]),
-                "core_sha256": decision_packet_core_hash(packets[ticker]),
+                "sha256": _sha256(thesis_paths[ticker]),
+                "core_sha256": thesis_core_hash(theses[ticker]),
             }
-            for ticker in packet_paths
+            for ticker in thesis_paths
         ],
         "proposal_sha256": _sha256(proposal_path) if proposal_path is not None else None,
         "selected_ticker": selected_ticker,
@@ -934,8 +934,8 @@ def _finding_html(item: Finding) -> str:
     )
 
 
-def _scenario_html(packet: DecisionPacketDocument) -> str:
-    assert packet.estimates is not None
+def _scenario_html(thesis: ThesisDocument) -> str:
+    assert thesis.estimates is not None
     rows = "".join(
         "<tr>"
         f"<td>{scenario.horizon_years}年</td><td>{_esc(scenario.name)}</td>"
@@ -945,7 +945,7 @@ def _scenario_html(packet: DecisionPacketDocument) -> str:
         f"<td>{float(scenario.cumulative_dividend_per_share_yen):,.0f}円</td>"
         f"<td>{scenario.claimed_total_return_cagr_pct:+.2f}%</td>"
         f"<td>{_esc(scenario.assumption)}</td></tr>"
-        for scenario in packet.estimates.scenarios
+        for scenario in thesis.estimates.scenarios
     )
     return f"""<div class="scroll"><table><thead><tr><th>horizon</th><th>case</th>
 <th>利益成長</th><th>terminal multiple</th><th>terminal price</th><th>累積配当</th><th>total return CAGR</th><th>assumption</th>
@@ -989,18 +989,18 @@ buffer {_fmt(_maybe_float(result.earnings_growth_downside_buffer_pct_points), di
 </div>"""
 
 
-def _risks_html(packet: DecisionPacketDocument) -> str:
+def _risks_html(thesis: ThesisDocument) -> str:
     return "".join(
         f"<li><b>{_esc(risk.axis)}</b> — {_esc(risk.assessment)} / "
         f"{_esc(risk.evidence_status)}: {_esc(risk.summary)}</li>"
-        for risk in packet.permanent_loss_risks
+        for risk in thesis.permanent_loss_risks
     )
 
 
-def _sources_html(findings: CandidateFindings, packet: DecisionPacketDocument) -> str:
+def _sources_html(findings: CandidateFindings, thesis: ThesisDocument) -> str:
     metadata = {item.source_id: item for item in findings.source_metadata}
     rows = []
-    for source in packet.input_snapshot.sources:
+    for source in thesis.input_snapshot.sources:
         meta = metadata.get(source.source_id)
         title = meta.document_title if meta is not None else source.dataset or source.source_id
         published = meta.published_at.isoformat() if meta and meta.published_at else "—"
@@ -1027,11 +1027,11 @@ def _sources_html(findings: CandidateFindings, packet: DecisionPacketDocument) -
 def _candidate_html(
     *,
     findings: CandidateFindings,
-    packet: DecisionPacketDocument,
+    thesis: ThesisDocument,
     comparison: Mapping[str, object],
     break_even: FiveYearBaseBreakEvenResult | None,
 ) -> str:
-    assert packet.estimates is not None
+    assert thesis.estimates is not None
     questions = "".join(_finding_html(item) for item in findings.assigned_questions)
     growth = "".join(_finding_html(item) for item in findings.growth_quality)
     domains = "".join(_finding_html(item) for item in findings.domain_findings)
@@ -1042,16 +1042,16 @@ def _candidate_html(
     )
     unknowns = "".join(f"<li>{_esc(item)}</li>" for item in findings.unknowns)
     monitoring = "".join(f"<li>{_esc(item)}</li>" for item in findings.monitoring)
-    judgment = packet.judgment
+    judgment = thesis.judgment
     assert judgment is not None
     ai = judgment.ai_value_capture
     return f"""
 <article class="company" id="ticker-{_esc(findings.ticker)}">
-<header><div><h2>{_esc(findings.ticker)} {_esc(packet.input_snapshot.company_name)}</h2>
-<p>{_esc(packet.input_snapshot.sector)} / confidence: <b>{_esc(findings.confidence)}</b> / disposition: <b>{_esc(comparison["disposition"])}</b></p></div>
+<header><div><h2>{_esc(findings.ticker)} {_esc(thesis.input_snapshot.company_name)}</h2>
+<p>{_esc(thesis.input_snapshot.sector)} / confidence: <b>{_esc(findings.confidence)}</b> / disposition: <b>{_esc(comparison["disposition"])}</b></p></div>
 <a class="chart" href="{TRADINGVIEW.format(ticker=findings.ticker)}" target="_blank" rel="noopener noreferrer">TradingView ↗</a></header>
-<div class="metrics"><div><span>entry basis</span><b>{float(packet.estimates.entry_price_basis_yen):,.1f}円</b></div>
-<div><span>fair value</span><b>{float(packet.estimates.current_fair_value_yen):,.0f}円</b></div>
+<div class="metrics"><div><span>entry basis</span><b>{float(thesis.estimates.entry_price_basis_yen):,.1f}円</b></div>
+<div><span>fair value</span><b>{float(thesis.estimates.current_fair_value_yen):,.0f}円</b></div>
 <div><span>5年base CAGR</span><b>{_fmt(comparison.get("five_year_base_cagr_pct"), digits=2, suffix="%")}</b></div>
 <div><span>FV gap</span><b>{_fmt(comparison.get("fv_gap_pct"), digits=1, suffix="%")}</b></div></div>
 <div class="decision"><b>比較結論:</b> {_esc(comparison["disposition_reason"])}<br>
@@ -1062,16 +1062,16 @@ def _candidate_html(
 <h3>成長の質</h3>{growth}
 <h3>財務耐久性</h3><ul>{_evidence_html((findings.financial_resilience,))}</ul>
 {domains}
-<h3>3年 / 5年 scenario</h3>{_scenario_html(packet)}
+<h3>3年 / 5年 scenario</h3>{_scenario_html(thesis)}
 {_break_even_html(break_even)}
-<h3>永久損失 7軸</h3><ul>{_risks_html(packet)}</ul>
+<h3>永久損失 7軸</h3><ul>{_risks_html(thesis)}</ul>
 <h3>AI value capture</h3><p>{_esc(ai.assessment_status)} / {_esc(ai.value_capture_conclusion)} / {_esc(ai.decision_weight)} — {_esc(ai.rationale)}</p>
 <h3>最強countercase</h3><ul>{_evidence_html((findings.strongest_countercase,))}</ul>
 <div class="split"><section><h3>Catalyst</h3><ul>{catalysts or "<li>—</li>"}</ul></section>
 <section><h3>未開示・blocked</h3><ul>{unknowns}</ul></section></div>
 <h3>Monitoring</h3><ul>{monitoring}</ul>
 <h3>一次source</h3><div class="scroll"><table class="sources"><thead><tr><th>ID</th><th>文書</th><th>tier/status</th><th>公表日</th><th>as-of</th><th>取得時刻</th><th>used_for</th><th>decision impact</th><th>locator</th></tr></thead>
-<tbody>{_sources_html(findings, packet)}</tbody></table></div>
+<tbody>{_sources_html(findings, thesis)}</tbody></table></div>
 </article>"""
 
 
@@ -1079,11 +1079,11 @@ def _comparison_html(
     *,
     tickers: tuple[str, ...],
     rows: Mapping[str, Mapping[str, object]],
-    packets: Mapping[str, DecisionPacketDocument],
+    theses: Mapping[str, ThesisDocument],
 ) -> str:
     body = "".join(
         "<tr>"
-        f'<td><a href="{TRADINGVIEW.format(ticker=ticker)}" target="_blank" rel="noopener noreferrer">{_esc(ticker)}</a> {_esc(packets[ticker].input_snapshot.company_name)}</td>'
+        f'<td><a href="{TRADINGVIEW.format(ticker=ticker)}" target="_blank" rel="noopener noreferrer">{_esc(ticker)}</a> {_esc(theses[ticker].input_snapshot.company_name)}</td>'
         f"<td>{_esc(rows[ticker]['permanent_loss_conclusion'])}</td>"
         f"<td>{_fmt(rows[ticker]['five_year_base_cagr_pct'], digits=2, suffix='%')}</td>"
         f"<td>{_fmt(rows[ticker]['fair_value_yen'], digits=0, suffix='円')}</td>"
@@ -1231,25 +1231,25 @@ def render(
     if set(shortlist_tickers) != set(findings_by):
         raise ReportError("findings tickers must exactly match selection.shortlist")
     rows = _comparison_index(comparison)
-    packets: dict[str, DecisionPacketDocument] = {}
-    packet_paths: dict[str, Path] = {}
+    theses: dict[str, ThesisDocument] = {}
+    thesis_paths: dict[str, Path] = {}
     break_evens: dict[str, FiveYearBaseBreakEvenResult | None] = {}
     for ticker in shortlist_tickers:
         if ticker not in rows:
             raise ReportError(f"comparison is missing shortlist ticker {ticker}")
         _require_completed_comparison(rows[ticker], ticker)
-        packet_path, packet = _load_packet(workspace, ticker)
-        _validate_comparison_values(rows[ticker], packet, ticker)
-        if packet.input_snapshot.as_of != findings.meta.as_of:
-            raise ReportError(f"packet as_of mismatch for {ticker}")
-        _validate_sources(findings_by[ticker], packet)
+        thesis_path, thesis = _load_thesis(workspace, ticker)
+        _validate_comparison_values(rows[ticker], thesis, ticker)
+        if thesis.input_snapshot.as_of != findings.meta.as_of:
+            raise ReportError(f"thesis as_of mismatch for {ticker}")
+        _validate_sources(findings_by[ticker], thesis)
         try:
-            packet_result = evaluate_decision_packet(packet)
-        except DecisionPacketError as error:
-            raise ReportError(f"cannot evaluate decision packet for {ticker}: {error}") from error
-        packet_paths[ticker] = packet_path
-        packets[ticker] = packet
-        break_evens[ticker] = packet_result.five_year_base_break_even
+            thesis_result = evaluate_thesis(thesis)
+        except ThesisError as error:
+            raise ReportError(f"cannot evaluate thesis for {ticker}: {error}") from error
+        thesis_paths[ticker] = thesis_path
+        theses[ticker] = thesis
+        break_evens[ticker] = thesis_result.five_year_base_break_even
     selected = comparison.get("selected_ticker")
     selected_ticker = str(selected) if selected is not None else None
     if selected_ticker is not None and selected_ticker not in shortlist_tickers:
@@ -1260,8 +1260,8 @@ def render(
     proposal = _validate_proposal(
         proposal_path=proposal_path,
         selected_ticker=selected_ticker,
-        packet_path=packet_paths.get(selected_ticker) if selected_ticker else None,
-        packet=packets.get(selected_ticker) if selected_ticker else None,
+        thesis_path=thesis_paths.get(selected_ticker) if selected_ticker else None,
+        thesis=theses.get(selected_ticker) if selected_ticker else None,
         manifest=manifest,
         report_as_of=findings.meta.as_of,
         report_budget_yen=findings.meta.budget_yen,
@@ -1274,15 +1274,15 @@ def render(
         findings_path=findings_path,
         proposal_path=proposal_path,
         selected_ticker=selected_ticker,
-        packet_paths=packet_paths,
-        packets=packets,
+        thesis_paths=thesis_paths,
+        theses=theses,
     )
     review = _validate_review(review_path=review_path, expected_bindings=bindings)
     warnings = "".join(f"<li>{_esc(item)}</li>" for item in findings.meta.warnings)
     companies = "".join(
         _candidate_html(
             findings=findings_by[ticker],
-            packet=packets[ticker],
+            thesis=theses[ticker],
             comparison=rows[ticker],
             break_even=break_evens[ticker],
         )
@@ -1290,7 +1290,7 @@ def render(
     )
     provenance = "".join(
         f"<li>{_esc(path.relative_to(workspace.resolve()))}: <code>{_sha256(path)}</code></li>"
-        for path in packet_paths.values()
+        for path in thesis_paths.values()
     )
     proposal_hash = (
         f"<li>{_esc(proposal_path)}: <code>{_sha256(proposal_path)}</code></li>"
@@ -1314,7 +1314,7 @@ def render(
             candidate_findings=findings_by.get(selected_ticker) if selected_ticker else None,
             entry_timing=findings.decision_context.entry_timing,
         ),
-        comparison=_comparison_html(tickers=shortlist_tickers, rows=rows, packets=packets),
+        comparison=_comparison_html(tickers=shortlist_tickers, rows=rows, theses=theses),
         companies=companies,
         manifest_hash=_sha256(workspace / "manifest.yaml"),
         comparison_hash=_sha256(workspace / "research-comparison.yaml"),
@@ -1323,7 +1323,7 @@ def render(
         review_run_id=_esc(review.reviewer_run_id),
         review_hash=_sha256(review_path),
         review_findings=_review_findings_html(review.findings),
-        packet_hashes=provenance,
+        thesis_hashes=provenance,
         proposal_hash=proposal_hash,
     )
 
@@ -1369,13 +1369,13 @@ a{{color:var(--accent)}}code{{font-size:11px;background:color-mix(in srgb,var(--
 .sources{{min-width:1100px}}.split{{display:grid;grid-template-columns:1fr 1fr;gap:24px}}.provenance{{font-size:12px;color:var(--muted)}}
 @media(max-width:800px){{.metrics{{grid-template-columns:1fr 1fr}}.split{{grid-template-columns:1fr}}.wrap{{padding:20px 12px}}}}
 </style></head><body><main class="wrap"><h1>{title}</h1>
-<p class="lede">as-of {as_of} / 注文想定日 {target} / 予算 {budget}円。これは人間判断用のHTML projectionであり、packet・review・plan-limit・ledgerを置き換えません。</p>
+<p class="lede">as-of {as_of} / 注文想定日 {target} / 予算 {budget}円。これは人間判断用のHTML projectionであり、thesis・review・plan-limit・ledgerを置き換えません。</p>
 <p class="lede">内容レビュー: pass / reviewer={review_identity} / run={review_run_id} / review sha256=<code>{review_hash}</code></p>
 <section class="summary"><h2>Executive decision</h2><p><b>最終候補:</b> {selected}</p><p><b>比較理由:</b> {ranking}</p><p><b>portfolio fit:</b> {portfolio_fit}</p><p><b>人間への依頼:</b> {human_action}</p>
 <p><b>source freshness:</b> {freshness}</p><h3>未解決warning</h3><ul>{warnings}</ul>
 <h3>content review finding</h3><ul>{review_findings}</ul></section>
 {proposal}<h2>全候補の横比較</h2>{comparison}{companies}
-<section class="provenance"><h2>Provenance</h2><ul><li>manifest: <code>{manifest_hash}</code></li><li>research-comparison: <code>{comparison_hash}</code></li><li>findings: <code>{findings_hash}</code></li>{packet_hashes}{proposal_hash}</ul></section>
+<section class="provenance"><h2>Provenance</h2><ul><li>manifest: <code>{manifest_hash}</code></li><li>research-comparison: <code>{comparison_hash}</code></li><li>findings: <code>{findings_hash}</code></li>{thesis_hashes}{proposal_hash}</ul></section>
 </main></body></html>"""
 
 

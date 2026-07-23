@@ -4,7 +4,7 @@ Module map (extension points):
 
 - ``records``: candidate record types and loaders
 - ``profiles``: built-in profile resolution (``balanced`` is the only profile,
-  inlined into ``records/_config/screening-rules/*.yaml``)
+  inlined into ``method/screening-rules/*.yaml``)
 - ``lenses``: per-candidate annotations (durability / 塩漬け耐性) — add a
   new lens here and surface it via ``payload``
 - ``ranking``: sort-key components (playbook order + valuation-discount strength)

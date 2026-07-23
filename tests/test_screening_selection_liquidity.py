@@ -37,7 +37,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self,
         candidates: list[Mapping[str, object]],
         *,
-        audit_top: int = 0,
+        longlist_top: int = 0,
     ) -> dict[str, object]:
         return build_selection_payload(
             asof_date=_ASOF,
@@ -48,7 +48,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
             profile="balanced",
             candidates_ref="test.yaml",
             macro_context_ref=None,
-            audit_top=audit_top,
+            longlist_top=longlist_top,
         )
 
     def _tickers(self, payload: dict[str, object]) -> set[str]:
@@ -191,7 +191,7 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
                 )
                 for index, sector in enumerate(financial_sectors)
             ],
-            audit_top=len(financial_sectors),
+            longlist_top=len(financial_sectors),
         )
 
         recommendations = payload["recommendations"]
@@ -202,13 +202,13 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         )
         self.assertTrue(all(item["selection_playbook"] is None for item in recommendations))
         self.assertEqual(payload["selection"]["counts"]["evidence_annotated"], 0)
-        audit_pool = payload["audit_pool"]
-        assert isinstance(audit_pool, list)
+        longlist = payload["longlist"]
+        assert isinstance(longlist, list)
         self.assertEqual(
-            [item["ticker"] for item in audit_pool],
+            [item["ticker"] for item in longlist],
             [str(1001 + index) for index in range(len(financial_sectors))],
         )
-        self.assertTrue(all(item["screening_playbook"] is None for item in audit_pool))
+        self.assertTrue(all(item["screening_playbook"] is None for item in longlist))
 
     def test_playbook_cap_binds_via_profile_override(self) -> None:
         """max_recommended_per_playbook は E[r] 主キー下でも enforcement が生きている。

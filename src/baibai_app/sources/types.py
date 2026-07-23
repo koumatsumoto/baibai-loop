@@ -8,13 +8,13 @@ from datetime import date, datetime
 
 @dataclass(frozen=True, slots=True)
 class ResearchRevision:
-    """Summary of one persisted decision packet revision."""
+    """Summary of one persisted thesis revision."""
 
     ticker: str
     company_name: str
     sector: str
     as_of: date
-    packet_id: str
+    thesis_id: str
     recommendation: str
     confidence: str | None
     current_fair_value_yen: float | None
@@ -29,7 +29,7 @@ class ScenarioSummary:
 
 
 @dataclass(frozen=True, slots=True)
-class PacketDetail:
+class ThesisDetail:
     revision: ResearchRevision
     entry_price_basis_yen: float | None
     required_5y_base_cagr_pct: float | None
@@ -47,8 +47,8 @@ class HoldingReviewSummary:
     holding_review_id: str
     ticker: str
     as_of: date
-    packet_id: str
-    candidate_packet_id: str | None
+    thesis_id: str
+    candidate_thesis_id: str | None
     action: str
     note: str | None
 

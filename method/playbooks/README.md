@@ -1,13 +1,13 @@
-# records/_playbooks/
+# method/playbooks/
 
 Screening evidence pattern ごとの人間向け research checklist。各 Markdown の
-`playbook_id` は `records/_config/screening-rules/*.yaml` と candidates の
+`playbook_id` は `method/screening-rules/*.yaml` と candidates の
 `evidence_hits[].playbook_id` に対応する。機械的な閾値・除外条件・選定順は
 screening rules が正本で、この領域は H2 見出しの強制や runtime loader を持たない。
 
 ## Layout
 
-`records/_playbooks/<playbook_id>/YYYY-MM-DDTHHMMSS+0900.md`
+`method/playbooks/<playbook_id>/YYYY-MM-DDTHHMMSS+0900.md`
 
 ## Active Patterns
 

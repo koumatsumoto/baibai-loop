@@ -12,7 +12,7 @@ from baibai_app.sources.db_sources import (
     DbCandidatesSource,
     DbMacroSource,
     DbMetaSource,
-    DbProgramSource,
+    DbOperationsSource,
 )
 from baibai_app.sources.protocols import (
     CandidatesSource,
@@ -22,7 +22,7 @@ from baibai_app.sources.protocols import (
     ResearchSource,
     TaskSource,
 )
-from baibai_app.sources.types import CandidatesRun, PacketDetail, ResearchRevision, TaskRecord
+from baibai_app.sources.types import CandidatesRun, ResearchRevision, TaskRecord, ThesisDetail
 from baibai_engine.read_api import (
     HoldingSnapshot,
     MacroGranularity,
@@ -55,20 +55,20 @@ from .models import (
     MetaBatch,
     MetaView,
     OperationSessionView,
-    PacketDetailView,
+    OperationsView,
     PortfolioOutcomeView,
     PortfolioState,
-    ProgramStateView,
     ProposalView,
     ResearchRevisionView,
     ReservationView,
-    ReviewedShortlistEntryView,
-    ReviewedShortlistView,
     ScenarioView,
     ScreeningRunView,
     ScreeningView,
     SecurityDetailView,
+    ShortlistEntryView,
+    ShortlistView,
     TaskView,
+    ThesisDetailView,
     UpcomingEventView,
     WarningView,
 )
@@ -124,8 +124,8 @@ def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaV
     )
 
 
-def build_program_state(source: DbProgramSource) -> ProgramStateView:
-    return ProgramStateView(
+def build_operations_view(source: DbOperationsSource) -> OperationsView:
+    return OperationsView(
         operations=[OperationSessionView.model_validate(item) for item in source.operations()],
         proposals=[ProposalView.model_validate(item) for item in source.proposals()],
         outcomes=[PortfolioOutcomeView.model_validate(item) for item in source.outcomes()],
@@ -141,7 +141,7 @@ def build_dashboard(
     *,
     macro: MacroContextSource | None = None,
 ) -> DashboardView:
-    """Build the cockpit first view without performing storage I/O directly."""
+    """Build the Baibai App first view without performing storage I/O directly."""
 
     now = datetime.now(_JST)
     today = now.date()
@@ -270,11 +270,11 @@ def build_screening(
 
     run = candidates.latest_run()
     selections: list[MachineSelectionView] = []
-    shortlists: list[ReviewedShortlistView] = []
+    shortlists: list[ShortlistView] = []
     if isinstance(candidates, DbCandidatesSource):
-        # Operative run: judgment publications (selection / reviewed shortlist) bind to a
+        # Operative run: judgment publications (selection / shortlist) bind to a
         # specific run revision. A newer revision of the same as-of (e.g. a determinism
-        # re-run) must not present the cockpit with an empty machine-selection view, so
+        # re-run) must not present the Baibai App with an empty machine-selection view, so
         # when the latest run has no selection we fall back to the newest selection's run
         # and keep the candidates table, selections, and shortlist join coherent.
         all_selections = candidates.selections()
@@ -294,13 +294,13 @@ def build_screening(
                     if str(item["run_revision_id"]) == run.source_path
                 ]
         selections = [_machine_selection_view(item) for item in run_selections]
-        shortlists = [_reviewed_shortlist_view(item) for item in candidates.reviewed_shortlists()]
+        shortlists = [_shortlist_view(item) for item in candidates.shortlists()]
     if run is None:
         return ScreeningView(
             run=None,
             rows=[],
             selections=selections,
-            reviewed_shortlists=shortlists,
+            shortlists=shortlists,
         )
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
@@ -312,7 +312,7 @@ def build_screening(
             for row in run.rows
         ],
         selections=selections,
-        reviewed_shortlists=shortlists,
+        shortlists=shortlists,
     )
 
 
@@ -327,20 +327,19 @@ def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
         macro_context_id=_text(raw.get("macro_context_id")),
         created_at=datetime.fromisoformat(str(raw["created_at"])),
         recommendations=[dict(item) for item in _mapping_items(payload.get("recommendations"))],
-        audit_pool=[dict(item) for item in _mapping_items_optional(payload.get("audit_pool"))],
+        longlist=[dict(item) for item in _mapping_items_optional(payload.get("longlist"))],
     )
 
 
-def _reviewed_shortlist_view(raw: Mapping[str, object]) -> ReviewedShortlistView:
-    return ReviewedShortlistView(
+def _shortlist_view(raw: Mapping[str, object]) -> ShortlistView:
+    return ShortlistView(
         shortlist_id=str(raw["shortlist_id"]),
         selection_id=str(raw["selection_id"]),
         run_revision_id=str(raw["run_revision_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
         entries=[
-            ReviewedShortlistEntryView.model_validate(item)
-            for item in _mapping_items(raw.get("entries"))
+            ShortlistEntryView.model_validate(item) for item in _mapping_items(raw.get("entries"))
         ],
     )
 
@@ -393,8 +392,8 @@ def build_security_detail(
         if holding_snapshot is not None
         else None
     )
-    latest_packet = (
-        _packet_detail_view(research.packet_detail(latest_revision.packet_id))
+    latest_thesis = (
+        _thesis_detail_view(research.thesis_detail(latest_revision.thesis_id))
         if latest_revision is not None
         else None
     )
@@ -427,13 +426,13 @@ def build_security_detail(
         ),
         holding=holding,
         revisions=[_research_revision_view(item) for item in revisions],
-        latest_packet=latest_packet,
+        latest_thesis=latest_thesis,
         holding_reviews=[
             HoldingReviewView(
                 holding_review_id=item.holding_review_id,
                 as_of=item.as_of,
-                packet_id=item.packet_id,
-                candidate_packet_id=item.candidate_packet_id,
+                thesis_id=item.thesis_id,
+                candidate_thesis_id=item.candidate_thesis_id,
                 action=item.action,
                 note=item.note,
             )
@@ -661,7 +660,7 @@ def _holding_view(
 ) -> HoldingView:
     # The canonical ledger price is a human-confirmed observation; when the read-only
     # market store carries a strictly newer close, value the holding on that close so the
-    # cockpit does not lag stale ledger prices. Anything not newer keeps the ledger value.
+    # Baibai App does not lag stale ledger prices. Anything not newer keeps the ledger value.
     price_value = float(holding.market_price_yen)
     price_display = str(holding.market_price_yen)
     market_value = holding.market_value_yen
@@ -693,7 +692,7 @@ def _holding_view(
         unrealized_pnl_pct=_percentage(pnl, holding.deployed_cost_yen, digits=2),
         fair_value_yen=fair_value,
         fv_gap_pct=fv_gap,
-        latest_packet_id=revision.packet_id if revision is not None else None,
+        latest_thesis_id=revision.thesis_id if revision is not None else None,
         recommendation=revision.recommendation if revision is not None else None,
         next_earnings_date=(
             next_earnings_date.isoformat() if next_earnings_date is not None else None
@@ -723,7 +722,7 @@ def _upcoming_events(
 
     The window is inclusive on both ends: an event dated today (days_until 0) through
     ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped so the
-    cockpit only shows what needs attention now.
+    Baibai App only shows what needs attention now.
     """
 
     window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)
@@ -906,7 +905,7 @@ def _bargain_score(reversion: float | None, carry: float | None, flag_count: int
     # holding-period return, so it enters at half weight and is clipped at 15%/y — a carry
     # beyond that is a special dividend or a data anomaly, not a sustainable yield, and must
     # not dominate the ordering. Each data-quality flag is a small confidence discount.
-    # This is a cockpit view score, not a canonical ranking.
+    # This is a Baibai App view score, not a canonical ranking.
     if reversion is None and carry is None:
         return None
     clipped_carry = min(carry or 0.0, 0.15)
@@ -916,7 +915,7 @@ def _bargain_score(reversion: float | None, carry: float | None, flag_count: int
 def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:
     return ResearchRevisionView(
         as_of=revision.as_of,
-        packet_id=revision.packet_id,
+        thesis_id=revision.thesis_id,
         recommendation=revision.recommendation,
         confidence=revision.confidence,
         current_fair_value_yen=revision.current_fair_value_yen,
@@ -925,8 +924,8 @@ def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:
     )
 
 
-def _packet_detail_view(detail: PacketDetail) -> PacketDetailView:
-    return PacketDetailView(
+def _thesis_detail_view(detail: ThesisDetail) -> ThesisDetailView:
+    return ThesisDetailView(
         revision=_research_revision_view(detail.revision),
         entry_price_basis_yen=detail.entry_price_basis_yen,
         required_5y_base_cagr_pct=detail.required_5y_base_cagr_pct,

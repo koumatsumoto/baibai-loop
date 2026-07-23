@@ -84,8 +84,8 @@ function resolveRoute(url: URL): RouteResult {
       return view('dashboard.json')
     case '/api/screening/latest':
       return view('screening_latest.json')
-    case '/api/program':
-      return view('program.json')
+    case '/api/operations':
+      return view('operations.json')
     case '/api/meta':
       return view('meta.json')
     case '/api/macro':

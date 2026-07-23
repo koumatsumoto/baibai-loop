@@ -7,8 +7,8 @@ position_id: trade-20260616-4432
 ticker: "4432"
 sources:
   ledger: {entity_id: portfolio-ledger, append_head: 23}
-  holding_packet: {entity_id: packet-test-holding}
-  candidate_packet: {entity_id: packet-test-candidate}
+  holding_thesis: {entity_id: thesis-test-holding}
+  candidate_thesis: {entity_id: thesis-test-candidate}
 thesis_health:
   invalidation_status: intact
   permanent_loss_axes:
