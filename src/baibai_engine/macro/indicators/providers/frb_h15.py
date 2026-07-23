@@ -18,6 +18,12 @@ from .base import (
 # Single H.15 package that carries every Treasury constant-maturity series; one
 # download via FetchContext.bytes_cache serves all frb_h15 series in a run.
 _H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
+# federalreserve.gov serves an HTML block page instead of CSV to non-browser
+# User-Agents on datacenter IPs (GitHub Actions); a browser UA is required.
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 class FrbH15Provider:
@@ -50,6 +56,7 @@ class FrbH15Provider:
             series.source_url,
             params=params,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
+            headers={"User-Agent": _USER_AGENT},
             context=context,
         )
         return parse_h15_csv(series, text, start=start, end=end)
@@ -68,7 +75,12 @@ def parse_h15_csv(
         None,
     )
     if header_index is None:
-        raise IndicatorsProviderError("FRB H.15 CSV missing Time Period header")
+        # Surface what the server actually returned (block page, error HTML, or a
+        # changed layout) so a remote-only failure is diagnosable from batch logs.
+        snippet = " ".join(text.split())[:160]
+        raise IndicatorsProviderError(
+            f"FRB H.15 CSV missing Time Period header; response starts with: {snippet!r}"
+        )
     reader = csv.DictReader(lines[header_index:])
     fieldnames = set(reader.fieldnames or ())
     observations: list[ObservationRecord] = []

@@ -9,6 +9,7 @@ import zipfile
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import openpyxl
@@ -47,6 +48,8 @@ from baibai_engine.macro.indicators.providers import (
     parse_trades_spec,
     parse_yahoo_chart,
 )
+from baibai_engine.macro.indicators.providers.base import HttpSession
+from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
 from baibai_engine.macro.indicators.providers.manual import MANUAL_DATA_PATH
 from baibai_engine.macro.indicators.service import IndicatorsService
 
@@ -417,6 +420,51 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "missing column RIFLGFCY10_N.B"):
             parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+
+    def test_parse_h15_csv_reports_non_csv_response_with_snippet(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        text = "<!DOCTYPE html>\n<html><head><title>Access Denied</title></head></html>"
+
+        with self.assertRaisesRegex(
+            IndicatorsProviderError,
+            r"missing Time Period header; response starts with: '<!DOCTYPE html> <html>",
+        ):
+            parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+
+    def test_h15_fetch_sends_browser_user_agent(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        captured: dict[str, object] = {}
+
+        class _Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_content(self, chunk_size: int) -> object:
+                del chunk_size
+                return iter([b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n'])
+
+            def close(self) -> None:
+                return None
+
+        class _Session:
+            def get(self, url: str, **kwargs: object) -> _Response:
+                captured["url"] = url
+                captured["headers"] = kwargs.get("headers")
+                return _Response()
+
+        observations = FrbH15Provider().fetch(
+            series,
+            start=date(2026, 5, 1),
+            end=date(2026, 5, 1),
+            session=cast(HttpSession, _Session()),
+        )
+
+        self.assertEqual(len(observations), 1)
+        headers = cast("dict[str, str]", captured["headers"])
+        self.assertIn("Mozilla/5.0", headers["User-Agent"])
 
     def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
         series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
