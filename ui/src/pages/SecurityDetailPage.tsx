@@ -84,7 +84,7 @@ export function SecurityDetailPage() {
       <AppShell />
       <main className="mx-auto grid max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="パンくず">
-          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/screening">Screening</Link>
+          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks">Stocks</Link>
           <span>/</span>
           <span className="font-mono text-foreground">{data.ticker}</span>
         </nav>

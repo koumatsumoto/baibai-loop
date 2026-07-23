@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
+    build_macro_context_detail,
     build_meta,
     build_operations_view,
     build_screening,
@@ -22,6 +23,7 @@ from baibai_app.readmodel.builders import (
 )
 from baibai_app.readmodel.models import (
     DashboardView,
+    MacroContextView,
     MacroView,
     MetaView,
     OperationsView,
@@ -94,6 +96,23 @@ def create_app(
             period=period,
             granularity=granularity,
         )
+
+    @app.get("/api/macro/context/{context_id}", response_model=MacroContextView)
+    def macro_context(
+        context_id: str,
+        sources: _SourceDependency,
+        as_of: date | None = None,
+    ) -> MacroContextView:
+        try:
+            return build_macro_context_detail(
+                sources.macro,
+                context_id=context_id,
+                as_of=as_of or datetime.now(_JST).date(),
+            )
+        except ValueError as error:
+            # Unknown id and not-yet-eligible (future as_of) contexts are both "not found"
+            # from the reader's perspective; the message distinguishes them for logs.
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/operations", response_model=OperationsView)
     def operations(sources: _SourceDependency) -> OperationsView:

@@ -11,7 +11,7 @@ interface PageStateProps {
   title?: string
   // Render the title in a monospace face (used for tickers).
   mono?: boolean
-  // Offer a link back to Screening (unknown-security state).
+  // Offer a link back to the Stocks page (unknown-security state).
   back?: boolean
 }
 
@@ -27,7 +27,7 @@ export function PageState({ message, title, mono = false, back = false }: PageSt
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">{message}</h1>
           {back && (
             <Button asChild className="mt-6" variant="outline">
-              <Link to="/screening"><ArrowLeft />Screening に戻る</Link>
+              <Link to="/stocks"><ArrowLeft />Stocks に戻る</Link>
             </Button>
           )}
         </div>

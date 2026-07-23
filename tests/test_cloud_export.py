@@ -15,6 +15,7 @@ from baibai_app.readmodel.builders import build_meta
 from baibai_app.readmodel.models import (
     DashboardView,
     MachineSelectionView,
+    MacroContextView,
     MacroView,
     MetaView,
     OperationsView,
@@ -223,6 +224,27 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     pool = json.loads(pool_files[0].read_text(encoding="utf-8"))
     assert [candidate["ticker"] for candidate in pool["candidates"]] == ["2331", "0001", "0002"]
     assert pool["run_revision_id"] == run.run_revision_id
+
+
+def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_path: Path) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    db_path = app_method_root / "data/app/baibai.sqlite"
+    document = MacroContextDocument.model_validate(macro_context_payload())
+    MacroContextService(db_path).publish(document, expected_head=None)
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+
+    detail_path = output_dir / "views" / f"macro-context--{document.context_id}.json"
+    assert detail_path.is_file()
+    detail = MacroContextView.model_validate_json(detail_path.read_text(encoding="utf-8"))
+    assert detail.context_id == document.context_id
+    assert len(detail.sections) == 8
+    # The overview view indexes the same report (summary only, no full sections).
+    overview = MacroView.model_validate_json(
+        (output_dir / "views/macro--1y-daily.json").read_text(encoding="utf-8")
+    )
+    assert [report.context_id for report in overview.reports] == [document.context_id]
 
 
 def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Path) -> None:

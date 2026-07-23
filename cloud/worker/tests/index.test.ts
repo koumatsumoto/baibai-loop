@@ -84,6 +84,10 @@ describe('view routing', () => {
     ['/api/meta', 'views/meta.json'],
     ['/api/macro', 'views/macro--1y-daily.json'],
     ['/api/macro?period=max&granularity=yearly', 'views/macro--max-yearly.json'],
+    [
+      '/api/macro/context/macro-context-2026-07-01-example',
+      'views/macro-context--macro-context-2026-07-01-example.json',
+    ],
     ['/api/securities/7203', 'views/security--7203.json'],
   ])('maps %s to the fixed key %s', async (path, expectedKey) => {
     const get = vi.fn().mockResolvedValue(objectBody())
@@ -107,6 +111,8 @@ describe('view routing', () => {
   it.each([
     '/api/securities/7203/extra',
     '/api/securities/%2e%2e%2fhistory',
+    '/api/macro/context/bad!id',
+    '/api/macro/context/nested/id',
     '/api/unknown',
     '/api',
   ])('does not let request input escape the view-key whitelist: %s', async (path) => {

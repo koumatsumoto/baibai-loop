@@ -1,23 +1,77 @@
+# Baibai App の Macro タブ指標オーバービューのグループ構成。
+# 全登録 series をちょうど 1 グループへ配し、上流→下流（doctrine §7）で読める
+# 完全・排他な分類にする。網羅性は tests/test_macro_panel.py の partition test が保証する。
+# label は省略し、系列名は series registry の name を単一の正とする。
 groups:
-  - title: 金利・金融条件
+  - title: 金利・金融政策
     series:
-      - id: jp.policy_rate
-        label: 日本 政策金利
-      - id: jp.10y
-        label: 日本 10年国債
       - id: us.10y
-        label: 米国 10年国債
-      - id: credit.us_hy_oas
-        label: 米国 HY OAS
-  - title: 為替・物価
+      - id: jp.policy_rate
+      - id: us.fed_funds.upper
+      - id: us.fed_funds.lower
+      - id: ecb.policy_rate
+      - id: us.2y
+      - id: us.10y_2y_spread
+      - id: us.10y_3m_spread
+      - id: jp.10y
+      - id: us.real_10y
+      - id: us.breakeven_10y
+      - id: us.inflation_5y5y
+  - title: インフレ・賃金
     series:
-      - id: eur_jpy
-        label: EUR/JPY
+      - id: us.cpi.headline
+      - id: us.cpi.core
+      - id: us.pce.core
       - id: jp.cpi.headline
-        label: 日本 CPI
-  - title: 景気・市場
+      - id: jp.cpi.services
+      - id: jp.hourly_earnings
+  - title: 景気・雇用
     series:
+      - id: us.gdp_growth
+      - id: us.nonfarm_payrolls
+      - id: us.unemployment
+      - id: us.initial_claims
+      - id: us.industrial_production
+      - id: jp.unemployment
       - id: jp.pmi_manufacturing
-        label: 日本 製造業 PMI
+      - id: jp.bankruptcies
+  - title: 流動性・クレジット・リスク
+    series:
+      - id: us.fed_assets
+      - id: us.reverse_repo
+      - id: us.tga
+      - id: us.m2
+      - id: us.nfci
+      - id: credit.us_ig_oas
+      - id: credit.us_hy_oas
+      - id: credit.us_ccc_oas
+      - id: vix
+      - id: us.move
+      - id: btc_usd
+      - id: jp.monetary_base
+  - title: 為替
+    series:
+      - id: usd_jpy
+      - id: eur_jpy
+      - id: aud_jpy
+      - id: usd_index.broad
+      - id: jp.real_effective_exchange_rate
+  - title: コモディティ
+    series:
+      - id: wti
+      - id: brent
+      - id: gold
+      - id: silver
+      - id: copper
+  - title: 株式・バリュエーション
+    series:
       - id: jp.nikkei225
-        label: 日経平均
+      - id: us.sp500
+      - id: us.nasdaq
+      - id: us.dow
+      - id: us.russell2000
+      - id: us.sox
+      - id: us.sp500_pe
+      - id: us.sp500_cape
+      - id: us.sp500_earnings_yield
+      - id: jp.foreign_flows

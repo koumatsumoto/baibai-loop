@@ -121,7 +121,17 @@ function FilterField({ label, children, className }: { label: string; children: 
   )
 }
 
-export function ScreeningPage() {
+function LayerHeading({ layer, title, note }: { layer: string; title: string; note: string }) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-muted-foreground">{layer}</p>
+      <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{note}</p>
+    </div>
+  )
+}
+
+export function StocksPage() {
   const [data, setData] = useState<ScreeningView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -137,7 +147,7 @@ export function ScreeningPage() {
 
   useEffect(() => {
     fetchJson<ScreeningView>('/api/screening/latest').then(setData).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : 'Screening を読み込めませんでした')
+      setError(reason instanceof Error ? reason.message : 'Stocks を読み込めませんでした')
     })
   }, [])
 
@@ -169,9 +179,9 @@ export function ScreeningPage() {
     }
   }
 
-  if (error) return <PageState message={error} title="Screening read error" />
-  if (!data) return <PageState message="候補を読み込んでいます…" title="Screening" />
-  if (!data.run) return <PageState message="screening run publication がありません" title="Screening" />
+  if (error) return <PageState message={error} title="Stocks read error" />
+  if (!data) return <PageState message="候補を読み込んでいます…" title="Stocks" />
+  if (!data.run) return <PageState message="screening run publication がありません" title="Stocks" />
 
   const visibleRows = showAll ? rows : rows.slice(0, 500)
 
@@ -181,8 +191,8 @@ export function ScreeningPage() {
       <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Screening</h1>
-            <p className="mt-1 text-sm text-muted-foreground">最新の候補を比較・絞り込み</p>
+            <h1 className="text-2xl font-semibold tracking-tight">Stocks</h1>
+            <p className="mt-1 text-sm text-muted-foreground">個別株の機械スクリーニング（Fact）と深掘り候補（Judgment）</p>
           </div>
           <div className="flex flex-col items-start gap-2 lg:items-end">
             {data.run.stale && <StaleBadge detail={`${LABEL.asOf} ${data.run.asof_date}（7 日超）`} />}
@@ -202,10 +212,9 @@ export function ScreeningPage() {
           </div>
         </header>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Machine recommendations</CardTitle><CardDescription>機械 selection。review 済み判断ではありません</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">selection 未作成</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.recommendations.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div>{selection.longlist.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Longlist: {selection.longlist.length} 件（recommendation とは別）</p>}</div>)}</CardContent></Card>
-          <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Shortlist</CardTitle><CardDescription>AI / 人間 review 後に明示 publish された判断 gate</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">selected {selectedCount} 件・rejected {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/shortlist">レビュー面を開く（narrative + 機械値）→</Link></Button></CardContent></Card>
-        </div>
+        <LayerHeading layer="Fact ・ 機械" note="機械 selection と全通過 candidates。review 済み判断ではありません" title="スクリーニング結果" />
+
+        <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Machine recommendations</CardTitle><CardDescription>機械 selection。review 済み判断ではありません</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">selection 未作成</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.recommendations.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div>{selection.longlist.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Longlist: {selection.longlist.length} 件（recommendation とは別）</p>}</div>)}</CardContent></Card>
 
         <Card className="gap-4 py-5 shadow-sm">
           <CardHeader className="px-5 sm:px-6">
@@ -251,7 +260,7 @@ export function ScreeningPage() {
           <code className="ml-auto hidden max-w-md truncate font-mono lg:block" title={data.run.source_path}>{data.run.source_path}</code>
         </div>
 
-        <div><h2 className="text-lg font-semibold">全通過 candidates</h2><p className="text-sm text-muted-foreground">machine recommendation / shortlist とは異なる母集団です</p></div>
+        <div><h3 className="text-lg font-semibold">全通過 candidates</h3><p className="text-sm text-muted-foreground">machine recommendation / shortlist とは異なる母集団です</p></div>
         <Card className="overflow-hidden py-0 shadow-sm">
           <Table className="min-w-[2280px] text-xs">
             <TableHeader className="bg-muted/70">
@@ -318,6 +327,10 @@ export function ScreeningPage() {
         {!showAll && rows.length > 500 && (
           <Button className="mx-auto" onClick={() => setShowAll(true)} type="button" variant="outline">全 {rows.length.toLocaleString('ja-JP')} 件を表示</Button>
         )}
+
+        <LayerHeading layer="Judgment ・ AI + 人間" note="OP3 gate で longlist から選んだ深掘り候補。最終 buy 提案ではありません" title="Shortlist" />
+
+        <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Shortlist</CardTitle><CardDescription>AI / 人間 review 後に明示 publish された判断 gate</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">selected {selectedCount} 件・rejected {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/stocks/shortlist">レビュー面を開く（narrative + 機械値）→</Link></Button></CardContent></Card>
       </main>
     </>
   )
