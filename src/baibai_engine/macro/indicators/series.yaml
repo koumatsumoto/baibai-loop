@@ -344,11 +344,11 @@ series:
     geography: japan
     frequency: monthly
     unit: count
-    provider: manual
+    provider: tsr_bankruptcies
     provider_series_id: jp_bankruptcies_tsr
     source_id: tsr-bankruptcies
-    source_url: https://www.tsr-net.co.jp/data/
-    notes: 東京商工リサーチ 全国企業倒産状況(負債1000万円以上)。manual providerで手動更新
+    source_url: https://www.tsr-net.co.jp/news/status/json/search.json
+    notes: 東京商工リサーチ 全国企業倒産状況(負債1000万円以上)。公式掲載ページが参照するJSON APIから月次全履歴を取得
     aliases: [倒産件数, 企業倒産, 東商リサーチ倒産, bankruptcies]
   - series_id: jp.pmi_manufacturing
     name: 日本製造業PMI
@@ -360,7 +360,7 @@ series:
     provider_series_id: jp_pmi_manufacturing
     source_id: spglobal-jp-pmi-mfg
     source_url: https://www.pmi.spglobal.com/
-    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。manual providerで手動更新
+    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出した値をmanual seedで管理
     aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
   - series_id: jp.monetary_base
     name: 日本マネタリーベース
@@ -665,7 +665,7 @@ series:
     provider_series_id: shiller-pe
     source_id: multpl-shiller-pe
     source_url: https://www.multpl.com/shiller-pe
-    notes: S&P500のシラーCAPE(10年実質EPS平均ベースPER)。株式の長期割高度ゲージ。歴史的中央値16-17、ドットコム期~44。実質金利・益回りと対で株式リスクプレミアムを読む。multpl現在値を日次取得(level指標, --latest運用)
+    notes: S&P500のシラーCAPE(10年実質EPS平均ベースPER)。株式の長期割高度ゲージ。歴史的中央値16-17、ドットコム期~44。実質金利・益回りと対で株式リスクプレミアムを読む。multplの現在値と月次履歴を取得
     aliases: [CAPE, シラーPER, Shiller PE, CAPE比率, 景気循環調整PER]
   - series_id: us.sp500_pe
     name: S&P500 PER(GAAP実績)
@@ -677,7 +677,7 @@ series:
     provider_series_id: s-p-500-pe-ratio
     source_id: multpl-sp500-pe
     source_url: https://www.multpl.com/s-p-500-pe-ratio
-    notes: S&P500のGAAP実績PER。益回り(1/PER)と10年金利の差が株式リスクプレミアム(ERP)。operating PER(GuruFocus等)より高めに出る点に注意。multpl現在値を日次取得
+    notes: S&P500のGAAP実績PER。益回り(1/PER)と10年金利の差が株式リスクプレミアム(ERP)。operating PER(GuruFocus等)より高めに出る点に注意。multplの現在値と月次履歴を取得
     aliases: [S&P500 PER, SP500 PE, 米国株PER, PER, price earnings ratio]
   - series_id: us.sp500_earnings_yield
     name: S&P500 益回り
@@ -689,5 +689,5 @@ series:
     provider_series_id: s-p-500-earnings-yield
     source_id: multpl-sp500-ey
     source_url: https://www.multpl.com/s-p-500-earnings-yield
-    notes: S&P500益回り(1/PER, GAAP実績)。us.10yとの差がERP。益回り<名目金利=株が債券に対しクッション消滅の警戒域。multpl現在値を日次取得
+    notes: S&P500益回り(1/PER, GAAP実績)。us.10yとの差がERP。益回り<名目金利=株が債券に対しクッション消滅の警戒域。multplの現在値と月次履歴を取得
     aliases: [益回り, earnings yield, S&P500益回り, アーニングスイールド]

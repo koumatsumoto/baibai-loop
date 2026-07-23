@@ -247,10 +247,14 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
 - [ ] manual indicator seed importは重複YAML key、未知・非manual series、manual系列欠落、
       field / unit / source不一致、naive datetime、同一instant重複、非有限値をDB書き込み前に
-      拒否し、manual read / refreshがseed外のrowを書き込まないか
+      拒否し、個別release URLを許可する場合もscheme / host / path全体をallowlistして
+      lookalike host・query・fragmentを拒否するか。月次manual履歴は月初日・値域・
+      観測月とrelease URLの完全一致・必要期間の連続性を検証し、manual read / refreshが
+      seed外のrowを書き込まないか
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
       macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
-      fixture で検証するか
+      fixture で検証し、月次全履歴を返すproviderは既知の最古月・公表lagを含む最新端・
+      途中月の欠落をhard errorにするか
 - [ ] macro context は固定順8セクション、series定義とinputへの参照、source ID、base / bear / bull、
       monitoring condition、section 2〜7内のmaterial delta / sizing cautionをnegative fixtureで検証するか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を

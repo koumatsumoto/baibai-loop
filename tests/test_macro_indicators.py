@@ -45,7 +45,9 @@ from baibai_engine.macro.indicators.providers import (
     parse_manual_seed,
     parse_mof_jgb_csv,
     parse_multpl_current,
+    parse_multpl_history,
     parse_trades_spec,
+    parse_tsr_bankruptcies_json,
     parse_yahoo_chart,
 )
 from baibai_engine.macro.indicators.providers.base import HttpSession
@@ -565,29 +567,70 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         observations = parse_manual_seed(load_definitions(), raw)
 
-        self.assertEqual(len(observations), 12)
+        self.assertEqual(len(observations), 36)
         self.assertEqual(
             {item.series_id for item in observations},
-            {"jp.bankruptcies", "jp.pmi_manufacturing"},
+            {"jp.pmi_manufacturing"},
         )
         self.assertTrue(all(item.vintage_at is not None for item in observations))
 
+    def test_manual_pmi_source_rejects_noncanonical_release_url(self) -> None:
+        canonical = (
+            "https://www.pmi.spglobal.com/Public/Home/PressRelease/4bfeffc263944cd797a7957577045b71"
+        )
+        for source_url in (
+            canonical.replace("spglobal.com", "spglobal.com.evil.example"),
+            f"{canonical}?download=1",
+            f"{canonical}#release",
+        ):
+            with self.subTest(source_url=source_url):
+                raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+                raw["observations"][0]["source_url"] = source_url
+                with self.assertRaisesRegex(IndicatorsProviderError, "source_url differs"):
+                    parse_manual_seed(load_definitions(), raw)
+
+    def test_manual_pmi_source_must_match_release_manifest(self) -> None:
+        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+        raw["observations"][0]["source_url"] = (
+            "https://www.pmi.spglobal.com/Public/Home/PressRelease/00000000000000000000000000000000"
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "does not match manifest"):
+            parse_manual_seed(load_definitions(), raw)
+
+    def test_manual_pmi_history_must_cover_release_manifest(self) -> None:
+        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+        raw["observations"].pop()
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "history differs from manifest"):
+            parse_manual_seed(load_definitions(), raw)
+
+    def test_manual_pmi_rejects_implausible_value(self) -> None:
+        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+        raw["observations"][0]["value"] = -999
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible range"):
+            parse_manual_seed(load_definitions(), raw)
+
     def test_parse_manual_seed_normalizes_offsets_and_rejects_same_instant(self) -> None:
         raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-        bankruptcies = [
+        pmi = [
             item
             for item in raw["observations"]
-            if item["series_id"] == "jp.bankruptcies" and str(item["observed_at"]) == "2026-01-01"
+            if item["series_id"] == "jp.pmi_manufacturing"
+            and str(item["observed_at"]) == "2026-01-01"
         ]
-        bankruptcies[0]["entered_at"] = "2026-07-21T00:00:00+09:00"
-        bankruptcies[1]["entered_at"] = "2026-07-20T15:30:00+00:00"
+        pmi.append(dict(pmi[0]))
+        pmi[0]["entered_at"] = "2026-07-21T00:00:00+09:00"
+        pmi[1]["entered_at"] = "2026-07-20T15:30:00+00:00"
+        raw["observations"].append(pmi[1])
 
         observations = parse_manual_seed(load_definitions(), raw)
 
         first_date = [
             item
             for item in observations
-            if item.series_id == "jp.bankruptcies" and item.observed_at == date(2026, 1, 1)
+            if item.series_id == "jp.pmi_manufacturing" and item.observed_at == date(2026, 1, 1)
         ]
         self.assertEqual(
             [item.vintage_at for item in first_date],
@@ -597,7 +640,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             ],
         )
 
-        bankruptcies[1]["entered_at"] = "2026-07-20T15:00:00+00:00"
+        pmi[1]["entered_at"] = "2026-07-20T15:00:00+00:00"
         with self.assertRaisesRegex(IndicatorsProviderError, "duplicate"):
             parse_manual_seed(load_definitions(), raw)
 
@@ -807,6 +850,74 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "cannot parse current value"):
             parse_multpl_current("<html>no current sentence here</html>", "shiller-pe")
 
+    def test_parse_multpl_history_extracts_monthly_rows_and_current_level(self) -> None:
+        series = _series("multpl", "s-p-500-earnings-yield", unit="percent")
+        html = """
+        <table id="datatable">
+          <tr><th>Date</th><th>Value</th></tr>
+          <tr><td>Jul 22, 2026</td><td>3.18%</td></tr>
+          <tr><td>Jul 1, 2026</td><td>† 3.20%</td></tr>
+          <tr><td>Jun 1, 2026</td><td>3.15%</td></tr>
+        </table>
+        """
+
+        observations = parse_multpl_history(
+            series,
+            html,
+            start=date(2026, 7, 1),
+            end=date(2026, 7, 22),
+        )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 7, 22), 3.18), (date(2026, 7, 1), 3.20)],
+        )
+
+    def test_parse_multpl_history_rejects_missing_table(self) -> None:
+        series = _series("multpl", "shiller-pe")
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "historical table missing"):
+            parse_multpl_history(
+                series,
+                "<html><table></table></html>",
+                start=date(1871, 1, 1),
+                end=date(2026, 7, 22),
+            )
+
+    def test_multpl_long_range_uses_history_table(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        response = _FakeResponse(
+            b'<table id="datatable"><tr><td>Jul 1, 2026</td><td>37.50</td></tr></table>'
+        )
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 7, 20),
+        ):
+            observations = fetch_observations(
+                series,
+                start=date(2024, 1, 1),
+                end=date(2026, 7, 20),
+                session=_StaticSession(response),
+            )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 7, 1), 37.5)],
+        )
+
+    def test_multpl_all_history_rejects_missing_floor(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        html = '<table id="datatable"><tr><td>Jul 1, 2026</td><td>40.0</td></tr></table>'
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "must start at 1871-02-01"):
+            parse_multpl_history(
+                series,
+                html,
+                start=date(1871, 1, 1),
+                end=date(2026, 7, 20),
+            )
+
     def test_multpl_uses_japan_operation_date(self) -> None:
         series = _series("multpl", "shiller-pe")
         response = _FakeResponse(b"Current Shiller PE Ratio is 40.70")
@@ -823,6 +934,200 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             )
 
         self.assertEqual([item.observed_at for item in observations], [date(2026, 7, 20)])
+
+    def test_parse_tsr_bankruptcies_json_reads_current_and_legacy_entries(self) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        text = json.dumps(
+            [
+                {
+                    "period_division": "月次",
+                    "title": "2026年6月の全国企業倒産1,021件",
+                    "free_word": [],
+                },
+                {
+                    "period_division": "月次",
+                    "title": "2026年（令和8年） 5月度 全国企業倒産状況",
+                    "free_word": [
+                        "title",
+                        "<table><tr><th>倒産件数</th><td>993 件</td></tr></table>",
+                    ],
+                },
+                {
+                    "period_division": "年間",
+                    "title": "2025年の全国企業倒産10,000件",
+                },
+            ]
+        )
+
+        observations = parse_tsr_bankruptcies_json(
+            series,
+            text,
+            start=date(2026, 5, 1),
+            end=date(2026, 6, 1),
+        )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 5, 1), 993.0), (date(2026, 6, 1), 1021.0)],
+        )
+
+    def test_parse_tsr_bankruptcies_json_rejects_unparseable_monthly_entry(
+        self,
+    ) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        text = json.dumps(
+            [
+                {
+                    "period_division": "月次",
+                    "title": "月次の全国企業倒産状況",
+                    "free_word": [],
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "cannot parse monthly entry"):
+            parse_tsr_bankruptcies_json(
+                series,
+                text,
+                start=date(2003, 1, 1),
+                end=date(2026, 6, 1),
+            )
+
+    def test_parse_tsr_bankruptcies_json_rejects_history_gap(self) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        text = json.dumps(
+            [
+                {
+                    "period_division": "月次",
+                    "title": "2026年4月の全国企業倒産990件",
+                },
+                {
+                    "period_division": "月次",
+                    "title": "2026年6月の全国企業倒産1,021件",
+                },
+            ]
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing monthly entries"):
+            parse_tsr_bankruptcies_json(
+                series,
+                text,
+                start=date(2026, 4, 1),
+                end=date(2026, 6, 1),
+            )
+
+    def test_parse_tsr_bankruptcies_json_rejects_missing_history_floor(self) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        text = json.dumps(
+            [
+                {
+                    "period_division": "月次",
+                    "title": "2026年6月の全国企業倒産1,021件",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "must start at 2003-01-01"):
+            parse_tsr_bankruptcies_json(
+                series,
+                text,
+                start=date(2003, 1, 1),
+                end=date(2026, 7, 20),
+            )
+
+    def test_parse_tsr_bankruptcies_json_rejects_missing_latest_release(self) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        rows = []
+        current = date(2003, 1, 1)
+        while current <= date(2026, 5, 1):
+            rows.append(
+                {
+                    "period_division": "月次",
+                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
+                }
+            )
+            current = (
+                date(current.year + 1, 1, 1)
+                if current.month == 12
+                else date(current.year, current.month + 1, 1)
+            )
+
+        with (
+            patch(
+                "baibai_engine.macro.indicators.providers.tsr_bankruptcies._today_jst",
+                return_value=date(2026, 7, 28),
+            ),
+            self.assertRaisesRegex(IndicatorsProviderError, "latest expected release"),
+        ):
+            parse_tsr_bankruptcies_json(
+                series,
+                json.dumps(rows),
+                start=date(2003, 1, 1),
+                end=date(2026, 7, 28),
+            )
+
+    def test_parse_tsr_bankruptcies_json_ignores_future_end_for_latest_release(
+        self,
+    ) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        rows = []
+        current = date(2003, 1, 1)
+        while current <= date(2026, 6, 1):
+            rows.append(
+                {
+                    "period_division": "月次",
+                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
+                }
+            )
+            current = (
+                date(current.year + 1, 1, 1)
+                if current.month == 12
+                else date(current.year, current.month + 1, 1)
+            )
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.tsr_bankruptcies._today_jst",
+            return_value=date(2026, 7, 24),
+        ):
+            observations = parse_tsr_bankruptcies_json(
+                series,
+                json.dumps(rows),
+                start=date(2003, 1, 1),
+                end=date(2026, 12, 31),
+            )
+
+        self.assertEqual(len(observations), 282)
+        self.assertEqual(observations[-1].observed_at, date(2026, 6, 1))
+
+    def test_parse_tsr_bankruptcies_json_allows_prepublication_tail(self) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        rows = []
+        current = date(2003, 1, 1)
+        while current <= date(2026, 5, 1):
+            rows.append(
+                {
+                    "period_division": "月次",
+                    "title": f"{current.year}年{current.month}月の全国企業倒産1,000件",
+                }
+            )
+            current = (
+                date(current.year + 1, 1, 1)
+                if current.month == 12
+                else date(current.year, current.month + 1, 1)
+            )
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.tsr_bankruptcies._today_jst",
+            return_value=date(2026, 7, 5),
+        ):
+            observations = parse_tsr_bankruptcies_json(
+                series,
+                json.dumps(rows),
+                start=date(2003, 1, 1),
+                end=date(2026, 7, 5),
+            )
+
+        self.assertEqual(observations[-1].observed_at, date(2026, 5, 1))
 
     def test_parse_boj_timeseries_json_filters_range_and_nulls(self) -> None:
         series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
@@ -1277,6 +1582,28 @@ class IndicatorsServiceTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(stale_source_dates, ["2027-01-05"])
 
+    def test_refresh_all_history_uses_tsr_bankruptcies_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            observation = ObservationRecord(
+                series_id="jp.bankruptcies",
+                observed_at=date(2003, 1, 1),
+                value=1462,
+                unit="count",
+                source_url=("https://www.tsr-net.co.jp/news/status/json/search.json"),
+                vintage_at=datetime.now(UTC),
+            )
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                return_value=[observation],
+            ) as fetch:
+                IndicatorsService(database).refresh_all_history(
+                    "jp.bankruptcies",
+                    end=date(2026, 7, 20),
+                )
+
+            self.assertEqual(fetch.call_args.kwargs["start"], date(2003, 1, 1))
+
     def test_empty_full_history_refresh_fails_and_preserves_existing_observations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
@@ -1321,7 +1648,7 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             with self.assertRaisesRegex(IndicatorsProviderError, "import-manual"):
                 IndicatorsService(database).refresh_all_history(
-                    "jp.bankruptcies",
+                    "jp.pmi_manufacturing",
                     end=date(2026, 7, 20),
                 )
 
@@ -1354,7 +1681,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     """
                     SELECT series_id, observed_at, value, unit, vintage_at, source_url
                     FROM observations
-                    WHERE series_id IN ('jp.bankruptcies', 'jp.pmi_manufacturing')
+                    WHERE series_id = 'jp.pmi_manufacturing'
                     ORDER BY series_id, observed_at, vintage_at
                     """
                 ).fetchall()
@@ -1368,7 +1695,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     """
                     SELECT series_id, observed_at, value, unit, vintage_at, source_url
                     FROM observations
-                    WHERE series_id IN ('jp.bankruptcies', 'jp.pmi_manufacturing')
+                    WHERE series_id = 'jp.pmi_manufacturing'
                     ORDER BY series_id, observed_at, vintage_at
                     """
                 ).fetchall()
@@ -1377,8 +1704,8 @@ class IndicatorsServiceTests(unittest.TestCase):
                     connection.execute("SELECT count(*) FROM provider_runs").fetchone()[0],
                 )
 
-            self.assertEqual(first.series_count, 2)
-            self.assertEqual(first.observation_count, 12)
+            self.assertEqual(first.series_count, 1)
+            self.assertEqual(first.observation_count, 36)
             self.assertEqual(second, first)
             self.assertEqual(after, before)
             self.assertEqual(counts_after, counts_before)
@@ -1408,12 +1735,14 @@ class IndicatorsServiceTests(unittest.TestCase):
                 before = connection.execute(
                     "SELECT * FROM observations ORDER BY series_id, observed_at, vintage_at"
                 ).fetchall()
+            seed_text = MANUAL_DATA_PATH.read_text(encoding="utf-8")
+            value_line = next(
+                line
+                for line in seed_text.splitlines(keepends=True)
+                if line.lstrip().startswith("value: ")
+            )
             seed.write_text(
-                MANUAL_DATA_PATH.read_text(encoding="utf-8").replace(
-                    "    value: 820\n",
-                    "    value: 820\n    value: 999\n",
-                    1,
-                ),
+                seed_text.replace(value_line, f"{value_line}{value_line}", 1),
                 encoding="utf-8",
             )
 
@@ -1432,18 +1761,20 @@ class IndicatorsServiceTests(unittest.TestCase):
             database = root / "macro.sqlite"
             seed = root / "manual.yaml"
             raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-            bankruptcies = [
+            pmi = [
                 item
                 for item in raw["observations"]
-                if item["series_id"] == "jp.bankruptcies"
+                if item["series_id"] == "jp.pmi_manufacturing"
                 and str(item["observed_at"]) == "2026-01-01"
             ]
-            bankruptcies[0].update(
-                value=100,
+            pmi.append(dict(pmi[0]))
+            raw["observations"].append(pmi[1])
+            pmi[0].update(
+                value=40,
                 entered_at="2026-07-21T00:00:00+09:00",
             )
-            bankruptcies[1].update(
-                value=200,
+            pmi[1].update(
+                value=60,
                 entered_at="2026-07-20T23:00:00+00:00",
             )
             seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
@@ -1451,72 +1782,43 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             service.import_manual_seed(seed)
             ranged = service.get_range(
-                "jp.bankruptcies",
+                "jp.pmi_manufacturing",
                 start=date(2026, 1, 1),
                 end=date(2026, 1, 1),
             )
-            latest = service.get_latest("jp.bankruptcies")
+            latest = service.get_latest("jp.pmi_manufacturing")
 
-            self.assertEqual(ranged.observations[0].value, 200)
+            self.assertEqual(ranged.observations[0].value, 60)
             self.assertEqual(
                 ranged.observations[0].vintage_at, datetime(2026, 7, 20, 23, tzinfo=UTC)
             )
-            self.assertEqual(latest.observations[-1].observed_at, date(2026, 4, 1))
+            self.assertEqual(latest.observations[-1].observed_at, date(2026, 6, 1))
             with sqlite3.connect(database) as connection:
                 stored_offsets = connection.execute(
                     """
                     SELECT DISTINCT substr(vintage_at, -6)
                     FROM observations
-                    WHERE series_id IN ('jp.bankruptcies', 'jp.pmi_manufacturing')
+                    WHERE series_id = 'jp.pmi_manufacturing'
                     """
                 ).fetchall()
             self.assertEqual(stored_offsets, [("+00:00",)])
 
-    def test_manual_reads_never_restore_rows_removed_from_seed(self) -> None:
+    def test_import_manual_seed_rejects_rows_removed_from_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             database = root / "macro.sqlite"
             seed = root / "manual.yaml"
             raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-            removed = raw["observations"].pop(0)
+            raw["observations"].pop(0)
             seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
             service = IndicatorsService(database)
 
-            service.import_manual_seed(seed)
-            result = service.get_range(
-                "jp.bankruptcies",
-                start=date(2026, 1, 1),
-                end=date(2026, 12, 31),
-            )
-
-            self.assertTrue(result.cache_hit)
-            with sqlite3.connect(database) as connection:
-                self.assertEqual(
-                    connection.execute(
-                        "SELECT count(*) FROM observations WHERE series_id = 'jp.bankruptcies'"
-                    ).fetchone()[0],
-                    7,
-                )
-                self.assertIsNone(
-                    connection.execute(
-                        """
-                        SELECT 1 FROM observations
-                        WHERE series_id = ? AND observed_at = ? AND vintage_at = ?
-                        """,
-                        (
-                            removed["series_id"],
-                            str(removed["observed_at"]),
-                            str(removed["entered_at"]),
-                        ),
-                    ).fetchone()
-                )
-            with self.assertRaisesRegex(IndicatorsProviderError, "import-manual"):
-                service.get_range(
-                    "jp.bankruptcies",
-                    start=date(2026, 1, 1),
-                    end=date(2026, 12, 31),
-                    refresh=True,
-                )
+            with self.assertRaisesRegex(
+                IndicatorsProviderError,
+                "history differs from manifest",
+            ):
+                service.import_manual_seed(seed)
+            self.assertFalse(database.exists())
 
     def test_import_manual_cli_reports_seed_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1527,10 +1829,10 @@ class IndicatorsServiceTests(unittest.TestCase):
             with sqlite3.connect(database) as connection:
                 self.assertEqual(
                     connection.execute(
-                        "SELECT count(*) FROM observations WHERE series_id IN (?, ?)",
-                        ("jp.bankruptcies", "jp.pmi_manufacturing"),
+                        "SELECT count(*) FROM observations WHERE series_id = ?",
+                        ("jp.pmi_manufacturing",),
                     ).fetchone()[0],
-                    12,
+                    36,
                 )
 
     def test_get_range_normalizes_provider_order_to_ascending(self) -> None:

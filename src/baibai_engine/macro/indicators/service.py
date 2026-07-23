@@ -37,7 +37,8 @@ _ALL_HISTORY_START_BY_PROVIDER = {
     "fred_csv": date(1900, 1, 1),
     "jquants_flows": None,
     "mof_jgb": date(1974, 1, 1),
-    "multpl": None,
+    "multpl": date(1871, 1, 1),
+    "tsr_bankruptcies": date(2003, 1, 1),
     "yahoo": date(1970, 1, 1),
 }
 
