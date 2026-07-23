@@ -11,13 +11,15 @@ from pathlib import Path
 # links start with neither `./`, `../`, `/docs/`, nor `#`, so they never match.
 _LINK = re.compile(r"\]\((?P<target>\.{0,2}/[^)#\s]+|/docs/[^)#\s]+)?(?P<anchor>#[^)\s]+)?\)")
 _HEADING = re.compile(r"^#{1,6}\s+(?P<text>.+?)\s*$", re.MULTILINE)
+_HEADING_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _EXPLICIT_ANCHOR = re.compile(r'<a\s+id="(?P<id>[^"]+)"')
-_ROOT_FILES = ("README.md", "AGENTS.md")
+_ROOT_FILES = ("README.md", "AGENTS.md", "CLAUDE.md")
 _SCAN_DIRECTORIES = ("docs", "data", ".agents/skills", ".claude/skills")
 
 
 def _slug(text: str) -> str:
     """Approximate GitHub's heading-to-anchor slug (keeps CJK, drops punctuation)."""
+    text = _HEADING_LINK.sub(r"\1", text)  # a link in a heading contributes its text only
     text = text.strip().lower()
     text = re.sub(r"[^\w\- ]", "", text)
     return text.replace(" ", "-")
@@ -25,7 +27,13 @@ def _slug(text: str) -> str:
 
 def _anchors(text: str) -> set[str]:
     anchors = {match.group("id") for match in _EXPLICIT_ANCHOR.finditer(text)}
-    anchors.update(_slug(match.group("text")) for match in _HEADING.finditer(text))
+    seen: dict[str, int] = {}
+    for match in _HEADING.finditer(text):
+        base = _slug(match.group("text"))
+        # GitHub disambiguates repeated heading slugs as foo, foo-1, foo-2, ...
+        occurrence = seen.get(base, -1) + 1
+        seen[base] = occurrence
+        anchors.add(base if occurrence == 0 else f"{base}-{occurrence}")
     return anchors
 
 
@@ -34,7 +42,7 @@ def _scan_paths(root: Path) -> list[Path]:
     for relative in _SCAN_DIRECTORIES:
         directory = root / relative
         if directory.is_dir():
-            paths.extend(sorted(directory.rglob("*.md")))
+            paths.extend(sorted(p for p in directory.rglob("*.md") if p.is_file()))
     return paths
 
 

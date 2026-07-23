@@ -191,7 +191,7 @@ uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel
 ```
 
-UI（`ui/`）は別 job で `npm ci` → `npm run build` → `npm test` と型チェックを実行する。この §9 が Python 側 CI gate の唯一の正本で、`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
+UI（`ui/`）と Cloudflare Worker（`cloud/worker/`）は別 job で npm build / test / 型チェック（Worker は `wrangler deploy --dry-run` を含む）を実行する。この §9 は Python gate の唯一の正本で、job 全体（quality / frontend / cloud-worker）は `.github/workflows/ci.yml`、security（bandit / pip-audit）は `.github/workflows/security.yml` を正本とする。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
 
 参考:
 

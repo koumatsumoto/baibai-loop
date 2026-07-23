@@ -15,7 +15,9 @@ _BEHAVIOR_LEGACY = re.compile(
     # method tree is method/ (records/ was renamed), so reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
     r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"
-    r"\brecords/|macro-dashboard",
+    # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
+    # skipping `/records/` fragments inside external URLs.
+    r"(?<!/)\brecords/|macro-dashboard",
     re.IGNORECASE,
 )
 

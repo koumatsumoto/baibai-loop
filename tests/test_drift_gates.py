@@ -200,3 +200,13 @@ def test_markdown_link_gate_accepts_heading_and_explicit_anchor(tmp_path: Path) 
         encoding="utf-8",
     )
     assert check_markdown_links.check(tmp_path) == []
+
+
+def test_markdown_link_gate_accepts_duplicate_heading_suffix(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "a.md").write_text("# T\n\n## Note\n\n## Note\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text(
+        "[first](./docs/a.md#note) [second](./docs/a.md#note-1)\n", encoding="utf-8"
+    )
+    assert check_markdown_links.check(tmp_path) == []
