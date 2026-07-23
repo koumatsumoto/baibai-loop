@@ -1,6 +1,6 @@
 ---
 title: "Workflow — screening"
-summary: "point-in-time cacheからcandidate、audit pool、selectionを決定論的に生成し、人間レビューgateへ渡す工程。"
+summary: "point-in-time cacheからcandidate、longlist、selectionを決定論的に生成し、人間レビューgateへ渡す工程。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-20
@@ -12,13 +12,13 @@ related_docs:
 
 # Workflow — screening
 
-screeningは全上場銘柄から割安ゾーンを機械抽出し、observed、derived、estimateを由来付きで出すL2工程である。採用・因果・相場観を判断せず、decision packetの代わりにならない。
+screeningは全上場銘柄から割安ゾーンを機械抽出し、observed、derived、estimateを由来付きで出すL2工程である。採用・因果・相場観を判断せず、thesisの代わりにならない。
 
 ## Purpose and boundary
 
 - `run`: point-in-timeの財務・価格・JPX factsからcandidate poolを作る。
-- `select`: candidateを既存rulesでrankし、production recommendationsと監査用audit poolを出す。
-- AI: audit poolから[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)のnarrative付きreviewed shortlistを作り、`baibai-app`の`/shortlist`レビュー面で人間へ提示する。
+- `select`: candidateを既存rulesでrankし、production recommendationsと、OP3レビューの入力母集団であるlonglistを出す。
+- AI: longlistから[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)のnarrative付きshortlistを作り、`baibai-app`の`/shortlist`レビュー面で人間へ提示する。
 - human: reportからprimary-research setを選ぶ。
 - research: primary-research setを一次情報、永久損失、3年/5年scenarioで比較し、最良0〜1件を決める。
 
@@ -58,7 +58,7 @@ coverage commandは単独で実行し、後続commandのexit 0で失敗を隠さ
 
 `run --asof`は同じcache、rules、ASOFから同じcandidate outputを作り、rebuildable run storeへtransactionalにpublishする。同一ASOFの再実行は別の`run_revision_id`を持つ。`--output-path`はDB publicationのYAML viewが必要な場合だけ指定し、raw全量をcanonical judgmentとしてcommitしない。
 
-run storeは最新数世代を保持するcacheであり、容量に応じて`baibai-engine screening prune --keep N`で削除する。既定は3世代。run削除後もapplication DBのreviewed shortlist以降は各snapshotだけで読める。
+run storeは最新数世代を保持するcacheであり、容量に応じて`baibai-engine screening prune --keep N`で削除する。既定は3世代。run削除後もapplication DBのshortlist以降は各snapshotだけで読める。
 
 candidateは次を区別する。
 
@@ -74,11 +74,11 @@ AI judgment、割安の原因、将来予測、採用結論をcandidateへ書か
 | --- | --- | --- | --- |
 | candidate pool | screen通過全件 | select/calibration | rebuildable |
 | `recommendations` | production rule/cap適用後の通常表示 | operator | rebuildable |
-| `audit_pool` | diversity/cap切断前のrank上位N件を監査 | AI/reviewer | rebuildable |
-| reviewed shortlist | audit poolからOP3の件数契約でselected narrative / rejected理由を明示 | human review | application DB |
-| primary-research set | reviewed shortlistのレビュー面から人間が選択 | research | workspace |
+| `longlist` | diversity/cap切断前のrank上位N件。OP3レビューの入力母集団 | AI/reviewer | rebuildable |
+| shortlist | longlistからOP3の件数契約でselected narrative / rejected理由を明示 | human review | application DB |
+| primary-research set | shortlistのレビュー面から人間が選択 | research | workspace |
 
-`--audit-top 20`は候補抜けを監査するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capはreviewed shortlistの件数を決めない。review後はsource `selection_id`とrun/profile/context metadataを含むstrict draftを`baibai-engine screening shortlist publish`で明示publishする。machine recommendationをreview済みとして代用しない。
+`--longlist-top 20`は候補抜けを点検するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capはshortlistの件数を決めない。review後はsource `selection_id`とrun/profile/context metadataを含むstrict draftを`baibai-engine screening shortlist publish`で明示publishする。machine recommendationをreview済みとして代用しない。
 
 ## Ranking versus warnings
 

@@ -20,7 +20,7 @@ related_docs:
 
 | レバー | 所在 | 計測経路 |
 | --- | --- | --- |
-| screen の閾値・gate・evidence pattern 条件 | `records/_config/screening-rules/*.yaml` | 較正リプレイ（rules variant） |
+| screen の閾値・gate・evidence pattern 条件 | `method/screening-rules/*.yaml` | 較正リプレイ（rules variant） |
 | select の順位付け・diversity cap | 同上 + `src/baibai_engine/screening/selection/` | 較正リプレイ（selection replay） |
 | 機械 E[r]・FV アンカー（anchor・実現率・cap・carry） | `src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | `src/baibai_engine/screening/metrics` 系 + [`../reference/valuation-metrics.md`](../reference/valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
@@ -47,7 +47,7 @@ uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eva
 
 冒頭には[`doctrine.md`の改善提案の価値階層](../doctrine.md#improvement-value-hierarchy)に従い、`価値tier: Tn — <直接的な成果への因果経路>`を1行で書く。T3は観測した頻度・負担、T4を例外採用する場合は人間の実損またはT1〜T3への検証可能な寄与を示す。価値階層を第一基準とし、同じtier内では効果の見込みが大きい順に優先する。
 
-導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical packetとoperation sessionに保存した非promote laneから同一packetの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
+導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical thesisとoperation sessionに保存した非promote laneから同一thesisの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
 
 ### 2. 採否基準の事前登録（計測より先に commit）
 
@@ -61,7 +61,7 @@ uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eva
 
 ### 4. 採用実装
 
-- 通過した変更だけを本番（`records/_config/screening-rules/` / src）へ反映する。**計測した構成と本番構成を一致させる**（計測に無いレイヤーが本番だけに残ると、検証済み順位が運用で崩れる）。
+- 通過した変更だけを本番（`method/screening-rules/` / src）へ反映する。**計測した構成と本番構成を一致させる**（計測に無いレイヤーが本番だけに残ると、検証済み順位が運用で崩れる）。
 - rules 改訂後は panel を `--force` 再構築し、本番形（recommended replay）で前後比較を確認する。
 
 ### 5. 運用テスト

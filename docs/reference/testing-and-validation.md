@@ -15,7 +15,7 @@ application dataの機械契約は、次の層でwrite時に検証する。
 | SQLite constraint / trigger | required identity、enum、foreign key、immutable row、active最大1件 |
 | pydantic / domain model | field type、shape、cross-field invariant |
 | application service | current source、revision、proposal / reservation、人間確認、stale no-write |
-| config loader | Git管理のscreening rules、Macro dashboard config、playbookの構造 |
+| config loader | Git管理のscreening rules、Macro panel config、playbookの構造 |
 
 schema fileやlive YAML treeを横断するvalidator CLIは置かない。保持すべきruleは各write pathのnegative testで反証し、file/path固有のruleはapplication dataをfileに保存しないため適用しない。
 

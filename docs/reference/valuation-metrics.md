@@ -8,7 +8,7 @@ last_reviewed: 2026-07-20
 
 # valuation-metrics — valuation 指標の算出仕様
 
-Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。screening run storeとapplication DBのresearch packetで参照される指標の前提を確定する。
+Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデータソース。screening run storeとapplication DBのresearch thesisで参照される指標の前提を確定する。
 
 ## 1. 使用指標
 
@@ -39,12 +39,12 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 - **forward PER なし** として扱い、`per_forward: null`
 - **trailing PER のみで判定**（screen の閾値判定は trailing で代用）
-- research packet の `primary_metric` には trailing を含める
+- research thesis の `primary_metric` には trailing を含める
 
 ### 2.4 会社予想の一時益 data-quality flag
 
 - 会社予想で **予想当期純利益 > 予想経常利益**（両方存在時）なら `forecast_special_gain` flag を立てる。税負担が通常正である以上、純利益>経常は特別益（事業売却益など）の存在をほぼ確定する 1 行チェック。純利益/経常は `forecast_eps` と同一予想期のペアで比較する。
-- 一時益で嵩上げされた forward PER・予想配当利回り・機械 E[r] carry の value trap を判断前に表面化させる **warning annotation** であり、ranking・E[r]・既存指標の計算は変えない（doctrine の warning/annotation 境界）。candidate metrics（`forecast_special_gain_flag`）・selection audit pool の `event_warnings`・UI の `一時益予想` badge に出す。持続ベースへの補正（forecast 純利益を経常ベースへ丸める等）は方法変更のため improvement-loop で事前登録して評価する。
+- 一時益で嵩上げされた forward PER・予想配当利回り・機械 E[r] carry の value trap を判断前に表面化させる **warning annotation** であり、ranking・E[r]・既存指標の計算は変えない（doctrine の warning/annotation 境界）。candidate metrics（`forecast_special_gain_flag`）・selection longlist の `event_warnings`・UI の `一時益予想` badge に出す。持続ベースへの補正（forecast 純利益を経常ベースへ丸める等）は方法変更のため improvement-loop で事前登録して評価する。
 
 ## 3. Trailing PER の算出
 

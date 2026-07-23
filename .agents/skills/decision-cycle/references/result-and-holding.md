@@ -10,4 +10,4 @@ required field、event意味、holding action、失敗条件をこのreference�
 
 ## Output check
 
-人間報告前はledger無変更。報告後はcurrent DBへ束縛したvalidated draftを作り、人間確認後の`apply-draft --confirmed`だけでcanonical eventを追加する。保有見直しではcurrent packet revisionとledgerから再構築したreviewを人間確認後にpublishする。年次outcomeはresolved結果だけをDBへpublishし、`unresolved`は不足理由を確認して正本へ保存せず再実行する。各canonical IDと結果をoperation sessionへ参照すれば完了する。
+人間報告前はledger無変更。報告後はcurrent DBへ束縛したvalidated draftを作り、人間確認後の`apply-draft --confirmed`だけでcanonical eventを追加する。保有見直しではcurrent thesis revisionとledgerから再構築したreviewを人間確認後にpublishする。年次outcomeはresolved結果だけをDBへpublishし、`unresolved`は不足理由を確認して正本へ保存せず再実行する。各canonical IDと結果をoperation sessionへ参照すれば完了する。

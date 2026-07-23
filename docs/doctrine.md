@@ -12,7 +12,7 @@ last_reviewed: 2026-07-20
 
 運用モデルは **AI 主導・人間裁定**：AI がマクロ経済を分析してトレンドを読み、市場で過小評価されているお買い得銘柄を機械抽出し、長期積立・配当還元を前提とした長期保有に耐える銘柄を個別にリサーチして売買提案まで作る。人間はその提案を判断し、発注する。Baibai-Loop はこの分業に一貫性を持たせ、判断を後から検証できるようにするための基盤であり、投資助言サービスではない。
 
-人間はこの分業を cockpit（`baibai-app`）で消費し、ダッシュボードで portfolio と提案の現状を把握し、macro context を理解し、screening 結果を確認したうえで個別銘柄researchと最終投資判断に進む。
+人間はこの分業を Baibai App（`baibai-app`）で消費し、ダッシュボードで portfolio と提案の現状を把握し、macro context を理解し、screening 結果を確認したうえで個別銘柄researchと最終投資判断に進む。
 
 最上位成果は予算消化や注文数ではなく、永久的な資本毀損を抑えながら、その時点で最も割安な候補を人間が納得して判断できることである。候補は永久損失、5年期待総合return/FV乖離、portfolioへの追加価値、購入可能性の順で比較する。資金目安、既存保有、予約は判断材料だが、価値順位を先に歪めない。
 
@@ -76,14 +76,14 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 1: 事実と分析の分離
 
-- **(a)** candidates内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・decision packet）は責務を分ける。禁止表現と運用ルールは§6[事実と分析の分離](#fact-analysis-separation)を正本とする。
+- **(a)** candidates内のobserved / derived / estimateと、人間/AIによるjudgment（macro context・thesis）は責務を分ける。禁止表現と運用ルールは§6[事実と分析の分離](#fact-analysis-separation)を正本とする。
 - **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。store・table単位で分けておけば「judgmentを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
 - **(c)** 同一tableに`type`列やflagでjudgmentを混在させる案は、混入したときに見落としやすく機械チェックも利きにくい。store・table単位の物理的な分離が最も安全。
 
 ### 柱 2: マクロはmaterial delta、AIは企業別value captureとして扱う
 
 - **(a)** マクロ分析は、discount rate・需要・資金調達・共通tail risk・sizing cautionという外部経路が個別5年期待値を変えたときだけ記録する補助contextである。機械screening・ranking・sizingには混入させない。一方、macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、またはstaleでも候補抽出は継続し、未来情報だけをhard errorにする。
-- **(b)** AIはsectorではなく企業別の構造変化lensである。enabler、infrastructure、complement、adopter、disruptedのどこに位置するかと、競争優位・価格決定力・必要capex・顧客交渉力を通じて株主価値を獲得できるかをdecision packetで判断する。AI需要が増えてもvalue captureがなければ採用根拠にしない。
+- **(b)** AIはsectorではなく企業別の構造変化lensである。enabler、infrastructure、complement、adopter、disruptedのどこに位置するかと、競争優位・価格決定力・必要capex・顧客交渉力を通じて株主価値を獲得できるかをthesisで判断する。AI需要が増えてもvalue captureがなければ採用根拠にしない。
 - **(c)** 非AI企業も個別のE[r]と永久損失リスクで同じ土俵に置く。macro/AIの合成score、自動sizing、sector順位は作らない。
 
 ### 柱 3: 見積りを磨くフィードバック先行
@@ -94,50 +94,82 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 4: application DB 正本、Git は method / config
 
-- **(a)** task、macro context、reviewed shortlist、research、trade proposal、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
-- **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行い、`baibai-app` は application DB と各 read store を読むだけの cockpit とする。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
+- **(a)** task、macro context、shortlist、research、trade proposal、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
+- **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行い、`baibai-app` は application DB と各 read store を読むだけの UI（Baibai App）とする。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
 - **(c)** GitHub Issue や Markdown / YAML を application data の正本にはしない。GitHub は開発作業に使い、運用 workspace は `operation_session`、確定した entity は各 DB table に置く。外部 SaaS を正本にすると local-first の運用と application service の境界が崩れるため採用しない。
 
 ### 柱 5: 計測ファーストのデータ基盤
 
-- **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的なscreen・導出指標・モデル見積りからなる **分析層（L2）** であり、application DBの判断層（L3）はその消費者にあたる（3層の詳細は[`architecture.md`](./architecture.md)）。L2出力は`observed / derived / estimate`を区別し、決定論的に生成されてもE[r]やFV anchorを事実とは呼ばない。人間/AIの解釈は`judgment`としてdecision packetへ置く。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
+- **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的なscreen・導出指標・モデル見積りからなる **分析層（L2）** であり、application DBの判断層（L3）はその消費者にあたる（3層の詳細は[`architecture.md`](./architecture.md)）。L2出力は`observed / derived / estimate`を区別し、決定論的に生成されてもE[r]やFV anchorを事実とは呼ばない。人間/AIの解釈は`judgment`としてthesisへ置く。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
 - **(b)** スコアは軸ごとの座標（業種相対・自己レンジ相対の percentile）であり、単一の合成点や売買指示には決して畳まない。**単位（%/年）・成分分解（reversion / carry）・前提（anchor・実現率・cap）を持つ機械見積り（E[r]・FV アンカー）は「単一の合成点」とはみなさない** — ただし (i) 出力に成分と前提を必ず併記する、(ii) 較正リプレイで予測と実現を突き合わせ続ける、(iii) 採否と投入額の判断は人間に残る、を必須条件とする。正直な軸別の事実 + 人間の判断という役割分担が、AI の強み（機械可読な事実の整理・統合）を活かしつつ、弱み（判断の責任を負えないこと）を遮断する。
-- **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開は、1 人・ローカル完結の運用では不要（YAGNI）。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはcockpitの範囲内であり、write masterはローカルの`baibai-engine`に置く。
+- **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開は、1 人・ローカル完結の運用では不要（YAGNI）。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはBaibai Appの範囲内であり、write masterはローカルの`baibai-engine`に置く。
 
 <a id="vocabulary"></a>
 
 ## 4. 語彙と構成要素
 
-主要な成果物は **役割を一語で表す** slug（英語識別子）を持ち、人間向けには日本語の概念名で呼ぶ。読み解く鍵は **engine（機械処理 = 動詞）と artifact（成果物 = 名詞）を区別する**こと。
+domain 語彙はこの節を正本とする。新しい domain 語は、まず命名文法に照らしてこの節へ行を追加してから使う（文法にない語を schema・CLI・UI・docs へ直接持ち込まない。退役語の再侵入は `tools/drift/check_legacy_semantics.py` が拒否する）。
+
+### 命名文法
+
+1. **パイプライン状態**は銘柄集合を表す普通名詞で命名する（candidates, longlist, shortlist, proposal, position, outcome）
+2. **判断文書**は内容・役割で命名し、形式（packet / record / report）で命名しない（macro context, thesis, thesis review, holding review）
+3. **機械成果物**は工程 + 出力で命名し、judgment と呼ばない（screening run, selection, machine recommendation, longlist）
+4. **活動・工程名**（screening, research, macro analysis）は workflow doc と CLI domain・package 名に使い、artifact 名には使わない
+5. **表示物（projection）**は canonical ではない（research-decision-report HTML、Baibai App の画面）
+6. **UI タブは分析対象**で命名する（Macro = 市場環境の top-down 分析対象、Stocks = 個別銘柄の bottom-up 分析対象）。プロダクト名は Baibai App
+
+### パイプライン状態機械
+
+資本は銘柄集合の状態遷移として一直線に流れる。gate の主体は資本（不可逆性）に近づくほど機械 → AI+人間 → 人間へ移る。機械は広さを処理し、人間が不可逆を所有する。
+
+| 状態遷移 | gate 主体 | 判断文書（L3） | 機械成果物（L2） |
+| --- | --- | --- | --- |
+| universe → candidates | 機械（screening rules） | — | screening run |
+| candidates → longlist | 機械（E[r] ranking、cap 切断前上位 N） | — | selection（longlist + machine recommendations） |
+| longlist → shortlist | AI + 人間（OP3 gate） | shortlist record（selected narrative + rejected 理由） | — |
+| shortlist → proposal | AI research → 独立レビュー → 人間 | thesis（採否付き投資仮説）+ thesis review | evaluate 派生値 |
+| proposal → position | 人間（broker 執行 → 報告） | ledger events | — |
+| position → hold / add / reduce / exit | AI draft + 人間確認 | holding review（thesis health 判定） | — |
+| position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
+
+`macro context` はどの遷移にも属さない ambient 入力であり、OP3 と thesis 執筆の判断材料になる（screening は macro-blind のまま）。shortlist・proposal・ledger は「状態」と「その canonical record」が同一物であり、thesis・holding review は状態ではなく遷移の理由書である。
+
+### 語彙表
 
 | 日本語概念名 | slug | 種別 | 層 | 役割 |
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | governance | — | 資本・許容リスク・ポジション管理・kill switch |
-| マクロ環境分析 | macro context | 分析（判断） | L3 | 個別期待値を変えるmaterial deltaと共通riskの補助context |
+| マクロ環境分析 | macro context | 判断文書 | L3 | 個別期待値を変えるmaterial deltaと共通riskの補助context |
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
 | スクリーニング実行結果 | screening run | 機械成果物 | L2 出力 | run storeに保存する再生成可能なobserved / derived / estimateのsnapshot |
-| レビュー済み候補一覧 | reviewed shortlist | 判断 | L3 | 人間が確認したscreening通過候補のcanonical snapshot（`data/app/baibai.sqlite`） |
+| 通過候補 | candidates | パイプライン状態 | L2 出力 | screening rules を通過した全銘柄 |
+| 機械絞り込み候補 | longlist | パイプライン状態 | L2 出力 | diversity/cap 切断前の機械 rank 上位 N 件。OP3 レビューの入力母集団 |
+| 機械参考推奨 | machine recommendation | 機械成果物 | L2 出力 | cap 適用後の機械 top-N。calibration 監視用の参考値であり judgment ではない |
 | リサーチ候補選定 | select | 機械処理 | L2 | screening runの候補に機械 E[r] 降順の着手順位と lens 注記を付ける |
+| 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | OP3 gate で longlist から選んだ候補のcanonical snapshot。selected narrative と rejected 理由を持つ（`data/app/baibai.sqlite`） |
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
-| 投資判断packet | decision packet | 分析（判断） | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact |
-| 戦略プレイブック | `playbook_id` | L2 設定 + research checklist | 割安型の label・閾値・除外条件を `screening-rules` から候補へ注記し、個別調査の確認項目を保持する |
-| 売買提案 | trade proposal | 判断の入口 | L3 | 銘柄・価格・株数と人間のcurrent decisionをapplication DBに保持する |
+| 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
+| 独立反証レビュー | thesis review | 判断文書 | L3 | 別 agent による thesis の second-pass 反証。hash で対象 revision へ束縛する |
+| 戦略プレイブック | `playbook_id` | method | L2 設定 + research checklist | 割安型の label・閾値・除外条件を `screening-rules` から候補へ注記し、個別調査の確認項目を保持する |
+| 売買提案 | trade proposal | パイプライン状態 + 判断の入口 | L3 | 銘柄・価格・株数と人間のcurrent decisionをapplication DBに保持する |
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
+| 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → longlist → shortlist → thesis → proposal を 1 trigger で進める operation session の kind |
 
-`research`は個別銘柄を調べる活動、`decision packet`はcanonical成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、package名ではない。
+`research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は `src/`（機械の実装）、`method/`（改善ループが調整する手法。screening rules・macro panel・playbook の dated revision）、`docs/`（現在形の説明）の三分法で読む。
 
 ### Evidence Taxonomy
 
-decision packetで見積りの根拠を検証するときの分析レンズ / return源泉の分類（統計的なrisk factor体系ではない）。screening run出力とpacketのevidence hitでは`fundamental`・`valuation`・`market-derived`・`positioning/liquidity`・`catalyst`に限定する。`macroeconomic`・`policy/geopolitical`はmacro context側で扱う。schema enumには`market_derived / positioning_liquidity`のようなASCII安全な値を使う。`technical`は正準分類ではない。
+thesisで見積りの根拠を検証するときの分析レンズ / return源泉の分類（統計的なrisk factor体系ではない）。screening run出力とthesisのevidence hitでは`fundamental`・`valuation`・`market-derived`・`positioning/liquidity`・`catalyst`に限定する。`macroeconomic`・`policy/geopolitical`はmacro context側で扱う。schema enumには`market_derived / positioning_liquidity`のようなASCII安全な値を使う。`technical`は正準分類ではない。
 
 ## 5. 責務境界
 
-- **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・thesis healthと税引後代替で保有を見直す規律を扱う。個別銘柄のpacketやentry/exit設計は扱わない。
+- **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・thesis healthと税引後代替で保有を見直す規律を扱う。個別銘柄のthesisやentry/exit設計は扱わない。
 - **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、個別期待値へ影響するmaterial deltaと共通riskを分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
-- **レビュー済み候補一覧 (reviewed shortlist)**：人間がscreening通過候補を確認したcanonical snapshot。application DBに置き、source run revisionへの束縛を保つ。
-- **個別銘柄research / decision packet**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical packetへ固定する。
+- **深掘り候補一覧 (shortlist)**：OP3 gateでlonglistから選んだ深掘り候補のcanonical snapshot。selected narrativeとrejected理由を持ち、application DBに置き、source run revisionへの束縛を保つ。
+- **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。
 - **売買提案 (trade proposal)**：research の採用結論を「どの銘柄を・いくらで・何株」という具体提案に落とし、人間の `approve / defer / reject` を current state として保持する入口。
 - **売買執行記録 (position)**：実際に発注・entry した判断の注文・約定・保有・全売り決済と、見積り vs 実現の calibration を記録する。
 
@@ -145,7 +177,7 @@ decision packetで見積りの根拠を検証するときの分析レンズ / re
 
 ## 6. 事実と分析の分離（禁止表現）
 
-L1 / L2の機械store（market / macro series / screening run）のobserved / derived / estimateと、macro context・reviewed shortlist・decision packetのjudgmentは物理的・構造的に分ける。機械storeにAI judgment・因果解釈・相場観を書かず、estimateをobserved factと呼ばない。**この節はAP-05が根拠として引く正本**であり、アンカー`#fact-analysis-separation`を変更しない。
+L1 / L2の機械store（market / macro series / screening run）のobserved / derived / estimateと、macro context・shortlist・thesisのjudgmentは物理的・構造的に分ける。機械storeにAI judgment・因果解釈・相場観を書かず、estimateをobserved factと呼ばない。**この節はAP-05が根拠として引く正本**であり、アンカー`#fact-analysis-separation`を変更しない。
 
 事実層で禁止する表現：
 
@@ -154,7 +186,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - 意味付け：「この動きは〜を意味する」「正当化材料」「early evidence hit」「構造要因」
 - 重要度の評価：「注目すべき」「重要な」「焦点となる」（Major / Notable は変化量の統計的な大きさを表すラベルであり、重要度の評価ではない）
 
-事実層で使う用語は、解釈を招かない中立的な語を選ぶ（「連続トレンド」「転換点」ではなく「方向履歴」「方向反転」）。新語が解釈や予測を含意しないか確認する。解釈・因果・予測はmacro context / decision packetの分析層に置く。
+事実層で使う用語は、解釈を招かない中立的な語を選ぶ（「連続トレンド」「転換点」ではなく「方向履歴」「方向反転」）。新語が解釈や予測を含意しないか確認する。解釈・因果・予測はmacro context / thesisの分析層に置く。
 
 ## 7. 分析階層：世界情勢 → 地域経済 → 個別資産
 
@@ -170,7 +202,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - 銘柄全体を対象にした**短期（3 か月未満）horizon** の forward-backtest による screen 成績最適化（長期 horizon の見積り較正リプレイは柱 5 の正式な計測経路であり、非目標ではない）。
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
-- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはcockpitの範囲内であり、write masterはローカルの`baibai-engine`に置く。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
+- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはBaibai Appの範囲内であり、write masterはローカルの`baibai-engine`に置く。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
 
 ## 9. 参考
 

@@ -8,7 +8,7 @@ last_reviewed: 2026-07-22
 
 # Architecture
 
-Baibai-Loop は単一 distribution の中で、唯一の writer である `baibai_engine` と read-only cockpit の `baibai_app` を分離する。application data は application DB、再生成可能な分析結果は専用 store、method / config は Git を正本とする。
+Baibai-Loop は単一 distribution の中で、唯一の writer である `baibai_engine` と read-only UI「Baibai App」の `baibai_app` を分離する。application data は application DB、再生成可能な分析結果は専用 store、method / config は Git を正本とする。
 
 ```text
 baibai-loop
@@ -24,9 +24,10 @@ baibai-loop
 │   ├── screening/market.sqlite
 │   ├── screening/runs.sqlite
 │   └── indicators/macro.sqlite
-└── records
-    ├── _config
-    └── _playbooks
+└── method
+    ├── screening-rules
+    ├── macro-panel.yaml
+    └── playbooks
 ```
 
 <a id="repository-map"></a>
@@ -38,15 +39,15 @@ baibai-loop
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
 | `market` | market price / calendar の取得と L1 SQLite | engine 内部 |
 | `macro` | indicator series と published macro context | `baibai-engine macro` |
-| `screening` | screening run、machine selection、reviewed shortlist、calibration | `baibai-engine screening` |
-| `research` | opportunity workspace、decision packet / review、planning-only limit | `baibai-engine research` |
+| `screening` | screening run、machine selection、shortlist、calibration | `baibai-engine screening` |
+| `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
 | `position` | event replay、draft / apply、holding review、outcome | `baibai-engine position` |
 | `tasks` | task current state | `baibai-engine task` |
 | `operation` | 1 trigger の current workspace と immutable final result | `baibai-engine operation` |
 | `proposals` | trade proposal と人間の current decision | `baibai-engine proposal` |
 | `appdb` | application DB path、migration、backup、writer connection | `baibai-engine db` |
 | `read_api` | app が使う query-only view | engine 内部 |
-| `baibai_app` | Dashboard / Screening / Security / Macro の local cockpit | `baibai-app` |
+| `baibai_app` | Dashboard / Screening / Security / Macro の read-only UI（Baibai App） | `baibai-app` |
 
 engine 内の domain は app に依存しない。app は `read_api` と query source を通じて DB を read-only mode で開き、migration、write service、外部 networkへ到達しない。
 
@@ -54,28 +55,28 @@ engine 内の domain は app に依存しない。app は `read_api` と query s
 
 | store | classification | contents | write owner |
 | --- | --- | --- | --- |
-| `data/app/baibai.sqlite` | canonical application DB | task、macro context、reviewed shortlist、research revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
+| `data/app/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | `data/screening/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input | market / screening provider |
 | `data/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
 | `data/indicators/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
 application DB の default path は `data/app/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
 
-Git に残す `records/_config/` は screening rules と Macro dashboard の method/config、`records/_playbooks/` は research checklist である。application data を GitHub Issue や YAML file に複製しない。
+Git に残す `method/` は screening rules と Macro panel の method/config、`method/playbooks/` は research checklist である。application data を GitHub Issue や YAML file に複製しない。
 
 ## Stable CLI
 
 public entry point は次の2本だけである。
 
 - `baibai-engine <domain> <command>`: query と application service 経由の write
-- `baibai-app`: local read-only cockpit
+- `baibai-app`: local read-only UI（Baibai App）
 
 主要 domain は `screening / macro / operation / position / proposal / research / task / db`。schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run / select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の意味を変えない。
 
 ## Application data semantics
 
 - canonical entity の作成・更新は DB transaction 内で current source と domain invariant を検証する。
-- research と holding review は immutable revision。source packet revision への束縛を弱めない。
+- thesis / thesis review と holding review は immutable revision。source thesis revision への束縛を弱めない。
 - proposal は `pending / approved / deferred / rejected` の current stateだけを持つ。broker factは人間報告後だけledger draftへ変換できる。
 - ledger は append-only eventを `(occurred_at, same_instant_order)` でreplayする。既存event IDとlegacy decision referenceは保存し、新規eventを遡及挿入してcurrent snapshotを再計算できる。
 - canonical ledger mutationは draft生成と、人間確認後の `position apply-draft --confirmed` を分離する。applyはexpected append head、proposal / reservation binding、置換対象rowを同一transactionで再検証する。
@@ -101,7 +102,7 @@ views + machine history         Bearer認証 + static UI
 ```
 
 - `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
-- `baibai-serving` は材料化済み`views/`と機械生成`history/`だけを保持する。`history/select/`は蓄積し、`history/candidate-pool/`はR2 lifecycleで31日後に削除する。public accessを持たない。
+- `baibai-serving` は材料化済み`views/`と機械生成`history/`だけを保持する。`history/select/`は蓄積し、`history/candidates/`はR2 lifecycleで31日後に削除する。public accessを持たない。
 - WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/` keyへ写像する。`history/`とstoresには到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`ui/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
 - `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日18:30 JSTに機械工程を実行する。両workflowは同じconcurrency groupでserving世代の混在を防ぐ。

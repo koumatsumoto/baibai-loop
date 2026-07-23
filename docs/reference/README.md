@@ -12,7 +12,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 
 | 調べたいこと | reference |
 | --- | --- |
-| decision packet、3年/5年算術、review hash、planning limit | [`decision-packet.md`](./decision-packet.md) |
+| thesis、3年/5年算術、review hash、planning limit | [`thesis.md`](./thesis.md) |
 | 詳細リサーチ統合入力、content review、HTML projection | [`research-decision-report.md`](./research-decision-report.md) |
 | business model別の問いとclaim triangulation | [`business-model-research.md`](./business-model-research.md) |
 | cash、reservation、execution、release、snapshot | [`portfolio-ledger.md`](./portfolio-ledger.md) |

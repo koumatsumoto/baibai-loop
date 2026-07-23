@@ -12,7 +12,7 @@ portfolio ledgerの正本はapplication DBである。AIはapproved proposalと�
 
 ## Proposal boundary
 
-proposalはpacket/reviewとcurrent ledgerから作成し、`pending / approved / deferred / rejected`のcurrent stateを持つ。人間の会話報告だけを`proposal decide`で記録する。新規`open`とactive reservationなしの`filled`はapproved proposalを必須とする。proposalを参照するledger eventができた後、そのproposalをapproved以外へ変更しない。
+proposalはthesis/reviewとcurrent ledgerから作成し、`pending / approved / deferred / rejected`のcurrent stateを持つ。人間の会話報告だけを`proposal decide`で記録する。新規`open`とactive reservationなしの`filled`はapproved proposalを必須とする。proposalを参照するledger eventができた後、そのproposalをapproved以外へ変更しない。
 
 ## Human result
 
@@ -43,8 +43,8 @@ ledgerはaction単位のappend-only eventでcash、reservation、execution、rel
 決算、material event、永久損失兆候、FV到達、より良い代替候補がmaterialなとき、対象tickerだけreviewする。
 
 1. 最新完全営業日のJ-Quants raw/unadjusted closeを`market-price-draft`で作り、人間確認後にapplyする。
-2. current packet/reviewとDB positionをsourceにresearchを更新する。
-3. `holding-review-build --db --packet-id`でload-bearing scalarを再構築する。
+2. current thesis/reviewとDB positionをsourceにresearchを更新する。
+3. `holding-review-build --db --thesis-id`でload-bearing scalarを再構築する。
 4. `holding-review`でsource revisionとscalarを検証する。
 5. 人間確認後だけ`holding-review publish`でimmutable revisionを保存する。
 
@@ -70,7 +70,7 @@ portfolio outcomeはDB ledger eventをJPX営業日closeまで再生し、同期�
 - 人間報告、approved proposal、required fieldがない
 - draft生成後にappend head、proposal、reservation、price/meta rowが変わった
 - eventがfuture-datedまたはreservation stateと矛盾する
-- packet revisionまたはholding scalarが一致しない
+- thesis revisionまたはholding scalarが一致しない
 - raw close、calendar coverage、corporate action basisがunresolved
 
 public commandと詳細recipeは[`../operations/decision-cycle.md`](../operations/decision-cycle.md)、ledger semanticsは[`../reference/portfolio-ledger.md`](../reference/portfolio-ledger.md)を正本とする。

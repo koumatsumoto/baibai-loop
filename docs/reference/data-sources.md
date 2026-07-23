@@ -21,14 +21,14 @@ Decision lifecycle ([`../architecture.md`](../architecture.md)) における各 
 | --- | --- | --- |
 | application DB `macro_context` | 必要時の個別調査用material-delta context | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
 | screening run store | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（決算発表予定日、特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
-| application DB `research_packet / research_review` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 個別期待値へ影響するときだけmacro context参照 |
+| application DB `thesis / thesis_review` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 個別期待値へ影響するときだけmacro context参照 |
 | application DB ledger | 執行記録 | 証券会社からの約定情報（人間報告だけを記録） |
 
 本ファイルの主領域は **Tier 1 / Tier 2 一次統計** と macro context で使う補助ソースのスコアリングである。screening / research で使う J-Quants / EDINET / TDnet の詳細仕様は [`./valuation-metrics.md`](./valuation-metrics.md) を参照。
 
 ## 保有見直しの価格 fallback
 
-holding review・見積り calibration の価格 source は J-Quants(`data/screening/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、ledgerまたはdecision packetのsource refへURL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
+holding review・見積り calibration の価格 source は J-Quants(`data/screening/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、ledgerまたはthesisのsource refへURL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
 
 ## Portfolio outcome benchmark
 
