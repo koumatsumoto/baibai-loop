@@ -3,7 +3,7 @@ title: "Architecture"
 summary: "Baibai-Loop の package、store、CLI、read-only app 契約の正本。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-22
+last_reviewed: 2026-07-23
 ---
 
 # Architecture
@@ -122,4 +122,15 @@ fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analys
 
 ## Development gates
 
-機械契約はDB constraint、pydantic model、application service validationとnegative testで守る。通常のgateは `ruff format --check`、`ruff check`、`mypy`、`pytest`、import-linter、frontend buildである。設定fileはloader testで検証する。
+機械契約はDB constraint、pydantic model、application service validationとnegative testで守る。write 時の検証層は次の4つ:
+
+| layer | responsibility |
+| --- | --- |
+| SQLite constraint / trigger | required identity、enum、foreign key、immutable row、active最大1件 |
+| pydantic / domain model | field type、shape、cross-field invariant |
+| application service | current source、revision、proposal / reservation、人間確認、stale no-write |
+| config loader | Git管理のscreening rules、Macro panel config、playbookの構造 |
+
+高影響のDB変更では正常系だけでなく、conflicting ID、invalid enum、missing reference、revision drift、stale draft、人間確認なし、read-only appからのwrite不能をtestする。ledgerはevent順序、snapshot全field、market price / override / metaをfixtureと比較する。schema fileやlive YAML treeを横断するvalidator CLIは置かず、保持すべきruleは各write pathのnegative testで反証する。
+
+通常のgateは `ruff format --check`、`ruff check`、`mypy`、`pytest`、import-linter、frontend build。完全なCI gate（drift gate・bandit・pip-audit・UI build を含む）と再現手順は [`reference/python-foundation.md`](./reference/python-foundation.md) §9 を正本とする。設定fileはloader testで検証する。

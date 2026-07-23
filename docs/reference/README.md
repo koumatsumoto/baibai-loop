@@ -3,7 +3,7 @@ title: "Reference index"
 summary: "artifact、式、data source、runtime、validationの安定contractを調べる入口。"
 doc_type: reference-index
 status: active
-last_reviewed: 2026-07-12
+last_reviewed: 2026-07-23
 ---
 
 # Reference
@@ -22,7 +22,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | valuation指標 | [`valuation-metrics.md`](./valuation-metrics.md) |
 | screening CLI、SQLite、provider | [`screening-runtime.md`](./screening-runtime.md) |
 | source tierと取得失敗 | [`data-sources.md`](./data-sources.md) |
-| model、write-time validation、docs/skill drift | [`testing-and-validation.md`](./testing-and-validation.md) |
+| write-time validation 層 | [`../architecture.md`](../architecture.md) Development gates |
 | Python、dependency、quality gate、CI | [`python-foundation.md`](./python-foundation.md) |
 
 referenceは運用sessionの進捗やIssue固有の作業履歴を持たない。

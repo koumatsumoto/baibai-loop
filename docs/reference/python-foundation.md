@@ -177,15 +177,21 @@ uv sync --frozen --all-groups
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
+uv run lint-imports
+uv run python tools/drift/check_markdown_links.py
+uv run python tools/drift/check_cli_doc.py
+uv run python tools/drift/check_legacy_semantics.py
+uv run python tools/drift/check_duplicate_constants.py
+uv run python tools/drift/check_skill_inventory.py
 uv run coverage run -m pytest
 uv run coverage report -m
-uv run bandit -c pyproject.toml -r src/baibai_engine -q
+uv run bandit -c pyproject.toml -r src/baibai_engine src/baibai_app -q
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel
 ```
 
-GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
+UI（`ui/`）は別 job で `npm ci` → `npm run build` → `npm test` と型チェックを実行する。この §9 が Python 側 CI gate の唯一の正本で、`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
 
 参考:
 

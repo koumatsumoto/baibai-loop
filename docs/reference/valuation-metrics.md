@@ -3,7 +3,7 @@ title: "Valuation metrics"
 summary: "screeningで使うvaluation指標の定義、単位、欠損、算出仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-20
+last_reviewed: 2026-07-23
 ---
 
 # valuation-metrics — valuation 指標の算出仕様
@@ -92,7 +92,7 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 
 J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。
 
-対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。document selection は period end / period start を submit time より先に比較し、古い期間の訂正書が新しい半期 / 年次の通常書類を上書きしないようにする。同一期間では最新 submit time を優先し、同一 submit time の tie-break として訂正書を通常書類より優先する。
+対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。document selection の期間比較と訂正書の tie-break は [`./screening-runtime.md`](./screening-runtime.md) §5 を正本とする。
 
 `edinet_source_period_start` / `edinet_source_period_end` は EDINET documents metadata 上の書類対象期間であり、必ずしも抽出 metric の測定期間そのものではない。特に半期報告書 / 訂正半期報告書では fiscal year 全体の period end が入ることがある。screening では source traceability と document selection に使い、research では対象書類の CF 計算書 / BS 表示期間を一次確認する。
 
@@ -159,11 +159,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 
 ### 10.1 Core
 
-- **J-Quants Light / ClientV2**:
-  - `get_eq_master`: 上場銘柄一覧、普通株判定、市場区分、33 業種
-  - `get_eq_bars_daily_range`: 日足（OHLC + 出来高 + 売買代金）
-  - `get_fin_summary_range`: 財務サマリー、会社予想 EPS、利益系の概要値
-  - `get_mkt_calendar`: 営業日カレンダ
+- **J-Quants Light / ClientV2**: 使用 method（`get_eq_master` / `get_eq_bars_daily_range` / `get_fin_summary_range` / `get_mkt_calendar`）の用途と検証は [`./screening-runtime.md`](./screening-runtime.md) §4 を正本とする
 - **EDINET API v2**:
   - documents list (`type=2`): CSV 取得可能な提出書類の選定
   - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / FCF 関連項目を抽出

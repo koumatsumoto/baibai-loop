@@ -21,7 +21,7 @@ last_reviewed: 2026-07-23
 | 決算後に保有を見直す | [`decision-cycle#earnings-and-material-event-path`](./operations/decision-cycle.md#earnings-and-material-event-path) | [`research`](./workflow/research.md)、[`position`](./workflow/position.md)、[`holding review`](./reference/holding-review.md) | 全銘柄screening |
 | 年次結果を確認する | [`decision-cycle#annual-outcome-path`](./operations/decision-cycle.md#annual-outcome-path) | [`position`](./workflow/position.md)、[`estimate calibration`](./reference/estimate-calibration.md) | 新規候補selection |
 | 見積り方法を改善する | [`improvement-loop`](./operations/improvement-loop.md) | [`estimate calibration`](./reference/estimate-calibration.md)、対象workflow | 個別proposal手順 |
-| CLI/modelを変更する | [`architecture`](./architecture.md) | 対象reference、[`testing`](./reference/testing-and-validation.md) | completed operation session |
+| CLI/modelを変更する | [`architecture`](./architecture.md) | 対象reference、[`python-foundation`](./reference/python-foundation.md) | completed operation session |
 | 初めてrepoを触る | [`doctrine`](./doctrine.md) → [`architecture`](./architecture.md) | 対象cycleとlocal skill | 個別workflow/reference詳細 |
 
 ## Docs layers
@@ -64,7 +64,7 @@ last_reviewed: 2026-07-23
 | screening/selection/SQLite | `workflow/screening.md`、`reference/screening-runtime.md`、architecture CLI表 |
 | thesis/review/opportunity | `workflow/research.md`、`reference/thesis.md`、decision-cycle recipe |
 | ledger/result/holding/outcome | `workflow/position.md`、対応reference、decision-cycle human-result/holding節 |
-| model/write-time validation/CI | `reference/testing-and-validation.md`、`reference/python-foundation.md` |
+| model/write-time validation/CI | `architecture.md` Development gates、`reference/python-foundation.md` |
 | local skill | AGENTS skill表、canonical skill、Claude symlink、skill inventory gate |
 
 ## 文書共通contract

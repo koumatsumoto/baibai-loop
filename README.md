@@ -118,7 +118,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest
 UV_CACHE_DIR=/tmp/uv-cache uv run lint-imports
 ```
 
-詳細は[`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md)と[`docs/reference/testing-and-validation.md`](./docs/reference/testing-and-validation.md)を参照してください。
+これはローカル用の subset です。完全な CI gate（drift gate・bandit・pip-audit・UI build を含む）は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とします。
 
 ## Issues
 

@@ -98,6 +98,7 @@ uv run ruff format --check .
 uv run ruff check .
 uv run mypy
 uv run pytest
+uv run lint-imports
 ```
 
-CI と同じ手順は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を参照。
+これはローカル用の subset。drift gate・bandit・pip-audit・UI build を含む完全な CI gate は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とする。
