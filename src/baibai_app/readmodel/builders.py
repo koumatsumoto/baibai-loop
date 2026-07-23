@@ -452,23 +452,67 @@ def build_macro(
     period: MacroPeriod = "1y",
     granularity: MacroGranularity = "daily",
 ) -> MacroView:
-    raw_context = source.context(as_of=as_of)
-    context = None
-    if raw_context is not None:
-        valid_until = date.fromisoformat(str(raw_context["valid_until"]))
-        series_names = macro_series_names()
-        context = MacroContextView(
-            context_id=str(raw_context["context_id"]),
-            as_of=date.fromisoformat(str(raw_context["as_of"])),
-            valid_until=valid_until,
-            published_at=datetime.fromisoformat(str(raw_context["published_at"])),
-            summary=str(raw_context["summary"]),
+    """Macro overview: the published-report index plus the indicator panel.
+
+    Full report sections are served per revision by :func:`build_macro_context_detail`;
+    the overview only carries summaries so it stays a lightweight index.
+    """
+    reports = [
+        MacroContextRevisionView(
+            context_id=str(item["context_id"]),
+            as_of=date.fromisoformat(str(item["as_of"])),
+            valid_until=(valid_until := date.fromisoformat(str(item["valid_until"]))),
+            published_at=datetime.fromisoformat(str(item["published_at"])),
+            summary=str(item["summary"]),
             stale=valid_until < as_of,
-            sections=[
-                _macro_context_section_view(item, series_names=series_names)
-                for item in _optional_mapping_items(raw_context.get("sections"))
-            ],
         )
+        for item in source.contexts()
+    ]
+    return MacroView(
+        as_of=as_of,
+        period=period,
+        granularity=granularity,
+        reports=reports,
+        groups=_build_macro_groups(source, as_of=as_of, period=period, granularity=granularity),
+    )
+
+
+def build_macro_context_detail(
+    source: DbMacroSource,
+    *,
+    context_id: str,
+    as_of: date,
+) -> MacroContextView:
+    """Build one published macro report (full 8 sections) for the detail page."""
+    raw_context = source.context_by_id(context_id=context_id, as_of=as_of)
+    return _build_macro_context_view(raw_context, as_of=as_of, series_names=macro_series_names())
+
+
+def _build_macro_context_view(
+    raw_context: Mapping[str, object], *, as_of: date, series_names: Mapping[str, str]
+) -> MacroContextView:
+    valid_until = date.fromisoformat(str(raw_context["valid_until"]))
+    return MacroContextView(
+        context_id=str(raw_context["context_id"]),
+        as_of=date.fromisoformat(str(raw_context["as_of"])),
+        valid_until=valid_until,
+        published_at=datetime.fromisoformat(str(raw_context["published_at"])),
+        summary=str(raw_context["summary"]),
+        stale=valid_until < as_of,
+        sections=[
+            _macro_context_section_view(item, series_names=series_names)
+            for item in _optional_mapping_items(raw_context.get("sections"))
+        ],
+    )
+
+
+def _build_macro_groups(
+    source: DbMacroSource,
+    *,
+    as_of: date,
+    period: MacroPeriod,
+    granularity: MacroGranularity,
+) -> list[MacroGroupView]:
     groups: list[MacroGroupView] = []
     period_start = _macro_period_start(as_of, period=period)
     for group in source.groups:
@@ -482,11 +526,12 @@ def build_macro(
             )
             if raw_series is None:
                 raise ValueError(f"configured macro series is unavailable: {configured.series_id}")
+            name = str(raw_series["name"])
             series_views.append(
                 MacroSeriesView(
                     series_id=configured.series_id,
-                    label=configured.label,
-                    name=str(raw_series["name"]),
+                    label=configured.label or name,
+                    name=name,
                     unit=str(raw_series["unit"]),
                     tradingview_symbol=(
                         str(raw_series["tradingview_symbol"])
@@ -500,24 +545,7 @@ def build_macro(
                 )
             )
         groups.append(MacroGroupView(title=group.title, series=series_views))
-    history = [
-        MacroContextRevisionView(
-            context_id=str(item["context_id"]),
-            as_of=date.fromisoformat(str(item["as_of"])),
-            valid_until=date.fromisoformat(str(item["valid_until"])),
-            published_at=datetime.fromisoformat(str(item["published_at"])),
-            summary=str(item["summary"]),
-        )
-        for item in source.contexts()
-    ]
-    return MacroView(
-        as_of=as_of,
-        period=period,
-        granularity=granularity,
-        context=context,
-        context_history=history,
-        groups=groups,
-    )
+    return groups
 
 
 def _macro_period_start(as_of: date, *, period: MacroPeriod) -> date | None:

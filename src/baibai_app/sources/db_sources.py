@@ -33,6 +33,7 @@ from baibai_engine.read_api import (
     list_task_payloads,
     list_thesis_publications,
     list_thesis_review_publications,
+    macro_context_payload,
     macro_indicator_series,
     macro_latest_observed_at,
     next_earnings_dates,
@@ -220,7 +221,9 @@ class DbTaskSource:
 class _SeriesConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1)
-    label: str = Field(min_length=1)
+    # Optional display override; when omitted the series registry ``name`` is used
+    # so panel and registry do not carry two sources of truth for the same label.
+    label: str | None = Field(default=None, min_length=1)
 
 
 class _GroupConfig(BaseModel):
@@ -264,6 +267,9 @@ class DbMacroSource:
 
     def context(self, *, as_of: date) -> dict[str, object] | None:
         return latest_macro_context_payload(self._app_db_path, as_of=as_of)
+
+    def context_by_id(self, *, context_id: str, as_of: date) -> dict[str, object]:
+        return macro_context_payload(self._app_db_path, context_id=context_id, as_of=as_of)
 
     def contexts(self) -> list[dict[str, object]]:
         return list_macro_context_payloads(self._app_db_path)

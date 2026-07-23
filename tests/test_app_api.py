@@ -35,11 +35,15 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert macro.status_code == 200
         assert macro.json()["period"] == "5y"
         assert macro.json()["granularity"] == "yearly"
-        assert macro.json()["context"] is None
+        assert macro.json()["reports"] == []
         assert [group["title"] for group in macro.json()["groups"]] == [
-            "金利・金融条件",
-            "為替・物価",
-            "景気・市場",
+            "金利・金融政策",
+            "インフレ・賃金",
+            "景気・雇用",
+            "流動性・クレジット・リスク",
+            "為替",
+            "コモディティ",
+            "株式・バリュエーション",
         ]
         macro_series = {
             series["series_id"]: series
@@ -78,7 +82,7 @@ def test_macro_api_rejects_unknown_period_and_granularity(app_method_root: Path)
         assert client.get("/api/macro?granularity=quarterly").status_code == 422
 
 
-def test_macro_api_renders_eight_section_context_and_series_names(
+def test_macro_api_indexes_published_reports_without_full_sections(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "data/app/baibai.sqlite"
@@ -90,7 +94,26 @@ def test_macro_api_renders_eight_section_context_and_series_names(
 
     assert response.status_code == 200
     body = response.json()
-    assert [section["section_id"] for section in body["context"]["sections"]] == [
+    # The overview is a lightweight index: report summaries, no full sections.
+    assert "context" not in body
+    assert body["reports"][0]["context_id"] == document.context_id
+    assert body["reports"][0]["stale"] is False
+
+
+def test_macro_context_detail_renders_eight_sections_and_series_names(
+    app_method_root: Path,
+) -> None:
+    db_path = app_method_root / "data/app/baibai.sqlite"
+    document = MacroContextDocument.model_validate(macro_context_payload())
+    MacroContextService(db_path).publish(document, expected_head=None)
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-19")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["context_id"] == document.context_id
+    assert [section["section_id"] for section in body["sections"]] == [
         "regime_summary",
         "rates_policy",
         "growth_demand",
@@ -100,14 +123,27 @@ def test_macro_api_renders_eight_section_context_and_series_names(
         "scenarios_connections",
         "monitoring_points",
     ]
-    assert body["context"]["sections"][0]["series"] == [
+    assert body["sections"][0]["series"] == [
         {
             "series_id": "us.10y",
             "name": "米10Y利回り",
         }
     ]
-    assert body["context"]["sections"][6]["scenarios"][0]["case"] == "base"
-    assert body["context_history"][0]["context_id"] == document.context_id
+    assert body["sections"][6]["scenarios"][0]["case"] == "base"
+
+
+def test_macro_context_detail_404_for_unknown_and_future_context(
+    app_method_root: Path,
+) -> None:
+    db_path = app_method_root / "data/app/baibai.sqlite"
+    document = MacroContextDocument.model_validate(macro_context_payload())
+    MacroContextService(db_path).publish(document, expected_head=None)
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        assert client.get("/api/macro/context/does-not-exist").status_code == 404
+        # The context as_of is 2026-07-19; asking before it makes it not-yet-eligible.
+        future = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-01")
+        assert future.status_code == 404
 
 
 def test_macro_api_displays_common_fields_for_sectionless_revision(
@@ -140,10 +176,10 @@ def test_macro_api_displays_common_fields_for_sectionless_revision(
         )
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get("/api/macro?as_of=2026-07-19")
+        response = client.get(f"/api/macro/context/{payload['context_id']}?as_of=2026-07-19")
 
     assert response.status_code == 200
-    assert response.json()["context"] == {
+    assert response.json() == {
         "context_id": payload["context_id"],
         "as_of": payload["as_of"],
         "valid_until": payload["valid_until"],
@@ -163,12 +199,10 @@ def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
     mocker.patch("baibai_app.readmodel.builders.macro_series_names", return_value={})
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get("/api/macro?as_of=2026-07-19")
+        response = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-19")
 
     assert response.status_code == 200
-    assert response.json()["context"]["sections"][0]["series"] == [
-        {"series_id": "us.10y", "name": "us.10y"}
-    ]
+    assert response.json()["sections"][0]["series"] == [{"series_id": "us.10y", "name": "us.10y"}]
 
 
 def test_api_reads_the_explicit_application_database(app_method_root: Path) -> None:

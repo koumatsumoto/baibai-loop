@@ -84,7 +84,8 @@ class CandidatesRun:
 @dataclass(frozen=True, slots=True)
 class MacroSeriesConfig:
     series_id: str
-    label: str
+    # None means "use the series registry name" (single source of truth for labels).
+    label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

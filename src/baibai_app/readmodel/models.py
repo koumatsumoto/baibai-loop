@@ -367,6 +367,7 @@ class MacroContextRevisionView(BaseModel):
     valid_until: date
     published_at: datetime
     summary: str
+    stale: bool
 
 
 class MacroPointView(BaseModel):
@@ -389,9 +390,14 @@ class MacroGroupView(BaseModel):
 
 
 class MacroView(BaseModel):
+    """Macro overview: the report index (summaries) plus the indicator panel.
+
+    Full report sections are served per revision by ``MacroContextView`` at
+    ``/api/macro/context/{context_id}`` so the overview stays a lightweight index.
+    """
+
     as_of: date
     period: Literal["1y", "5y", "10y", "max"]
     granularity: Literal["daily", "weekly", "monthly", "yearly"]
-    context: MacroContextView | None
-    context_history: list[MacroContextRevisionView]
+    reports: list[MacroContextRevisionView]
     groups: list[MacroGroupView]

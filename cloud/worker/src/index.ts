@@ -8,6 +8,9 @@ const HSTS_HEADER = API_HEADERS['Strict-Transport-Security']
 const MACRO_PERIODS = new Set(['1y', '5y', '10y', 'max'])
 const MACRO_GRANULARITIES = new Set(['daily', 'weekly', 'monthly', 'yearly'])
 const TICKER_PATTERN = /^[0-9A-Z]{4}$/
+// Mirrors _MACRO_CONTEXT_ID_FORMAT in tools/cloud/export_read_models.py; excludes
+// path separators so the id maps to exactly one serving key.
+const MACRO_CONTEXT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
 
 type RouteResult =
   | { kind: 'health' }
@@ -91,8 +94,20 @@ function resolveRoute(url: URL): RouteResult {
     case '/api/macro':
       return resolveMacro(url.searchParams)
     default:
-      return resolveSecurity(url.pathname)
+      return resolveMacroContext(url.pathname) ?? resolveSecurity(url.pathname)
   }
+}
+
+function resolveMacroContext(pathname: string): RouteResult | null {
+  const prefix = '/api/macro/context/'
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const contextId = pathname.slice(prefix.length)
+  if (!MACRO_CONTEXT_ID_PATTERN.test(contextId)) {
+    return { kind: 'error', status: 404, detail: 'unknown macro context' }
+  }
+  return view(`macro-context--${contextId}.json`)
 }
 
 function resolveMacro(params: URLSearchParams): RouteResult {

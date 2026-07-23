@@ -47,7 +47,7 @@ baibai-loop
 | `proposals` | trade proposal と人間の current decision | `baibai-engine proposal` |
 | `appdb` | application DB path、migration、backup、writer connection | `baibai-engine db` |
 | `read_api` | app が使う query-only view | engine 内部 |
-| `baibai_app` | Dashboard / Screening / Security / Macro の read-only UI（Baibai App） | `baibai-app` |
+| `baibai_app` | Dashboard / Macro / Stocks の read-only UI（Baibai App） | `baibai-app` |
 
 engine 内の domain は app に依存しない。app は `read_api` と query source を通じて DB を read-only mode で開き、migration、write service、外部 networkへ到達しない。
 
@@ -84,7 +84,7 @@ public entry point は次の2本だけである。
 
 ## Read-only app invariants
 
-`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIはDashboard、Screening、Shortlist、Security detail、Macroを提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。`/api/meta`はscreening / macro / application DBのas-of鮮度をstore内timestampから返し（file mtimeに依存しない）、UIは各画面のデータ鮮度として表示する。
+`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIは3タブ（Dashboard、Macro、Stocks）とタブなし詳細（Macro report、shortlist、Security detail）を提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Macroは環境認識レポートのindexと指標オーバービュー、Stocksは機械screening（Fact）と深掘りshortlist（Judgment）を分けて表示する。`/api/meta`はscreening / macro / application DBのas-of鮮度をstore内timestampから返し（file mtimeに依存しない）、UIは各画面のデータ鮮度として表示する。
 
 ## Cloud serving layer
 

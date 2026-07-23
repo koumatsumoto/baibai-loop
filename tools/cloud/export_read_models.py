@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
+    build_macro_context_detail,
     build_meta,
     build_operations_view,
     build_screening,
@@ -39,6 +40,9 @@ _MACRO_GRANULARITIES = ("daily", "weekly", "monthly", "yearly")
 # Same shape the ledger and run store enforce at write time; re-checked here so a
 # store-derived string never reaches filename composition unvalidated.
 _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
+# macro context_id charset; excludes path separators so it is safe in a filename
+# and mirrors the Worker route validation for the same key.
+_MACRO_CONTEXT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
 def export_read_models(
@@ -84,6 +88,14 @@ def export_read_models(
         for granularity in _MACRO_GRANULARITIES:
             macro = build_macro(stores.macro, as_of=as_of, period=period, granularity=granularity)
             written.append(_write_model(views_dir / f"macro--{period}-{granularity}.json", macro))
+
+    for context in stores.macro.contexts():
+        context_id = str(context["context_id"])
+        if _MACRO_CONTEXT_ID_FORMAT.fullmatch(context_id) is None:
+            _warn(f"macro context_id has an unexpected format: {context_id!r}; report view skipped")
+            continue
+        detail = build_macro_context_detail(stores.macro, context_id=context_id, as_of=as_of)
+        written.append(_write_model(views_dir / f"macro-context--{context_id}.json", detail))
 
     cached_candidates = _CachedLatestRunCandidates(stores.candidates)
     for ticker in _security_tickers(dashboard, screening):

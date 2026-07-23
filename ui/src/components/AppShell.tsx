@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import { fetchJson } from '../api/client'
 import type { MetaView } from '../api/types'
 import { FreshnessMeta } from './FreshnessMeta'
 import { ThemeToggle } from './ThemeToggle'
 import { Badge } from './ui/badge'
+import { NAV_TABS } from '../lib/nav'
 import { cn } from '../lib/utils'
 
 export function AppShell() {
   const [meta, setMeta] = useState<MetaView | null>(null)
+  const { pathname } = useLocation()
 
   // Meta view is optional infrastructure: when the endpoint is missing or errors, keep
   // the shell usable and simply omit the freshness strip.
@@ -25,24 +27,22 @@ export function AppShell() {
           <span>Baibai App</span>
         </Link>
         <nav className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label="メインナビゲーション">
-          {[
-            { to: '/', label: 'Dashboard', end: true },
-            { to: '/screening', label: 'Screening', end: false },
-            { to: '/shortlist', label: 'Shortlist', end: false },
-            { to: '/macro', label: 'Macro', end: false },
-          ].map((item) => (
-            <NavLink
-              className={({ isActive }) => cn(
-                'relative flex h-full items-center px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground',
-                isActive && 'text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-foreground',
-              )}
-              end={item.end}
-              key={item.to}
-              to={item.to}
-            >
-              {item.label}
-            </NavLink>
-          ))}
+          {NAV_TABS.map((item) => {
+            const active = item.match(pathname)
+            return (
+              <Link
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'relative flex h-full items-center px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground',
+                  active && 'text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-foreground',
+                )}
+                key={item.to}
+                to={item.to}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
         </nav>
         <div className="flex shrink-0 items-center gap-3">
           {meta !== null && <FreshnessMeta className="hidden border-r border-border/60 pr-3 lg:flex" meta={meta} />}
