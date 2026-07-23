@@ -11,24 +11,32 @@ _BEHAVIOR_LEGACY = re.compile(
     r"durability_gate|execution lifecycle|"
     # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
     # the judgment artifact is the thesis, the pre-cap rank pool is the longlist,
-    # the OP3 output is the shortlist, and the read-only UI is Baibai App.
+    # the OP3 output is the shortlist, and the read-only UI is Baibai App. The Git
+    # method tree is method/ (records/ was renamed), so reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
     r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"
-    r"records/_config|records/_playbooks|macro-dashboard",
+    # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
+    # skipping `/records/` fragments inside external URLs.
+    r"(?<!/)\brecords/|macro-dashboard",
     re.IGNORECASE,
 )
-_BEHAVIOR_ALLOW = {Path("docs/reference/testing-and-validation.md")}
+
+# Documentation surfaces that state current behaviour. reports/ holds dated
+# measurement records that intentionally keep the vocabulary of their time, so it
+# is excluded; everything an agent reads as current instruction is scanned.
+_SCAN_DIRECTORIES = ("docs", ".agents/skills", "data")
+_ROOT_FILES = ("README.md", "AGENTS.md", "CLAUDE.md")
 
 
 def check(root: Path) -> list[str]:
-    errors: list[str] = []
-    behavior_paths = [root / "README.md", root / "AGENTS.md"]
-    for relative in ("docs/operations", "docs/workflow", ".agents/skills"):
+    behavior_paths = [root / name for name in _ROOT_FILES]
+    for relative in _SCAN_DIRECTORIES:
         directory = root / relative
         if directory.is_dir():
-            behavior_paths.extend(directory.rglob("*.md"))
+            behavior_paths.extend(sorted(directory.rglob("*.md")))
+    errors: list[str] = []
     for path in behavior_paths:
-        if not path.is_file() or path.relative_to(root) in _BEHAVIOR_ALLOW:
+        if not path.is_file():
             continue
         if match := _BEHAVIOR_LEGACY.search(path.read_text(encoding="utf-8")):
             errors.append(

@@ -3,7 +3,7 @@ title: "改善ループ runbook"
 summary: "基盤改善サイクルの正本。現状計測 → 仮説の事前登録 → design/confirm 検証 → 採用実装 → 運用テスト → 継続監視を、誠実性規律つきで回す手順。"
 doc_type: operation
 status: active
-last_reviewed: 2026-07-15
+last_reviewed: 2026-07-23
 related_docs:
   - "../doctrine.md"
   - "../reference/estimate-calibration.md"
@@ -97,5 +97,5 @@ uv run baibai-engine screening select --asof <同上> --run-revision-id <run rev
 
 - 1 改善 = 1 issue = 1 PR。レビュー反映・運用テストで見つけたバグ修正・付随する follow-up は同一 PR にコミットを積む。
 - issue title は `task(<subsystem>): <改善の要約>` または `improve: <要約>`。本文に観察 → 仮説 → 検証方法 → 着手条件。
-- 判断の正本は records / reports に置き、issue / PR には参照と要約を書く（[`./task-runbook.md`](./task-runbook.md) と同じ原則）。
+- 投資判断の正本は application DB、計測記録は `reports/` に置き、issue / PR には参照と要約を書く（[`./task-runbook.md`](./task-runbook.md) と同じ原則）。
 - マージ前ゲート: `ruff format --check` / `ruff check` / `mypy` / `pytest` + write-time negative test + 運用テスト（§5）。

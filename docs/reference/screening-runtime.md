@@ -3,7 +3,7 @@ title: "Screening runtime"
 summary: "screening CLI、provider、SQLite schema、cache coverage、runtime設定の実装仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-20
+last_reviewed: 2026-07-23
 ---
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
@@ -24,16 +24,19 @@ last_reviewed: 2026-07-20
 - 実行コマンド:
 
 ```bash
-python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
-python -m baibai_engine.screening.cli run --asof YYYY-MM-DD --allow-stale-jpx
-python -m baibai_engine.screening.cli bootstrap-cache --asof YYYY-MM-DD
-python -m baibai_engine.screening.cli select --asof YYYY-MM-DD [--macro-context path] [--top N] [--profile PROFILE]
-python -m baibai_engine.screening.cli ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
-python -m baibai_engine.screening.cli market-snapshot [--asof YYYY-MM-DD] [--weeks N]
-python -m baibai_engine.screening.cli extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
-python -m baibai_engine.screening.cli verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
-python -m baibai_engine.screening.cli prune [--keep N] [--runs-db PATH]
+uv run baibai-engine screening run --asof YYYY-MM-DD
+uv run baibai-engine screening run --asof YYYY-MM-DD --allow-stale-jpx
+uv run baibai-engine screening bootstrap-cache --asof YYYY-MM-DD
+uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id ID [--macro-context-id ID] [--top N] [--profile PROFILE] [--detail summary|full] [--longlist-top N]
+uv run baibai-engine screening shortlist publish DRAFT.yaml [--db PATH]
+uv run baibai-engine screening ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
+uv run baibai-engine screening market-snapshot [--asof YYYY-MM-DD] [--weeks N]
+uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
+uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
+uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 ```
+
+`select` の `--run-revision-id` は必須で、`screening run` が返した immutable revision を指す。`--macro-context-id` は published macro context の ID（省略時は as-of 以前の latest eligible）で path ではない。`--longlist-top N` は diversity/cap 切断前の上位 N 件を longlist として出す。
 
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
 
@@ -49,7 +52,7 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 
 金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、longlist の対象になる。
 
-`ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近screening runのcandidate record・prior research を 1 つの事実 thesis として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation はそのcandidate recordから引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite と records だけを読む。
+`ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近screening runのcandidate record・prior research を 1 つの事実 profile として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation はそのcandidate recordから引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite、run store（`data/screening/runs.sqlite`）、application DB（prior research 用）を読む。
 
 `listing_span_days` は J-Quants 銘柄 master に上場日が無いため、cache 内の最古 daily bar からの経過日数を proxy にする。bars cache の窓は asof−1200 暦日なので、上場が古い銘柄は ~1200 日で頭打ちになる（新規上場は実日数）。上場年数の実値ではなく「最低これだけの履歴がある」下限として読む。
 
@@ -108,9 +111,9 @@ cache / SQLite の配置先は固定 (env override 廃止):
 EDINET CSV-derived metrics を更新してから run する標準手順:
 
 ```bash
-python -m baibai_engine.screening.cli extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
-python -m baibai_engine.screening.cli verify-cache-coverage --asof YYYY-MM-DD
-python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
+uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD --lookback-days 540
+uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
+uv run baibai-engine screening run --asof YYYY-MM-DD
 ```
 
 `EDINET_API_KEY` が無い場合、`extract-edinet-metrics` は fail-fast する。`run` は SQLite の EDINET metrics が無い状態では継続せず、事前 coverage 検証で fail-fast する。
@@ -160,7 +163,7 @@ python -m baibai_engine.screening.cli run --asof YYYY-MM-DD
 - `data/screening/market.sqlite` は screening input の local canonical store。J-Quants / EDINET / JPX の provider fetch は normalized table と `source_coverage` を直接更新する
 - `.cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の cache。削除しても SQLite の metric rows は残る
 - `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit をYAML viewの`freshness_warnings`に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
-- `records/` はmethod/configとplaybookだけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
+- `method/` は screening rules・macro panel・playbook だけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
 - `screening run` は開始時に `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない
 - `JQuantsProvider` / `EDINETProvider` / `JPXProvider` は bootstrap / extract 系コマンドでは SQLite miss 後に provider API へ進み、取得結果を SQLite に直接保存する。`screening run` では `cache_only` で構築され、run 中の追加取得を禁止する
 

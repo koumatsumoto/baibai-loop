@@ -3,7 +3,7 @@ title: "Research decision report"
 summary: "詳細リサーチ、横比較、購入方法を独立content review後にHTML projectionへ統合する契約。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-15
+last_reviewed: 2026-07-23
 ---
 
 # research-decision-report — 詳細リサーチ統合レポート
@@ -99,7 +99,7 @@ no actionable bargainでは`--proposal`を省略する。selected tickerがあ�
 
 HTMLは外部script/assetを持たず、CSPを設定し、全自由記述をescapeする。tickerは固定形式のTradingView URLだけへlinkする。一次source linkはHTTPSかつpublic hostだけを許し、hostnameを表示してuserinfo、localhost、private / link-local literalを拒否する。non-ok sourceのdecision-impact noteと、pass reviewに残るwarning / info findingを省略せず表示する。`missing / failed / blocked` sourceを`observed` evidenceの根拠には使えない。
 
-comparisonの5年base CAGR / FV / FV gapはthesisから再計算し、proposalのboard lot / max price / raw close / quantity / notionalは`plan-limit`と同じpolicy・式から再導出する。各候補のscenario節には、`evaluate_thesis`で再導出した要求5年CAGR、base terminal multiple、5年base break-even（multiple / earnings growthとdownside buffer）、観測trailing multipleを表示する。bufferが負であることは表示上の欠陥ではなく、買い提案との整合はreview gateの責務とする。break-evenを再導出できないthesisはfail-closedで停止する。portfolio exposureはproposal内のcurrent / prospective円額と同一basisの総資本から比率を再計算し、fallback銘柄とwarning codeの1対1対応も確認する。review hashがfreshでも矛盾した手書き数値は拒否する。`planned_limit`は何を・いくらで・何株・想定いくら・いつまでに加え、同一as-ofのticker / sector / common-factor比率とfallback有無を表示する。`defer` / `no actionable bargain`は購入提案なしを明示する。
+comparisonの5年base CAGR / FV / FV gapはthesisから再計算し、proposalのboard lot / max price / raw close / quantity / notionalは`plan-limit`と同じpolicy・式から再導出する。各候補のscenario節には、`baibai-engine research evaluate`で再導出した要求5年CAGR、base terminal multiple、5年base break-even（multiple / earnings growthとdownside buffer）、観測trailing multipleを表示する。bufferが負であることは表示上の欠陥ではなく、買い提案との整合はreview gateの責務とする。break-evenを再導出できないthesisはfail-closedで停止する。portfolio exposureはproposal内のcurrent / prospective円額と同一basisの総資本から比率を再計算し、fallback銘柄とwarning codeの1対1対応も確認する。review hashがfreshでも矛盾した手書き数値は拒否する。`planned_limit`は何を・いくらで・何株・想定いくら・いつまでに加え、同一as-ofのticker / sector / common-factor比率とfallback有無を表示する。`defer` / `no actionable bargain`は購入提案なしを明示する。
 
 ## Storage and checkpoint
 

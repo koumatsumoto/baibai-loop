@@ -20,7 +20,7 @@ description: 金利・為替・流動性・需要・資金調達・共通tail ri
 
 ## 手順
 
-1. `baibai-engine macro context head`と`context show --latest --asof <date>`でpublished contextの`as_of / valid_until / monitoring_points`を確認する。
+1. `baibai-engine macro context head`で現行 context ID を、`context show --latest --asof <date>`で`as_of / valid_until / monitoring_points`を確認する。
 2. 変化channelを`discount rate / demand / funding / common tail`から選ぶ。
 3. 判断に必要なseriesと一次sourceだけ取得する。
 4. series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。

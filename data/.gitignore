@@ -5,7 +5,7 @@
 screening/*
 !screening/.gitignore
 !screening/README.md
-!stats/
-stats/*
-!stats/.gitignore
-!stats/README.md
+!indicators/
+indicators/*
+!indicators/.gitignore
+!indicators/README.md

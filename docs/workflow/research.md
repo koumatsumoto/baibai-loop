@@ -3,7 +3,7 @@ title: "Workflow — research"
 summary: "人間が選んだprimary-research setを一次情報、永久損失、3年/5年scenario、反証で比較し、最良0〜1件をthesisへ固定する。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-15
+last_reviewed: 2026-07-23
 related_docs:
   - "./screening.md"
   - "../reference/thesis.md"
@@ -35,7 +35,7 @@ operation sessionでbusiness-model guide pilotの対象に指定したlaneでは
 | stage | artifact | contract |
 | --- | --- | --- |
 | production recommendations | screening selection outputの`recommendations` | rulesの`research_selection_target_max`を適用した通常表示 |
-| shortlist | OP3 gateのnarrative付き判断（`/shortlist`レビュー面） | 件数と選定手順は[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)を正本とする |
+| shortlist | OP3 gateのnarrative付き判断（`/stocks/shortlist`レビュー面） | 件数と選定手順は[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)を正本とする |
 | primary-research set | workspaceの`selection.yaml.shortlist` | 人間がreportから選ぶ。推奨2〜4件で、selection outputの`research_selection_target_max`を上限とする |
 | selected | `research-comparison.yaml.selected_ticker` | 一次情報で全対象を比較した後の最良0〜1件 |
 

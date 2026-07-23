@@ -3,7 +3,7 @@ title: "Python foundation"
 summary: "Python の runtime・依存管理・lint・型検査・validation 境界・テスト・セキュリティ・CI 一致の正本。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-20
+last_reviewed: 2026-07-23
 source_paths:
   - "../../src/baibai_engine/"
   - "../../tests/"
@@ -13,7 +13,7 @@ source_paths:
 
 # Python foundation
 
-このリポジトリの Python 基盤の正本。対象は `src/baibai_engine/**` と `tests/**`。Baibai-Loop は外部データを取り込み、Markdown front matter と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
+このリポジトリの Python 基盤の正本。対象は `src/baibai_engine/**` と `tests/**`。Baibai-Loop は外部データを取り込み、SQLite store と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
 
 ## 1. Runtime policy
 
@@ -100,7 +100,7 @@ Pydantic は「外部から入る値」と「永続化境界」に使う。す�
 
 - environment config
 - external provider payload normalization
-- Markdown front matter parsing
+- application DB / SQLite store の read/write 境界
 - screen result document serialization
 
 この repo では Pydantic の strict mode を基本にする。ただし YAML / API / cache から来る raw 値は、normalizer で明示的に変換してから domain model に渡す。例えば `str -> date` や `str -> float` は provider normalizer の責務であり、domain model に暗黙 coercion させない。
@@ -110,7 +110,7 @@ Pydantic は「外部から入る値」と「永続化境界」に使う。す�
 - `0` / `0.0` を falsy として欠損扱いする。
 - `NaN` が valuation 計算へ流れる。
 - ticker 表記揺れが downstream key に混ざる。
-- front matter の壊れた shape を select 処理が黙って空扱いする。
+- run store(SQLite) の壊れた shape を select 処理が黙って空扱いする。
 
 参考:
 
@@ -177,15 +177,21 @@ uv sync --frozen --all-groups
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
+uv run lint-imports
+uv run python tools/drift/check_markdown_links.py
+uv run python tools/drift/check_cli_doc.py
+uv run python tools/drift/check_legacy_semantics.py
+uv run python tools/drift/check_duplicate_constants.py
+uv run python tools/drift/check_skill_inventory.py
 uv run coverage run -m pytest
 uv run coverage report -m
-uv run bandit -c pyproject.toml -r src/baibai_engine -q
+uv run bandit -c pyproject.toml -r src/baibai_engine src/baibai_app -q
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel
 ```
 
-GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
+UI（`ui/`）と Cloudflare Worker（`cloud/worker/`）は別 job で npm build / test / 型チェック（Worker は `wrangler deploy --dry-run` を含む）を実行する。この §9 は Python gate の唯一の正本で、job 全体（quality / frontend / cloud-worker）は `.github/workflows/ci.yml`、security（bandit / pip-audit）は `.github/workflows/security.yml` を正本とする。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
 
 参考:
 

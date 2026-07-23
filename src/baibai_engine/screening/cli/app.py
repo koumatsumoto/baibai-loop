@@ -222,7 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
-        help="emit the single-ticker fact thesis (price, relative, regime, events, screening)",
+        help="emit the single-ticker fact profile (price, relative, regime, events, screening)",
     )
     profile_parser.add_argument("--ticker", required=True, help="4-character ticker code")
     profile_parser.add_argument(
@@ -318,7 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     snapshot_parser = subparsers.add_parser(
         "market-snapshot",
-        help="emit the market state thesis (weekly regime history and sector aggregates)",
+        help="emit the market state snapshot (weekly regime history and sector aggregates)",
     )
     snapshot_parser.add_argument(
         "--asof",

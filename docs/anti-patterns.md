@@ -3,7 +3,7 @@ title: "Anti-patterns"
 summary: "投資判断、data、schema、validator、AI運用で繰り返し防ぐ失敗パターンとcommit前checklist。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-20
+last_reviewed: 2026-07-23
 ---
 
 # anti-patterns
@@ -16,8 +16,7 @@ PR で繰り返し指摘される類型は本ドキュメントに集約し、se
 
 ## 0. 全 anti-pattern 共通の根本原因
 
-PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビューで合計 21 件の指摘を
-受けた。共通する根本原因は以下:
+AI agent 作業で繰り返し観測される失敗の共通根本原因は以下:
 
 1. **一次情報を確認せずに二次情報・推測で書く**
 2. **数値を機械的に検算しないまま記述する**
@@ -43,7 +42,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   して書いた (実際は press release では未記載、要 transcript / 10-K)
 - 6590 芝浦メカトロニクス の顧客を TSMC / Samsung / Kioxia と断定した (公式製品ページで
   確認できるのは製品領域までで、顧客別売上比率は有報未確認)
-- OPEC+ 5/3 statement を旧 outlook / brief 作成日 (5/4) に確認していなかった
+- OPEC+ 5/3 statement を macro context 作成日 (5/4) に確認していなかった
 
 ### 根本原因
 - 自分の事前知識ベースで「だろう」と書く habit
@@ -126,8 +125,6 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   業種中で強い) を返す。個別銘柄の同業種内相対強度ではない
 - screening run / macro context schema の追加プロパティ可否を確認せず `note` / `previous_change`
   を勝手に追加 → validate error
-- 旧 outlook YAML schema の `source_refs` が brief YAML パスに限定されることを確認せず
-  research-log.md を指定 → validate error
 
 ### 根本原因
 - field 名から意味を「だろう」で推測する
@@ -147,23 +144,18 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ## 5. AP-05: fact 層と分析層の境界を曖昧にする
 
 ### 観測された症状
-- 旧 brief の `note` / `fact_memos` / `events` に「FOMC タカ派ホールドの正当化材料」「需要側
+- 機械store（market / macro series / screening run）に「FOMC タカ派ホールドの正当化材料」「需要側
   冷却の early evidence hit」「油価高値圏粘着の構造要因」「122 条効果が顕在化」などの解釈・因果
   推論・意味付け表現を書いた (doctrine.md#fact-analysis-separation で禁止)
 
 ### 根本原因
-- 旧 brief = 事実層 / outlook = 分析層 の境界を意識せず、便利な要約として書く
+- 事実層（機械store）と分析層（macro context / thesis）の境界を意識せず、便利な要約として書く
 - doctrine.md#fact-analysis-separation の禁止表現リスト (「示唆」「背景」「受けて」「意味する」) を
   読み返さない
 
 ### 再発防止チェックリスト
 
-- [ ] L1 / L2の機械store（market / macro series / screening run）に以下のような解釈表現が含まれていないか:
-  - [ ] 「示唆する」「観測される」「受けて」「背景に」「意味する」
-  - [ ] 「正当化材料」「early evidence hit」「顕在化」「構造要因」
-  - [ ] 「注目すべき」「重要な」「焦点となる」 (Major/Notable は閾値ラベルでありこの意味では
-        使わない)
-- [ ] L1 / L2の機械store（market / macro series / screening run）に解釈・因果推論・予測を混ぜていないか
+- [ ] L1 / L2の機械store（market / macro series / screening run）に [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) の禁止表現（因果推論・予測・意味付け・重要度評価）が 1 件も含まれていないか。禁止語リストは doctrine §6 が正本で、ここへ複写しない
 - [ ] 解釈・因果推論・予測は macro context / research の分析層に移したか
 - [ ] macro context で使った外部記事・統計は source metadata として残し、記事本文や網羅的 fact を repo に蓄積していないか
 
@@ -193,7 +185,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 ### 観測された症状
 - 米 4 月 PCE 公表予定を「5/30 前後」と書いた (BEA schedule で確認した正確な日付は
   2026-05-28 8:30 EDT)
-- 旧 outlook 5/4 公開時に OPEC+ 5/3 statement を反映しなかった
+- macro context 5/4 公開時に OPEC+ 5/3 statement を反映しなかった
 - next_events に source_ids を紐付けず、BLS schedule などの一次情報を素通り
 
 ### 根本原因
@@ -234,27 +226,12 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 
 ### 再発防止チェックリスト
 
-- [ ] validator rule を追加・修正する場合、以下の corner case の test を必ず書く:
-  - [ ] thesisは7永久損失軸、source/as-of、3年/5年bear/base/bullを欠くと`incomplete`になる
-  - [ ] thesisは`input_snapshot`、判断時`market_price`、valuation factを欠くと`incomplete`になる
-  - [ ] snapshot sourceのticker不一致、未来as-of/retrieval、未知source ID、不正unit/typeを拒否する
-  - [ ] source retrievalとmarket price observationがAI proposal時刻より後なら拒否する
-  - [ ] canonical thesis ID、ticker、as-ofがsnapshot identityと一致する
-  - [ ] AI value captureはsourceを持ち、`not_material`ならrole/decision weightを持たず、`disrupted`ならstructural_decline riskと根拠が接続する
-  - [ ] `entry_price_basis: observed_market_price`はsnapshotの判断時priceと一致する
-  - [ ] execution policyはstale / historical / synthetic quote、max price超過、cash / dry-powder不足を`defer`にし、全orderがboard lot・合法tick・max priceを守る
-  - [ ] local candidate YAML / SQLite pathをtracked decisionの参照先にせず、provider・dataset・retrieved_atをsnapshotへ固定する
-  - [ ] scenarioの利益、株数変化、terminal multiple、配当、CAGRを再計算し、配当をterminal priceと二重計上できない
-  - [ ] primary evidence不足でhigh confidenceまたは通常sizingのbuyへ進めず、期限付きoverrideと縮小sizingを要求する
-  - [ ] buy proposalのindependent reviewは別agent/session・別artifactで作り、thesis hash、reviewer run ID、6 scenario再計算、全load-bearing source照合、変更有無へ束縛される
-  - [ ] AI proposalは`proposed_at <= reviewed_at`、一次情報不足overrideは別envelopeでhuman decision reference・認識risk axesを持ち、review後かつ期限内に承認される
-  - [ ] screening E[r] / FVはobserved factへ混ぜずsource付きestimateとして扱い、値の不在・null・範囲外、selection / snapshot / thesisのas-of不一致、未知sourceを検証する。FV bridge欠損だけではinvestment readinessをblockせずscreening sourceをindependent reviewのload-bearing集合へ入れない一方、bridge enum、空白note、3物理行以上を拒否し、optional field追加前のthesis core hashを維持する
+- [ ] validator rule を追加・修正する場合、その rule の corner case を negative test で必ず塞ぐ。thesis の `incomplete` 条件、snapshot source の identity / 時刻 / unit 拒否、execution policy の quote / max price / cash 判定、independent review の hash 束縛、screening E[r] / FV の estimate 扱いといった個別 field の必須・拒否条件は engine model と各 negative test（`test_thesis.py` / `test_proposal_store.py` / `test_execution_policy.py` / `test_portfolio_ledger.py` 等）が正本で、本節へ網羅転記しない。追加時は最低限次の corner case を test する:
   - [ ] 関連 field が **不在** の場合 (skip / error どちらが正しいか)
   - [ ] 関連 field が **null** の場合
   - [ ] 関連 field が **0 / 負値** の場合 (decision との整合性)
   - [ ] model 管理している **nested object** が未知 field を許していないか
-  - [ ] **既存 thesis** (4/25 research 5 件など) が新 rule で breakage しないか、する場合は
-        同 commit で fix する
+  - [ ] **既存 thesis** が新 rule で breakage しないか、する場合は同 commit で fix する
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか
 - [ ] human result CLIを変更する場合、報告なしでno write、approved proposal ID必須、missing fieldの質問、draft時canonical非変更、stale append head拒否をcontract testで確認したか
@@ -280,15 +257,15 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
-- [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える** (PR #248 で 5 名レビューで指摘):
+- [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える**:
   - [ ] `src/baibai_engine/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
   - [ ] `src/baibai_engine/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
   - [ ] `src/baibai_engine/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
-  - [ ] `docs/` 全 grep (`rg <subcommand> docs/ records/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
+  - [ ] `docs/` 全 grep (`rg <subcommand> docs/ method/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.agents/skills/`と`.claude/skills/`全grep: canonical skillとsymlinkが当該CLIを参照していないか
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) と `docs/workflow/screening.md` の selection block 節
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
-- [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える** (PR #246 で 5 名レビューで指摘):
+- [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える**:
   - [ ] `method/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
         `research_selection_playbook_order` から削除
   - [ ] `src/baibai_engine/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
@@ -307,7 +284,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 - research 対象銘柄なのに、会社IRを読まず、screening 数値や外部分析だけで採用 / 見送り判断を書く
 - 別AIの分析にある EPS 前提、OpenAI 連携日、AI 関連売上、同業倍率、休場日などを、
   会社IR・取引所・screening run出力で再確認せず research / trade に取り込む
-- 「分析の方向性は合っている」ことと「records に事実として残せる」ことを混同する
+- 「分析の方向性は合っている」ことと「thesis に事実として残せる」ことを混同する
 - 直前の `rejected` 判定、最新screening run出力からの不在、universe drop、macro context headwind などの
   system output を、override log なしに外部分析で上書きする
 - 祝日中の成行注文を約定済み entry として記録し、entry price を推定で埋める
@@ -328,7 +305,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
       `reject`にして、追加確認条件を明示したか
 - [ ] 外部 AI / 二次分析の結論を採用する前に、主要数値を会社IR・決算短信・決算説明資料・Q&A・
       取引所 calendar・screening run出力のいずれかで再確認したか
-- [ ] 外部 AI セッション・証券レポート・アナリストノートを使う場合、records に原稿管理を増やさず、採用した事実と再計算結果だけを本文に残したか
+- [ ] 外部 AI セッション・証券レポート・アナリストノートを使う場合、thesis に原稿管理を増やさず、採用した事実と再計算結果だけを本文に残したか
 - [ ] 外部 AI の出力を review 後に修正する場合、修正・未採用の判断を research 本文の確認ログに残したか
 - [ ] 確認できた事実、修正した数値、未採用の二次情報を research の source verification log に分けて残したか
 - [ ] EPS / PER / 配当利回り / target price は公式 EPS・配当予想・株価で再計算したか
@@ -356,7 +333,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
   思い込み、YAML パースが 93% を占めていることに気付かなかった
 - `yaml.safe_load(...)` を素朴に使い、libyaml backed の `yaml.CSafeLoader` に切り替えるだけで
   5 倍速くなる事実を見落とした
-- YAML loaderの高速化が個別moduleに閉じ、他のrecords readerがpure-Python loaderへ戻った
+- YAML loaderの高速化が個別moduleに閉じ、他のYAML readerがpure-Python loaderへ戻った
 
 ### 根本原因
 
@@ -382,18 +359,7 @@ PR #68 (2026-05-04 旧 outlook + 6590 research) で 2 ラウンドのレビュ�
 `yaml.dump` / `yaml.safe_dump` 側の hot path も同様に `yaml.CSafeDumper` を使えば加速できるが、
 write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py 等)。
 
-## 11. PR review で繰り返し指摘される類型の追跡
-
-PR で同じ anti-pattern が 2 ラウンド以上指摘されたら、本ドキュメントの該当節を強化または
-新節として追加する。直近の事例:
-
-| PR | round | 主な anti-pattern |
-| --- | --- | --- |
-| #68 | 1 | AP-01 (122 条 13%、TSMC/Samsung/Kioxia 断定)、AP-02 (adv 100 倍、利確 +118% / +30% 矛盾)、AP-03 (6590 split artifact)、AP-04 (sector_relative_strength_percentile 誤読)、AP-06 (米コア PCE brief 未反映)、AP-07 (PCE 5/30 前後)、AP-08 (adv consistency 抜け道) |
-| #68 | 2 | AP-01 (TSMC Capex / Sovereign AI 未確認のまま outlook で断定継続)、AP-05 (brief への分析混入)、AP-06 (outlook source_refs と brief 不整合 35 箇所)、AP-07 (OPEC+ 5/3 反映漏れ、PCE 5/28 ではなく 5/30) |
-| #77 | 1 | AP-06 (outlook source_refs と春闘 fact の不整合)、AP-08 (submitted order / paper-real size 分離の validator 死角)、AP-09 (別AI分析で rejected→approved を暗黙 override、注文と約定の状態分離不足) |
-
-## 12. 関連ドキュメント
+## 11. 関連ドキュメント
 
 - 思想・基本方針: [`doctrine.md`](./doctrine.md)
 - 事実 / 分析の分離: [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation)
