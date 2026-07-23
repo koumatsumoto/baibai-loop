@@ -127,6 +127,11 @@ export function MacroPage() {
   if (error) return <PageState message={error} />
   if (!data) return <PageState message="Macro を読み込んでいます…" />
 
+  // Degrade gracefully rather than white-screen if a served view is ever missing a
+  // field (e.g. a stale view during a deploy that precedes its re-materialization).
+  const reports = data.reports ?? []
+  const groups = data.groups ?? []
+
   const toggle = (seriesId: string) => {
     setExpanded((current) => {
       const next = new Set(current)
@@ -140,11 +145,11 @@ export function MacroPage() {
     <><AppShell /><main className="mx-auto grid max-w-[1600px] gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <section className="grid gap-3">
         <div><p className="text-sm font-medium text-muted-foreground">Judgment</p><h1 className="text-2xl font-semibold tracking-tight">環境認識レポート</h1></div>
-        {data.reports.length === 0
+        {reports.length === 0
           ? <Alert><CircleAlert /><AlertTitle>Published context なし</AlertTitle><AlertDescription>指標は下段に fact として表示します。投資判断用の環境認識レポートは publish 後に現れます。</AlertDescription></Alert>
           : (
             <Card className="divide-y py-0 shadow-sm">
-              {data.reports.map((report) => (
+              {reports.map((report) => (
                 <Link className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-muted/40" key={report.context_id} to={`/macro/reports/${report.context_id}`}>
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="truncate text-sm font-medium">{report.summary}</span>
@@ -170,7 +175,7 @@ export function MacroPage() {
             {loading && <span className="self-end pb-2 text-xs text-muted-foreground">更新中…</span>}
           </div>
         </div>
-        {data.groups.map((group) => (
+        {groups.map((group) => (
           <div className="grid gap-3" key={group.title}>
             <h3 className="text-lg font-semibold">{group.title}</h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
