@@ -461,3 +461,12 @@ def test_main_rejects_a_root_without_project_markers(tmp_path: Path, capsys) -> 
 
     assert exit_code == 1
     assert "pyproject.toml" in capsys.readouterr().err
+
+
+def test_main_requires_method_directory_in_repo_root(tmp_path: Path, capsys) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+
+    exit_code = main(["--repo-root", str(tmp_path), "--output-dir", str(tmp_path / "serving")])
+
+    assert exit_code == 1
+    assert "does not contain method/" in capsys.readouterr().err
