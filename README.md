@@ -11,7 +11,7 @@ Baibai-Loopは、一人で日本株を長期運用するための意思決定基
 | 候補選定、指値、人間からの注文結果、保有review | [`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md) |
 | screening、FV、E[r]等の方法改善 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) |
 | 思想、優先順位、語彙 | [`docs/doctrine.md`](./docs/doctrine.md) |
-| package、CLI、records、schema | [`docs/architecture.md`](./docs/architecture.md) |
+| package、CLI、method、store | [`docs/architecture.md`](./docs/architecture.md) |
 | AIへ作業させる | [`AGENTS.md`](./AGENTS.md)から`.agents/skills`を選ぶ |
 | docs全体から探す | [`docs/README.md`](./docs/README.md) |
 
@@ -50,7 +50,7 @@ cd ..
 uv run baibai-app serve
 ```
 
-ブラウザで `http://127.0.0.1:8712` を開きます。UI と API は records を read-only で参照し、task や portfolio を更新しません。
+ブラウザで `http://127.0.0.1:8712` を開きます。UI と API は application DB と各 store を read-only で参照し、task や portfolio を更新しません。
 
 ## Three layers
 
@@ -68,12 +68,14 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 | --- | --- |
 | `src/baibai_engine/` | domain、application service、application DB、read API |
 | `src/baibai_app/` / `ui/` | read-only UI（Baibai App） |
-| `records/` | Git管理のmethod/configとresearch playbook |
+| `method/` | Git 管理の screening rules / macro panel / research playbook |
 | `data/` | application DBとrebuildable data/run store |
+| `reports/` | dated 計測記録（改善ループの一次資料） |
 | `docs/` | doctrine、governance、operations、workflow、reference |
 | `.agents/skills/` | repository-local AI skillの正本 |
 | `.claude/skills/` | canonical skillへのClaude互換symlink |
-| `tools/drift/` | docs、CLI、lineage、skillのdrift gate |
+| `tools/drift/` | docs link・CLI・語彙・duplicate 定数・skill inventory の drift gate |
+| `cloud/` | Cloudflare Worker と serving・deploy 設定 |
 | `tests/` | domain、public CLI、DB/write-time contract test |
 
 詳細は[`docs/architecture.md`](./docs/architecture.md)を参照してください。
@@ -82,7 +84,7 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 
 | command | 役割 |
 | --- | --- |
-| `baibai-engine screening` | cache、screening、select、ticker profile、calibration |
+| `baibai-engine screening` | run・select・shortlist・ticker-profile・cache 管理・calibration |
 | `baibai-engine research` | opportunity workspace、thesis/review scaffold、promotion、前営業日指値 |
 | `baibai-engine research evaluate` | thesisと既存execution policyの再計算 |
 | `baibai-engine position` | ledger、typed draft/apply、holding review、portfolio outcome |

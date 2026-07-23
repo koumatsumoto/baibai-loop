@@ -3,7 +3,7 @@ title: "Decision Cycle"
 summary: "1 triggerをoperation sessionで進め、proposalとhuman-confirmed ledgerへ接続する運用正本。"
 doc_type: runbook
 status: active
-last_reviewed: 2026-07-19
+last_reviewed: 2026-07-23
 ---
 
 # Decision Cycle
@@ -53,7 +53,7 @@ dirty worktreeの所有不明、public `--help`不明、入力矛盾では停止
 3. 人間がレビュー面からprimary-research setを選び、その銘柄のresearch workspaceを作って一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。
 4. thesisとindependent reviewを`research promote`し、返された`thesis_id` / `review_id`をsessionから参照する。
 5. planning-only limitの出力からproposalを作る。proposalは`pending`で始まり、人間の報告だけを`proposal decide`で記録する。
-6. shortlistは`baibai-app`の`/shortlist`レビュー面、research decision reportはephemeral HTML projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
+6. shortlistは`baibai-app`の`/stocks/shortlist`レビュー面、research decision reportはephemeral HTML projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
 
 ```bash
 uv run baibai-engine screening run --asof YYYY-MM-DD
@@ -80,7 +80,7 @@ uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/scree
 - **開示スキャン**: narrativeを書く前に、新規候補（前回shortlistを確認できないfull reviewでは全候補）について会社IR・TDnetの直近開示をタイトルレベルで確認し、screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）をnarrativeの`why` / `counter`へ反映する。
 - **macro hintの消化**: shortlist作成の前提となるmacro contextは[decision-grade深度契約](../workflow/macro.md#decision-grade-深度契約opportunity-cycleの前提)を満たすものを使う。selected銘柄のnarrative `research` / `counter`は、published contextのresearch_priority_hints / sizing_cautionsのうち当該銘柄に該当するものを明示的に消化する（該当なしならその判断を書く）。hintを黙って落とさない。
 - **差分確認**: 直近の前回shortlist（application DB）がある週次runでは、今回とticker集合を`new / continued / exited`で比較する。`continued`は前回narrativeを自動継承せず、longlist順位差・価格・最新開示・最強countercaseを再確認したうえでmaterial changeがなければ再利用する。前回を確認できないrunは差分を推定せず全候補を確認する。
-- **primary-research set**: `/shortlist`レビュー面（narrativeとselection longlistのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。買う候補が無ければこの段階で`no actionable bargain`終了できる。
+- **primary-research set**: `/stocks/shortlist`レビュー面（narrativeとselection longlistのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 <a id="human-result-path"></a>
 

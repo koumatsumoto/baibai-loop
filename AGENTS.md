@@ -64,7 +64,7 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である。�
 
 ## commit 前 / PR 前の self-review
 
-records / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-10) のチェックリストを通過させること。特に以下は 100% 防ぐ:
+method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-10) のチェックリストを通過させること。特に以下は 100% 防ぐ:
 
 - 一次情報を直接確認せず二次情報・推測で書く (AP-01)
 - 数値計算を機械的に検算しない (AP-02)
@@ -73,7 +73,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 - macro context の根拠 URL / series / used_for を曖昧にする
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
-- 外部 AI 分析や system output を事実として records に取り込む / canonical ledgerのcurrent + reserved exposureを再計算しない / 注文と約定の状態を区別しない (AP-09)
+- 外部 AI 分析や system output を事実として thesis（application DB）に取り込む / canonical ledgerのcurrent + reserved exposureを再計算しない / 注文と約定の状態を区別しない (AP-09)
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/workflow/macro.md`](./docs/workflow/macro.md)
@@ -87,7 +87,7 @@ records / src / docs の変更を含む commit を作る前に、[`docs/anti-pat
 
 ## 事実と分析の分離
 
-screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・shortlist・research recordはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
+screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・shortlist・thesisはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
 ## 検証
 

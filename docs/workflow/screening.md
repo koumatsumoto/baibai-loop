@@ -3,7 +3,7 @@ title: "Workflow — screening"
 summary: "point-in-time cacheからcandidate、longlist、selectionを決定論的に生成し、人間レビューgateへ渡す工程。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-20
+last_reviewed: 2026-07-23
 related_docs:
   - "../operations/decision-cycle.md"
   - "../reference/screening-runtime.md"
@@ -18,7 +18,7 @@ screeningは全上場銘柄から割安ゾーンを機械抽出し、observed、
 
 - `run`: point-in-timeの財務・価格・JPX factsからcandidate poolを作る。
 - `select`: candidateを既存rulesでrankし、production recommendationsと、OP3レビューの入力母集団であるlonglistを出す。
-- AI: longlistから[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)のnarrative付きshortlistを作り、`baibai-app`の`/shortlist`レビュー面で人間へ提示する。
+- AI: longlistから[`decision-cycle` OP3 gate](../operations/decision-cycle.md#opportunity-human-review-gate-op3)のnarrative付きshortlistを作り、`baibai-app`の`/stocks/shortlist`レビュー面で人間へ提示する。
 - human: reportからprimary-research setを選ぶ。
 - research: primary-research setを一次情報、永久損失、3年/5年scenarioで比較し、最良0〜1件を決める。
 

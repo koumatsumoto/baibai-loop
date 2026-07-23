@@ -3,7 +3,7 @@ title: "Baibai-Loop docs portal"
 summary: "やりたいことから思想、運用、工程、contract、AI skillの唯一の正本へ案内する入口。"
 doc_type: portal
 status: active
-last_reviewed: 2026-07-14
+last_reviewed: 2026-07-23
 ---
 
 # Baibai-Loop docs
@@ -22,7 +22,7 @@ last_reviewed: 2026-07-14
 | 年次結果を確認する | [`decision-cycle#annual-outcome-path`](./operations/decision-cycle.md#annual-outcome-path) | [`position`](./workflow/position.md)、[`estimate calibration`](./reference/estimate-calibration.md) | 新規候補selection |
 | 見積り方法を改善する | [`improvement-loop`](./operations/improvement-loop.md) | [`estimate calibration`](./reference/estimate-calibration.md)、対象workflow | 個別proposal手順 |
 | CLI/modelを変更する | [`architecture`](./architecture.md) | 対象reference、[`testing`](./reference/testing-and-validation.md) | completed operation session |
-| 初めてrepoを触る | [`doctrine`](./doctrine.md) → [`architecture`](./architecture.md) | 対象cycleとlocal skill | 全records |
+| 初めてrepoを触る | [`doctrine`](./doctrine.md) → [`architecture`](./architecture.md) | 対象cycleとlocal skill | 個別workflow/reference詳細 |
 
 ## Docs layers
 

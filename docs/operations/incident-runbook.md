@@ -3,12 +3,12 @@ title: "Incident runbook"
 summary: "データ取得失敗・validation 失敗・自動処理の失敗に対応するときの入口。"
 doc_type: operation
 status: active
-last_reviewed: 2026-06-23
+last_reviewed: 2026-07-23
 ---
 
 # Incident runbook
 
-運用中に records の作成や自動処理が止まったときの入口。投資判断の代わりではなく、事実の生成と検証の再現性を守るために扱う。
+運用中に成果物（macro context・screening run・ledger event 等の revision）の生成や自動処理が止まったときの入口。投資判断の代わりではなく、事実の生成と検証の再現性を守るために扱う。
 
 ## Source access failure
 
@@ -24,6 +24,6 @@ last_reviewed: 2026-06-23
 
 ## Automation failure
 
-- screening CLI failure は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) と [`../architecture.md#automation`](../architecture.md#automation) を確認する。
+- screening CLI failure は [`../reference/screening-runtime.md`](../reference/screening-runtime.md) と、日次バッチ経路は [`../architecture.md#cloud-serving-layer`](../architecture.md#cloud-serving-layer) を確認する。
 - position 記録の validation failure は [`../workflow/position.md`](../workflow/position.md) を確認する。
 - CI / local parity は [`../reference/python-foundation.md`](../reference/python-foundation.md) を確認する。
