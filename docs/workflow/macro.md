@@ -42,18 +42,23 @@ uv run baibai-engine macro import-manual     # git seed の manual 観測を同�
 | `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | `mblong.xlsx` を openpyxl で読む |
 | `boj_timeseries` | 無認証 JSON API | BOJ 無担保コール O/N 平均 | `FM01:STRDCLUCON` の日次値を一括取得する。公表タイミングは BOJ 時系列統計データ検索の更新日に従う |
 | `mof_jgb` | 無認証 CSV | JP 国債金利（主要年限） | `jgbcm_all.csv` と当月 `jgbcm.csv` を CP932 で読み、和暦の基準日を ISO date に正規化する |
-| `manual` | ローカル file | 倒産件数・PMI | clean な無料 API が無い。`providers/manual_data.yaml` を一次ソースで検証して編集し、`import-manual` で同期 |
+| `tsr_bankruptcies` | 無認証 JSON API | JP 企業倒産件数 | 東京商工リサーチの掲載ページが参照する公式 JSON から月次全履歴を取得 |
+| `manual` | ローカル file | JP 製造業 PMI | free API が無い。S&P Global の公式リリース PDF を機械抽出して `providers/manual_data.yaml` を更新し、`import-manual` で同期 |
 | `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
-| `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | HTML 構造変更で壊れる脆さ。追加時は `--latest` で live 確認 |
+| `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | current page と public monthly table を機械的に parse する。HTML 構造変更で壊れるため `--latest` と `--all-history` を live 確認 |
 
 新ソース追加＝provider モジュールを 1 つ足して `series.yaml` に series を登録する（`providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
 
-manual 観測の正本は git 追跡の `src/baibai_engine/macro/indicators/providers/manual_data.yaml` である。各行は `series_id`、`observed_at`、`value`、`unit`、`source_url`、UTC の `entered_at` を持ち、`series.yaml` の manual 系列と unit / source URL を一致させる。一次ソースを確認して seed を編集し、次を実行する。
+manual 観測の正本は git 追跡の `src/baibai_engine/macro/indicators/providers/manual_data.yaml` である。各行は `series_id`、`observed_at`、`value`、`unit`、`source_url`、UTC の `entered_at` を持ち、`series.yaml` の manual 系列と unit / source identity を一致させる。PMI は `tools/macro/backfill_pmi_history.py` で S&P Global の公式リリース PDF を機械抽出し、各観測の `source_url` には validator が許可する個別リリース URL を残す。公式サイトが過去 PDF を返さない期間は、`docs/reference/data-sources.md` の Web Archive 例外に従って同じ公式 PDF の snapshot を取得する。AI agent の WebFetch 出力は seed に使わない。生成結果を検算してから次を実行する。
 
 ```bash
+uv run --script tools/macro/backfill_pmi_history.py \
+  --start 2023-07-01 --end 2026-06-01 \
+  --output src/baibai_engine/macro/indicators/providers/manual_data.yaml
 uv run baibai-engine macro import-manual
-uv run baibai-engine macro get jp.bankruptcies --start 2026-01-01 --end 2026-12-31
-uv run baibai-engine macro get jp.pmi_manufacturing --start 2026-01-01 --end 2026-12-31
+uv run baibai-engine macro refresh jp.bankruptcies --all-history --end 2026-07-24
+uv run baibai-engine macro get jp.bankruptcies --start 2003-01-01 --end 2026-07-24
+uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 2026-07-24
 ```
 
 `import-manual` は manual 系列を seed の全行へ同期する。同じ seed の再 import は observation と provider run の件数・内容を変えない。manual 系列の `get` は imported row だけを読み、`refresh` は書き込みを拒否して `import-manual` を案内する。`macro.sqlite` は schema / series registry / manual seed と各 provider API から再構築する L1 store であり、manual 観測の backup は持たない。

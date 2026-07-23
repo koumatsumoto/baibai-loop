@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
+from functools import cache
+from itertools import pairwise
 from pathlib import Path
 from typing import cast
 
@@ -13,6 +16,7 @@ from ..definitions import IndicatorDefinitions, SeriesDefinition
 from .base import FetchContext, HttpSession, IndicatorsProviderError
 
 MANUAL_DATA_PATH = Path(__file__).with_name("manual_data.yaml")
+PMI_RELEASE_URLS_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 _ENTRY_KEYS = {
     "series_id",
     "observed_at",
@@ -20,6 +24,11 @@ _ENTRY_KEYS = {
     "unit",
     "source_url",
     "entered_at",
+}
+_SOURCE_URL_PATTERNS = {
+    "jp.pmi_manufacturing": re.compile(
+        r"https://www\.pmi\.spglobal\.com/Public/Home/PressRelease/[0-9a-f]{32}\Z"
+    ),
 }
 
 
@@ -76,6 +85,7 @@ def parse_manual_seed(
     seeded_ids = {item.series_id for item in observations}
     if missing := sorted(manual_ids - seeded_ids):
         raise IndicatorsProviderError(f"manual seed is missing series: {', '.join(missing)}")
+    _validate_pmi_history(observations)
     return observations
 
 
@@ -134,12 +144,30 @@ def _parse_entry(
             f"manual seed unit differs from series.yaml for {series_id}: {unit} != {series.unit}"
         )
     source_url = _entry_string(entry, "source_url")
-    if source_url != series.source_url:
+    source_pattern = _SOURCE_URL_PATTERNS.get(series_id)
+    source_matches = (
+        source_pattern.fullmatch(source_url) is not None
+        if source_pattern is not None
+        else source_url == series.source_url
+    )
+    if not source_matches:
         raise IndicatorsProviderError(
             "manual seed source_url differs from series.yaml for "
             f"{series_id}: {source_url} != {series.source_url}"
         )
     value = _entry_value(entry.get("value"))
+    if series_id == "jp.pmi_manufacturing":
+        if observed_at.day != 1:
+            raise IndicatorsProviderError("manual PMI observed_at must be the first of a month")
+        expected_url = _pmi_release_urls().get(observed_at)
+        if expected_url is None or source_url != expected_url:
+            raise IndicatorsProviderError(
+                f"manual PMI source does not match manifest for {observed_at}"
+            )
+        if not 30 <= value <= 70:
+            raise IndicatorsProviderError(
+                f"manual PMI value outside plausible range for {observed_at}: {value}"
+            )
     return ObservationRecord(
         series_id=series_id,
         observed_at=observed_at,
@@ -208,3 +236,54 @@ def _entry_value(value: object) -> float:
     if not math.isfinite(parsed):
         raise IndicatorsProviderError(f"manual seed 'value' must be finite: {value!r}")
     return parsed
+
+
+@cache
+def _pmi_release_urls() -> dict[date, str]:
+    raw = strict_safe_load(PMI_RELEASE_URLS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
+        raise IndicatorsProviderError("PMI release manifest must use schema_version 1")
+    releases = raw.get("releases")
+    if not isinstance(releases, list):
+        raise IndicatorsProviderError("PMI release manifest releases must be a list")
+    result: dict[date, str] = {}
+    for raw_release in releases:
+        release = _entry_mapping(raw_release)
+        observed_at = _entry_date(release.get("observed_at"), label="observed_at")
+        source_url = _entry_string(release, "url")
+        if observed_at in result:
+            raise IndicatorsProviderError(
+                f"PMI release manifest has duplicate month: {observed_at}"
+            )
+        if _SOURCE_URL_PATTERNS["jp.pmi_manufacturing"].fullmatch(source_url) is None:
+            raise IndicatorsProviderError(
+                f"PMI release manifest has invalid source URL for {observed_at}"
+            )
+        result[observed_at] = source_url
+    ordered_dates = sorted(result)
+    if len(ordered_dates) < 36:
+        raise IndicatorsProviderError("PMI release manifest must cover at least 36 months")
+    for previous, current in pairwise(ordered_dates):
+        expected = (
+            date(previous.year + 1, 1, 1)
+            if previous.month == 12
+            else date(previous.year, previous.month + 1, 1)
+        )
+        if current != expected:
+            raise IndicatorsProviderError(
+                f"PMI release manifest has a gap between {previous} and {current}"
+            )
+    return result
+
+
+def _validate_pmi_history(observations: list[ObservationRecord]) -> None:
+    expected_dates = set(_pmi_release_urls())
+    actual_dates = {
+        item.observed_at for item in observations if item.series_id == "jp.pmi_manufacturing"
+    }
+    if actual_dates != expected_dates:
+        missing = sorted(expected_dates - actual_dates)
+        unexpected = sorted(actual_dates - expected_dates)
+        raise IndicatorsProviderError(
+            f"manual PMI history differs from manifest: missing={missing}, unexpected={unexpected}"
+        )

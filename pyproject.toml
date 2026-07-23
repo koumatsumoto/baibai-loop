@@ -70,6 +70,7 @@ packages = ["src/baibai_engine", "src/baibai_app"]
 "src/baibai_engine/macro/indicators/schema.sql" = "baibai_engine/macro/indicators/schema.sql"
 "src/baibai_engine/macro/indicators/series.yaml" = "baibai_engine/macro/indicators/series.yaml"
 "src/baibai_engine/macro/indicators/providers/manual_data.yaml" = "baibai_engine/macro/indicators/providers/manual_data.yaml"
+"src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/macro/indicators/providers/pmi_release_urls.yaml"
 
 # Constrain the sdist to the buildable source packages (plus the metadata
 # hatchling always adds: pyproject.toml, README.md, PKG-INFO). Without this the

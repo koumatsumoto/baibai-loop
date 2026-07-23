@@ -21,7 +21,11 @@ from .fred import FredProvider, parse_fred_csv
 from .jquants_flows import JQuantsFlowsProvider, parse_trades_spec
 from .manual import ManualProvider, parse_manual_entries, parse_manual_seed
 from .mof_jgb import MofJgbProvider, parse_mof_jgb_csv
-from .multpl import MultplProvider, parse_multpl_current
+from .multpl import MultplProvider, parse_multpl_current, parse_multpl_history
+from .tsr_bankruptcies import (
+    TsrBankruptciesProvider,
+    parse_tsr_bankruptcies_json,
+)
 from .yahoo import YahooChartProvider, parse_yahoo_chart
 
 __all__ = [
@@ -39,7 +43,9 @@ __all__ = [
     "parse_manual_seed",
     "parse_mof_jgb_csv",
     "parse_multpl_current",
+    "parse_multpl_history",
     "parse_trades_spec",
+    "parse_tsr_bankruptcies_json",
     "parse_yahoo_chart",
 ]
 
@@ -56,6 +62,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         JQuantsFlowsProvider(),
         MofJgbProvider(),
         MultplProvider(),
+        TsrBankruptciesProvider(),
         YahooChartProvider(),
     )
 }

@@ -36,7 +36,7 @@ MACRO_LIST_OK = CommandResult(
     "jp.foreign_flows\tForeign flows\tflows\tjp\tweekly\tJPY\tjquants_flows\n"
     "jp.cpi_all\tJP CPI\tprices\tjp\tmonthly\tindex\testat\n"
     "jp.gdp\tJP GDP\tgrowth\tjp\tquarterly\tJPY\testat\n"
-    "jp.bankruptcies\tBankruptcies\tcredit\tjp\tmonthly\tcount\tmanual\n",
+    "jp.bankruptcies\tBankruptcies\tcredit\tjp\tmonthly\tcount\ttsr_bankruptcies\n",
     "",
 )
 
@@ -194,14 +194,14 @@ def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: P
         [
             "jp.cpi_all",
             "jp.gdp",
+            "jp.bankruptcies",
             "--start",
             (ASOF - timedelta(days=370)).isoformat(),
             "--end",
             "2026-07-21",
         ],
     ]
-    # The manual series only syncs through import-manual.
-    assert not any("jp.bankruptcies" in argv for argv in refresh_calls)
+    # PMI remains a manual series and only syncs through import-manual.
     assert ["baibai-engine", "macro", "import-manual"] in runner.calls
 
 
