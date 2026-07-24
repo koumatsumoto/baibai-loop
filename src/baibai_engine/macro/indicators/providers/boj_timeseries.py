@@ -13,6 +13,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_text,
     record_observation,
 )
@@ -21,7 +22,8 @@ from .base import (
 class BojTimeSeriesProvider:
     """Bank of Japan Time-Series Data Search API (no authentication)."""
 
-    name = "boj_timeseries"
+    spec = ProviderSpec(name="boj_timeseries", all_history_start=date(1998, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

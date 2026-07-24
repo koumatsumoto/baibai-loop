@@ -13,6 +13,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_text,
     parse_float,
     record_observation,
@@ -30,7 +31,12 @@ class EStatProvider:
     statsDataId travel as query params.
     """
 
-    name = "estat"
+    spec = ProviderSpec(
+        name="estat",
+        all_history_start=date(1970, 1, 1),
+        required_env=("ESTAT_APP_ID",),
+    )
+    name = spec.name
 
     def fetch(
         self,

@@ -10,6 +10,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_text,
     parse_optional_float,
     record_observation,
@@ -29,7 +30,8 @@ _USER_AGENT = (
 class FrbH15Provider:
     """Federal Reserve H.15 package CSV. Single series or a left-right spread."""
 
-    name = "frb_h15"
+    spec = ProviderSpec(name="frb_h15", all_history_start=date(1962, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

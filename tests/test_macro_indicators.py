@@ -220,12 +220,14 @@ class IndicatorsDBTests(unittest.TestCase):
                     "jp.foreign_flows",
                     date(2024, 8, 1),
                     date(2024, 8, 31),
+                    point_in_time=True,
                 )
                 september = observations_in_range(
                     conn,
                     "jp.foreign_flows",
                     date(2024, 8, 1),
                     date(2024, 9, 30),
+                    point_in_time=True,
                 )
             finally:
                 conn.close()

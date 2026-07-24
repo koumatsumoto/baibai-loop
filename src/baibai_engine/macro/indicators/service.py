@@ -12,7 +12,12 @@ from baibai_engine.foundation.yaml_io import strict_safe_load
 from . import db
 from .db import ObservationRecord
 from .definitions import SeriesDefinition, load_definitions
-from .providers import FetchContext, IndicatorsProviderError, fetch_observations
+from .providers import (
+    FetchContext,
+    IndicatorsProviderError,
+    fetch_observations,
+    provider_spec,
+)
 from .providers.manual import MANUAL_DATA_PATH, parse_manual_seed
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
@@ -28,19 +33,6 @@ LATEST_CACHE_MAX_AGE_DAYS = {
 }
 PROVIDER_FETCH_ATTEMPTS = 2
 PROVIDER_FETCH_RETRY_BACKOFF_SECONDS = 1.0
-_ALL_HISTORY_START_BY_PROVIDER = {
-    "boj": date(1957, 1, 1),
-    "boj_timeseries": date(1998, 1, 1),
-    "ecb_fx": date(1999, 1, 1),
-    "estat": date(1970, 1, 1),
-    "frb_h15": date(1962, 1, 1),
-    "fred_csv": date(1900, 1, 1),
-    "jquants_flows": None,
-    "mof_jgb": date(1974, 1, 1),
-    "multpl": date(1871, 1, 1),
-    "tsr_bankruptcies": date(2003, 1, 1),
-    "yahoo": date(1970, 1, 1),
-}
 
 
 @dataclass(frozen=True)
@@ -134,19 +126,29 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path)
         try:
             series = db.get_series(conn, series_id)
-            if series.provider == "manual":
+            spec = provider_spec(series.provider)
+            point_in_time = spec.point_in_time_vintage
+            if not spec.supports_refresh:
                 if refresh:
                     raise IndicatorsProviderError(
-                        f"manual series {series_id} is synchronized with macro import-manual"
+                        f"{series_id} is a file-backed series synchronized with macro import-manual"
                     )
-                observations = list(db.observations_in_range(conn, series_id, start, end))
+                observations = list(
+                    db.observations_in_range(
+                        conn, series_id, start, end, point_in_time=point_in_time
+                    )
+                )
                 ordered = sorted(observations, key=lambda item: item.observed_at)
                 return QueryResult(series, tuple(ordered), cache_hit=True)
             cache_hit = (not refresh) and db.has_ok_coverage(conn, series_id, start, end)
             if not cache_hit:
                 observations = self._fetch_and_store(conn, series, start=start, end=end)
             else:
-                observations = list(db.observations_in_range(conn, series_id, start, end))
+                observations = list(
+                    db.observations_in_range(
+                        conn, series_id, start, end, point_in_time=point_in_time
+                    )
+                )
             # Providers return observations in source order (ECB FX is newest-first);
             # normalize to ascending observed_at so callers get a stable chronology
             # regardless of cache-hit vs provider-fetch path.
@@ -159,33 +161,32 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path)
         try:
             series = db.get_series(conn, series_id)
-            if series.provider == "manual":
+            spec = provider_spec(series.provider)
+            if not spec.supports_refresh:
                 raise IndicatorsProviderError(
-                    f"manual series {series_id} is synchronized with macro import-manual"
+                    f"{series_id} is a file-backed series synchronized with macro import-manual"
                 )
-            try:
-                configured_start = _ALL_HISTORY_START_BY_PROVIDER[series.provider]
-            except KeyError:
-                raise IndicatorsProviderError(
-                    f"all-history start is not configured for provider {series.provider}"
-                ) from None
-            if series.provider == "jquants_flows":
-                start = _years_before(_today_jst(), 5)
+            if spec.all_history_rolling_years is not None:
+                start = _years_before(_today_jst(), spec.all_history_rolling_years)
                 if end < start:
                     raise IndicatorsProviderError(
-                        f"all-history end {end.isoformat()} precedes the J-Quants Light "
-                        f"history floor {start.isoformat()}"
+                        f"all-history end {end.isoformat()} precedes the {spec.name} "
+                        f"rolling history floor {start.isoformat()}"
                     )
+            elif spec.all_history_start is not None:
+                start = spec.all_history_start
             else:
-                start = end if configured_start is None else configured_start
+                raise IndicatorsProviderError(
+                    f"all-history start is not configured for provider {series.provider}"
+                )
             observations = self._fetch_and_store(
                 conn,
                 series,
                 start=start,
                 end=end,
-                trim_before_first=series.provider == "fred_csv",
+                trim_before_first=spec.trim_before_first,
                 remove_other_sources=True,
-                replace_requested_range=series.provider == "jquants_flows",
+                replace_requested_range=spec.replace_requested_range,
                 require_observations=True,
             )
             ordered = sorted(observations, key=lambda item: item.observed_at)
@@ -198,16 +199,18 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path)
         try:
             series = db.get_series(conn, series_id)
-            cached_latest = db.latest_observation(conn, series_id, on_or_before=end)
-            if series.provider == "manual":
+            spec = provider_spec(series.provider)
+            cached_latest = db.latest_observation(
+                conn, series_id, on_or_before=end, point_in_time=spec.point_in_time_vintage
+            )
+            if not spec.supports_refresh:
                 if refresh:
                     raise IndicatorsProviderError(
-                        f"manual series {series_id} is synchronized with macro import-manual"
+                        f"{series_id} is a file-backed series synchronized with macro import-manual"
                     )
                 if cached_latest is None:
                     raise IndicatorsProviderError(
-                        f"manual series {series_id} has no imported observation; "
-                        "run macro import-manual"
+                        f"{series_id} has no imported observation; run macro import-manual"
                     )
                 return QueryResult(series, (cached_latest,), cache_hit=True)
             if not refresh and cached_latest is not None:

@@ -13,7 +13,7 @@ from baibai_engine.foundation.yaml_io import strict_safe_load
 
 from ..db import ObservationRecord
 from ..definitions import IndicatorDefinitions, SeriesDefinition
-from .base import FetchContext, HttpSession, IndicatorsProviderError
+from .base import FetchContext, HttpSession, IndicatorsProviderError, ProviderSpec
 
 MANUAL_DATA_PATH = Path(__file__).with_name("manual_data.yaml")
 PMI_RELEASE_URLS_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
@@ -35,7 +35,8 @@ _SOURCE_URL_PATTERNS = {
 class ManualProvider:
     """File-backed provider for series with no clean free API."""
 
-    name = "manual"
+    spec = ProviderSpec(name="manual", supports_refresh=False)
+    name = spec.name
 
     def fetch(
         self,

@@ -348,23 +348,28 @@ def observations_in_range(
     series_id: str,
     start: date,
     end: date,
+    *,
+    point_in_time: bool = False,
 ) -> tuple[ObservationRecord, ...]:
+    # ``point_in_time`` clamps to observations published on/before ``end`` so a
+    # publish-lagged series stays point-in-time correct; otherwise the latest
+    # vintage of each observed_at is returned regardless of publication date.
     end_text = end.isoformat()
+    pit = 1 if point_in_time else 0
     rows = conn.execute(
-        "SELECT o.* FROM observations o JOIN series s USING(series_id) "
+        "SELECT o.* FROM observations o "
         "WHERE o.series_id = ? "
         "AND o.observed_at BETWEEN ? AND ? "
         "AND o.fetch_status = 'ok' "
-        "AND (s.provider != 'jquants_flows' OR substr(o.vintage_at, 1, 10) <= ?) "
+        "AND (NOT ? OR substr(o.vintage_at, 1, 10) <= ?) "
         "AND o.vintage_at = ("
         "SELECT MAX(inner_o.vintage_at) FROM observations inner_o "
         "WHERE inner_o.series_id = o.series_id "
         "AND inner_o.observed_at = o.observed_at "
         "AND inner_o.fetch_status = 'ok' "
-        "AND (s.provider != 'jquants_flows' "
-        "OR substr(inner_o.vintage_at, 1, 10) <= ?)"
+        "AND (NOT ? OR substr(inner_o.vintage_at, 1, 10) <= ?)"
         ") ORDER BY o.observed_at",
-        (series_id, start.isoformat(), end_text, end_text, end_text),
+        (series_id, start.isoformat(), end_text, pit, end_text, pit, end_text),
     ).fetchall()
     return tuple(_observation_from_row(row) for row in rows)
 
@@ -375,14 +380,16 @@ def latest_observation(
     *,
     on_or_before: date | None = None,
     on_or_after: date | None = None,
+    point_in_time: bool = False,
 ) -> ObservationRecord | None:
     cutoff = on_or_before.isoformat() if on_or_before is not None else None
+    pit = 1 if point_in_time else 0
     row = conn.execute(
-        "SELECT o.* FROM observations o JOIN series s USING(series_id) "
+        "SELECT o.* FROM observations o "
         "WHERE o.series_id = ? AND o.fetch_status = 'ok' "
         "AND (? IS NULL OR observed_at <= ?) "
         "AND (? IS NULL OR observed_at >= ?) "
-        "AND (s.provider != 'jquants_flows' OR ? IS NULL "
+        "AND (NOT ? OR ? IS NULL "
         "OR substr(o.vintage_at, 1, 10) <= ?) "
         "ORDER BY observed_at DESC, vintage_at DESC LIMIT 1",
         (
@@ -391,6 +398,7 @@ def latest_observation(
             cutoff,
             on_or_after.isoformat() if on_or_after is not None else None,
             on_or_after.isoformat() if on_or_after is not None else None,
+            pit,
             cutoff,
             cutoff,
         ),

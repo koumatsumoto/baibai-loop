@@ -12,6 +12,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_bytes,
     parse_optional_float,
     record_observation,
@@ -29,7 +30,8 @@ class MofJgbProvider:
     column header, e.g. ``10年``.
     """
 
-    name = "mof_jgb"
+    spec = ProviderSpec(name="mof_jgb", all_history_start=date(1974, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

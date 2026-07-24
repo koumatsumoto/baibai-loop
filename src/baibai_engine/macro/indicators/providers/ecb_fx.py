@@ -12,6 +12,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_bytes,
     parse_optional_float,
     record_observation,
@@ -25,7 +26,8 @@ ECB_FX_CSV_NAME = "eurofxref-hist.csv"
 class EcbFxProvider:
     """ECB euro reference rates ZIP. JPY cross rates derived from a shared file."""
 
-    name = "ecb_fx"
+    spec = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

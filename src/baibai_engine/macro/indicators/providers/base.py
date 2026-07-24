@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Protocol
 
@@ -16,6 +17,40 @@ MAX_ZIP_RESPONSE_BYTES = 16_000_000
 
 class IndicatorsProviderError(RuntimeError):
     """Raised when an indicator provider cannot return requested observations."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProviderSpec:
+    """A provider's fetch/store capabilities, declared next to its parser.
+
+    The service reads behavior from this spec instead of branching on the
+    provider name, so adding a provider means writing one module (parser + spec)
+    and registering it once — no edits to the service or store layers.
+    """
+
+    name: str
+    # All-history refresh floor. ``all_history_start`` is the reproducible fixed
+    # start a bulk source exposes; ``all_history_rolling_years`` derives the floor
+    # from today instead (a licensed rolling window such as J-Quants Light's 5
+    # years). Providers that cannot bulk-refresh set ``supports_refresh=False``.
+    all_history_start: date | None = None
+    all_history_rolling_years: int | None = None
+    # File-backed providers (a validated local seed) read only imported rows and
+    # reject a live refresh.
+    supports_refresh: bool = True
+    # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
+    # observations older than the first the provider returns (FRED's licensed
+    # window defines its reproducible start). ``replace_requested_range`` deletes
+    # the requested window before insert so a re-published vintage supersedes
+    # earlier rows (J-Quants weekly flows).
+    trim_before_first: bool = False
+    replace_requested_range: bool = False
+    # Reads clamp to observations whose vintage is on/before the read cutoff, so a
+    # publish-lagged series stays point-in-time correct (J-Quants weekly flows).
+    point_in_time_vintage: bool = False
+    # Credential env var names required to fetch (diagnostics only; values are
+    # read from the environment by the provider, never stored in the registry).
+    required_env: tuple[str, ...] = field(default=())
 
 
 class FetchContext:
@@ -51,6 +86,7 @@ class MacroDataProvider(Protocol):
     """A macro data source. Each provider isolates its own auth/parse/quirks."""
 
     name: str
+    spec: ProviderSpec
 
     def fetch(
         self,
