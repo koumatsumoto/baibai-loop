@@ -268,6 +268,30 @@ series:
     tradingview_symbol: TVC:TOPIX
     notes: J-Quants専用endpointから取得するTOPIX日次終値。時価総額加重で市場全体を代表し、値がさ株偏重の日経225より広い代表性を持つ。日本株の基準ベンチマーク
     aliases: [TOPIX, 東証株価指数, トピックス, topix]
+  - series_id: jp.nikkei_per
+    name: 日経平均PER(加重平均)
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: ratio
+    provider: nikkei_indexes
+    provider_series_id: per
+    source_id: nikkei-per
+    source_url: https://indexes.nikkei.co.jp/nkave/statistics/dataload
+    notes: 日経平均採用銘柄の加重平均PER(日次)。日経公式の指数統計から取得。日本株のバリュエーションアンカー。益回り(1/PER)とjp.10yの差がjp.erp
+    aliases: [日経PER, Nikkei PER, 日経平均PER, 日経225 PER]
+  - series_id: jp.nikkei_pbr
+    name: 日経平均PBR(加重平均)
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: ratio
+    provider: nikkei_indexes
+    provider_series_id: pbr
+    source_id: nikkei-pbr
+    source_url: https://indexes.nikkei.co.jp/nkave/statistics/dataload
+    notes: 日経平均採用銘柄の加重平均PBR(日次)。日経公式の指数統計から取得。1倍割れは簿価割れの目安。日本株の資産面のバリュエーション
+    aliases: [日経PBR, Nikkei PBR, 日経平均PBR, 日経225 PBR]
   - series_id: jp.real_exports
     name: 日本実質輸出
     category: activity

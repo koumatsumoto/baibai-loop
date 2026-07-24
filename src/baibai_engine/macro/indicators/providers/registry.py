@@ -23,6 +23,7 @@ from .jquants_flows import JQuantsFlowsProvider
 from .jquants_indices import JQuantsIndicesProvider
 from .mof_jgb import MofJgbProvider
 from .multpl import MultplProvider
+from .nikkei_indexes import NikkeiIndexesProvider
 from .spglobal_pmi import SpGlobalPmiProvider
 from .tsr_bankruptcies import TsrBankruptciesProvider
 from .yahoo import YahooChartProvider
@@ -44,6 +45,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         JQuantsIndicesProvider(),
         MofJgbProvider(),
         MultplProvider(),
+        NikkeiIndexesProvider(),
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
         YahooChartProvider(),

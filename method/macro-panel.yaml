@@ -113,6 +113,8 @@ groups:
       - id: us.sp500_cape
       - id: us.sp500_earnings_yield
       - id: us.erp
+      - id: jp.nikkei_per
+      - id: jp.nikkei_pbr
       - id: jp.foreign_flows
       - id: world.acwi_ex_us
       - id: europe.stoxx

@@ -53,6 +53,7 @@ from baibai_engine.macro.indicators.providers.derived import DerivedProvider
 from baibai_engine.macro.indicators.providers.formulas import FORMULAS, DerivedComputationError
 from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
 from baibai_engine.macro.indicators.providers.jquants_indices import parse_index_bars
+from baibai_engine.macro.indicators.providers.nikkei_indexes import parse_nikkei_valuation
 from baibai_engine.macro.indicators.providers.pmi_extraction import (
     PmiExtractionError,
     extract_pmi_value,
@@ -773,6 +774,36 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "missing a close column"):
             parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
+
+    def test_parse_nikkei_valuation_takes_weighted_average_and_filters_range(self) -> None:
+        series = _series("nikkei_indexes", "per", unit="ratio")
+        html = (
+            "<table><tbody>"
+            "<tr><!--daily_changing--><td>2026.06.30</td>"
+            "<!--daily_changing--><td>18.40</td><!--daily_changing--><td>25.20</td></tr>"
+            "<tr><!--daily_changing--><td>2026.07.24</td>"
+            "<!--daily_changing--><td>17.82</td><!--daily_changing--><td>25.11</td></tr>"
+            "</tbody></table>"
+        )
+
+        observations = parse_nikkei_valuation(
+            series, html, start=date(2026, 7, 1), end=date(2026, 7, 31)
+        )
+
+        # The weighted-average column (17.82), not the index-based one (25.11).
+        self.assertEqual(
+            [(o.observed_at, o.value) for o in observations], [(date(2026, 7, 24), 17.82)]
+        )
+
+    def test_parse_nikkei_valuation_rejects_implausible_value(self) -> None:
+        series = _series("nikkei_indexes", "per", unit="ratio")
+        html = (
+            "<tr><!--daily_changing--><td>2026.07.24</td>"
+            "<!--daily_changing--><td>99.90</td><!--daily_changing--><td>120.0</td></tr>"
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible"):
+            parse_nikkei_valuation(series, html, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
