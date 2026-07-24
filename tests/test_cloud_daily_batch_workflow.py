@@ -4,6 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +38,120 @@ class CloudDailyBatchWorkflowTests(unittest.TestCase):
         self.assertTrue(required_sources)
         missing = required_sources - set(config.jpx_regulation_urls)
         self.assertEqual(missing, set())
+
+
+# --- notification wiring contract -----------------------------------------
+#
+# These pin the workflow *wiring* that makes the Discord notification correct:
+# stable step ids, the single ``!cancelled()`` notification point, the webhook
+# secret scoped to that step alone, batch outputs finalized before a fatal exit,
+# and the step ordering the decision table relies on. The decision semantics
+# themselves live in notify_discord and are unit-tested there.
+
+
+@pytest.fixture(scope="module")
+def workflow() -> dict:
+    return yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def steps(workflow: dict) -> list[dict]:
+    return workflow["jobs"]["daily"]["steps"]
+
+
+@pytest.fixture(scope="module")
+def steps_by_id(steps: list[dict]) -> dict[str, dict]:
+    return {step["id"]: step for step in steps if "id" in step}
+
+
+def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
+    for step_id in (
+        "smoke",
+        "setup",
+        "sync",
+        "pull",
+        "batch",
+        "upload-machine",
+        "upload-serving",
+        "deferred-report",
+        "notify",
+    ):
+        assert step_id in steps_by_id, f"missing stable step id: {step_id}"
+
+
+def test_smoke_check_runs_before_setup_python_on_system_python(
+    steps: list[dict], steps_by_id: dict[str, dict]
+) -> None:
+    ids = [step.get("id") for step in steps]
+    assert ids.index("smoke") < ids.index("setup")
+    smoke_run = steps_by_id["smoke"]["run"]
+    assert "py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py" in smoke_run
+    assert "started_at=" in smoke_run
+
+
+def test_batch_step_writes_summary_and_finalizes_outputs_before_fatal_exit(
+    steps_by_id: dict[str, dict],
+) -> None:
+    batch_run = steps_by_id["batch"]["run"]
+    assert "--summary-output" in batch_run
+    # Outputs are echoed before the fatal exit so the notification step sees them.
+    assert batch_run.index('echo "exit_code=$code"') < batch_run.index('exit "$code"')
+    assert 'echo "local_export=true"' in batch_run
+    assert 'echo "local_export=false"' in batch_run
+
+
+def test_upload_steps_run_only_when_published(steps_by_id: dict[str, dict]) -> None:
+    assert steps_by_id["upload-machine"]["if"] == "steps.batch.outputs.published == 'true'"
+    assert steps_by_id["upload-serving"]["if"] == "steps.batch.outputs.published == 'true'"
+
+
+def test_uploads_precede_deferred_report_which_fires_on_exit_3(
+    steps: list[dict], steps_by_id: dict[str, dict]
+) -> None:
+    ids = [step.get("id") for step in steps]
+    assert ids.index("upload-machine") < ids.index("deferred-report")
+    assert ids.index("upload-serving") < ids.index("deferred-report")
+    assert steps_by_id["deferred-report"]["if"] == "steps.batch.outputs.exit_code == '3'"
+
+
+def test_notify_is_the_single_final_point_running_unless_cancelled(
+    steps: list[dict], steps_by_id: dict[str, dict]
+) -> None:
+    ids = [step.get("id") for step in steps]
+    assert ids[-1] == "notify"
+    assert "!cancelled()" in steps_by_id["notify"]["if"]
+
+
+def test_webhook_secret_is_scoped_to_the_notify_step_alone(
+    workflow: dict, steps: list[dict]
+) -> None:
+    job_env = workflow["jobs"]["daily"].get("env", {})
+    assert "DISCORD_WEBHOOK_URL" not in job_env
+
+    holders = [step.get("id") for step in steps if "DISCORD_WEBHOOK_URL" in step.get("env", {})]
+    assert holders == ["notify"]
+
+
+def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, dict]) -> None:
+    notify_run = steps_by_id["notify"]["run"]
+    assert "python3 -m tools.cloud.notify_discord" in notify_run
+    for flag in (
+        "--summary-path",
+        "--batch-exit-code",
+        "--local-export",
+        "--setup-outcome",
+        "--sync-outcome",
+        "--pull-outcome",
+        "--upload-machine-outcome",
+        "--upload-serving-outcome",
+        "--run-started-at",
+        "--output",
+    ):
+        assert flag in notify_run, f"notify step missing {flag}"
+    assert "steps.setup.outcome" in notify_run
+    assert "steps.upload-machine.outcome" in notify_run
+    assert "steps.batch.outputs.exit_code" in notify_run
+    assert "steps.batch.outputs.local_export" in notify_run
 
 
 if __name__ == "__main__":

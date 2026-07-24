@@ -6,6 +6,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from tools.cloud.batch_summary import (
+    OUTCOME_DEGRADED,
+    OUTCOME_FAILED,
+    OUTCOME_SKIPPED,
+    OUTCOME_SUCCEEDED,
+    load_batch_execution_summary,
+)
 from tools.cloud.daily_batch import (
     _MACRO_REFRESH_WINDOW_DAYS,
     _MACRO_REFRESH_WINDOW_DEFAULT_DAYS,
@@ -29,7 +36,16 @@ RUN_OK = CommandResult(
     "universe=3800; candidates=42\n",
     "",
 )
-SELECT_OK = CommandResult(0, "selection_id: sel-1\nselection:\n  profile: value_default\n", "")
+SELECT_OK = CommandResult(
+    0,
+    "selection_id: sel-1\n"
+    "recommendations:\n"
+    '  - ticker: "2331"\n'
+    '  - ticker: "0001"\n'
+    "selection:\n"
+    "  profile: value_default\n",
+    "",
+)
 MACRO_LIST_OK = CommandResult(
     0,
     "us.10y\tUS 10Y Treasury\trates\tus\tdaily\t%\tfred_csv\n"
@@ -52,9 +68,10 @@ def _run_yaml_writer(revision_id: str | None) -> Callable[[list[str]], None]:
 
     def _writer(argv: list[str]) -> None:
         idx = argv.index("--output-path")
-        lines = ['asof_date: "2026-07-21"']
+        lines = ['asof_date: "2026-07-21"', "universe_size: 3800", "candidates:"]
         if revision_id is not None:
             lines.insert(0, f'run_revision_id: "{revision_id}"')
+            lines.extend(['  - ticker: "2331"', '  - ticker: "0001"'])
         Path(argv[idx + 1]).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return _writer
@@ -470,3 +487,176 @@ def test_main_requires_method_directory_in_repo_root(tmp_path: Path, capsys) -> 
 
     assert exit_code == 1
     assert "does not contain method/" in capsys.readouterr().err
+
+
+# --- structured summary output --------------------------------------------
+
+
+def _export_meta_writer(argv: list[str]) -> None:
+    """Mimic export_read_models: write views/meta.json so local export is visible."""
+
+    idx = argv.index("--output-dir")
+    views = Path(argv[idx + 1]) / "views"
+    views.mkdir(parents=True, exist_ok=True)
+    (views / "meta.json").write_text("{}\n", encoding="utf-8")
+
+
+def _summary_runner(
+    results: dict[str, list[CommandResult]] | None = None,
+) -> ScriptedRunner:
+    return ScriptedRunner(
+        results or _success_script(),
+        writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer},
+    )
+
+
+def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
+    runner = _summary_runner()
+    summary_path = tmp_path / "summary.json"
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=runner,
+        summary_output=summary_path,
+    )
+
+    assert exit_code == 0
+    summary = load_batch_execution_summary(summary_path)
+    assert summary.outcome == OUTCOME_SUCCEEDED
+    assert summary.asof == "2026-07-21"
+    assert summary.local_export is True
+    assert [batch.batch_name for batch in summary.batches] == [
+        "screening",
+        "macro",
+        "serving-export",
+        "prune",
+    ]
+    screening = summary.batches[0]
+    assert screening.metrics == {
+        "asof": "2026-07-21",
+        "run_revision_id": "rev-1",
+        "selection_id": "sel-1",
+        "universe": 3800,
+        "candidates": 2,
+        "selected": 2,
+    }
+    macro = summary.batches[1]
+    assert macro.metrics == {"target": 5, "success": 5, "failure": 0}
+    assert macro.status == "ok"
+    export = summary.batches[2]
+    assert export.metrics == {"local_output": True}
+
+
+def test_daily_batch_writes_skipped_summary(tmp_path: Path) -> None:
+    today = datetime.now(JST).date()
+    _seed_calendar(tmp_path, {today: "0"})
+    summary_path = tmp_path / "summary.json"
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=None,
+        runner=_summary_runner({}),
+        summary_output=summary_path,
+    )
+
+    assert exit_code == 0
+    summary = load_batch_execution_summary(summary_path)
+    assert summary.outcome == OUTCOME_SKIPPED
+    assert summary.batches == ()
+    assert summary.local_export is False
+
+
+def test_daily_batch_writes_degraded_summary_on_deferred_macro_failure(tmp_path: Path) -> None:
+    script = _success_script()
+    script["macro refresh"] = [CommandResult(1, "", "provider down\n"), OK, OK]
+    summary_path = tmp_path / "summary.json"
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=_summary_runner(script),
+        summary_output=summary_path,
+    )
+
+    assert exit_code == 3
+    summary = load_batch_execution_summary(summary_path)
+    assert summary.outcome == OUTCOME_DEGRADED
+    macro = next(batch for batch in summary.batches if batch.batch_name == "macro")
+    assert macro.status == "degraded"
+    assert macro.metrics == {"target": 5, "success": 4, "failure": 1}
+    assert len(macro.errors) == 1
+    assert macro.errors[0].code == "subprocess_failed"
+    assert macro.errors[0].stage == "macro-refresh"
+    assert macro.errors[0].impact == "degraded"
+
+
+def test_daily_batch_writes_failed_summary_on_fatal_screening_failure(tmp_path: Path) -> None:
+    script = _success_script()
+    script["screening run"] = [CommandResult(1, "", "boom\n")]
+    summary_path = tmp_path / "summary.json"
+
+    with pytest.raises(BatchStepError):
+        run_daily_batch(
+            root=tmp_path,
+            output_dir=tmp_path / "serving",
+            asof=ASOF,
+            runner=_summary_runner(script),
+            summary_output=summary_path,
+        )
+
+    summary = load_batch_execution_summary(summary_path)
+    assert summary.outcome == OUTCOME_FAILED
+    assert [batch.batch_name for batch in summary.batches] == ["screening"]
+    screening = summary.batches[0]
+    assert screening.status == "failed"
+    assert screening.metrics == {}
+    assert screening.errors[0].code == "subprocess_failed"
+    assert screening.errors[0].stage == "screening-run"
+    # The redacted message carries the stage + return code, never the stderr text.
+    assert "boom" not in screening.errors[0].message
+
+
+def test_daily_batch_failed_summary_redacts_calendar_error(tmp_path: Path) -> None:
+    summary_path = tmp_path / "summary.json"
+
+    with pytest.raises(CalendarCoverageError):
+        run_daily_batch(
+            root=tmp_path,
+            output_dir=tmp_path / "serving",
+            asof=None,
+            runner=_summary_runner({}),
+            summary_output=summary_path,
+        )
+
+    summary = load_batch_execution_summary(summary_path)
+    assert summary.outcome == OUTCOME_FAILED
+    assert summary.batches[0].errors[0].code == "calendar_store_missing"
+
+
+def test_main_writes_invalid_asof_summary(tmp_path: Path, capsys) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (tmp_path / "method").mkdir()
+    summary_path = tmp_path / "summary.json"
+
+    exit_code = main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "serving"),
+            "--asof",
+            "2026-13-99",
+            "--summary-output",
+            str(summary_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert "not a valid YYYY-MM-DD date" in capsys.readouterr().err
+    summary = load_batch_execution_summary(summary_path)
+    assert summary.outcome == OUTCOME_FAILED
+    assert summary.batches[0].errors[0].code == "invalid_asof"

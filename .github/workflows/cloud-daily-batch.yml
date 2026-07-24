@@ -22,6 +22,9 @@ jobs:
   daily:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Job-level env carries only the data-pipeline credentials. The Discord
+    # webhook secret is intentionally NOT here: it is passed to the single
+    # notification step alone (see "Notify Discord #batch-runs").
     env:
       R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -40,25 +43,38 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Dependency-free notification scripts must compile on the runner's system
+      # python3 (before setup-python), so the final notification step can run
+      # them without uv. Also captures the run start time for the total duration.
+      - name: Smoke-check notification scripts
+        id: smoke
+        run: |
+          python3 -m py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py
+          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-python@v6
+        id: setup
         with:
           python-version-file: .python-version
 
       - uses: astral-sh/setup-uv@v8.3.2
+        id: setup-uv
         with:
           enable-cache: true
 
       - name: Sync Python environment
+        id: sync
         run: uv sync --locked
 
       - name: Pull stores
+        id: pull
         run: tools/cloud/r2_transfer.sh pull-all
 
       - name: Run daily batch
         id: batch
         shell: bash
         run: |
-          args=(--output-dir "$RUNNER_TEMP/serving")
+          args=(--output-dir "$RUNNER_TEMP/serving" --summary-output "$RUNNER_TEMP/batch-summary.json")
           if [[ -n "$MANUAL_ASOF" ]]; then
             args+=(--asof "$MANUAL_ASOF")
           fi
@@ -66,24 +82,54 @@ jobs:
           uv run python tools/cloud/daily_batch.py "${args[@]}"
           code=$?
           set -e
+          # Finalize the outputs BEFORE any fatal exit so the notification step
+          # can still see the batch exit code and the local export state.
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "local_export=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "local_export=false" >> "$GITHUB_OUTPUT"
+          fi
           if [[ $code -ne 0 && $code -ne 3 ]]; then
             exit "$code"
           fi
-          if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
 
       - name: Upload updated machine stores
+        id: upload-machine
         if: steps.batch.outputs.published == 'true'
         run: tools/cloud/r2_transfer.sh push-machine
 
       - name: Upload serving objects
+        id: upload-serving
         if: steps.batch.outputs.published == 'true'
         run: tools/cloud/r2_transfer.sh upload-serving "$RUNNER_TEMP/serving"
 
       - name: Report deferred batch failure
+        id: deferred-report
         if: steps.batch.outputs.exit_code == '3'
         run: exit 3
+
+      # Single notification point. Runs once on success or failure (not on
+      # cancel), after every prior step outcome is known. The webhook secret is
+      # scoped to this step only; a delivery failure fails the run so a successful
+      # data run with a broken notification is still visible.
+      - name: Notify Discord #batch-runs
+        id: notify
+        if: ${{ !cancelled() }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python3 -m tools.cloud.notify_discord \
+            --summary-path "$RUNNER_TEMP/batch-summary.json" \
+            --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
+            --local-export "${{ steps.batch.outputs.local_export }}" \
+            --setup-outcome "${{ steps.setup.outcome }}" \
+            --sync-outcome "${{ steps.sync.outcome }}" \
+            --pull-outcome "${{ steps.pull.outcome }}" \
+            --upload-machine-outcome "${{ steps.upload-machine.outcome }}" \
+            --upload-serving-outcome "${{ steps.upload-serving.outcome }}" \
+            --asof "${{ inputs.asof }}" \
+            --run-started-at "${{ steps.smoke.outputs.started_at }}" \
+            --output "$RUNNER_TEMP/workflow-run-summary.json"

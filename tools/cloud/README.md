@@ -24,6 +24,7 @@ R2 lifecycle rule（31日削除）は`history/candidate-views/`へ追加する�
 | principal | 設定 | scope |
 | --- | --- | --- |
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | stores + serving read-write |
+| GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step のみ（job env に出さない） |
 | ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | storesだけread-write |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker deploy、Worker secret |
 | Worker secret | `VIEW_PASSWORD` | Worker runtimeだけ |
@@ -158,7 +159,16 @@ uv run python tools/cloud/daily_batch.py --output-dir <dir>
 
 # 手動再実行・過去日（営業日 gate を skip）
 uv run python tools/cloud/daily_batch.py --asof YYYY-MM-DD --output-dir <dir>
+
+# structured summary を書き出す（workflow の Discord 通知が読む）
+uv run python tools/cloud/daily_batch.py --output-dir <dir> --summary-output <summary.json>
 ```
+
+`--summary-output` を指定すると、success / skip / deferred / fatal の全終端パスで
+`BatchExecutionSummary` JSON を atomic write する。screening / macro / serving-export / prune の
+論理結果ごとに datasets・所要時間・metrics・typed errors を確定し、不正な `--asof` も
+`invalid_asof` error を持つ fatal summary になる。stdout/stderr の既存診断はそのまま維持し、
+summary には redaction 済みの typed errors だけを渡す。
 
 終了コード:
 
@@ -182,3 +192,63 @@ uv run python tools/cloud/daily_batch.py --asof YYYY-MM-DD --output-dir <dir>
   複数 revision を作っても停止しない）
 - 営業日判定は market store の `jquants_market_calendar` が情報源。対象日をカバーして
   いない場合は黙って続行せず明示エラーで停止する
+
+## notify_discord.py — 日次 batch 結果の Discord 通知
+
+`cloud-daily-batch` は run ごとに終端結果を Discord チャンネル `#batch-runs` へ1件通知する。
+共通 Logger ではなく workflow 単位の通知 adapter で、チャンネルは code が選ばず repository
+secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾の単一 step
+（`if: !cancelled()`）が、success / failure のどちらでも cancel 以外で1回だけ行う。
+
+通知する結果は4種。
+
+| label | overall outcome | 意味 | publish state |
+| --- | --- | --- | --- |
+| `[OK]` | succeeded | batch exit 0、local export あり、両 upload 成功 | published |
+| `[SKIPPED]` | skipped_non_business_day | 非営業日 gate で skip（export なし） | not_generated |
+| `[DEGRADED]` | published_with_deferred_failure | batch exit 3。screening は publish 済み、繰延べ step（macro / prune）が失敗 | published |
+| `[FAILED]` | failed | 致命的失敗、batch 以外 step の失敗、summary 欠落・invalid、upload 失敗 | upload step の status に従う |
+
+判定の優先順は「batch 以外の step 失敗 → upload 失敗（`upload_failed`）→ batch summary の
+outcome」。upload 失敗は batch が成功していても `[FAILED]` を優先する。setup/sync/pull の失敗は
+batch 未到達（`not_started`）の `[FAILED]`、batch 実行後の summary 欠落・invalid・矛盾は
+`unavailable` の `[FAILED]`。exit 3 は publish 済みの `[DEGRADED]`、upload 失敗は
+`[FAILED]`（`upload_failed`）という契約を README と test で固定する。
+
+message には workflow 名・repository・trigger・run attempt・overall outcome・as-of・総所要時間・
+batch ごとの status / datasets / metrics・publish state・GitHub Actions run URL を含む。error は
+failed を degraded より先に表示し、4件以上は上位3件 + 残件数へ折りたたむ。error message は固定
+code / stage / impact と検証済み scalar だけから作り、subprocess の stderr・例外本文・provider
+response body は載せない（1行400文字以内、全体2000文字以内）。
+
+`daily_batch.py` が `--summary-output` に書いた `BatchExecutionSummary` を読み、GitHub metadata と
+step outcome を合成して `WorkflowRunSummary` を確定し、配送結果（delivered / failed）も記録して
+atomic write してから、同じ model を Discord へ render する。notifier は repository dependency と
+Python 3.14 固有構文を使わず、checkout 直後の system `python3` で import / CLI 実行できる
+（smoke step が `py_compile` で検査する）。
+
+通知の配送に失敗した run は、data 処理が成功していても job を失敗にする。`#batch-runs` に届かない
+正常 run は配送失敗を意味するので、GitHub Actions の run log（通知 step の stderr）で data 処理の
+成功と配送の失敗を区別して確認する。webhook URL・response body は log に出ない。未設定・HTTPS 以外・
+Discord 以外の host・timeout・HTTP error はすべて sanitized な理由で non-zero 終了する。
+
+### webhook rotation
+
+`DISCORD_WEBHOOK_URL` は GitHub Actions の repository secret で、通知 step だけが読む（job env ・
+CLI 引数・log には出ない）。secret の実値を Git・issue・log へ書かない。
+
+1. Discord で `#batch-runs` の webhook を作り直す（または既存 webhook の token を再生成する）。
+2. `gh secret set DISCORD_WEBHOOK_URL --repo <owner>/<repo>` で新しい URL を登録する。
+3. 過去営業日の `asof` で手動 run を発火し、`#batch-runs` に1件届くことを確認する。
+
+旧 webhook は Discord 側で削除するまで有効。
+
+### 実配送の確認
+
+`#batch-runs` への実配送は次で確認する。
+
+- 不正な `asof`（例: `2026-13-99`）の手動 run → `[FAILED]`（`invalid_asof`）が1件届く。
+- 有効な `asof` または次の通常 run → `[OK]` が1件届く。
+- 非営業日が先に来た場合 → reason 付き `[SKIPPED]`（no-publish）が届く。
+
+各 message の batch 名 / datasets / 件数 / 所要時間 / publish 状態 / run URL が正しいことを照合する。
