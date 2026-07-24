@@ -49,6 +49,7 @@ groups:
       - id: us.industrial_production
       - id: jp.unemployment
       - id: jp.pmi_manufacturing
+      - id: jp.pmi_services
       - id: jp.bankruptcies
       - id: jp.real_exports
       - id: jp.real_consumption
@@ -63,6 +64,8 @@ groups:
       - id: us.housing_starts
       - id: us.retail_sales
       - id: us.consumer_sentiment
+      - id: us.pmi_manufacturing
+      - id: us.pmi_services
   - title: 流動性・クレジット・リスク
     series:
       - id: us.fed_assets

@@ -67,6 +67,54 @@ def _primary_statement_candidates(normalized_text: str, expected_observed_at: da
     }
 
 
+# Names that denote the headline series (not a sub-index such as new orders or
+# employment), used to scope the order-independent fallback below.
+_HEADLINE_ANCHOR = re.compile(
+    r"the headline|Business Activity Index|Purchasing Managers|"
+    r"Services PMI|Manufacturing PMI|\bthe PMI\b",
+    re.IGNORECASE,
+)
+
+
+# The Composite index value is published in the same release as the headline and reads
+# just like it ("Composite PMI Output Index posted X in Month"); blanking that clause
+# keeps it from colliding with the manufacturing/services headline. Anchored on a verb
+# so it removes only the composite's own value statement, and works even when broken
+# sentence segmentation glues the contact block to the body.
+_COMPOSITE_VALUE = re.compile(
+    r"Composite PMI[^.]{0,70}?\b(?:posted|registered|recorded|increased to|rose to|"
+    r"climbed to|edged up to|edged down to|fell to|dropped to|declined to|slipped to|"
+    r"came in at|stood at|was|of|at)\s+\d{2}\.\d\s+(?:in|for)\s+\w+",
+    re.IGNORECASE,
+)
+
+
+def _strip_composite(normalized_text: str) -> str:
+    """Blank the Composite index's own value statement so it cannot be read as the
+    manufacturing/services headline. The headline value is never stated inside a
+    Composite value clause, so this does not drop it."""
+    return _COMPOSITE_VALUE.sub(" ", normalized_text)
+
+
+def _anchored_month_candidates(normalized_text: str, expected_observed_at: date) -> set[float]:
+    """Fallback: a value tied to the expected month inside a sentence that names the
+    headline series, regardless of clause order.
+
+    Covers phrasings the primary statement misses because the value leads the clause
+    ("At 52.4 in April, the headline ... Index rose ..."), or is stated as a transition
+    ("from X in March to 51.0 in May") or a level ("the neutral value of 50.0 in May").
+    Requiring a headline anchor in the same sentence (never a bare "index") keeps a
+    sub-index reading out, and the month must sit immediately after the value.
+    """
+    month = re.escape(expected_observed_at.strftime("%B"))
+    value_pat = re.compile(rf"(?P<value>\d{{2}}\.\d)\s+(?:in|for)\s+{month}\b", re.IGNORECASE)
+    out: set[float] = set()
+    for sentence in re.split(r"(?<=[.!?])\s+", normalized_text):
+        if _HEADLINE_ANCHOR.search(sentence):
+            out |= {float(match.group("value")) for match in value_pat.finditer(sentence)}
+    return out
+
+
 def extract_pmi_value(
     normalized_text: str,
     *,
@@ -80,6 +128,7 @@ def extract_pmi_value(
     internally inconsistent (conflicting values) or the value is implausible.
     """
 
+    normalized_text = _strip_composite(normalized_text)
     month = re.escape(expected_observed_at.strftime("%B"))
     # The primary statement is read from the whole release first and does not
     # depend on a "the headline ... PMI" scope, because older releases and the
@@ -166,6 +215,13 @@ def extract_pmi_value(
                     )
                     if linked_match is not None:
                         candidates.add(float(linked_match.group("value")))
+
+    if not candidates and expected_observed_at == release_observed_at:
+        # Order-independent last resort for house styles that lead with the value
+        # or state it as a transition/level rather than "<verb> X in Month". Gated
+        # to the release's own month so a "from X in <prior month>" comparison in a
+        # restating release is never mistaken for the prior month's own reading.
+        candidates |= _anchored_month_candidates(normalized_text, expected_observed_at)
 
     if len(candidates) > 1:
         raise PmiExtractionError(

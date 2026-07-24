@@ -508,6 +508,30 @@ series:
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=UMCSENT
     notes: ミシガン大消費者信頼感指数(月次・1966Q1=100)。消費者マインドと期待インフレの温度計
     aliases: [消費者信頼感, ミシガン, consumer sentiment, UMCSENT, 消費者マインド]
+  - series_id: us.pmi_manufacturing
+    name: 米製造業PMI
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: spglobal_pmi
+    provider_series_id: us_manufacturing
+    source_id: spglobal-us-pmi-mfg
+    source_url: https://www.pmi.spglobal.com/
+    notes: S&P Global 米製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する。ISM製造業と対で米製造業サイクルを読む
+    aliases: [米製造業PMI, US manufacturing PMI, S&P US manufacturing PMI]
+  - series_id: us.pmi_services
+    name: 米サービス業PMI
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: spglobal_pmi
+    provider_series_id: us_services
+    source_id: spglobal-us-pmi-svc
+    source_url: https://www.pmi.spglobal.com/
+    notes: S&P Global 米サービス業PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。米経済の約7割を占めるサービス需要の先行観測
+    aliases: [米サービスPMI, US services PMI, S&P US services PMI]
   - series_id: us.sloos_ci_tightening
     name: 米銀行貸出態度(SLOOS・C&I大企業)
     category: credit

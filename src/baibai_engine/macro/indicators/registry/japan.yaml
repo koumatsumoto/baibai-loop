@@ -183,6 +183,18 @@ series:
     source_url: https://www.pmi.spglobal.com/
     notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する
     aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
+  - series_id: jp.pmi_services
+    name: 日本サービス業PMI
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: spglobal_pmi
+    provider_series_id: jp_services
+    source_id: spglobal-jp-pmi-svc
+    source_url: https://www.pmi.spglobal.com/
+    notes: au Jibun Bank / S&P Global 日本サービス業PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。製造業PMIと対で内需サイクルを読む
+    aliases: [サービス業PMI, 日本サービスPMI, JP services PMI, au Jibun services PMI]
   - series_id: jp.monetary_base
     name: 日本マネタリーベース
     category: monetary

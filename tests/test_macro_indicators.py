@@ -681,6 +681,21 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "invalid release URL"):
             _parse_stream("jp_manufacturing", entries)
 
+    def test_spglobal_pmi_manifest_covers_every_registered_pmi_series(self) -> None:
+        # Every registered spglobal_pmi series must resolve to a manifest stream, so a
+        # newly registered PMI series can never ship without its release URLs.
+        from baibai_engine.macro.indicators.definitions import load_definitions
+
+        streams = set(_manifest())
+        pmi_series = [s for s in load_definitions().series if s.provider == "spglobal_pmi"]
+        self.assertTrue(pmi_series)
+        for series in pmi_series:
+            self.assertIn(
+                series.provider_series_id,
+                streams,
+                f"{series.series_id} has no manifest stream {series.provider_series_id!r}",
+            )
+
     def test_derived_net_liquidity_formula_converts_units(self) -> None:
         value = FORMULAS["us.net_liquidity"].evaluate(
             {"us.fed_assets": 6_600_000.0, "us.reverse_repo": 500_000.0, "us.tga": 700_000.0}
