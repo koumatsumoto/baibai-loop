@@ -3,7 +3,14 @@ import { Link } from 'react-router-dom'
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
-import type { CandidateRowView, PortfolioState, ScreeningView } from '../api/types'
+import type {
+  CandidateRowView,
+  PortfolioState,
+  ScreeningHistoryRunView,
+  ScreeningHistoryView,
+  ScreeningRunView,
+  ScreeningView,
+} from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
@@ -121,18 +128,29 @@ function FilterField({ label, children, className }: { label: string; children: 
   )
 }
 
-function LayerHeading({ layer, title, note }: { layer: string; title: string; note: string }) {
-  return (
-    <div>
-      <p className="text-sm font-medium text-muted-foreground">{layer}</p>
-      <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{note}</p>
-    </div>
+function candidateDateLabel(value: string, latest: string) {
+  if (value === latest) return `${value}（最新）`
+  const today = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+  const days = Math.round(
+    (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${value}T00:00:00Z`)) / 86_400_000,
   )
+  if (days === 0) return `${value}（今日）`
+  if (days === 1) return `${value}（昨日）`
+  return value
 }
 
 export function StocksPage() {
   const [data, setData] = useState<ScreeningView | null>(null)
+  const [historyDates, setHistoryDates] = useState<string[]>([])
+  const [selectedDate, setSelectedDate] = useState('')
+  const [historicalRun, setHistoricalRun] = useState<ScreeningHistoryRunView | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [sector, setSector] = useState('')
@@ -146,12 +164,29 @@ export function StocksPage() {
   const [showAll, setShowAll] = useState(false)
 
   useEffect(() => {
-    fetchJson<ScreeningView>('/api/screening/latest').then(setData).catch((reason: unknown) => {
+    Promise.all([
+      fetchJson<ScreeningView>('/api/screening/latest'),
+      fetchJson<ScreeningHistoryView>('/api/screening/history').catch(() => ({ dates: [] })),
+    ]).then(([screening, history]) => {
+      setData(screening)
+      const latest = screening.run?.asof_date ?? ''
+      setSelectedDate(latest)
+      setHistoryDates(Array.from(new Set([latest, ...history.dates])).filter(Boolean).sort().reverse())
+    }).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : 'Stocks を読み込めませんでした')
     })
   }, [])
 
-  const sectors = useMemo(() => Array.from(new Set(data?.rows.map((row) => row.sector_33).filter((value): value is string => value !== null))).sort((a, b) => a.localeCompare(b, 'ja')), [data])
+  const activeRun: ScreeningRunView | null = historicalRun === null
+    ? data?.run ?? null
+    : historicalRun.run
+  const candidateRows = useMemo(
+    () => historicalRun === null || data === null
+      ? data?.rows ?? []
+      : historicalRun.rows,
+    [data, historicalRun],
+  )
+  const sectors = useMemo(() => Array.from(new Set(candidateRows.map((row) => row.sector_33).filter((value): value is string => value !== null))).sort((a, b) => a.localeCompare(b, 'ja')), [candidateRows])
 
   const rows = useMemo(() => {
     if (!data) return []
@@ -159,7 +194,7 @@ export function StocksPage() {
     const maxPer = numericFilter(perMax)
     const maxPbr = numericFilter(pbrMax)
     const minDividend = numericFilter(dividendMin)
-    return data.rows.filter((row) => {
+    return candidateRows.filter((row) => {
       if (normalized && !row.ticker.toLocaleLowerCase('ja').startsWith(normalized) && !(row.name ?? '').toLocaleLowerCase('ja').includes(normalized)) return false
       if (sector && row.sector_33 !== sector) return false
       if (heldOnly && row.portfolio_state !== 'held' && row.portfolio_state !== 'held_and_reserved') return false
@@ -169,7 +204,32 @@ export function StocksPage() {
       if (minDividend !== null && (row.dividend_yield === null || row.dividend_yield < minDividend / 100)) return false
       return true
     }).sort((left, right) => compareRows(left, right, sortKey, direction))
-  }, [data, query, sector, heldOnly, researchOnly, perMax, pbrMax, dividendMin, sortKey, direction])
+  }, [data, candidateRows, query, sector, heldOnly, researchOnly, perMax, pbrMax, dividendMin, sortKey, direction])
+
+  const selectCandidateDate = (value: string) => {
+    if (!data?.run) return
+    setHistoryError(null)
+    if (value === data.run.asof_date) {
+      setSelectedDate(value)
+      setHistoricalRun(null)
+      setSector('')
+      setShowAll(false)
+      return
+    }
+    setHistoryLoading(true)
+    fetchJson<ScreeningHistoryRunView>(`/api/screening/history/${value}`)
+      .then((history) => {
+        setHistoricalRun(history)
+        setSelectedDate(value)
+        setSector('')
+        setShowAll(false)
+      })
+      .catch((reason: unknown) => {
+        setHistoryDates((dates) => dates.filter((date) => date !== value))
+        setHistoryError(reason instanceof Error ? reason.message : 'Candidates 履歴を読み込めませんでした')
+      })
+      .finally(() => setHistoryLoading(false))
+  }
 
   const onSort = (key: SortKey) => {
     if (key === sortKey) setDirection((current) => current === 'asc' ? 'desc' : 'asc')
@@ -181,7 +241,7 @@ export function StocksPage() {
 
   if (error) return <PageState message={error} title="Stocks read error" />
   if (!data) return <PageState message="候補を読み込んでいます…" title="Stocks" />
-  if (!data.run) return <PageState message="screening run publication がありません" title="Stocks" />
+  if (!data.run || !activeRun) return <PageState message="screening run publication がありません" title="Stocks" />
 
   const visibleRows = showAll ? rows : rows.slice(0, 500)
 
@@ -190,21 +250,18 @@ export function StocksPage() {
       <AppShell />
       <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Stocks</h1>
-            <p className="mt-1 text-sm text-muted-foreground">個別株の機械スクリーニング（Fact）と深掘り候補（Judgment）</p>
-          </div>
-          <div className="flex flex-col items-start gap-2 lg:items-end">
+          <h1 className="text-2xl font-semibold tracking-tight">Stocks</h1>
+          <div className="flex flex-col items-start gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm lg:items-end">
             {data.run.stale && <StaleBadge detail={`${LABEL.asOf} ${data.run.asof_date}（7 日超）`} />}
-            <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
               {[
                 [LABEL.asOf, data.run.asof_date],
                 [LABEL.run, formatJstDateTime(data.run.run_at)],
-                ['UNIVERSE', data.run.universe_size.toLocaleString('ja-JP')],
-                ['CANDIDATES', data.run.candidate_count.toLocaleString('ja-JP')],
+                ['対象銘柄', data.run.universe_size.toLocaleString('ja-JP')],
+                ['Candidates', data.run.candidate_count.toLocaleString('ja-JP')],
               ].map(([label, value]) => (
                 <div key={label}>
-                  <dt className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</dt>
+                  <dt className="text-[10px] font-semibold tracking-wide text-muted-foreground">{label}</dt>
                   <dd className="mt-1 font-mono text-sm font-medium tabular-nums">{value}</dd>
                 </div>
               ))}
@@ -212,16 +269,31 @@ export function StocksPage() {
           </div>
         </header>
 
-        <LayerHeading layer="Fact ・ 機械" note="機械 selection と全通過 candidates。review 済み判断ではありません" title="スクリーニング結果" />
+        <section className="grid gap-3">
+          <h2 className="text-xl font-semibold tracking-tight">Shortlist</h2>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="gap-3 py-5 shadow-sm">
+              <CardHeader className="px-5"><CardTitle className="text-base">深掘り候補</CardTitle></CardHeader>
+              <CardContent className="grid gap-3 px-5">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">Shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">選定 {selectedCount} 件・見送り {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/stocks/shortlist">Shortlist の詳細を見る →</Link></Button></CardContent>
+            </Card>
+            <Card className="gap-3 py-5 shadow-sm">
+              <CardHeader className="px-5"><CardTitle className="text-base">機械参考候補</CardTitle><CardDescription>E[r] による自動絞り込み</CardDescription></CardHeader>
+              <CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">機械参考候補はありません</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.recommendations.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div>{selection.longlist.length > 0 && <p className="mt-2 text-xs text-muted-foreground">絞り込み前 {selection.longlist.length} 件</p>}</div>)}</CardContent>
+            </Card>
+          </div>
+        </section>
 
-        <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Machine recommendations</CardTitle><CardDescription>機械 selection。review 済み判断ではありません</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">selection 未作成</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.recommendations.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div>{selection.longlist.length > 0 && <p className="mt-2 text-xs text-muted-foreground">Longlist: {selection.longlist.length} 件（recommendation とは別）</p>}</div>)}</CardContent></Card>
-
+        <h2 className="text-xl font-semibold tracking-tight">Candidates</h2>
         <Card className="gap-4 py-5 shadow-sm">
-          <CardHeader className="px-5 sm:px-6">
-            <CardTitle className="text-base">フィルター</CardTitle>
-            <CardDescription>銘柄・sector・主要指標で候補を絞り込みます</CardDescription>
-          </CardHeader>
-          <CardContent className="grid items-end gap-3 px-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-[1.5fr_1.1fr_repeat(3,minmax(100px,.55fr))]">
+          <CardContent className="grid items-end gap-3 px-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-[1fr_1.4fr_1.1fr_repeat(3,minmax(96px,.55fr))]">
+            <FilterField label="日付">
+              <Select disabled={historyLoading} onValueChange={selectCandidateDate} value={selectedDate}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {historyDates.map((item) => <SelectItem key={item} value={item}>{candidateDateLabel(item, data.run?.asof_date ?? '')}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </FilterField>
             <FilterField label="銘柄">
               <div className="relative">
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
@@ -250,17 +322,20 @@ export function StocksPage() {
               <Checkbox checked={researchOnly} onCheckedChange={(checked) => setResearchOnly(checked === true)} />
               research 有り
             </label>
+            {historyError && <p className="basis-full text-sm text-destructive" role="alert">{historyError}</p>}
           </CardContent>
         </Card>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <strong className="text-sm text-foreground">{rows.length.toLocaleString('ja-JP')} 件</strong>
-          <span>default: E[r] 降順（canonical ranking と同順・calibration replay で trap 最小）。割安score（= reversion + 0.5×min(carry, 15%) − 0.005×品質flag数）は dislocation lens 用の sort 可能列 / null は末尾</span>
+          <span>{LABEL.asOf} {activeRun.asof_date}</span>
+          <span>{LABEL.run} {formatJstDateTime(activeRun.run_at)}</span>
+          {activeRun.stale && <StaleBadge detail={`${LABEL.asOf} ${activeRun.asof_date}（7 日超）`} />}
+          <span>E[r] 降順</span>
           {!showAll && rows.length > 500 && <span>先頭 500 件を表示</span>}
-          <code className="ml-auto hidden max-w-md truncate font-mono lg:block" title={data.run.source_path}>{data.run.source_path}</code>
+          <code className="ml-auto hidden max-w-md truncate font-mono lg:block" title={activeRun.source_path}>{activeRun.source_path}</code>
         </div>
 
-        <div><h3 className="text-lg font-semibold">全通過 candidates</h3><p className="text-sm text-muted-foreground">machine recommendation / shortlist とは異なる母集団です</p></div>
         <Card className="overflow-hidden py-0 shadow-sm">
           <Table className="min-w-[2280px] text-xs">
             <TableHeader className="bg-muted/70">
@@ -268,19 +343,19 @@ export function StocksPage() {
                 <SortHeader column="ticker" direction={direction} label="ticker" onSort={onSort} sortKey={sortKey} />
                 <SortHeader column="name" direction={direction} label="name" onSort={onSort} sortKey={sortKey} />
                 <SortHeader column="sector_33" direction={direction} label="sector" onSort={onSort} sortKey={sortKey} />
-                <SortHeader column="market_cap_oku" direction={direction} label="時価総額(億)" onSort={onSort} right sortKey={sortKey} />
-                <SortHeader column="avg_turnover_oku" direction={direction} label="売買代金(億)" onSort={onSort} right sortKey={sortKey} />
-                <SortHeader column="per_trailing" direction={direction} label="PER" onSort={onSort} right sortKey={sortKey} />
-                <SortHeader column="per_forward" direction={direction} label="PER(F)" onSort={onSort} right sortKey={sortKey} />
-                <SortHeader column="pbr" direction={direction} label="PBR" onSort={onSort} right sortKey={sortKey} />
-                <SortHeader column="dividend_yield" direction={direction} label="配当" onSort={onSort} right sortKey={sortKey} />
-                <SortHeader column="bargain_score" direction={direction} label="割安score" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="er_annual" direction={direction} label="E[r]" onSort={onSort} right sortKey={sortKey} />
                 <TableHead className="text-right">rev/carry</TableHead>
+                <SortHeader column="bargain_score" direction={direction} label="割安score" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="per_forward" direction={direction} label="PER(F)" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="per_trailing" direction={direction} label="PER" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="pbr" direction={direction} label="PBR" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="dividend_yield" direction={direction} label="配当" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="net_cash_to_market_cap" direction={direction} label="Net cash" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="fcf_yield" direction={direction} label="FCF yield" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="sales_yoy" direction={direction} label="売上YoY" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="operating_profit_yoy" direction={direction} label="営業益YoY" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="market_cap_oku" direction={direction} label="時価総額(億)" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="avg_turnover_oku" direction={direction} label="売買代金(億)" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="price_change_20d" direction={direction} label="20d" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="gap_from_52w_low" direction={direction} label="52w low" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="sector_relative_strength_percentile" direction={direction} label="RS%" onSort={onSort} right sortKey={sortKey} />
@@ -297,19 +372,19 @@ export function StocksPage() {
                   <TableCell><Link className="font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${row.ticker}`}>{row.ticker}</Link></TableCell>
                   <TableCell className="max-w-52 truncate font-medium" title={row.name ?? undefined}>{row.name ?? '—'}</TableCell>
                   <TableCell className="max-w-40 truncate text-muted-foreground" title={row.sector_33 ?? undefined}>{row.sector_33 ?? '—'}</TableCell>
-                  <TableCell className="text-right"><Metric digits={0} value={row.market_cap_oku} /></TableCell>
-                  <TableCell className="text-right"><Metric digits={1} value={row.avg_turnover_oku} /></TableCell>
-                  <TableCell className="text-right"><Metric value={row.per_trailing} /></TableCell>
-                  <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
-                  <TableCell className="text-right"><Metric value={row.pbr} /></TableCell>
-                  <TableCell className="text-right"><PctBadge fraction value={row.dividend_yield} /></TableCell>
-                  <TableCell className="text-right"><PctBadge fraction value={row.bargain_score} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.er_annual} /></TableCell>
                   <TableCell className="text-right"><ErSplitCell carry={row.er_carry_annual} reversion={row.er_reversion_annual} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.bargain_score} /></TableCell>
+                  <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
+                  <TableCell className="text-right"><Metric value={row.per_trailing} /></TableCell>
+                  <TableCell className="text-right"><Metric value={row.pbr} /></TableCell>
+                  <TableCell className="text-right"><PctBadge fraction value={row.dividend_yield} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.net_cash_to_market_cap} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.fcf_yield} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.sales_yoy} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.operating_profit_yoy} /></TableCell>
+                  <TableCell className="text-right"><Metric digits={0} value={row.market_cap_oku} /></TableCell>
+                  <TableCell className="text-right"><Metric digits={1} value={row.avg_turnover_oku} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.price_change_20d} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.gap_from_52w_low} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.sector_relative_strength_percentile} /></TableCell>
@@ -327,10 +402,6 @@ export function StocksPage() {
         {!showAll && rows.length > 500 && (
           <Button className="mx-auto" onClick={() => setShowAll(true)} type="button" variant="outline">全 {rows.length.toLocaleString('ja-JP')} 件を表示</Button>
         )}
-
-        <LayerHeading layer="Judgment ・ AI + 人間" note="OP3 gate で longlist から選んだ深掘り候補。最終 buy 提案ではありません" title="Shortlist" />
-
-        <Card className="gap-3 py-5 shadow-sm"><CardHeader className="px-5"><CardTitle className="text-base">Shortlist</CardTitle><CardDescription>AI / 人間 review 後に明示 publish された判断 gate</CardDescription></CardHeader><CardContent className="grid gap-3 px-5">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">selected {selectedCount} 件・rejected {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/stocks/shortlist">レビュー面を開く（narrative + 機械値）→</Link></Button></CardContent></Card>
       </main>
     </>
   )

@@ -19,6 +19,7 @@ from baibai_app.readmodel.builders import (
     build_meta,
     build_operations_view,
     build_screening,
+    build_screening_history_run,
     build_security_detail,
 )
 from baibai_app.readmodel.models import (
@@ -27,10 +28,13 @@ from baibai_app.readmodel.models import (
     MacroView,
     MetaView,
     OperationsView,
+    ScreeningHistoryRunView,
+    ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
 )
 from baibai_app.sources.factory import Sources, build_sources, load_macro_groups
+from baibai_engine.read_api import screening_run_asof_dates
 
 _JST = ZoneInfo("Asia/Tokyo")
 
@@ -82,6 +86,25 @@ def create_app(
             sources.ledger,
             sources.research,
         )
+
+    @app.get("/api/screening/history", response_model=ScreeningHistoryView)
+    def screening_history(sources: _SourceDependency) -> ScreeningHistoryView:
+        return ScreeningHistoryView(dates=screening_run_asof_dates(sources.runs_db_path))
+
+    @app.get("/api/screening/history/{as_of}", response_model=ScreeningHistoryRunView)
+    def screening_history_run(
+        as_of: date,
+        sources: _SourceDependency,
+    ) -> ScreeningHistoryRunView:
+        view = build_screening_history_run(
+            sources.candidates,
+            sources.ledger,
+            sources.research,
+            as_of=as_of,
+        )
+        if view is None:
+            raise HTTPException(status_code=404, detail="screening history not found")
+        return view
 
     @app.get("/api/macro", response_model=MacroView)
     def macro(

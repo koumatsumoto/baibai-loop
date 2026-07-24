@@ -5,7 +5,6 @@ import { fetchJson } from '../api/client'
 import type { MetaView } from '../api/types'
 import { BrandMark } from './BrandMark'
 import { FreshnessMeta } from './FreshnessMeta'
-import { ThemeToggle } from './ThemeToggle'
 import { Badge } from './ui/badge'
 import { NAV_TABS } from '../lib/nav'
 import { cn } from '../lib/utils'
@@ -21,7 +20,7 @@ export function AppShell() {
   }, [])
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/88 dark:bg-background/95 dark:supports-[backdrop-filter]:bg-background/88">
+    <header className="sticky top-0 z-40 border-b bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/88">
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
         <Link aria-label="Baibai App ホーム" className="flex shrink-0 items-center gap-2.5 font-semibold tracking-tight" to="/">
           <BrandMark />
@@ -46,14 +45,13 @@ export function AppShell() {
           })}
         </nav>
         <div className="flex shrink-0 items-center gap-3">
-          {meta !== null && <FreshnessMeta className="hidden border-r border-border/60 pr-3 lg:flex" meta={meta} />}
+          {meta !== null && <FreshnessMeta className="hidden border-r border-border/60 pr-3 lg:flex" deployedAt={import.meta.env.VITE_DEPLOYED_AT} meta={meta} />}
           <Badge className="hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
-          <ThemeToggle />
         </div>
       </div>
       {meta !== null && (
         <div className="mx-auto max-w-[1600px] border-t px-4 py-1.5 sm:px-6 lg:hidden">
-          <FreshnessMeta className="flex-wrap justify-start" meta={meta} />
+          <FreshnessMeta className="flex-wrap justify-start" deployedAt={import.meta.env.VITE_DEPLOYED_AT} meta={meta} />
         </div>
       )}
     </header>

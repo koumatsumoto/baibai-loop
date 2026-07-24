@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -385,6 +386,30 @@ def test_holding_uses_market_close_when_strictly_newer_than_ledger() -> None:
     assert holding.fv_gap_pct == 9.1
     assert view.holdings_market_value_yen == 1100
     assert view.total_capital_yen == 2100
+    assert view.valuation_as_of == datetime(2026, 7, 19, 15, 30, tzinfo=JST)
+
+
+def test_dashboard_valuation_basis_uses_oldest_close_when_holding_dates_differ() -> None:
+    snapshot = _snapshot()
+    ledger_as_of = datetime(2026, 7, 15, 9, 0, tzinfo=JST)
+    first = replace(snapshot.holdings[0], market_price_observed_at=ledger_as_of)
+    second = replace(first, ticker="9999")
+    mixed = replace(snapshot, as_of=ledger_as_of, holdings=(first, second))
+
+    view = build_dashboard(
+        StubLedger(mixed),
+        StubResearch([_revision()]),
+        StubTasks([]),
+        StubCandidates(_run()),
+        StubMarket(
+            {
+                "4432": (11.0, date(2026, 7, 19)),
+                "9999": (9.0, date(2026, 7, 16)),
+            }
+        ),
+    )
+
+    assert view.valuation_as_of == datetime(2026, 7, 16, 15, 30, tzinfo=JST)
 
 
 def _snapshot_with_reservation(*, expires_at: datetime) -> PortfolioSnapshot:

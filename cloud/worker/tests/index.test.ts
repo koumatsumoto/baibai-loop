@@ -4,9 +4,12 @@ import { handleRequest } from '../src/index'
 
 const PASSWORD = '1234567890abcdefghijklmnopqrstuv'
 
-function environment(get: ReturnType<typeof vi.fn>) {
+function environment(
+  get: ReturnType<typeof vi.fn>,
+  list: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({ objects: [] }),
+) {
   return {
-    BAIBAI_SERVING: { get } as unknown as R2Bucket,
+    BAIBAI_SERVING: { get, list } as unknown as R2Bucket,
     ASSETS: { fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })) } as unknown as Fetcher,
     VIEW_PASSWORD: PASSWORD,
   }
@@ -80,6 +83,7 @@ describe('view routing', () => {
   it.each([
     ['/api/dashboard', 'views/dashboard.json'],
     ['/api/screening/latest', 'views/screening_latest.json'],
+    ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
     ['/api/operations', 'views/operations.json'],
     ['/api/meta', 'views/meta.json'],
     ['/api/macro', 'views/macro--1y-daily.json'],
@@ -111,6 +115,8 @@ describe('view routing', () => {
   it.each([
     '/api/securities/7203/extra',
     '/api/securities/%2e%2e%2fhistory',
+    '/api/screening/history/2026-07-23/extra',
+    '/api/screening/history/not-a-date',
     '/api/macro/context/bad!id',
     '/api/macro/context/nested/id',
     '/api/unknown',
@@ -120,6 +126,26 @@ describe('view routing', () => {
     const response = await handleRequest(request(path), environment(get))
 
     expect(response.status).toBe(404)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('lists retained candidate dates without exposing arbitrary R2 keys', async () => {
+    const get = vi.fn()
+    const list = vi.fn().mockResolvedValue({
+      objects: [
+        { key: 'history/candidate-views/2026-07-22.json' },
+        { key: 'history/candidate-views/not-a-date.json' },
+        { key: 'history/candidate-views/2026-07-23.json' },
+      ],
+    })
+    const response = await handleRequest(
+      request('/api/screening/history'),
+      environment(get, list),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ dates: ['2026-07-23', '2026-07-22'] })
+    expect(list).toHaveBeenCalledWith({ prefix: 'history/candidate-views/', limit: 64 })
     expect(get).not.toHaveBeenCalled()
   })
 

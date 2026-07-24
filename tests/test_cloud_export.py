@@ -94,6 +94,7 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path
     assert view.screening_asof == date(2026, 7, 8)
     assert view.macro_asof == date(2026, 7, 17)
     assert view.app_db_updated_at == datetime(2026, 7, 19, 12, 0, tzinfo=JST)
+    assert view.data_updated_at == datetime(2026, 7, 19, 12, 0, tzinfo=JST)
     assert view.batch == "daily"
     assert view.generated_at.tzinfo is not None
 
@@ -134,6 +135,7 @@ def test_build_meta_reflects_a_newly_written_operation_session(
     view = build_meta(_meta_source(app_method_root))
 
     assert view.app_db_updated_at == started_at
+    assert view.data_updated_at == started_at
 
 
 def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
@@ -142,6 +144,7 @@ def test_build_meta_returns_none_for_missing_stores(tmp_path: Path) -> None:
     assert view.screening_asof is None
     assert view.macro_asof is None
     assert view.app_db_updated_at is None
+    assert view.data_updated_at is None
 
 
 def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path) -> None:
@@ -219,11 +222,13 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert [entry["ticker"] for entry in selection.recommendations] == ["2331"]
     assert [entry["ticker"] for entry in selection.longlist] == ["0001"]
 
-    pool_files = sorted((output_dir / "history/candidates").iterdir())
-    assert [item.name for item in pool_files] == ["2026-07-08.json"]
+    pool_files = sorted((output_dir / "history/candidate-views").iterdir())
+    assert [item.name for item in pool_files] == ["2026-07-01.json", "2026-07-08.json"]
     pool = json.loads(pool_files[0].read_text(encoding="utf-8"))
-    assert [candidate["ticker"] for candidate in pool["candidates"]] == ["2331", "0001", "0002"]
-    assert pool["run_revision_id"] == run.run_revision_id
+    assert [candidate["ticker"] for candidate in pool["rows"]] == ["2331", "0001", "0002"]
+    assert pool["run"]["asof_date"] == "2026-07-01"
+    latest_pool = json.loads(pool_files[1].read_text(encoding="utf-8"))
+    assert latest_pool["run"]["source_path"] == run.run_revision_id
 
 
 def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -314,6 +315,34 @@ class DbMetaSource:
     def app_db_updated_at(self) -> datetime | None:
         return application_db_updated_at(self._app_db_path)
 
+    def data_updated_at(self) -> datetime | None:
+        """Return the newest timestamp recorded by any UI data store."""
+
+        candidates = screening_run_payload(self._runs_db_path)
+        screening_updated_at = (
+            None if candidates is None else datetime.fromisoformat(str(candidates["run_at"]))
+        )
+        macro_observed_at = macro_latest_observed_at(self._indicators_db_path)
+        macro_updated_at = (
+            None
+            if macro_observed_at is None
+            else datetime.combine(
+                macro_observed_at, datetime.min.time(), tzinfo=ZoneInfo("Asia/Tokyo")
+            )
+        )
+        return max(
+            (
+                value
+                for value in (
+                    self.app_db_updated_at(),
+                    screening_updated_at,
+                    macro_updated_at,
+                )
+                if value is not None
+            ),
+            default=None,
+        )
+
 
 class DbCandidatesSource:
     def __init__(self, runs_db_path: Path, app_db_path: Path) -> None:
@@ -326,6 +355,10 @@ class DbCandidatesSource:
 
     def run(self, run_revision_id: str) -> CandidatesRun | None:
         raw = screening_run_payload(self._runs_path, run_revision_id=run_revision_id)
+        return None if raw is None else self._parse_run(raw)
+
+    def run_as_of(self, as_of: date) -> CandidatesRun | None:
+        raw = screening_run_payload(self._runs_path, as_of_date=as_of)
         return None if raw is None else self._parse_run(raw)
 
     def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:

@@ -21,6 +21,8 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         health = client.get("/api/health")
         dashboard = client.get("/api/dashboard")
         screening = client.get("/api/screening/latest")
+        screening_history = client.get("/api/screening/history")
+        previous_screening = client.get("/api/screening/history/2026-07-01")
         macro = client.get("/api/macro?as_of=2026-07-19&period=5y&granularity=yearly")
         detail = client.get("/api/securities/2331")
 
@@ -32,6 +34,12 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert screening.status_code == 200
         assert screening.json()["run"]["candidate_count"] == 3
         assert screening.json()["run"]["run_at"] == "2026-07-08T12:00:00+09:00"
+        assert screening_history.json() == {"dates": ["2026-07-08", "2026-07-01"]}
+        assert previous_screening.status_code == 200
+        assert previous_screening.json()["run"]["asof_date"] == "2026-07-01"
+        assert len(previous_screening.json()["rows"]) == 3
+        assert previous_screening.json()["rows"][0]["portfolio_state"] == "held"
+        assert previous_screening.json()["rows"][0]["has_research"] is True
         assert macro.status_code == 200
         assert macro.json()["period"] == "5y"
         assert macro.json()["granularity"] == "yearly"
@@ -97,6 +105,7 @@ def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
         2026, 7, 18, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo")
     )
     assert body["batch"] is None
+    assert datetime.fromisoformat(body["data_updated_at"]).tzinfo is not None
     assert datetime.fromisoformat(body["generated_at"]).tzinfo is not None
 
 
@@ -244,10 +253,12 @@ def test_api_reads_the_explicit_application_database(app_method_root: Path) -> N
 def test_api_returns_404_for_unknown_security_and_api_route(app_method_root: Path) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         unknown_security = client.get("/api/securities/0000")
+        unknown_history = client.get("/api/screening/history/2026-06-01")
         unknown_api = client.get("/api/unknown")
 
         assert unknown_security.status_code == 404
         assert unknown_security.json() == {"detail": "unknown ticker"}
+        assert unknown_history.status_code == 404
         assert unknown_api.status_code == 404
         assert client.post("/api/dashboard").status_code == 405
 

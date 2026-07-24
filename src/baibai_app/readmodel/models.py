@@ -14,6 +14,7 @@ class MetaView(BaseModel):
     """Store freshness shown alongside every view and exported as views/meta.json."""
 
     generated_at: datetime
+    data_updated_at: datetime | None
     screening_asof: date | None
     macro_asof: date | None
     app_db_updated_at: datetime | None
@@ -83,6 +84,8 @@ class DashboardView(BaseModel):
     ledger_error: str | None
     ledger_as_of: datetime | None
     ledger_stale: bool
+    valuation_as_of: datetime | None
+    valuation_stale: bool
     total_capital_yen: int | None
     available_cash_yen: int | None
     reserved_cash_yen: int | None
@@ -193,6 +196,17 @@ class ScreeningView(BaseModel):
     rows: list[CandidateRowView]
     selections: list[MachineSelectionView]
     shortlists: list[ShortlistView]
+
+
+class ScreeningHistoryView(BaseModel):
+    dates: list[date]
+
+
+class ScreeningHistoryRunView(BaseModel):
+    """Stable UI projection of one retained screening run."""
+
+    run: ScreeningRunView
+    rows: list[CandidateRowView]
 
 
 class MachineSelectionView(BaseModel):

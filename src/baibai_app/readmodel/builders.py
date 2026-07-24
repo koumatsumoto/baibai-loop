@@ -62,6 +62,7 @@ from .models import (
     ResearchRevisionView,
     ReservationView,
     ScenarioView,
+    ScreeningHistoryRunView,
     ScreeningRunView,
     ScreeningView,
     SecurityDetailView,
@@ -117,6 +118,7 @@ def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaV
 
     return MetaView(
         generated_at=datetime.now(_JST),
+        data_updated_at=source.data_updated_at(),
         screening_asof=source.screening_asof(),
         macro_asof=source.macro_asof(),
         app_db_updated_at=source.app_db_updated_at(),
@@ -230,12 +232,19 @@ def build_dashboard(
     available_cash = snapshot.available_cash_yen
     reserved_cash = snapshot.reserved_cash_yen
     total = available_cash + reserved_cash + holdings_market_value
+    # The page-level basis is conservative: every displayed value is at least this fresh.
+    # Individual holding rows retain their exact timestamps when closes are mixed.
+    valuation_as_of = (
+        min(item.market_price_as_of for item in holdings) if holdings else snapshot.as_of
+    )
     return DashboardView(
         generated_at=now,
         ledger_exists=True,
         ledger_error=None,
         ledger_as_of=snapshot.as_of,
         ledger_stale=snapshot.as_of.date() <= today - timedelta(days=7),
+        valuation_as_of=valuation_as_of,
+        valuation_stale=valuation_as_of.date() <= today - timedelta(days=7),
         total_capital_yen=total,
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
@@ -313,6 +322,29 @@ def build_screening(
         ],
         selections=selections,
         shortlists=shortlists,
+    )
+
+
+def build_screening_history_run(
+    candidates: DbCandidatesSource,
+    ledger: LedgerSource,
+    research: ResearchSource,
+    *,
+    as_of: date,
+) -> ScreeningHistoryRunView | None:
+    """Build one retained run with the same current-state annotations as latest."""
+
+    run = candidates.run_as_of(as_of)
+    if run is None:
+        return None
+    held, reserved = _held_and_reserved_tickers(ledger)
+    researched = {item.ticker for item in research.revisions()}
+    return ScreeningHistoryRunView(
+        run=_screening_run_view(run, today=datetime.now(_JST).date()),
+        rows=[
+            _candidate_row_view(row, held=held, reserved=reserved, researched=researched)
+            for row in run.rows
+        ],
     )
 
 
@@ -637,6 +669,8 @@ def _empty_dashboard(
         ledger_error=ledger_error,
         ledger_as_of=None,
         ledger_stale=False,
+        valuation_as_of=None,
+        valuation_stale=False,
         total_capital_yen=None,
         available_cash_yen=None,
         reserved_cash_yen=None,

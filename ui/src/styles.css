@@ -3,8 +3,6 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/noto-sans-jp";
 
-@custom-variant dark (&:is(.dark *));
-
 /* Radix state variants keep the source-owned shadcn components independent of the scaffolding CLI. */
 @custom-variant data-open {
   &:where([data-state="open"], [data-open]:not([data-open="false"])) { @slot; }
@@ -151,45 +149,6 @@
     --sidebar-accent-foreground: var(--text-primary);
     --sidebar-border: var(--border);
     --sidebar-ring: var(--primary-display);
-}
-
-.dark {
-    --background: #0f1713;
-    --foreground: #edf4f0;
-    --card: #16201a;
-    --card-foreground: #edf4f0;
-    --popover: #16201a;
-    --popover-foreground: #edf4f0;
-    --primary: #39c985;
-    --primary-hover-color: #62dba2;
-    --primary-foreground: #07130d;
-    --secondary: #202b25;
-    --secondary-foreground: #edf4f0;
-    --muted: #202b25;
-    --muted-foreground: #a8b5ae;
-    --accent: #183b2c;
-    --accent-foreground: #e1f8ea;
-    --destructive: oklch(0.704 0.191 22.216);
-    --positive: oklch(0.723 0.219 149.579);
-    --warning: oklch(0.828 0.189 84.429);
-    --warning-foreground: oklch(0.924 0.12 95.746);
-    --warning-surface: oklch(0.279 0.077 45.635 / 30%);
-    --border: #2a3830;
-    --input: #34443b;
-    --ring: var(--brand-green);
-    --chart-1: #2dcbb1;
-    --chart-2: #a7e33e;
-    --chart-3: #9ca9a2;
-    --chart-4: #ff7654;
-    --chart-5: #39c985;
-    --sidebar: #16201a;
-    --sidebar-foreground: #edf4f0;
-    --sidebar-primary: #39c985;
-    --sidebar-primary-foreground: #07130d;
-    --sidebar-accent: #183b2c;
-    --sidebar-accent-foreground: #e1f8ea;
-    --sidebar-border: #2a3830;
-    --sidebar-ring: var(--brand-green);
 }
 
 @layer base {

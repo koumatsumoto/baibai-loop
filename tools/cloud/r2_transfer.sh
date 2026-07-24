@@ -115,9 +115,9 @@ upload_serving() {
   if [[ -d "${output_dir}/history/select" ]]; then
     aws_s3 sync "${output_dir}/history/select/" "s3://${serving_bucket}/history/select/"
   fi
-  if [[ -d "${output_dir}/history/candidates" ]]; then
-    aws_s3 sync "${output_dir}/history/candidates/" \
-      "s3://${serving_bucket}/history/candidates/"
+  if [[ -d "${output_dir}/history/candidate-views" ]]; then
+    aws_s3 sync "${output_dir}/history/candidate-views/" \
+      "s3://${serving_bucket}/history/candidate-views/"
   fi
   # Freshness is published only after every view and history upload succeeds.
   aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
