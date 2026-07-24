@@ -1558,6 +1558,97 @@ class IndicatorsServiceTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(first, "1950-01-01")
 
+    def test_repeated_range_refresh_is_idempotent_for_unchanged_data(self) -> None:
+        # Mirrors the daily batch re-running the same rolling window: a provider
+        # stamps a fresh now() vintage on every fetch, yet the store must
+        # converge to one vintage per observed_at when the values are unchanged.
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            service = IndicatorsService(database)
+
+            def _refetch(*_args: object, **_kwargs: object) -> list[ObservationRecord]:
+                return [
+                    ObservationRecord(
+                        series_id="us.10y",
+                        observed_at=date(2026, 5, day),
+                        value=value,
+                        unit="percent",
+                        source_url="https://example.com/us10y.csv",
+                        vintage_at=datetime.now(UTC),
+                    )
+                    for day, value in ((1, 4.39), (2, 4.41))
+                ]
+
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                side_effect=_refetch,
+            ):
+                for _ in range(3):
+                    service.get_range(
+                        "us.10y", start=date(2026, 5, 1), end=date(2026, 5, 2), refresh=True
+                    )
+
+            conn = open_connection(database)
+            try:
+                rows = conn.execute(
+                    "SELECT observed_at, value FROM observations WHERE series_id = ? "
+                    "ORDER BY observed_at, vintage_at",
+                    ("us.10y",),
+                ).fetchall()
+            finally:
+                conn.close()
+            # Three identical refreshes leave exactly one row per observed_at.
+            self.assertEqual(
+                [(row["observed_at"], row["value"]) for row in rows],
+                [("2026-05-01", 4.39), ("2026-05-02", 4.41)],
+            )
+
+    def test_range_refresh_adds_a_vintage_only_when_the_source_revises_a_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            service = IndicatorsService(database)
+            common = {
+                "series_id": "us.10y",
+                "observed_at": date(2026, 5, 1),
+                "unit": "percent",
+                "source_url": "https://example.com/us10y.csv",
+            }
+            first = [
+                ObservationRecord(**common, value=4.39, vintage_at=datetime(2026, 5, 2, tzinfo=UTC))
+            ]
+            revised = [
+                ObservationRecord(**common, value=4.55, vintage_at=datetime(2026, 5, 9, tzinfo=UTC))
+            ]
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                side_effect=[first, revised],
+            ):
+                service.get_range(
+                    "us.10y", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
+                )
+                result = service.get_range(
+                    "us.10y", start=date(2026, 5, 1), end=date(2026, 5, 1), refresh=True
+                )
+
+            conn = open_connection(database)
+            try:
+                rows = conn.execute(
+                    "SELECT value, vintage_at FROM observations WHERE series_id = ? "
+                    "AND observed_at = ? ORDER BY vintage_at",
+                    ("us.10y", "2026-05-01"),
+                ).fetchall()
+            finally:
+                conn.close()
+            # The revision keeps both vintages; point-in-time read returns the latest.
+            self.assertEqual(
+                [(row["value"], row["vintage_at"]) for row in rows],
+                [
+                    (4.39, "2026-05-02T00:00:00+00:00"),
+                    (4.55, "2026-05-09T00:00:00+00:00"),
+                ],
+            )
+            self.assertEqual(result.observations[-1].value, 4.55)
+
     def test_refresh_all_history_uses_jquants_light_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
