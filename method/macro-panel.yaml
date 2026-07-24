@@ -52,6 +52,9 @@ groups:
       - id: us.move
       - id: btc_usd
       - id: jp.monetary_base
+      - id: positioning.jpy_noncomm_net
+      - id: positioning.ust10y_noncomm_net
+      - id: positioning.sp500_noncomm_net
   - title: 為替
     series:
       - id: usd_jpy

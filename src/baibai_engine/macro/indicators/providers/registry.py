@@ -13,6 +13,7 @@ from .base import (
 )
 from .boj import BojProvider
 from .boj_timeseries import BojTimeSeriesProvider
+from .cftc import CftcProvider
 from .derived import DerivedProvider
 from .ecb_fx import EcbFxProvider
 from .estat import EStatProvider
@@ -36,6 +37,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         EcbFxProvider(),
         BojProvider(),
         BojTimeSeriesProvider(),
+        CftcProvider(),
         EStatProvider(),
         JQuantsFlowsProvider(),
         MofJgbProvider(),

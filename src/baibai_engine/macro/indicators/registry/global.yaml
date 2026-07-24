@@ -98,3 +98,39 @@ series:
     tradingview_symbol: COMEX:SI1!
     notes: COMEX銀先物フロント限月(日次終値)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
     aliases: [銀, シルバー, silver, XAG, 銀価格, silver_futures]
+  - series_id: positioning.jpy_noncomm_net
+    name: 円投機筋ネット玉
+    category: positioning
+    geography: world
+    frequency: weekly
+    unit: contracts
+    provider: cftc
+    provider_series_id: "097741"
+    source_id: cftc-cot-jpy
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。円。負=ネット売り越し(carry)
+    aliases: [円ポジション, JPY spec net, CFTC yen net]
+  - series_id: positioning.ust10y_noncomm_net
+    name: 米10Y投機筋ネット玉
+    category: positioning
+    geography: us
+    frequency: weekly
+    unit: contracts
+    provider: cftc
+    provider_series_id: "043602"
+    source_id: cftc-cot-ust10y
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。UST 10Y NOTE(CBOT, code 043602)
+    aliases: [米10Yポジション, UST10Y spec net]
+  - series_id: positioning.sp500_noncomm_net
+    name: S&P500投機筋ネット玉
+    category: positioning
+    geography: us
+    frequency: weekly
+    unit: contracts
+    provider: cftc
+    provider_series_id: 13874A
+    source_id: cftc-cot-sp500
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。E-MINI S&P 500(CME)
+    aliases: [S&P500ポジション, SP500 spec net]

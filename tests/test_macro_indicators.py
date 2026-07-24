@@ -48,6 +48,7 @@ from baibai_engine.macro.indicators.providers import (
     parse_yahoo_chart,
 )
 from baibai_engine.macro.indicators.providers.base import FetchContext, HttpSession
+from baibai_engine.macro.indicators.providers.cftc import parse_cftc_json
 from baibai_engine.macro.indicators.providers.derived import DerivedProvider
 from baibai_engine.macro.indicators.providers.formulas import FORMULAS, DerivedComputationError
 from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
@@ -665,6 +666,57 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 session=cast(HttpSession, object()),
                 context=FetchContext(),
             )
+
+    def test_parse_cftc_json_computes_noncomm_net(self) -> None:
+        series = _series("cftc", "097741", unit="contracts")
+        text = json.dumps(
+            [
+                {
+                    "report_date_as_yyyy_mm_dd": "2026-07-14T00:00:00.000",
+                    "cftc_contract_market_code": "097741",
+                    "noncomm_positions_long_all": "115965",
+                    "noncomm_positions_short_all": "238628",
+                }
+            ]
+        )
+
+        observations = parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2026, 7, 14))
+        self.assertEqual(observations[0].value, -122663.0)
+
+    def test_parse_cftc_json_rejects_mismatched_contract_code(self) -> None:
+        series = _series("cftc", "097741", unit="contracts")
+        text = json.dumps(
+            [
+                {
+                    "report_date_as_yyyy_mm_dd": "2026-07-14T00:00:00.000",
+                    "cftc_contract_market_code": "999999",
+                    "noncomm_positions_long_all": "1",
+                    "noncomm_positions_short_all": "2",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "does not match requested"):
+            parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+
+    def test_parse_cftc_json_rejects_implausible_position(self) -> None:
+        series = _series("cftc", "097741", unit="contracts")
+        text = json.dumps(
+            [
+                {
+                    "report_date_as_yyyy_mm_dd": "2026-07-14T00:00:00.000",
+                    "cftc_contract_market_code": "097741",
+                    "noncomm_positions_long_all": "9000000",
+                    "noncomm_positions_short_all": "1",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "exceeds plausible"):
+            parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
