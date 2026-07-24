@@ -31,6 +31,7 @@ groups:
       - id: us.pce.core
       - id: jp.cpi.headline
       - id: jp.cpi.core
+      - id: jp.cpi.core_yoy
       - id: jp.cpi.services
       - id: jp.hourly_earnings
       - id: jp.cgpi
