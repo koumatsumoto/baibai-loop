@@ -51,6 +51,8 @@ groups:
       - id: jp.real_exports
       - id: jp.real_consumption
       - id: jp.terms_of_trade
+      - id: jp.industrial_production
+      - id: jp.job_openings_ratio
       - id: jp.tankan_large_mfg_di
       - id: us.jolts_openings
       - id: us.claims_4wk_ma

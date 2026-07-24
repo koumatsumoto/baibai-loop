@@ -328,6 +328,30 @@ series:
     source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
     notes: 日本銀行 輸出物価指数 総平均 円ベース(月次・2020年基準)。輸出企業の受取価格。交易条件の分子で円安の恩恵度を測る
     aliases: [輸出物価, export price index, 輸出物価指数]
+  - series_id: jp.industrial_production
+    name: 日本鉱工業生産指数
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: estat
+    provider_series_id: "0003446462?cdCat01=2010&cdTab=200"
+    source_id: estat-iip-ci
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 景気動向指数「個別系列の数値」表(0003446462)の一致系列C1=生産指数(鉱工業)。2020年基準・季節調整済のIIP。METI直接表は@timeが内部コードでestat parser非互換のため標準時間軸を持つ本表を使う
+    aliases: [鉱工業生産, 生産指数, industrial production, IIP, 日本生産]
+  - series_id: jp.job_openings_ratio
+    name: 日本有効求人倍率
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: ratio
+    provider: estat
+    provider_series_id: "0003446462?cdCat01=2090&cdTab=200"
+    source_id: estat-job-openings-ci
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 景気動向指数「個別系列の数値」表(0003446462)の一致系列C9=有効求人倍率(除学卒・季節調整済)。厚労省「一般職業紹介状況」と同一系列で、市場が見る労働需給の定番
+    aliases: [有効求人倍率, job openings ratio, 求人倍率, 労働需給]
   - series_id: jp.tankan_large_mfg_di
     name: 日銀短観 大企業製造業 業況判断DI(実績)
     category: activity
