@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import date
+from typing import assert_never
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
@@ -11,7 +13,7 @@ from .base import (
     ProviderSpec,
     record_observation,
 )
-from .formulas import FORMULAS, DerivedComputationError
+from .formulas import FORMULAS, DerivedComputationError, DerivedFormula
 
 
 class DerivedProvider:
@@ -19,10 +21,10 @@ class DerivedProvider:
 
     ``provider_series_id`` selects a formula in ``formulas.FORMULAS``. The
     provider reads each input series from the store (via the context's
-    store_reader, bound to the live connection), aligns them by observed_at, and
-    emits an observation for every date present in *all* inputs. Because it reads
-    the store, it runs after the base series are refreshed (the batch orders
-    ``local`` providers after ``http`` ones).
+    store_reader, bound to the live connection), aligns them per the formula's
+    alignment, and emits an observation for every aligned date where every input
+    is present. Because it reads the store, it runs after the base series are
+    refreshed (the batch orders ``local`` providers after ``http`` ones).
     """
 
     spec = ProviderSpec(name="derived", kind="local")
@@ -52,9 +54,7 @@ class DerivedProvider:
                 f"derived series {series.series_id} unit {series.unit!r} does not match "
                 f"formula unit {formula.unit!r}"
             )
-        # observed_at -> {input_series_id -> value}; keep only dates present in
-        # every input so a partial day never yields a half-computed value.
-        by_date: dict[date, dict[str, float]] = {}
+        inputs: dict[str, Sequence[ObservationRecord]] = {}
         for input_id in formula.inputs:
             observations = context.store_reader(input_id, start, end)
             if not observations:
@@ -62,12 +62,12 @@ class DerivedProvider:
                     f"derived series {series.series_id} input {input_id} has no observations "
                     f"in [{start}, {end}]; refresh the base series first"
                 )
-            for observation in observations:
-                by_date.setdefault(observation.observed_at, {})[input_id] = observation.value
+            inputs[input_id] = observations
 
         results: list[ObservationRecord] = []
-        for observed_at in sorted(by_date):
-            aligned = by_date[observed_at]
+        for observed_at, aligned in sorted(_align(formula, inputs).items()):
+            # Keep only dates present in every input so a partial period never
+            # yields a half-computed value.
             if len(aligned) != len(formula.inputs):
                 continue
             try:
@@ -80,3 +80,46 @@ class DerivedProvider:
                 continue
             results.append(record_observation(series, observed_at=observed_at, value=value))
         return results
+
+
+def _align(
+    formula: DerivedFormula, inputs: Mapping[str, Sequence[ObservationRecord]]
+) -> dict[date, dict[str, float]]:
+    """Pair input observations into ``observed_at -> {input_id: value}`` bundles."""
+    match formula.alignment:
+        case "exact":
+            return _align_exact(inputs)
+        case "monthly":
+            return _align_monthly(inputs)
+        case _:  # pragma: no cover - exhaustiveness guard over the Alignment literal
+            assert_never(formula.alignment)
+
+
+def _align_exact(
+    inputs: Mapping[str, Sequence[ObservationRecord]],
+) -> dict[date, dict[str, float]]:
+    by_date: dict[date, dict[str, float]] = {}
+    for input_id, observations in inputs.items():
+        for observation in observations:
+            by_date.setdefault(observation.observed_at, {})[input_id] = observation.value
+    return by_date
+
+
+def _align_monthly(
+    inputs: Mapping[str, Sequence[ObservationRecord]],
+) -> dict[date, dict[str, float]]:
+    # Fold each input to one value per calendar month (its latest observed_at in
+    # that month, i.e. the month-end reading for a daily input) and key the
+    # bundle at the first of the month, so the output shares the monthly
+    # observed_at grid of the lowest-frequency input.
+    by_date: dict[date, dict[str, float]] = {}
+    for input_id, observations in inputs.items():
+        latest_in_month: dict[tuple[int, int], ObservationRecord] = {}
+        for observation in observations:
+            key = (observation.observed_at.year, observation.observed_at.month)
+            current = latest_in_month.get(key)
+            if current is None or observation.observed_at > current.observed_at:
+                latest_in_month[key] = observation
+        for (year, month), observation in latest_in_month.items():
+            by_date.setdefault(date(year, month, 1), {})[input_id] = observation.value
+    return by_date

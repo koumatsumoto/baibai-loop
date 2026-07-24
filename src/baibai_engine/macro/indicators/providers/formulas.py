@@ -2,13 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Literal
 
 # Pure derived-series formulas: each maps aligned input values to one output
-# value with no I/O. A formula names its input series and, for each observed_at
-# present in every input, computes the output. Range checks live here so a
-# derived misprint cannot enter the store.
+# value with no I/O. A formula names its input series and, for each aligned
+# observed_at, computes the output. Range checks live here so a derived misprint
+# cannot enter the store.
 
 type Compute = Callable[[Mapping[str, float]], float | None]
+
+# How the provider pairs input observations before computing:
+#   "exact"   - inputs share a frequency; align on identical observed_at.
+#   "monthly" - inputs mix frequencies; fold each input to one value per calendar
+#               month (a daily input collapses to its month-end reading) and pair
+#               on the month, emitting the value at the first of that month.
+type Alignment = Literal["exact", "monthly"]
 
 
 class DerivedComputationError(RuntimeError):
@@ -24,6 +32,7 @@ class DerivedFormula:
     compute: Compute
     plausible_min: float | None = None
     plausible_max: float | None = None
+    alignment: Alignment = "exact"
 
     def evaluate(self, aligned: Mapping[str, float]) -> float | None:
         value = self.compute(aligned)
@@ -90,5 +99,17 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         ),
         plausible_min=0.2,
         plausible_max=5.0,
+    ),
+    "jp.real_10y_proxy": DerivedFormula(
+        # Month-end 10Y JGB yield minus that month's core-CPI YoY: a real-yield
+        # proxy Japan has no clean free daily linker series for. Inflation only
+        # moves monthly, so a monthly cadence is the honest resolution rather
+        # than a daily series holding inflation flat within the month.
+        inputs=("jp.10y", "jp.cpi.core_yoy"),
+        unit="percent",
+        compute=lambda v: v["jp.10y"] - v["jp.cpi.core_yoy"],
+        plausible_min=-8.0,
+        plausible_max=8.0,
+        alignment="monthly",
     ),
 }

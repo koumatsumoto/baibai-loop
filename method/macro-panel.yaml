@@ -18,6 +18,7 @@ groups:
       - id: jp.5y
       - id: jp.20y
       - id: jp.30y
+      - id: jp.real_10y_proxy
       - id: us.30y
       - id: de.10y
       - id: us.real_10y

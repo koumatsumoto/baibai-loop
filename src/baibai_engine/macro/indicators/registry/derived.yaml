@@ -86,3 +86,15 @@ series:
     source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
     notes: 輸出物価指数 / 輸入物価指数。1未満=輸入価格が輸出価格より上昇（円安の負の側）。交易条件の悪化で実質所得が海外へ流出
     aliases: [交易条件, terms of trade, ToT]
+  - series_id: jp.real_10y_proxy
+    name: 日本実質10Y金利(近似)
+    category: rates
+    geography: japan
+    frequency: monthly
+    unit: percent
+    provider: derived
+    provider_series_id: jp.real_10y_proxy
+    source_id: derived-jp-real-10y-proxy
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 月末10Y JGB利回り − コアCPI前年比。日本に自由に使える日次linkerが無いため月次で実質金利を近似。マイナス=名目が物価上昇に追いつかず実質金利がマイナス
+    aliases: [日本実質金利, JP real 10Y, 実質長期金利, real yield proxy]

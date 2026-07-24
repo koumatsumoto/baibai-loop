@@ -685,6 +685,67 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 context=FetchContext(),
             )
 
+    def test_derived_real_10y_proxy_formula(self) -> None:
+        value = FORMULAS["jp.real_10y_proxy"].evaluate({"jp.10y": 1.62, "jp.cpi.core_yoy": 1.6})
+
+        # 1.62 - 1.6 = 0.02: the nominal 10Y JGB barely clears core inflation
+        assert value is not None
+        self.assertAlmostEqual(value, 0.02, places=3)
+
+    def test_derived_provider_monthly_alignment_uses_month_end_of_daily_input(self) -> None:
+        series = _series("derived", "jp.real_10y_proxy", unit="percent", frequency="monthly")
+        store: dict[str, tuple[ObservationRecord, ...]] = {
+            "jp.10y": (
+                _obs("jp.10y", date(2026, 5, 1), 1.50),
+                _obs("jp.10y", date(2026, 5, 29), 1.58),  # May month-end reading
+                _obs("jp.10y", date(2026, 6, 1), 1.60),
+                _obs("jp.10y", date(2026, 6, 30), 1.62),  # June month-end reading
+            ),
+            "jp.cpi.core_yoy": (
+                _obs("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),
+                _obs("jp.cpi.core_yoy", date(2026, 6, 1), 1.6),
+            ),
+        }
+        context = FetchContext(store_reader=lambda sid, s, e: store[sid])
+
+        observations = DerivedProvider().fetch(
+            series,
+            start=date(2026, 5, 1),
+            end=date(2026, 6, 30),
+            session=cast(HttpSession, object()),
+            context=context,
+        )
+
+        # Each month pairs the month-end nominal yield with that month's core-CPI
+        # YoY and emits the proxy at the first of the month.
+        self.assertEqual(
+            [(obs.observed_at, round(obs.value, 3)) for obs in observations],
+            [(date(2026, 5, 1), 0.08), (date(2026, 6, 1), 0.02)],
+        )
+
+    def test_derived_provider_monthly_alignment_skips_month_missing_an_input(self) -> None:
+        series = _series("derived", "jp.real_10y_proxy", unit="percent", frequency="monthly")
+        store: dict[str, tuple[ObservationRecord, ...]] = {
+            "jp.10y": (
+                _obs("jp.10y", date(2026, 5, 29), 1.58),
+                _obs("jp.10y", date(2026, 6, 30), 1.62),  # June has a yield ...
+            ),
+            # ... but June core CPI is not released yet, so June must not emit a
+            # half-computed proxy.
+            "jp.cpi.core_yoy": (_obs("jp.cpi.core_yoy", date(2026, 5, 1), 1.5),),
+        }
+        context = FetchContext(store_reader=lambda sid, s, e: store[sid])
+
+        observations = DerivedProvider().fetch(
+            series,
+            start=date(2026, 5, 1),
+            end=date(2026, 6, 30),
+            session=cast(HttpSession, object()),
+            context=context,
+        )
+
+        self.assertEqual([obs.observed_at for obs in observations], [date(2026, 5, 1)])
+
     def test_parse_cftc_json_computes_noncomm_net(self) -> None:
         series = _series("cftc", "097741", unit="contracts")
         text = json.dumps(
