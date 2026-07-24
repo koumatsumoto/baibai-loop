@@ -231,3 +231,15 @@ series:
     source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
     notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
     aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
+  - series_id: jp.growth250
+    name: 東証グロース市場250指数(2516連動ETF proxy)
+    category: equity-index
+    geography: japan
+    frequency: daily
+    unit: jpy
+    provider: yahoo
+    provider_series_id: 2516.T
+    source_id: yahoo-2516t
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/2516.T
+    notes: NEXT FUNDS東証グロース市場250指数連動型ETF(2516)の日次終値(円)。国内新興・グロースのリスク選好を読むproxy。指数レベルではなくETF価格で、方向・変化率が指数に連動する。J-Quants Lightがグロース指数を配信しないためETFで代替
+    aliases: [グロース250, 東証グロース250, growth250, マザーズ後継, 2516]

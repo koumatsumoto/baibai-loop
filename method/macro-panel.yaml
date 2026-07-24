@@ -45,6 +45,7 @@ groups:
       - id: jp.pmi_manufacturing
       - id: jp.bankruptcies
       - id: us.jolts_openings
+      - id: us.claims_4wk_ma
       - id: us.core_capex_orders
       - id: us.building_permits
       - id: us.housing_starts
@@ -105,3 +106,4 @@ groups:
       - id: world.acwi_ex_us
       - id: europe.stoxx
       - id: em.equity
+      - id: jp.growth250

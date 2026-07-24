@@ -544,3 +544,15 @@ series:
     source_url: https://www.federalreserve.gov/datadownload/Output.aspx
     notes: FRB H.15の30年物Treasury定数満期利回り(日次)。財政・term premiumのストレスは超長期に最も出る
     aliases: [米30Y, US 30Y, 30年債, DGS30, 米長期金利30年]
+  - series_id: us.claims_4wk_ma
+    name: 米新規失業保険申請(4週移動平均)
+    category: labor
+    geography: us
+    frequency: weekly
+    unit: count
+    provider: fred_csv
+    provider_series_id: IC4WSA
+    source_id: fred-ic4wsa
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IC4WSA
+    notes: 新規失業保険申請件数の4週移動平均(週次・季節調整済)。週次のノイズを平滑した雇用悪化シグナル。FRED配信の移動平均系列を使う
+    aliases: [新規失業保険4週平均, initial claims 4wk ma, IC4WSA, 失業保険申請移動平均]
