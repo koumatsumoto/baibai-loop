@@ -62,3 +62,15 @@ series:
     source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
     notes: 金先物 / 銅先物。risk-off・景気減速で上昇
     aliases: [金銅比, gold copper ratio]
+  - series_id: jp.terms_of_trade
+    name: 日本交易条件(輸出物価/輸入物価)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: ratio
+    provider: derived
+    provider_series_id: jp.terms_of_trade
+    source_id: derived-jp-terms-of-trade
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 輸出物価指数 / 輸入物価指数。1未満=輸入価格が輸出価格より上昇（円安の負の側）。交易条件の悪化で実質所得が海外へ流出
+    aliases: [交易条件, terms of trade, ToT]

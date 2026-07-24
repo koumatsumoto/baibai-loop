@@ -72,4 +72,15 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         plausible_min=0.0,
         plausible_max=2000.0,
     ),
+    "jp.terms_of_trade": DerivedFormula(
+        inputs=("jp.export_price_index", "jp.import_price_index"),
+        unit="ratio",
+        compute=lambda v: (
+            v["jp.export_price_index"] / v["jp.import_price_index"]
+            if v["jp.import_price_index"]
+            else None
+        ),
+        plausible_min=0.2,
+        plausible_max=5.0,
+    ),
 }

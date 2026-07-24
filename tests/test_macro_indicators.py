@@ -626,6 +626,15 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         self.assertAlmostEqual(value, 1.835, places=3)
 
+    def test_derived_terms_of_trade_formula(self) -> None:
+        value = FORMULAS["jp.terms_of_trade"].evaluate(
+            {"jp.export_price_index": 162.6, "jp.import_price_index": 196.6}
+        )
+
+        # 162.6 / 196.6 = 0.8271: export prices below import prices (yen-weak cost)
+        assert value is not None
+        self.assertAlmostEqual(value, 0.8271, places=4)
+
     def test_derived_formula_rejects_out_of_range(self) -> None:
         with self.assertRaisesRegex(DerivedComputationError, "outside plausible range"):
             FORMULAS["us.erp"].evaluate({"us.sp500_earnings_yield": 99.0, "us.10y": 4.0})
