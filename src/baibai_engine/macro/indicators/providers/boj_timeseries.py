@@ -35,17 +35,22 @@ class BojTimeSeriesProvider:
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
         database, series_code = _split_provider_series_id(series.provider_series_id)
+        params = {
+            "format": "json",
+            "lang": "en",
+            "db": database,
+            "code": series_code,
+        }
+        # The BOJ API rejects YYYYMM period params for quarterly series
+        # ("Invalid frequency"); fetch the full quarterly series and filter in
+        # the parser. Daily/monthly series accept and are narrowed by the params.
+        if series.frequency != "quarterly":
+            params["startDate"] = start.strftime("%Y%m")
+            params["endDate"] = end.strftime("%Y%m")
         text = fetch_text(
             session,
             series.source_url,
-            params={
-                "format": "json",
-                "lang": "en",
-                "db": database,
-                "startDate": start.strftime("%Y%m"),
-                "endDate": end.strftime("%Y%m"),
-                "code": series_code,
-            },
+            params=params,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
         )
@@ -101,7 +106,7 @@ def parse_boj_timeseries_json(
     for raw_date, raw_value in zip(survey_dates, raw_values, strict=True):
         if raw_value is None:
             continue
-        observed_at = _parse_survey_date(raw_date)
+        observed_at = _parse_survey_date(raw_date, series.frequency)
         value = _parse_value(raw_value)
         if start <= observed_at <= end:
             observations.append(record_observation(series, observed_at=observed_at, value=value))
@@ -121,16 +126,36 @@ def _require_mapping(node: object, label: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], node)
 
 
-def _parse_survey_date(raw: object) -> date:
+def _parse_survey_date(raw: object, frequency: str) -> date:
+    # The BOJ time-series API encodes the survey date by frequency: daily as
+    # YYYYMMDD, monthly as YYYYMM, and quarterly as YYYY0Q (Q1..Q4 -> the last
+    # month of the quarter). YYYYMM and YYYY0Q are both six digits, so the
+    # registered frequency disambiguates them.
     if isinstance(raw, bool) or not isinstance(raw, (int, str)):
         raise IndicatorsProviderError(f"BOJ response has invalid survey date: {raw!r}")
     text = str(raw)
-    if len(text) != 8 or not text.isdigit():
+    if not text.isdigit():
         raise IndicatorsProviderError(f"BOJ response has invalid survey date: {raw!r}")
     try:
-        return date(int(text[:4]), int(text[4:6]), int(text[6:]))
+        match frequency:
+            case "daily":
+                if len(text) != 8:
+                    raise ValueError("daily survey date must be YYYYMMDD")
+                return date(int(text[:4]), int(text[4:6]), int(text[6:]))
+            case "monthly":
+                if len(text) != 6:
+                    raise ValueError("monthly survey date must be YYYYMM")
+                return date(int(text[:4]), int(text[4:6]), 1)
+            case "quarterly":
+                if len(text) != 6 or text[4] != "0" or not 1 <= int(text[5]) <= 4:
+                    raise ValueError("quarterly survey date must be YYYY0Q with Q in 1..4")
+                return date(int(text[:4]), int(text[5]) * 3, 1)
+            case _:
+                raise ValueError(f"unsupported boj_timeseries frequency: {frequency}")
     except ValueError as exc:
-        raise IndicatorsProviderError(f"BOJ response has invalid survey date: {raw!r}") from exc
+        raise IndicatorsProviderError(
+            f"BOJ response has invalid survey date {raw!r} for frequency {frequency!r}: {exc}"
+        ) from exc
 
 
 def _parse_value(raw: object) -> float:

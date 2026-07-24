@@ -280,3 +280,51 @@ series:
     source_url: https://www.boj.or.jp/research/research_data/cai/cai.xlsx
     notes: 日本銀行「消費活動指数」の実質・旅行収支調整済指数(月次・季節調整済・2020年基準)。インバウンド/アウトバウンドの歪みを除いた国内消費トレンド。xlsx第1シートE列。研究データ扱いで遡及改定あり
     aliases: [実質消費, 消費活動指数, real consumption, consumption activity index, CAI]
+  - series_id: jp.cgpi
+    name: 日本企業物価指数(国内・総平均)
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2200000000
+    source_id: boj-cgpi
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 国内企業物価指数(CGPI)総平均(月次・2020年基準)。CPIより川上の売価。企業間の価格転嫁圧力とマージン経路を読む
+    aliases: [企業物価, CGPI, 国内企業物価指数, 卸売物価, PPI日本]
+  - series_id: jp.import_price_index
+    name: 日本輸入物価指数(円ベース・総平均)
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2600000000
+    source_id: boj-import-price
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 輸入物価指数 総平均 円ベース(月次・2020年基準)。円安・資源高の輸入コスト経路。交易条件の分母
+    aliases: [輸入物価, import price index, 輸入物価指数, 輸入コスト]
+  - series_id: jp.export_price_index
+    name: 日本輸出物価指数(円ベース・総平均)
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2400000000
+    source_id: boj-export-price
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 輸出物価指数 総平均 円ベース(月次・2020年基準)。輸出企業の受取価格。交易条件の分子で円安の恩恵度を測る
+    aliases: [輸出物価, export price index, 輸出物価指数]
+  - series_id: jp.tankan_large_mfg_di
+    name: 日銀短観 大企業製造業 業況判断DI(実績)
+    category: activity
+    geography: japan
+    frequency: quarterly
+    unit: pt
+    provider: boj_timeseries
+    provider_series_id: CO:TK99F1000601GCQ01000
+    source_id: boj-tankan-lmfg
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日銀短観 大企業・製造業の業況判断DI 実績(四半期・「良い」-「悪い」の%ポイント)。日本企業サーベイの定番。survey dateはYYYY0Q(四半期末月に正規化)
+    aliases: [短観, 業況判断DI, tankan, tankan DI, 大企業製造業DI]

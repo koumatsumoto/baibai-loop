@@ -32,6 +32,9 @@ groups:
       - id: jp.cpi.headline
       - id: jp.cpi.services
       - id: jp.hourly_earnings
+      - id: jp.cgpi
+      - id: jp.import_price_index
+      - id: jp.export_price_index
       - id: us.average_hourly_earnings
       - id: us.ppi
   - title: 景気・雇用
@@ -46,6 +49,7 @@ groups:
       - id: jp.bankruptcies
       - id: jp.real_exports
       - id: jp.real_consumption
+      - id: jp.tankan_large_mfg_di
       - id: us.jolts_openings
       - id: us.claims_4wk_ma
       - id: us.core_capex_orders

@@ -1271,6 +1271,82 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(observations[0].observed_at, date(1998, 1, 5))
         self.assertEqual(observations[0].value, 0.49)
 
+    def test_parse_boj_timeseries_json_reads_monthly_yyyymm_survey_dates(self) -> None:
+        series = _series(
+            "boj_timeseries", "PR01:PRCG20_2200000000", unit="index", frequency="monthly"
+        )
+        text = json.dumps(
+            {
+                "STATUS": 200,
+                "RESULTSET": [
+                    {
+                        "SERIES_CODE": "PRCG20_2200000000",
+                        "VALUES": {
+                            "SURVEY_DATES": [202605, 202606, 202607],
+                            "VALUES": [134.9, 135.4, None],
+                        },
+                    }
+                ],
+            }
+        )
+
+        observations = parse_boj_timeseries_json(
+            series, text, start=date(2026, 5, 1), end=date(2026, 7, 31)
+        )
+
+        self.assertEqual(
+            [(o.observed_at, o.value) for o in observations],
+            [(date(2026, 5, 1), 134.9), (date(2026, 6, 1), 135.4)],
+        )
+
+    def test_parse_boj_timeseries_json_reads_quarterly_yyyy0q_survey_dates(self) -> None:
+        series = _series(
+            "boj_timeseries", "CO:TK99F1000601GCQ01000", unit="pt", frequency="quarterly"
+        )
+        text = json.dumps(
+            {
+                "STATUS": 200,
+                "RESULTSET": [
+                    {
+                        "SERIES_CODE": "TK99F1000601GCQ01000",
+                        "VALUES": {
+                            "SURVEY_DATES": [202504, 202601, 202602],
+                            "VALUES": [15, 17, 22],
+                        },
+                    }
+                ],
+            }
+        )
+
+        observations = parse_boj_timeseries_json(
+            series, text, start=date(2025, 1, 1), end=date(2026, 12, 31)
+        )
+
+        # YYYY0Q maps Q1..Q4 to the last month of the quarter (Mar/Jun/Sep/Dec).
+        self.assertEqual(
+            [(o.observed_at, o.value) for o in observations],
+            [(date(2025, 12, 1), 15.0), (date(2026, 3, 1), 17.0), (date(2026, 6, 1), 22.0)],
+        )
+
+    def test_parse_boj_timeseries_json_rejects_wrong_length_for_frequency(self) -> None:
+        series = _series(
+            "boj_timeseries", "PR01:PRCG20_2200000000", unit="index", frequency="monthly"
+        )
+        text = json.dumps(
+            {
+                "STATUS": 200,
+                "RESULTSET": [
+                    {
+                        "SERIES_CODE": "PRCG20_2200000000",
+                        "VALUES": {"SURVEY_DATES": [20260601], "VALUES": [135.4]},
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "invalid survey date"):
+            parse_boj_timeseries_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
+
     def test_parse_boj_timeseries_json_rejects_malformed_payload(self) -> None:
         series = _series("boj_timeseries", "FM01:STRDCLUCON", unit="percent")
         for payload, message in (
@@ -2175,13 +2251,19 @@ def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:
     )
 
 
-def _series(provider: str, provider_series_id: str, *, unit: str = "percent") -> SeriesDefinition:
+def _series(
+    provider: str,
+    provider_series_id: str,
+    *,
+    unit: str = "percent",
+    frequency: str = "daily",
+) -> SeriesDefinition:
     return SeriesDefinition(
         series_id="test.series",
         name="Test Series",
         category="test",
         geography="world",
-        frequency="daily",
+        frequency=frequency,
         unit=unit,
         provider=provider,
         provider_series_id=provider_series_id,
