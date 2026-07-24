@@ -96,6 +96,7 @@ Codex の managed sandbox で実行不能と分かっている操作は、sandbo
 - `gh`、`git fetch/pull/push` などの network 操作と、branch / stage / commit など `.git` への書き込み
 - local socket / browser を使う `baibai-app serve`、headless Chrome、FastAPI `TestClient` を含む `pytest`
 - `uv` が sandbox 外の cache へ書く操作。既存環境で足りる検証は `.venv/bin/{ruff,mypy,pytest,lint-imports}` を優先し、`uv` 自体が必要なら承認経路を使う
+- Markdown を含む `gh issue/pr` の本文は `--body-file` で渡し、backtick や `$()` を shell の二重引用符へ埋め込まない
 
 ## 検証
 
