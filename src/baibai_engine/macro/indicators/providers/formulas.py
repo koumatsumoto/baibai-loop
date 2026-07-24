@@ -76,9 +76,7 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         inputs=("jp.nikkei_per", "jp.10y"),
         unit="percent",
         # Nikkei earnings yield (100 / PER) minus the 10Y JGB yield.
-        compute=lambda v: (
-            100.0 / v["jp.nikkei_per"] - v["jp.10y"] if v["jp.nikkei_per"] else None
-        ),
+        compute=lambda v: 100.0 / v["jp.nikkei_per"] - v["jp.10y"] if v["jp.nikkei_per"] else None,
         plausible_min=-10.0,
         plausible_max=15.0,
     ),

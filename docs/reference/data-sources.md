@@ -137,8 +137,9 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 | USD/JPY | Federal Reserve H.10 weekly historical | ECB euro reference rates から `JPY/EUR ÷ USD/EUR` で算出 | Web Archive snapshot of FRED DEXJPUS |
 | EUR/JPY | ECB euro reference rates (JPY 列) | — | — |
 | AUD/JPY | ECB euro reference rates から `JPY/EUR ÷ AUD/EUR` で算出 | — | — |
-| 日経平均 | （Nikkei 公式 indexes.nikkei.co.jp は 403） | （JPX 日次 PDF: テキスト抽出ツール必要） | Web Archive snapshot of FRED NIKKEI225 |
-| TOPIX / 東証プライム売買代金 | JPX 日次レポート（PDF）。 PDF テキスト抽出ツール（poppler-utils / pdftotext / Python pdfminer / pypdf 等）が必要 | — | — |
+| 日経平均 | Web Archive snapshot of FRED NIKKEI225（`fred_csv` NIKKEI225） | — | — |
+| 日経平均 PER / PBR | Nikkei 公式 indexes.nikkei.co.jp の `statistics/dataload` endpoint（`nikkei_indexes` provider。月次 HTML テーブルをブラウザ無しで取得） | — | — |
+| TOPIX | J-Quants 専用 index bars endpoint（`jquants_indices` provider。Light プランで取得可） | — | — |
 | FedWatch (利下げ確率) | CME FedWatch Tool（HTTP 403 で取得不可） | — | — |
 
 **Web Archive の使い方**: `https://web.archive.org/web/{TIMESTAMP}/{元 URL}` で snapshot を直接取得できる。`TIMESTAMP` は `YYYYMMDD` 8 桁または `YYYYMMDDHHMMSS` 14 桁。最新値が欲しい場合は観測日寄りのタイムスタンプを指定し、それでも snapshot が古い場合は別シリーズで複数 timestamp を試す。Wayback の snapshot は元ソースのキャッシュであり、引用は元ソース URL（FRED 等）として扱い、Wayback URL を併記する。
