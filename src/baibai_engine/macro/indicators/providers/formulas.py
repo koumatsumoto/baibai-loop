@@ -72,6 +72,16 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         plausible_min=0.0,
         plausible_max=2000.0,
     ),
+    "jp.erp": DerivedFormula(
+        inputs=("jp.nikkei_per", "jp.10y"),
+        unit="percent",
+        # Nikkei earnings yield (100 / PER) minus the 10Y JGB yield.
+        compute=lambda v: (
+            100.0 / v["jp.nikkei_per"] - v["jp.10y"] if v["jp.nikkei_per"] else None
+        ),
+        plausible_min=-10.0,
+        plausible_max=15.0,
+    ),
     "jp.terms_of_trade": DerivedFormula(
         inputs=("jp.export_price_index", "jp.import_price_index"),
         unit="ratio",

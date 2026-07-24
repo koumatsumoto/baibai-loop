@@ -115,6 +115,7 @@ groups:
       - id: us.erp
       - id: jp.nikkei_per
       - id: jp.nikkei_pbr
+      - id: jp.erp
       - id: jp.foreign_flows
       - id: world.acwi_ex_us
       - id: europe.stoxx

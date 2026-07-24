@@ -636,6 +636,13 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         assert value is not None
         self.assertAlmostEqual(value, 0.8271, places=4)
 
+    def test_derived_jp_erp_formula(self) -> None:
+        value = FORMULAS["jp.erp"].evaluate({"jp.nikkei_per": 17.82, "jp.10y": 1.7})
+
+        # 100 / 17.82 - 1.7 = 3.9117: Nikkei earnings yield minus the 10Y JGB
+        assert value is not None
+        self.assertAlmostEqual(value, 3.9117, places=3)
+
     def test_derived_formula_rejects_out_of_range(self) -> None:
         with self.assertRaisesRegex(DerivedComputationError, "outside plausible range"):
             FORMULAS["us.erp"].evaluate({"us.sp500_earnings_yield": 99.0, "us.10y": 4.0})

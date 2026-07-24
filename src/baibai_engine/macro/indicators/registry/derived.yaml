@@ -62,6 +62,18 @@ series:
     source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
     notes: 金先物 / 銅先物。risk-off・景気減速で上昇
     aliases: [金銅比, gold copper ratio]
+  - series_id: jp.erp
+    name: 日本株式リスクプレミアム
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: percent
+    provider: derived
+    provider_series_id: jp.erp
+    source_id: derived-jp-erp
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 日経平均益回り(100/PER) − 日本10Y。日本株のバリュエーションアンカーの機械化。ERP≤0は割高警戒域
+    aliases: [日本ERP, JP ERP, 日本株リスクプレミアム]
   - series_id: jp.terms_of_trade
     name: 日本交易条件(輸出物価/輸入物価)
     category: activity
