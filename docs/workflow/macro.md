@@ -50,7 +50,7 @@ observation は `(series_id, observed_at, vintage_at)` を主キーに upsert �
 
 新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store は provider 名で分岐しない。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
 
-PMI は data API が無いため、月次 release URL の manifest（`src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。抽出値は 30〜70 の妥当域で検証し、複数候補が矛盾する月は取得を失敗させる（誤った値を store に入れない）。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。新しい月の release URL は `tools/macro/backfill_pmi_history.py`（Playwright で公式サイトを navigation して discovery する ops companion）で manifest へ追加する。
+PMI は data API が無いため、月次 release URL の manifest（`src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。抽出値は 30〜70 の妥当域で検証し、複数候補が矛盾する月は取得を失敗させる（誤った値を store に入れない）。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。新しい月の release URL は S&P Global の公式 press release ページから人手で特定して manifest へ追記し、`macro refresh` で該当月を取得して妥当域検証と公表値の照合を通してから commit する。
 
 ```bash
 uv run baibai-engine macro refresh jp.pmi_manufacturing --start 2026-05-01 --end 2026-06-30
