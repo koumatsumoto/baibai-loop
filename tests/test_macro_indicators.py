@@ -1371,12 +1371,12 @@ class IndicatorsRegistryTests(unittest.TestCase):
         self.assertIsNone(by_id["jp.pmi_manufacturing"].tradingview_symbol)
 
     def test_tradingview_symbol_rejects_invalid_format(self) -> None:
-        canonical = Path("src/baibai_engine/macro/indicators/series.yaml").read_text(
+        canonical = Path("src/baibai_engine/macro/indicators/registry/us.yaml").read_text(
             encoding="utf-8"
         )
         for invalid in ("invalid symbol", ":", "TVC:", ":US10Y", "A:B:C"):
             with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as tmp:
-                definitions = Path(tmp) / "series.yaml"
+                definitions = Path(tmp) / "us.yaml"
                 definitions.write_text(
                     canonical.replace(
                         "tradingview_symbol: TVC:US10Y",
@@ -1388,6 +1388,36 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(ValueError, "EXCHANGE:SYMBOL"):
                     load_definitions(definitions)
+
+    def test_registry_rejects_duplicate_series_id_across_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            registry = Path(tmp)
+            block = (
+                "series:\n"
+                "  - series_id: us.10y\n"
+                "    name: dup\n"
+                "    category: rates\n"
+                "    geography: us\n"
+                "    frequency: daily\n"
+                "    unit: percent\n"
+                "    provider: fred_csv\n"
+                "    provider_series_id: DGS10\n"
+                "    source_id: x\n"
+                "    source_url: https://example.com/x.csv\n"
+            )
+            (registry / "a.yaml").write_text(block, encoding="utf-8")
+            (registry / "b.yaml").write_text(block, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "duplicate indicator series_id.*us.10y"):
+                load_definitions(registry)
+
+    def test_every_registered_series_provider_is_registered(self) -> None:
+        from baibai_engine.macro.indicators.providers import provider_spec
+
+        for series in load_definitions().series:
+            with self.subTest(series_id=series.series_id):
+                # resolve_provider (via provider_spec) raises for an unknown provider.
+                self.assertEqual(provider_spec(series.provider).name, series.provider)
 
 
 class IndicatorsServiceTests(unittest.TestCase):

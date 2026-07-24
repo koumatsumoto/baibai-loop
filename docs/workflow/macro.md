@@ -47,7 +47,7 @@ uv run baibai-engine macro import-manual     # git seed の manual 観測を同�
 | `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
 | `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | current page と public monthly table を機械的に parse する。HTML 構造変更で壊れるため `--latest` と `--all-history` を live 確認 |
 
-新ソース追加＝provider モジュールを 1 つ足して `series.yaml` に series を登録する（`providers/` に 1 ファイル）。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
+新ソース追加＝provider モジュールを 1 つ足して（`providers/` に 1 ファイル）`providers/registry.py` に 1 行登録し、series を registry（`indicators/registry/` の region 別 yaml）へ 1 entry 加える。provider の取得能力（all-history 起点・store 書き換え方針・refresh 可否・point-in-time vintage・必要 env）は各 provider の `ProviderSpec` が宣言し、service / store は provider 名で分岐しない。1 series_id = 1 provider を厳守する。provider 取得は一時的な `IndicatorsProviderError` を 1 回 retry し、再失敗した場合は `provider_runs` に failed として記録する。
 
 manual 観測の正本は git 追跡の `src/baibai_engine/macro/indicators/providers/manual_data.yaml` である。各行は `series_id`、`observed_at`、`value`、`unit`、`source_url`、UTC の `entered_at` を持ち、`series.yaml` の manual 系列と unit / source identity を一致させる。PMI は `tools/macro/backfill_pmi_history.py` で S&P Global の公式リリース PDF を機械抽出し、各観測の `source_url` には validator が許可する個別リリース URL を残す。公式サイトが過去 PDF を返さない期間は、`docs/reference/data-sources.md` の Web Archive 例外に従って同じ公式 PDF の snapshot を取得する。AI agent の WebFetch 出力は seed に使わない。生成結果を検算してから次を実行する。
 

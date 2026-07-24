@@ -1,0 +1,100 @@
+series:
+  - series_id: vix
+    name: VIX
+    category: volatility
+    geography: world
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: VIXCLS
+    source_id: fred-vixcls
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+    tradingview_symbol: CBOE:VIX
+    aliases: [VIX, volatility]
+  - series_id: wti
+    name: WTI原油
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILWTICO
+    source_id: fred-dcoilwtico
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO
+    tradingview_symbol: NYMEX:CL1!
+    aliases: [WTI, WTI原油]
+  - series_id: brent
+    name: Brent原油
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILBRENTEU
+    source_id: fred-dcoilbrenteu
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
+    tradingview_symbol: TVC:UKOIL
+    aliases: [Brent, Brent原油, brent_oil]
+  - series_id: btc_usd
+    name: ビットコイン価格USD
+    category: crypto
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: fred_csv
+    provider_series_id: CBBTCUSD
+    source_id: fred-cbbtcusd
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CBBTCUSD
+    tradingview_symbol: COINBASE:BTCUSD
+    aliases: [BTC, Bitcoin, ビットコイン, BTCUSD]
+  - series_id: gold
+    name: 金先物(COMEX, USD/oz)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-oz
+    provider: yahoo
+    provider_series_id: GC=F
+    source_id: yahoo-gc-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/GC=F
+    tradingview_symbol: COMEX:GC1!
+    notes: COMEX金先物フロント限月(日次終値)。実質金利・ドル・債務貨幣化のstore-of-value温度計。BTCと並べてデジタルゴールド命題を読む。FRED LBMA系列廃止のためYahooで取得
+    aliases: [金, ゴールド, gold, XAU, 金価格, gold_futures]
+  - series_id: copper
+    name: 銅先物(COMEX, USD/lb)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-lb
+    provider: yahoo
+    provider_series_id: HG=F
+    source_id: yahoo-hg-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/HG=F
+    tradingview_symbol: COMEX:HG1!
+    notes: COMEX銅先物フロント限月(日次終値)。世界景気の先行ゲージ(Dr.Copper)。銅/金レシオでリスク選好・成長期待を読む
+    aliases: [銅, copper, HG, Dr Copper, 銅価格]
+  - series_id: ecb.policy_rate
+    name: ECB預金ファシリティ金利
+    category: policy
+    geography: euro
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: ECBDFR
+    source_id: fred-ecbdfr
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBDFR
+    notes: ECB預金ファシリティ金利(現行ECBの主要政策金利)。Fed・BOJと並べてグローバル中銀の同期スタンス(同時引き締め/緩和)を読む。FRED系列は廃止がありlive確認必須
+    aliases: [ECB金利, ECB政策金利, ECB deposit rate, ECBDFR, 欧州中銀金利, ユーロ圏金利]
+  - series_id: silver
+    name: 銀先物(COMEX, USD/oz)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-oz
+    provider: yahoo
+    provider_series_id: SI=F
+    source_id: yahoo-si-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/SI=F
+    tradingview_symbol: COMEX:SI1!
+    notes: COMEX銀先物フロント限月(日次終値)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
+    aliases: [銀, シルバー, silver, XAG, 銀価格, silver_futures]
