@@ -256,3 +256,27 @@ series:
     tradingview_symbol: TVC:TOPIX
     notes: J-Quants専用endpointから取得するTOPIX日次終値。時価総額加重で市場全体を代表し、値がさ株偏重の日経225より広い代表性を持つ。日本株の基準ベンチマーク
     aliases: [TOPIX, 東証株価指数, トピックス, topix]
+  - series_id: jp.real_exports
+    name: 日本実質輸出
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: boj
+    provider_series_id: "2"
+    source_id: boj-reri
+    source_url: https://www.boj.or.jp/research/research_data/reri/rs_reri.xlsx
+    notes: 日本銀行「実質輸出入の動向」の実質輸出指数(月次・季節調整済・2020年基準)。外需依存の日本で輸出モメンタムを測る。xlsx第1シートB列。研究データ扱いで遡及改定あり
+    aliases: [実質輸出, real exports, 日本輸出, 輸出数量]
+  - series_id: jp.real_consumption
+    name: 日本実質消費活動指数(旅行収支調整済)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    provider: boj
+    provider_series_id: "5"
+    source_id: boj-cai
+    source_url: https://www.boj.or.jp/research/research_data/cai/cai.xlsx
+    notes: 日本銀行「消費活動指数」の実質・旅行収支調整済指数(月次・季節調整済・2020年基準)。インバウンド/アウトバウンドの歪みを除いた国内消費トレンド。xlsx第1シートE列。研究データ扱いで遡及改定あり
+    aliases: [実質消費, 消費活動指数, real consumption, consumption activity index, CAI]

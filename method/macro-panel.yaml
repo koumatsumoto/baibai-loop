@@ -44,6 +44,8 @@ groups:
       - id: jp.unemployment
       - id: jp.pmi_manufacturing
       - id: jp.bankruptcies
+      - id: jp.real_exports
+      - id: jp.real_consumption
       - id: us.jolts_openings
       - id: us.claims_4wk_ma
       - id: us.core_capex_orders
