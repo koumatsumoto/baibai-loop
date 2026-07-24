@@ -84,7 +84,7 @@ public entry point は次の2本だけである。
 
 ## Read-only app invariants
 
-`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIは3タブ（Dashboard、Macro、Stocks）とタブなし詳細（Macro report、shortlist、Security detail）を提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Macroは環境認識レポートのindexと指標オーバービュー、Stocksは機械screening（Fact）と深掘りshortlist（Judgment）を分けて表示する。`/api/meta`はscreening / macro / application DBのas-of鮮度をstore内timestampから返し（file mtimeに依存しない）、UIは各画面のデータ鮮度として表示する。
+`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIは3タブ（Dashboard、Macro、Stocks）とタブなし詳細（Macro report、shortlist、Security detail）を提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Macroは経済分析レポートとマクロ経済指標、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
 
 ## Cloud serving layer
 
@@ -102,8 +102,8 @@ views + machine history         Bearer認証 + static UI
 ```
 
 - `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
-- `baibai-serving` は材料化済み`views/`と機械生成`history/`だけを保持する。`history/select/`は蓄積し、`history/candidates/`はR2 lifecycleで31日後に削除する。public accessを持たない。
-- WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/` keyへ写像する。`history/`とstoresには到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
+- `baibai-serving` は材料化済み`views/`と`history/`だけを保持する。`history/select/`は蓄積し、`history/candidate-views/`には機械runをUI用の型付きread modelへ変換した履歴を置いてR2 lifecycleで31日後に削除する。bucket自体はpublic accessを持たず、認証済みWorkerだけがCandidatesの日付一覧と日付指定履歴をread-onlyで返す。
+- WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`と日付形式を検証した`history/candidate-views/` keyへ写像する。stores、機械出力の`history/candidates/`、`history/select/`には到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`ui/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
 - `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日18:30 JSTに機械工程を実行する。両workflowは同じconcurrency groupでserving世代の混在を防ぐ。
 - ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。

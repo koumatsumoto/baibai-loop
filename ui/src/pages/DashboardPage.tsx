@@ -291,8 +291,8 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
       ) : (
         <div className="divide-y">
           {events.map((event) => (
-            <div className="grid grid-cols-[112px_84px_1fr] items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
-              <time className="font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDate(event.event_date)}</time>
+            <div className="grid grid-cols-[max-content_74px_minmax(0,1fr)] items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
+              <time className="whitespace-nowrap font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDate(event.event_date)}</time>
               <Badge className="w-fit" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
               <div className="flex min-w-0 items-center gap-2">
                 <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
@@ -318,16 +318,36 @@ function planField(payload: Record<string, unknown>, key: string): unknown {
   return (plan as Record<string, unknown>)[key]
 }
 
+const OPERATION_KIND_LABEL: Record<string, string> = {
+  opportunity: '購入候補の選定',
+  'pending-result': '注文結果の反映',
+  'monthly-contribution': '入出金の反映',
+  'earnings-material-event': '決算・重要イベント',
+  'annual-outcome': '年次評価',
+  improvement: '手法改善',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  active: '進行中',
+  completed: '完了',
+  pending: '判断待ち',
+  approved: '承認',
+  deferred: '保留',
+  rejected: '見送り',
+  resolved: '評価済み',
+  unresolved: '未確定',
+}
+
 function OperationCard({ operations }: { operations: OperationSessionView[] }) {
   return (
     <Card>
-      <CardHeader><CardTitle>Operation</CardTitle><CardDescription>active checkpoint / completed result</CardDescription></CardHeader>
+      <CardHeader><CardTitle>運用状況</CardTitle><CardDescription>候補選定・注文結果・保有見直しなど</CardDescription></CardHeader>
       <CardContent className="grid gap-3 text-sm">
-        {operations.length === 0 ? <p className="text-muted-foreground">session はありません。</p> : operations.map((item) => (
+        {operations.length === 0 ? <p className="text-muted-foreground">進行中または完了済みの運用はありません。</p> : operations.map((item) => (
           <div className="grid gap-1 border-b pb-3 last:border-0 last:pb-0" key={item.operation_id}>
             <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{item.session_kind}{item.ticker && <span className="ml-2 font-mono text-xs text-muted-foreground">{item.ticker}</span>}</span>
-              <Badge variant="outline">{item.status}</Badge>
+              <span className="font-medium">{OPERATION_KIND_LABEL[item.session_kind] ?? item.session_kind}{item.ticker && <span className="ml-2 font-mono text-xs text-muted-foreground">{item.ticker}</span>}</span>
+              <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
             </div>
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="truncate font-mono">{item.operation_id}</span>
@@ -343,9 +363,9 @@ function OperationCard({ operations }: { operations: OperationSessionView[] }) {
 function ProposalCard({ proposals }: { proposals: ProposalView[] }) {
   return (
     <Card>
-      <CardHeader><CardTitle>Trade proposal</CardTitle><CardDescription>指値・数量・期限</CardDescription></CardHeader>
+      <CardHeader><CardTitle>売買提案</CardTitle><CardDescription>指値・数量・期限と判断状況</CardDescription></CardHeader>
       <CardContent className="grid gap-3 text-sm">
-        {proposals.length === 0 ? <p className="text-muted-foreground">proposal はありません。</p> : proposals.map((item) => {
+        {proposals.length === 0 ? <p className="text-muted-foreground">売買提案はありません。</p> : proposals.map((item) => {
           const limit = planField(item.payload, 'limit_price_yen')
           const quantity = planField(item.payload, 'quantity')
           const expiresAt = planField(item.payload, 'expires_at')
@@ -353,7 +373,7 @@ function ProposalCard({ proposals }: { proposals: ProposalView[] }) {
             <div className="grid gap-1.5 border-b pb-3 last:border-0 last:pb-0" key={item.proposal_id}>
               <div className="flex items-center justify-between gap-2">
                 <Link className="font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${item.ticker}`}>{item.ticker}</Link>
-                <Badge variant="outline">{item.status}</Badge>
+                <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span>指値 <span className="font-mono tabular-nums text-foreground">{typeof limit === 'string' || typeof limit === 'number' ? formatYen(Number(limit)) : EMPTY}</span></span>
@@ -380,13 +400,13 @@ function ProposalCard({ proposals }: { proposals: ProposalView[] }) {
 function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   return (
     <Card>
-      <CardHeader><CardTitle>Portfolio outcome</CardTitle><CardDescription>期間評価 (TWR vs benchmark)</CardDescription></CardHeader>
+      <CardHeader><CardTitle>運用成績</CardTitle><CardDescription>ポートフォリオとベンチマークの期間比較</CardDescription></CardHeader>
       <CardContent className="grid gap-3 text-sm">
-        {outcomes.length === 0 ? <p className="text-muted-foreground">保存済み outcome はありません。</p> : outcomes.map((item) => (
+        {outcomes.length === 0 ? <p className="text-muted-foreground">運用成績はまだありません。</p> : outcomes.map((item) => (
           <div className="grid gap-1.5 border-b pb-3 last:border-0 last:pb-0" key={item.outcome_id}>
             <div className="flex items-center justify-between gap-2">
               <span className="font-medium">{item.horizon} · {item.period_end_date}</span>
-              <Badge variant="outline">{item.status}</Badge>
+              <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
               <span>ポート TWR <PctBadge className="text-xs" value={item.portfolio_twr_pct} /></span>
@@ -398,6 +418,25 @@ function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
       </CardContent>
     </Card>
   )
+}
+
+function dashboardValuationAsOf(data: DashboardView): string | null {
+  if (data.valuation_as_of) return data.valuation_as_of
+  const holdingDates = data.holdings.map((holding) => holding.market_price_as_of)
+  return holdingDates.sort().at(0) ?? data.ledger_as_of
+}
+
+function valuationIsStale(value: string | null): boolean {
+  if (value === null) return false
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const today = formatter.format(new Date())
+  const asOf = formatter.format(new Date(value))
+  return Date.parse(`${today}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`) >= 7 * 86_400_000
 }
 
 export function DashboardPage() {
@@ -416,6 +455,7 @@ export function DashboardPage() {
 
   if (error) return <PageState message={error} title="Dashboard read error" />
   if (!data) return <PageState message="資産状況を読み込んでいます…" title="Dashboard" />
+  const valuationAsOf = dashboardValuationAsOf(data)
 
   return (
     <>
@@ -424,11 +464,10 @@ export function DashboardPage() {
         <header className="flex items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-            <p className="mt-1 text-sm text-muted-foreground">資産状況と次のアクション</p>
           </div>
           <div className="flex items-center gap-2">
-            {data.ledger_stale && <StaleBadge />}
-            <AsOfBadge value={data.ledger_as_of} />
+            {valuationIsStale(valuationAsOf) && <StaleBadge />}
+            <AsOfBadge value={valuationAsOf} />
           </div>
         </header>
 
@@ -503,7 +542,7 @@ export function DashboardPage() {
 
         <Card className="gap-0 overflow-hidden py-0 shadow-sm">
           <CardHeader className="flex flex-row items-start justify-between gap-4 border-b px-5 py-5 sm:px-6">
-            <div><CardTitle>Open tasks</CardTitle><CardDescription className="mt-1">運用上の次アクション</CardDescription></div>
+            <CardTitle>Open tasks</CardTitle>
             <Badge variant="secondary">{data.open_tasks.length} open</Badge>
           </CardHeader>
           {!data.tasks_exist ? (

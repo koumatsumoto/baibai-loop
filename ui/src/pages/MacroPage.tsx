@@ -102,8 +102,8 @@ function SeriesCard({ series, expanded, onToggle }: { series: MacroSeriesView; e
 export function MacroPage() {
   const [data, setData] = useState<MacroView | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [period, setPeriod] = useState<MacroPeriod>('1y')
-  const [granularity, setGranularity] = useState<MacroGranularity>('daily')
+  const [period, setPeriod] = useState<MacroPeriod>('max')
+  const [granularity, setGranularity] = useState<MacroGranularity>('monthly')
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
 
@@ -144,9 +144,9 @@ export function MacroPage() {
   return (
     <><AppShell /><main className="mx-auto grid max-w-[1600px] gap-8 px-4 py-6 sm:px-6 lg:px-8">
       <section className="grid gap-3">
-        <div><p className="text-sm font-medium text-muted-foreground">Judgment</p><h1 className="text-2xl font-semibold tracking-tight">環境認識レポート</h1></div>
+        <h1 className="text-2xl font-semibold tracking-tight">経済分析レポート</h1>
         {reports.length === 0
-          ? <Alert><CircleAlert /><AlertTitle>Published context なし</AlertTitle><AlertDescription>指標は下段に fact として表示します。投資判断用の環境認識レポートは publish 後に現れます。</AlertDescription></Alert>
+          ? <Alert><CircleAlert /><AlertTitle>経済分析レポートなし</AlertTitle><AlertDescription>マクロ経済指標は下段で確認できます。分析レポートは publish 後に表示されます。</AlertDescription></Alert>
           : (
             <Card className="divide-y py-0 shadow-sm">
               {reports.map((report) => (
@@ -168,7 +168,7 @@ export function MacroPage() {
 
       <section className="grid gap-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div><p className="text-sm font-medium text-muted-foreground">Fact</p><h2 className="text-2xl font-semibold tracking-tight">指標オーバービュー</h2><p className="mt-1 text-sm text-muted-foreground">カードをクリックでチャート展開</p></div>
+          <div><h2 className="text-2xl font-semibold tracking-tight">マクロ経済指標</h2><p className="mt-1 text-sm text-muted-foreground">カードをクリックでチャート展開</p></div>
           <div className="flex flex-wrap gap-3 rounded-xl border bg-card p-3 shadow-sm">
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">期間</span><Select onValueChange={(value) => setPeriod(value as MacroPeriod)} value={period}><SelectTrigger aria-label="表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1y">1年</SelectItem><SelectItem value="5y">5年</SelectItem><SelectItem value="10y">10年</SelectItem><SelectItem value="max">全期間</SelectItem></SelectContent></Select></label>
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">粒度</span><Select onValueChange={(value) => setGranularity(value as MacroGranularity)} value={granularity}><SelectTrigger aria-label="表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="daily">日次</SelectItem><SelectItem value="weekly">週次</SelectItem><SelectItem value="monthly">月次</SelectItem><SelectItem value="yearly">年次</SelectItem></SelectContent></Select></label>

@@ -6,6 +6,11 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_DEPLOYED_AT': JSON.stringify(
+      process.env.VITE_DEPLOYED_AT ?? new Date().toISOString(),
+    ),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

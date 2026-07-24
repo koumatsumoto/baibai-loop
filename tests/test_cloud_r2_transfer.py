@@ -65,8 +65,8 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     (output / "views/meta.json").write_text("{}", encoding="utf-8")
     (output / "history/select").mkdir(parents=True)
     (output / "history/select/2026-07-21.json").write_text("{}", encoding="utf-8")
-    (output / "history/candidates").mkdir(parents=True)
-    (output / "history/candidates/2026-07-21.json").write_text("{}", encoding="utf-8")
+    (output / "history/candidate-views").mkdir(parents=True)
+    (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
 
     subprocess.run(
         [TRANSFER_SCRIPT, "upload-serving", output],
@@ -80,6 +80,8 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     assert commands[0].startswith("s3 sync ")
     assert "s3://baibai-serving/views/" in commands[0]
     assert "--delete --exclude meta.json" in commands[0]
+    assert "s3://baibai-serving/history/select/" in commands[1]
+    assert "s3://baibai-serving/history/candidate-views/" in commands[2]
     assert "--delete" not in commands[1]
     assert "--delete" not in commands[2]
     assert commands[3].startswith("s3 cp ")

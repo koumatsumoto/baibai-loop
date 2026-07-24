@@ -264,7 +264,7 @@ export function ShortlistPage() {
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <Badge className="font-mono text-[10px]" variant="secondary">{shortlist.shortlist_id}</Badge>
-          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks">全通過 candidates を見る →</Link>
+          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks">Candidates を見る →</Link>
           {machineMissing && <span className="text-warning">source selection が最新 run に無いため機械値は非表示です</span>}
           {data.run?.stale && <StaleBadge className="text-[10px]" detail={data.run.asof_date} />}
         </div>

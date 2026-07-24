@@ -46,6 +46,7 @@ from .research import (
 )
 from .screening import (
     previous_run_revision_id,
+    screening_run_asof_dates,
     screening_run_payload,
     screening_selection_payloads,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "reconcile_portfolio",
     "safe_load",
     "screening_latest_asof",
+    "screening_run_asof_dates",
     "screening_run_payload",
     "screening_selection_payloads",
     "task_store_exists",

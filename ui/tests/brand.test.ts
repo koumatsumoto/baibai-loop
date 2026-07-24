@@ -15,6 +15,13 @@ describe('brand assets', () => {
   })
 })
 
+describe('light-only appearance', () => {
+  it('does not install theme persistence or dark palette overrides', () => {
+    expect(source('index.html')).not.toContain('baibai-theme')
+    expect(source('src/styles.css')).not.toMatch(/\.dark\s*\{/)
+  })
+})
+
 describe('brand palette', () => {
   const styles = source('src/styles.css')
   const root = styles.match(/:root\s*\{(?<body>[\s\S]*?)\n\}/)?.groups?.body ?? ''

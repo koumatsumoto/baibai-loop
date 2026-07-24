@@ -1,5 +1,6 @@
 export interface MetaView {
   generated_at: string
+  data_updated_at?: string | null
   screening_asof: string | null
   macro_asof: string | null
   app_db_updated_at: string | null
@@ -69,6 +70,8 @@ export interface DashboardView {
   ledger_error: string | null
   ledger_as_of: string | null
   ledger_stale: boolean
+  valuation_as_of?: string | null
+  valuation_stale?: boolean
   total_capital_yen: number | null
   available_cash_yen: number | null
   reserved_cash_yen: number | null
@@ -178,6 +181,15 @@ export interface ScreeningView {
   rows: CandidateRowView[]
   selections: MachineSelectionView[]
   shortlists: ShortlistView[]
+}
+
+export interface ScreeningHistoryView {
+  dates: string[]
+}
+
+export interface ScreeningHistoryRunView {
+  run: ScreeningRunView
+  rows: CandidateRowView[]
 }
 
 export interface MachineSelectionView {

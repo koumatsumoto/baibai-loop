@@ -9,11 +9,10 @@ object store; no business logic exists beyond these builders.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import shutil
 import sys
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -26,13 +25,15 @@ from baibai_app.readmodel.builders import (
     build_meta,
     build_operations_view,
     build_screening,
+    build_screening_history_run,
     build_security_detail,
 )
 from baibai_app.readmodel.models import DashboardView, MetaBatch, ScreeningView
 from baibai_app.sources.db_sources import DbCandidatesSource
 from baibai_app.sources.factory import build_sources
+from baibai_app.sources.protocols import LedgerSource, ResearchSource
 from baibai_app.sources.types import CandidatesRun
-from baibai_engine.read_api import screening_run_payload
+from baibai_engine.read_api import screening_run_asof_dates
 
 _JST = ZoneInfo("Asia/Tokyo")
 _MACRO_PERIODS = ("1y", "5y", "10y", "max")
@@ -120,7 +121,16 @@ def export_read_models(
             continue
         written.append(_write_model(views_dir / f"security--{ticker}.json", detail))
 
-    written.extend(_write_history(output_dir, screening, runs_db_path=stores.runs_db_path))
+    written.extend(
+        _write_history(
+            output_dir,
+            screening,
+            candidates=stores.candidates,
+            ledger=stores.ledger,
+            research=stores.research,
+            runs_db_path=stores.runs_db_path,
+        )
+    )
 
     written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
     return written
@@ -160,6 +170,9 @@ def _write_history(
     output_dir: Path,
     screening: ScreeningView,
     *,
+    candidates: DbCandidatesSource,
+    ledger: LedgerSource,
+    research: ResearchSource,
     runs_db_path: Path,
 ) -> list[Path]:
     written: list[Path] = []
@@ -169,22 +182,25 @@ def _write_history(
         written.append(_write_model(output_dir / "history/select" / f"{asof}.json", latest))
     else:
         _warn("no machine selection is published; history/select skipped")
-    raw_run = screening_run_payload(runs_db_path)
-    if raw_run is None:
-        _warn("no screening run is published; history/candidates skipped")
+    history_dates = screening_run_asof_dates(runs_db_path)
+    if not history_dates:
+        _warn("no screening run is published; history/candidate-views skipped")
         return written
-    try:
-        candidates_asof = date.fromisoformat(str(raw_run["as_of_date"]))
-    except ValueError:
-        _warn(
-            f"run as_of_date has an unexpected format: {raw_run['as_of_date']!r}; "
-            "history/candidates skipped"
+    for candidates_asof in history_dates:
+        history = build_screening_history_run(
+            candidates,
+            ledger,
+            research,
+            as_of=candidates_asof,
         )
-        return written
-    path = output_dir / "history/candidates" / f"{candidates_asof.isoformat()}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(raw_run, ensure_ascii=False), encoding="utf-8")
-    written.append(path)
+        if history is None:  # pragma: no cover - date index and exact lookup share one store
+            continue
+        written.append(
+            _write_model(
+                output_dir / "history/candidate-views" / f"{candidates_asof.isoformat()}.json",
+                history,
+            )
+        )
     return written
 
 

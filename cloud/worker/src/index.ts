@@ -8,12 +8,14 @@ const HSTS_HEADER = API_HEADERS['Strict-Transport-Security']
 const MACRO_PERIODS = new Set(['1y', '5y', '10y', 'max'])
 const MACRO_GRANULARITIES = new Set(['daily', 'weekly', 'monthly', 'yearly'])
 const TICKER_PATTERN = /^[0-9A-Z]{4}$/
+const SCREENING_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 // Mirrors _MACRO_CONTEXT_ID_FORMAT in tools/cloud/export_read_models.py; excludes
 // path separators so the id maps to exactly one serving key.
 const MACRO_CONTEXT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
 
 type RouteResult =
   | { kind: 'health' }
+  | { kind: 'screening-history-index' }
   | { kind: 'view'; key: string }
   | { kind: 'error'; status: 404 | 422; detail: string }
 
@@ -71,6 +73,9 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   if (route.kind === 'health') {
     return jsonResponse({ status: 'ok' }, 200)
   }
+  if (route.kind === 'screening-history-index') {
+    return screeningHistoryIndex(env)
+  }
 
   const object = await env.BAIBAI_SERVING.get(route.key)
   if (object === null) {
@@ -87,6 +92,8 @@ function resolveRoute(url: URL): RouteResult {
       return view('dashboard.json')
     case '/api/screening/latest':
       return view('screening_latest.json')
+    case '/api/screening/history':
+      return { kind: 'screening-history-index' }
     case '/api/operations':
       return view('operations.json')
     case '/api/meta':
@@ -94,8 +101,34 @@ function resolveRoute(url: URL): RouteResult {
     case '/api/macro':
       return resolveMacro(url.searchParams)
     default:
-      return resolveMacroContext(url.pathname) ?? resolveSecurity(url.pathname)
+      return (
+        resolveScreeningHistory(url.pathname) ??
+        resolveMacroContext(url.pathname) ??
+        resolveSecurity(url.pathname)
+      )
   }
+}
+
+function resolveScreeningHistory(pathname: string): RouteResult | null {
+  const prefix = '/api/screening/history/'
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const asOf = pathname.slice(prefix.length)
+  if (!SCREENING_DATE_PATTERN.test(asOf)) {
+    return { kind: 'error', status: 404, detail: 'unknown screening history' }
+  }
+  return { kind: 'view', key: `history/candidate-views/${asOf}.json` }
+}
+
+async function screeningHistoryIndex(env: Env): Promise<Response> {
+  const prefix = 'history/candidate-views/'
+  const result = await env.BAIBAI_SERVING.list({ prefix, limit: 64 })
+  const dates = result.objects
+    .map((object) => object.key.slice(prefix.length, -'.json'.length))
+    .filter((value) => SCREENING_DATE_PATTERN.test(value))
+    .sort((left, right) => right.localeCompare(left))
+  return jsonResponse({ dates }, 200)
 }
 
 function resolveMacroContext(pathname: string): RouteResult | null {

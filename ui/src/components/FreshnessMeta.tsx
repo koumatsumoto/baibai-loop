@@ -1,10 +1,10 @@
 import type { MetaView } from '../api/types'
-import { Badge } from './ui/badge'
-import { EMPTY, formatJstStamp } from '../lib/format'
+import { formatJstStamp } from '../lib/format'
 import { cn } from '../lib/utils'
 
 interface FreshnessMetaProps {
   meta: MetaView
+  deployedAt: string
   className?: string
 }
 
@@ -17,18 +17,13 @@ function Field({ label, value }: { label: string; value: string }) {
   )
 }
 
-// Freshness fields for the shell: generation time plus the screening / macro /
-// application-DB as-of. Datetime stamps render as JST MM/DD HH:mm; the two store as-of
-// values are calendar dates shown as-is. Layout (single line vs wrapping, visibility per
-// breakpoint) is left to the caller via `className`.
-export function FreshnessMeta({ meta, className }: FreshnessMetaProps) {
+// The shell distinguishes the deployed UI build from the newest store-backed data.
+// Store-specific as-of values stay on the pages that consume those stores.
+export function FreshnessMeta({ meta, deployedAt, className }: FreshnessMetaProps) {
   return (
     <div className={cn('flex items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground', className)}>
-      <Field label="生成" value={formatJstStamp(meta.generated_at)} />
-      <Field label="screening" value={meta.screening_asof ?? EMPTY} />
-      <Field label="macro" value={meta.macro_asof ?? EMPTY} />
-      <Field label="DB" value={meta.app_db_updated_at === null ? EMPTY : formatJstStamp(meta.app_db_updated_at)} />
-      {meta.batch !== null && <Badge className="font-mono text-[10px] tracking-wider" variant="secondary">{meta.batch}</Badge>}
+      <Field label="デプロイ" value={formatJstStamp(deployedAt)} />
+      <Field label="データ更新" value={formatJstStamp(meta.data_updated_at ?? meta.generated_at)} />
     </div>
   )
 }

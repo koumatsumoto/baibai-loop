@@ -38,12 +38,57 @@ def screening_run_payload(
     path: Path,
     *,
     run_revision_id: str | None = None,
+    as_of_date: date | None = None,
 ) -> dict[str, object] | None:
     if not path.is_file():
         return None
     reader = ScreeningRunReader(path)
-    run = reader.latest_run() if run_revision_id is None else reader.get_run(run_revision_id)
+    if run_revision_id is not None and as_of_date is not None:
+        raise ValueError("run_revision_id and as_of_date are mutually exclusive")
+    if run_revision_id is not None:
+        run = reader.get_run(run_revision_id)
+    elif as_of_date is not None:
+        connection = connect_read_only(path)
+        try:
+            row = connection.execute(
+                """
+                SELECT run_revision_id
+                FROM screening_run
+                WHERE asof_date = ?
+                ORDER BY run_at DESC, run_revision_id DESC
+                LIMIT 1
+                """,
+                (as_of_date.isoformat(),),
+            ).fetchone()
+        finally:
+            connection.close()
+        run = None if row is None else reader.get_run(str(row[0]))
+    else:
+        run = reader.latest_run()
     return None if run is None else _run_payload(run)
+
+
+def screening_run_asof_dates(path: Path, *, limit: int = 31) -> list[date]:
+    """Return retained run dates newest-first, with one entry per as-of date."""
+
+    if limit < 1:
+        raise ValueError("limit must be positive")
+    if not path.is_file():
+        return []
+    connection = connect_read_only(path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT asof_date
+            FROM screening_run
+            ORDER BY asof_date DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [date.fromisoformat(str(row[0])) for row in rows]
 
 
 def screening_selection_payloads(
@@ -91,6 +136,7 @@ def _run_payload(run: object) -> dict[str, object]:
 
 __all__ = [
     "previous_run_revision_id",
+    "screening_run_asof_dates",
     "screening_run_payload",
     "screening_selection_payloads",
 ]
