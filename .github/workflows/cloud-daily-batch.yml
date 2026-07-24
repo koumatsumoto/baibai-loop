@@ -43,13 +43,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Dependency-free notification scripts must compile on the runner's system
+      # Dependency-free notification scripts must import on the runner's system
       # python3 (before setup-python), so the final notification step can run
-      # them without uv. Also captures the run start time for the total duration.
+      # them without uv. The import (not just py_compile) is what guarantees the
+      # stdlib-only / no-3.13-syntax contract. Also captures the run start time.
       - name: Smoke-check notification scripts
         id: smoke
         run: |
           python3 -m py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py
+          python3 -c "import tools.cloud.batch_summary; import tools.cloud.notify_discord"
           echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v6
@@ -121,15 +123,18 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
+          # $MANUAL_ASOF (job env) carries the dispatch input safely as a variable;
+          # never interpolate inputs.* into this run block (script injection).
           python3 -m tools.cloud.notify_discord \
             --summary-path "$RUNNER_TEMP/batch-summary.json" \
             --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
             --local-export "${{ steps.batch.outputs.local_export }}" \
+            --smoke-outcome "${{ steps.smoke.outcome }}" \
             --setup-outcome "${{ steps.setup.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
             --upload-machine-outcome "${{ steps.upload-machine.outcome }}" \
             --upload-serving-outcome "${{ steps.upload-serving.outcome }}" \
-            --asof "${{ inputs.asof }}" \
+            --asof "$MANUAL_ASOF" \
             --run-started-at "${{ steps.smoke.outputs.started_at }}" \
             --output "$RUNNER_TEMP/workflow-run-summary.json"

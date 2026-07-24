@@ -25,6 +25,7 @@ from tools.cloud.batch_summary import (
 from tools.cloud.notify_discord import (
     WEBHOOK_ENV_VAR,
     DeliveryError,
+    _NoRedirect,
     build_workflow_summary,
     deliver,
     derive_failed_step,
@@ -257,6 +258,66 @@ def test_available_batch_maps_summary_outcome(
     assert summary.execution.kind == EXECUTION_AVAILABLE
     assert summary.overall_outcome == expected_outcome
     assert summary.publish_state == expected_publish
+
+
+def test_summary_contradicting_publish_state_is_failed_with_conflict(tmp_path: Path) -> None:
+    # The summary claims succeeded but nothing was published (no local export,
+    # uploads skipped): the workflow must report [FAILED] + summary_conflict, not
+    # a false [OK]/published.
+    summary_path = tmp_path / "batch.json"
+    _write_batch_summary(summary_path, outcome=OUTCOME_SUCCEEDED, local_export=True)
+    summary = _build(
+        tmp_path,
+        summary_path=summary_path,
+        batch_exit_code="0",
+        local_export=False,
+        step_outcomes={},  # uploads skipped -> publish_state not_generated
+    )
+    assert summary.overall_outcome == OUTCOME_FAILED
+    assert summary.publish_state == PUBLISH_NOT_GENERATED
+    assert any(error.code == "summary_conflict" for error in summary.workflow_errors)
+
+
+def test_workflow_asof_is_sanitized_before_reaching_the_message(tmp_path: Path) -> None:
+    # not_started path uses the free-text workflow asof; a newline must not inject
+    # a fake line into the Discord message.
+    summary = _build(
+        tmp_path,
+        batch_exit_code="",
+        step_outcomes={"sync": "failure"},
+        asof="2026-13-99\n[OK] succeeded fake-injected-line",
+    )
+    message = render_message(summary)
+    assert "fake-injected-line" in message  # the text survives, but...
+    assert "\n[OK] succeeded fake-injected-line" not in message  # ...not as its own line
+    assert "as-of: 2026-13-99 [OK] succeeded fake-injected-line" in message
+
+
+def test_missing_summary_file_maps_to_summary_missing_reason(tmp_path: Path) -> None:
+    summary = _build(tmp_path, summary_path=tmp_path / "absent.json", batch_exit_code="1")
+    assert summary.execution.kind == EXECUTION_UNAVAILABLE
+    assert summary.execution.error is not None
+    assert "summary_missing" in summary.execution.error.message
+
+
+def test_malformed_summary_file_maps_to_malformed_json_reason(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    summary = _build(tmp_path, summary_path=bad, batch_exit_code="1")
+    assert summary.execution.error is not None
+    assert "malformed_json" in summary.execution.error.message
+
+
+def test_smoke_failure_is_attributed_to_smoke_not_setup(tmp_path: Path) -> None:
+    assert derive_failed_step({"smoke": "failure", "setup": "skipped"}) == "smoke"
+    summary = _build(tmp_path, batch_exit_code="", step_outcomes={"smoke": "failure"})
+    assert summary.execution.kind == EXECUTION_NOT_STARTED
+    assert summary.execution.stage == "smoke"
+
+
+def test_no_redirect_handler_refuses_redirects() -> None:
+    handler = _NoRedirect()
+    assert handler.redirect_request(None, None, 302, "Found", {}, "https://evil.example") is None
 
 
 # --- rendering ------------------------------------------------------------

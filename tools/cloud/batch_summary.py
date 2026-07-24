@@ -100,6 +100,7 @@ ERROR_IMPACTS = (ERROR_IMPACT_FAILED, ERROR_IMPACT_DEGRADED)
 # Fixed vocabulary for typed errors. A message builder only accepts these values;
 # free text never becomes a code, stage, or impact.
 ERROR_STAGES = (
+    "smoke",
     "setup",
     "sync",
     "pull-stores",
@@ -146,8 +147,9 @@ _MESSAGE_TEMPLATES = {
 }
 ERROR_CODES = tuple(_MESSAGE_TEMPLATES)
 
-_SUMMARY_INVALID_REASONS = (
+SUMMARY_INVALID_REASONS = (
     "malformed_json",
+    "summary_missing",
     "schema_version",
     "missing_field",
     "invalid_field",
@@ -183,16 +185,18 @@ class SummaryValidationError(ValueError):
     """A summary payload failed schema, vocabulary, or consistency validation."""
 
 
-def _sanitize_scalar(value: object) -> str:
-    """Render a validated scalar as bounded single-line text.
+def sanitize_one_line(value: object, max_chars: int = _SCALAR_MAX_CHARS) -> str:
+    """Render a value as bounded single-line text.
 
-    Whitespace runs collapse to one space and braces are stripped so a scalar can
-    never inject a format placeholder or a newline into a rendered message.
+    Whitespace runs collapse to one space and braces are stripped so a value can
+    never inject a format placeholder or a newline into a rendered message. Used
+    for typed-error scalars and for free-text workflow inputs (e.g. ``asof``)
+    before they reach a notification payload.
     """
 
     text = re.sub(r"\s+", " ", str(value)).strip()
     text = text.replace("{", "").replace("}", "")
-    return text[:_SCALAR_MAX_CHARS]
+    return text[:max_chars]
 
 
 def _sanitize_message(text: str) -> str:
@@ -336,7 +340,7 @@ class BatchError:
             raise SummaryValidationError(f"unknown error stage {stage!r}")
         if impact not in ERROR_IMPACTS:
             raise SummaryValidationError(f"unknown error impact {impact!r}")
-        safe = {key: _sanitize_scalar(value) for key, value in scalars.items()}
+        safe = {key: sanitize_one_line(value) for key, value in scalars.items()}
         try:
             rendered = _MESSAGE_TEMPLATES[code].format(stage=stage, **safe)
         except KeyError as exc:
@@ -359,7 +363,7 @@ class BatchError:
 
     @classmethod
     def summary_invalid(cls, *, reason: str, stage: str = "summary") -> BatchError:
-        if reason not in _SUMMARY_INVALID_REASONS:
+        if reason not in SUMMARY_INVALID_REASONS:
             raise SummaryValidationError(f"unknown summary-invalid reason {reason!r}")
         return cls.build(
             code="summary_invalid", stage=stage, impact=ERROR_IMPACT_FAILED, reason=reason
@@ -675,12 +679,17 @@ class WorkflowRunSummary:
 
 
 def load_batch_execution_summary(path: Path) -> BatchExecutionSummary:
-    """Load and validate a pre-upload batch summary; raise when missing/invalid."""
+    """Load and validate a pre-upload batch summary; raise when missing/invalid.
+
+    A missing/unreadable file maps to ``summary_missing``; a present file that is
+    not valid JSON maps to ``malformed_json`` — keeping the two failure modes
+    distinct for the notification contract.
+    """
 
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise SummaryValidationError("malformed_json") from exc
+        raise SummaryValidationError("summary_missing") from exc
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:

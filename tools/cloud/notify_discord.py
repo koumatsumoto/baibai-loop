@@ -47,6 +47,7 @@ from tools.cloud.batch_summary import (
     PUBLISH_NOT_GENERATED,
     PUBLISH_PUBLISHED,
     PUBLISH_UPLOAD_FAILED,
+    SUMMARY_INVALID_REASONS,
     WORKFLOW_SUMMARY_SCHEMA_VERSION,
     BatchError,
     Delivery,
@@ -55,6 +56,7 @@ from tools.cloud.batch_summary import (
     WorkflowRunSummary,
     load_batch_execution_summary,
     order_errors_for_display,
+    sanitize_one_line,
     write_json_atomic,
 )
 
@@ -73,11 +75,34 @@ class DeliveryError(RuntimeError):
 Transport = Callable[[str, bytes, float], int]
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects so a 3xx cannot leave the validated Discord host.
+
+    ``prepare_webhook_url`` validates the initial URL's host; following a redirect
+    would skip that check for the ``Location`` target. A redirect therefore raises
+    ``HTTPError`` (a ``URLError``), which ``deliver`` reports as a sanitized
+    failure. Discord's ``wait=true`` endpoint replies 200 directly, so legitimate
+    delivery never needs a redirect.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        return None
+
+
 def _urllib_transport(url: str, body: bytes, timeout: float) -> int:
     request = urllib.request.Request(
         url, data=body, headers={"Content-Type": "application/json"}, method="POST"
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
+    opener = urllib.request.build_opener(_NoRedirect)
+    with opener.open(request, timeout=timeout) as response:  # nosec B310
         return response.status
 
 
@@ -131,13 +156,13 @@ def _load_execution(
         # not complete; fall back to "setup" when no specific step reports failure.
         return Execution.not_started(failed_step or "setup"), None
     if summary_path is None:
-        return Execution.unavailable(BatchError.summary_invalid(reason="missing_field")), (
-            BatchError.summary_invalid(reason="missing_field")
-        )
+        error = BatchError.summary_invalid(reason="summary_missing")
+        return Execution.unavailable(error), error
     try:
         summary = load_batch_execution_summary(summary_path)
-    except SummaryValidationError:
-        error = BatchError.summary_invalid(reason="malformed_json")
+    except SummaryValidationError as exc:
+        reason = str(exc) if str(exc) in SUMMARY_INVALID_REASONS else "malformed_json"
+        error = BatchError.summary_invalid(reason=reason)
         return Execution.unavailable(error), error
     return Execution.available(summary), None
 
@@ -148,26 +173,37 @@ def decide_outcome(
     batch_exit_code: str,
     publish_state: str,
     failed_step: str,
-) -> tuple[str, str]:
-    """Apply the terminal-outcome decision table; returns (outcome, publish_state)."""
+) -> tuple[str, str, bool]:
+    """Apply the terminal-outcome decision table.
+
+    Returns ``(overall_outcome, publish_state, conflict)``. ``conflict`` is set
+    when an available batch summary claims a publish state the observable workflow
+    state contradicts (e.g. the summary says succeeded but nothing was published);
+    the caller records a ``summary_conflict`` error and reports ``[FAILED]`` so a
+    silent publish regression cannot be reported as ``[OK]``.
+    """
 
     if batch_exit_code == "":
-        return OUTCOME_FAILED, PUBLISH_NOT_GENERATED
+        return OUTCOME_FAILED, PUBLISH_NOT_GENERATED, False
     if failed_step:
-        return OUTCOME_FAILED, publish_state
+        return OUTCOME_FAILED, publish_state, False
     if execution.kind == EXECUTION_UNAVAILABLE:
-        return OUTCOME_FAILED, publish_state
+        return OUTCOME_FAILED, publish_state, False
     if publish_state == PUBLISH_UPLOAD_FAILED:
-        return OUTCOME_FAILED, publish_state
-    assert execution.summary is not None
-    summary_outcome = execution.summary.outcome
+        return OUTCOME_FAILED, publish_state, False
+    summary = execution.summary
+    if summary is None:
+        return OUTCOME_FAILED, publish_state, False
+    summary_outcome = summary.outcome
     if summary_outcome == OUTCOME_SKIPPED:
-        return OUTCOME_SKIPPED, PUBLISH_NOT_GENERATED
-    if summary_outcome == OUTCOME_DEGRADED:
-        return OUTCOME_DEGRADED, PUBLISH_PUBLISHED
-    if summary_outcome == OUTCOME_SUCCEEDED:
-        return OUTCOME_SUCCEEDED, PUBLISH_PUBLISHED
-    return OUTCOME_FAILED, publish_state
+        return OUTCOME_SKIPPED, PUBLISH_NOT_GENERATED, False
+    if summary_outcome in (OUTCOME_SUCCEEDED, OUTCOME_DEGRADED):
+        # These outcomes assert the run published; the observable publish state
+        # must agree, else the summary contradicts the workflow state.
+        if publish_state != PUBLISH_PUBLISHED:
+            return OUTCOME_FAILED, publish_state, True
+        return summary_outcome, PUBLISH_PUBLISHED, False
+    return OUTCOME_FAILED, publish_state, False
 
 
 # Non-batch steps whose failure is a workflow (not batch) failure, in step order.
@@ -175,6 +211,7 @@ def decide_outcome(
 # excluded: its failure is the batch's deferred signal, already carried by the
 # batch exit code and the degraded summary.
 _NON_BATCH_STEPS: tuple[tuple[str, str], ...] = (
+    ("smoke", "smoke"),
     ("setup", "setup"),
     ("sync", "sync"),
     ("pull-stores", "pull"),
@@ -236,7 +273,7 @@ def build_workflow_summary(
     failed_step = derive_failed_step(step_outcomes)
     publish_state = derive_publish_state(local_export=local_export, step_outcomes=step_outcomes)
     execution, contract_error = _load_execution(summary_path, batch_exit_code, failed_step)
-    overall_outcome, final_publish_state = decide_outcome(
+    overall_outcome, final_publish_state, conflict = decide_outcome(
         execution=execution,
         batch_exit_code=batch_exit_code,
         publish_state=publish_state,
@@ -249,8 +286,15 @@ def build_workflow_summary(
         )
     if contract_error is not None:
         workflow_errors.append(contract_error)
+    if conflict:
+        workflow_errors.append(
+            BatchError.build(code="summary_conflict", stage="summary", impact="failed")
+        )
 
-    summary_asof: str | None = asof or None
+    # The workflow asof is free-text dispatch input; sanitize it before it can
+    # reach the message. The batch summary's asof (when available) is already
+    # validated by daily_batch and takes precedence.
+    summary_asof: str | None = sanitize_one_line(asof) if asof else None
     if execution.kind == EXECUTION_AVAILABLE and execution.summary is not None:
         summary_asof = execution.summary.asof
 
@@ -361,6 +405,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary-path", type=Path, default=None)
     parser.add_argument("--batch-exit-code", type=str, default="")
     parser.add_argument("--local-export", type=str, default="false")
+    parser.add_argument("--smoke-outcome", type=str, default="skipped")
     parser.add_argument("--setup-outcome", type=str, default="skipped")
     parser.add_argument("--sync-outcome", type=str, default="skipped")
     parser.add_argument("--pull-outcome", type=str, default="skipped")
@@ -377,6 +422,7 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     args = build_parser().parse_args(argv)
     env = os.environ
     step_outcomes = {
+        "smoke": args.smoke_outcome,
         "setup": args.setup_outcome,
         "sync": args.sync_outcome,
         "pull": args.pull_outcome,

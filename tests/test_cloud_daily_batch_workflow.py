@@ -86,6 +86,9 @@ def test_smoke_check_runs_before_setup_python_on_system_python(
     assert ids.index("smoke") < ids.index("setup")
     smoke_run = steps_by_id["smoke"]["run"]
     assert "py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py" in smoke_run
+    # The import (not just py_compile) guarantees the stdlib-only contract.
+    assert "import tools.cloud.batch_summary" in smoke_run
+    assert "import tools.cloud.notify_discord" in smoke_run
     assert "started_at=" in smoke_run
 
 
@@ -139,6 +142,7 @@ def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, d
         "--summary-path",
         "--batch-exit-code",
         "--local-export",
+        "--smoke-outcome",
         "--setup-outcome",
         "--sync-outcome",
         "--pull-outcome",
@@ -148,10 +152,22 @@ def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, d
         "--output",
     ):
         assert flag in notify_run, f"notify step missing {flag}"
+    assert "steps.smoke.outcome" in notify_run
     assert "steps.setup.outcome" in notify_run
     assert "steps.upload-machine.outcome" in notify_run
     assert "steps.batch.outputs.exit_code" in notify_run
     assert "steps.batch.outputs.local_export" in notify_run
+
+
+def test_notify_step_does_not_interpolate_dispatch_input_into_the_run_block(
+    steps_by_id: dict[str, dict],
+) -> None:
+    # Script-injection guard: workflow_dispatch input must reach the notify step
+    # via the MANUAL_ASOF env var, never as a ${{ inputs.* }} expression in run:.
+    notify_run = steps_by_id["notify"]["run"]
+    assert "inputs.asof" not in notify_run
+    assert "${{ inputs." not in notify_run
+    assert '--asof "$MANUAL_ASOF"' in notify_run
 
 
 if __name__ == "__main__":

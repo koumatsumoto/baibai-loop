@@ -207,13 +207,15 @@ secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾
 | `[OK]` | succeeded | batch exit 0、local export あり、両 upload 成功 | published |
 | `[SKIPPED]` | skipped_non_business_day | 非営業日 gate で skip（export なし） | not_generated |
 | `[DEGRADED]` | published_with_deferred_failure | batch exit 3。screening は publish 済み、繰延べ step（macro / prune）が失敗 | published |
-| `[FAILED]` | failed | 致命的失敗、batch 以外 step の失敗、summary 欠落・invalid、upload 失敗 | upload step の status に従う |
+| `[FAILED]` | failed | 致命的失敗、batch 以外 step の失敗、summary 欠落・invalid・矛盾、upload 失敗 | upload step の status に従う |
 
 判定の優先順は「batch 以外の step 失敗 → upload 失敗（`upload_failed`）→ batch summary の
-outcome」。upload 失敗は batch が成功していても `[FAILED]` を優先する。setup/sync/pull の失敗は
-batch 未到達（`not_started`）の `[FAILED]`、batch 実行後の summary 欠落・invalid・矛盾は
-`unavailable` の `[FAILED]`。exit 3 は publish 済みの `[DEGRADED]`、upload 失敗は
-`[FAILED]`（`upload_failed`）という契約を README と test で固定する。
+outcome」。upload 失敗は batch が成功していても `[FAILED]` を優先する。setup/sync/pull/smoke の失敗は
+batch 未到達（`not_started`）の `[FAILED]`、batch 実行後の summary 欠落・invalid は
+`unavailable` の `[FAILED]`。summary が succeeded / degraded を主張しても observable な publish 状態
+（local export / 両 upload 成功）が一致しない「矛盾」は、`summary_conflict` error を付けて
+`[FAILED]` になる（静かな publish 劣化を `[OK]` として隠蔽しない）。exit 3 は publish 済みの
+`[DEGRADED]`、upload 失敗は `[FAILED]`（`upload_failed`）という契約を README と test で固定する。
 
 message には workflow 名・repository・trigger・run attempt・overall outcome・as-of・総所要時間・
 batch ごとの status / datasets / metrics・publish state・GitHub Actions run URL を含む。error は
@@ -225,7 +227,7 @@ response body は載せない（1行400文字以内、全体2000文字以内）�
 step outcome を合成して `WorkflowRunSummary` を確定し、配送結果（delivered / failed）も記録して
 atomic write してから、同じ model を Discord へ render する。notifier は repository dependency と
 Python 3.14 固有構文を使わず、checkout 直後の system `python3` で import / CLI 実行できる
-（smoke step が `py_compile` で検査する）。
+（setup-python 前の smoke step が `py_compile` と実 import の両方で検査する）。
 
 通知の配送に失敗した run は、data 処理が成功していても job を失敗にする。`#batch-runs` に届かない
 正常 run は配送失敗を意味するので、GitHub Actions の run log（通知 step の stderr）で data 処理の
