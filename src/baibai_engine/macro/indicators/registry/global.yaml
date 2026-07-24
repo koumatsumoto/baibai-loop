@@ -134,3 +134,90 @@ series:
     source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
     notes: CFTC COT legacy futures-only の非商業ネット(long-short)。E-MINI S&P 500(CME)
     aliases: [S&P500ポジション, SP500 spec net]
+  - series_id: ecb.balance_sheet
+    name: ECB総資産
+    category: monetary
+    geography: euro
+    frequency: weekly
+    unit: eur-million
+    provider: fred_csv
+    provider_series_id: ECBASSETSW
+    source_id: fred-ecbassetsw
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBASSETSW
+    notes: ユーロ圏中銀の総資産(週次・百万ユーロ)。Fed・BOJのバランスシートと並べてグローバル流動性の三極化(縮小/拡大の非同期)を読む
+    aliases: [ECB総資産, ECBバランスシート, ECB balance sheet, ECBASSETSW, 欧州中銀資産]
+  - series_id: de.10y
+    name: ドイツ10Y国債利回り
+    category: rates
+    geography: euro
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: IRLTLT01DEM156N
+    source_id: fred-irltlt01dem156n
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01DEM156N
+    notes: ドイツ10年国債利回り(月次・OECD)。ユーロ圏の無リスク金利アンカー。米独金利差でドル・ユーロの綱引きを読む
+    aliases: [独10Y, ドイツ国債, bund 10y, German 10Y, IRLTLT01DEM156N, ブンズ]
+  - series_id: usd_cny
+    name: USD/CNY
+    category: fx
+    geography: china
+    frequency: daily
+    unit: cny-per-usd
+    provider: fred_csv
+    provider_series_id: DEXCHUS
+    source_id: fred-dexchus
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCHUS
+    tradingview_symbol: FX_IDC:USDCNY
+    notes: 人民元の対ドル相場(日次・元/ドル)。中国減速・元切り下げtailの観測点。上昇=元安。日本の対中輸出感応度と接続して読む
+    aliases: [ドル人民元, USD/CNY, 人民元, DEXCHUS, オフショア人民元]
+  - series_id: natgas
+    name: 天然ガス(Henry Hub)
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-mmbtu
+    provider: fred_csv
+    provider_series_id: DHHNGSP
+    source_id: fred-dhhngsp
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DHHNGSP
+    tradingview_symbol: NYMEX:NG1!
+    notes: Henry Hub天然ガススポット価格(日次・ドル/百万BTU)。原油以外のエネルギーコスト。電力・化学の投入価格として輸入国のコスト経路に効く
+    aliases: [天然ガス, ナットガス, natural gas, Henry Hub, DHHNGSP, natgas]
+  - series_id: world.acwi_ex_us
+    name: 世界株ex-US(ACWX ETF)
+    category: equity-index
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: yahoo
+    provider_series_id: ACWX
+    source_id: yahoo-acwx
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/ACWX
+    notes: iShares MSCI ACWI ex U.S. ETFの日次終値(USD)。米国を除く世界株の水準proxy。米株一極集中/分散のローテーションを読む
+    aliases: [世界株ex-US, ACWX, ACWI ex US, 米国除く世界株]
+  - series_id: europe.stoxx
+    name: STOXX欧州600
+    category: equity-index
+    geography: euro
+    frequency: daily
+    unit: index
+    provider: yahoo
+    provider_series_id: ^STOXX
+    source_id: yahoo-stoxx600
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/^STOXX
+    tradingview_symbol: INDEX:SXXP
+    notes: STOXX Europe 600指数の日次終値(EURポイント)。欧州株全体の水準。ユーロ圏景気・ECBスタンスと接続して読む
+    aliases: [欧州株, STOXX600, STOXX Europe 600, SXXP, 欧州600]
+  - series_id: em.equity
+    name: 新興国株(EEM ETF)
+    category: equity-index
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: yahoo
+    provider_series_id: EEM
+    source_id: yahoo-eem
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/EEM
+    notes: iShares MSCI Emerging Markets ETFの日次終値(USD)。新興国株の水準proxy。ドル・中国・世界リスク選好の総合温度計
+    aliases: [新興国株, EEM, emerging markets equity, EM株, エマージング株]

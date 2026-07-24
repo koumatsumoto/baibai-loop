@@ -18,6 +18,8 @@ groups:
       - id: jp.5y
       - id: jp.20y
       - id: jp.30y
+      - id: us.30y
+      - id: de.10y
       - id: us.real_10y
       - id: us.breakeven_10y
       - id: us.inflation_5y5y
@@ -30,6 +32,8 @@ groups:
       - id: jp.cpi.headline
       - id: jp.cpi.services
       - id: jp.hourly_earnings
+      - id: us.average_hourly_earnings
+      - id: us.ppi
   - title: 景気・雇用
     series:
       - id: us.gdp_growth
@@ -40,6 +44,12 @@ groups:
       - id: jp.unemployment
       - id: jp.pmi_manufacturing
       - id: jp.bankruptcies
+      - id: us.jolts_openings
+      - id: us.core_capex_orders
+      - id: us.building_permits
+      - id: us.housing_starts
+      - id: us.retail_sales
+      - id: us.consumer_sentiment
   - title: 流動性・クレジット・リスク
     series:
       - id: us.fed_assets
@@ -59,6 +69,9 @@ groups:
       - id: positioning.jpy_noncomm_net
       - id: positioning.ust10y_noncomm_net
       - id: positioning.sp500_noncomm_net
+      - id: us.sloos_ci_tightening
+      - id: us.federal_deficit
+      - id: ecb.balance_sheet
   - title: 為替
     series:
       - id: usd_jpy
@@ -66,6 +79,7 @@ groups:
       - id: aud_jpy
       - id: usd_index.broad
       - id: jp.real_effective_exchange_rate
+      - id: usd_cny
   - title: コモディティ
     series:
       - id: wti
@@ -74,6 +88,7 @@ groups:
       - id: silver
       - id: copper
       - id: gold_copper_ratio
+      - id: natgas
   - title: 株式・バリュエーション
     series:
       - id: jp.nikkei225
@@ -87,3 +102,6 @@ groups:
       - id: us.sp500_earnings_yield
       - id: us.erp
       - id: jp.foreign_flows
+      - id: world.acwi_ex_us
+      - id: europe.stoxx
+      - id: em.equity

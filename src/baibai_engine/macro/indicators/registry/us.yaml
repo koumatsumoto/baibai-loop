@@ -412,3 +412,135 @@ series:
     source_url: https://www.multpl.com/s-p-500-earnings-yield
     notes: S&P500益回り(1/PER, GAAP実績)。us.10yとの差がERP。益回り<名目金利=株が債券に対しクッション消滅の警戒域。multplの現在値と月次履歴を取得
     aliases: [益回り, earnings yield, S&P500益回り, アーニングスイールド]
+  - series_id: us.average_hourly_earnings
+    name: 米平均時給(民間全体)
+    category: labor
+    geography: us
+    frequency: monthly
+    unit: usd-per-hour
+    provider: fred_csv
+    provider_series_id: CES0500000003
+    source_id: fred-ces0500000003
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CES0500000003
+    notes: 民間非農業部門の平均時給(月次・季節調整済)。賃金インフレ=サービス物価の第二次波及の要。前年比の減速/再加速でBOJ・FRBのラストマイルを読む
+    aliases: [米平均時給, 平均時給, average hourly earnings, AHE, CES0500000003, 米賃金]
+  - series_id: us.ppi
+    name: 米生産者物価(最終需要)
+    category: inflation
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: PPIFIS
+    source_id: fred-ppifis
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PPIFIS
+    notes: 最終需要の生産者物価指数(月次)。CPIより川上のパイプラインインフレ。売価転嫁圧力の先行観測点
+    aliases: [米PPI, 生産者物価, producer price index, PPIFIS, パイプラインインフレ]
+  - series_id: us.jolts_openings
+    name: 米求人数(JOLTS)
+    category: labor
+    geography: us
+    frequency: monthly
+    unit: thousand
+    provider: fred_csv
+    provider_series_id: JTSJOL
+    source_id: fred-jtsjol
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=JTSJOL
+    notes: 非農業部門の求人総数(月次・千件・季節調整済)。労働需要の先行。求人/失業者比とともに賃金圧力の緩急を読む
+    aliases: [米求人数, JOLTS, job openings, JTSJOL, 求人件数]
+  - series_id: us.core_capex_orders
+    name: 米コア資本財新規受注
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: usd-million
+    provider: fred_csv
+    provider_series_id: NEWORDER
+    source_id: fred-neworder
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NEWORDER
+    notes: 非国防資本財(航空機除く)の新規受注(月次・百万ドル・季節調整済)。企業設備投資サイクルの先行ゲージ
+    aliases: [コア資本財受注, capex orders, core capital goods orders, NEWORDER, 設備投資先行]
+  - series_id: us.building_permits
+    name: 米住宅建設許可件数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: thousand
+    provider: fred_csv
+    provider_series_id: PERMIT
+    source_id: fred-permit
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PERMIT
+    notes: 建設許可の民間住宅戸数(月次・千戸・季節調整済年率)。住宅=金利感応の古典的景気先行。着工に先行する
+    aliases: [住宅建設許可, building permits, PERMIT, 建設許可件数]
+  - series_id: us.housing_starts
+    name: 米住宅着工件数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: thousand
+    provider: fred_csv
+    provider_series_id: HOUST
+    source_id: fred-houst
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=HOUST
+    notes: 民間住宅着工戸数(月次・千戸・季節調整済年率)。許可に続く実際の建設活動。金利サイクルの実体側の反応
+    aliases: [住宅着工, housing starts, HOUST, 着工件数]
+  - series_id: us.retail_sales
+    name: 米小売売上高
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: usd-million
+    provider: fred_csv
+    provider_series_id: RSAFS
+    source_id: fred-rsafs
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RSAFS
+    notes: 小売・飲食サービス売上高(月次・百万ドル・季節調整済)。米消費モメンタムの月次観測点
+    aliases: [米小売売上, retail sales, RSAFS, 小売売上高]
+  - series_id: us.consumer_sentiment
+    name: 米消費者信頼感(ミシガン大)
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: index
+    provider: fred_csv
+    provider_series_id: UMCSENT
+    source_id: fred-umcsent
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=UMCSENT
+    notes: ミシガン大消費者信頼感指数(月次・1966Q1=100)。消費者マインドと期待インフレの温度計
+    aliases: [消費者信頼感, ミシガン, consumer sentiment, UMCSENT, 消費者マインド]
+  - series_id: us.sloos_ci_tightening
+    name: 米銀行貸出態度(SLOOS・C&I大企業)
+    category: credit
+    geography: us
+    frequency: quarterly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: DRTSCILM
+    source_id: fred-drtscilm
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DRTSCILM
+    notes: SLOOS大・中堅企業向けC&Iローンの貸出基準を厳格化した銀行の純割合(四半期・%)。正=引き締め。信用サイクルの先行
+    aliases: [SLOOS, 貸出態度, bank lending standards, DRTSCILM, 信用サイクル]
+  - series_id: us.federal_deficit
+    name: 米連邦財政収支
+    category: fiscal
+    geography: us
+    frequency: monthly
+    unit: usd-million
+    provider: fred_csv
+    provider_series_id: MTSDS133FMS
+    source_id: fred-mtsds133fms
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=MTSDS133FMS
+    notes: 月次財政収支(百万ドル・負=赤字)。国債発行=Treasury供給圧力の源。TGA・純流動性と接続して読む。月次で振れが大きい
+    aliases: [米財政収支, 連邦赤字, federal deficit, MTSDS133FMS, 財政赤字]
+  - series_id: us.30y
+    name: 米30Y国債利回り
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    provider: frb_h15
+    provider_series_id: RIFLGFCY30_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    notes: FRB H.15の30年物Treasury定数満期利回り(日次)。財政・term premiumのストレスは超長期に最も出る
+    aliases: [米30Y, US 30Y, 30年債, DGS30, 米長期金利30年]
