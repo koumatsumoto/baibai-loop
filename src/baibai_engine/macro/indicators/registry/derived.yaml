@@ -1,0 +1,64 @@
+# Derived series: computed deterministically from other registered series by the
+# `derived` provider (kind=local). provider_series_id names the formula in
+# providers/formulas.py. No network; the batch refreshes these after base series.
+series:
+  - series_id: us.net_liquidity
+    name: 米ネット流動性
+    category: financial-conditions
+    geography: us
+    frequency: weekly
+    unit: usd-billion
+    provider: derived
+    provider_series_id: us.net_liquidity
+    source_id: derived-net-liquidity
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: FRB総資産 − RRP − TGA を10億USD単位で算出（fed_assets/reverse_repo/tgaはFRED百万USD）
+    aliases: [ネット流動性, net liquidity, US net liquidity]
+  - series_id: us.erp
+    name: 米株式リスクプレミアム
+    category: valuation
+    geography: us
+    frequency: monthly
+    unit: percent
+    provider: derived
+    provider_series_id: us.erp
+    source_id: derived-us-erp
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: S&P500益回り − 米10Y。ERP≤0は割高警戒域
+    aliases: [米ERP, US ERP, equity risk premium]
+  - series_id: rate_diff.us_jp_10y
+    name: 日米10Y金利差
+    category: rates
+    geography: world
+    frequency: daily
+    unit: percent
+    provider: derived
+    provider_series_id: rate_diff.us_jp_10y
+    source_id: derived-us-jp-10y
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 米10Y − 日10Y。円 carry の基本観測点
+    aliases: [日米金利差, US-JP 10Y differential, rate differential]
+  - series_id: credit.hy_ig_spread
+    name: 米HY-IGスプレッド
+    category: credit
+    geography: us
+    frequency: daily
+    unit: bp
+    provider: derived
+    provider_series_id: credit.hy_ig_spread
+    source_id: derived-hy-ig
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: HY OAS − IG OAS を bp 換算。信用の質の劣化
+    aliases: [HY-IGスプレッド, credit quality spread]
+  - series_id: gold_copper_ratio
+    name: 金銅比価
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: ratio
+    provider: derived
+    provider_series_id: gold_copper_ratio
+    source_id: derived-gold-copper
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 金先物 / 銅先物。risk-off・景気減速で上昇
+    aliases: [金銅比, gold copper ratio]

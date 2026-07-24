@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 import requests
 
@@ -16,6 +16,11 @@ if TYPE_CHECKING:
 HTTP_TIMEOUT_SECONDS = 30
 MAX_CSV_RESPONSE_BYTES = 8_000_000
 MAX_ZIP_RESPONSE_BYTES = 16_000_000
+
+# Reads a stored series' observations (latest ok vintage per observed_at) for a
+# derived provider that computes from other series. Bound to the live connection
+# by the service so a derived fetch sees inputs already committed this run.
+type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
 
 
 class IndicatorsProviderError(RuntimeError):
@@ -32,10 +37,14 @@ class ProviderSpec:
     """
 
     name: str
+    # ``http`` fetches from an external source; ``local`` computes from other
+    # stored series (derived). The batch refreshes every ``http`` series before
+    # any ``local`` one so a derived series reads fresh inputs.
+    kind: Literal["http", "local"] = "http"
     # All-history refresh floor. ``all_history_start`` is the reproducible fixed
     # start a bulk source exposes; ``all_history_rolling_years`` derives the floor
     # from today instead (a licensed rolling window such as J-Quants Light's 5
-    # years). Providers that cannot bulk-refresh set ``supports_refresh=False``.
+    # years).
     all_history_start: date | None = None
     all_history_rolling_years: int | None = None
     # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
@@ -62,9 +71,10 @@ class FetchContext:
     reused for the rest of the run, so a batch pays at most one browser launch.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, store_reader: StoreReader | None = None) -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[tuple[str, tuple[tuple[str, str], ...]], bytes] = {}
+        self.store_reader = store_reader
         self._browser: BrowserFetcher | None = None
 
     def browser_fetcher(self) -> BrowserFetcher:

@@ -169,9 +169,17 @@ class IndicatorsService:
         require_observations: bool = False,
     ) -> list[ObservationRecord]:
         started_at = datetime.now(UTC)
+        # Derived (local) providers read their input series from the store via
+        # this reader bound to the live connection, so they see inputs already
+        # committed earlier in the run.
+        own_context = context or FetchContext(
+            store_reader=lambda series_id, range_start, range_end: db.observations_in_range(
+                conn, series_id, range_start, range_end
+            )
+        )
         try:
             observations = _fetch_observations_with_retry(
-                series, start=start, end=end, context=context
+                series, start=start, end=end, context=own_context
             )
             if require_observations and not observations:
                 raise IndicatorsProviderError(
@@ -240,6 +248,9 @@ class IndicatorsService:
             )
             conn.commit()
             raise
+        finally:
+            if own_context is not context:
+                own_context.close()
 
 
 def _years_before(value: date, years: int) -> date:

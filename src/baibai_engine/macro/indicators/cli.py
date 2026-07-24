@@ -12,7 +12,7 @@ from baibai_engine.foundation.env import load_project_env
 
 from .db import DEFAULT_DB_PATH, IndicatorsSchemaError
 from .definitions import SeriesDefinition
-from .providers import IndicatorsProviderError
+from .providers import IndicatorsProviderError, provider_spec
 from .service import IndicatorsService, QueryResult
 
 
@@ -130,6 +130,9 @@ def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
             "frequency": item.frequency,
             "unit": item.unit,
             "provider": item.provider,
+            # "http" fetches externally; "local" is a derived series the batch
+            # must refresh after its base inputs.
+            "kind": provider_spec(item.provider).kind,
         }
         for item in series
     ]

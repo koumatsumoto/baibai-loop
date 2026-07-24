@@ -41,6 +41,8 @@ def _macro_list_row(
     geography: str,
     frequency: str,
     provider: str,
+    *,
+    kind: str = "http",
 ) -> dict[str, object]:
     """One `macro list --format json` row as the CLI emits it."""
 
@@ -52,6 +54,7 @@ def _macro_list_row(
         "frequency": frequency,
         "unit": "unit",
         "provider": provider,
+        "kind": kind,
     }
 
 
@@ -531,4 +534,26 @@ def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None
     assert groups == [
         (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["us.10y"]),
         (_MACRO_REFRESH_WINDOW_DEFAULT_DAYS, ["jp.pmi_manufacturing", "jp.cpi"]),
+    ]
+
+
+def test_macro_refresh_groups_orders_derived_after_base() -> None:
+    parsed = _parse_macro_series(
+        json.dumps(
+            [
+                _macro_list_row(
+                    "gold_copper_ratio", "commodity", "world", "daily", "derived", kind="local"
+                ),
+                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+                _macro_list_row("gold", "commodity", "world", "daily", "yahoo"),
+            ]
+        )
+    )
+
+    groups = _macro_refresh_groups(parsed)
+
+    # Same daily window, but base (http) is refreshed before the derived (local) series.
+    assert groups == [
+        (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["us.10y", "gold"]),
+        (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["gold_copper_ratio"]),
     ]

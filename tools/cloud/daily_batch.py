@@ -179,6 +179,7 @@ class _MacroSeries:
     series_id: str
     frequency: str
     provider: str
+    kind: str
 
 
 def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
@@ -200,6 +201,7 @@ def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
                     series_id=str(entry["series_id"]),
                     frequency=str(entry["frequency"]),
                     provider=str(entry["provider"]),
+                    kind=str(entry["kind"]),
                 )
             )
         except KeyError as exc:
@@ -208,13 +210,19 @@ def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
 
 
 def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, list[str]]]:
-    """Group every registered series by its frequency refresh window."""
+    """Group series by frequency window, refreshing base (http) before derived (local).
 
-    groups: dict[int, list[str]] = {}
+    A derived series reads other series from the store, so every ``http`` series
+    is refreshed before any ``local`` one; within each kind, series are grouped by
+    their frequency refresh window.
+    """
+
+    groups: dict[tuple[int, int], list[str]] = {}
     for item in series:
         window = _MACRO_REFRESH_WINDOW_DAYS.get(item.frequency, _MACRO_REFRESH_WINDOW_DEFAULT_DAYS)
-        groups.setdefault(window, []).append(item.series_id)
-    return sorted(groups.items())
+        kind_order = 1 if item.kind == "local" else 0
+        groups.setdefault((kind_order, window), []).append(item.series_id)
+    return [(window, series_ids) for (_kind_order, window), series_ids in sorted(groups.items())]
 
 
 def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> str:

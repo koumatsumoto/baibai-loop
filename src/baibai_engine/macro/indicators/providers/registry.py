@@ -13,6 +13,7 @@ from .base import (
 )
 from .boj import BojProvider
 from .boj_timeseries import BojTimeSeriesProvider
+from .derived import DerivedProvider
 from .ecb_fx import EcbFxProvider
 from .estat import EStatProvider
 from .frb_h15 import FrbH15Provider
@@ -42,6 +43,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
         YahooChartProvider(),
+        DerivedProvider(),
     )
 }
 

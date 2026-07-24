@@ -17,6 +17,7 @@ groups:
       - id: us.real_10y
       - id: us.breakeven_10y
       - id: us.inflation_5y5y
+      - id: rate_diff.us_jp_10y
   - title: インフレ・賃金
     series:
       - id: us.cpi.headline
@@ -45,6 +46,8 @@ groups:
       - id: credit.us_ig_oas
       - id: credit.us_hy_oas
       - id: credit.us_ccc_oas
+      - id: credit.hy_ig_spread
+      - id: us.net_liquidity
       - id: vix
       - id: us.move
       - id: btc_usd
@@ -63,6 +66,7 @@ groups:
       - id: gold
       - id: silver
       - id: copper
+      - id: gold_copper_ratio
   - title: 株式・バリュエーション
     series:
       - id: jp.nikkei225
@@ -74,4 +78,5 @@ groups:
       - id: us.sp500_pe
       - id: us.sp500_cape
       - id: us.sp500_earnings_yield
+      - id: us.erp
       - id: jp.foreign_flows

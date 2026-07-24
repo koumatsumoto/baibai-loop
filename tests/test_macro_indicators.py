@@ -47,7 +47,9 @@ from baibai_engine.macro.indicators.providers import (
     parse_tsr_bankruptcies_json,
     parse_yahoo_chart,
 )
-from baibai_engine.macro.indicators.providers.base import HttpSession
+from baibai_engine.macro.indicators.providers.base import FetchContext, HttpSession
+from baibai_engine.macro.indicators.providers.derived import DerivedProvider
+from baibai_engine.macro.indicators.providers.formulas import FORMULAS, DerivedComputationError
 from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
 from baibai_engine.macro.indicators.providers.pmi_extraction import (
     PmiExtractionError,
@@ -608,6 +610,61 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "invalid release URL"):
             _parse_stream("jp_manufacturing", entries)
+
+    def test_derived_net_liquidity_formula_converts_units(self) -> None:
+        value = FORMULAS["us.net_liquidity"].evaluate(
+            {"us.fed_assets": 6_600_000.0, "us.reverse_repo": 500_000.0, "us.tga": 700_000.0}
+        )
+
+        # (6,600,000 - 500,000 - 700,000) / 1000 = 5400.0 (USD million -> USD billion)
+        self.assertEqual(value, 5400.0)
+
+    def test_derived_rate_diff_formula(self) -> None:
+        value = FORMULAS["rate_diff.us_jp_10y"].evaluate({"us.10y": 4.55, "jp.10y": 2.715})
+
+        self.assertAlmostEqual(value, 1.835, places=3)
+
+    def test_derived_formula_rejects_out_of_range(self) -> None:
+        with self.assertRaisesRegex(DerivedComputationError, "outside plausible range"):
+            FORMULAS["us.erp"].evaluate({"us.sp500_earnings_yield": 99.0, "us.10y": 4.0})
+
+    def test_derived_gold_copper_skips_zero_divisor(self) -> None:
+        self.assertIsNone(FORMULAS["gold_copper_ratio"].evaluate({"gold": 3000.0, "copper": 0.0}))
+
+    def test_derived_provider_aligns_inputs_and_skips_partial_dates(self) -> None:
+        series = _series("derived", "rate_diff.us_jp_10y", unit="percent")
+        store: dict[str, tuple[ObservationRecord, ...]] = {
+            "us.10y": (
+                _obs("us.10y", date(2026, 7, 16), 4.53),
+                _obs("us.10y", date(2026, 7, 17), 4.55),
+            ),
+            # jp.10y missing 07-16 -> that date is skipped (no half-computed value)
+            "jp.10y": (_obs("jp.10y", date(2026, 7, 17), 2.715),),
+        }
+        context = FetchContext(store_reader=lambda sid, s, e: store[sid])
+
+        observations = DerivedProvider().fetch(
+            series,
+            start=date(2026, 7, 1),
+            end=date(2026, 7, 31),
+            session=cast(HttpSession, object()),
+            context=context,
+        )
+
+        self.assertEqual([obs.observed_at for obs in observations], [date(2026, 7, 17)])
+        self.assertAlmostEqual(observations[0].value, 1.835, places=3)
+
+    def test_derived_provider_requires_store_reader(self) -> None:
+        series = _series("derived", "rate_diff.us_jp_10y", unit="percent")
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "store reader"):
+            DerivedProvider().fetch(
+                series,
+                start=date(2026, 7, 1),
+                end=date(2026, 7, 31),
+                session=cast(HttpSession, object()),
+                context=FetchContext(),
+            )
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
@@ -1915,6 +1972,17 @@ class IndicatorsServiceTests(unittest.TestCase):
             db = Path(tmp) / "macro.sqlite"
 
             self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)
+
+
+def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:
+    return ObservationRecord(
+        series_id=series_id,
+        observed_at=observed_at,
+        value=value,
+        unit="percent",
+        source_url="https://example.com/data.csv",
+        vintage_at=datetime.now(UTC),
+    )
 
 
 def _series(provider: str, provider_series_id: str, *, unit: str = "percent") -> SeriesDefinition:
