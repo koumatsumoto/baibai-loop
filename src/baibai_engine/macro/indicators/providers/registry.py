@@ -20,6 +20,7 @@ from .estat import EStatProvider
 from .frb_h15 import FrbH15Provider
 from .fred import FredProvider
 from .jquants_flows import JQuantsFlowsProvider
+from .jquants_indices import JQuantsIndicesProvider
 from .mof_jgb import MofJgbProvider
 from .multpl import MultplProvider
 from .spglobal_pmi import SpGlobalPmiProvider
@@ -40,6 +41,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         CftcProvider(),
         EStatProvider(),
         JQuantsFlowsProvider(),
+        JQuantsIndicesProvider(),
         MofJgbProvider(),
         MultplProvider(),
         SpGlobalPmiProvider(),

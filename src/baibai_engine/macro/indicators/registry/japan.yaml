@@ -243,3 +243,16 @@ series:
     source_url: https://query1.finance.yahoo.com/v8/finance/chart/2516.T
     notes: NEXT FUNDS東証グロース市場250指数連動型ETF(2516)の日次終値(円)。国内新興・グロースのリスク選好を読むproxy。指数レベルではなくETF価格で、方向・変化率が指数に連動する。J-Quants Lightがグロース指数を配信しないためETFで代替
     aliases: [グロース250, 東証グロース250, growth250, マザーズ後継, 2516]
+  - series_id: jp.topix
+    name: TOPIX(東証株価指数)
+    category: equity-index
+    geography: japan
+    frequency: daily
+    unit: index
+    provider: jquants_indices
+    provider_series_id: topix
+    source_id: jquants-indices-topix
+    source_url: https://jpx-jquants.com/
+    tradingview_symbol: TVC:TOPIX
+    notes: J-Quants専用endpointから取得するTOPIX日次終値。時価総額加重で市場全体を代表し、値がさ株偏重の日経225より広い代表性を持つ。日本株の基準ベンチマーク
+    aliases: [TOPIX, 東証株価指数, トピックス, topix]

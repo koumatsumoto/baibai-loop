@@ -52,6 +52,7 @@ from baibai_engine.macro.indicators.providers.cftc import parse_cftc_json
 from baibai_engine.macro.indicators.providers.derived import DerivedProvider
 from baibai_engine.macro.indicators.providers.formulas import FORMULAS, DerivedComputationError
 from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
+from baibai_engine.macro.indicators.providers.jquants_indices import parse_index_bars
 from baibai_engine.macro.indicators.providers.pmi_extraction import (
     PmiExtractionError,
     extract_pmi_value,
@@ -717,6 +718,52 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "exceeds plausible"):
             parse_cftc_json(series, text, start=date(2026, 7, 1), end=date(2026, 7, 31))
+
+    def test_parse_index_bars_extracts_close_and_filters_range(self) -> None:
+        series = _series("jquants_indices", "topix", unit="index")
+        rows = [
+            {
+                "Date": datetime(2026, 6, 30, tzinfo=UTC),
+                "O": 3900.0,
+                "H": 3950.0,
+                "L": 3890.0,
+                "C": 3940.5,
+            },
+            {
+                "Date": datetime(2026, 7, 1, tzinfo=UTC),
+                "O": 3945.0,
+                "H": 4000.0,
+                "L": 3940.0,
+                "C": 3990.2,
+            },
+            {
+                "Date": datetime(2026, 8, 1, tzinfo=UTC),
+                "O": 4010.0,
+                "H": 4020.0,
+                "L": 4000.0,
+                "C": 4015.0,
+            },
+        ]
+
+        observations = parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
+
+        self.assertEqual(
+            [(o.observed_at, o.value) for o in observations], [(date(2026, 7, 1), 3990.2)]
+        )
+
+    def test_parse_index_bars_rejects_implausible_close(self) -> None:
+        series = _series("jquants_indices", "topix", unit="index")
+        rows = [{"Date": datetime(2026, 7, 1, tzinfo=UTC), "C": 99999.0}]
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible"):
+            parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
+
+    def test_parse_index_bars_rejects_missing_close_column(self) -> None:
+        series = _series("jquants_indices", "topix", unit="index")
+        rows = [{"Date": datetime(2026, 7, 1, tzinfo=UTC), "O": 3945.0}]
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing a close column"):
+            parse_index_bars(series, rows, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(

@@ -92,6 +92,7 @@ groups:
       - id: natgas
   - title: 株式・バリュエーション
     series:
+      - id: jp.topix
       - id: jp.nikkei225
       - id: us.sp500
       - id: us.nasdaq
