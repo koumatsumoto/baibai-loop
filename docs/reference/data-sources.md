@@ -44,7 +44,7 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 J-Quants Light の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストは [`./screening-runtime.md`](./screening-runtime.md) §12 にまとめる。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、data API が無い系列だけを機械的な scraper で取得して `data/indicators/macro.sqlite` に保存してよい。AI agent の WebFetch 出力を観測値として取り込まない。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。`refresh --all-history` は provider が現在提供する履歴範囲と registry の source identity を同期する。provider run は取得の成否と件数を記録し、observation vintage は内容が変わる revision だけを保持する。manual 観測は git 管理 seed から `import-manual` で復元する。
+Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、data API が無い系列だけを機械的な scraper で取得して `data/indicators/macro.sqlite` に保存してよい。AI agent の WebFetch 出力を観測値として取り込まない。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。`refresh --all-history` は provider が現在提供する履歴範囲と registry の source identity を同期する。provider run は取得の成否と件数を記録し、observation vintage は内容が変わる revision だけを保持する。data API が無い PMI は `spglobal_pmi` provider が git 管理の release-URL manifest から公式 PDF を live 取得し、headline 値を妥当域検証したうえで store へ入れる。
 
 ## スコアリング軸
 

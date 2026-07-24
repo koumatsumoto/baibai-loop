@@ -12,8 +12,10 @@ dependencies = [
   "jquants-api-client>=2.3.0",
   "openpyxl>=3.1.0",
   "pandas>=2.3.0",
+  "playwright>=1.61.0",
   "pydantic>=2.13.4",
   "pyarrow>=25.0.0",
+  "pypdf>=6.14.0",
   "python-dotenv>=1.0.0",
   "pyyaml>=6.0.0",
   "requests>=2.34.2",
@@ -68,8 +70,7 @@ packages = ["src/baibai_engine", "src/baibai_app"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/baibai_engine/py.typed" = "baibai_engine/py.typed"
 "src/baibai_engine/macro/indicators/schema.sql" = "baibai_engine/macro/indicators/schema.sql"
-"src/baibai_engine/macro/indicators/series.yaml" = "baibai_engine/macro/indicators/series.yaml"
-"src/baibai_engine/macro/indicators/providers/manual_data.yaml" = "baibai_engine/macro/indicators/providers/manual_data.yaml"
+"src/baibai_engine/macro/indicators/registry" = "baibai_engine/macro/indicators/registry"
 "src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/macro/indicators/providers/pmi_release_urls.yaml"
 
 # Constrain the sdist to the buildable source packages (plus the metadata

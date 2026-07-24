@@ -41,8 +41,6 @@ def _macro_list_row(
     geography: str,
     frequency: str,
     provider: str,
-    *,
-    refreshable: bool = True,
 ) -> dict[str, object]:
     """One `macro list --format json` row as the CLI emits it."""
 
@@ -54,7 +52,6 @@ def _macro_list_row(
         "frequency": frequency,
         "unit": "unit",
         "provider": provider,
-        "refreshable": refreshable,
     }
 
 
@@ -124,7 +121,6 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening select": [SELECT_OK],
         "macro list": [MACRO_LIST_OK],
         "macro refresh": [OK, OK, OK],
-        "macro import-manual": [OK],
         "export": [OK],
         "screening prune": [OK],
     }
@@ -183,7 +179,6 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "macro refresh",
         "macro refresh",
         "macro refresh",
-        "macro import-manual",
         "export",
         "screening prune",
     ]
@@ -196,7 +191,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     select_argv = runner.calls[2]
     assert select_argv[3:] == ["--asof", "2026-07-21", "--run-revision-id", "rev-1"]
 
-    export_argv = runner.calls[8]
+    export_argv = runner.calls[7]
     assert export_argv[1].endswith("tools/cloud/export_read_models.py")
     assert export_argv[2:] == [
         "--output-dir",
@@ -233,8 +228,6 @@ def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: P
             "2026-07-21",
         ],
     ]
-    # PMI remains a manual series and only syncs through import-manual.
-    assert ["baibai-engine", "macro", "import-manual"] in runner.calls
 
 
 def test_macro_refresh_windows_match_engine_latest_fetch_lookback() -> None:
@@ -359,7 +352,6 @@ def test_daily_batch_defers_macro_refresh_failure_until_after_export(
     assert exit_code == 3
     keys = runner.call_keys()
     assert keys.count("macro refresh") == 3
-    assert "macro import-manual" in keys
     assert "export" in keys
     # The deferred detail is surfaced immediately, not only in the final summary.
     assert "deferred failure" in capsys.readouterr().err
@@ -406,7 +398,6 @@ def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path)
     assert exit_code == 3
     keys = runner.call_keys()
     assert "macro refresh" not in keys
-    assert "macro import-manual" in keys
     assert "export" in keys
 
 
@@ -508,16 +499,13 @@ def test_parse_macro_series_reads_json_list() -> None:
     stdout = json.dumps(
         [
             _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-            _macro_list_row("jp.pmi", "activity", "jp", "monthly", "manual", refreshable=False),
+            _macro_list_row("jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"),
         ]
     )
 
     parsed = _parse_macro_series(stdout)
 
-    assert [(item.series_id, item.refreshable) for item in parsed] == [
-        ("us.10y", True),
-        ("jp.pmi", False),
-    ]
+    assert [item.series_id for item in parsed] == ["us.10y", "jp.pmi_manufacturing"]
 
 
 def test_parse_macro_series_rejects_non_json() -> None:
@@ -525,12 +513,14 @@ def test_parse_macro_series_rejects_non_json() -> None:
         _parse_macro_series("us.10y\tdaily\tfred_csv")
 
 
-def test_macro_refresh_groups_skips_non_refreshable_series() -> None:
+def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None:
     parsed = _parse_macro_series(
         json.dumps(
             [
                 _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
-                _macro_list_row("jp.pmi", "activity", "jp", "monthly", "manual", refreshable=False),
+                _macro_list_row(
+                    "jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"
+                ),
                 _macro_list_row("jp.cpi", "prices", "jp", "monthly", "estat"),
             ]
         )
@@ -540,5 +530,5 @@ def test_macro_refresh_groups_skips_non_refreshable_series() -> None:
 
     assert groups == [
         (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["us.10y"]),
-        (_MACRO_REFRESH_WINDOW_DEFAULT_DAYS, ["jp.cpi"]),
+        (_MACRO_REFRESH_WINDOW_DEFAULT_DAYS, ["jp.pmi_manufacturing", "jp.cpi"]),
     ]

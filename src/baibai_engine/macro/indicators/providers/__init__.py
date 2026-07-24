@@ -14,7 +14,6 @@ from .estat import parse_estat_json
 from .frb_h15 import parse_h15_csv
 from .fred import parse_fred_csv
 from .jquants_flows import parse_trades_spec
-from .manual import parse_manual_entries, parse_manual_seed
 from .mof_jgb import parse_mof_jgb_csv
 from .multpl import parse_multpl_current, parse_multpl_history
 from .registry import (
@@ -40,8 +39,6 @@ __all__ = [
     "parse_estat_json",
     "parse_fred_csv",
     "parse_h15_csv",
-    "parse_manual_entries",
-    "parse_manual_seed",
     "parse_mof_jgb_csv",
     "parse_multpl_current",
     "parse_multpl_history",

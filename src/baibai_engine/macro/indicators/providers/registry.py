@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import requests
-
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
 from .base import (
@@ -20,9 +18,9 @@ from .estat import EStatProvider
 from .frb_h15 import FrbH15Provider
 from .fred import FredProvider
 from .jquants_flows import JQuantsFlowsProvider
-from .manual import ManualProvider
 from .mof_jgb import MofJgbProvider
 from .multpl import MultplProvider
+from .spglobal_pmi import SpGlobalPmiProvider
 from .tsr_bankruptcies import TsrBankruptciesProvider
 from .yahoo import YahooChartProvider
 
@@ -35,13 +33,13 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         FredProvider(),
         FrbH15Provider(),
         EcbFxProvider(),
-        ManualProvider(),
         BojProvider(),
         BojTimeSeriesProvider(),
         EStatProvider(),
         JQuantsFlowsProvider(),
         MofJgbProvider(),
         MultplProvider(),
+        SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
         YahooChartProvider(),
     )
@@ -63,8 +61,12 @@ def fetch_observations(
         )
     if session is not None:
         return provider.fetch(series, start=start, end=end, session=session)
-    with requests.Session() as http:
-        return provider.fetch(series, start=start, end=end, session=http)
+    # No caller-supplied session/context: run inside a fresh FetchContext so a
+    # browser-backed provider can lazily launch (and always close) its browser.
+    with FetchContext() as own_context:
+        return provider.fetch(
+            series, start=start, end=end, session=own_context.session, context=own_context
+        )
 
 
 def resolve_provider(name: str) -> MacroDataProvider:

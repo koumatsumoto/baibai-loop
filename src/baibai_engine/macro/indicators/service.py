@@ -7,18 +7,15 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.foundation.yaml_io import strict_safe_load
-
 from . import db
 from .db import ObservationRecord
-from .definitions import SeriesDefinition, load_definitions
+from .definitions import SeriesDefinition
 from .providers import (
     FetchContext,
     IndicatorsProviderError,
     fetch_observations,
     provider_spec,
 )
-from .providers.manual import MANUAL_DATA_PATH, parse_manual_seed
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {
@@ -42,12 +39,6 @@ class QueryResult:
     cache_hit: bool
 
 
-@dataclass(frozen=True)
-class ManualImportResult:
-    series_count: int
-    observation_count: int
-
-
 class IndicatorsService:
     def __init__(self, db_path: Path = db.DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
@@ -66,53 +57,6 @@ class IndicatorsService:
         finally:
             conn.close()
 
-    def import_manual_seed(self, seed_path: Path = MANUAL_DATA_PATH) -> ManualImportResult:
-        raw_seed = strict_safe_load(seed_path.read_text(encoding="utf-8"))
-        definitions = load_definitions()
-        observations = parse_manual_seed(definitions, raw_seed)
-        manual_ids = tuple(
-            item.series_id for item in definitions.series if item.provider == "manual"
-        )
-        grouped = {
-            series_id: [item for item in observations if item.series_id == series_id]
-            for series_id in manual_ids
-        }
-        conn = db.open_connection(self.db_path)
-        try:
-            for series_id in manual_ids:
-                conn.execute("DELETE FROM observations WHERE series_id = ?", (series_id,))
-            conn.execute("DELETE FROM provider_runs WHERE provider = 'manual'")
-            db.insert_observations(conn, observations, deduplicate_unchanged=False)
-            for series_id, entries in grouped.items():
-                entered_at = max(item.vintage_at for item in entries if item.vintage_at is not None)
-                conn.execute(
-                    """
-                    INSERT INTO provider_runs(
-                      run_id, provider, series_id, range_start, range_end,
-                      started_at, finished_at, status, record_count, error_message
-                    ) VALUES (?, 'manual', ?, ?, ?, ?, ?, 'ok', ?, NULL)
-                    """,
-                    (
-                        f"manual-seed-{series_id}",
-                        series_id,
-                        min(item.observed_at for item in entries).isoformat(),
-                        max(item.observed_at for item in entries).isoformat(),
-                        entered_at.isoformat(),
-                        entered_at.isoformat(),
-                        len(entries),
-                    ),
-                )
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-        return ManualImportResult(
-            series_count=len(grouped),
-            observation_count=len(observations),
-        )
-
     def get_range(
         self,
         series_id: str,
@@ -128,18 +72,6 @@ class IndicatorsService:
             series = db.get_series(conn, series_id)
             spec = provider_spec(series.provider)
             point_in_time = spec.point_in_time_vintage
-            if not spec.supports_refresh:
-                if refresh:
-                    raise IndicatorsProviderError(
-                        f"{series_id} is a file-backed series synchronized with macro import-manual"
-                    )
-                observations = list(
-                    db.observations_in_range(
-                        conn, series_id, start, end, point_in_time=point_in_time
-                    )
-                )
-                ordered = sorted(observations, key=lambda item: item.observed_at)
-                return QueryResult(series, tuple(ordered), cache_hit=True)
             cache_hit = (not refresh) and db.has_ok_coverage(conn, series_id, start, end)
             if not cache_hit:
                 observations = self._fetch_and_store(conn, series, start=start, end=end)
@@ -162,10 +94,6 @@ class IndicatorsService:
         try:
             series = db.get_series(conn, series_id)
             spec = provider_spec(series.provider)
-            if not spec.supports_refresh:
-                raise IndicatorsProviderError(
-                    f"{series_id} is a file-backed series synchronized with macro import-manual"
-                )
             if spec.all_history_rolling_years is not None:
                 start = _years_before(_today_jst(), spec.all_history_rolling_years)
                 if end < start:
@@ -203,16 +131,6 @@ class IndicatorsService:
             cached_latest = db.latest_observation(
                 conn, series_id, on_or_before=end, point_in_time=spec.point_in_time_vintage
             )
-            if not spec.supports_refresh:
-                if refresh:
-                    raise IndicatorsProviderError(
-                        f"{series_id} is a file-backed series synchronized with macro import-manual"
-                    )
-                if cached_latest is None:
-                    raise IndicatorsProviderError(
-                        f"{series_id} has no imported observation; run macro import-manual"
-                    )
-                return QueryResult(series, (cached_latest,), cache_hit=True)
             if not refresh and cached_latest is not None:
                 max_age = LATEST_CACHE_MAX_AGE_DAYS.get(series.frequency, 370)
                 if cached_latest.observed_at >= end - timedelta(days=max_age):

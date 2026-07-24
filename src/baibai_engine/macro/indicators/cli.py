@@ -12,8 +12,7 @@ from baibai_engine.foundation.env import load_project_env
 
 from .db import DEFAULT_DB_PATH, IndicatorsSchemaError
 from .definitions import SeriesDefinition
-from .providers import IndicatorsProviderError, provider_spec
-from .providers.manual import MANUAL_DATA_PATH
+from .providers import IndicatorsProviderError
 from .service import IndicatorsService, QueryResult
 
 
@@ -44,13 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
     refresh_range.add_argument("--start", type=date.fromisoformat)
     refresh_range.add_argument("--all-history", action="store_true")
     refresh_parser.add_argument("--end", required=True, type=date.fromisoformat)
-
-    import_manual_parser = subparsers.add_parser(
-        "import-manual",
-        help="replace manual observations from the canonical git-tracked seed",
-    )
-    import_manual_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
-    import_manual_parser.add_argument("--seed", type=Path, default=MANUAL_DATA_PATH)
 
     return parser
 
@@ -88,11 +80,6 @@ def main(argv: list[str] | None = None) -> int:
                             refresh=True,
                         )
                         _print_observations(result)
-                return 0
-            case "import-manual":
-                manual_result = service.import_manual_seed(args.seed)
-                print(f"series_count\t{manual_result.series_count}")
-                print(f"observation_count\t{manual_result.observation_count}")
                 return 0
     except KeyError as exc:
         message = exc.args[0] if exc.args else str(exc)
@@ -132,8 +119,8 @@ def _print_series(series: Iterable[SeriesDefinition]) -> None:
 
 
 def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
-    # Structured contract for machine consumers (the daily batch); ``refreshable``
-    # is the provider's ProviderSpec capability so callers never branch on a name.
+    # Structured contract for machine consumers (the daily batch), so callers
+    # parse fields instead of splitting the human table output.
     payload = [
         {
             "series_id": item.series_id,
@@ -143,7 +130,6 @@ def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
             "frequency": item.frequency,
             "unit": item.unit,
             "provider": item.provider,
-            "refreshable": provider_spec(item.provider).supports_refresh,
         }
         for item in series
     ]

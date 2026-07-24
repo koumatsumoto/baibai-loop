@@ -15,7 +15,6 @@ from unittest.mock import patch
 import openpyxl
 import requests
 
-from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators.cli import build_parser, main
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
@@ -41,8 +40,6 @@ from baibai_engine.macro.indicators.providers import (
     parse_estat_json,
     parse_fred_csv,
     parse_h15_csv,
-    parse_manual_entries,
-    parse_manual_seed,
     parse_mof_jgb_csv,
     parse_multpl_current,
     parse_multpl_history,
@@ -52,7 +49,15 @@ from baibai_engine.macro.indicators.providers import (
 )
 from baibai_engine.macro.indicators.providers.base import HttpSession
 from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
-from baibai_engine.macro.indicators.providers.manual import MANUAL_DATA_PATH
+from baibai_engine.macro.indicators.providers.pmi_extraction import (
+    PmiExtractionError,
+    extract_pmi_value,
+)
+from baibai_engine.macro.indicators.providers.spglobal_pmi import (
+    _manifest,
+    _parse_stream,
+    extract_pdf_text,
+)
 from baibai_engine.macro.indicators.service import IndicatorsService
 
 
@@ -521,140 +526,88 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 ),
             )
 
-    def test_parse_manual_entries_filters_range_inclusive(self) -> None:
-        series = _series("manual", "jp_pmi_manufacturing", unit="index")
-        raw = {
-            "schema_version": 1,
-            "observations": [
-                _manual_entry("test.series", "2026-01-01", 49.6, unit="index"),
-                _manual_entry("test.series", "2026-02-01", 48.9, unit="index"),
-                _manual_entry("test.series", "2026-03-01", 50.1, unit="index"),
-            ],
-        }
-
-        observations = parse_manual_entries(
-            series, raw, start=date(2026, 2, 1), end=date(2026, 3, 1)
+    def test_extract_pmi_value_reads_headline_for_month(self) -> None:
+        text = (
+            "the headline S&P Global Japan Manufacturing PMI picked up to 54.8 in June "
+            "from 54.5 in May and signalled an improvement in operating conditions."
         )
 
-        self.assertEqual(
-            [obs.observed_at for obs in observations],
-            [date(2026, 2, 1), date(2026, 3, 1)],
-        )
-        self.assertEqual(observations[0].value, 48.9)
-
-    def test_parse_manual_entries_rejects_missing_series_id(self) -> None:
-        series = _series("manual", "jp_unknown", unit="count")
-        raw = {
-            "schema_version": 1,
-            "observations": [_manual_entry("other.series", "2026-01-01", 49.6)],
-        }
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "test.series"):
-            parse_manual_entries(series, raw, start=date(2026, 1, 1), end=date(2026, 12, 31))
-
-    def test_parse_manual_entries_accepts_iso_string_date_and_int_value(self) -> None:
-        series = _series("manual", "jp_bankruptcies_tsr", unit="count")
-        raw = {
-            "schema_version": 1,
-            "observations": [_manual_entry("test.series", "2026-03-01", 950)],
-        }
-
-        observations = parse_manual_entries(
-            series, raw, start=date(2026, 1, 1), end=date(2026, 12, 31)
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2026, 6, 1),
+            release_observed_at=date(2026, 6, 1),
         )
 
-        self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0].observed_at, date(2026, 3, 1))
-        self.assertEqual(observations[0].value, 950.0)
+        self.assertEqual(value, 54.8)
 
-    def test_canonical_manual_seed_matches_registry_and_preserves_all_vintages(self) -> None:
-        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
+    def test_extract_pmi_value_returns_none_when_month_absent(self) -> None:
+        text = "the headline PMI picked up to 54.8 in June from 54.5 in May."
 
-        observations = parse_manual_seed(load_definitions(), raw)
-
-        self.assertEqual(len(observations), 36)
-        self.assertEqual(
-            {item.series_id for item in observations},
-            {"jp.pmi_manufacturing"},
-        )
-        self.assertTrue(all(item.vintage_at is not None for item in observations))
-
-    def test_manual_pmi_source_rejects_noncanonical_release_url(self) -> None:
-        canonical = (
-            "https://www.pmi.spglobal.com/Public/Home/PressRelease/4bfeffc263944cd797a7957577045b71"
-        )
-        for source_url in (
-            canonical.replace("spglobal.com", "spglobal.com.evil.example"),
-            f"{canonical}?download=1",
-            f"{canonical}#release",
-        ):
-            with self.subTest(source_url=source_url):
-                raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-                raw["observations"][0]["source_url"] = source_url
-                with self.assertRaisesRegex(IndicatorsProviderError, "source_url differs"):
-                    parse_manual_seed(load_definitions(), raw)
-
-    def test_manual_pmi_source_must_match_release_manifest(self) -> None:
-        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-        raw["observations"][0]["source_url"] = (
-            "https://www.pmi.spglobal.com/Public/Home/PressRelease/00000000000000000000000000000000"
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2026, 3, 1),
+            release_observed_at=date(2026, 6, 1),
         )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "does not match manifest"):
-            parse_manual_seed(load_definitions(), raw)
+        self.assertIsNone(value)
 
-    def test_manual_pmi_history_must_cover_release_manifest(self) -> None:
-        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-        raw["observations"].pop()
+    def test_extract_pmi_value_rejects_implausible_reading(self) -> None:
+        text = "the headline PMI collapsed to 12.3 in June, an unprecedented reading."
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "history differs from manifest"):
-            parse_manual_seed(load_definitions(), raw)
+        with self.assertRaisesRegex(PmiExtractionError, "outside plausible range"):
+            extract_pmi_value(
+                text,
+                expected_observed_at=date(2026, 6, 1),
+                release_observed_at=date(2026, 6, 1),
+            )
 
-    def test_manual_pmi_rejects_implausible_value(self) -> None:
-        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-        raw["observations"][0]["value"] = -999
+    def test_extract_pmi_value_rejects_conflicting_values(self) -> None:
+        text = (
+            "the headline PMI reading was 54.8 in June. Separately, the headline PMI "
+            "figure was 55.9 in June per a revised estimate."
+        )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "outside plausible range"):
-            parse_manual_seed(load_definitions(), raw)
+        with self.assertRaisesRegex(PmiExtractionError, "conflicting"):
+            extract_pmi_value(
+                text,
+                expected_observed_at=date(2026, 6, 1),
+                release_observed_at=date(2026, 6, 1),
+            )
 
-    def test_parse_manual_seed_normalizes_offsets_and_rejects_same_instant(self) -> None:
-        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-        pmi = [
-            item
-            for item in raw["observations"]
-            if item["series_id"] == "jp.pmi_manufacturing"
-            and str(item["observed_at"]) == "2026-01-01"
+    def test_extract_pdf_text_rejects_non_pdf(self) -> None:
+        with self.assertRaisesRegex(IndicatorsProviderError, "not a PDF"):
+            extract_pdf_text(b"<html>blocked</html>")
+
+    def test_spglobal_pmi_manifest_parses_jp_manufacturing_stream(self) -> None:
+        streams = _manifest()
+
+        self.assertIn("jp_manufacturing", streams)
+        entries = streams["jp_manufacturing"]
+        self.assertGreaterEqual(len(entries), 36)
+        # entries are month-sorted and every URL matches the official release pattern
+        observed = [entry.observed_at for entry in entries]
+        self.assertEqual(observed, sorted(observed))
+        for entry in entries:
+            self.assertRegex(
+                entry.url,
+                r"https://www\.pmi\.spglobal\.com/Public/Home/PressRelease/[0-9a-f]{32}",
+            )
+
+    def test_spglobal_pmi_manifest_rejects_duplicate_month(self) -> None:
+        url = "https://www.pmi.spglobal.com/Public/Home/PressRelease/" + "a" * 32
+        entries = [
+            {"observed_at": "2026-05-01", "url": url},
+            {"observed_at": "2026-05-01", "url": url},
         ]
-        pmi.append(dict(pmi[0]))
-        pmi[0]["entered_at"] = "2026-07-21T00:00:00+09:00"
-        pmi[1]["entered_at"] = "2026-07-20T15:30:00+00:00"
-        raw["observations"].append(pmi[1])
 
-        observations = parse_manual_seed(load_definitions(), raw)
+        with self.assertRaisesRegex(IndicatorsProviderError, "duplicate month"):
+            _parse_stream("jp_manufacturing", entries)
 
-        first_date = [
-            item
-            for item in observations
-            if item.series_id == "jp.pmi_manufacturing" and item.observed_at == date(2026, 1, 1)
-        ]
-        self.assertEqual(
-            [item.vintage_at for item in first_date],
-            [
-                datetime(2026, 7, 20, 15, 0, tzinfo=UTC),
-                datetime(2026, 7, 20, 15, 30, tzinfo=UTC),
-            ],
-        )
+    def test_spglobal_pmi_manifest_rejects_bad_url(self) -> None:
+        entries = [{"observed_at": "2026-05-01", "url": "https://evil.example/x"}]
 
-        pmi[1]["entered_at"] = "2026-07-20T15:00:00+00:00"
-        with self.assertRaisesRegex(IndicatorsProviderError, "duplicate"):
-            parse_manual_seed(load_definitions(), raw)
-
-    def test_parse_manual_seed_rejects_unbounded_integer(self) -> None:
-        raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-        raw["observations"][0]["value"] = 10**10000
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "must be finite"):
-            parse_manual_seed(load_definitions(), raw)
+        with self.assertRaisesRegex(IndicatorsProviderError, "invalid release URL"):
+            _parse_stream("jp_manufacturing", entries)
 
     def test_parse_boj_xlsx_extracts_value_column_and_filters_range(self) -> None:
         content = _boj_workbook_bytes(
@@ -1677,16 +1630,6 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(first, "1950-01-01")
             self.assertEqual(latest_status, "failed")
 
-    def test_refresh_all_history_excludes_manual_series(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-
-            with self.assertRaisesRegex(IndicatorsProviderError, "import-manual"):
-                IndicatorsService(database).refresh_all_history(
-                    "jp.pmi_manufacturing",
-                    end=date(2026, 7, 20),
-                )
-
     def test_refresh_cli_requires_one_range_mode(self) -> None:
         parser = build_parser()
 
@@ -1704,171 +1647,6 @@ class IndicatorsServiceTests(unittest.TestCase):
                     "2026-07-20",
                 ]
             )
-
-    def test_import_manual_seed_is_idempotent_and_replaces_manual_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            service = IndicatorsService(database)
-
-            first = service.import_manual_seed()
-            with sqlite3.connect(database) as connection:
-                before = connection.execute(
-                    """
-                    SELECT series_id, observed_at, value, unit, vintage_at, source_url
-                    FROM observations
-                    WHERE series_id = 'jp.pmi_manufacturing'
-                    ORDER BY series_id, observed_at, vintage_at
-                    """
-                ).fetchall()
-                counts_before = (
-                    connection.execute("SELECT count(*) FROM observations").fetchone()[0],
-                    connection.execute("SELECT count(*) FROM provider_runs").fetchone()[0],
-                )
-            second = service.import_manual_seed()
-            with sqlite3.connect(database) as connection:
-                after = connection.execute(
-                    """
-                    SELECT series_id, observed_at, value, unit, vintage_at, source_url
-                    FROM observations
-                    WHERE series_id = 'jp.pmi_manufacturing'
-                    ORDER BY series_id, observed_at, vintage_at
-                    """
-                ).fetchall()
-                counts_after = (
-                    connection.execute("SELECT count(*) FROM observations").fetchone()[0],
-                    connection.execute("SELECT count(*) FROM provider_runs").fetchone()[0],
-                )
-
-            self.assertEqual(first.series_count, 1)
-            self.assertEqual(first.observation_count, 36)
-            self.assertEqual(second, first)
-            self.assertEqual(after, before)
-            self.assertEqual(counts_after, counts_before)
-
-    def test_import_manual_seed_rejects_unknown_series_before_writing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            database = root / "macro.sqlite"
-            seed = root / "manual.yaml"
-            raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-            raw["observations"].append(_manual_entry("jp.unknown", "2026-01-01", 1))
-            seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
-
-            with self.assertRaisesRegex(IndicatorsProviderError, "unknown series jp.unknown"):
-                IndicatorsService(database).import_manual_seed(seed)
-
-            self.assertFalse(database.exists())
-
-    def test_import_manual_seed_rejects_duplicate_yaml_key_without_writing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            database = root / "macro.sqlite"
-            seed = root / "manual.yaml"
-            service = IndicatorsService(database)
-            service.import_manual_seed()
-            with sqlite3.connect(database) as connection:
-                before = connection.execute(
-                    "SELECT * FROM observations ORDER BY series_id, observed_at, vintage_at"
-                ).fetchall()
-            seed_text = MANUAL_DATA_PATH.read_text(encoding="utf-8")
-            value_line = next(
-                line
-                for line in seed_text.splitlines(keepends=True)
-                if line.lstrip().startswith("value: ")
-            )
-            seed.write_text(
-                seed_text.replace(value_line, f"{value_line}{value_line}", 1),
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(ValueError, "duplicate YAML mapping key: 'value'"):
-                service.import_manual_seed(seed)
-
-            with sqlite3.connect(database) as connection:
-                after = connection.execute(
-                    "SELECT * FROM observations ORDER BY series_id, observed_at, vintage_at"
-                ).fetchall()
-            self.assertEqual(after, before)
-
-    def test_import_manual_seed_selects_latest_vintage_across_offsets(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            database = root / "macro.sqlite"
-            seed = root / "manual.yaml"
-            raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-            pmi = [
-                item
-                for item in raw["observations"]
-                if item["series_id"] == "jp.pmi_manufacturing"
-                and str(item["observed_at"]) == "2026-01-01"
-            ]
-            pmi.append(dict(pmi[0]))
-            raw["observations"].append(pmi[1])
-            pmi[0].update(
-                value=40,
-                entered_at="2026-07-21T00:00:00+09:00",
-            )
-            pmi[1].update(
-                value=60,
-                entered_at="2026-07-20T23:00:00+00:00",
-            )
-            seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
-            service = IndicatorsService(database)
-
-            service.import_manual_seed(seed)
-            ranged = service.get_range(
-                "jp.pmi_manufacturing",
-                start=date(2026, 1, 1),
-                end=date(2026, 1, 1),
-            )
-            latest = service.get_latest("jp.pmi_manufacturing")
-
-            self.assertEqual(ranged.observations[0].value, 60)
-            self.assertEqual(
-                ranged.observations[0].vintage_at, datetime(2026, 7, 20, 23, tzinfo=UTC)
-            )
-            self.assertEqual(latest.observations[-1].observed_at, date(2026, 6, 1))
-            with sqlite3.connect(database) as connection:
-                stored_offsets = connection.execute(
-                    """
-                    SELECT DISTINCT substr(vintage_at, -6)
-                    FROM observations
-                    WHERE series_id = 'jp.pmi_manufacturing'
-                    """
-                ).fetchall()
-            self.assertEqual(stored_offsets, [("+00:00",)])
-
-    def test_import_manual_seed_rejects_rows_removed_from_seed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            database = root / "macro.sqlite"
-            seed = root / "manual.yaml"
-            raw = safe_load(MANUAL_DATA_PATH.read_text(encoding="utf-8"))
-            raw["observations"].pop(0)
-            seed.write_text(json.dumps(raw, default=str), encoding="utf-8")
-            service = IndicatorsService(database)
-
-            with self.assertRaisesRegex(
-                IndicatorsProviderError,
-                "history differs from manifest",
-            ):
-                service.import_manual_seed(seed)
-            self.assertFalse(database.exists())
-
-    def test_import_manual_cli_reports_seed_counts(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-
-            self.assertEqual(main(["import-manual", "--db", str(database)]), 0)
-
-            with sqlite3.connect(database) as connection:
-                self.assertEqual(
-                    connection.execute(
-                        "SELECT count(*) FROM observations WHERE series_id = ?",
-                        ("jp.pmi_manufacturing",),
-                    ).fetchone()[0],
-                    36,
-                )
 
     def test_get_range_normalizes_provider_order_to_ascending(self) -> None:
         # ECB FX (and any newest-first provider) returns observations descending;
@@ -2152,23 +1930,6 @@ def _series(provider: str, provider_series_id: str, *, unit: str = "percent") ->
         source_id="test-source",
         source_url="https://example.com/data.csv",
     )
-
-
-def _manual_entry(
-    series_id: str,
-    observed_at: str,
-    value: int | float,
-    *,
-    unit: str = "count",
-) -> dict[str, object]:
-    return {
-        "series_id": series_id,
-        "observed_at": observed_at,
-        "value": value,
-        "unit": unit,
-        "source_url": "https://example.com/data.csv",
-        "entered_at": "2026-07-20T00:00:00+00:00",
-    }
 
 
 def _boj_workbook_bytes(rows: list[tuple[object, ...]]) -> bytes:

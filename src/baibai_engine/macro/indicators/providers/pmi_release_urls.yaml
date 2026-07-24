@@ -1,85 +1,87 @@
-# Official S&P Global Japan Manufacturing PMI monthly release PDFs.
+# Official S&P Global PMI monthly release PDFs, keyed by PMI stream.
 # A month may cite the following month's release when that primary release
-# explicitly restates the prior month's final headline value.
-schema_version: 1
-releases:
-  - observed_at: 2023-07-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/4bfeffc263944cd797a7957577045b71
-  - observed_at: 2023-08-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/d7c768751529430088716e5b67ba3b80
-  - observed_at: 2023-09-01
-    release_observed_at: 2023-10-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/d3cf05b86d05422391bb7beb514bbbd0
-  - observed_at: 2023-10-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/d3cf05b86d05422391bb7beb514bbbd0
-  - observed_at: 2023-11-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/426da1a87ecd4d96a2da1180635dd4a7
-  - observed_at: 2023-12-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/e241a78bb4ae42a2a3547c0aefef56da
-  - observed_at: 2024-01-01
-    release_observed_at: 2024-02-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/60d8366918004bd8bcdeb51eae94f575
-  - observed_at: 2024-02-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/60d8366918004bd8bcdeb51eae94f575
-  - observed_at: 2024-03-01
-    release_observed_at: 2024-04-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/fc292f74f6ca4d1dbd29bd5b235c5226
-  - observed_at: 2024-04-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/fc292f74f6ca4d1dbd29bd5b235c5226
-  - observed_at: 2024-05-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/69d67be1ed0345a49b17635cc49b305f
-  - observed_at: 2024-06-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c20f0e9ab663488185a0fa10abd04ae2
-  - observed_at: 2024-07-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/bf7ee345a0f441e7ad9ad7aa6d958e08
-  - observed_at: 2024-08-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/fcf51581fe05418fad6ec727f241edaa
-  - observed_at: 2024-09-01
-    release_observed_at: 2024-10-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/a02e5829aad74c0296ea350e883007c2
-  - observed_at: 2024-10-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/a02e5829aad74c0296ea350e883007c2
-  - observed_at: 2024-11-01
-    release_observed_at: 2024-12-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c99d9ae5286e43fea0372027435956d0
-  - observed_at: 2024-12-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c99d9ae5286e43fea0372027435956d0
-  - observed_at: 2025-01-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/a5e14c6d3f4140b79dfbd6c448305e03
-  - observed_at: 2025-02-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/f511367a2393415287c8f9269e59c41f
-  - observed_at: 2025-03-01
-    release_observed_at: 2025-04-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/e429899d65574044ae84a03e3d20ffa1
-  - observed_at: 2025-04-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/e429899d65574044ae84a03e3d20ffa1
-  - observed_at: 2025-05-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/9fe04d02e2f545038afb0d8fb5884daa
-  - observed_at: 2025-06-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/4eab4ca0846f4ae2812531d8195b291e
-  - observed_at: 2025-07-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/bea98f673c094807ba323a173881389f
-  - observed_at: 2025-08-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/274c9a7a95504064a6d33d1cfb9be3c4
-  - observed_at: 2025-09-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/77bc07e1e2b34434b3d66df78ef0edc6
-  - observed_at: 2025-10-01
-    release_observed_at: 2025-11-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/eced11f85a524812be815ea10095896b
-  - observed_at: 2025-11-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/eced11f85a524812be815ea10095896b
-  - observed_at: 2025-12-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c43be7f9cf2f4502830c590de382099d
-  - observed_at: 2026-01-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/6bf4b968d4f64cf68179409bb183fb6a
-  - observed_at: 2026-02-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/1f665ebfd58947f8a75550291494b5fc
-  - observed_at: 2026-03-01
-    release_observed_at: 2026-04-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/669c2b1c22b7438ca0aeb69188d66e23
-  - observed_at: 2026-04-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/669c2b1c22b7438ca0aeb69188d66e23
-  - observed_at: 2026-05-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/8c28f48e848b4d22aad115a08099e171
-  - observed_at: 2026-06-01
-    url: https://www.pmi.spglobal.com/Public/Home/PressRelease/cf9e4165606042458c4a0b17af83606a
+# explicitly restates the prior month's final headline value; that is recorded
+# as release_observed_at.
+schema_version: 2
+series:
+  jp_manufacturing:
+    - observed_at: 2023-07-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/4bfeffc263944cd797a7957577045b71
+    - observed_at: 2023-08-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/d7c768751529430088716e5b67ba3b80
+    - observed_at: 2023-09-01
+      release_observed_at: 2023-10-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/d3cf05b86d05422391bb7beb514bbbd0
+    - observed_at: 2023-10-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/d3cf05b86d05422391bb7beb514bbbd0
+    - observed_at: 2023-11-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/426da1a87ecd4d96a2da1180635dd4a7
+    - observed_at: 2023-12-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/e241a78bb4ae42a2a3547c0aefef56da
+    - observed_at: 2024-01-01
+      release_observed_at: 2024-02-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/60d8366918004bd8bcdeb51eae94f575
+    - observed_at: 2024-02-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/60d8366918004bd8bcdeb51eae94f575
+    - observed_at: 2024-03-01
+      release_observed_at: 2024-04-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/fc292f74f6ca4d1dbd29bd5b235c5226
+    - observed_at: 2024-04-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/fc292f74f6ca4d1dbd29bd5b235c5226
+    - observed_at: 2024-05-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/69d67be1ed0345a49b17635cc49b305f
+    - observed_at: 2024-06-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c20f0e9ab663488185a0fa10abd04ae2
+    - observed_at: 2024-07-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/bf7ee345a0f441e7ad9ad7aa6d958e08
+    - observed_at: 2024-08-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/fcf51581fe05418fad6ec727f241edaa
+    - observed_at: 2024-09-01
+      release_observed_at: 2024-10-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/a02e5829aad74c0296ea350e883007c2
+    - observed_at: 2024-10-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/a02e5829aad74c0296ea350e883007c2
+    - observed_at: 2024-11-01
+      release_observed_at: 2024-12-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c99d9ae5286e43fea0372027435956d0
+    - observed_at: 2024-12-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c99d9ae5286e43fea0372027435956d0
+    - observed_at: 2025-01-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/a5e14c6d3f4140b79dfbd6c448305e03
+    - observed_at: 2025-02-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/f511367a2393415287c8f9269e59c41f
+    - observed_at: 2025-03-01
+      release_observed_at: 2025-04-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/e429899d65574044ae84a03e3d20ffa1
+    - observed_at: 2025-04-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/e429899d65574044ae84a03e3d20ffa1
+    - observed_at: 2025-05-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/9fe04d02e2f545038afb0d8fb5884daa
+    - observed_at: 2025-06-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/4eab4ca0846f4ae2812531d8195b291e
+    - observed_at: 2025-07-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/bea98f673c094807ba323a173881389f
+    - observed_at: 2025-08-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/274c9a7a95504064a6d33d1cfb9be3c4
+    - observed_at: 2025-09-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/77bc07e1e2b34434b3d66df78ef0edc6
+    - observed_at: 2025-10-01
+      release_observed_at: 2025-11-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/eced11f85a524812be815ea10095896b
+    - observed_at: 2025-11-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/eced11f85a524812be815ea10095896b
+    - observed_at: 2025-12-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/c43be7f9cf2f4502830c590de382099d
+    - observed_at: 2026-01-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/6bf4b968d4f64cf68179409bb183fb6a
+    - observed_at: 2026-02-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/1f665ebfd58947f8a75550291494b5fc
+    - observed_at: 2026-03-01
+      release_observed_at: 2026-04-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/669c2b1c22b7438ca0aeb69188d66e23
+    - observed_at: 2026-04-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/669c2b1c22b7438ca0aeb69188d66e23
+    - observed_at: 2026-05-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/8c28f48e848b4d22aad115a08099e171
+    - observed_at: 2026-06-01
+      url: https://www.pmi.spglobal.com/Public/Home/PressRelease/cf9e4165606042458c4a0b17af83606a

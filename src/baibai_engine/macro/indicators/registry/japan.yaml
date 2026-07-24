@@ -125,11 +125,11 @@ series:
     geography: japan
     frequency: monthly
     unit: index
-    provider: manual
-    provider_series_id: jp_pmi_manufacturing
+    provider: spglobal_pmi
+    provider_series_id: jp_manufacturing
     source_id: spglobal-jp-pmi-mfg
     source_url: https://www.pmi.spglobal.com/
-    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出した値をmanual seedで管理
+    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する
     aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
   - series_id: jp.monetary_base
     name: 日本マネタリーベース

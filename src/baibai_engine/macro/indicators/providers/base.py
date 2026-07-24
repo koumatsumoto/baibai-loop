@@ -3,12 +3,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import requests
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
+
+if TYPE_CHECKING:
+    from .browser import BrowserFetcher
 
 HTTP_TIMEOUT_SECONDS = 30
 MAX_CSV_RESPONSE_BYTES = 8_000_000
@@ -35,9 +38,6 @@ class ProviderSpec:
     # years). Providers that cannot bulk-refresh set ``supports_refresh=False``.
     all_history_start: date | None = None
     all_history_rolling_years: int | None = None
-    # File-backed providers (a validated local seed) read only imported rows and
-    # reject a live refresh.
-    supports_refresh: bool = True
     # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
     # observations older than the first the provider returns (FRED's licensed
     # window defines its reproducible start). ``replace_requested_range`` deletes
@@ -54,18 +54,38 @@ class ProviderSpec:
 
 
 class FetchContext:
-    """Shared HTTP session plus a per-run bytes cache.
+    """Shared HTTP session, a per-run bytes cache, and a lazy headless browser.
 
     The bytes cache lets bulk-file providers (FRB H.15, ECB FX) download one
-    shared file once and reuse it across every series that maps to it.
+    shared file once and reuse it across every series that maps to it. The
+    browser is launched only when a WAF-gated provider first asks for it and is
+    reused for the rest of the run, so a batch pays at most one browser launch.
     """
 
     def __init__(self) -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[tuple[str, tuple[tuple[str, str], ...]], bytes] = {}
+        self._browser: BrowserFetcher | None = None
+
+    def browser_fetcher(self) -> BrowserFetcher:
+        # Lazy import breaks the base <-> browser module cycle and keeps
+        # Playwright off the import path until a browser-backed series runs.
+        if self._browser is None:
+            from .browser import BrowserFetcher
+
+            self._browser = BrowserFetcher()
+        return self._browser
 
     def close(self) -> None:
         self.session.close()
+        if self._browser is not None:
+            self._browser.close()
+
+    def __enter__(self) -> FetchContext:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
 
 
 class HttpSession(Protocol):
