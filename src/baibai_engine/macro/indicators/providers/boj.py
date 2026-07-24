@@ -15,6 +15,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_bytes,
     record_observation,
 )
@@ -32,7 +33,8 @@ class BojProvider:
     align with the other monthly series (FRED / e-Stat).
     """
 
-    name = "boj"
+    spec = ProviderSpec(name="boj", all_history_start=date(1957, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

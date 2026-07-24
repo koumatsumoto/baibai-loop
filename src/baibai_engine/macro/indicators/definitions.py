@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +9,9 @@ from typing import cast
 
 from baibai_engine.foundation.yaml_io import safe_load
 
-DEFAULT_DEFINITIONS_PATH = Path(__file__).with_name("series.yaml")
+# Series definitions are split across one yaml per region so no single file grows
+# unmanageable as the registry scales; the loader globs and merges them.
+DEFAULT_REGISTRY_DIR = Path(__file__).with_name("registry")
 _TRADINGVIEW_SYMBOL_RE = re.compile(r"[A-Za-z0-9._-]+:[A-Za-z0-9._!/-]+\Z")
 
 
@@ -51,13 +54,35 @@ class IndicatorDefinitions:
         return tuple(matched)
 
 
-def load_definitions(path: Path = DEFAULT_DEFINITIONS_PATH) -> IndicatorDefinitions:
-    raw = safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise ValueError(f"indicator definitions root must be a mapping: {path}")
-    return IndicatorDefinitions(
-        series=tuple(_parse_series(item) for item in _list(raw.get("series")))
+def load_definitions(path: Path = DEFAULT_REGISTRY_DIR) -> IndicatorDefinitions:
+    """Load series definitions from a registry directory (glob + merge) or a file.
+
+    A directory merges every ``*.yaml`` in sorted order so region files combine
+    into one registry; a file loads that single file (tests and ad-hoc checks).
+    Duplicate ``series_id`` across files is a fatal registry error.
+    """
+
+    files = sorted(path.glob("*.yaml")) if path.is_dir() else [path]
+    if not files:
+        raise ValueError(f"indicator registry directory has no yaml files: {path}")
+    series: list[SeriesDefinition] = []
+    for file in files:
+        raw = safe_load(file.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError(f"indicator definitions root must be a mapping: {file}")
+        series.extend(_parse_series(item) for item in _list(raw.get("series")))
+    _lint_unique_series_ids(series)
+    return IndicatorDefinitions(series=tuple(series))
+
+
+def _lint_unique_series_ids(series: list[SeriesDefinition]) -> None:
+    duplicates = sorted(
+        series_id
+        for series_id, count in Counter(item.series_id for item in series).items()
+        if count > 1
     )
+    if duplicates:
+        raise ValueError(f"duplicate indicator series_id across registry: {', '.join(duplicates)}")
 
 
 def _parse_series(raw: object) -> SeriesDefinition:

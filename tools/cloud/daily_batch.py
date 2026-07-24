@@ -1,8 +1,8 @@
 """Run the local daily machine batch as one command.
 
 Order: business-day gate -> screening cache coverage (bootstrap on demand) ->
-``screening run`` -> ``screening select`` -> macro series refresh +
-``import-manual`` -> read-model export -> run-store prune. Every heavy step goes
+``screening run`` -> ``screening select`` -> macro series refresh ->
+read-model export -> run-store prune. Every heavy step goes
 through the public ``baibai-engine`` CLI (or the export script) as a subprocess,
 so the stable CLI contract carries the business logic. The only in-process reads
 are the two ``baibai_engine.read_api`` query-only helpers this orchestrator needs
@@ -22,6 +22,7 @@ warnings and the chain continues.
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import subprocess  # nosec B404
 import sys
@@ -178,32 +179,50 @@ class _MacroSeries:
     series_id: str
     frequency: str
     provider: str
+    kind: str
 
 
 def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise BatchStepError(
+            f"macro list --format json output is not parseable JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, list):
+        raise BatchStepError("macro list --format json output is not a list")
     series: list[_MacroSeries] = []
-    for line in stdout.splitlines():
-        if not line.strip():
-            continue
-        fields = line.split("\t")
-        if len(fields) != 7:
-            raise BatchStepError(
-                f"macro list line is not the expected 7 tab-separated fields: {line!r}"
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise BatchStepError("macro list --format json row is not an object")
+        try:
+            series.append(
+                _MacroSeries(
+                    series_id=str(entry["series_id"]),
+                    frequency=str(entry["frequency"]),
+                    provider=str(entry["provider"]),
+                    kind=str(entry["kind"]),
+                )
             )
-        series.append(_MacroSeries(series_id=fields[0], frequency=fields[4], provider=fields[6]))
+        except KeyError as exc:
+            raise BatchStepError(f"macro list --format json row missing field {exc}") from exc
     return series
 
 
 def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, list[str]]]:
-    """Group refreshable series by window days; manual series only sync via import-manual."""
+    """Group series by frequency window, refreshing base (http) before derived (local).
 
-    groups: dict[int, list[str]] = {}
+    A derived series reads other series from the store, so every ``http`` series
+    is refreshed before any ``local`` one; within each kind, series are grouped by
+    their frequency refresh window.
+    """
+
+    groups: dict[tuple[int, int], list[str]] = {}
     for item in series:
-        if item.provider == "manual":
-            continue
         window = _MACRO_REFRESH_WINDOW_DAYS.get(item.frequency, _MACRO_REFRESH_WINDOW_DEFAULT_DAYS)
-        groups.setdefault(window, []).append(item.series_id)
-    return sorted(groups.items())
+        kind_order = 1 if item.kind == "local" else 0
+        groups.setdefault((kind_order, window), []).append(item.series_id)
+    return [(window, series_ids) for (_kind_order, window), series_ids in sorted(groups.items())]
 
 
 def _run_screening_run(runner: CommandRunner, *, root: Path, asof_arg: str) -> str:
@@ -335,7 +354,7 @@ def run_daily_batch(
         macro_list = _run_step(
             runner,
             name="macro-list",
-            argv=(_ENGINE, "macro", "list"),
+            argv=(_ENGINE, "macro", "list", "--format", "json"),
             cwd=root,
             echo_stdout=False,
         )
@@ -363,13 +382,6 @@ def run_daily_batch(
             )
         except BatchStepError as exc:
             _record_deferred(exc)
-    try:
-        _run_step(
-            runner, name="macro-import-manual", argv=(_ENGINE, "macro", "import-manual"), cwd=root
-        )
-    except BatchStepError as exc:
-        _record_deferred(exc)
-
     _run_step(
         runner,
         name="export-read-models",
@@ -420,7 +432,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="daily_batch",
         description=(
             "run the daily machine batch in one command: business-day gate -> "
-            "screening cache coverage/run/select -> macro refresh + import-manual -> "
+            "screening cache coverage/run/select -> macro refresh -> "
             "read-model export"
         ),
     )

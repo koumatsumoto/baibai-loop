@@ -1,36 +1,101 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 import requests
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
 
+if TYPE_CHECKING:
+    from .browser import BrowserFetcher
+
 HTTP_TIMEOUT_SECONDS = 30
 MAX_CSV_RESPONSE_BYTES = 8_000_000
 MAX_ZIP_RESPONSE_BYTES = 16_000_000
+
+# Reads a stored series' observations (latest ok vintage per observed_at) for a
+# derived provider that computes from other series. Bound to the live connection
+# by the service so a derived fetch sees inputs already committed this run.
+type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
 
 
 class IndicatorsProviderError(RuntimeError):
     """Raised when an indicator provider cannot return requested observations."""
 
 
-class FetchContext:
-    """Shared HTTP session plus a per-run bytes cache.
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProviderSpec:
+    """A provider's fetch/store capabilities, declared next to its parser.
 
-    The bytes cache lets bulk-file providers (FRB H.15, ECB FX) download one
-    shared file once and reuse it across every series that maps to it.
+    The service reads behavior from this spec instead of branching on the
+    provider name, so adding a provider means writing one module (parser + spec)
+    and registering it once — no edits to the service or store layers.
     """
 
-    def __init__(self) -> None:
+    name: str
+    # ``http`` fetches from an external source; ``local`` computes from other
+    # stored series (derived). The batch refreshes every ``http`` series before
+    # any ``local`` one so a derived series reads fresh inputs.
+    kind: Literal["http", "local"] = "http"
+    # All-history refresh floor. ``all_history_start`` is the reproducible fixed
+    # start a bulk source exposes; ``all_history_rolling_years`` derives the floor
+    # from today instead (a licensed rolling window such as J-Quants Light's 5
+    # years).
+    all_history_start: date | None = None
+    all_history_rolling_years: int | None = None
+    # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
+    # observations older than the first the provider returns (FRED's licensed
+    # window defines its reproducible start). ``replace_requested_range`` deletes
+    # the requested window before insert so a re-published vintage supersedes
+    # earlier rows (J-Quants weekly flows).
+    trim_before_first: bool = False
+    replace_requested_range: bool = False
+    # Reads clamp to observations whose vintage is on/before the read cutoff, so a
+    # publish-lagged series stays point-in-time correct (J-Quants weekly flows).
+    point_in_time_vintage: bool = False
+    # Credential env var names required to fetch (diagnostics only; values are
+    # read from the environment by the provider, never stored in the registry).
+    required_env: tuple[str, ...] = field(default=())
+
+
+class FetchContext:
+    """Shared HTTP session, a per-run bytes cache, and a lazy headless browser.
+
+    The bytes cache lets bulk-file providers (FRB H.15, ECB FX) download one
+    shared file once and reuse it across every series that maps to it. The
+    browser is launched only when a WAF-gated provider first asks for it and is
+    reused for the rest of the run, so a batch pays at most one browser launch.
+    """
+
+    def __init__(self, *, store_reader: StoreReader | None = None) -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[tuple[str, tuple[tuple[str, str], ...]], bytes] = {}
+        self.store_reader = store_reader
+        self._browser: BrowserFetcher | None = None
+
+    def browser_fetcher(self) -> BrowserFetcher:
+        # Lazy import breaks the base <-> browser module cycle and keeps
+        # Playwright off the import path until a browser-backed series runs.
+        if self._browser is None:
+            from .browser import BrowserFetcher
+
+            self._browser = BrowserFetcher()
+        return self._browser
 
     def close(self) -> None:
         self.session.close()
+        if self._browser is not None:
+            self._browser.close()
+
+    def __enter__(self) -> FetchContext:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
 
 
 class HttpSession(Protocol):
@@ -51,6 +116,7 @@ class MacroDataProvider(Protocol):
     """A macro data source. Each provider isolates its own auth/parse/quirks."""
 
     name: str
+    spec: ProviderSpec
 
     def fetch(
         self,

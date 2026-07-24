@@ -13,6 +13,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_text,
     record_observation,
 )
@@ -34,7 +35,8 @@ class YahooChartProvider:
     Semiconductor index ``^SOX`` (proprietary, not on FRED). One symbol per series.
     """
 
-    name = "yahoo"
+    spec = ProviderSpec(name="yahoo", all_history_start=date(1970, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

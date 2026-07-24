@@ -1,0 +1,223 @@
+series:
+  - series_id: vix
+    name: VIX
+    category: volatility
+    geography: world
+    frequency: daily
+    unit: index
+    provider: fred_csv
+    provider_series_id: VIXCLS
+    source_id: fred-vixcls
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
+    tradingview_symbol: CBOE:VIX
+    aliases: [VIX, volatility]
+  - series_id: wti
+    name: WTI原油
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILWTICO
+    source_id: fred-dcoilwtico
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO
+    tradingview_symbol: NYMEX:CL1!
+    aliases: [WTI, WTI原油]
+  - series_id: brent
+    name: Brent原油
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-barrel
+    provider: fred_csv
+    provider_series_id: DCOILBRENTEU
+    source_id: fred-dcoilbrenteu
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
+    tradingview_symbol: TVC:UKOIL
+    aliases: [Brent, Brent原油, brent_oil]
+  - series_id: btc_usd
+    name: ビットコイン価格USD
+    category: crypto
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: fred_csv
+    provider_series_id: CBBTCUSD
+    source_id: fred-cbbtcusd
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CBBTCUSD
+    tradingview_symbol: COINBASE:BTCUSD
+    aliases: [BTC, Bitcoin, ビットコイン, BTCUSD]
+  - series_id: gold
+    name: 金先物(COMEX, USD/oz)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-oz
+    provider: yahoo
+    provider_series_id: GC=F
+    source_id: yahoo-gc-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/GC=F
+    tradingview_symbol: COMEX:GC1!
+    notes: COMEX金先物フロント限月(日次終値)。実質金利・ドル・債務貨幣化のstore-of-value温度計。BTCと並べてデジタルゴールド命題を読む。FRED LBMA系列廃止のためYahooで取得
+    aliases: [金, ゴールド, gold, XAU, 金価格, gold_futures]
+  - series_id: copper
+    name: 銅先物(COMEX, USD/lb)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-lb
+    provider: yahoo
+    provider_series_id: HG=F
+    source_id: yahoo-hg-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/HG=F
+    tradingview_symbol: COMEX:HG1!
+    notes: COMEX銅先物フロント限月(日次終値)。世界景気の先行ゲージ(Dr.Copper)。銅/金レシオでリスク選好・成長期待を読む
+    aliases: [銅, copper, HG, Dr Copper, 銅価格]
+  - series_id: ecb.policy_rate
+    name: ECB預金ファシリティ金利
+    category: policy
+    geography: euro
+    frequency: daily
+    unit: percent
+    provider: fred_csv
+    provider_series_id: ECBDFR
+    source_id: fred-ecbdfr
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBDFR
+    notes: ECB預金ファシリティ金利(現行ECBの主要政策金利)。Fed・BOJと並べてグローバル中銀の同期スタンス(同時引き締め/緩和)を読む。FRED系列は廃止がありlive確認必須
+    aliases: [ECB金利, ECB政策金利, ECB deposit rate, ECBDFR, 欧州中銀金利, ユーロ圏金利]
+  - series_id: silver
+    name: 銀先物(COMEX, USD/oz)
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: usd-per-oz
+    provider: yahoo
+    provider_series_id: SI=F
+    source_id: yahoo-si-f
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/SI=F
+    tradingview_symbol: COMEX:SI1!
+    notes: COMEX銀先物フロント限月(日次終値)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
+    aliases: [銀, シルバー, silver, XAG, 銀価格, silver_futures]
+  - series_id: positioning.jpy_noncomm_net
+    name: 円投機筋ネット玉
+    category: positioning
+    geography: world
+    frequency: weekly
+    unit: contracts
+    provider: cftc
+    provider_series_id: "097741"
+    source_id: cftc-cot-jpy
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。円。負=ネット売り越し(carry)
+    aliases: [円ポジション, JPY spec net, CFTC yen net]
+  - series_id: positioning.ust10y_noncomm_net
+    name: 米10Y投機筋ネット玉
+    category: positioning
+    geography: us
+    frequency: weekly
+    unit: contracts
+    provider: cftc
+    provider_series_id: "043602"
+    source_id: cftc-cot-ust10y
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。UST 10Y NOTE(CBOT, code 043602)
+    aliases: [米10Yポジション, UST10Y spec net]
+  - series_id: positioning.sp500_noncomm_net
+    name: S&P500投機筋ネット玉
+    category: positioning
+    geography: us
+    frequency: weekly
+    unit: contracts
+    provider: cftc
+    provider_series_id: 13874A
+    source_id: cftc-cot-sp500
+    source_url: https://publicreporting.cftc.gov/resource/6dca-aqww.json
+    notes: CFTC COT legacy futures-only の非商業ネット(long-short)。E-MINI S&P 500(CME)
+    aliases: [S&P500ポジション, SP500 spec net]
+  - series_id: ecb.balance_sheet
+    name: ECB総資産
+    category: monetary
+    geography: euro
+    frequency: weekly
+    unit: eur-million
+    provider: fred_csv
+    provider_series_id: ECBASSETSW
+    source_id: fred-ecbassetsw
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBASSETSW
+    notes: ユーロ圏中銀の総資産(週次・百万ユーロ)。Fed・BOJのバランスシートと並べてグローバル流動性の三極化(縮小/拡大の非同期)を読む
+    aliases: [ECB総資産, ECBバランスシート, ECB balance sheet, ECBASSETSW, 欧州中銀資産]
+  - series_id: de.10y
+    name: ドイツ10Y国債利回り
+    category: rates
+    geography: euro
+    frequency: monthly
+    unit: percent
+    provider: fred_csv
+    provider_series_id: IRLTLT01DEM156N
+    source_id: fred-irltlt01dem156n
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01DEM156N
+    notes: ドイツ10年国債利回り(月次・OECD)。ユーロ圏の無リスク金利アンカー。米独金利差でドル・ユーロの綱引きを読む
+    aliases: [独10Y, ドイツ国債, bund 10y, German 10Y, IRLTLT01DEM156N, ブンズ]
+  - series_id: usd_cny
+    name: USD/CNY
+    category: fx
+    geography: china
+    frequency: daily
+    unit: cny-per-usd
+    provider: fred_csv
+    provider_series_id: DEXCHUS
+    source_id: fred-dexchus
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXCHUS
+    tradingview_symbol: FX_IDC:USDCNY
+    notes: 人民元の対ドル相場(日次・元/ドル)。中国減速・元切り下げtailの観測点。上昇=元安。日本の対中輸出感応度と接続して読む
+    aliases: [ドル人民元, USD/CNY, 人民元, DEXCHUS, オフショア人民元]
+  - series_id: natgas
+    name: 天然ガス(Henry Hub)
+    category: energy
+    geography: world
+    frequency: daily
+    unit: usd-per-mmbtu
+    provider: fred_csv
+    provider_series_id: DHHNGSP
+    source_id: fred-dhhngsp
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DHHNGSP
+    tradingview_symbol: NYMEX:NG1!
+    notes: Henry Hub天然ガススポット価格(日次・ドル/百万BTU)。原油以外のエネルギーコスト。電力・化学の投入価格として輸入国のコスト経路に効く
+    aliases: [天然ガス, ナットガス, natural gas, Henry Hub, DHHNGSP, natgas]
+  - series_id: world.acwi_ex_us
+    name: 世界株ex-US(ACWX ETF)
+    category: equity-index
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: yahoo
+    provider_series_id: ACWX
+    source_id: yahoo-acwx
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/ACWX
+    notes: iShares MSCI ACWI ex U.S. ETFの日次終値(USD)。米国を除く世界株の水準proxy。米株一極集中/分散のローテーションを読む
+    aliases: [世界株ex-US, ACWX, ACWI ex US, 米国除く世界株]
+  - series_id: europe.stoxx
+    name: STOXX欧州600
+    category: equity-index
+    geography: euro
+    frequency: daily
+    unit: index
+    provider: yahoo
+    provider_series_id: ^STOXX
+    source_id: yahoo-stoxx600
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/^STOXX
+    tradingview_symbol: INDEX:SXXP
+    notes: STOXX Europe 600指数の日次終値(EURポイント)。欧州株全体の水準。ユーロ圏景気・ECBスタンスと接続して読む
+    aliases: [欧州株, STOXX600, STOXX Europe 600, SXXP, 欧州600]
+  - series_id: em.equity
+    name: 新興国株(EEM ETF)
+    category: equity-index
+    geography: world
+    frequency: daily
+    unit: usd
+    provider: yahoo
+    provider_series_id: EEM
+    source_id: yahoo-eem
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/EEM
+    notes: iShares MSCI Emerging Markets ETFの日次終値(USD)。新興国株の水準proxy。ドル・中国・世界リスク選好の総合温度計
+    aliases: [新興国株, EEM, emerging markets equity, EM株, エマージング株]

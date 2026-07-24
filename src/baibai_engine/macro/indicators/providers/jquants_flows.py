@@ -12,6 +12,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     parse_float,
 )
 
@@ -60,7 +61,14 @@ class JQuantsFlowsProvider:
     認証と取得だけを行い、解析は純粋関数 parse_trades_spec に委譲する。
     """
 
-    name = "jquants_flows"
+    spec = ProviderSpec(
+        name="jquants_flows",
+        all_history_rolling_years=5,
+        replace_requested_range=True,
+        point_in_time_vintage=True,
+        required_env=(_API_KEY_ENV,),
+    )
+    name = spec.name
 
     def fetch(
         self,

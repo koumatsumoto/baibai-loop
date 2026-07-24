@@ -148,7 +148,7 @@ views の JSON は `baibai-app` の対応 API response と同形（pydantic `mod
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
 営業日判定 → screening cache coverage（不足時のみ bootstrap）→ run → select →
-macro series refresh + import-manual → export → run store prune を順に実行する。
+macro series refresh → export → run store prune を順に実行する。
 全 step は public CLI の subprocess で、step ごとにコマンドライン・exit code・所要秒を
 stdout へ出す（scheduled workflow のログをそのまま読む前提）。
 
@@ -166,7 +166,7 @@ uv run python tools/cloud/daily_batch.py --asof YYYY-MM-DD --output-dir <dir>
 | --- | --- |
 | 0 | 完走。または非営業日（当日 gate で `skip` を出して即終了） |
 | 1 | 致命的失敗で停止（screening chain・営業日判定・calendar 不備。publish に至らない） |
-| 3 | export まで publish 済みだが、繰延べステップ（macro refresh / import-manual / prune）が失敗 |
+| 3 | export まで publish 済みだが、繰延べステップ（macro refresh / prune）が失敗 |
 
 失敗ポリシー:
 
