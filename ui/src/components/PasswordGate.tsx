@@ -3,6 +3,7 @@ import { KeyRound } from 'lucide-react'
 
 import { setViewPassword, subscribeAuthRequired } from '../api/auth'
 import { noticeForAuthRequired, resolveViewPasswordSubmit } from '../lib/password'
+import { BrandMark } from './BrandMark'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 
@@ -18,13 +19,19 @@ interface PasswordFormProps {
 export function PasswordForm({ value, notice, onValueChange, onSubmit }: PasswordFormProps) {
   return (
     <main className="grid min-h-screen place-items-center bg-background px-6">
-      <form className="grid w-full max-w-sm gap-4 rounded-xl border bg-card p-6 shadow-sm" onSubmit={onSubmit}>
-        <div className="grid gap-1.5">
-          <div className="flex items-center gap-2 font-semibold tracking-tight">
-            <KeyRound className="size-4 text-muted-foreground" aria-hidden="true" />
-            <span>閲覧パスワード</span>
+      <form className="grid w-full max-w-sm gap-5 rounded-2xl border bg-card p-6 shadow-sm" onSubmit={onSubmit}>
+        <div className="grid gap-4">
+          <div className="flex items-center gap-2.5 font-semibold tracking-tight">
+            <BrandMark />
+            <span>Baibai App</span>
           </div>
-          <p className="text-sm text-muted-foreground">閲覧を続けるにはパスワードを入力してください。</p>
+          <div className="grid gap-1.5">
+            <div className="flex items-center gap-2 font-medium">
+              <KeyRound className="size-4 text-primary" aria-hidden="true" />
+              <span>閲覧パスワード</span>
+            </div>
+            <p className="text-sm text-muted-foreground">閲覧を続けるにはパスワードを入力してください。</p>
+          </div>
         </div>
         <Input
           autoComplete="current-password"
