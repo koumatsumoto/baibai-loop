@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from datetime import date
 from typing import cast
 
+from baibai_engine.foundation.env import load_project_env
+
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
 from .base import (
@@ -47,6 +49,10 @@ class EStatProvider:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
+        # Self-load .env so the provider works whether or not the caller already
+        # did (the jquants providers follow the same pattern); CI passes the key
+        # via the environment directly.
+        load_project_env()
         app_id = os.environ.get("ESTAT_APP_ID")
         if not app_id:
             raise IndicatorsProviderError("e-Stat appId not set: export ESTAT_APP_ID")
