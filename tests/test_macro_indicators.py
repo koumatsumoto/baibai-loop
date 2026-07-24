@@ -579,6 +579,73 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 release_observed_at=date(2026, 6, 1),
             )
 
+    def test_extract_pmi_value_reads_services_headline_without_pmi_token(self) -> None:
+        # Services releases phrase the value as "the headline index posted X in
+        # Month" — the value sentence names no "PMI", and a definitional
+        # "the headline figure is ..." sentence comes first.
+        text = (
+            "The headline figure is the Services Business Activity Index, which tracks "
+            "changes in the volume of business activity. A reading above 50.0 indicates "
+            "growth. The headline index posted 53.2 in November, up fractionally from "
+            "53.1 in October and signalled a further solid expansion."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 11, 1),
+            release_observed_at=date(2025, 11, 1),
+        )
+
+        self.assertEqual(value, 53.2)
+
+    def test_extract_pmi_value_reads_index_anchored_statement_without_headline(self) -> None:
+        # Older releases drop "the headline" and lead with the index name.
+        text = (
+            "The seasonally adjusted S&P Global US Services PMI® Business Activity Index "
+            "posted 52.9 in January, down markedly from 56.8 in December."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 1, 1),
+            release_observed_at=date(2025, 1, 1),
+        )
+
+        self.assertEqual(value, 52.9)
+
+    def test_extract_pmi_value_reads_value_with_qualifier_between_verb_and_number(self) -> None:
+        # "posted at the neutral level of 50.0 in October" — a qualifier sits
+        # between the reporting verb and the number.
+        text = (
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers' "
+            "Index™ (PMI) posted at the neutral level of 50.0 in October, in line with "
+            "the earlier flash estimate."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2023, 10, 1),
+            release_observed_at=date(2023, 10, 1),
+        )
+
+        self.assertEqual(value, 50.0)
+
+    def test_extract_pmi_value_ignores_a_comparison_month_in_the_primary_statement(self) -> None:
+        # The prior month appears only as a "from X in <prior month>" comparison;
+        # asking for that month must not harvest the comparison value.
+        text = (
+            "The headline index posted 53.2 in November, up fractionally from 53.1 "
+            "in October and signalled a further solid expansion."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 10, 1),
+            release_observed_at=date(2025, 11, 1),
+        )
+
+        self.assertIsNone(value)
+
     def test_extract_pdf_text_rejects_non_pdf(self) -> None:
         with self.assertRaisesRegex(IndicatorsProviderError, "not a PDF"):
             extract_pdf_text(b"<html>blocked</html>")
