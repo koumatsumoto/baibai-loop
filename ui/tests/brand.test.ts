@@ -11,7 +11,19 @@ function source(path: string): string {
 describe('brand assets', () => {
   it('wires the favicon and shared logo asset', () => {
     expect(source('index.html')).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32" />')
+    expect(source('index.html')).toContain('<link rel="manifest" href="/manifest.webmanifest" />')
     expect(source('src/components/BrandMark.tsx')).toContain('src="/logo.png"')
+  })
+
+  it('provides installable Android home-screen metadata', () => {
+    const manifest = JSON.parse(source('public/manifest.webmanifest')) as {
+      display: string
+      start_url: string
+      icons: { sizes: string }[]
+    }
+    expect(manifest.display).toBe('standalone')
+    expect(manifest.start_url).toBe('/')
+    expect(manifest.icons.map((icon) => icon.sizes)).toEqual(['192x192', '512x512'])
   })
 })
 

@@ -73,10 +73,16 @@ def test_app_serves_built_brand_assets(app_method_root: Path) -> None:
     dist.mkdir(parents=True)
     (dist / "favicon.ico").write_bytes(b"favicon")
     (dist / "logo.png").write_bytes(b"logo")
+    (dist / "manifest.webmanifest").write_text("{}", encoding="utf-8")
+    (dist / "icon-192.png").write_bytes(b"icon-192")
+    (dist / "icon-512.png").write_bytes(b"icon-512")
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         favicon = client.get("/favicon.ico")
         logo = client.get("/logo.png")
+        manifest = client.get("/manifest.webmanifest")
+        icon_192 = client.get("/icon-192.png")
+        icon_512 = client.get("/icon-512.png")
 
     assert favicon.status_code == 200
     assert favicon.content == b"favicon"
@@ -84,12 +90,22 @@ def test_app_serves_built_brand_assets(app_method_root: Path) -> None:
     assert logo.status_code == 200
     assert logo.content == b"logo"
     assert logo.headers["content-type"] == "image/png"
+    assert manifest.status_code == 200
+    assert manifest.json() == {}
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    assert icon_192.content == b"icon-192"
+    assert icon_192.headers["content-type"] == "image/png"
+    assert icon_512.content == b"icon-512"
+    assert icon_512.headers["content-type"] == "image/png"
 
 
 def test_app_returns_404_for_unbuilt_brand_assets(app_method_root: Path) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         assert client.get("/favicon.ico").status_code == 404
         assert client.get("/logo.png").status_code == 404
+        assert client.get("/manifest.webmanifest").status_code == 404
+        assert client.get("/icon-192.png").status_code == 404
+        assert client.get("/icon-512.png").status_code == 404
 
 
 def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:

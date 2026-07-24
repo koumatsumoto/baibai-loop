@@ -5,6 +5,7 @@ import { ArrowLeft, CircleAlert } from 'lucide-react'
 import { fetchJson } from '../api/client'
 import type { MacroContextSectionView, MacroContextView } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { StaleBadge } from '../components/StaleBadge'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
@@ -82,7 +83,7 @@ export function MacroReportPage() {
   }, [contextId])
 
   if (error) return <PageState message={error} title="Macro report" />
-  if (!data) return <PageState message="レポートを読み込んでいます…" title="Macro report" />
+  if (!data) return <LoadingPage label="レポートを読み込んでいます" />
 
   return (
     <><AppShell /><main className="mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:px-8">

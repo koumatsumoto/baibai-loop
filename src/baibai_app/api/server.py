@@ -174,6 +174,18 @@ def create_app(
     def logo() -> FileResponse:
         return _public_asset(dist, "logo.png")
 
+    @app.get("/manifest.webmanifest", include_in_schema=False, response_model=None)
+    def manifest() -> FileResponse:
+        return _public_asset(dist, "manifest.webmanifest")
+
+    @app.get("/icon-192.png", include_in_schema=False, response_model=None)
+    def icon_192() -> FileResponse:
+        return _public_asset(dist, "icon-192.png")
+
+    @app.get("/icon-512.png", include_in_schema=False, response_model=None)
+    def icon_512() -> FileResponse:
+        return _public_asset(dist, "icon-512.png")
+
     @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
     def spa_fallback(full_path: str) -> FileResponse | PlainTextResponse:
         if full_path == "api" or full_path.startswith("api/"):
