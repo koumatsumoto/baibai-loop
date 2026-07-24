@@ -6,6 +6,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, XAxis, YAxis } fro
 import { fetchJson } from '../api/client'
 import type { MacroSeriesView, MacroView } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { StaleBadge } from '../components/StaleBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
@@ -125,7 +126,7 @@ export function MacroPage() {
   }, [period, granularity])
 
   if (error) return <PageState message={error} />
-  if (!data) return <PageState message="Macro を読み込んでいます…" />
+  if (!data) return <LoadingPage label="Macro を読み込んでいます" />
 
   // Degrade gracefully rather than white-screen if a served view is ever missing a
   // field (e.g. a stale view during a deploy that precedes its re-materialization).
@@ -172,7 +173,7 @@ export function MacroPage() {
           <div className="flex flex-wrap gap-3 rounded-xl border bg-card p-3 shadow-sm">
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">期間</span><Select onValueChange={(value) => setPeriod(value as MacroPeriod)} value={period}><SelectTrigger aria-label="表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1y">1年</SelectItem><SelectItem value="5y">5年</SelectItem><SelectItem value="10y">10年</SelectItem><SelectItem value="max">全期間</SelectItem></SelectContent></Select></label>
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">粒度</span><Select onValueChange={(value) => setGranularity(value as MacroGranularity)} value={granularity}><SelectTrigger aria-label="表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="daily">日次</SelectItem><SelectItem value="weekly">週次</SelectItem><SelectItem value="monthly">月次</SelectItem><SelectItem value="yearly">年次</SelectItem></SelectContent></Select></label>
-            {loading && <span className="self-end pb-2 text-xs text-muted-foreground">更新中…</span>}
+            {loading && <LoadingIndicator className="self-end pb-2" label="マクロ経済指標を更新しています" size={24} />}
           </div>
         </div>
         {groups.map((group) => (

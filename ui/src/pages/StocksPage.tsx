@@ -12,6 +12,7 @@ import type {
   ScreeningView,
 } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { StaleBadge } from '../components/StaleBadge'
@@ -240,7 +241,7 @@ export function StocksPage() {
   }
 
   if (error) return <PageState message={error} title="Stocks read error" />
-  if (!data) return <PageState message="候補を読み込んでいます…" title="Stocks" />
+  if (!data) return <LoadingPage label="候補を読み込んでいます" />
   if (!data.run || !activeRun) return <PageState message="screening run publication がありません" title="Stocks" />
 
   const visibleRows = showAll ? rows : rows.slice(0, 500)
@@ -270,15 +271,15 @@ export function StocksPage() {
         </header>
 
         <section className="grid gap-3">
-          <h2 className="text-xl font-semibold tracking-tight">Shortlist</h2>
+          <h2 className="text-xl font-semibold tracking-tight">リサーチ候補選定</h2>
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="gap-3 py-5 shadow-sm">
-              <CardHeader className="px-5"><CardTitle className="text-base">深掘り候補</CardTitle></CardHeader>
+              <CardHeader className="px-5"><CardTitle className="text-base">Shortlist</CardTitle><CardDescription>OP3 gate で選んだ深掘り候補</CardDescription></CardHeader>
               <CardContent className="grid gap-3 px-5">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">Shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">選定 {selectedCount} 件・見送り {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/stocks/shortlist">Shortlist の詳細を見る →</Link></Button></CardContent>
             </Card>
             <Card className="gap-3 py-5 shadow-sm">
-              <CardHeader className="px-5"><CardTitle className="text-base">機械参考候補</CardTitle><CardDescription>E[r] による自動絞り込み</CardDescription></CardHeader>
-              <CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">機械参考候補はありません</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.recommendations.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div>{selection.longlist.length > 0 && <p className="mt-2 text-xs text-muted-foreground">絞り込み前 {selection.longlist.length} 件</p>}</div>)}</CardContent>
+              <CardHeader className="px-5"><CardTitle className="text-base">Longlist</CardTitle><CardDescription>E[r] ranking による OP3 レビューの入力母集団</CardDescription></CardHeader>
+              <CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">Longlist はありません</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.longlist.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div><p className="mt-2 text-xs text-muted-foreground">{selection.longlist.length} 件</p></div>)}</CardContent>
             </Card>
           </div>
         </section>

@@ -17,6 +17,7 @@ import type {
 } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
+import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { StaleBadge } from '../components/StaleBadge'
@@ -28,6 +29,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDate, formatPct, formatYen } from '../lib/format'
+import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
 const allocationConfig = {
@@ -74,13 +76,13 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
 
   return (
     <Card className="overflow-hidden py-0 shadow-sm">
-      <div className="grid lg:grid-cols-[minmax(320px,0.8fr)_1.2fr]">
-        <div className="border-b p-5 lg:border-r lg:border-b-0 sm:p-6">
+      <div className="grid min-w-0 lg:grid-cols-[minmax(320px,0.8fr)_1.2fr]">
+        <div className="min-w-0 border-b p-5 lg:border-r lg:border-b-0 sm:p-6">
           <CardHeader className="px-0 pb-2">
             <CardTitle className="text-base">資産配分</CardTitle>
             <CardDescription>現在の保有株式・購入余力・予約</CardDescription>
           </CardHeader>
-          <div className="relative mx-auto h-[230px] max-w-[360px]">
+          <div className="relative mx-auto h-[230px] w-full max-w-[360px]">
             {hasAllocation ? (
               <ChartContainer className="h-full w-full" config={allocationConfig}>
                 <PieChart accessibilityLayer>
@@ -107,14 +109,14 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           </div>
         </div>
 
-        <div className="grid content-center divide-y p-5 sm:p-6">
+        <div className="grid min-w-0 content-center divide-y">
           {[
             { label: '総資産', value: data.total_capital_yen, detail: `${data.holdings.length} 銘柄を保有`, color: 'bg-foreground' },
             { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1' },
             { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${formatPct(data.cash_pct)}`, color: 'bg-chart-2' },
             { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3' },
           ].map((metric) => (
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-5 first:pt-0 last:pb-0" key={metric.label}>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-5 py-5 sm:px-6" key={metric.label}>
               <div className="flex min-w-0 items-center gap-3">
                 <span className={cn('size-2.5 rounded-sm', metric.color)} aria-hidden="true" />
                 <div>
@@ -194,6 +196,8 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
     const values = Array.from(new Set(holdings.map((holding) => holding.market_price_as_of)))
     return values.length === 1 ? values[0] : null
   }, [holdings])
+  const unrealizedPnl = useMemo(() => totalUnrealizedPnl(holdings), [holdings])
+  const pnlTone = unrealizedPnl.yen > 0 ? 'text-positive' : unrealizedPnl.yen < 0 ? 'text-destructive' : 'text-muted-foreground'
 
   return (
     <Card className="gap-0 overflow-hidden py-0 shadow-sm">
@@ -202,14 +206,21 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
           <CardTitle>保有銘柄</CardTitle>
           <CardDescription className="mt-1">{holdings.length} positions</CardDescription>
         </div>
-        {marketPriceAsOf ? (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span>価格基準</span>
-            <AsOfBadge compact value={marketPriceAsOf} />
+        <div className="grid justify-items-end gap-2">
+          {marketPriceAsOf ? (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span>価格基準</span>
+              <AsOfBadge compact value={marketPriceAsOf} />
+            </div>
+          ) : (
+            <span className="text-right text-xs text-muted-foreground">価格基準は銘柄ごとに異なります</span>
+          )}
+          <div className={cn('flex flex-wrap items-baseline justify-end gap-x-2 text-xs', pnlTone)}>
+            <span className="text-muted-foreground">評価損益 合計</span>
+            <YenAmount className="font-semibold" sign value={unrealizedPnl.yen} />
+            <PctBadge className="text-xs" value={unrealizedPnl.pct} />
           </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">価格基準は銘柄ごとに異なります</span>
-        )}
+        </div>
       </CardHeader>
       <Table>
         <TableHeader className="bg-muted/60">
@@ -289,23 +300,25 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
       {events.length === 0 ? (
         <CardContent className="py-8 text-center text-sm text-muted-foreground">今後 14 日のイベントはありません。</CardContent>
       ) : (
-        <div className="divide-y">
-          {events.map((event) => (
-            <div className="grid grid-cols-[max-content_74px_minmax(0,1fr)] items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
-              <time className="whitespace-nowrap font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDate(event.event_date)}</time>
-              <Badge className="w-fit" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
-              <div className="flex min-w-0 items-center gap-2">
-                <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
-                {event.ticker ? (
-                  <Link className="truncate font-medium underline-offset-4 hover:underline" to={`/securities/${event.ticker}`}>
-                    <span className="font-mono">{event.ticker}</span>{event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}
-                  </Link>
-                ) : (
-                  <span className="truncate text-muted-foreground">{event.label}</span>
-                )}
+        <div className="overflow-x-auto">
+          <div className="min-w-[640px] divide-y">
+            {events.map((event) => (
+              <div className="grid grid-cols-[max-content_74px_minmax(320px,1fr)] items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
+                <time className="whitespace-nowrap font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDate(event.event_date)}</time>
+                <Badge className="w-fit" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
+                  {event.ticker ? (
+                    <Link className="whitespace-nowrap font-medium underline-offset-4 hover:underline" to={`/securities/${event.ticker}`}>
+                      <span className="font-mono">{event.ticker}</span>{event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}
+                    </Link>
+                  ) : (
+                    <span className="whitespace-nowrap text-muted-foreground">{event.label}</span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </Card>
@@ -454,7 +467,7 @@ export function DashboardPage() {
   }, [])
 
   if (error) return <PageState message={error} title="Dashboard read error" />
-  if (!data) return <PageState message="資産状況を読み込んでいます…" title="Dashboard" />
+  if (!data) return <LoadingPage label="資産状況を読み込んでいます" />
   const valuationAsOf = dashboardValuationAsOf(data)
 
   return (
