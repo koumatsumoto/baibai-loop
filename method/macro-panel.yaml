@@ -14,6 +14,10 @@ groups:
       - id: us.10y_2y_spread
       - id: us.10y_3m_spread
       - id: jp.10y
+      - id: jp.2y
+      - id: jp.5y
+      - id: jp.20y
+      - id: jp.30y
       - id: us.real_10y
       - id: us.breakeven_10y
       - id: us.inflation_5y5y

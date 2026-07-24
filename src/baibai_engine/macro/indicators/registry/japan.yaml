@@ -47,6 +47,58 @@ series:
     source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
     tradingview_symbol: TVC:JP10Y
     notes: 財務省「国債金利情報」の全履歴CSV。流通市場の固定利付国債実勢価格から算出した主要年限別の半年複利最終利回り。
+  - series_id: jp.2y
+    name: 日本2Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    provider: mof_jgb
+    provider_series_id: 2年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP02Y
+    notes: 財務省「国債金利情報」全履歴CSVの2年物最終利回り。JGBカーブ短中期。
+    aliases: [日本2Y, JP 2Y, JGB 2Y]
+  - series_id: jp.5y
+    name: 日本5Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    provider: mof_jgb
+    provider_series_id: 5年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP05Y
+    notes: 財務省「国債金利情報」全履歴CSVの5年物最終利回り。JGBカーブ中期。
+    aliases: [日本5Y, JP 5Y, JGB 5Y]
+  - series_id: jp.20y
+    name: 日本20Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    provider: mof_jgb
+    provider_series_id: 20年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP20Y
+    notes: 財務省「国債金利情報」全履歴CSVの20年物最終利回り。超長期。財政・保険需給の観測点。
+    aliases: [日本20Y, JP 20Y, JGB 20Y]
+  - series_id: jp.30y
+    name: 日本30Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    provider: mof_jgb
+    provider_series_id: 30年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP30Y
+    notes: 財務省「国債金利情報」全履歴CSVの30年物最終利回り。超長期。財政・保険需給の観測点。
+    aliases: [日本30Y, JP 30Y, JGB 30Y]
     aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
   - series_id: jp.policy_rate
     name: 日本政策金利(無担保コールON)
