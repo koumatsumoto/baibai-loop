@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { fetchJson } from '../api/client'
 import type { MetaView } from '../api/types'
+import { BrandMark } from './BrandMark'
 import { FreshnessMeta } from './FreshnessMeta'
 import { ThemeToggle } from './ThemeToggle'
 import { Badge } from './ui/badge'
@@ -20,21 +21,21 @@ export function AppShell() {
   }, [])
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
-      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-8">
-        <Link className="flex shrink-0 items-center gap-2 font-semibold tracking-tight" to="/">
-          <span className="grid size-7 place-items-center rounded-lg bg-foreground text-[10px] font-bold tracking-wide text-background">BA</span>
-          <span>Baibai App</span>
+    <header className="sticky top-0 z-40 border-b bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/88 dark:bg-background/95 dark:supports-[backdrop-filter]:bg-background/88">
+      <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
+        <Link aria-label="Baibai App ホーム" className="flex shrink-0 items-center gap-2.5 font-semibold tracking-tight" to="/">
+          <BrandMark />
+          <span className="hidden sm:inline">Baibai App</span>
         </Link>
-        <nav className="flex h-full min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label="メインナビゲーション">
+        <nav className="flex h-full min-w-0 flex-1 items-center gap-0 overflow-x-auto sm:gap-1" aria-label="メインナビゲーション">
           {NAV_TABS.map((item) => {
             const active = item.match(pathname)
             return (
               <Link
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'relative flex h-full items-center px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground',
-                  active && 'text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-foreground',
+                  'relative flex h-full items-center px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-primary sm:px-3',
+                  active && 'text-primary after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary-display',
                 )}
                 key={item.to}
                 to={item.to}

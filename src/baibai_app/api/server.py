@@ -143,6 +143,14 @@ def create_app(
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
+    @app.get("/favicon.ico", include_in_schema=False, response_model=None)
+    def favicon() -> FileResponse:
+        return _public_asset(dist, "favicon.ico")
+
+    @app.get("/logo.png", include_in_schema=False, response_model=None)
+    def logo() -> FileResponse:
+        return _public_asset(dist, "logo.png")
+
     @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
     def spa_fallback(full_path: str) -> FileResponse | PlainTextResponse:
         if full_path == "api" or full_path.startswith("api/"):
@@ -153,6 +161,15 @@ def create_app(
         return PlainTextResponse("ui/ を build してください。API は /api/health で確認できます。")
 
     return app
+
+
+def _public_asset(dist: Path, filename: str) -> FileResponse:
+    """Serve an explicitly supported Vite public asset without widening the app surface."""
+
+    path = dist / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="UI asset is not built")
+    return FileResponse(path)
 
 
 def _build_sources(request: Request) -> Sources:

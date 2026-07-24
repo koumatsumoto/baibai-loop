@@ -60,6 +60,30 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert "ui/ を build" in fallback.text
 
 
+def test_app_serves_built_brand_assets(app_method_root: Path) -> None:
+    dist = app_method_root / "ui/dist"
+    dist.mkdir(parents=True)
+    (dist / "favicon.ico").write_bytes(b"favicon")
+    (dist / "logo.png").write_bytes(b"logo")
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        favicon = client.get("/favicon.ico")
+        logo = client.get("/logo.png")
+
+    assert favicon.status_code == 200
+    assert favicon.content == b"favicon"
+    assert favicon.headers["content-type"].startswith("image/")
+    assert logo.status_code == 200
+    assert logo.content == b"logo"
+    assert logo.headers["content-type"] == "image/png"
+
+
+def test_app_returns_404_for_unbuilt_brand_assets(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        assert client.get("/favicon.ico").status_code == 404
+        assert client.get("/logo.png").status_code == 404
+
+
 def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         response = client.get("/api/meta")
