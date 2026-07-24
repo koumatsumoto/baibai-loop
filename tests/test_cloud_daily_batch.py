@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -12,6 +13,8 @@ from tools.cloud.daily_batch import (
     BatchStepError,
     CalendarCoverageError,
     CommandResult,
+    _macro_refresh_groups,
+    _parse_macro_series,
     main,
     run_daily_batch,
 )
@@ -30,13 +33,42 @@ RUN_OK = CommandResult(
     "",
 )
 SELECT_OK = CommandResult(0, "selection_id: sel-1\nselection:\n  profile: value_default\n", "")
+
+
+def _macro_list_row(
+    series_id: str,
+    category: str,
+    geography: str,
+    frequency: str,
+    provider: str,
+    *,
+    refreshable: bool = True,
+) -> dict[str, object]:
+    """One `macro list --format json` row as the CLI emits it."""
+
+    return {
+        "series_id": series_id,
+        "name": series_id,
+        "category": category,
+        "geography": geography,
+        "frequency": frequency,
+        "unit": "unit",
+        "provider": provider,
+        "refreshable": refreshable,
+    }
+
+
 MACRO_LIST_OK = CommandResult(
     0,
-    "us.10y\tUS 10Y Treasury\trates\tus\tdaily\t%\tfred_csv\n"
-    "jp.foreign_flows\tForeign flows\tflows\tjp\tweekly\tJPY\tjquants_flows\n"
-    "jp.cpi_all\tJP CPI\tprices\tjp\tmonthly\tindex\testat\n"
-    "jp.gdp\tJP GDP\tgrowth\tjp\tquarterly\tJPY\testat\n"
-    "jp.bankruptcies\tBankruptcies\tcredit\tjp\tmonthly\tcount\ttsr_bankruptcies\n",
+    json.dumps(
+        [
+            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+            _macro_list_row("jp.foreign_flows", "flows", "jp", "weekly", "jquants_flows"),
+            _macro_list_row("jp.cpi_all", "prices", "jp", "monthly", "estat"),
+            _macro_list_row("jp.gdp", "growth", "jp", "quarterly", "estat"),
+            _macro_list_row("jp.bankruptcies", "credit", "jp", "monthly", "tsr_bankruptcies"),
+        ]
+    ),
     "",
 )
 
@@ -470,3 +502,43 @@ def test_main_requires_method_directory_in_repo_root(tmp_path: Path, capsys) -> 
 
     assert exit_code == 1
     assert "does not contain method/" in capsys.readouterr().err
+
+
+def test_parse_macro_series_reads_json_list() -> None:
+    stdout = json.dumps(
+        [
+            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+            _macro_list_row("jp.pmi", "activity", "jp", "monthly", "manual", refreshable=False),
+        ]
+    )
+
+    parsed = _parse_macro_series(stdout)
+
+    assert [(item.series_id, item.refreshable) for item in parsed] == [
+        ("us.10y", True),
+        ("jp.pmi", False),
+    ]
+
+
+def test_parse_macro_series_rejects_non_json() -> None:
+    with pytest.raises(BatchStepError, match="not parseable JSON"):
+        _parse_macro_series("us.10y\tdaily\tfred_csv")
+
+
+def test_macro_refresh_groups_skips_non_refreshable_series() -> None:
+    parsed = _parse_macro_series(
+        json.dumps(
+            [
+                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+                _macro_list_row("jp.pmi", "activity", "jp", "monthly", "manual", refreshable=False),
+                _macro_list_row("jp.cpi", "prices", "jp", "monthly", "estat"),
+            ]
+        )
+    )
+
+    groups = _macro_refresh_groups(parsed)
+
+    assert groups == [
+        (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["us.10y"]),
+        (_MACRO_REFRESH_WINDOW_DEFAULT_DAYS, ["jp.cpi"]),
+    ]

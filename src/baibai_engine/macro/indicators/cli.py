@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import sys
 from collections.abc import Iterable
@@ -11,7 +12,7 @@ from baibai_engine.foundation.env import load_project_env
 
 from .db import DEFAULT_DB_PATH, IndicatorsSchemaError
 from .definitions import SeriesDefinition
-from .providers import IndicatorsProviderError
+from .providers import IndicatorsProviderError, provider_spec
 from .providers.manual import MANUAL_DATA_PATH
 from .service import IndicatorsService, QueryResult
 
@@ -23,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="list registered macro indicator series")
     list_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     list_parser.add_argument("--category")
+    list_parser.add_argument("--format", choices=("table", "json"), default="table")
 
     search_parser = subparsers.add_parser("search", help="search registered series")
     search_parser.add_argument("query")
@@ -60,7 +62,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         match args.command:
             case "list":
-                _print_series(service.list_series(category=args.category))
+                series = service.list_series(category=args.category)
+                if args.format == "json":
+                    _print_series_json(series)
+                else:
+                    _print_series(series)
                 return 0
             case "search":
                 _print_series(service.search(args.query))
@@ -123,6 +129,25 @@ def _print_series(series: Iterable[SeriesDefinition]) -> None:
             f"{item.series_id}\t{item.name}\t{item.category}\t{item.geography}\t"
             f"{item.frequency}\t{item.unit}\t{item.provider}"
         )
+
+
+def _print_series_json(series: Iterable[SeriesDefinition]) -> None:
+    # Structured contract for machine consumers (the daily batch); ``refreshable``
+    # is the provider's ProviderSpec capability so callers never branch on a name.
+    payload = [
+        {
+            "series_id": item.series_id,
+            "name": item.name,
+            "category": item.category,
+            "geography": item.geography,
+            "frequency": item.frequency,
+            "unit": item.unit,
+            "provider": item.provider,
+            "refreshable": provider_spec(item.provider).supports_refresh,
+        }
+        for item in series
+    ]
+    print(json.dumps(payload, ensure_ascii=False))
 
 
 def _print_observations(result: QueryResult) -> None:

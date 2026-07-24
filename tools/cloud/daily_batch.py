@@ -22,6 +22,7 @@ warnings and the chain continues.
 from __future__ import annotations
 
 import argparse
+import json
 import sqlite3
 import subprocess  # nosec B404
 import sys
@@ -178,28 +179,42 @@ class _MacroSeries:
     series_id: str
     frequency: str
     provider: str
+    refreshable: bool
 
 
 def _parse_macro_series(stdout: str) -> list[_MacroSeries]:
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise BatchStepError(
+            f"macro list --format json output is not parseable JSON: {exc}"
+        ) from exc
+    if not isinstance(payload, list):
+        raise BatchStepError("macro list --format json output is not a list")
     series: list[_MacroSeries] = []
-    for line in stdout.splitlines():
-        if not line.strip():
-            continue
-        fields = line.split("\t")
-        if len(fields) != 7:
-            raise BatchStepError(
-                f"macro list line is not the expected 7 tab-separated fields: {line!r}"
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise BatchStepError("macro list --format json row is not an object")
+        try:
+            series.append(
+                _MacroSeries(
+                    series_id=str(entry["series_id"]),
+                    frequency=str(entry["frequency"]),
+                    provider=str(entry["provider"]),
+                    refreshable=bool(entry["refreshable"]),
+                )
             )
-        series.append(_MacroSeries(series_id=fields[0], frequency=fields[4], provider=fields[6]))
+        except KeyError as exc:
+            raise BatchStepError(f"macro list --format json row missing field {exc}") from exc
     return series
 
 
 def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, list[str]]]:
-    """Group refreshable series by window days; manual series only sync via import-manual."""
+    """Group refreshable series by window days; non-refreshable providers are skipped."""
 
     groups: dict[int, list[str]] = {}
     for item in series:
-        if item.provider == "manual":
+        if not item.refreshable:
             continue
         window = _MACRO_REFRESH_WINDOW_DAYS.get(item.frequency, _MACRO_REFRESH_WINDOW_DEFAULT_DAYS)
         groups.setdefault(window, []).append(item.series_id)
@@ -335,7 +350,7 @@ def run_daily_batch(
         macro_list = _run_step(
             runner,
             name="macro-list",
-            argv=(_ENGINE, "macro", "list"),
+            argv=(_ENGINE, "macro", "list", "--format", "json"),
             cwd=root,
             echo_stdout=False,
         )
