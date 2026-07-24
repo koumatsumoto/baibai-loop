@@ -89,6 +89,14 @@ method / src / docs の変更を含む commit を作る前に、[`docs/anti-patt
 
 screening run storeはobserved / derived / estimateを区別する機械出力層、application DB のmacro context・shortlist・thesisはjudgment層。candidatesにAI解釈・因果・相場観を書かず、E[r] / FV anchorを事実と呼ばない。詳細は[`docs/doctrine.md#fact-analysis-separation`](./docs/doctrine.md#fact-analysis-separation)。
 
+## Codex sandbox routing
+
+Codex の managed sandbox で実行不能と分かっている操作は、sandbox 内で試してから再実行せず、初回から承認経路へ送る。
+
+- `gh`、`git fetch/pull/push` などの network 操作と、branch / stage / commit など `.git` への書き込み
+- local socket / browser を使う `baibai-app serve`、headless Chrome、FastAPI `TestClient` を含む `pytest`
+- `uv` が sandbox 外の cache へ書く操作。既存環境で足りる検証は `.venv/bin/{ruff,mypy,pytest,lint-imports}` を優先し、`uv` 自体が必要なら承認経路を使う
+
 ## 検証
 
 application data のmodel / write pathを変更したら、コミット前に最低限以下を通す。
