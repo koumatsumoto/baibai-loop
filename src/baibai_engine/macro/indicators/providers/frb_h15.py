@@ -19,12 +19,19 @@ from .base import (
 # Single H.15 package that carries every Treasury constant-maturity series; one
 # download via FetchContext.bytes_cache serves all frb_h15 series in a run.
 _H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
-# federalreserve.gov serves an HTML block page instead of CSV to non-browser
-# User-Agents on datacenter IPs (GitHub Actions); a browser UA is required.
+# federalreserve.gov's edge bot-mitigation serves an HTML block page instead of
+# CSV to datacenter IPs (GitHub Actions) whose requests do not look like a real
+# browser navigation. A UA alone is not always enough; sending the companion
+# Accept / Accept-Language headers a real Chrome sends reduces the block rate.
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+_BROWSER_HEADERS = {
+    "User-Agent": _USER_AGENT,
+    "Accept": "text/csv,text/plain,text/html;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 class FrbH15Provider:
@@ -58,7 +65,7 @@ class FrbH15Provider:
             series.source_url,
             params=params,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
-            headers={"User-Agent": _USER_AGENT},
+            headers=_BROWSER_HEADERS,
             context=context,
         )
         return parse_h15_csv(series, text, start=start, end=end)

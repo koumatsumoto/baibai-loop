@@ -469,6 +469,9 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(len(observations), 1)
         headers = cast("dict[str, str]", captured["headers"])
         self.assertIn("Mozilla/5.0", headers["User-Agent"])
+        # Companion browser headers reduce the datacenter-IP block-page rate.
+        self.assertIn("Accept", headers)
+        self.assertIn("Accept-Language", headers)
 
     def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
         series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
