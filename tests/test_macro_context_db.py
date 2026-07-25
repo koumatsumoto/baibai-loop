@@ -238,6 +238,29 @@ def test_selection_surfaces_an_input_the_report_declares_as_failed() -> None:
     assert summary["warnings"] == ["macro_context_failed_inputs"]
 
 
+def test_selection_surfaces_a_machine_snapshot_the_report_declares_as_failed() -> None:
+    """Every input type must reach the reader, not only the ones added first."""
+
+    payload = macro_context_payload()
+    payload["inputs"]["machine_snapshots"].append(
+        {
+            "input_id": "snapshot-unavailable",
+            "command": "baibai-engine screening market-snapshot",
+            "snapshot_asof": "2026-07-19",
+            "observation_as_of": "2026-07-17",
+            "accessed_at": "2026-07-19T12:00:00+09:00",
+            "status": "failed",
+            "used_for": "市場内部を確認しようとしたが cache が無かった",
+        }
+    )
+    context = macro_context_from_payload(payload, source="fixture.yaml")
+
+    summary = macro_context_summary(context, asof_date=date(2026, 7, 19))
+
+    assert summary["failed_inputs"] == ["snapshot-unavailable"]
+    assert summary["warnings"] == ["macro_context_failed_inputs"]
+
+
 def test_missing_context_summary_keeps_the_same_keys_as_a_present_one() -> None:
     asof = date(2026, 7, 19)
     present = set(macro_context_summary(_context_of(_document()), asof_date=asof))
@@ -482,6 +505,22 @@ _BYPASSES: tuple[tuple[str, Callable[[dict[str, Any]], object]], ...] = (
     (
         "blank document summary",
         lambda payload: payload.__setitem__("summary", "   "),
+    ),
+    (
+        "machine snapshot taken after as_of",
+        lambda payload: payload["inputs"]["machine_snapshots"][0].__setitem__(
+            "snapshot_asof", "2026-07-20"
+        ),
+    ),
+    (
+        "machine snapshot observing past its own as_of",
+        lambda payload: payload["inputs"]["machine_snapshots"][0].__setitem__(
+            "observation_as_of", "2026-07-20"
+        ),
+    ),
+    (
+        "machine snapshot id colliding with another input",
+        lambda payload: payload["inputs"]["machine_snapshots"][0].__setitem__("input_id", "us-10y"),
     ),
 )
 

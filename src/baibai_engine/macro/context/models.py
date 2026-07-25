@@ -165,10 +165,31 @@ class ReadingSnapshotInput(_TimestampedInput):
     used_for: str = Field(min_length=1)
 
 
+class MachineSnapshotInput(_TimestampedInput):
+    """A cited output of this repository's own deterministic commands.
+
+    An internal output has no publisher and no URL: the command plus the date it was
+    asked about is its identity, the way a reading snapshot's is its revision plus
+    as-of. Filing one as an article would name a documentation page as the source of
+    numbers the repository computed itself.
+    """
+
+    input_id: str = Field(min_length=1)
+    command: str = Field(min_length=1)
+    snapshot_asof: date
+    # The latest market date the snapshot actually used, which trails its as-of by the
+    # market calendar (a Friday close answers a Sunday as-of).
+    observation_as_of: date
+    accessed_at: datetime
+    status: Literal["ok", "failed"]
+    used_for: str = Field(min_length=1)
+
+
 class MacroInputs(_StrictModel):
     articles: tuple[ArticleInput, ...]
     indicator_series: tuple[IndicatorSeriesInput, ...]
     reading_snapshots: tuple[ReadingSnapshotInput, ...]
+    machine_snapshots: tuple[MachineSnapshotInput, ...] = ()
 
 
 class FactSummary(_SourcedStatement):
@@ -468,6 +489,12 @@ class MacroContextDocument(_StrictModel):
                 )
             if reading.status == "ok":
                 reading_input_ids.add(reading.input_id)
+        for snapshot in self.inputs.machine_snapshots:
+            register(snapshot.input_id, snapshot.status)
+            if snapshot.snapshot_asof > self.as_of:
+                raise ValueError("a machine snapshot must not be taken past the report as_of")
+            if snapshot.observation_as_of > snapshot.snapshot_asof:
+                raise ValueError("a machine snapshot must not observe past its own as_of")
         if not statuses:
             raise ValueError("at least one macro input is required")
         if not reading_input_ids:

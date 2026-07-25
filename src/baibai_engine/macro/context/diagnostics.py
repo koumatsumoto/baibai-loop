@@ -90,7 +90,7 @@ def context_failed_inputs(payload: Mapping[str, Any]) -> tuple[str, ...]:
         return ()
     return tuple(
         str(item["input_id"])
-        for key in ("articles", "indicator_series", "reading_snapshots")
+        for key in ("articles", "indicator_series", "reading_snapshots", "machine_snapshots")
         for item in _mapping_sequence(inputs.get(key))
         if item.get("status") == "failed" and isinstance(item.get("input_id"), str)
     )

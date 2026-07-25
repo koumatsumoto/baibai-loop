@@ -159,6 +159,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 - `context_id` / `as_of` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening selectはpoint-in-time整合のため`as_of ≤ selection ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近ASOFのselectへ恒常的にbindされない
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
+- `inputs.machine_snapshots`：引用した自前コマンドの決定論出力（`screening market-snapshot` 等）。一意な `input_id`、`command` / `snapshot_asof` / `observation_as_of` / `accessed_at` / `status` / `used_for`。**自前出力は記事ではない**ので `inputs.articles` へ入れない：発行者も URL も無く、コマンドと訊ねた日付が identity である（記事枠へ入れると定義 doc の URL が数値の出所として読まれる）。`snapshot_asof` は as_of より未来にできず、`observation_as_of`（実際に使った最終市場日）はその as_of を超えられない
 - `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する。`reading_asof` は as_of より未来でも 7 日より古くてもならず（reading は任意の as_of で再計算できるので、レポートは自分の as_of の reading を引く）、`rules_revision` は `method/macro-reading/` に実在する revision でなければ publish されない
 - core の各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ。connection セクションは`economic_connection`を持たず、代わりに`core_section_ids`とループ固有の項目を持つ
 - `material_deltas`：core セクション2〜8の判断として置く。channel / direction / materiality / used_forを持ち、レポート全体で最低1つ必要
@@ -172,10 +173,10 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 レポートは銘柄選定とスポット判断のリスクリワード判断の土台になるため、次の深度契約を常に満たす。
 
-- **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`はTier-1中心に15本以上。
+- **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`はTier-1中心に15本以上で、**数えるのは外部記事だけ**（`inputs.machine_snapshots` の自前出力と `inputs.reading_snapshots` は本数に数えない。自前出力を数えると外部の一次情報を集めた量を自分の計算で嵩上げできてしまう）。
 - **日本の需要fact最低ライン**: セクション3または7に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
 - **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
-- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeをfactとして引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」をjudgmentとして書く。
+- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeを`inputs.machine_snapshots`の input としてfact引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」をjudgmentとして書く。
 - **日本株バリュエーションアンカー**: セクション8に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
 - **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各 research 優先度ヒントと sector tilt は、どの候補タイプ・sectorに効くかを`applies_to`で判別できる形で書く。
 - **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
