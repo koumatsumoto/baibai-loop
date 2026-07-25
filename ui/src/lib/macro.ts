@@ -52,27 +52,64 @@ export function statisticName(statistic: string): string {
   return STATISTIC_NAME[statistic] ?? statistic
 }
 
-// A |z| at or beyond this is worth a second look: it comes out both for a wrong value and
-// for a genuine market extreme. The reading does not decide which — the report does.
+// A |z| at or beyond this puts a series at the edge of its own distribution.
 export const EXTREME_Z_SCORE = 3
 
+// How many of the most extreme series the panel lists. Every z-score is already in the
+// table, so this list exists to draw attention, not to be complete.
+export const EXTREME_LIST_LIMIT = 10
+
 export interface ReadingHealth {
+  // Series whose last acquisition attempt failed. The store still serves the previous
+  // values, so this is the only immediate sign that a source stopped answering.
+  readonly failedFetches: readonly MacroSeriesFetchHealthView[]
   // Observation older than the series' staleness threshold: suspect a silent provider stop.
   readonly stale: readonly MacroReadingSeriesView[]
   readonly insufficientHistory: readonly MacroReadingSeriesView[]
-  readonly extremeZ: readonly MacroReadingSeriesView[]
+  // Nothing stands between the reader and the statistics.
+  readonly clear: boolean
 }
 
-export function readingHealth(series: readonly MacroReadingSeriesView[]): ReadingHealth {
+// Health is about acquisition only. A failed fetch, an observation past its staleness
+// threshold and a window the history does not fill each break what a percentile means, so
+// they belong next to the numbers. An extreme z-score breaks nothing — it is the reading's
+// own answer to "where are we" — and is classified separately.
+export function readingHealth(
+  series: readonly MacroReadingSeriesView[],
+  fetchHealth: readonly MacroSeriesFetchHealthView[],
+): ReadingHealth {
+  const failedFetches = fetchHealth.filter((item) => item.status !== 'ok')
+  const stale = series.filter((item) => item.stale)
+  const insufficientHistory = series.filter((item) => item.insufficient_history)
   return {
-    stale: series.filter((item) => item.stale),
-    insufficientHistory: series.filter((item) => item.insufficient_history),
-    // A withheld z-score cannot be extreme, so insufficient history takes precedence.
-    extremeZ: series.filter((item) => {
-      const { zScore } = readingStatistics(item)
-      return zScore !== null && Math.abs(zScore) >= EXTREME_Z_SCORE
-    }),
+    failedFetches,
+    stale,
+    insufficientHistory,
+    clear: failedFetches.length === 0 && stale.length === 0 && insufficientHistory.length === 0,
   }
+}
+
+export interface ReadingExtreme {
+  readonly series: MacroReadingSeriesView
+  readonly zScore: number
+}
+
+// Series sitting at the edge of their own distribution, furthest first. Being at the edge
+// is what the reading is for — a policy rate at its ten-year high reads as +3.8 z because
+// it is at its ten-year high — so this is a reading, not a doubt about the value. Whether
+// an edge is instead a wrong number is settled against primary sources by the report.
+export function readingExtremes(
+  series: readonly MacroReadingSeriesView[],
+): readonly ReadingExtreme[] {
+  return series
+    // A withheld z-score cannot be extreme, so insufficient history takes precedence.
+    .map((item) => ({ series: item, zScore: readingStatistics(item).zScore }))
+    .filter(
+      (item): item is ReadingExtreme =>
+        item.zScore !== null && Math.abs(item.zScore) >= EXTREME_Z_SCORE,
+    )
+    .sort((left, right) => Math.abs(right.zScore) - Math.abs(left.zScore))
+    .slice(0, EXTREME_LIST_LIMIT)
 }
 
 export interface ReadingCategory {
@@ -95,11 +132,3 @@ export function readingCategories(series: readonly MacroReadingSeriesView[]): re
     .map(([category, items]) => ({ category, series: items }))
 }
 
-// Series whose last acquisition attempt failed. The observation store still holds the
-// previous values, so the reading looks healthy while the source has already stopped
-// answering — this is the only place that difference shows.
-export function failedFetches(
-  fetchHealth: readonly MacroSeriesFetchHealthView[],
-): readonly MacroSeriesFetchHealthView[] {
-  return fetchHealth.filter((item) => item.status !== 'ok')
-}

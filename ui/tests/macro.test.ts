@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { MacroReadingSeriesView } from '../src/api/types'
-import { failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary, statisticName } from '../src/lib/macro'
+import { EXTREME_LIST_LIMIT, readingCategories, readingExtremes, readingHealth, readingStatistics, seriesWindowSummary, statisticName } from '../src/lib/macro'
 
 function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroReadingSeriesView {
   return {
@@ -100,35 +100,79 @@ describe('statisticName', () => {
 })
 
 describe('readingHealth', () => {
-  it('sorts each series into the classifications it belongs to', () => {
-    const staleSeries = readingSeries({ series_id: 'a', stale: true })
-    const youngSeries = readingSeries({ series_id: 'b', insufficient_history: true })
-    const extremeSeries = readingSeries({ series_id: 'c', z_score: -3.4 })
-    const health = readingHealth([staleSeries, youngSeries, extremeSeries, readingSeries({ series_id: 'd' })])
-    expect(health.stale.map((item) => item.series_id)).toEqual(['a'])
-    expect(health.insufficientHistory.map((item) => item.series_id)).toEqual(['b'])
-    expect(health.extremeZ.map((item) => item.series_id)).toEqual(['c'])
+  const run = (series_id: string, status: string) => ({
+    series_id,
+    status,
+    finished_at: '2026-07-25T02:38:50+00:00',
+    record_count: status === 'ok' ? 12 : 0,
+    error_message: status === 'ok' ? null : 'navigation timed out',
   })
 
-  it('counts a z-score at the threshold as suspect and one just inside it as normal', () => {
-    const health = readingHealth([
+  it('sorts each series into the acquisition classification it belongs to', () => {
+    const staleSeries = readingSeries({ series_id: 'a', stale: true })
+    const youngSeries = readingSeries({ series_id: 'b', insufficient_history: true })
+    const health = readingHealth([staleSeries, youngSeries, readingSeries({ series_id: 'd' })], [run('e', 'failed')])
+    expect(health.stale.map((item) => item.series_id)).toEqual(['a'])
+    expect(health.insufficientHistory.map((item) => item.series_id)).toEqual(['b'])
+    expect(health.failedFetches.map((item) => item.series_id)).toEqual(['e'])
+    expect(health.clear).toBe(false)
+  })
+
+  it('keeps an extreme z-score out of health, which is about acquisition only', () => {
+    const health = readingHealth([readingSeries({ series_id: 'c', z_score: -3.4 })], [run('a', 'ok')])
+    expect(health.stale).toEqual([])
+    expect(health.insufficientHistory).toEqual([])
+    expect(health.failedFetches).toEqual([])
+    expect(health.clear).toBe(true)
+  })
+
+  it('lists a series in every classification it satisfies at once', () => {
+    const health = readingHealth([readingSeries({ series_id: 'both', stale: true, insufficient_history: true })], [])
+    expect(health.stale.map((item) => item.series_id)).toEqual(['both'])
+    expect(health.insufficientHistory.map((item) => item.series_id)).toEqual(['both'])
+  })
+
+  it('keeps only the series whose last acquisition attempt failed', () => {
+    const health = readingHealth([], [run('a', 'ok'), run('b', 'failed'), run('c', 'ok')])
+    expect(health.failedFetches.map((item) => item.series_id)).toEqual(['b'])
+  })
+})
+
+describe('readingExtremes', () => {
+  it('lists the series at the edge of their distribution, furthest first', () => {
+    const extremes = readingExtremes([
+      readingSeries({ series_id: 'mild', z_score: 3.1 }),
+      readingSeries({ series_id: 'normal', z_score: 1.2 }),
+      readingSeries({ series_id: 'furthest', z_score: -3.9 }),
+    ])
+    expect(extremes.map((item) => item.series.series_id)).toEqual(['furthest', 'mild'])
+    expect(extremes[0].zScore).toBe(-3.9)
+  })
+
+  it('counts a z-score at the threshold as an edge and one just inside it as normal', () => {
+    const extremes = readingExtremes([
       readingSeries({ series_id: 'at', z_score: 3 }),
       readingSeries({ series_id: 'at_negative', z_score: -3 }),
       readingSeries({ series_id: 'inside', z_score: 2.99 }),
       readingSeries({ series_id: 'inside_negative', z_score: -2.99 }),
     ])
-    expect(health.extremeZ.map((item) => item.series_id)).toEqual(['at', 'at_negative'])
+    expect(extremes.map((item) => item.series.series_id)).toEqual(['at', 'at_negative'])
   })
 
-  it('never calls a withheld z-score extreme', () => {
-    const health = readingHealth([readingSeries({ insufficient_history: true, z_score: 5 }), readingSeries({ z_score: null })])
-    expect(health.extremeZ).toEqual([])
+  it('never calls a withheld z-score an edge', () => {
+    const extremes = readingExtremes([
+      readingSeries({ insufficient_history: true, z_score: 5 }),
+      readingSeries({ z_score: null }),
+      readingSeries({ statistic: 'yoy', statistic_value: null, z_score: 4 }),
+    ])
+    expect(extremes).toEqual([])
   })
 
-  it('lists a series in every classification it satisfies at once', () => {
-    const health = readingHealth([readingSeries({ series_id: 'both', stale: true, insufficient_history: true })])
-    expect(health.stale.map((item) => item.series_id)).toEqual(['both'])
-    expect(health.insufficientHistory.map((item) => item.series_id)).toEqual(['both'])
+  it('caps the list so the panel draws attention instead of repeating the table', () => {
+    const many = Array.from({ length: EXTREME_LIST_LIMIT + 3 }, (_, index) =>
+      readingSeries({ series_id: `s${index}`, z_score: 3 + index / 100 }),
+    )
+    expect(readingExtremes(many)).toHaveLength(EXTREME_LIST_LIMIT)
   })
 })
 
@@ -144,22 +188,3 @@ describe('readingCategories', () => {
   })
 })
 
-describe('failedFetches', () => {
-  const run = (series_id: string, status: string) => ({
-    series_id,
-    status,
-    finished_at: '2026-07-25T02:38:50+00:00',
-    record_count: status === 'ok' ? 12 : 0,
-    error_message: status === 'ok' ? null : 'navigation timed out',
-  })
-
-  it('keeps only the series whose last acquisition attempt failed', () => {
-    const failed = failedFetches([run('a', 'ok'), run('b', 'failed'), run('c', 'ok')])
-
-    expect(failed.map((item) => item.series_id)).toEqual(['b'])
-  })
-
-  it('reports nothing when every series was fetched successfully', () => {
-    expect(failedFetches([run('a', 'ok')])).toEqual([])
-  })
-})

@@ -117,7 +117,7 @@ percentile の実効窓を短縮した系列は、provider の履歴が伸びて
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。専用 store は持たず、日次バッチが Baibai App 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
 
-Baibai App の Macro タブは先頭にこの読み値をヒート面（系列ごとの方向・`statistic`・percentile・実効窓・flags）と data health（`stale` な系列・`insufficient_history` の件数・`|z_score|` が極端な系列）として表示する。view が未生成のときはその区画だけを出さない（指標パネルとレポート index は通常表示する）。
+Baibai App の Macro タブは先頭にこの読み値をヒート面（系列ごとの方向・`statistic`・percentile・実効窓・flags）、data health（取得失敗・`stale`・`insufficient_history` の 3 分類。**3 つとも 0 件なら「問題なし」に畳む**）、分布の端（`|z_score|` ≥ 3 を強い順に列挙）として表示する。**極端な z は data health に混ぜない**：health の 3 分類は percentile の解釈可能性を壊すものだが、端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。view が未生成のときはその区画だけを出さない（指標パネルとレポート index は通常表示する）。
 
 ## ③ 環境認識：macro context report を publish する
 
