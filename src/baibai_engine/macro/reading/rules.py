@@ -31,7 +31,7 @@ type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
 type ReadingStatistic = Literal["level", "yoy"]
 # How observations become percentile/z-score sample points. ``raw`` keeps every
 # stored date; calendar cadences retain the latest observation in each period.
-type SamplingCadence = Literal["raw", "weekly", "monthly", "quarterly"]
+type SamplingCadence = Literal["raw", "monthly", "quarterly"]
 
 
 class ReadingRulesError(ValueError):
@@ -172,8 +172,6 @@ def _default_sampling_cadence(frequency: str) -> SamplingCadence:
         return "monthly"
     if frequency == "quarterly":
         return "quarterly"
-    if frequency == "weekly":
-        return "weekly"
     return "raw"
 
 

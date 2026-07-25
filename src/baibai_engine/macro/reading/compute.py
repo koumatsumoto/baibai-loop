@@ -99,7 +99,10 @@ def _read_series(
         for point in _statistic_points(sample_observations, statistic=rule.statistic)
         if point.observed_at >= start
     ]
-    expected = _expected_observations(rule.sampling_cadence, rule.percentile_window_years)
+    expected_frequency = (
+        definition.frequency if rule.sampling_cadence == "raw" else rule.sampling_cadence
+    )
+    expected = _expected_observations(expected_frequency, rule.percentile_window_years)
     if (
         expected is not None
         and rule.sampling_cadence in {"monthly", "quarterly"}
@@ -224,17 +227,18 @@ def _fold_to_sampling_cadence(
     reading the original observations.
     """
 
-    if cadence in {"raw", "weekly"}:
+    if cadence == "raw":
         return tuple(observations)
 
     latest_by_period: dict[tuple[int, int], ObservationRecord] = {}
     for observation in observations:
-        period = (
-            observation.observed_at.month
-            if cadence == "monthly"
-            else (observation.observed_at.month - 1) // 3
-        )
-        key = (observation.observed_at.year, period)
+        if cadence == "monthly":
+            key = (observation.observed_at.year, observation.observed_at.month)
+        else:
+            key = (
+                observation.observed_at.year,
+                (observation.observed_at.month - 1) // 3,
+            )
         current = latest_by_period.get(key)
         if current is None or observation.observed_at > current.observed_at:
             latest_by_period[key] = observation
