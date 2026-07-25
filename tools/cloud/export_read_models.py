@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
+import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -34,6 +36,7 @@ from baibai_app.sources.db_sources import DbCandidatesSource
 from baibai_app.sources.factory import build_sources
 from baibai_app.sources.protocols import LedgerSource, ResearchSource
 from baibai_app.sources.types import CandidatesRun
+from baibai_engine.appdb import LATEST_VERSION as APP_SCHEMA_VERSION
 from baibai_engine.read_api import screening_run_asof_dates
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -45,6 +48,10 @@ _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
 # macro context_id charset; excludes path separators so it is safe in a filename
 # and mirrors the Worker route validation for the same key.
 _MACRO_CONTEXT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
+
+class ExportPreconditionError(RuntimeError):
+    """The stores cannot serve a correct export, so nothing is written."""
 
 
 def export_read_models(
@@ -62,6 +69,7 @@ def export_read_models(
     """
 
     stores = build_sources(root)
+    _require_readable_app_schema(stores.app_db_path)
     views_dir = output_dir / "views"
     if views_dir.is_dir():
         shutil.rmtree(views_dir)
@@ -142,6 +150,30 @@ def export_read_models(
 
     written.append(_write_model(views_dir / "meta.json", build_meta(stores.meta, batch=batch)))
     return written
+
+
+def _require_readable_app_schema(path: Path) -> None:
+    """Fail before writing anything unless the app store carries this code's schema.
+
+    Every app-store read in the export is read-only, so a store copied from serving
+    infrastructure is never migrated here: a schema the code does not expect surfaces
+    as a bare SQL error partway through a build, after some views are already written.
+    The store is canonical on the operator's machine, which is where the migrated copy
+    is published from. A root without a judgment store is a valid state and the read
+    paths already degrade to empty views, so absence is not a mismatch.
+    """
+
+    if not path.is_file():
+        return
+    uri = f"{path.resolve().as_uri()}?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True)) as connection:
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if version != APP_SCHEMA_VERSION:
+        raise ExportPreconditionError(
+            f"application store schema is {version} but this code expects "
+            f"{APP_SCHEMA_VERSION}: {path} "
+            "(publish the migrated store with tools/cloud/publish.sh)"
+        )
 
 
 class _CachedLatestRunCandidates:
@@ -260,7 +292,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
     output_dir = args.output_dir.resolve()
-    written = export_read_models(root, output_dir, batch=_batch_kind(args.batch))
+    try:
+        written = export_read_models(root, output_dir, batch=_batch_kind(args.batch))
+    except ExportPreconditionError as precondition:
+        print(f"error: {precondition}", file=sys.stderr)
+        return 1
     print(f"exported {len(written)} files under {output_dir}")
     return 0
 
