@@ -29,6 +29,7 @@ type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
 # fetch context: a rebuild re-reads observations the store already holds, and a
 # source-currency guard fails a refresh or rebuild but never blocks a read.
 type FetchPurpose = Literal["read", "refresh", "rebuild"]
+type RangeReplacementPolicy = Literal["none", "through_end_vintage", "all_vintages"]
 
 
 class IndicatorsProviderError(RuntimeError):
@@ -57,17 +58,27 @@ class ProviderSpec:
     all_history_rolling_years: int | None = None
     # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
     # observations older than the first the provider returns (FRED's licensed
-    # window defines its reproducible start). ``replace_requested_range`` deletes
-    # the requested window before insert so a re-published vintage supersedes
-    # earlier rows (J-Quants weekly flows).
+    # window defines its reproducible start). ``range_replacement`` controls
+    # all-history replacement: point-in-time sources delete only vintages known by
+    # the requested end, while recomputable outputs discard every old vintage in
+    # the range because the current formula supersedes the old observation grid.
     trim_before_first: bool = False
-    replace_requested_range: bool = False
+    range_replacement: RangeReplacementPolicy = "none"
+    # A provider can opt only formulas whose observation grid is intentionally
+    # replaceable into a stronger policy. Keys are provider_series_id values.
+    range_replacement_overrides: Mapping[str, RangeReplacementPolicy] = field(default_factory=dict)
     # Reads clamp to observations whose vintage is on/before the read cutoff, so a
     # publish-lagged series stays point-in-time correct (J-Quants weekly flows).
     point_in_time_vintage: bool = False
     # Credential env var names required to fetch (diagnostics only; values are
     # read from the environment by the provider, never stored in the registry).
     required_env: tuple[str, ...] = field(default=())
+
+    def range_replacement_for(self, series: SeriesDefinition) -> RangeReplacementPolicy:
+        return self.range_replacement_overrides.get(
+            series.provider_series_id,
+            self.range_replacement,
+        )
 
 
 class FetchContext:

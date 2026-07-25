@@ -18,7 +18,7 @@ from baibai_engine.macro.indicators.db import ObservationRecord
 from baibai_engine.macro.indicators.definitions import SeriesDefinition
 
 from .models import ReadingSnapshot, SeriesReading, SeriesTrend, TrendDirection
-from .rules import ReadingRules, ReadingStatistic, ResolvedRule, window_start
+from .rules import ReadingRules, ReadingStatistic, ResolvedRule, SamplingCadence, window_start
 
 # Reads one series' observations in ``[start, end]`` (ascending). The caller binds
 # it to the L1 store, so compute never opens a connection of its own.
@@ -90,11 +90,25 @@ def _read_series(
     if not observations:
         return _empty_reading(definition, rule)
     latest = max(observations, key=lambda observation: observation.observed_at)
+    sample_observations = _fold_to_sampling_cadence(
+        observations,
+        cadence=rule.sampling_cadence,
+    )
     sample = [
         point
-        for point in _statistic_points(observations, statistic=rule.statistic)
+        for point in _statistic_points(sample_observations, statistic=rule.statistic)
         if point.observed_at >= start
     ]
+    expected = _expected_observations(rule.sampling_cadence, rule.percentile_window_years)
+    if (
+        expected is not None
+        and rule.sampling_cadence in {"monthly", "quarterly"}
+        and len(sample) > expected
+    ):
+        # Calendar periods are represented by real observation dates. A window
+        # boundary inside the first period can therefore admit one extra period;
+        # keep the most recent configured number rather than overweighting it.
+        sample = sample[-expected:]
     values = [point.value for point in sample]
     # A statistic exists for the latest observation only when the transform reaches it:
     # a year-on-year change needs a partner a year back, and without one the series has
@@ -107,7 +121,6 @@ def _read_series(
     first_observed_at = min(observation.observed_at for observation in observations)
     covers_window = first_observed_at <= _window_coverage_cutoff(start, asof)
     enough_points = len(values) >= MIN_WINDOW_OBSERVATIONS
-    expected = _expected_observations(definition.frequency, rule.percentile_window_years)
     dense_enough = expected is None or len(values) >= expected * MIN_WINDOW_COVERAGE
     insufficient = not (covers_window and enough_points and dense_enough)
     ranked = None if insufficient else statistic_value
@@ -195,6 +208,37 @@ def _statistic_points(
             for observation in ascending
         )
     return _yoy_points(ascending)
+
+
+def _fold_to_sampling_cadence(
+    observations: Sequence[ObservationRecord],
+    *,
+    cadence: SamplingCadence,
+) -> tuple[ObservationRecord, ...]:
+    """Use one latest observation per configured monthly or quarterly period.
+
+    Some providers combine a long low-frequency history with a current value that
+    can be fetched repeatedly inside the latest period. Ranking every stored date
+    would increasingly overweight recent periods. The sampling cadence defines
+    what one statistical sample point means; latest values, trends and flags keep
+    reading the original observations.
+    """
+
+    if cadence in {"raw", "weekly"}:
+        return tuple(observations)
+
+    latest_by_period: dict[tuple[int, int], ObservationRecord] = {}
+    for observation in observations:
+        period = (
+            observation.observed_at.month
+            if cadence == "monthly"
+            else (observation.observed_at.month - 1) // 3
+        )
+        key = (observation.observed_at.year, period)
+        current = latest_by_period.get(key)
+        if current is None or observation.observed_at > current.observed_at:
+            latest_by_period[key] = observation
+    return tuple(sorted(latest_by_period.values(), key=lambda item: item.observed_at))
 
 
 def _yoy_points(ascending: Sequence[ObservationRecord]) -> tuple[_StatisticPoint, ...]:

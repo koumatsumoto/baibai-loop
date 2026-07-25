@@ -15,8 +15,9 @@ type Compute = Callable[[Mapping[str, float]], float | None]
 #   "exact"   - inputs share a frequency; align on identical observed_at.
 #   "monthly" - inputs mix frequencies; fold each input to one value per calendar
 #               month (a daily input collapses to its month-end reading) and pair
-#               on the month, emitting the value at the first of that month.
+#               on the month. The formula declares how that bundle is dated.
 type Alignment = Literal["exact", "monthly"]
+type MonthlyObservationDate = Literal["period_start", "latest_input"]
 
 
 class DerivedComputationError(RuntimeError):
@@ -33,6 +34,14 @@ class DerivedFormula:
     plausible_min: float | None = None
     plausible_max: float | None = None
     alignment: Alignment = "exact"
+    # Existing monthly formulas use a canonical month-start grid. A formula that
+    # consumes within-month market data can instead date output at the latest
+    # selected input to avoid making month-end information appear at month start.
+    monthly_observation_date: MonthlyObservationDate = "period_start"
+
+    def __post_init__(self) -> None:
+        if self.alignment != "monthly" and self.monthly_observation_date != "period_start":
+            raise ValueError("monthly_observation_date requires monthly alignment")
 
     def evaluate(self, aligned: Mapping[str, float]) -> float | None:
         value = self.compute(aligned)
@@ -59,6 +68,8 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         compute=lambda v: v["us.sp500_earnings_yield"] - v["us.10y"],
         plausible_min=-10.0,
         plausible_max=15.0,
+        alignment="monthly",
+        monthly_observation_date="latest_input",
     ),
     "rate_diff.us_jp_10y": DerivedFormula(
         inputs=("us.10y", "jp.10y"),

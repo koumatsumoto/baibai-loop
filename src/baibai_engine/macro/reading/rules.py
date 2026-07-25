@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-25T190000+0900.yaml")
+DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-26T072200+0900.yaml")
 
 type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
 
@@ -29,6 +29,9 @@ type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
 # 100th percentile every month it keeps rising, so its level percentile reports the
 # passage of time while its position lives in the rate of change.
 type ReadingStatistic = Literal["level", "yoy"]
+# How observations become percentile/z-score sample points. ``raw`` keeps every
+# stored date; calendar cadences retain the latest observation in each period.
+type SamplingCadence = Literal["raw", "weekly", "monthly", "quarterly"]
 
 
 class ReadingRulesError(ValueError):
@@ -68,6 +71,7 @@ class FrequencyDefaults(_StrictModel):
 class SeriesOverride(_StrictModel):
     percentile_window_years: int | None = Field(default=None, ge=1)
     statistic: ReadingStatistic | None = None
+    sampling_cadence: SamplingCadence | None = None
     short_trend_months: int | None = Field(default=None, ge=1)
     long_trend_months: int | None = Field(default=None, ge=1)
     staleness_warn_days: int | None = Field(default=None, ge=1)
@@ -104,6 +108,7 @@ class ReadingRules(_StrictModel):
             return ResolvedRule(
                 percentile_window_years=base.percentile_window_years,
                 statistic="level",
+                sampling_cadence=_default_sampling_cadence(frequency),
                 short_trend_months=base.short_trend_months,
                 long_trend_months=base.long_trend_months,
                 staleness_warn_days=base.staleness_warn_days,
@@ -115,6 +120,7 @@ class ReadingRules(_StrictModel):
             # The level is the reading a series has unless a rule says its scale is set
             # by its own history, so an unlisted series keeps today's meaning.
             statistic=override.statistic or "level",
+            sampling_cadence=override.sampling_cadence or _default_sampling_cadence(frequency),
             short_trend_months=override.short_trend_months or base.short_trend_months,
             long_trend_months=override.long_trend_months or base.long_trend_months,
             staleness_warn_days=override.staleness_warn_days or base.staleness_warn_days,
@@ -125,6 +131,7 @@ class ReadingRules(_StrictModel):
 class ResolvedRule(_StrictModel):
     percentile_window_years: int
     statistic: ReadingStatistic
+    sampling_cadence: SamplingCadence
     short_trend_months: int
     long_trend_months: int
     staleness_warn_days: int
@@ -160,6 +167,16 @@ def rules_revision(path: Path = DEFAULT_RULES_PATH) -> str:
     return path.stem
 
 
+def _default_sampling_cadence(frequency: str) -> SamplingCadence:
+    if frequency == "monthly":
+        return "monthly"
+    if frequency == "quarterly":
+        return "quarterly"
+    if frequency == "weekly":
+        return "weekly"
+    return "raw"
+
+
 def window_start(asof: date, years: int) -> date:
     try:
         return asof.replace(year=asof.year - years)
@@ -174,6 +191,7 @@ __all__ = [
     "ReadingRulesError",
     "ReadingStatistic",
     "ResolvedRule",
+    "SamplingCadence",
     "SeriesOverride",
     "ThresholdFlag",
     "load_reading_rules",
