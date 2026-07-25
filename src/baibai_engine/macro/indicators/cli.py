@@ -7,6 +7,7 @@ import sys
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
+from typing import assert_never
 
 from baibai_engine.foundation.env import load_project_env
 
@@ -98,8 +99,10 @@ def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
 
     One failing source must not leave the rest of the requested series stale, so
     each series is refreshed independently and the exit code reflects whether any
-    failed. The failure list is printed last because a batch log reader (and the
-    daily batch's stderr summary) keeps the tail.
+    failed. The detail lines are followed by a single-line roll-up of the failed
+    series IDs: a batch log reader keeps only the tail of stderr (the daily batch
+    summarizes the last 20 lines), so with many failures that one line is what
+    survives.
     """
 
     outcomes = service.refresh_series(
@@ -117,6 +120,8 @@ def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
                     _print_observations(result)
             case RefreshFailure():
                 failures.append(outcome)
+            case _:  # pragma: no cover - exhaustiveness guard over RefreshOutcome
+                assert_never(outcome)
     if not failures:
         return 0
     print(
@@ -125,6 +130,11 @@ def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
     )
     for failure in failures:
         print(f"- {failure.series_id}: {failure.message}", file=sys.stderr)
+    print(
+        f"error: refresh failed for {len(failures)} of {len(outcomes)} series: "
+        f"{', '.join(failure.series_id for failure in failures)}",
+        file=sys.stderr,
+    )
     return 1
 
 

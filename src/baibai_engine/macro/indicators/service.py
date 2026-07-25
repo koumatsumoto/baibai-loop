@@ -10,7 +10,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import db
-from .db import ObservationRecord
+from .db import IndicatorsSchemaError, ObservationRecord
 from .definitions import SeriesDefinition
 from .providers import (
     FetchContext,
@@ -89,7 +89,10 @@ class IndicatorsService:
             raise ValueError("--end must be on or after --start")
         conn = db.open_connection(self.db_path)
         try:
-            with FetchContext(store_reader=_store_reader(conn)) as context:
+            with FetchContext(
+                store_reader=_store_reader(conn),
+                purpose="refresh" if refresh else "read",
+            ) as context:
                 return self._get_range(
                     conn, series_id, start=start, end=end, refresh=refresh, context=context
                 )
@@ -99,7 +102,7 @@ class IndicatorsService:
     def refresh_all_history(self, series_id: str, *, end: date) -> QueryResult:
         conn = db.open_connection(self.db_path)
         try:
-            with FetchContext(store_reader=_store_reader(conn), refetch_stored=True) as context:
+            with FetchContext(store_reader=_store_reader(conn), purpose="rebuild") as context:
                 return self._refresh_all_history(conn, series_id, end=end, context=context)
         finally:
             conn.close()
@@ -117,9 +120,9 @@ class IndicatorsService:
         floor). One store connection and one fetch context serve the whole pass, so
         a bulk source file is downloaded once for every series that maps to it and a
         browser-backed provider pays at most one launch. A failure that belongs to
-        one series (unknown series, provider error, invalid range) is captured and
-        the pass continues, so one broken source cannot leave the rest of the
-        registry stale; a store-level failure (schema, IO) still aborts the pass.
+        one series is captured and the pass continues, so one broken source cannot
+        leave the rest of the registry stale; a store-level failure (schema, IO)
+        still aborts the pass because it invalidates every remaining series.
         """
 
         if start is not None and end < start:
@@ -128,7 +131,8 @@ class IndicatorsService:
         conn = db.open_connection(self.db_path)
         try:
             with FetchContext(
-                store_reader=_store_reader(conn), refetch_stored=start is None
+                store_reader=_store_reader(conn),
+                purpose="rebuild" if start is None else "refresh",
             ) as context:
                 for series_id in series_ids:
                     try:
@@ -144,7 +148,13 @@ class IndicatorsService:
                                 context=context,
                             )
                         )
-                    except (KeyError, ValueError, IndicatorsProviderError) as exc:
+                    except (sqlite3.Error, IndicatorsSchemaError):
+                        raise
+                    except Exception as exc:
+                        # Deliberately broad: whatever one series' provider raises —
+                        # including a bug in its parser or an unwrapped third-party
+                        # error — belongs to that series alone. Narrowing this would
+                        # let one unforeseen error type strand every later series.
                         outcomes.append(RefreshFailure(series_id, _failure_message(exc)))
                         continue
                     outcomes.append(RefreshSuccess(series_id, result))
@@ -410,6 +420,12 @@ def _fetch_observations_with_retry(
         try:
             return fetch_observations(series, start=start, end=end, context=context)
         except IndicatorsProviderError:
+            # The response that produced this failure may be cached (a block page
+            # arrives as HTTP 200), so drop the cache before retrying. Otherwise the
+            # retry re-reads the same bytes and every later series sharing the URL
+            # inherits the failure.
+            if context is not None:
+                context.discard_cached_bytes()
             if attempt == PROVIDER_FETCH_ATTEMPTS:
                 raise
             time.sleep(PROVIDER_FETCH_RETRY_BACKOFF_SECONDS)

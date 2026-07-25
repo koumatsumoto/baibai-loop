@@ -74,6 +74,15 @@ class BrowserFetcher:
     def fetch_pdf(self, url: str) -> bytes:
         """Navigate to ``url`` and return the downloaded PDF bytes."""
 
+        try:
+            return self._fetch_pdf(url)
+        except PlaywrightError as exc:
+            # A crashed browser, a closed page or a failed download read surfaces
+            # anywhere in the attempt loop; every one of them must reach the caller
+            # as a provider failure so one dead browser cannot abort a refresh pass.
+            raise IndicatorsProviderError(f"browser failed fetching PDF from {url}: {exc}") from exc
+
+    def _fetch_pdf(self, url: str) -> bytes:
         context = self._ensure_context()
         last_error = "no download started"
         for _attempt in range(_NAV_ATTEMPTS):
@@ -107,6 +116,14 @@ class BrowserFetcher:
     def fetch_html(self, url: str) -> str:
         """Navigate to ``url`` and return the fully rendered HTML."""
 
+        try:
+            return self._fetch_html(url)
+        except PlaywrightError as exc:
+            raise IndicatorsProviderError(
+                f"browser failed fetching HTML from {url}: {exc}"
+            ) from exc
+
+    def _fetch_html(self, url: str) -> str:
         context = self._ensure_context()
         last_error = "navigation failed"
         for _attempt in range(_NAV_ATTEMPTS):

@@ -72,18 +72,21 @@ class SpGlobalPmiProvider:
                 f"spglobal_pmi has no release manifest for {series.provider_series_id!r}; "
                 f"supported: {supported}"
             )
-        _require_current_manifest(series, releases, end=end)
-        # Months already held are carried through from the store rather than
-        # downloaded again, so the returned window stays the complete window even
-        # though nothing was fetched for those months.
-        stored = _stored_observations(series, start=start, end=end, context=context)
-        stored_months = frozenset(observation.observed_at for observation in stored)
-        observations: list[ObservationRecord] = list(stored)
+        if context is None or context.purpose != "read":
+            _require_current_manifest(series, releases, end=end)
+        stored_by_month = {
+            observation.observed_at: observation
+            for observation in _stored_observations(series, start=start, end=end, context=context)
+        }
+        fetched: list[ObservationRecord] = []
+        refetched_months: set[date] = set()
         for entry in releases:
             if not start <= entry.observed_at <= end:
                 continue
-            if entry.observed_at in stored_months:
+            stored = stored_by_month.get(entry.observed_at)
+            if stored is not None and stored.source_url == entry.url:
                 continue
+            refetched_months.add(entry.observed_at)
             pdf_text = _release_text(entry.url, session=session, context=context)
             try:
                 value = extract_pmi_value(
@@ -100,7 +103,7 @@ class SpGlobalPmiProvider:
                     f"spglobal_pmi {series.series_id} {entry.observed_at}: "
                     f"no headline value found in {entry.url}"
                 )
-            observations.append(
+            fetched.append(
                 ObservationRecord(
                     series_id=series.series_id,
                     observed_at=entry.observed_at,
@@ -111,7 +114,15 @@ class SpGlobalPmiProvider:
                     source_url=entry.url,
                 )
             )
-        return sorted(observations, key=lambda observation: observation.observed_at)
+        # Months that were not re-read are carried through from the store so the
+        # returned window stays the complete window even though nothing was fetched
+        # for them. Re-inserting them is a no-op for the store.
+        carried = [
+            observation
+            for month, observation in stored_by_month.items()
+            if month not in refetched_months
+        ]
+        return sorted(fetched + carried, key=lambda observation: observation.observed_at)
 
 
 def _stored_observations(
@@ -123,14 +134,14 @@ def _stored_observations(
 ) -> tuple[ObservationRecord, ...]:
     """Observations already held for this series, whose months are not downloaded.
 
-    Re-inserting them is a no-op (the store keeps one vintage per unchanged
-    observation), and returning them keeps the window result and the run's
-    coverage record complete. Without a store reader every month in the window is
-    fetched, so a caller that cannot supply one still gets correct data — only the
-    download count changes.
+    A month is only skipped when the stored observation came from the release URL
+    the manifest currently names, so correcting a URL re-reads that month. A
+    rebuild re-reads every month regardless. Without a store reader every month in
+    the window is fetched, so a caller that cannot supply one still gets correct
+    data — only the download count changes.
     """
 
-    if context is None or context.store_reader is None or context.refetch_stored:
+    if context is None or context.store_reader is None or context.purpose == "rebuild":
         return ()
     return context.store_reader(series.series_id, start, end)
 

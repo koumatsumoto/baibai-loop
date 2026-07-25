@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import redirect_stderr
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -710,17 +710,14 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         # partial window would report the series as having no data for it).
         series = _series("spglobal_pmi", "jp_manufacturing", unit="index", frequency="monthly")
         stream = _pmi_stream(["2026-04-01", "2026-05-01", "2026-06-01"])
-        stored = (
-            _obs(series.series_id, date(2026, 4, 1), 49.5),
-            _obs(series.series_id, date(2026, 5, 1), 50.1),
-        )
+        stored = _pmi_stored(series.series_id, stream[:2], (49.5, 50.1))
 
         observations, fetched = _fetch_pmi_stream(
             series,
             stream,
             start=date(2026, 4, 1),
             end=date(2026, 6, 30),
-            context=FetchContext(store_reader=lambda *_: stored),
+            context=FetchContext(store_reader=lambda *_: stored, purpose="refresh"),
         )
 
         self.assertEqual(fetched, [stream[2].url])
@@ -733,24 +730,66 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             ],
         )
 
-    def test_spglobal_pmi_all_history_refetches_every_stored_month(self) -> None:
+    def test_spglobal_pmi_rebuild_refetches_every_stored_month(self) -> None:
         series = _series("spglobal_pmi", "jp_manufacturing", unit="index", frequency="monthly")
         stream = _pmi_stream(["2026-04-01", "2026-05-01", "2026-06-01"])
-        stored = (
-            _obs(series.series_id, date(2026, 4, 1), 49.5),
-            _obs(series.series_id, date(2026, 5, 1), 50.1),
-        )
+        stored = _pmi_stored(series.series_id, stream[:2], (49.5, 50.1))
 
         observations, fetched = _fetch_pmi_stream(
             series,
             stream,
             start=date(2026, 4, 1),
             end=date(2026, 6, 30),
-            context=FetchContext(store_reader=lambda *_: stored, refetch_stored=True),
+            context=FetchContext(store_reader=lambda *_: stored, purpose="rebuild"),
         )
 
         self.assertEqual(len(observations), 3)
         self.assertEqual(fetched, [release.url for release in stream])
+
+    def test_spglobal_pmi_refetches_a_month_whose_release_url_changed(self) -> None:
+        # Correcting a release URL in the manifest must reach the store; skipping by
+        # month alone would leave the value the superseded URL produced.
+        series = _series("spglobal_pmi", "jp_manufacturing", unit="index", frequency="monthly")
+        stream = _pmi_stream(["2026-05-01", "2026-06-01"])
+        superseded = ObservationRecord(
+            series_id=series.series_id,
+            observed_at=date(2026, 5, 1),
+            value=50.1,
+            unit="index",
+            source_url="https://www.pmi.spglobal.com/Public/Home/PressRelease/" + "f" * 32,
+            vintage_at=datetime.now(UTC),
+        )
+        stored = (superseded, *_pmi_stored(series.series_id, stream[1:], (50.4,)))
+
+        observations, fetched = _fetch_pmi_stream(
+            series,
+            stream,
+            start=date(2026, 5, 1),
+            end=date(2026, 6, 30),
+            context=FetchContext(store_reader=lambda *_: stored, purpose="refresh"),
+        )
+
+        self.assertEqual(fetched, [stream[0].url])
+        may = next(entry for entry in observations if entry.observed_at == date(2026, 5, 1))
+        self.assertEqual(may.source_url, stream[0].url)
+
+    def test_spglobal_pmi_read_is_not_blocked_by_a_stale_manifest(self) -> None:
+        # A read must still answer from what the store holds: failing it would make a
+        # late manifest hide months that were already collected.
+        series = _series("spglobal_pmi", "jp_manufacturing", unit="index", frequency="monthly")
+        stream = _pmi_stream(["2026-05-01", "2026-06-01"])
+        stored = _pmi_stored(series.series_id, stream[1:], (50.4,))
+
+        observations, fetched = _fetch_pmi_stream(
+            series,
+            stream,
+            start=date(2026, 6, 1),
+            end=date(2026, 8, 10),
+            context=FetchContext(store_reader=lambda *_: stored, purpose="read"),
+        )
+
+        self.assertEqual(fetched, [])
+        self.assertEqual([entry.observed_at for entry in observations], [date(2026, 6, 1)])
 
     def test_spglobal_pmi_rejects_a_manifest_behind_the_release_calendar(self) -> None:
         # A month missing from the hand-maintained manifest would otherwise fetch
@@ -2342,6 +2381,85 @@ class IndicatorsServiceTests(unittest.TestCase):
 
             self.assertEqual(cache_sizes, [0, 1, 2])
 
+    def test_refresh_series_isolates_a_provider_error_it_does_not_recognize(self) -> None:
+        # A provider can raise an unwrapped third-party error (a dead headless
+        # browser does). It must stay one series' failure, not abort the pass.
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            initialize_database(database).close()
+
+            def _fetch(
+                series: SeriesDefinition,
+                *,
+                start: date,
+                end: date,
+                context: FetchContext | None,
+            ) -> list[ObservationRecord]:
+                if series.series_id == "us.2y":
+                    raise RuntimeError("browser process died")
+                return [_obs(series.series_id, date(2026, 7, 20), 4.2)]
+
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                side_effect=_fetch,
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["us.10y", "us.2y", "us.30y"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            self.assertEqual(
+                [outcome.series_id for outcome in outcomes if isinstance(outcome, RefreshSuccess)],
+                ["us.10y", "us.30y"],
+            )
+            failure = outcomes[1]
+            assert isinstance(failure, RefreshFailure)
+            self.assertIn("browser process died", failure.message)
+
+    def test_refresh_discards_cached_response_bytes_after_a_failure(self) -> None:
+        # A source can answer HTTP 200 with a block page, which caches like data. If
+        # it survived, the retry would re-read it and every later series sharing the
+        # URL would inherit the failure.
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            initialize_database(database).close()
+            cache_key = ("https://example.com/bulk.csv", ())
+            cache_sizes: list[int] = []
+
+            def _fetch(
+                series: SeriesDefinition,
+                *,
+                start: date,
+                end: date,
+                context: FetchContext | None,
+            ) -> list[ObservationRecord]:
+                assert context is not None
+                cache_sizes.append(len(context.bytes_cache))
+                context.bytes_cache[cache_key] = b"<html>blocked</html>"
+                if series.series_id == "us.10y":
+                    raise IndicatorsProviderError("missing Time Period header")
+                return [_obs(series.series_id, date(2026, 7, 20), 4.2)]
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    side_effect=_fetch,
+                ),
+                patch("baibai_engine.macro.indicators.service.time.sleep"),
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["us.10y", "us.2y"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            # attempt 1 and its retry both start from an empty cache, and the series
+            # that follows the failure does too.
+            self.assertEqual(cache_sizes, [0, 0, 0])
+            self.assertIsInstance(outcomes[0], RefreshFailure)
+            self.assertIsInstance(outcomes[1], RefreshSuccess)
+
     def test_refresh_rejects_a_non_finite_value_before_the_store(self) -> None:
         for value in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
@@ -2421,6 +2539,11 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertIn("2 of 3 series failed to refresh", reported)
             self.assertIn("- us.2y: us.2y source unavailable", reported)
             self.assertIn("- us.30y: us.30y source unavailable", reported)
+            # A log reader that keeps only the tail must still get the failed IDs.
+            self.assertEqual(
+                reported.strip().splitlines()[-1],
+                "error: refresh failed for 2 of 3 series: us.2y, us.30y",
+            )
 
     def test_refresh_cli_requires_one_range_mode(self) -> None:
         parser = build_parser()
@@ -2751,6 +2874,23 @@ def _pmi_stream(months: list[str]) -> tuple[_Release, ...]:
             }
             for index, month in enumerate(months, start=1)
         ],
+    )
+
+
+def _pmi_stored(
+    series_id: str, releases: Sequence[_Release], values: Sequence[float]
+) -> tuple[ObservationRecord, ...]:
+    """Stored observations carrying the release URL their month names in the manifest."""
+    return tuple(
+        ObservationRecord(
+            series_id=series_id,
+            observed_at=release.observed_at,
+            value=value,
+            unit="index",
+            source_url=release.url,
+            vintage_at=datetime.now(UTC),
+        )
+        for release, value in zip(releases, values, strict=True)
     )
 
 

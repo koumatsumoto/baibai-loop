@@ -40,6 +40,17 @@ aws_s3() {
   aws s3 "$@" --endpoint-url "${endpoint}" --only-show-errors --no-progress
 }
 
+remote_object_exists() {
+  # Exact-key existence, so a sibling object (a `.bak`) never reads as the key
+  # itself the way a prefix listing would. `aws s3 ls` is not usable here: it
+  # rejects the transfer flags `aws_s3` passes and would fail for every key.
+  aws s3api head-object \
+    --bucket "${stores_bucket}" \
+    --key "$1" \
+    --endpoint-url "${endpoint}" \
+    >/dev/null 2>&1
+}
+
 store_path() {
   case "$1" in
     market.sqlite) printf '%s/data/screening/market.sqlite\n' "${repo_root}" ;;
@@ -83,9 +94,8 @@ backup_remote_key() {
   # PMI history depends on release URLs the publisher eventually drops), so an
   # overwrite by a damaged or wrongly pruned snapshot must stay recoverable. R2
   # copies server-side, so this costs a request and no transfer.
-  local key="$1" listing
-  listing="$(aws_s3 ls "s3://${stores_bucket}/${key}" || true)"
-  if [[ -n "${listing}" ]]; then
+  local key="$1"
+  if remote_object_exists "${key}"; then
     aws_s3 cp "s3://${stores_bucket}/${key}" "s3://${stores_bucket}/${key}.bak"
   fi
 }
@@ -106,10 +116,9 @@ push_keys() {
 }
 
 seed_keys() {
-  local key listing
+  local key
   for key in "$@"; do
-    listing="$(aws_s3 ls "s3://${stores_bucket}/${key}")"
-    if [[ -n "${listing}" ]]; then
+    if remote_object_exists "${key}"; then
       printf 'refusing initial seed: s3://%s/%s already exists\n' \
         "${stores_bucket}" "${key}" >&2
       return 2

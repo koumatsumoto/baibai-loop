@@ -13,11 +13,37 @@ def _fake_aws(tmp_path: Path) -> tuple[Path, Path]:
     bin_dir.mkdir()
     log = tmp_path / "aws.log"
     executable = bin_dir / "aws"
+    # Mirrors the real CLI closely enough to catch the two ways an existence check
+    # silently stops working: `aws s3 ls` rejects the transfer-only flags this
+    # script passes to `aws s3`, and a prefix listing matches sibling keys.
     executable.write_text(
         """#!/usr/bin/env bash
 printf "%s\\n" "$*" >> "$AWS_LOG"
-if [[ -n "${AWS_FAKE_EXISTING_KEY:-}" && "$*" == *"/${AWS_FAKE_EXISTING_KEY}"* ]]; then
-  printf '2026-07-22 00:00:00 1 %s\\n' "$AWS_FAKE_EXISTING_KEY"
+if [[ "$1 $2" == "s3 ls" ]]; then
+  for argument in "$@"; do
+    case "$argument" in
+      --only-show-errors|--no-progress)
+        printf 'aws: [ERROR]: An error occurred (ParamValidation): Unknown options: %s\\n' \\
+          "$argument" >&2
+        exit 252
+        ;;
+    esac
+  done
+fi
+if [[ "$1 $2" == "s3api head-object" ]]; then
+  key=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--key" ]]; then
+      key="$2"
+    fi
+    shift
+  done
+  if [[ -n "${AWS_FAKE_EXISTING_KEY:-}" && "$key" == "$AWS_FAKE_EXISTING_KEY" ]]; then
+    printf '{"ContentLength": 1}\\n'
+    exit 0
+  fi
+  printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
+  exit 254
 fi
 """,
         encoding="utf-8",
@@ -146,6 +172,27 @@ def test_initial_seed_uploads_all_stores_when_contract_keys_are_absent(tmp_path:
     assert len([command for command in commands if "s3 cp" in command]) == 4
     # Nothing is being replaced, so no generation is kept.
     assert all(".bak" not in command for command in commands)
+
+
+def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Path) -> None:
+    # A `.bak` left by an earlier push must not read as the store itself, or a
+    # recovery seed after the real key was lost would be refused.
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite.bak"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "seed-all"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert len([command for command in commands if "s3 cp" in command]) == 4
 
 
 def test_machine_store_push_is_github_actions_only(tmp_path: Path) -> None:
