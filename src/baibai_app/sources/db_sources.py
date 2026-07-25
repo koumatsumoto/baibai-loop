@@ -37,6 +37,7 @@ from baibai_engine.read_api import (
     macro_context_payload,
     macro_indicator_series,
     macro_latest_observed_at,
+    macro_reading_snapshot,
     next_earnings_dates,
     portfolio_ledger_document,
     reconcile_portfolio,
@@ -261,10 +262,17 @@ class DbMacroSource:
         app_db_path: Path,
         indicators_db_path: Path,
         groups: tuple[MacroGroupConfig, ...],
+        reading_rules_path: Path,
     ) -> None:
         self._app_db_path = app_db_path.resolve()
         self._indicators_db_path = indicators_db_path.resolve()
+        self._reading_rules_path = reading_rules_path
         self.groups = groups
+
+    def reading(self, *, asof: date) -> dict[str, object] | None:
+        return macro_reading_snapshot(
+            self._indicators_db_path, asof=asof, rules_path=self._reading_rules_path
+        )
 
     def context(self, *, as_of: date) -> dict[str, object] | None:
         return latest_macro_context_payload(self._app_db_path, as_of=as_of)

@@ -63,3 +63,62 @@ class ReadingSnapshot:
     asof: date
     rules_revision: str
     series: tuple[SeriesReading, ...]
+
+
+def snapshot_payload(snapshot: ReadingSnapshot) -> dict[str, object]:
+    """The wire form of a snapshot, shared by the CLI and the read-only API.
+
+    One serializer keeps `macro reading --format json` and the read model byte-for-byte
+    comparable, so a UI panel and a hand check are reading the same numbers.
+    """
+
+    return {
+        "asof": snapshot.asof.isoformat(),
+        "rules_revision": snapshot.rules_revision,
+        "series": [series_payload(reading) for reading in snapshot.series],
+    }
+
+
+def series_payload(reading: SeriesReading) -> dict[str, object]:
+    return {
+        "series_id": reading.series_id,
+        "name": reading.name,
+        "category": reading.category,
+        "geography": reading.geography,
+        "frequency": reading.frequency,
+        "unit": reading.unit,
+        "latest_value": reading.latest_value,
+        "observed_at": None if reading.observed_at is None else reading.observed_at.isoformat(),
+        "staleness_days": reading.staleness_days,
+        "stale": reading.stale,
+        "window_years": reading.window_years,
+        "window_observations": reading.window_observations,
+        "insufficient_history": reading.insufficient_history,
+        "percentile": reading.percentile,
+        "z_score": reading.z_score,
+        "short_trend": _trend_payload(reading.short_trend),
+        "long_trend": _trend_payload(reading.long_trend),
+        "flags": list(reading.flags),
+    }
+
+
+def _trend_payload(trend: SeriesTrend | None) -> dict[str, object] | None:
+    if trend is None:
+        return None
+    return {
+        "months": trend.months,
+        "anchor_observed_at": trend.anchor_observed_at.isoformat(),
+        "anchor_value": trend.anchor_value,
+        "change": trend.change,
+        "direction": trend.direction,
+    }
+
+
+__all__ = [
+    "ReadingSnapshot",
+    "SeriesReading",
+    "SeriesTrend",
+    "TrendDirection",
+    "series_payload",
+    "snapshot_payload",
+]

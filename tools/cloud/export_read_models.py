@@ -22,6 +22,7 @@ from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
     build_macro_context_detail,
+    build_macro_reading,
     build_meta,
     build_operations_view,
     build_screening,
@@ -84,6 +85,14 @@ def export_read_models(
     )
 
     as_of = datetime.now(_JST).date()
+    reading = build_macro_reading(stores.macro, asof=as_of)
+    if reading is None:
+        # The Macro tab degrades to hiding the panel; a missing indicator store must not
+        # fail the whole export.
+        _warn("macro reading is unavailable; views/macro-reading.json skipped")
+    else:
+        written.append(_write_model(views_dir / "macro-reading.json", reading))
+
     for period in _MACRO_PERIODS:
         for granularity in _MACRO_GRANULARITIES:
             macro = build_macro(stores.macro, as_of=as_of, period=period, granularity=granularity)

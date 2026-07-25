@@ -13,6 +13,7 @@ from baibai_app.cli import main
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.macro.indicators.definitions import load_definitions
 from tests.helpers.macro_context import macro_context_payload
 
 
@@ -129,6 +130,34 @@ def test_macro_api_rejects_unknown_period_and_granularity(app_method_root: Path)
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         assert client.get("/api/macro?period=20y").status_code == 422
         assert client.get("/api/macro?granularity=quarterly").status_code == 422
+
+
+def test_macro_reading_api_reports_every_registered_series(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/macro/reading?asof=2026-07-19")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["asof"] == "2026-07-19"
+    assert body["rules_revision"]
+    # The fixture store carries no observations, so every series reads as empty rather
+    # than as a plausible number.
+    assert len(body["series"]) == len(load_definitions().series)
+    first = body["series"][0]
+    assert first["latest_value"] is None
+    assert first["stale"] is True
+    assert first["insufficient_history"] is True
+
+
+def test_macro_reading_api_is_absent_rather_than_broken_without_an_indicator_store(
+    app_method_root: Path,
+) -> None:
+    """A missing store must let the page hide the panel, not fail the request handler."""
+
+    (app_method_root / "data/indicators/macro.sqlite").unlink()
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        assert client.get("/api/macro/reading?asof=2026-07-19").status_code == 404
 
 
 def test_macro_api_indexes_published_reports_without_full_sections(

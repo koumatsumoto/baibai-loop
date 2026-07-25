@@ -47,6 +47,7 @@ from .models import (
     MacroMaterialDeltaView,
     MacroMonitoringPointView,
     MacroPointView,
+    MacroReadingView,
     MacroResearchPriorityHintView,
     MacroRiskEnvironmentView,
     MacroScenarioView,
@@ -503,6 +504,17 @@ def build_macro(
         reports=reports,
         groups=_build_macro_groups(source, as_of=as_of, period=period, granularity=granularity),
     )
+
+
+def build_macro_reading(source: DbMacroSource, *, asof: date) -> MacroReadingView | None:
+    """Project the machine reading for the Macro tab, or None when it is unavailable.
+
+    None is a normal state (no indicator store yet), and the consumer hides the panel
+    rather than failing the page.
+    """
+
+    payload = source.reading(asof=asof)
+    return None if payload is None else MacroReadingView.model_validate(payload)
 
 
 def build_macro_context_detail(

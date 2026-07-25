@@ -10,11 +10,58 @@ from typing import Literal
 
 from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
 from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
+from baibai_engine.macro.indicators import db as indicators_db
 from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.macro.reading.compute import compute_reading
+from baibai_engine.macro.reading.models import snapshot_payload
+from baibai_engine.macro.reading.rules import (
+    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
+)
+from baibai_engine.macro.reading.rules import (
+    ReadingRulesError,
+    load_reading_rules,
+    rules_revision,
+)
 
 from .sqlite import connect_read_only
 
 type MacroGranularity = Literal["daily", "weekly", "monthly", "yearly"]
+
+
+def macro_reading_snapshot(
+    path: Path,
+    *,
+    asof: date,
+    rules_path: Path = MACRO_READING_RULES_PATH,
+) -> dict[str, object] | None:
+    """Compute the L2 reading from the indicator store, or None when it is unavailable.
+
+    The reading is a pure function of the store, the rules revision and the as-of date,
+    so a read-only consumer recomputes it instead of depending on a stored snapshot. A
+    missing store or unreadable rules yields None so a consumer degrades to hiding the
+    panel rather than failing the whole view.
+    """
+
+    if not path.is_file():
+        return None
+    try:
+        rules = load_reading_rules(rules_path)
+    except ReadingRulesError:
+        return None
+    connection = connect_read_only(path)
+    try:
+        snapshot = compute_reading(
+            series=indicators_db.list_series(connection),
+            reader=lambda series_id, start, end: indicators_db.observations_in_range(
+                connection, series_id, start, end
+            ),
+            rules=rules,
+            rules_revision=rules_revision(rules_path),
+            asof=asof,
+        )
+    finally:
+        connection.close()
+    return snapshot_payload(snapshot)
 
 
 def macro_series_names() -> dict[str, str]:
@@ -203,10 +250,12 @@ __all__ = [
     # Re-exported so read-only consumers judge report freshness by the same policy the
     # engine's own consumers use, rather than keeping a second copy of the threshold.
     "MACRO_CONTEXT_STALE_DAYS",
+    "MACRO_READING_RULES_PATH",
     "MacroGranularity",
     "latest_macro_context_payload",
     "list_macro_context_payloads",
     "macro_context_payload",
     "macro_indicator_series",
+    "macro_reading_snapshot",
     "macro_series_names",
 ]

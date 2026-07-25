@@ -424,6 +424,47 @@ class MacroContextRevisionView(BaseModel):
     stale: bool
 
 
+class MacroReadingTrendView(BaseModel):
+    months: int
+    anchor_observed_at: date
+    anchor_value: float
+    change: float
+    direction: str
+
+
+class MacroReadingSeriesView(BaseModel):
+    series_id: str
+    name: str
+    category: str
+    geography: str
+    frequency: str
+    unit: str
+    latest_value: float | None
+    observed_at: date | None
+    staleness_days: int | None
+    stale: bool
+    window_years: int
+    window_observations: int
+    insufficient_history: bool
+    percentile: float | None
+    z_score: float | None
+    short_trend: MacroReadingTrendView | None
+    long_trend: MacroReadingTrendView | None
+    flags: list[str]
+
+
+class MacroReadingView(BaseModel):
+    """The machine reading of every registered series for one as-of date.
+
+    A projection of the L2 reading, recomputed from the indicator store; the panel it
+    feeds is a display of that reading and not a second canonical artifact.
+    """
+
+    asof: date
+    rules_revision: str
+    series: list[MacroReadingSeriesView]
+
+
 class MacroPointView(BaseModel):
     observed_at: date
     value: float
