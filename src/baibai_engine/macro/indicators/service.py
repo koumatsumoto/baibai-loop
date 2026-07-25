@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import assert_never
 from zoneinfo import ZoneInfo
 
 from . import db
@@ -15,6 +16,7 @@ from .definitions import SeriesDefinition
 from .providers import (
     FetchContext,
     IndicatorsProviderError,
+    RangeReplacementPolicy,
     fetch_observations,
     provider_spec,
 )
@@ -221,7 +223,7 @@ class IndicatorsService:
             context=context,
             trim_before_first=spec.trim_before_first,
             remove_other_sources=True,
-            replace_requested_range=spec.replace_requested_range,
+            range_replacement=spec.range_replacement_for(series),
             require_observations=True,
         )
         ordered = sorted(observations, key=lambda item: item.observed_at)
@@ -270,7 +272,7 @@ class IndicatorsService:
         context: FetchContext,
         trim_before_first: bool = False,
         remove_other_sources: bool = False,
-        replace_requested_range: bool = False,
+        range_replacement: RangeReplacementPolicy = "none",
         require_observations: bool = False,
     ) -> list[ObservationRecord]:
         started_at = datetime.now(UTC)
@@ -283,6 +285,14 @@ class IndicatorsService:
                     f"all-history refresh returned no observations for {series.series_id}"
                 )
             _reject_non_finite(series, observations)
+            if range_replacement == "all_vintages":
+                _require_complete_replacement(
+                    conn,
+                    series,
+                    start=start,
+                    end=end,
+                    observations=observations,
+                )
             if trim_before_first and observations:
                 # FRED's current licensed delivery window defines reproducible
                 # all-history coverage for a series.
@@ -303,18 +313,29 @@ class IndicatorsService:
                         end.isoformat(),
                     ),
                 )
-            if replace_requested_range and observations:
+            if range_replacement != "none" and observations:
                 first_observed_at = min(item.observed_at for item in observations)
-                conn.execute(
-                    "DELETE FROM observations WHERE series_id = ? "
-                    "AND observed_at BETWEEN ? AND ? AND substr(vintage_at, 1, 10) <= ?",
-                    (
-                        series.series_id,
-                        min(start, first_observed_at).isoformat(),
-                        end.isoformat(),
-                        end.isoformat(),
-                    ),
-                )
+                replacement_start = min(start, first_observed_at).isoformat()
+                if range_replacement == "through_end_vintage":
+                    conn.execute(
+                        "DELETE FROM observations WHERE series_id = ? "
+                        "AND observed_at BETWEEN ? AND ? "
+                        "AND substr(vintage_at, 1, 10) <= ?",
+                        (
+                            series.series_id,
+                            replacement_start,
+                            end.isoformat(),
+                            end.isoformat(),
+                        ),
+                    )
+                elif range_replacement == "all_vintages":
+                    conn.execute(
+                        "DELETE FROM observations WHERE series_id = ? "
+                        "AND observed_at BETWEEN ? AND ?",
+                        (series.series_id, replacement_start, end.isoformat()),
+                    )
+                else:  # pragma: no cover - exhaustiveness guard over the policy literal
+                    assert_never(range_replacement)
             db.insert_observations(conn, observations)
             db.delete_unchanged_vintages(conn, series.series_id)
             db.record_provider_run(
@@ -407,6 +428,52 @@ def _provider_run_coverage_end(
     if series.frequency == "daily" and observations:
         return min(requested_end, max(item.observed_at for item in observations))
     return requested_end
+
+
+def _require_complete_replacement(
+    conn: sqlite3.Connection,
+    series: SeriesDefinition,
+    *,
+    start: date,
+    end: date,
+    observations: list[ObservationRecord],
+) -> None:
+    """Reject a destructive rebuild that drops a previously represented period.
+
+    A formula may intentionally change the date inside a declared month or quarter,
+    so replacement coverage is compared at the registry cadence rather than by exact
+    ``observed_at``. Missing periods indicate that the candidate was built from a
+    partial input store; keeping the existing rows is safer than committing a shorter
+    history as a successful all-history rebuild.
+    """
+
+    existing = db.observations_in_range(conn, series.series_id, start, end)
+    if not existing:
+        return
+    candidate_periods = {
+        _declared_period(item.observed_at, frequency=series.frequency) for item in observations
+    }
+    missing = sorted(
+        {_declared_period(item.observed_at, frequency=series.frequency) for item in existing}
+        - candidate_periods
+    )
+    if missing:
+        raise IndicatorsProviderError(
+            f"{series.series_id} rebuild would drop {len(missing)} existing "
+            f"{series.frequency} period(s), starting at {missing[0]}; "
+            "refresh complete inputs before replacing derived history"
+        )
+
+
+def _declared_period(observed_at: date, *, frequency: str) -> str:
+    if frequency == "monthly":
+        return observed_at.strftime("%Y-%m")
+    if frequency == "quarterly":
+        return f"{observed_at.year}-Q{(observed_at.month - 1) // 3 + 1}"
+    if frequency == "weekly":
+        iso_year, iso_week, _ = observed_at.isocalendar()
+        return f"{iso_year}-W{iso_week:02d}"
+    return observed_at.isoformat()
 
 
 def _fetch_observations_with_retry(

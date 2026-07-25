@@ -1220,12 +1220,16 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         assert value is not None
         self.assertAlmostEqual(value, 0.02, places=3)
 
+    def test_derived_us_erp_uses_monthly_alignment(self) -> None:
+        self.assertEqual(FORMULAS["us.erp"].alignment, "monthly")
+        self.assertEqual(FORMULAS["us.erp"].monthly_observation_date, "latest_input")
+
     def test_derived_provider_monthly_alignment_uses_month_end_of_daily_input(self) -> None:
         series = _series("derived", "jp.real_10y_proxy", unit="percent", frequency="monthly")
         store: dict[str, tuple[ObservationRecord, ...]] = {
             "jp.10y": (
                 _obs("jp.10y", date(2026, 5, 1), 1.50),
-                _obs("jp.10y", date(2026, 5, 29), 1.58),  # May month-end reading
+                _obs("jp.10y", date(2026, 5, 29), 1.58),
                 _obs("jp.10y", date(2026, 6, 1), 1.60),
                 _obs("jp.10y", date(2026, 6, 30), 1.62),  # June month-end reading
             ),
@@ -1244,11 +1248,30 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             context=context,
         )
 
-        # Each month pairs the month-end nominal yield with that month's core-CPI
-        # YoY and emits the proxy at the first of the month.
+        # The existing real-yield proxy keeps its canonical month-start grid.
         self.assertEqual(
             [(obs.observed_at, round(obs.value, 3)) for obs in observations],
             [(date(2026, 5, 1), 0.08), (date(2026, 6, 1), 0.02)],
+        )
+
+    def test_us_erp_monthly_alignment_uses_latest_input_date(self) -> None:
+        series = _series("derived", "us.erp", unit="percent", frequency="monthly")
+        store: dict[str, tuple[ObservationRecord, ...]] = {
+            "us.sp500_earnings_yield": (_obs("us.sp500_earnings_yield", date(2026, 5, 1), 5.0),),
+            "us.10y": (_obs("us.10y", date(2026, 5, 29), 4.0),),
+        }
+
+        observations = DerivedProvider().fetch(
+            series,
+            start=date(2026, 5, 1),
+            end=date(2026, 5, 31),
+            session=cast(HttpSession, object()),
+            context=FetchContext(store_reader=lambda sid, s, e: store[sid]),
+        )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 5, 29), 1.0)],
         )
 
     def test_derived_provider_monthly_alignment_skips_month_missing_an_input(self) -> None:
@@ -2379,6 +2402,102 @@ class IndicatorsServiceTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(first, "1950-01-01")
 
+    def test_derived_full_history_refresh_replaces_the_previous_alignment_grid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_observation(
+                database,
+                "us.erp",
+                observed_at=date(2026, 1, 2),
+                value=-0.5,
+                vintage_at=datetime(2026, 7, 26, tzinfo=UTC),
+            )
+            definition = load_definitions().by_id()["us.erp"]
+            rebuilt = ObservationRecord(
+                series_id="us.erp",
+                observed_at=date(2026, 1, 30),
+                value=-0.4,
+                unit=definition.unit,
+                source_url=definition.source_url,
+                vintage_at=datetime.now(UTC),
+            )
+
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                return_value=[rebuilt],
+            ):
+                IndicatorsService(database).refresh_all_history(
+                    "us.erp",
+                    end=date(2026, 6, 30),
+                )
+
+            conn = open_connection(database)
+            try:
+                rows = conn.execute(
+                    "SELECT observed_at, value FROM observations WHERE series_id = ? "
+                    "ORDER BY observed_at",
+                    ("us.erp",),
+                ).fetchall()
+            finally:
+                conn.close()
+
+            self.assertEqual(
+                [(row["observed_at"], row["value"]) for row in rows],
+                [("2026-01-30", -0.4)],
+            )
+
+    def test_derived_full_history_refresh_rejects_period_coverage_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            for observed_at, value in (
+                (date(2020, 1, 2), -0.5),
+                (date(2025, 1, 2), -0.6),
+            ):
+                _write_observation(database, "us.erp", observed_at=observed_at, value=value)
+            definition = load_definitions().by_id()["us.erp"]
+            partial = ObservationRecord(
+                series_id="us.erp",
+                observed_at=date(2026, 1, 30),
+                value=-0.4,
+                unit=definition.unit,
+                source_url=definition.source_url,
+                vintage_at=datetime(2026, 2, 1, tzinfo=UTC),
+            )
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[partial],
+                ),
+                self.assertRaisesRegex(IndicatorsProviderError, "would drop 2 existing monthly"),
+            ):
+                IndicatorsService(database).refresh_all_history(
+                    "us.erp",
+                    end=date(2026, 6, 30),
+                )
+
+            conn = open_connection(database)
+            try:
+                rows = conn.execute(
+                    "SELECT observed_at, value FROM observations WHERE series_id = ? "
+                    "ORDER BY observed_at",
+                    ("us.erp",),
+                ).fetchall()
+                latest_run = conn.execute(
+                    "SELECT status FROM provider_runs WHERE series_id = ? "
+                    "ORDER BY finished_at DESC LIMIT 1",
+                    ("us.erp",),
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(
+                [(row["observed_at"], row["value"]) for row in rows],
+                [("2020-01-02", -0.5), ("2025-01-02", -0.6)],
+            )
+            assert latest_run is not None
+            self.assertEqual(latest_run["status"], "failed")
+
     def test_repeated_range_refresh_is_idempotent_for_unchanged_data(self) -> None:
         # Mirrors the daily batch re-running the same rolling window: a provider
         # stamps a fresh now() vintage on every fetch, yet the store must
@@ -3169,6 +3288,37 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(result.observations[0].observed_at, today - timedelta(days=1))
             self.assertEqual(result.observations[0].value, 2.8)
 
+    def test_multpl_latest_keeps_daily_refresh_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            today = datetime.now(UTC).date()
+            _write_observation(
+                database,
+                "us.sp500_cape",
+                observed_at=today - timedelta(days=2),
+                value=39.0,
+            )
+            definition = load_definitions().by_id()["us.sp500_cape"]
+            current = ObservationRecord(
+                series_id=definition.series_id,
+                observed_at=today,
+                value=39.5,
+                unit=definition.unit,
+                source_url=definition.source_url,
+                vintage_at=datetime.now(UTC),
+            )
+
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                return_value=[current],
+            ) as fetch:
+                result = IndicatorsService(database).get_latest("us.sp500_cape")
+
+            self.assertEqual(definition.frequency, "daily")
+            self.assertFalse(result.cache_hit)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(result.observations[0].value, 39.5)
+
     def test_cli_search_and_cached_get(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
@@ -3348,6 +3498,7 @@ def _write_observation(
     *,
     observed_at: date,
     value: float,
+    vintage_at: datetime | None = None,
 ) -> None:
     conn = initialize_database(db)
     try:
@@ -3361,7 +3512,7 @@ def _write_observation(
                     value=value,
                     unit=series.unit,
                     source_url=series.source_url,
-                    vintage_at=datetime.now(UTC),
+                    vintage_at=vintage_at or datetime.now(UTC),
                 )
             ],
         )

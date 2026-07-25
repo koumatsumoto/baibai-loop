@@ -6,6 +6,7 @@ from .base import (
     IndicatorsProviderError,
     MacroDataProvider,
     ProviderSpec,
+    RangeReplacementPolicy,
 )
 from .boj import parse_boj_xlsx
 from .boj_timeseries import parse_boj_timeseries_json
@@ -32,6 +33,7 @@ __all__ = [
     "IndicatorsProviderError",
     "MacroDataProvider",
     "ProviderSpec",
+    "RangeReplacementPolicy",
     "fetch_observations",
     "parse_boj_timeseries_json",
     "parse_boj_xlsx",

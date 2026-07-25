@@ -282,6 +282,111 @@ def test_percentile_and_z_score_match_the_window_statistics() -> None:
     )
 
 
+def test_monthly_reading_counts_one_statistic_point_per_calendar_month() -> None:
+    definition = _definition("test.mixed_monthly", frequency="monthly")
+    points = [
+        (date(2016, 7, 29), -1.0),
+        *_decade_of_monthly_points(date(2026, 7, 1)),
+        (date(2026, 7, 2), 120.0),
+        (date(2026, 7, 24), 121.0),
+    ]
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.window_observations == 120
+    assert reading.expected_observations == 120
+    assert reading.latest_value == 121.0
+    assert reading.statistic_value == 121.0
+    assert reading.percentile == 1.0
+
+
+def test_daily_source_can_use_a_monthly_statistic_sample() -> None:
+    definition = _definition("test.daily_source_monthly_sample", frequency="daily")
+    points = [
+        *_decade_of_monthly_points(date(2026, 7, 1)),
+        (date(2026, 7, 2), 120.0),
+        (date(2026, 7, 24), 121.0),
+    ]
+    rules = load_reading_rules(DEFAULT_RULES_PATH).model_copy(
+        update={
+            "overrides": {
+                definition.series_id: SeriesOverride(sampling_cadence="monthly"),
+            }
+        }
+    )
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, points)),
+        rules=rules,
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.frequency == "daily"
+    assert reading.window_observations == 120
+    assert reading.expected_observations == 120
+    assert reading.latest_value == 121.0
+
+
+def test_quarterly_reading_counts_one_statistic_point_per_calendar_quarter() -> None:
+    definition = _definition("test.mixed_quarterly", frequency="quarterly")
+    last_quarter = 2026 * 4 + 2
+    points = [
+        (
+            date((last_quarter - offset) // 4, ((last_quarter - offset) % 4) * 3 + 1, 1),
+            float(39 - offset),
+        )
+        for offset in reversed(range(40))
+    ]
+    points.extend(((date(2026, 7, 2), 40.0), (date(2026, 7, 24), 41.0)))
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.window_observations == 40
+    assert reading.expected_observations == 40
+    assert reading.statistic_value == 41.0
+
+
+def test_daily_reading_keeps_every_stored_statistic_point() -> None:
+    definition = _definition("test.mixed_daily", frequency="daily")
+    points = [
+        *_decade_of_monthly_points(date(2026, 7, 1)),
+        (date(2026, 7, 2), 120.0),
+        (date(2026, 7, 24), 121.0),
+    ]
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.window_observations == 122
+    assert reading.expected_observations is None
+
+
 def test_percentile_ranks_the_year_on_year_change_where_the_level_only_sets_records() -> None:
     """The point of the transform: a series that keeps rising has no position in its level.
 

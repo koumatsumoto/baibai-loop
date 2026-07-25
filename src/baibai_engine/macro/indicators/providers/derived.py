@@ -13,7 +13,12 @@ from .base import (
     ProviderSpec,
     record_observation,
 )
-from .formulas import FORMULAS, DerivedComputationError, DerivedFormula
+from .formulas import (
+    FORMULAS,
+    DerivedComputationError,
+    DerivedFormula,
+    MonthlyObservationDate,
+)
 
 
 class DerivedProvider:
@@ -32,7 +37,15 @@ class DerivedProvider:
     # therefore set before any base series begins, so `--all-history` recomputes the
     # whole overlap instead of refusing (without it, a derived series could never be
     # rebuilt and would stay as shallow as the last rolling window).
-    spec = ProviderSpec(name="derived", kind="local", all_history_start=date(1970, 1, 1))
+    spec = ProviderSpec(
+        name="derived",
+        kind="local",
+        all_history_start=date(1970, 1, 1),
+        # A rebuild of a formula whose alignment changes recomputes its complete
+        # overlap and replaces the old grid. Other formulas keep ordinary
+        # append/revision semantics and are not exposed to destructive replacement.
+        range_replacement_overrides={"us.erp": "all_vintages"},
+    )
     name = spec.name
 
     def fetch(
@@ -76,7 +89,9 @@ class DerivedProvider:
             if len(aligned) != len(formula.inputs):
                 continue
             try:
-                value = formula.evaluate(aligned)
+                value = formula.evaluate(
+                    {input_id: observation.value for input_id, observation in aligned.items()}
+                )
             except DerivedComputationError as exc:
                 raise IndicatorsProviderError(
                     f"derived series {series.series_id} {observed_at}: {exc}"
@@ -89,35 +104,41 @@ class DerivedProvider:
 
 def _align(
     formula: DerivedFormula, inputs: Mapping[str, Sequence[ObservationRecord]]
-) -> dict[date, dict[str, float]]:
-    """Pair input observations into ``observed_at -> {input_id: value}`` bundles."""
+) -> dict[date, dict[str, ObservationRecord]]:
+    """Pair input observations into dated bundles without losing availability."""
     match formula.alignment:
         case "exact":
             return _align_exact(inputs)
         case "monthly":
-            return _align_monthly(inputs)
+            return _align_monthly(
+                inputs,
+                observation_date=formula.monthly_observation_date,
+            )
         case _:  # pragma: no cover - exhaustiveness guard over the Alignment literal
             assert_never(formula.alignment)
 
 
 def _align_exact(
     inputs: Mapping[str, Sequence[ObservationRecord]],
-) -> dict[date, dict[str, float]]:
-    by_date: dict[date, dict[str, float]] = {}
+) -> dict[date, dict[str, ObservationRecord]]:
+    by_date: dict[date, dict[str, ObservationRecord]] = {}
     for input_id, observations in inputs.items():
         for observation in observations:
-            by_date.setdefault(observation.observed_at, {})[input_id] = observation.value
+            by_date.setdefault(observation.observed_at, {})[input_id] = observation
     return by_date
 
 
 def _align_monthly(
     inputs: Mapping[str, Sequence[ObservationRecord]],
-) -> dict[date, dict[str, float]]:
+    *,
+    observation_date: MonthlyObservationDate,
+) -> dict[date, dict[str, ObservationRecord]]:
     # Fold each input to one value per calendar month (its latest observed_at in
-    # that month, i.e. the month-end reading for a daily input) and key the
-    # bundle at the first of the month, so the output shares the monthly
-    # observed_at grid of the lowest-frequency input.
-    by_date: dict[date, dict[str, float]] = {}
+    # that month, i.e. the month-end reading for a daily input). The output date
+    # is the latest selected input date, so a month-end value is never backdated
+    # to the first of its month. ``vintage_at`` separately carries when every
+    # selected input became available.
+    by_period: dict[tuple[int, int], dict[str, ObservationRecord]] = {}
     for input_id, observations in inputs.items():
         latest_in_month: dict[tuple[int, int], ObservationRecord] = {}
         for observation in observations:
@@ -126,5 +147,10 @@ def _align_monthly(
             if current is None or observation.observed_at > current.observed_at:
                 latest_in_month[key] = observation
         for (year, month), observation in latest_in_month.items():
-            by_date.setdefault(date(year, month, 1), {})[input_id] = observation.value
-    return by_date
+            by_period.setdefault((year, month), {})[input_id] = observation
+    if observation_date == "latest_input":
+        return {
+            max(observation.observed_at for observation in aligned.values()): aligned
+            for aligned in by_period.values()
+        }
+    return {date(year, month, 1): aligned for (year, month), aligned in by_period.items()}
