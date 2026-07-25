@@ -90,7 +90,7 @@ tools/cloud/r2_transfer.sh push-macro
 gh workflow run cloud-materialize.yml --ref main
 ```
 
-`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeは全tableを主キーで`INSERT OR IGNORE`し、target側にある行はtargetの値を残す（series定義は現registry由来のものを保つ）。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`market.sqlite` / `runs.sqlite`はcloudが唯一のwriterなので`push-macro`は触らない。
+`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeの対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`し、target側にある行はtargetの値を残す。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`series` / `aliases`はstoreを開くたびにseries registryから作り直される（registryから消えたseriesはobservations・provider_runsごと削除される）ため、targetの内容を正としてmergeしない。registryが定義しないseriesのrowはskip件数として報告する（そのseriesは退役済みで、carryしても次にstoreを開いた時点で消えるため）。`market.sqlite` / `runs.sqlite`はcloudが唯一のwriterなので`push-macro`は触らない。
 
 decision-cycleやmacro分析を始める前に、クラウド正本のmachine storeをローカルへ取得する。
 

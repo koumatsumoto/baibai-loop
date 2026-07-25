@@ -1,13 +1,20 @@
-"""Merge one indicator store into another, keeping every row both sides hold.
+"""Merge one indicator store into another, keeping every observation both sides hold.
 
 The indicator store has two writers: the daily batch refreshes a rolling window in the
 cloud, and an operator deepens history locally with ``macro refresh --all-history``. Each
 therefore holds observations the other has never seen, so publishing the local store means
 merging the cloud copy into it first and proving that nothing cloud-side is left behind.
 
-Every table is keyed, so the merge is an ``INSERT OR IGNORE`` per table: a row the target
-already has keeps the target's version (its series definitions come from the current
-registry), and a row only the source has is added verbatim with its vintage.
+Only the tables that accumulate facts are merged. ``series`` and ``aliases`` are rebuilt from
+the series registry every time a store is opened — and opening also deletes the observations
+and provider runs of a series the registry no longer defines — so merging them would carry
+rows the next open deletes again, while publishing them would keep a retired series alive in
+the cloud copy forever. The registry is therefore the authority for what a store may hold,
+and source rows for a series it does not define are reported as skipped rather than carried.
+
+Facts are keyed, so the merge is an ``INSERT OR IGNORE`` per table: a row the target already
+has keeps the target's version, and a row only the source has is added verbatim with its
+vintage.
 """
 
 from __future__ import annotations
@@ -22,13 +29,17 @@ from pathlib import Path
 
 from baibai_engine.macro.indicators.db import SQLITE_SCHEMA_VERSION
 
-# Series first: every other table references it, and the merge runs with foreign keys on.
-MERGE_KEYS: Mapping[str, tuple[str, ...]] = {
-    "series": ("series_id",),
-    "aliases": ("alias", "series_id"),
+# The tables that accumulate facts, with the key that decides whether a row is the same row.
+FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "observations": ("series_id", "observed_at", "vintage_at"),
     "provider_runs": ("run_id",),
 }
+# The tables the registry owns: rebuilt on open, so the target's version is the only one.
+REGISTRY_TABLES: tuple[str, ...] = ("series", "aliases")
+
+# A row is only carried when the target's registry defines its series, which is what keeps a
+# retired series out of the published store.
+_REGISTERED = 'series_id IN (SELECT series_id FROM main."series")'
 
 
 class MergeError(RuntimeError):
@@ -41,29 +52,42 @@ class TableMerge:
     source_rows: int
     target_rows_before: int
     inserted: int
+    skipped: int
     target_rows_after: int
 
 
 @dataclass(frozen=True, slots=True)
 class MergeReport:
     tables: tuple[TableMerge, ...]
+    retired_series: tuple[str, ...] = ()
 
     @property
     def inserted(self) -> int:
         return sum(item.inserted for item in self.tables)
 
+    @property
+    def skipped(self) -> int:
+        return sum(item.skipped for item in self.tables)
+
     def render(self) -> str:
-        lines = [f"{'table':16}{'source':>10}{'target':>10}{'inserted':>10}{'result':>10}"]
+        lines = [
+            f"{'table':16}{'source':>10}{'target':>10}{'inserted':>10}{'skipped':>9}{'result':>10}"
+        ]
         for item in self.tables:
             lines.append(
                 f"{item.table:16}{item.source_rows:>10}{item.target_rows_before:>10}"
-                f"{item.inserted:>10}{item.target_rows_after:>10}"
+                f"{item.inserted:>10}{item.skipped:>9}{item.target_rows_after:>10}"
+            )
+        if self.retired_series:
+            lines.append(
+                "skipped rows belong to series the registry no longer defines: "
+                + ", ".join(self.retired_series)
             )
         return "\n".join(lines)
 
 
 def merge_stores(source: Path, target: Path) -> MergeReport:
-    """Insert every source row the target lacks, and verify none is left behind."""
+    """Insert every source fact the target lacks, and verify none is left behind."""
 
     for path in (source, target):
         if not path.is_file():
@@ -78,13 +102,14 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
-                tables = tuple(_merge_table(connection, table) for table in MERGE_KEYS)
+                retired = _retired_series(connection)
+                tables = tuple(_merge_table(connection, table) for table in FACT_KEYS)
                 violations = connection.execute("PRAGMA foreign_key_check").fetchall()
                 if violations:
                     raise MergeError(f"merge would break foreign keys: {violations[:3]}")
                 left_behind = {
                     table: remaining
-                    for table in MERGE_KEYS
+                    for table in FACT_KEYS
                     if (remaining := _source_only_rows(connection, table))
                 }
                 if left_behind:
@@ -92,7 +117,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                         f"source rows are still missing after the merge: {left_behind}"
                     )
                 connection.commit()
-                return MergeReport(tables=tables)
+                return MergeReport(tables=tables, retired_series=retired)
             except BaseException:
                 connection.rollback()
                 raise
@@ -103,26 +128,40 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
 def _merge_table(connection: sqlite3.Connection, table: str) -> TableMerge:
     source_rows = _count(connection, f'SELECT count(*) FROM source."{table}"')
     before = _count(connection, f'SELECT count(*) FROM main."{table}"')
-    connection.execute(f'INSERT OR IGNORE INTO main."{table}" SELECT * FROM source."{table}"')
+    skipped = _count(connection, f'SELECT count(*) FROM source."{table}" WHERE NOT {_REGISTERED}')
+    connection.execute(
+        f'INSERT OR IGNORE INTO main."{table}" SELECT * FROM source."{table}" WHERE {_REGISTERED}'
+    )
     after = _count(connection, f'SELECT count(*) FROM main."{table}"')
     return TableMerge(
         table=table,
         source_rows=source_rows,
         target_rows_before=before,
         inserted=after - before,
+        skipped=skipped,
         target_rows_after=after,
     )
 
 
 def _source_only_rows(connection: sqlite3.Connection, table: str) -> int:
     match = " AND ".join(
-        f'main."{table}".{key} = source."{table}".{key}' for key in MERGE_KEYS[table]
+        f'main."{table}".{key} = source."{table}".{key}' for key in FACT_KEYS[table]
     )
     return _count(
         connection,
-        f'SELECT count(*) FROM source."{table}" WHERE NOT EXISTS ('
+        f'SELECT count(*) FROM source."{table}" WHERE {_REGISTERED} AND NOT EXISTS ('
         f'SELECT 1 FROM main."{table}" WHERE {match})',
     )
+
+
+def _retired_series(connection: sqlite3.Connection) -> tuple[str, ...]:
+    """Series the source carries facts for that the target's registry does not define."""
+
+    union = " UNION ".join(
+        f'SELECT DISTINCT series_id FROM source."{table}" WHERE NOT {_REGISTERED}'
+        for table in FACT_KEYS
+    )
+    return tuple(str(row[0]) for row in connection.execute(f"{union} ORDER BY series_id"))
 
 
 def _require_schema(connection: sqlite3.Connection, *, path: Path, schema: str = "main") -> None:
@@ -137,7 +176,7 @@ def _require_schema(connection: sqlite3.Connection, *, path: Path, schema: str =
 def _require_identical_columns(connection: sqlite3.Connection) -> None:
     """The merge selects whole rows, so column order must match on both sides."""
 
-    for table in MERGE_KEYS:
+    for table in (*FACT_KEYS, *REGISTRY_TABLES):
         if _columns(connection, table, schema="main") != _columns(
             connection, table, schema="source"
         ):
