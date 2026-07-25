@@ -16,9 +16,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.foundation.yaml_io import strict_safe_load
 
-DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-25T180000+0900.yaml")
+DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-25T190000+0900.yaml")
 
 type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
 
@@ -135,8 +135,18 @@ class ResolvedRule(_StrictModel):
 
 
 def load_reading_rules(path: Path = DEFAULT_RULES_PATH) -> ReadingRules:
+    """Load a revision, rejecting a file that names the same series twice.
+
+    A series is overridden for several unrelated reasons (its window, its statistic, its
+    publication lag), so a second entry for one series is an easy edit to make. Plain YAML
+    would keep the last one and silently drop the settings above it, which reads as a rule
+    that was applied.
+    """
+
     try:
-        raw = safe_load(path.read_text(encoding="utf-8"))
+        raw = strict_safe_load(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ReadingRulesError(f"invalid macro reading rules: {path}: {exc}") from exc
     except OSError as exc:
         raise ReadingRulesError(f"failed to read macro reading rules: {path}: {exc}") from exc
     if not isinstance(raw, Mapping):
