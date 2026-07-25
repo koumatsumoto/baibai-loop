@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatNumber, formatPct } from '../lib/format'
 import { LABEL } from '../lib/labels'
-import { EXTREME_Z_SCORE, failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary, statisticName, type ReadingHealth } from '../lib/macro'
+import { EXTREME_Z_SCORE, readingCategories, readingExtremes, readingHealth, readingStatistics, seriesWindowSummary, statisticName, type ReadingExtreme, type ReadingHealth } from '../lib/macro'
 import { cn } from '../lib/utils'
 
 type MacroPeriod = MacroView['period']
@@ -135,15 +135,28 @@ function FetchHealthList({ failed }: { failed: readonly MacroSeriesFetchHealthVi
   )
 }
 
-function DataHealthCard({ health, failed }: { health: ReadingHealth; failed: readonly MacroSeriesFetchHealthView[] }) {
+function DataHealthCard({ health }: { health: ReadingHealth }) {
+  // Only acquisition problems live here: each of the three breaks what a percentile means.
+  // With none of them present the card says so in one line instead of showing three empty
+  // lists, so an actual problem is the only thing that takes up space.
+  if (health.clear) {
+    return (
+      <Card className="gap-2 py-5 shadow-sm">
+        <CardHeader className="px-5">
+          <CardTitle aria-level={3} role="heading">データ健全性 · 問題なし</CardTitle>
+          <CardDescription>取得失敗・stale・履歴不足はいずれも 0 件。percentile と z はそのまま読める。</CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
   return (
     <Card className="gap-4 py-5 shadow-sm">
       <CardHeader className="px-5">
-        <CardTitle aria-level={3} role="heading">データ健全性 · 取得失敗 {failed.length} 件 / stale {health.stale.length} 件 / 履歴不足 {health.insufficientHistory.length} 件 / 異常値の疑い {health.extremeZ.length} 件</CardTitle>
-        <CardDescription>いずれも値の否定ではなく、読む前に確認する注記である。</CardDescription>
+        <CardTitle aria-level={3} role="heading">データ健全性 · 取得失敗 {health.failedFetches.length} 件 / stale {health.stale.length} 件 / 履歴不足 {health.insufficientHistory.length} 件</CardTitle>
+        <CardDescription>いずれも取得側の問題で、percentile と z の解釈可能性を壊す。値の否定ではない。</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-3 px-5 lg:grid-cols-2 xl:grid-cols-4">
-        <FetchHealthList failed={failed} />
+      <CardContent className="grid gap-3 px-5 lg:grid-cols-3">
+        <FetchHealthList failed={health.failedFetches} />
         <HealthList
           detail={(series) => `${series.observed_at ?? EMPTY}・${series.staleness_days ?? EMPTY} 日前（閾値 ${series.staleness_warn_days} 日）`}
           note="観測が閾値より古い。provider の無音の停止を疑う合図。"
@@ -156,12 +169,40 @@ function DataHealthCard({ health, failed }: { health: ReadingHealth; failed: rea
           series={health.insufficientHistory}
           title="履歴不足"
         />
-        <HealthList
-          detail={(series) => `z ${series.z_score === null ? EMPTY : fmtValue(series.z_score)}`}
-          note={`|z| ≥ ${EXTREME_Z_SCORE}。異常値の疑い（誤値または真の極値）で、どちらかは一次情報と突き合わせて判断する。`}
-          series={health.extremeZ}
-          title="異常値の疑い"
-        />
+      </CardContent>
+    </Card>
+  )
+}
+
+function ExtremeCard({ extremes }: { extremes: readonly ReadingExtreme[] }) {
+  // Not a health classification: a series at the edge of its distribution is what the
+  // reading is for, and calling it "suspect" would file the panel's most important
+  // observations as defects.
+  return (
+    <Card className="gap-3 py-5 shadow-sm">
+      <CardHeader className="px-5">
+        <CardTitle aria-level={3} role="heading">分布の端 · {extremes.length} 系列</CardTitle>
+        <CardDescription>|z| ≥ {EXTREME_Z_SCORE}。実効窓の分布の端にいるという読み値そのもので、値の否定ではない。誤値でないことは L3 が一次情報と突き合わせて確認する。</CardDescription>
+      </CardHeader>
+      <CardContent className="px-5">
+        {extremes.length === 0
+          ? <p className="text-sm text-muted-foreground">該当なし</p>
+          : (
+            <ul className="grid gap-1">
+              {extremes.map(({ series, zScore }) => (
+                <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5" key={series.series_id}>
+                  <span className="text-sm font-medium">{series.name}</span>
+                  <span className="font-mono text-xs text-muted-foreground tabular-nums">{series.series_id}</span>
+                  <span className="font-mono text-xs tabular-nums">
+                    {statisticName(series.statistic)} {series.statistic_value === null ? EMPTY : fmtValue(series.statistic_value)}
+                    {series.statistic_unit === 'percent' ? '%' : ''}
+                    {' · '}percentile {series.percentile === null ? EMPTY : formatPct(series.percentile * 100)}
+                    {' · '}z {fmtValue(zScore)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
       </CardContent>
     </Card>
   )
@@ -169,7 +210,7 @@ function DataHealthCard({ health, failed }: { health: ReadingHealth; failed: rea
 
 function ReadingPanel({ reading }: { reading: MacroReadingView }) {
   const series = reading.series ?? []
-  const health = readingHealth(series)
+  const health = readingHealth(series, reading.fetch_health ?? [])
   return (
     <section className="grid gap-5">
       <div>
@@ -177,7 +218,8 @@ function ReadingPanel({ reading }: { reading: MacroReadingView }) {
         <p className="mt-1 text-sm text-muted-foreground">登録全系列の記述統計と鮮度。regime 分類も売買 signal も含まない。percentile と z は「統計」列の値の分布内の位置である。</p>
         <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">rules {reading.rules_revision} · {LABEL.asOf} {reading.asof} · {series.length} 系列</p>
       </div>
-      <DataHealthCard failed={failedFetches(reading.fetch_health ?? [])} health={health} />
+      <DataHealthCard health={health} />
+      <ExtremeCard extremes={readingExtremes(series)} />
       {readingCategories(series).map((group) => (
         <Card className="gap-0 overflow-hidden py-0 shadow-sm" key={group.category}>
           <CardHeader className="flex flex-row items-center justify-between gap-4 border-b px-5 py-4">
