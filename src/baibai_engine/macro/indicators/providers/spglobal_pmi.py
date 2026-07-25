@@ -73,8 +73,12 @@ class SpGlobalPmiProvider:
                 f"supported: {supported}"
             )
         _require_current_manifest(series, releases, end=end)
-        stored_months = _stored_months(series, start=start, end=end, context=context)
-        observations: list[ObservationRecord] = []
+        # Months already held are carried through from the store rather than
+        # downloaded again, so the returned window stays the complete window even
+        # though nothing was fetched for those months.
+        stored = _stored_observations(series, start=start, end=end, context=context)
+        stored_months = frozenset(observation.observed_at for observation in stored)
+        observations: list[ObservationRecord] = list(stored)
         for entry in releases:
             if not start <= entry.observed_at <= end:
                 continue
@@ -107,28 +111,28 @@ class SpGlobalPmiProvider:
                     source_url=entry.url,
                 )
             )
-        return observations
+        return sorted(observations, key=lambda observation: observation.observed_at)
 
 
-def _stored_months(
+def _stored_observations(
     series: SeriesDefinition,
     *,
     start: date,
     end: date,
     context: FetchContext | None,
-) -> frozenset[date]:
-    """Months already held for this series, which an incremental refresh skips.
+) -> tuple[ObservationRecord, ...]:
+    """Observations already held for this series, whose months are not downloaded.
 
-    Without a store reader every month in the window is fetched, so a caller that
-    cannot supply one still gets correct data — only the download count changes.
+    Re-inserting them is a no-op (the store keeps one vintage per unchanged
+    observation), and returning them keeps the window result and the run's
+    coverage record complete. Without a store reader every month in the window is
+    fetched, so a caller that cannot supply one still gets correct data — only the
+    download count changes.
     """
 
     if context is None or context.store_reader is None or context.refetch_stored:
-        return frozenset()
-    return frozenset(
-        observation.observed_at
-        for observation in context.store_reader(series.series_id, start, end)
-    )
+        return ()
+    return context.store_reader(series.series_id, start, end)
 
 
 def _require_current_manifest(

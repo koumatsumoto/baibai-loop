@@ -704,9 +704,10 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 f"{series.series_id} has no manifest stream {series.provider_series_id!r}",
             )
 
-    def test_spglobal_pmi_skips_months_the_store_already_holds(self) -> None:
-        # Each month costs one PDF download, so an incremental refresh must fetch
-        # only what the store is missing.
+    def test_spglobal_pmi_downloads_only_the_months_the_store_is_missing(self) -> None:
+        # Each month costs one PDF download, so an incremental refresh fetches only
+        # what the store is missing while still returning the whole window (a
+        # partial window would report the series as having no data for it).
         series = _series("spglobal_pmi", "jp_manufacturing", unit="index", frequency="monthly")
         stream = _pmi_stream(["2026-04-01", "2026-05-01", "2026-06-01"])
         stored = (
@@ -722,8 +723,15 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             context=FetchContext(store_reader=lambda *_: stored),
         )
 
-        self.assertEqual([entry.observed_at for entry in observations], [date(2026, 6, 1)])
         self.assertEqual(fetched, [stream[2].url])
+        self.assertEqual(
+            [(entry.observed_at, entry.value) for entry in observations],
+            [
+                (date(2026, 4, 1), 49.5),
+                (date(2026, 5, 1), 50.1),
+                (date(2026, 6, 1), 50.4),
+            ],
+        )
 
     def test_spglobal_pmi_all_history_refetches_every_stored_month(self) -> None:
         series = _series("spglobal_pmi", "jp_manufacturing", unit="index", frequency="monthly")
