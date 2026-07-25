@@ -283,15 +283,13 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     ]
     assert len(backups) == 1
     assert len(uploads) == 1
-    # The generation is kept from the remote object before it is overwritten.
-    assert (
-        "s3://baibai-stores/macro.sqlite s3://baibai-stores/macro.sqlite.bak"
-        in (commands[backups[0]])
-    )
+    # The generation is kept from the remote object before it is overwritten, through
+    # CopyObject: `aws s3 cp` picks its S3-to-S3 implementation by object size and both
+    # branches ask R2 for tagging operations it does not implement.
+    assert commands[backups[0]].startswith("s3api copy-object ")
+    assert "--key macro.sqlite.bak" in commands[backups[0]]
+    assert "--copy-source baibai-stores/macro.sqlite" in commands[backups[0]]
     assert backups[0] < uploads[0]
-    # Every store copies in parts, and a multipart copy that carries the source's tags
-    # asks R2 for an operation it does not implement, so the copy takes bytes only.
-    assert "--copy-props none" in commands[backups[0]]
 
 
 def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
