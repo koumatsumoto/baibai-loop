@@ -41,6 +41,7 @@ class SeriesReading:
     observed_at: date | None
     staleness_days: int | None
     stale: bool
+    staleness_warn_days: int
     window_years: int
     window_observations: int
     insufficient_history: bool
@@ -91,6 +92,7 @@ def series_payload(reading: SeriesReading) -> dict[str, object]:
         "observed_at": None if reading.observed_at is None else reading.observed_at.isoformat(),
         "staleness_days": reading.staleness_days,
         "stale": reading.stale,
+        "staleness_warn_days": reading.staleness_warn_days,
         "window_years": reading.window_years,
         "window_observations": reading.window_observations,
         "insufficient_history": reading.insufficient_history,

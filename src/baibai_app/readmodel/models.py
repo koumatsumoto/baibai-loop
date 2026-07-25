@@ -443,6 +443,7 @@ class MacroReadingSeriesView(BaseModel):
     observed_at: date | None
     staleness_days: int | None
     stale: bool
+    staleness_warn_days: int
     window_years: int
     window_observations: int
     insufficient_history: bool
