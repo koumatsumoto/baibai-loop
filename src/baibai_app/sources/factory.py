@@ -76,9 +76,7 @@ def build_sources(
         research=DbResearchSource(resolved_db),
         tasks=DbTaskSource(resolved_db),
         candidates=DbCandidatesSource(resolved_runs, resolved_db),
-        macro=DbMacroSource(
-            resolved_db, indicators_db, groups, root / MACRO_READING_RULES_PATH
-        ),
+        macro=DbMacroSource(resolved_db, indicators_db, groups, root / MACRO_READING_RULES_PATH),
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(root / _MARKET_DB),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),

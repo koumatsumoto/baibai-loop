@@ -78,9 +78,7 @@ def app_method_root(tmp_path: Path) -> Path:
     )
     reading_rules = root / MACRO_READING_RULES_PATH
     reading_rules.parent.mkdir(parents=True, exist_ok=True)
-    reading_rules.write_text(
-        MACRO_READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    reading_rules.write_text(MACRO_READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     indicators_dir = root / "data/indicators"
     indicators_dir.mkdir(parents=True, exist_ok=True)
     initialize_indicators_db(indicators_dir / "macro.sqlite").close()

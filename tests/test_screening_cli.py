@@ -1116,4 +1116,3 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/test.csv", text.encode("utf-16"))
     return buffer.getvalue()
-
