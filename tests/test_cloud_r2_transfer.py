@@ -143,8 +143,9 @@ def test_initial_seed_uploads_all_stores_when_contract_keys_are_absent(tmp_path:
 
     assert completed.returncode == 0
     commands = log.read_text(encoding="utf-8").splitlines()
-    assert len([command for command in commands if "s3 ls" in command]) == 4
     assert len([command for command in commands if "s3 cp" in command]) == 4
+    # Nothing is being replaced, so no generation is kept.
+    assert all(".bak" not in command for command in commands)
 
 
 def test_machine_store_push_is_github_actions_only(tmp_path: Path) -> None:
@@ -180,5 +181,44 @@ def test_machine_store_push_uploads_three_stores_in_github_actions(tmp_path: Pat
 
     assert completed.returncode == 0
     commands = log.read_text(encoding="utf-8").splitlines()
-    assert len(commands) == 3
-    assert all("s3 cp" in command for command in commands)
+    assert len([command for command in commands if "s3 cp" in command]) == 3
+    assert all(".bak" not in command for command in commands)
+
+
+def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    backups = [index for index, command in enumerate(commands) if ".bak" in command]
+    uploads = [
+        index
+        for index, command in enumerate(commands)
+        if "s3 cp" in command
+        and command.endswith(
+            "s3://baibai-stores/macro.sqlite --endpoint-url "
+            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
+        )
+    ]
+    assert len(backups) == 1
+    assert len(uploads) == 1
+    # The generation is kept from the remote object before it is overwritten.
+    assert (
+        "s3://baibai-stores/macro.sqlite s3://baibai-stores/macro.sqlite.bak"
+        in (commands[backups[0]])
+    )
+    assert backups[0] < uploads[0]

@@ -77,6 +77,19 @@ pull_keys() {
   transfer_staging=""
 }
 
+backup_remote_key() {
+  # Keep one generation of the object being replaced. A store is rebuildable from
+  # its sources in principle, but some of it is not re-fetchable in practice (the
+  # PMI history depends on release URLs the publisher eventually drops), so an
+  # overwrite by a damaged or wrongly pruned snapshot must stay recoverable. R2
+  # copies server-side, so this costs a request and no transfer.
+  local key="$1" listing
+  listing="$(aws_s3 ls "s3://${stores_bucket}/${key}" || true)"
+  if [[ -n "${listing}" ]]; then
+    aws_s3 cp "s3://${stores_bucket}/${key}" "s3://${stores_bucket}/${key}.bak"
+  fi
+}
+
 push_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key source
@@ -85,6 +98,7 @@ push_keys() {
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
   done
   for key in "$@"; do
+    backup_remote_key "${key}"
     aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
   done
   cleanup_staging
