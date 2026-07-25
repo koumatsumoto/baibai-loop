@@ -75,6 +75,13 @@ _SUB_INDEX = re.compile(
     r"Backlogs of Work|Future Output|Business Expectations)\s+Index",
     re.IGNORECASE,
 )
+# A sentence continues the headline statement by naming what it is talking about
+# ("That said, at 51.6 the index was down ...", "The reading was down from 51.9 in
+# March"), which is how a continuation is told apart from the next subject.
+_CARRIES_STATEMENT_ON = re.compile(
+    r"\bthe\s+(?:[\w’'-]+\s+){0,2}(?:index|reading|figure|PMI)\b",
+    re.IGNORECASE,
+)
 
 # The releases are published in English, so the month names are fixed here rather
 # than taken from the runtime locale.
@@ -234,6 +241,8 @@ def _statement_windows(text: str) -> tuple[str, ...]:
     having to recognise them, and keeps a recap later in the release from outweighing
     the statement.
 
+    The following sentence joins the window only when it refers back to the index it
+    continues, so a sentence that moves on to another subject contributes nothing.
     Neither half of a window may name an index published beside the headline, so a
     sub-index or composite level is never a candidate for the headline series.
     """
@@ -245,7 +254,7 @@ def _statement_windows(text: str) -> tuple[str, ...]:
             continue
         window = [sentence]
         following = sentences[index + 1] if index + 1 < len(sentences) else ""
-        if following and _SUB_INDEX.search(following) is None:
+        if _CARRIES_STATEMENT_ON.search(following) and _SUB_INDEX.search(following) is None:
             window.append(following)
         windows.append(" ".join(window))
     return tuple(windows)

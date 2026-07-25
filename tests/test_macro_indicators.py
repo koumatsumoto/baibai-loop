@@ -874,6 +874,21 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         self.assertEqual(value, 49.7)
 
+    def test_extract_pmi_value_ignores_a_sentence_that_moves_on_from_the_statement(self) -> None:
+        # Only a sentence that refers back to the index carries the statement on, so a
+        # sentence about another subject cannot supply the headline reading.
+        text = (
+            "The headline index remained subdued in June. Employment growth eased to 51.2 in June."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2026, 6, 1),
+            release_observed_at=date(2026, 6, 1),
+        )
+
+        self.assertIsNone(value)
+
     def test_extract_pmi_value_ignores_a_comparison_sharing_the_movement_preposition(
         self,
     ) -> None:
