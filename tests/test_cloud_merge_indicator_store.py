@@ -137,7 +137,7 @@ def test_merge_is_idempotent(tmp_path: Path) -> None:
     assert second.inserted == 0
 
 
-def test_merge_carries_a_series_the_target_has_never_seen(tmp_path: Path) -> None:
+def test_merge_carries_the_cloud_fetch_record_of_a_registered_series(tmp_path: Path) -> None:
     cloud = tmp_path / "cloud.sqlite"
     local = tmp_path / "local.sqlite"
     _build_store(
@@ -148,21 +148,74 @@ def test_merge_carries_a_series_the_target_has_never_seen(tmp_path: Path) -> Non
     )
     _build_store(
         local,
-        series_ids=("us.10y",),
+        series_ids=("us.10y", "jp.10y"),
         observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
     )
 
     merge_stores(cloud, local)
 
-    assert _rows(local, "SELECT series_id FROM series ORDER BY series_id") == [
-        ("jp.10y",),
-        ("us.10y",),
-    ]
     assert ("jp.10y", "2026-07-23", 1.62) in _observations(local)
     # The cloud's own fetch record survives, which is what the data-health panel reads to
     # tell a silent provider from a merely stale series.
     assert _rows(local, "SELECT series_id FROM provider_runs") == [("jp.10y",)]
     assert _rows(local, "PRAGMA foreign_key_check") == []
+
+
+def test_merge_skips_facts_of_a_series_the_target_registry_does_not_define(
+    tmp_path: Path,
+) -> None:
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y", "jp.10y"),
+        observations=(
+            _observation("jp.10y", date(2026, 7, 23), 1.62),
+            _observation("us.10y", date(2026, 7, 23), 4.31),
+        ),
+        run_series=("jp.10y",),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+
+    report = merge_stores(cloud, local)
+
+    # A series only the cloud holds is a retired series: opening the store deletes it and its
+    # facts, so carrying it would publish rows the next open removes again.
+    assert _rows(local, "SELECT series_id FROM series") == [("us.10y",)]
+    assert _observations(local) == {
+        ("us.10y", "2016-07-20", 1.55),
+        ("us.10y", "2026-07-23", 4.31),
+    }
+    assert _rows(local, "SELECT series_id FROM provider_runs") == []
+    assert report.retired_series == ("jp.10y",)
+    assert report.skipped == 2
+    assert "jp.10y" in report.render()
+
+
+def test_merge_leaves_the_registry_owned_tables_to_the_target(tmp_path: Path) -> None:
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2026, 7, 23), 4.31),),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+    # An alias the registry no longer generates, left in the cloud copy by an earlier publish.
+    with sqlite3.connect(cloud) as connection:
+        connection.execute("INSERT INTO aliases(alias, series_id) VALUES ('JGB 10Y', 'us.10y')")
+
+    merge_stores(cloud, local)
+
+    assert ("JGB 10Y",) not in _rows(local, "SELECT alias FROM aliases")
 
 
 def test_merge_refuses_a_store_on_a_different_schema(tmp_path: Path) -> None:
