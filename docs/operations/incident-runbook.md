@@ -12,6 +12,7 @@ last_reviewed: 2026-07-23
 
 ## Source access failure
 
+- indicator series の取得が止まったかは Macro タブの data health（取得失敗・stale）を最初に読む。系列別の直近取得の成否は `provider_runs` に残るため、観測が閾値より古くなる前に落ちた provider が分かる（[`../workflow/macro.md#macro-reading`](../workflow/macro.md#macro-reading)）。
 - macro context の Tier 1 取得失敗は [`../reference/data-sources.md`](../reference/data-sources.md) の運用に従う。
 - 値を別 source で埋める場合は、Tier と `status` の扱いを明示する。
 - 取得失敗を `未公表` と混同しない。
