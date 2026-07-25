@@ -277,7 +277,7 @@ def _load_selection_inputs_db(
         if context_payload is None
         else macro_context_from_payload(
             context_payload,
-            source=Path(str(context_payload["context_id"])),
+            source=str(context_payload["context_id"]),
         )
     )
     return _SelectionInputs(

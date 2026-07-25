@@ -1,4 +1,15 @@
-"""Canonical macro-context contract owned by the engine."""
+"""Canonical macro-context contract owned by the engine.
+
+The report is two parts. ``core`` is a use-case agnostic assessment of the market
+environment: it reads on its own and carries no vocabulary of the Japanese equity
+accumulation loop. ``connection`` is the only place that translates the assessment
+into that loop (research priority, sector tilt, sizing caution).
+
+The separation is enforced by reference direction rather than by the author's care:
+connection may only cite series that core already cites, and names the core sections
+it builds on. Putting a loop-specific instruction into a core section is rejected by
+the schema itself, so ``core`` being self-contained is a structural fact.
+"""
 
 from __future__ import annotations
 
@@ -11,27 +22,52 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, mod
 
 from baibai_engine.macro.indicators.definitions import load_definitions
 
-type MacroSectionId = Literal[
+type MacroCoreSectionId = Literal[
     "regime_summary",
     "rates_policy",
     "growth_demand",
     "inflation_costs",
-    "fx_liquidity",
-    "japan_specific",
-    "scenarios_connections",
-    "monitoring_points",
+    "liquidity_credit",
+    "fx",
+    "japan",
+    "valuation",
+    "risk_environment",
+    "monitoring",
 ]
 
-SECTION_ORDER: tuple[MacroSectionId, ...] = (
+CORE_SECTION_ORDER: tuple[MacroCoreSectionId, ...] = (
     "regime_summary",
     "rates_policy",
     "growth_demand",
     "inflation_costs",
-    "fx_liquidity",
-    "japan_specific",
-    "scenarios_connections",
-    "monitoring_points",
+    "liquidity_credit",
+    "fx",
+    "japan",
+    "valuation",
+    "risk_environment",
+    "monitoring",
 )
+
+# The transmission-channel sections. A material delta is a change in an economic
+# path, so it belongs where that path is examined — not in the summary that opens
+# the report, the scenario section, or the monitoring list.
+MATERIAL_DELTA_SECTION_IDS: frozenset[MacroCoreSectionId] = frozenset(
+    {
+        "rates_policy",
+        "growth_demand",
+        "inflation_costs",
+        "liquidity_credit",
+        "fx",
+        "japan",
+        "valuation",
+    }
+)
+
+CONNECTION_SECTION_ID = "japan_equity_loop"
+
+# The contract version that consumers read. Revisions stored under an earlier version
+# stay in the table as a log and are filtered out of every read path.
+MACRO_CONTEXT_SCHEMA_VERSION = 4
 
 
 class _StrictModel(BaseModel):
@@ -59,7 +95,16 @@ class _SourcedStatement(_StrictModel):
         return values
 
 
-class ArticleInput(_StrictModel):
+class _TimestampedInput(_StrictModel):
+    @field_validator("published_at", "accessed_at", check_fields=False)
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("macro input datetime must include a timezone")
+        return value
+
+
+class ArticleInput(_TimestampedInput):
     input_id: str = Field(min_length=1)
     source: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -69,15 +114,8 @@ class ArticleInput(_StrictModel):
     status: Literal["ok", "failed"]
     used_for: str = Field(min_length=1)
 
-    @field_validator("published_at", "accessed_at")
-    @classmethod
-    def require_timezone(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("macro input datetime must include a timezone")
-        return value
 
-
-class IndicatorSeriesInput(_StrictModel):
+class IndicatorSeriesInput(_TimestampedInput):
     input_id: str = Field(min_length=1)
     provider: str = Field(min_length=1)
     series_id: str = Field(min_length=1)
@@ -88,17 +126,26 @@ class IndicatorSeriesInput(_StrictModel):
     status: Literal["ok", "failed"]
     used_for: str = Field(min_length=1)
 
-    @field_validator("published_at", "accessed_at")
-    @classmethod
-    def require_timezone(cls, value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("macro input datetime must include a timezone")
-        return value
+
+class ReadingSnapshotInput(_TimestampedInput):
+    """A cited macro reading snapshot, identified by its rules revision and as-of.
+
+    The snapshot has no store of its own: ``macro reading`` recomputes it from the L1
+    store for any past as-of, so the revision plus the date is its full identity.
+    """
+
+    input_id: str = Field(min_length=1)
+    rules_revision: str = Field(min_length=1)
+    reading_asof: date
+    accessed_at: datetime
+    status: Literal["ok", "failed"]
+    used_for: str = Field(min_length=1)
 
 
 class MacroInputs(_StrictModel):
     articles: tuple[ArticleInput, ...]
     indicator_series: tuple[IndicatorSeriesInput, ...]
+    reading_snapshots: tuple[ReadingSnapshotInput, ...]
 
 
 class FactSummary(_SourcedStatement):
@@ -108,6 +155,14 @@ class FactSummary(_SourcedStatement):
 class SectionJudgment(_SourcedStatement):
     direction: Literal["supportive", "adverse", "mixed"]
     confidence: Literal["low", "medium", "high"]
+
+
+class EconomicConnection(_SourcedStatement):
+    """How the section's reading transmits into economic paths.
+
+    Deliberately free of loop vocabulary: no sector tilt, no research priority, no
+    sizing. Those live in the connection section.
+    """
 
 
 class MaterialDelta(_SourcedStatement):
@@ -124,29 +179,40 @@ class MaterialDelta(_SourcedStatement):
         return value
 
 
-class SizingCaution(_SourcedStatement):
-    severity: Literal["low", "medium", "high"]
+class RiskEnvironmentAssessment(_SourcedStatement):
+    """Whether the environment rewards taking risk, and what would disprove it."""
 
+    stance: Literal["risk_seeking", "neutral", "risk_averse"]
+    confidence: Literal["low", "medium", "high"]
+    falsifiers: tuple[str, ...] = Field(min_length=1)
 
-class InvestmentConnection(_SourcedStatement):
-    sector_tilts: tuple[str, ...] = ()
-    research_priority_hints: tuple[str, ...] = ()
-
-    @field_validator("sector_tilts", "research_priority_hints")
+    @field_validator("falsifiers")
     @classmethod
-    def require_non_blank_items(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+    def require_non_blank_falsifiers(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if any(not value.strip() for value in values):
-            raise ValueError("investment connection items must be non-blank")
+            raise ValueError("falsifiers must be non-blank")
         return values
+
+
+class ScorecardCondition(_StrictModel):
+    """A scenario condition that a later report can settle from the L1 history alone."""
+
+    series_id: str = Field(min_length=1)
+    comparison: Literal["below", "at_or_below", "above", "at_or_above"]
+    threshold: float
+    deadline: date
 
 
 class MacroScenario(_SourcedStatement):
     case: Literal["base", "bear", "bull"]
     direction: Literal["supportive", "adverse", "mixed"]
     conditions: tuple[str, ...] = Field(min_length=1)
-    investment_implications: tuple[str, ...] = Field(min_length=1)
+    # Two machine-checkable conditions per scenario: a single observation can be met
+    # by accident, and a scenario that cannot state two of them is not yet a scenario.
+    scorecard: tuple[ScorecardCondition, ...] = Field(min_length=2)
+    economic_implications: tuple[str, ...] = Field(min_length=1)
 
-    @field_validator("conditions", "investment_implications")
+    @field_validator("conditions", "economic_implications")
     @classmethod
     def require_non_blank_items(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if any(not value.strip() for value in values):
@@ -167,15 +233,16 @@ class MonitoringPoint(_SourcedStatement):
         return value
 
 
-class MacroContextSection(_StrictModel):
-    section_id: MacroSectionId
+class MacroCoreSection(_StrictModel):
+    section_id: MacroCoreSectionId
     series_ids: tuple[str, ...] = Field(min_length=1)
     fact_summary: tuple[FactSummary, ...] = Field(min_length=1)
     judgment: SectionJudgment
-    investment_connection: InvestmentConnection
+    economic_connection: EconomicConnection
     change_since_previous: str | None = None
+    previous_scorecard_review: str | None = None
     material_deltas: tuple[MaterialDelta, ...] = ()
-    sizing_cautions: tuple[SizingCaution, ...] = ()
+    risk_environment: RiskEnvironmentAssessment | None = None
     scenarios: tuple[MacroScenario, ...] = ()
     monitoring_points: tuple[MonitoringPoint, ...] = ()
 
@@ -183,145 +250,267 @@ class MacroContextSection(_StrictModel):
     def validate_section_contract(self) -> Self:
         if len(self.series_ids) != len(set(self.series_ids)):
             raise ValueError("section series_ids must be unique")
-        if self.section_id == "regime_summary":
-            if self.change_since_previous is None or not self.change_since_previous.strip():
-                raise ValueError("regime summary requires a change from the previous context")
-        elif self.change_since_previous is not None:
-            raise ValueError("change from the previous context belongs in the regime summary")
-        if self.section_id in {"regime_summary", "monitoring_points"} and (
-            self.material_deltas or self.sizing_cautions
-        ):
-            raise ValueError("material deltas and sizing cautions belong in sections 2 through 7")
-        if self.section_id == "scenarios_connections":
-            if tuple(item.case for item in self.scenarios) != ("base", "bear", "bull"):
-                raise ValueError("scenario section must contain base, bear, bull in that order")
-            if not self.investment_connection.sector_tilts:
-                raise ValueError("scenario section requires sector tilts")
-            if not self.investment_connection.research_priority_hints:
-                raise ValueError("scenario section requires research priority hints")
-        else:
-            if self.scenarios:
-                raise ValueError("scenarios belong in the scenario section")
-            if self.investment_connection.sector_tilts:
-                raise ValueError("sector tilts belong in the scenario section")
-            if self.investment_connection.research_priority_hints:
-                raise ValueError("research priority hints belong in the scenario section")
-        if self.section_id == "monitoring_points":
+        self._validate_regime_summary_fields()
+        if self.material_deltas and self.section_id not in MATERIAL_DELTA_SECTION_IDS:
+            raise ValueError("material deltas belong in the transmission-channel sections")
+        self._validate_risk_environment_section()
+        if self.section_id == "monitoring":
             if not self.monitoring_points:
                 raise ValueError("monitoring section requires monitoring points")
         elif self.monitoring_points:
             raise ValueError("monitoring points belong in the monitoring section")
         return self
 
+    def _validate_regime_summary_fields(self) -> None:
+        if self.section_id == "regime_summary":
+            for name, value in (
+                ("change from the previous context", self.change_since_previous),
+                ("review of the previous scorecard", self.previous_scorecard_review),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"regime summary requires the {name}")
+            return
+        if self.change_since_previous is not None:
+            raise ValueError("change from the previous context belongs in the regime summary")
+        if self.previous_scorecard_review is not None:
+            raise ValueError("the previous scorecard review belongs in the regime summary")
+
+    def _validate_risk_environment_section(self) -> None:
+        if self.section_id == "risk_environment":
+            if self.risk_environment is None:
+                raise ValueError("risk environment section requires the risk appetite assessment")
+            if tuple(item.case for item in self.scenarios) != ("base", "bear", "bull"):
+                raise ValueError("risk environment section must contain base, bear, bull in order")
+            cited = set(self.series_ids)
+            unknown = sorted(
+                {
+                    condition.series_id
+                    for scenario in self.scenarios
+                    for condition in scenario.scorecard
+                    if condition.series_id not in cited
+                }
+            )
+            if unknown:
+                raise ValueError(
+                    "scorecard series must be cited by the section: " + ", ".join(unknown)
+                )
+            return
+        if self.risk_environment is not None:
+            raise ValueError("the risk appetite assessment belongs in the risk environment section")
+        if self.scenarios:
+            raise ValueError("scenarios belong in the risk environment section")
+
+
+class ResearchPriorityHint(_SourcedStatement):
+    """Which candidate type or sector the hint discriminates.
+
+    Advice that fits every candidate equally is not a hint, so the target it applies
+    to is part of the contract.
+    """
+
+    applies_to: str = Field(min_length=1)
+
+    @field_validator("applies_to")
+    @classmethod
+    def require_non_blank_target(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("applies_to must be non-blank")
+        return value
+
+
+class SectorTilt(_SourcedStatement):
+    sector: str = Field(min_length=1)
+    direction: Literal["supportive", "adverse", "mixed"]
+
+
+class SizingCaution(_SourcedStatement):
+    severity: Literal["low", "medium", "high"]
+
+
+class MacroConnectionSection(_StrictModel):
+    """The single place where the assessment meets the Japanese equity loop."""
+
+    section_id: Literal["japan_equity_loop"]
+    series_ids: tuple[str, ...] = Field(min_length=1)
+    core_section_ids: tuple[MacroCoreSectionId, ...] = Field(min_length=1)
+    fact_summary: tuple[FactSummary, ...] = Field(min_length=1)
+    judgment: SectionJudgment
+    research_priority_hints: tuple[ResearchPriorityHint, ...] = Field(min_length=1)
+    sector_tilts: tuple[SectorTilt, ...] = Field(min_length=1)
+    sizing_cautions: tuple[SizingCaution, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_section_contract(self) -> Self:
+        if len(self.series_ids) != len(set(self.series_ids)):
+            raise ValueError("section series_ids must be unique")
+        if len(self.core_section_ids) != len(set(self.core_section_ids)):
+            raise ValueError("core_section_ids must be unique")
+        return self
+
 
 class MacroContextDocument(_StrictModel):
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     kind: Literal["macro-context"]
     context_id: str
     as_of: date
-    valid_until: date
     published_at: datetime
     summary: str = Field(min_length=1)
     inputs: MacroInputs
-    sections: tuple[MacroContextSection, ...] = Field(min_length=8, max_length=8)
+    core: tuple[MacroCoreSection, ...] = Field(min_length=10, max_length=10)
+    connection: MacroConnectionSection
 
     @model_validator(mode="after")
     def validate_domain_contract(self) -> Self:
         if not re.fullmatch(r"macro-context-\d{4}-\d{2}-\d{2}-[a-z0-9-]+", self.context_id):
             raise ValueError("context_id has an invalid format")
-        if self.valid_until < self.as_of:
-            raise ValueError("valid_until must not predate as_of")
         if self.published_at.tzinfo is None or self.published_at.utcoffset() is None:
             raise ValueError("published_at must include a timezone")
         if self.published_at.date() < self.as_of:
             raise ValueError("published_at must not predate as_of")
-        if tuple(section.section_id for section in self.sections) != SECTION_ORDER:
-            raise ValueError("macro context must contain the fixed eight sections in order")
+        if tuple(section.section_id for section in self.core) != CORE_SECTION_ORDER:
+            raise ValueError("macro context core must contain the fixed ten sections in order")
 
+        statuses, series_input_ids, reading_input_ids = self._index_inputs()
+        sections: tuple[MacroCoreSection | MacroConnectionSection, ...] = (
+            *self.core,
+            self.connection,
+        )
+        for section in sections:
+            self._validate_section_sources(
+                section, statuses=statuses, series_input_ids=series_input_ids
+            )
+        self._validate_reading_citation(reading_input_ids)
+        self._validate_connection_references()
+        self._validate_scorecard_deadlines()
+        if not any(section.material_deltas for section in self.core):
+            raise ValueError("a material delta is required")
+        return self
+
+    def _index_inputs(self) -> tuple[dict[str, str], dict[str, set[str]], set[str]]:
         statuses: dict[str, str] = {}
         series_input_ids: dict[str, set[str]] = {}
+        reading_input_ids: set[str] = set()
+
+        def register(input_id: str, status: str) -> None:
+            if input_id in statuses:
+                raise ValueError(f"input_id must be unique: {input_id}")
+            statuses[input_id] = status
+
         for article in self.inputs.articles:
-            if article.input_id in statuses:
-                raise ValueError(f"input_id must be unique: {article.input_id}")
-            statuses[article.input_id] = article.status
+            register(article.input_id, article.status)
         for indicator in self.inputs.indicator_series:
-            if indicator.input_id in statuses:
-                raise ValueError(f"input_id must be unique: {indicator.input_id}")
-            statuses[indicator.input_id] = indicator.status
+            register(indicator.input_id, indicator.status)
             if indicator.series_id not in _canonical_series_ids():
                 raise ValueError(f"unregistered macro series_id: {indicator.series_id}")
             series_input_ids.setdefault(indicator.series_id, set()).add(indicator.input_id)
+        for reading in self.inputs.reading_snapshots:
+            register(reading.input_id, reading.status)
+            if reading.reading_asof > self.as_of:
+                raise ValueError("a reading snapshot must not be read past the report as_of")
+            if reading.status == "ok":
+                reading_input_ids.add(reading.input_id)
         if not statuses:
             raise ValueError("at least one macro input is required")
+        if not reading_input_ids:
+            raise ValueError("a successful macro reading snapshot input is required")
+        return statuses, series_input_ids, reading_input_ids
 
-        has_material_assessment = False
-        for section in self.sections:
-            section_source_ids = {
-                source_id
-                for item in (
-                    *section.fact_summary,
-                    section.judgment,
-                    section.investment_connection,
-                    *section.material_deltas,
-                    *section.sizing_cautions,
-                    *section.scenarios,
-                    *section.monitoring_points,
-                )
-                for source_id in item.source_ids
+    def _validate_section_sources(
+        self,
+        section: MacroCoreSection | MacroConnectionSection,
+        *,
+        statuses: dict[str, str],
+        series_input_ids: dict[str, set[str]],
+    ) -> None:
+        items = _sourced_items(section)
+        section_source_ids = {source_id for item in items for source_id in item.source_ids}
+        for series_id in section.series_ids:
+            if series_id not in _canonical_series_ids():
+                raise ValueError(f"unregistered macro series_id: {series_id}")
+            if series_id not in series_input_ids:
+                raise ValueError(f"section series_id has no indicator input: {series_id}")
+            ok_input_ids = {
+                input_id for input_id in series_input_ids[series_id] if statuses[input_id] == "ok"
             }
-            for series_id in section.series_ids:
-                if series_id not in _canonical_series_ids():
-                    raise ValueError(f"unregistered macro series_id: {series_id}")
-                if series_id not in series_input_ids:
-                    raise ValueError(f"section series_id has no indicator input: {series_id}")
-                ok_input_ids = {
-                    input_id
-                    for input_id in series_input_ids[series_id]
-                    if statuses[input_id] == "ok"
-                }
-                if not ok_input_ids & section_source_ids:
-                    raise ValueError(
-                        f"section series_id has no cited successful indicator input: {series_id}"
-                    )
-            sourced_items: tuple[_SourcedStatement, ...] = (
-                *section.fact_summary,
-                section.judgment,
-                section.investment_connection,
-                *section.material_deltas,
-                *section.sizing_cautions,
-                *section.scenarios,
-                *section.monitoring_points,
+            if not ok_input_ids & section_source_ids:
+                raise ValueError(
+                    f"section series_id has no cited successful indicator input: {series_id}"
+                )
+        for item in items:
+            missing = sorted(set(item.source_ids) - statuses.keys())
+            if missing:
+                raise ValueError(f"references unknown input IDs: {', '.join(missing)}")
+            if any(statuses[source_id] == "failed" for source_id in item.source_ids):
+                raise ValueError("an assessment cannot cite failed inputs")
+
+    def _validate_reading_citation(self, reading_input_ids: set[str]) -> None:
+        # The regime summary sets the common coordinate for the whole report, so it is
+        # the section that has to start from the machine reading.
+        cited = {
+            source_id for item in _sourced_items(self.core[0]) for source_id in item.source_ids
+        }
+        if not cited & reading_input_ids:
+            raise ValueError("the regime summary must cite a macro reading snapshot input")
+
+    def _validate_connection_references(self) -> None:
+        core_series = {series_id for section in self.core for series_id in section.series_ids}
+        outside = sorted(set(self.connection.series_ids) - core_series)
+        if outside:
+            raise ValueError(
+                "connection may only cite series the core cites: " + ", ".join(outside)
             )
-            for item in sourced_items:
-                missing = sorted(set(item.source_ids) - statuses.keys())
-                if missing:
-                    raise ValueError(f"references unknown input IDs: {', '.join(missing)}")
-                if any(statuses[source_id] == "failed" for source_id in item.source_ids):
-                    raise ValueError("an assessment cannot cite failed inputs")
-            has_material_assessment |= bool(section.material_deltas or section.sizing_cautions)
-        if not has_material_assessment:
-            raise ValueError("a material delta or sizing caution is required")
-        return self
+
+    def _validate_scorecard_deadlines(self) -> None:
+        for scenario in self.scenarios:
+            for condition in scenario.scorecard:
+                if condition.deadline <= self.as_of:
+                    raise ValueError("a scorecard deadline must fall after as_of")
+
+    @property
+    def scenarios(self) -> tuple[MacroScenario, ...]:
+        return self.core[CORE_SECTION_ORDER.index("risk_environment")].scenarios
 
     @property
     def material_deltas(self) -> tuple[MaterialDelta, ...]:
-        return tuple(delta for section in self.sections for delta in section.material_deltas)
+        return tuple(delta for section in self.core for delta in section.material_deltas)
 
     @property
     def sizing_cautions(self) -> tuple[SizingCaution, ...]:
-        return tuple(caution for section in self.sections for caution in section.sizing_cautions)
+        return self.connection.sizing_cautions
 
     @property
     def research_questions(self) -> tuple[str, ...]:
-        section = self.sections[6]
-        return section.investment_connection.research_priority_hints
+        return tuple(hint.summary for hint in self.connection.research_priority_hints)
 
     @property
     def refresh_triggers(self) -> tuple[str, ...]:
-        return tuple(point.condition for point in self.sections[7].monitoring_points)
+        monitoring = self.core[CORE_SECTION_ORDER.index("monitoring")]
+        return tuple(point.condition for point in monitoring.monitoring_points)
 
     def payload(self) -> dict[str, object]:
         return self.model_dump(mode="json")
+
+
+def _sourced_items(
+    section: MacroCoreSection | MacroConnectionSection,
+) -> tuple[_SourcedStatement, ...]:
+    if isinstance(section, MacroConnectionSection):
+        return (
+            *section.fact_summary,
+            section.judgment,
+            *section.research_priority_hints,
+            *section.sector_tilts,
+            *section.sizing_cautions,
+        )
+    return (
+        *section.fact_summary,
+        section.judgment,
+        section.economic_connection,
+        *section.material_deltas,
+        *((section.risk_environment,) if section.risk_environment is not None else ()),
+        *section.scenarios,
+        *section.monitoring_points,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -329,4 +518,11 @@ def _canonical_series_ids() -> frozenset[str]:
     return frozenset(series.series_id for series in load_definitions().series)
 
 
-__all__ = ["SECTION_ORDER", "MacroContextDocument", "MacroSectionId"]
+__all__ = [
+    "CONNECTION_SECTION_ID",
+    "CORE_SECTION_ORDER",
+    "MACRO_CONTEXT_SCHEMA_VERSION",
+    "MATERIAL_DELTA_SECTION_IDS",
+    "MacroContextDocument",
+    "MacroCoreSectionId",
+]

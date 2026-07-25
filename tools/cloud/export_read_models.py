@@ -73,7 +73,6 @@ def export_read_models(
         stores.tasks,
         stores.candidates,
         stores.market,
-        macro=stores.macro,
     )
     written.append(_write_model(views_dir / "dashboard.json", dashboard))
 

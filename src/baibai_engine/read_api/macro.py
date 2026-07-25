@@ -8,6 +8,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
+from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
 from baibai_engine.macro.indicators.definitions import load_definitions
 
 from .sqlite import connect_read_only
@@ -28,11 +30,11 @@ def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object
         row = connection.execute(
             """
             SELECT payload FROM macro_context
-            WHERE as_of <= ?
+            WHERE as_of <= ? AND schema_version = ?
             ORDER BY published_at DESC, as_of DESC, context_id DESC
             LIMIT 1
             """,
-            (as_of.isoformat(),),
+            (as_of.isoformat(), MACRO_CONTEXT_SCHEMA_VERSION),
         ).fetchone()
     finally:
         connection.close()
@@ -50,8 +52,9 @@ def list_macro_context_payloads(path: Path) -> list[dict[str, object]]:
     connection = connect_read_only(path)
     try:
         rows = connection.execute(
-            "SELECT payload FROM macro_context "
-            "ORDER BY published_at DESC, as_of DESC, context_id DESC"
+            "SELECT payload FROM macro_context WHERE schema_version = ? "
+            "ORDER BY published_at DESC, as_of DESC, context_id DESC",
+            (MACRO_CONTEXT_SCHEMA_VERSION,),
         ).fetchall()
     finally:
         connection.close()
@@ -75,7 +78,8 @@ def macro_context_payload(
     connection = connect_read_only(path)
     try:
         row = connection.execute(
-            "SELECT as_of, payload FROM macro_context WHERE context_id = ?", (context_id,)
+            "SELECT as_of, payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
+            (context_id, MACRO_CONTEXT_SCHEMA_VERSION),
         ).fetchone()
     finally:
         connection.close()
@@ -196,6 +200,9 @@ def _aggregate_period_end(
 
 
 __all__ = [
+    # Re-exported so read-only consumers judge report freshness by the same policy the
+    # engine's own consumers use, rather than keeping a second copy of the threshold.
+    "MACRO_CONTEXT_STALE_DAYS",
     "MacroGranularity",
     "latest_macro_context_payload",
     "list_macro_context_payloads",

@@ -72,7 +72,7 @@ class TaskView(BaseModel):
 
 class UpcomingEventView(BaseModel):
     event_date: date
-    kind: Literal["earnings", "reservation_expiry", "macro_valid_until"]
+    kind: Literal["earnings", "reservation_expiry"]
     ticker: str | None
     label: str
     days_until: int
@@ -328,11 +328,24 @@ class MacroSectionJudgmentView(BaseModel):
     source_ids: list[str]
 
 
-class MacroInvestmentConnectionView(BaseModel):
+class MacroEconomicConnectionView(BaseModel):
     summary: str
-    sector_tilts: list[str]
-    research_priority_hints: list[str]
     source_ids: list[str]
+
+
+class MacroRiskEnvironmentView(BaseModel):
+    stance: str
+    confidence: str
+    summary: str
+    falsifiers: list[str]
+    source_ids: list[str]
+
+
+class MacroScorecardConditionView(BaseModel):
+    series_id: str
+    comparison: str
+    threshold: float
+    deadline: date
 
 
 class MacroScenarioView(BaseModel):
@@ -340,7 +353,21 @@ class MacroScenarioView(BaseModel):
     direction: str
     summary: str
     conditions: list[str]
-    investment_implications: list[str]
+    scorecard: list[MacroScorecardConditionView]
+    economic_implications: list[str]
+    source_ids: list[str]
+
+
+class MacroResearchPriorityHintView(BaseModel):
+    summary: str
+    applies_to: str
+    source_ids: list[str]
+
+
+class MacroSectorTiltView(BaseModel):
+    sector: str
+    direction: str
+    summary: str
     source_ids: list[str]
 
 
@@ -352,35 +379,48 @@ class MacroMonitoringPointView(BaseModel):
     source_ids: list[str]
 
 
-class MacroContextSectionView(BaseModel):
+class MacroCoreSectionView(BaseModel):
     section_id: str
     series: list[MacroSeriesReferenceView]
     fact_summary: list[MacroFactSummaryView]
     judgment: MacroSectionJudgmentView
-    investment_connection: MacroInvestmentConnectionView
+    economic_connection: MacroEconomicConnectionView
     change_since_previous: str | None
+    previous_scorecard_review: str | None
     material_deltas: list[MacroMaterialDeltaView]
-    sizing_cautions: list[MacroSizingCautionView]
+    risk_environment: MacroRiskEnvironmentView | None
     scenarios: list[MacroScenarioView]
     monitoring_points: list[MacroMonitoringPointView]
+
+
+class MacroConnectionSectionView(BaseModel):
+    section_id: str
+    series: list[MacroSeriesReferenceView]
+    core_section_ids: list[str]
+    fact_summary: list[MacroFactSummaryView]
+    judgment: MacroSectionJudgmentView
+    research_priority_hints: list[MacroResearchPriorityHintView]
+    sector_tilts: list[MacroSectorTiltView]
+    sizing_cautions: list[MacroSizingCautionView]
 
 
 class MacroContextView(BaseModel):
     context_id: str
     as_of: date
-    valid_until: date
     published_at: datetime
     summary: str
+    age_days: int
     stale: bool
-    sections: list[MacroContextSectionView]
+    core: list[MacroCoreSectionView]
+    connection: MacroConnectionSectionView
 
 
 class MacroContextRevisionView(BaseModel):
     context_id: str
     as_of: date
-    valid_until: date
     published_at: datetime
     summary: str
+    age_days: int
     stale: bool
 
 

@@ -21,6 +21,7 @@ from .freshness import (
     screening_latest_asof,
 )
 from .macro import (
+    MACRO_CONTEXT_STALE_DAYS,
     MacroGranularity,
     latest_macro_context_payload,
     list_macro_context_payloads,
@@ -54,6 +55,7 @@ from .shortlist import latest_shortlist_payload, list_shortlist_payloads
 from .tasks import list_task_payloads, task_store_exists
 
 __all__ = [
+    "MACRO_CONTEXT_STALE_DAYS",
     "HoldingSnapshot",
     "MacroGranularity",
     "PortfolioLedgerError",

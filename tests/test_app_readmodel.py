@@ -111,14 +111,6 @@ class StubMarket:
         }
 
 
-class StubMacro:
-    def __init__(self, context: dict[str, object] | None = None):
-        self._context = context
-
-    def context(self, *, as_of):
-        return self._context
-
-
 def _snapshot() -> PortfolioSnapshot:
     holding = HoldingSnapshot(
         ticker="4432",
@@ -450,11 +442,10 @@ def test_holding_carries_next_earnings_date_from_market_source() -> None:
     assert view.holdings[0].next_earnings_date == earnings_date.isoformat()
 
 
-def test_upcoming_events_merges_earnings_reservation_macro_within_window_in_order() -> None:
+def test_upcoming_events_merges_earnings_and_reservation_within_window_in_order() -> None:
     today = datetime.now(JST).date()
     earnings_date = today + timedelta(days=10)
     reservation_expiry = today + timedelta(days=5)
-    macro_valid_until = today + timedelta(days=5)
     view = build_dashboard(
         StubLedger(
             _snapshot_with_reservation(
@@ -465,18 +456,16 @@ def test_upcoming_events_merges_earnings_reservation_macro_within_window_in_orde
         StubTasks([]),
         StubCandidates(_run()),
         StubMarket(earnings={"4432": earnings_date}),
-        macro=StubMacro({"valid_until": macro_valid_until.isoformat()}),
     )
 
     events = view.upcoming_events
     assert [(item.kind, item.days_until) for item in events] == [
         ("reservation_expiry", 5),
-        ("macro_valid_until", 5),
         ("earnings", 10),
     ]
     assert events[0].ticker == "8929"
-    assert events[2].ticker == "4432"
-    assert events[2].label == "ウイングアーク１ｓｔ"
+    assert events[1].ticker == "4432"
+    assert events[1].label == "ウイングアーク１ｓｔ"
 
 
 def test_upcoming_events_excludes_dates_outside_the_fourteen_day_window() -> None:
@@ -487,7 +476,6 @@ def test_upcoming_events_excludes_dates_outside_the_fourteen_day_window() -> Non
         StubTasks([]),
         StubCandidates(_run()),
         StubMarket(earnings={"4432": today + timedelta(days=30)}),
-        macro=StubMacro({"valid_until": (today - timedelta(days=1)).isoformat()}),
     )
 
     assert view.upcoming_events == []

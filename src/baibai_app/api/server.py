@@ -76,7 +76,6 @@ def create_app(
             sources.tasks,
             sources.candidates,
             sources.market,
-            macro=sources.macro,
         )
 
     @app.get("/api/screening/latest", response_model=ScreeningView)

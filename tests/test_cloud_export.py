@@ -24,13 +24,13 @@ from baibai_app.readmodel.models import (
 )
 from baibai_app.sources.db_sources import DbMetaSource
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.macro.context.models import MacroContextDocument
+from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.db import (
     ObservationRecord,
     insert_observations,
     open_connection,
 )
-from baibai_engine.macro.models import MacroContextDocument
-from baibai_engine.macro.service import MacroContextService
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from tests.helpers.macro_context import macro_context_payload
 
@@ -244,7 +244,8 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
     assert detail_path.is_file()
     detail = MacroContextView.model_validate_json(detail_path.read_text(encoding="utf-8"))
     assert detail.context_id == document.context_id
-    assert len(detail.sections) == 8
+    assert len(detail.core) == 10
+    assert detail.connection.section_id == "japan_equity_loop"
     # The overview view indexes the same report (summary only, no full sections).
     overview = MacroView.model_validate_json(
         (output_dir / "views/macro--1y-daily.json").read_text(encoding="utf-8")
