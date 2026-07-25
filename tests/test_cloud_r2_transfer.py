@@ -289,6 +289,9 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
         in (commands[backups[0]])
     )
     assert backups[0] < uploads[0]
+    # Every store copies in parts, and a multipart copy that carries the source's tags
+    # asks R2 for an operation it does not implement, so the copy takes bytes only.
+    assert "--copy-props none" in commands[backups[0]]
 
 
 def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
