@@ -82,7 +82,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 2: マクロは機械読み値 + material delta、AIは企業別value captureとして扱う
 
-- **(a)** マクロは 2 層に分ける。**macro reading（L2）** は登録全系列の記述統計（水準・方向・percentile・閾値注記・観測の齢）を毎営業日 機械で出す共通の物差しで、regime分類・合成score・売買signalを出さない。**macro context（L3）** は人間が判断するときだけ書く環境認識レポートで、use-case agnosticな環境評価（core）と日本株積立ループへの接続（connection）に分ける。core はリスク選好環境の評価（攻め／守りどちらの環境か）を反証条件付きのjudgmentとして持ち、日本株ループ固有のsector tilt・research優先度ヒント・sizing cautionはconnectionへ隔離する（参照方向を機械契約で強制し、coreの単体完結性を保つ）。どちらも機械screening・ranking・sizingには混入させず、行動指示（market timing・cash比率・配分指示）を出さない。macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、または古くても候補抽出は継続し、未来情報だけをhard errorにする。鮮度は書く側が賞味期限を宣言せず、読む側が`as_of`と自分の閾値で判断する。
+- **(a)** マクロは 2 層に分ける。**macro reading（L2）** は登録全系列の記述統計（水準・方向・percentile・閾値注記・観測の齢）を毎営業日 機械で出す共通の物差しで、regime分類・合成score・売買signalを出さない。**macro context（L3）** は人間が判断するときだけ書く環境認識レポートで、use-case agnosticな環境評価（core）と日本株積立ループへの接続（connection）に分ける。core はリスク選好環境の評価（攻め／守りどちらの環境か）を反証条件付きのjudgmentとして持ち、日本株ループ固有のsector tilt・research優先度ヒント・sizing cautionはconnectionへ隔離する（参照方向を機械契約で強制し、coreの単体完結性を保つ）。どちらも機械screening・ranking・sizingには混入させず、行動指示（売買タイミング・現金比率・配分指示）を出さない。macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、または古くても候補抽出は継続し、未来情報だけをhard errorにする。鮮度は書く側が賞味期限を宣言せず、読む側が`as_of`と自分の閾値で判断する。
 - **(b)** AIはsectorではなく企業別の構造変化lensである。enabler、infrastructure、complement、adopter、disruptedのどこに位置するかと、競争優位・価格決定力・必要capex・顧客交渉力を通じて株主価値を獲得できるかをthesisで判断する。AI需要が増えてもvalue captureがなければ採用根拠にしない。
 - **(c)** 非AI企業も個別のE[r]と永久損失リスクで同じ土俵に置く。macro/AIの合成score、自動sizing、sector順位は作らない。
 

@@ -234,7 +234,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 - **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
 - **connection セクション**：OP3 が research 優先度ヒントと sizing caution を消化する入口になる（[`../operations/decision-cycle.md`](../operations/decision-cycle.md)）。
 
-行動指示（market timing・cash比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。
+行動指示（売買タイミング・現金比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。
 
 ## 誠実性（honesty firewall）
 
