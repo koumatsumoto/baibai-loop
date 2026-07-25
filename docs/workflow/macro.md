@@ -94,8 +94,9 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 | `staleness_days` / `stale` | asof − `observed_at`。規則の `staleness_warn_days` を超えたら `stale` |
 | `window_years` / `window_observations` | percentile / z-score を計算した実効窓と、その窓に入った観測数 |
 | `insufficient_history` | 実効窓を履歴が満たさない。`percentile` / `z_score` は null になる（判定は下記） |
-| `percentile` | 実効窓の観測のうち `latest_value` 以下の割合（0〜1） |
-| `z_score` | (`latest_value` − 窓平均) / 窓標準偏差。窓が定数なら null |
+| `statistic` / `statistic_unit` / `statistic_value` | percentile / z-score が位置を測る対象（`level` = 水準そのもの、`yoy` = 前年比 %）と、その単位・最新値 |
+| `percentile` | 実効窓の統計標本のうち `statistic_value` 以下の割合（0〜1） |
+| `z_score` | (`statistic_value` − 標本平均) / 標本標準偏差。標本が定数なら null |
 | `short_trend` / `long_trend` | 規則の月数だけ前の基準日以前で最新の観測に対する変化。`anchor_observed_at` を併記する |
 | `flags` | 教科書的な閾値に触れていることの注記（PMI<50、curve 逆転、ERP≤0、VIX≥30 等） |
 
@@ -105,14 +106,18 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 - **`stale` は provider の無音の停止を疑う合図**であって、値の否定ではない。観測の齢は公表ラグと週末を含むため、規則の閾値は「平常の公表ラグ + 1 回の公表落ち」に置く
 - **`flags` は signal ではなく注記**である。閾値に触れたことを見落とさないための機械的な指差しで、水準の解釈と行動は L3 の判断に属する
 - **`z_score` の極端値は誤値と真の市場極値の両方で出る**。どちらかは reading では決めず、L3 が一次情報と突き合わせて判断する
+- **percentile は `statistic` と一緒に読む**。水準の尺度が自らの履歴でしか決まらない系列（物価・数量の指数、名目の集計値、累積の雇用者数、株価指数）は水準の percentile が時間の経過を映すだけになるため、`statistic: yoy` として前年比 %の分布内の位置を出す。金利・スプレッド・比率・DI・ボラティリティ・為替・商品価格は水準自体に解釈があるので `level` を保つ。`yoy` の系列でも `latest_value`・`flags`・`short_trend` / `long_trend` は水準のままで、trend は系列自身の単位の絶対変化、percentile は %変化の位置を示す
+- **`statistic_value` が null なら位置は出ない**。前年比は 1 年前の観測を相手に取るので、その月が欠けている系列（相手が 380 日より前しかない）や相手が 0 以下の系列は該当点を標本から落とし、最新点が落ちれば percentile / z も null にする
 
-計算規則は `method/macro-reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest が持つ月だけ、ICE BofA OAS の 3 年）は percentile の実効窓を、週次でまとめて公表される日次系列（FRB H.10 由来）は staleness 閾値を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。
+計算規則は `method/macro-reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest が持つ月だけ、ICE BofA OAS の 3 年）は percentile の実効窓を、水準に位置が無い系列は `statistic` を、週次でまとめて公表される日次系列（FRB H.10 由来）は staleness 閾値を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。
+
+`statistic` の既定は `level` なので、水準に位置が無い系列を registry へ追加したら override を書く（書き忘れは percentile が 100% 近傍に張り付く形で reading 自身に現れる）。`yoy` の系列では窓の先頭より 13 か月前まで raw を読み、標本は窓の中だけを使う。履歴が窓の先頭で始まる系列（provider が rolling 窓を配信する場合）は先頭 1 年に相手が居ないため標本がその分薄くなるが、`insufficient_history` の判定は raw 履歴が窓を張るかで行うので percentile は出る。
 
 percentile の実効窓を短縮した系列は、provider の履歴が伸びて default に届いたら override を外す（`window_years` が default と一致しているかを規則改版時に確認する）。
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。専用 store は持たず、日次バッチが Baibai App 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
 
-Baibai App の Macro タブは先頭にこの読み値をヒート面（系列ごとの方向・percentile・実効窓・flags）と data health（`stale` な系列・`insufficient_history` の件数・`|z_score|` が極端な系列）として表示する。view が未生成のときはその区画だけを出さない（指標パネルとレポート index は通常表示する）。
+Baibai App の Macro タブは先頭にこの読み値をヒート面（系列ごとの方向・`statistic`・percentile・実効窓・flags）と data health（`stale` な系列・`insufficient_history` の件数・`|z_score|` が極端な系列）として表示する。view が未生成のときはその区画だけを出さない（指標パネルとレポート index は通常表示する）。
 
 ## ③ 環境認識：macro context report を publish する
 

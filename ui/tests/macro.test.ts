@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { MacroReadingSeriesView } from '../src/api/types'
-import { failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary } from '../src/lib/macro'
+import { failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary, statisticName } from '../src/lib/macro'
 
 function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroReadingSeriesView {
   return {
@@ -20,6 +20,9 @@ function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroRe
     window_observations: 120,
     expected_observations: 120,
     insufficient_history: false,
+    statistic: 'level',
+    statistic_unit: 'percent',
+    statistic_value: 2.4,
     percentile: 0.83,
     z_score: 0.9,
     short_trend: null,
@@ -75,6 +78,24 @@ describe('readingStatistics', () => {
 
   it('reports a null percentile as null rather than zero percent', () => {
     expect(readingStatistics(readingSeries({ percentile: null })).percentilePct).toBeNull()
+  })
+
+  it('withholds the statistics of a year-on-year series with no comparable observation', () => {
+    const stats = readingStatistics(readingSeries({ statistic: 'yoy', statistic_value: null, percentile: 0.5, z_score: 1 }))
+    expect(stats.percentilePct).toBeNull()
+    expect(stats.zScore).toBeNull()
+    expect(stats.withheldNote).toBe('前年比を取れない')
+  })
+})
+
+describe('statisticName', () => {
+  it('names the statistic the percentile ranks', () => {
+    expect(statisticName('level')).toBe('水準')
+    expect(statisticName('yoy')).toBe('前年比')
+  })
+
+  it('falls back to the raw name so an unknown statistic is not displayed as a level', () => {
+    expect(statisticName('mom')).toBe('mom')
   })
 })
 

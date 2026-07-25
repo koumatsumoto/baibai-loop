@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
+from .rules import ReadingStatistic
+
 type TrendDirection = Literal["up", "down", "flat"]
 
 
@@ -29,6 +31,11 @@ class SeriesReading:
     history. ``window_years`` is the effective statistical window the rules
     resolved for this series, so a reader can tell a 10-year percentile from a
     3-year one.
+
+    ``percentile`` and ``z_score`` rank ``statistic_value``, which is the level for most
+    series and the year-on-year percent change for those whose level scale is set by
+    their own history. Reading a percentile without its ``statistic`` therefore mixes two
+    different questions, so both travel together.
     """
 
     series_id: str
@@ -48,6 +55,11 @@ class SeriesReading:
     # the implied count is a property of the market calendar rather than the frequency.
     expected_observations: int | None
     insufficient_history: bool
+    statistic: ReadingStatistic
+    statistic_unit: str
+    # The statistic at the latest observation; None when the transform cannot reach it
+    # (a year-on-year change with no observation a year back), which withholds the rank.
+    statistic_value: float | None
     percentile: float | None
     z_score: float | None
     short_trend: SeriesTrend | None
@@ -100,6 +112,9 @@ def series_payload(reading: SeriesReading) -> dict[str, object]:
         "window_observations": reading.window_observations,
         "expected_observations": reading.expected_observations,
         "insufficient_history": reading.insufficient_history,
+        "statistic": reading.statistic,
+        "statistic_unit": reading.statistic_unit,
+        "statistic_value": reading.statistic_value,
         "percentile": reading.percentile,
         "z_score": reading.z_score,
         "short_trend": _trend_payload(reading.short_trend),

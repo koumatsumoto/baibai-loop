@@ -12,13 +12,39 @@ from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_de
 from baibai_engine.macro.reading.compute import MIN_WINDOW_OBSERVATIONS, compute_reading
 from baibai_engine.macro.reading.rules import (
     DEFAULT_RULES_PATH,
+    ReadingRules,
     ReadingRulesError,
+    SeriesOverride,
     ThresholdFlag,
     load_reading_rules,
     rules_revision,
 )
 
 ASOF = date(2026, 7, 24)
+
+
+def _yoy_rules(series_id: str) -> ReadingRules:
+    """The published defaults with one series switched to the year-on-year statistic."""
+
+    published = load_reading_rules(DEFAULT_RULES_PATH)
+    return ReadingRules(
+        schema_version=published.schema_version,
+        defaults=published.defaults,
+        overrides={series_id: SeriesOverride(statistic="yoy")},
+    )
+
+
+def _monthly_ramp(months: int, *, end: date) -> list[tuple[date, float]]:
+    """Month-start points rising by one a month, so the level only ever sets records."""
+
+    last = end.year * 12 + (end.month - 1)
+    return [
+        (
+            date((last - offset) // 12, (last - offset) % 12 + 1, 1),
+            100.0 + float(months - 1 - offset),
+        )
+        for offset in reversed(range(months))
+    ]
 
 
 def _definition(
@@ -85,6 +111,31 @@ def test_reading_rules_resolve_for_every_registered_series() -> None:
         assert resolved.staleness_warn_days >= 1
 
 
+def test_reading_rules_default_the_statistic_to_the_level() -> None:
+    # An unlisted series keeps the level reading, so registering one never silently
+    # changes what its percentile means.
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+
+    assert rules.resolve(series_id="test.unlisted", frequency="daily").statistic == "level"
+    assert rules.resolve(series_id="us.nonfarm_payrolls", frequency="monthly").statistic == "yoy"
+
+
+def test_reading_rules_take_the_yoy_statistic_only_where_the_level_has_no_scale() -> None:
+    """Rates, ratios and diffusion indices must keep their level percentile.
+
+    Their levels answer "is this high" on their own, and ranking their year-on-year
+    change instead would replace the reading that carries the position.
+    """
+
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+    definitions = {item.series_id: item for item in load_definitions().series}
+
+    for series_id in ("jp.10y", "vix", "jp.nikkei_pbr", "us.unemployment", "jp.cpi.core_yoy"):
+        definition = definitions[series_id]
+        resolved = rules.resolve(series_id=series_id, frequency=definition.frequency)
+        assert resolved.statistic == "level", series_id
+
+
 def test_reading_rules_override_only_names_registered_series() -> None:
     rules = load_reading_rules(DEFAULT_RULES_PATH)
     registered = {definition.series_id for definition in load_definitions().series}
@@ -144,11 +195,128 @@ def test_percentile_and_z_score_match_the_window_statistics() -> None:
     reading = snapshot.series[0]
     assert reading.window_observations == len(values)
     assert not reading.insufficient_history
+    # An unlisted series ranks its level, so the statistic is the latest value itself.
+    assert reading.statistic == "level"
+    assert reading.statistic_unit == definition.unit
+    assert reading.statistic_value == reading.latest_value
     # The latest value is the maximum, so every observation is at or below it.
     assert reading.percentile == 1.0
     assert reading.z_score == pytest.approx(
         (values[-1] - statistics.fmean(values)) / statistics.stdev(values)
     )
+
+
+def test_percentile_ranks_the_year_on_year_change_where_the_level_only_sets_records() -> None:
+    """The point of the transform: a series that keeps rising has no position in its level.
+
+    Its level percentile is 1.0 in every reading, while the year-on-year change of a
+    linear ramp falls month after month, so the same data reads as the slowest pace of
+    the window instead of its highest value.
+    """
+
+    definition = _definition("test.ramp", frequency="monthly")
+    points = _monthly_ramp(132, end=date(2026, 7, 1))
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=_yoy_rules(definition.series_id),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.statistic == "yoy"
+    assert reading.statistic_unit == "percent"
+    assert reading.statistic_value == pytest.approx(12.0 / 219.0 * 100.0)
+    # The window holds 120 month-starts and each has a partner a year back, thanks to the
+    # extra history the transform reads before the window opens.
+    assert reading.window_observations == 120
+    assert not reading.insufficient_history
+    # A linear ramp's year-on-year change shrinks every month, so the latest is the lowest.
+    assert reading.percentile == pytest.approx(1 / 120)
+    # The level and the absolute trend are unchanged: only what is ranked moved.
+    assert reading.latest_value == 231.0
+    long_trend = reading.long_trend
+    assert long_trend is not None
+    assert long_trend.change == pytest.approx(12.0)
+
+
+def test_reading_withholds_a_year_on_year_statistic_with_no_observation_a_year_back() -> None:
+    # A thirteen-month change reported as year-on-year would misstate the pace, so the
+    # reading withholds the rank instead of stretching the comparison.
+    definition = _definition("test.gap", frequency="monthly")
+    points = [
+        point for point in _monthly_ramp(132, end=date(2026, 7, 1)) if point[0] != date(2025, 7, 1)
+    ]
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=_yoy_rules(definition.series_id),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.statistic_value is None
+    assert reading.percentile is None
+    assert reading.z_score is None
+    # The history covers the window, so the reason is the missing partner, not the window.
+    assert not reading.insufficient_history
+    assert reading.latest_value == 231.0
+
+
+def test_reading_skips_a_year_on_year_point_whose_partner_is_not_positive() -> None:
+    # A ratio against zero has no value to report, so that one point leaves the sample
+    # rather than entering it as an infinity.
+    definition = _definition("test.zero_partner", frequency="monthly")
+    points = [
+        (observed_at, 0.0 if observed_at == date(2024, 7, 1) else value)
+        for observed_at, value in _monthly_ramp(132, end=date(2026, 7, 1))
+    ]
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=_yoy_rules(definition.series_id),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.window_observations == 119
+    assert reading.statistic_value is not None
+
+
+def test_reading_ranks_a_yoy_series_whose_history_starts_where_the_window_opens() -> None:
+    """Coverage is judged on the raw history, which the transform then thins.
+
+    A provider serving exactly the window (a rolling ten years) would otherwise report
+    insufficient history forever: its first year has no partner, and the sample would
+    start one year inside the window every day.
+    """
+
+    definition = _definition("test.rolling", frequency="monthly")
+    points = _monthly_ramp(120, end=date(2026, 7, 1))
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=_yoy_rules(definition.series_id),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert not reading.insufficient_history
+    assert reading.window_observations == 108
+    assert reading.expected_observations == 120
+    assert reading.percentile is not None
 
 
 def test_reading_is_deterministic_for_the_same_inputs() -> None:

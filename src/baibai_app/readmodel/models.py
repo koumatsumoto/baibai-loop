@@ -448,6 +448,11 @@ class MacroReadingSeriesView(BaseModel):
     window_observations: int
     expected_observations: int | None
     insufficient_history: bool
+    # What percentile / z_score rank: the level, or the year-on-year percent change for a
+    # series whose level scale is set by its own history.
+    statistic: str
+    statistic_unit: str
+    statistic_value: float | None
     percentile: float | None
     z_score: float | None
     short_trend: MacroReadingTrendView | None

@@ -18,9 +18,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from baibai_engine.foundation.yaml_io import safe_load
 
-DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-25T000000+0900.yaml")
+DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-25T180000+0900.yaml")
 
 type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
+
+# What the percentile and z-score measure the position of. ``level`` ranks the value
+# itself, which only says something when the level has a scale of its own — a rate, a
+# ratio, a diffusion index. ``yoy`` ranks the year-on-year change in percent, for series
+# whose scale is set by their own history: an index or a cumulative aggregate sits at the
+# 100th percentile every month it keeps rising, so its level percentile reports the
+# passage of time while its position lives in the rate of change.
+type ReadingStatistic = Literal["level", "yoy"]
 
 
 class ReadingRulesError(ValueError):
@@ -59,6 +67,7 @@ class FrequencyDefaults(_StrictModel):
 
 class SeriesOverride(_StrictModel):
     percentile_window_years: int | None = Field(default=None, ge=1)
+    statistic: ReadingStatistic | None = None
     short_trend_months: int | None = Field(default=None, ge=1)
     long_trend_months: int | None = Field(default=None, ge=1)
     staleness_warn_days: int | None = Field(default=None, ge=1)
@@ -94,6 +103,7 @@ class ReadingRules(_StrictModel):
         if override is None:
             return ResolvedRule(
                 percentile_window_years=base.percentile_window_years,
+                statistic="level",
                 short_trend_months=base.short_trend_months,
                 long_trend_months=base.long_trend_months,
                 staleness_warn_days=base.staleness_warn_days,
@@ -102,6 +112,9 @@ class ReadingRules(_StrictModel):
         return ResolvedRule(
             percentile_window_years=override.percentile_window_years
             or base.percentile_window_years,
+            # The level is the reading a series has unless a rule says its scale is set
+            # by its own history, so an unlisted series keeps today's meaning.
+            statistic=override.statistic or "level",
             short_trend_months=override.short_trend_months or base.short_trend_months,
             long_trend_months=override.long_trend_months or base.long_trend_months,
             staleness_warn_days=override.staleness_warn_days or base.staleness_warn_days,
@@ -111,6 +124,7 @@ class ReadingRules(_StrictModel):
 
 class ResolvedRule(_StrictModel):
     percentile_window_years: int
+    statistic: ReadingStatistic
     short_trend_months: int
     long_trend_months: int
     staleness_warn_days: int
@@ -148,7 +162,9 @@ __all__ = [
     "DEFAULT_RULES_PATH",
     "ReadingRules",
     "ReadingRulesError",
+    "ReadingStatistic",
     "ResolvedRule",
+    "SeriesOverride",
     "ThresholdFlag",
     "load_reading_rules",
     "rules_revision",
