@@ -4,6 +4,7 @@ from typing import Any
 
 _READING_INPUT_ID = "reading-2026-07-19"
 _SERIES_INPUT_ID = "us-10y"
+_SNAPSHOT_INPUT_ID = "snapshot-market-2026-07-19"
 
 
 def macro_context_payload(
@@ -101,6 +102,17 @@ def macro_context_payload(
                     "used_for": "全系列の水準・方向・percentileの確認",
                 }
             ],
+            "machine_snapshots": [
+                {
+                    "input_id": _SNAPSHOT_INPUT_ID,
+                    "command": "baibai-engine screening market-snapshot",
+                    "snapshot_asof": as_of,
+                    "observation_as_of": as_of,
+                    "accessed_at": published_at,
+                    "status": "ok",
+                    "used_for": "市場内部とバーゲン地形の確認",
+                }
+            ],
         },
         "core": core,
         "connection": {
@@ -108,7 +120,11 @@ def macro_context_payload(
             "series_ids": ["us.10y"],
             "core_section_ids": ["rates_policy"],
             "fact_summary": [
-                {"summary": "米国10年金利は日本株の割引率にも及ぶ。", "source_ids": source_ids}
+                {"summary": "米国10年金利は日本株の割引率にも及ぶ。", "source_ids": source_ids},
+                {
+                    "summary": "benchmark 20d は横ばいで breadth は中立である。",
+                    "source_ids": [_SNAPSHOT_INPUT_ID],
+                },
             ],
             "judgment": {
                 "summary": "金利感応度の高い企業はresearchで耐性を先に確認する。",
