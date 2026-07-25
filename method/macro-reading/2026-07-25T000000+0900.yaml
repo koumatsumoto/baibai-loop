@@ -1,0 +1,134 @@
+# macro reading（L2 機械読み値）の計算規則。
+#
+# 全登録 series に規則が解決することが要件であり、系列追加が本ファイルの編集を
+# 要求しない。したがって frequency 別の defaults を正とし、override は「default が
+# 事実に反する系列」だけに書く。網羅性は tests/test_macro_reading.py が保証する。
+#
+# 用語:
+#   percentile_window_years  percentile / z-score の統計窓（年）。provider の提供
+#                            履歴が構造的にこの長さに届かない系列だけ override する。
+#   trend_months             latest と比較する基準時点（asof からの月数）。
+#   staleness_warn_days      最終観測がこの日数より古ければ stale と注記する。観測の
+#                            齢であり cache の齢ではないため、公表ラグと週末を含む。
+#   flags                    閾値フラグ。signal ではなく注記であり、初期値は教科書値。
+schema_version: 1
+
+defaults:
+  daily:
+    percentile_window_years: 10
+    short_trend_months: 3
+    long_trend_months: 12
+    # 国内最長の連休（GW・年末年始は最終営業日から 6 日空く）を跨いでも平常時に
+    # 注記が出ない水準。1 週間止まれば注記が出る。
+    staleness_warn_days: 7
+  weekly:
+    percentile_window_years: 10
+    short_trend_months: 3
+    long_trend_months: 12
+    # 週次公表の 1 回抜けまでは注記しない。
+    staleness_warn_days: 21
+  monthly:
+    percentile_window_years: 10
+    short_trend_months: 3
+    long_trend_months: 12
+    # 観測は月初日付で、月 M の値は M+1 の中旬〜下旬に公表される。したがって
+    # 平常時でも「M+2 の中旬に M の値が最新」＝約 80 日の齢が正常であり、
+    # 閾値はその上に置く（1 回の公表落ちで注記が出る水準）。
+    staleness_warn_days: 100
+  quarterly:
+    percentile_window_years: 10
+    short_trend_months: 6
+    long_trend_months: 12
+    # 四半期 Q の値は Q+1 の下旬に公表されるため、平常時の最大齢は約 210 日
+    # （Q1 の値が 7 月下旬まで最新）。四半期系列は構造的に検知が遅い。
+    staleness_warn_days: 220
+
+overrides:
+  # FRB H.10 由来の日次系列は週次公表（前週分をまとめて出す）ため、日次 default
+  # では平常時に注記が出る。
+  usd_cny:
+    staleness_warn_days: 12
+  usd_index.broad:
+    staleness_warn_days: 12
+  # J-Quants Light の配信契約が運用日から 5 年 rolling。
+  jp.topix:
+    percentile_window_years: 5
+  # 同じ契約窓だが、実配信は 2022-04 起点で 5 年に届かない。
+  jp.foreign_flows:
+    percentile_window_years: 3
+  # yahoo が配信する東証グロース 250 の履歴が 2018-01 起点。
+  jp.growth250:
+    percentile_window_years: 5
+  # spglobal_pmi は manifest に載っている月だけを持ち、stream ごとに起点と欠落が
+  # 異なる（PDF を 1 月ずつ人手で追記する運用のため）。窓は 4 stream で揃えて置き、
+  # 窓を満たさない stream は insufficient_history として percentile を出さない。
+  jp.pmi_manufacturing:
+    percentile_window_years: 3
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  jp.pmi_services:
+    percentile_window_years: 3
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  us.pmi_manufacturing:
+    percentile_window_years: 3
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  us.pmi_services:
+    percentile_window_years: 3
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  # ICE BofA OAS の FRED 配信範囲が直近 3 年。HY−IG spread は両者から導出するため
+  # 同じ制約を受ける。
+  credit.us_ig_oas:
+    percentile_window_years: 3
+  credit.us_hy_oas:
+    percentile_window_years: 3
+  credit.us_ccc_oas:
+    percentile_window_years: 3
+  credit.hy_ig_spread:
+    percentile_window_years: 3
+  # 教科書的な閾値の注記（水準の解釈は L3 の判断に委ねる）。
+  us.10y_2y_spread:
+    flags:
+      - id: inverted
+        comparison: below
+        value: 0.0
+  us.10y_3m_spread:
+    flags:
+      - id: inverted
+        comparison: below
+        value: 0.0
+  us.erp:
+    flags:
+      - id: non_positive
+        comparison: at_or_below
+        value: 0.0
+  jp.erp:
+    flags:
+      - id: non_positive
+        comparison: at_or_below
+        value: 0.0
+  vix:
+    flags:
+      - id: stress
+        comparison: at_or_above
+        value: 30.0
+  jp.real_10y_proxy:
+    flags:
+      - id: negative
+        comparison: below
+        value: 0.0
+  us.real_10y:
+    flags:
+      - id: negative
+        comparison: below
+        value: 0.0

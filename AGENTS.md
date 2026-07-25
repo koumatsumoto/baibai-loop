@@ -55,7 +55,7 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である。�
 | task | skill |
 | --- | --- |
 | 候補抽出、IR、購入・指値提案、人間からの注文結果、保有review、年次outcome | [`.agents/skills/decision-cycle/SKILL.md`](./.agents/skills/decision-cycle/SKILL.md) |
-| 個別5年評価を変えるmaterial macro delta | [`.agents/skills/macro-analysis/SKILL.md`](./.agents/skills/macro-analysis/SKILL.md) |
+| 判断のための市場環境評価レポート（macro context）を書く。指標の変化を確認したいだけなら`macro reading`を読み、レポートは作らない | [`.agents/skills/macro-analysis/SKILL.md`](./.agents/skills/macro-analysis/SKILL.md) |
 | screening/FV/E[r]等の方法改善 | [`.agents/skills/improvement-loop/SKILL.md`](./.agents/skills/improvement-loop/SKILL.md) |
 
 ## 言語運用

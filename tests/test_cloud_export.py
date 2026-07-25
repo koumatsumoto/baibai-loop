@@ -24,13 +24,14 @@ from baibai_app.readmodel.models import (
 )
 from baibai_app.sources.db_sources import DbMetaSource
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.macro.context.models import MacroContextDocument
+from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.db import (
     ObservationRecord,
     insert_observations,
     open_connection,
 )
-from baibai_engine.macro.models import MacroContextDocument
-from baibai_engine.macro.service import MacroContextService
+from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from tests.helpers.macro_context import macro_context_payload
 
@@ -179,6 +180,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     views = output_dir / "views"
     expected = {
         "dashboard.json",
+        "macro-reading.json",
         "screening_latest.json",
         "operations.json",
         "meta.json",
@@ -244,12 +246,27 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
     assert detail_path.is_file()
     detail = MacroContextView.model_validate_json(detail_path.read_text(encoding="utf-8"))
     assert detail.context_id == document.context_id
-    assert len(detail.sections) == 8
+    assert len(detail.core) == 10
+    assert detail.connection.section_id == "japan_equity_loop"
     # The overview view indexes the same report (summary only, no full sections).
     overview = MacroView.model_validate_json(
         (output_dir / "views/macro--1y-daily.json").read_text(encoding="utf-8")
     )
     assert [report.context_id for report in overview.reports] == [document.context_id]
+
+
+def test_export_skips_the_reading_view_without_failing_when_its_rules_are_absent(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    """A rules revision that is not deployed must cost the panel, not the whole export."""
+
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / MACRO_READING_RULES_PATH).unlink()
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+    assert not (output_dir / "views/macro-reading.json").exists()
+    assert (output_dir / "views/macro--1y-daily.json").is_file()
 
 
 def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Path) -> None:

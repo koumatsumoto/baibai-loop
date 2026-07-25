@@ -58,7 +58,7 @@ export interface TaskView {
 
 export interface UpcomingEventView {
   event_date: string
-  kind: 'earnings' | 'reservation_expiry' | 'macro_valid_until'
+  kind: 'earnings' | 'reservation_expiry'
   ticker: string | null
   label: string
   days_until: number
@@ -311,11 +311,25 @@ export interface MacroSectionJudgmentView {
   source_ids: string[]
 }
 
-export interface MacroInvestmentConnectionView {
+export interface MacroEconomicConnectionView {
   summary: string
-  sector_tilts: string[]
-  research_priority_hints: string[]
   source_ids: string[]
+}
+
+export interface MacroRiskEnvironmentView {
+  stance: string
+  confidence: string
+  summary: string
+  falsifiers: string[]
+  source_ids: string[]
+}
+
+/** A machine-checkable scenario condition: series compared to a threshold by a deadline. */
+export interface MacroScorecardConditionView {
+  series_id: string
+  comparison: string
+  threshold: number
+  deadline: string
 }
 
 export interface MacroScenarioView {
@@ -323,7 +337,22 @@ export interface MacroScenarioView {
   direction: string
   summary: string
   conditions: string[]
-  investment_implications: string[]
+  scorecard: MacroScorecardConditionView[]
+  economic_implications: string[]
+  source_ids: string[]
+}
+
+export interface MacroResearchPriorityHintView {
+  summary: string
+  // Which candidate type the hint bites on; a hint without it has no discriminating power.
+  applies_to: string
+  source_ids: string[]
+}
+
+export interface MacroSectorTiltView {
+  sector: string
+  direction: string
+  summary: string
   source_ids: string[]
 }
 
@@ -335,36 +364,106 @@ export interface MacroMonitoringPointView {
   source_ids: string[]
 }
 
-export interface MacroContextSectionView {
+/** One of the 10 core sections: a use-case agnostic reading of the environment. */
+export interface MacroCoreSectionView {
   section_id: string
   series: MacroSeriesReferenceView[]
   fact_summary: MacroFactSummaryView[]
   judgment: MacroSectionJudgmentView
-  investment_connection: MacroInvestmentConnectionView
+  economic_connection: MacroEconomicConnectionView
   change_since_previous: string | null
+  previous_scorecard_review: string | null
   material_deltas: MacroMaterialDeltaView[]
-  sizing_cautions: MacroSizingCautionView[]
+  risk_environment: MacroRiskEnvironmentView | null
   scenarios: MacroScenarioView[]
   monitoring_points: MacroMonitoringPointView[]
+}
+
+/** The single connection section, where loop-specific vocabulary is isolated. */
+export interface MacroConnectionSectionView {
+  section_id: string
+  series: MacroSeriesReferenceView[]
+  core_section_ids: string[]
+  fact_summary: MacroFactSummaryView[]
+  judgment: MacroSectionJudgmentView
+  research_priority_hints: MacroResearchPriorityHintView[]
+  sector_tilts: MacroSectorTiltView[]
+  sizing_cautions: MacroSizingCautionView[]
 }
 
 export interface MacroContextView {
   context_id: string
   as_of: string
-  valid_until: string
   published_at: string
   summary: string
+  age_days: number
   stale: boolean
-  sections: MacroContextSectionView[]
+  core: MacroCoreSectionView[]
+  connection: MacroConnectionSectionView
 }
 
 export interface MacroContextRevisionView {
   context_id: string
   as_of: string
-  valid_until: string
   published_at: string
   summary: string
+  age_days: number
   stale: boolean
+}
+
+export interface MacroReadingTrendView {
+  months: number
+  anchor_observed_at: string
+  anchor_value: number
+  change: number
+  direction: string
+}
+
+/** One series' machine reading: where it stands, which way it moved, how old it is. */
+export interface MacroReadingSeriesView {
+  series_id: string
+  name: string
+  category: string
+  geography: string
+  frequency: string
+  unit: string
+  latest_value: number | null
+  observed_at: string | null
+  staleness_days: number | null
+  stale: boolean
+  staleness_warn_days: number
+  window_years: number
+  window_observations: number
+  // Observations the frequency implies for the window; null for a daily series, where
+  // the count depends on the market calendar rather than on the frequency.
+  expected_observations: number | null
+  // The effective window is not met, so percentile / z_score are withheld as null.
+  insufficient_history: boolean
+  // Share of window observations at or below latest_value, expressed as 0–1.
+  percentile: number | null
+  z_score: number | null
+  short_trend: MacroReadingTrendView | null
+  long_trend: MacroReadingTrendView | null
+  // Notes that a textbook threshold is touched. Not a signal.
+  flags: string[]
+}
+
+/** The latest acquisition attempt for one series. Not part of the reading itself. */
+export interface MacroSeriesFetchHealthView {
+  series_id: string
+  status: string
+  finished_at: string
+  record_count: number
+  error_message: string | null
+}
+
+export interface MacroReadingView {
+  asof: string
+  rules_revision: string
+  series: MacroReadingSeriesView[]
+  // Staleness alone cannot see a provider that has just gone silent: a low-frequency
+  // series stays inside its threshold for weeks after its source stops answering.
+  fetch_health: MacroSeriesFetchHealthView[]
 }
 
 export interface MacroPointView {

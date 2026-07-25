@@ -88,6 +88,7 @@ describe('view routing', () => {
     ['/api/meta', 'views/meta.json'],
     ['/api/macro', 'views/macro--1y-daily.json'],
     ['/api/macro?period=max&granularity=yearly', 'views/macro--max-yearly.json'],
+    ['/api/macro/reading', 'views/macro-reading.json'],
     [
       '/api/macro/context/macro-context-2026-07-01-example',
       'views/macro-context--macro-context-2026-07-01-example.json',

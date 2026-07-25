@@ -16,6 +16,7 @@ from baibai_app.readmodel.builders import (
     build_dashboard,
     build_macro,
     build_macro_context_detail,
+    build_macro_reading,
     build_meta,
     build_operations_view,
     build_screening,
@@ -25,6 +26,7 @@ from baibai_app.readmodel.builders import (
 from baibai_app.readmodel.models import (
     DashboardView,
     MacroContextView,
+    MacroReadingView,
     MacroView,
     MetaView,
     OperationsView,
@@ -76,7 +78,6 @@ def create_app(
             sources.tasks,
             sources.candidates,
             sources.market,
-            macro=sources.macro,
         )
 
     @app.get("/api/screening/latest", response_model=ScreeningView)
@@ -119,6 +120,16 @@ def create_app(
             period=period,
             granularity=granularity,
         )
+
+    @app.get("/api/macro/reading", response_model=MacroReadingView)
+    def macro_reading(
+        sources: _SourceDependency,
+        asof: date | None = None,
+    ) -> MacroReadingView:
+        view = build_macro_reading(sources.macro, asof=asof or datetime.now(_JST).date())
+        if view is None:
+            raise HTTPException(status_code=404, detail="macro reading is unavailable")
+        return view
 
     @app.get("/api/macro/context/{context_id}", response_model=MacroContextView)
     def macro_context(

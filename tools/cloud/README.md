@@ -136,6 +136,8 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> [--batch dail
 
 - `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
 - `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）
+- `views/macro-reading.json`（全登録系列の機械読み値。indicator store か reading rules が
+  無ければ警告のうえ書かず、Macro タブは該当パネルだけを非表示にする）
 - `views/security--<ticker>.json`（保有 + 最新 run 掲載 + shortlist の ticker）
 - `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
 - `history/select/<asof>.json`（machine selection のサマリ。無期限保持する軽量履歴）

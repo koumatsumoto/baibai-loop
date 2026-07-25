@@ -28,10 +28,6 @@ class MarketPriceSource(Protocol):
     def next_earnings_dates(self, tickers: Sequence[str], *, asof: date) -> Mapping[str, date]: ...
 
 
-class MacroContextSource(Protocol):
-    def context(self, *, as_of: date) -> Mapping[str, object] | None: ...
-
-
 class ResearchSource(Protocol):
     def revisions(self) -> list[ResearchRevision]: ...
 

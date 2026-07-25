@@ -27,7 +27,12 @@ class DerivedProvider:
     refreshed (the batch orders ``local`` providers after ``http`` ones).
     """
 
-    spec = ProviderSpec(name="derived", kind="local")
+    # A local provider has no external source to define a floor: the history of a
+    # derived series is exactly the overlap of its inputs' histories. The floor is
+    # therefore set before any base series begins, so `--all-history` recomputes the
+    # whole overlap instead of refusing (without it, a derived series could never be
+    # rebuilt and would stay as shallow as the last rolling window).
+    spec = ProviderSpec(name="derived", kind="local", all_history_start=date(1970, 1, 1))
     name = spec.name
 
     def fetch(

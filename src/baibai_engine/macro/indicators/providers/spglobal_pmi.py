@@ -53,7 +53,10 @@ class SpGlobalPmiProvider:
     way to rebuild the stream from source.
     """
 
-    spec = ProviderSpec(name="spglobal_pmi", all_history_start=date(2023, 7, 1))
+    # The manifest is the whole obtainable history, so the all-history floor has to
+    # reach the oldest month it names; otherwise `--all-history` silently leaves the
+    # months before the floor unfetchable. A test binds this date to the manifest.
+    spec = ProviderSpec(name="spglobal_pmi", all_history_start=date(2022, 12, 1))
     name = spec.name
 
     def fetch(

@@ -8,11 +8,99 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
+from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
+from baibai_engine.macro.indicators import db as indicators_db
 from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.macro.reading.compute import compute_reading
+from baibai_engine.macro.reading.models import snapshot_payload
+from baibai_engine.macro.reading.rules import (
+    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
+)
+from baibai_engine.macro.reading.rules import (
+    ReadingRulesError,
+    load_reading_rules,
+    rules_revision,
+)
 
 from .sqlite import connect_read_only
 
 type MacroGranularity = Literal["daily", "weekly", "monthly", "yearly"]
+
+
+def macro_reading_snapshot(
+    path: Path,
+    *,
+    asof: date,
+    rules_path: Path = MACRO_READING_RULES_PATH,
+) -> dict[str, object] | None:
+    """Compute the L2 reading from the indicator store, or None when it is unavailable.
+
+    The reading is a pure function of the store, the rules revision and the as-of date,
+    so a read-only consumer recomputes it instead of depending on a stored snapshot. A
+    missing store or unreadable rules yields None so a consumer degrades to hiding the
+    panel rather than failing the whole view.
+    """
+
+    if not path.is_file():
+        return None
+    try:
+        rules = load_reading_rules(rules_path)
+    except ReadingRulesError:
+        return None
+    connection = connect_read_only(path)
+    try:
+        snapshot = compute_reading(
+            series=indicators_db.list_series(connection),
+            reader=lambda series_id, start, end: indicators_db.observations_in_range(
+                connection, series_id, start, end
+            ),
+            rules=rules,
+            rules_revision=rules_revision(rules_path),
+            asof=asof,
+        )
+    finally:
+        connection.close()
+    return snapshot_payload(snapshot)
+
+
+def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
+    """The latest provider run per series: did the last acquisition attempt succeed?
+
+    Staleness alone cannot see a provider that just went silent: a monthly series stays
+    inside its staleness threshold for weeks after its source stops answering. The run
+    record knows immediately, so the health panel reads both.
+    """
+
+    if not path.is_file():
+        return []
+    connection = connect_read_only(path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT series_id, status, finished_at, record_count, error_message FROM (
+                SELECT series_id, status, finished_at, record_count, error_message,
+                       row_number() OVER (
+                           PARTITION BY series_id ORDER BY finished_at DESC, run_id DESC
+                       ) AS rank
+                FROM provider_runs
+            )
+            WHERE rank = 1
+            ORDER BY series_id
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    return [
+        {
+            "series_id": str(row[0]),
+            "status": str(row[1]),
+            "finished_at": str(row[2]),
+            "record_count": int(row[3]),
+            "error_message": None if row[4] is None else str(row[4]),
+        }
+        for row in rows
+    ]
 
 
 def macro_series_names() -> dict[str, str]:
@@ -28,11 +116,11 @@ def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object
         row = connection.execute(
             """
             SELECT payload FROM macro_context
-            WHERE as_of <= ?
+            WHERE as_of <= ? AND schema_version = ?
             ORDER BY published_at DESC, as_of DESC, context_id DESC
             LIMIT 1
             """,
-            (as_of.isoformat(),),
+            (as_of.isoformat(), MACRO_CONTEXT_SCHEMA_VERSION),
         ).fetchone()
     finally:
         connection.close()
@@ -50,8 +138,9 @@ def list_macro_context_payloads(path: Path) -> list[dict[str, object]]:
     connection = connect_read_only(path)
     try:
         rows = connection.execute(
-            "SELECT payload FROM macro_context "
-            "ORDER BY published_at DESC, as_of DESC, context_id DESC"
+            "SELECT payload FROM macro_context WHERE schema_version = ? "
+            "ORDER BY published_at DESC, as_of DESC, context_id DESC",
+            (MACRO_CONTEXT_SCHEMA_VERSION,),
         ).fetchall()
     finally:
         connection.close()
@@ -75,7 +164,8 @@ def macro_context_payload(
     connection = connect_read_only(path)
     try:
         row = connection.execute(
-            "SELECT as_of, payload FROM macro_context WHERE context_id = ?", (context_id,)
+            "SELECT as_of, payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
+            (context_id, MACRO_CONTEXT_SCHEMA_VERSION),
         ).fetchone()
     finally:
         connection.close()
@@ -196,10 +286,16 @@ def _aggregate_period_end(
 
 
 __all__ = [
+    # Re-exported so read-only consumers judge report freshness by the same policy the
+    # engine's own consumers use, rather than keeping a second copy of the threshold.
+    "MACRO_CONTEXT_STALE_DAYS",
+    "MACRO_READING_RULES_PATH",
     "MacroGranularity",
     "latest_macro_context_payload",
     "list_macro_context_payloads",
     "macro_context_payload",
     "macro_indicator_series",
+    "macro_reading_snapshot",
+    "macro_series_fetch_health",
     "macro_series_names",
 ]

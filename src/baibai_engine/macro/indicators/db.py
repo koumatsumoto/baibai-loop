@@ -159,6 +159,20 @@ def get_series(conn: sqlite3.Connection, series_id: str) -> SeriesDefinition:
     return _series_from_row(row, aliases=tuple(str(item["alias"]) for item in alias_rows))
 
 
+def open_read_only_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    """Open the store for reading only, so a read command cannot alter it.
+
+    ``open_connection`` seeds the registry (and drops rows for series no longer
+    registered), which is right for a fetch path and wrong for one that only reads.
+    """
+
+    if not db_path.exists():
+        raise IndicatorsSchemaError(f"indicators store not found: {db_path}")
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def list_series(
     conn: sqlite3.Connection, *, category: str | None = None
 ) -> tuple[SeriesDefinition, ...]:

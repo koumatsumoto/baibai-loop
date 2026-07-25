@@ -17,13 +17,13 @@ from baibai_app.sources.db_sources import (
 from baibai_app.sources.protocols import (
     CandidatesSource,
     LedgerSource,
-    MacroContextSource,
     MarketPriceSource,
     ResearchSource,
     TaskSource,
 )
 from baibai_app.sources.types import CandidatesRun, ResearchRevision, TaskRecord, ThesisDetail
 from baibai_engine.read_api import (
+    MACRO_CONTEXT_STALE_DAYS,
     HoldingSnapshot,
     MacroGranularity,
     PortfolioLedgerError,
@@ -37,17 +37,22 @@ from .models import (
     HoldingReviewView,
     HoldingView,
     MachineSelectionView,
+    MacroConnectionSectionView,
     MacroContextRevisionView,
-    MacroContextSectionView,
     MacroContextView,
+    MacroCoreSectionView,
+    MacroEconomicConnectionView,
     MacroFactSummaryView,
     MacroGroupView,
-    MacroInvestmentConnectionView,
     MacroMaterialDeltaView,
     MacroMonitoringPointView,
     MacroPointView,
+    MacroReadingView,
+    MacroResearchPriorityHintView,
+    MacroRiskEnvironmentView,
     MacroScenarioView,
     MacroSectionJudgmentView,
+    MacroSectorTiltView,
     MacroSeriesReferenceView,
     MacroSeriesView,
     MacroSizingCautionView,
@@ -76,8 +81,8 @@ from .models import (
 
 _EVENT_WINDOW_DAYS = 14
 # Order same-day events so the read most likely to gate an imminent action leads:
-# an earnings print, then a reservation lapse, then the macro context expiry.
-_EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1, "macro_valid_until": 2}
+# an earnings print, then a reservation lapse.
+_EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
 
 type MacroPeriod = Literal["1y", "5y", "10y", "max"]
 
@@ -140,8 +145,6 @@ def build_dashboard(
     tasks: TaskSource,
     candidates: CandidatesSource,
     market: MarketPriceSource,
-    *,
-    macro: MacroContextSource | None = None,
 ) -> DashboardView:
     """Build the Baibai App first view without performing storage I/O directly."""
 
@@ -154,7 +157,6 @@ def build_dashboard(
     open_tasks, next_task, next_event = _task_views(tasks.list_tasks(), today=today)
     tasks_exist = tasks.exists()
     research_load_errors = research.load_errors()
-    macro_valid_until = _macro_valid_until(macro, as_of=today)
 
     if not ledger.exists():
         return _empty_dashboard(
@@ -166,9 +168,7 @@ def build_dashboard(
             next_event=next_event,
             tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
-            upcoming_events=_upcoming_events(
-                today=today, holdings=[], reservations=[], macro_valid_until=macro_valid_until
-            ),
+            upcoming_events=_upcoming_events(today=today, holdings=[], reservations=[]),
         )
     try:
         snapshot = ledger.snapshot()
@@ -182,9 +182,7 @@ def build_dashboard(
             next_event=next_event,
             tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
-            upcoming_events=_upcoming_events(
-                today=today, holdings=[], reservations=[], macro_valid_until=macro_valid_until
-            ),
+            upcoming_events=_upcoming_events(today=today, holdings=[], reservations=[]),
         )
 
     holding_tickers = [holding.ticker for holding in snapshot.holdings]
@@ -260,7 +258,6 @@ def build_dashboard(
             today=today,
             holdings=holdings,
             reservations=reservations,
-            macro_valid_until=macro_valid_until,
         ),
         open_tasks=open_tasks,
         next_task=next_task,
@@ -492,11 +489,11 @@ def build_macro(
     reports = [
         MacroContextRevisionView(
             context_id=str(item["context_id"]),
-            as_of=date.fromisoformat(str(item["as_of"])),
-            valid_until=(valid_until := date.fromisoformat(str(item["valid_until"]))),
+            as_of=(context_as_of := date.fromisoformat(str(item["as_of"]))),
             published_at=datetime.fromisoformat(str(item["published_at"])),
             summary=str(item["summary"]),
-            stale=valid_until < as_of,
+            age_days=(age_days := (as_of - context_as_of).days),
+            stale=age_days > MACRO_CONTEXT_STALE_DAYS,
         )
         for item in source.contexts()
     ]
@@ -509,13 +506,26 @@ def build_macro(
     )
 
 
+def build_macro_reading(source: DbMacroSource, *, asof: date) -> MacroReadingView | None:
+    """Project the machine reading for the Macro tab, or None when it is unavailable.
+
+    None is a normal state (no indicator store yet), and the consumer hides the panel
+    rather than failing the page.
+    """
+
+    payload = source.reading(asof=asof)
+    if payload is None:
+        return None
+    return MacroReadingView.model_validate({**payload, "fetch_health": source.fetch_health()})
+
+
 def build_macro_context_detail(
     source: DbMacroSource,
     *,
     context_id: str,
     as_of: date,
 ) -> MacroContextView:
-    """Build one published macro report (full 8 sections) for the detail page."""
+    """Build one published macro report (core 10 + connection) for the detail page."""
     raw_context = source.context_by_id(context_id=context_id, as_of=as_of)
     return _build_macro_context_view(raw_context, as_of=as_of, series_names=macro_series_names())
 
@@ -523,18 +533,23 @@ def build_macro_context_detail(
 def _build_macro_context_view(
     raw_context: Mapping[str, object], *, as_of: date, series_names: Mapping[str, str]
 ) -> MacroContextView:
-    valid_until = date.fromisoformat(str(raw_context["valid_until"]))
+    context_as_of = date.fromisoformat(str(raw_context["as_of"]))
+    age_days = (as_of - context_as_of).days
+    connection = raw_context["connection"]
+    if not isinstance(connection, Mapping):
+        raise ValueError("macro context connection must be an object")
     return MacroContextView(
         context_id=str(raw_context["context_id"]),
-        as_of=date.fromisoformat(str(raw_context["as_of"])),
-        valid_until=valid_until,
+        as_of=context_as_of,
         published_at=datetime.fromisoformat(str(raw_context["published_at"])),
         summary=str(raw_context["summary"]),
-        stale=valid_until < as_of,
-        sections=[
-            _macro_context_section_view(item, series_names=series_names)
-            for item in _optional_mapping_items(raw_context.get("sections"))
+        age_days=age_days,
+        stale=age_days > MACRO_CONTEXT_STALE_DAYS,
+        core=[
+            _macro_core_section_view(item, series_names=series_names)
+            for item in _mapping_items(raw_context["core"])
         ],
+        connection=_macro_connection_section_view(connection, series_names=series_names),
     )
 
 
@@ -596,45 +611,29 @@ def _mapping_items(value: object) -> list[Mapping[str, object]]:
     return [item for item in value if isinstance(item, Mapping)]
 
 
-def _optional_mapping_items(value: object) -> list[Mapping[str, object]]:
-    if value is None:
-        return []
-    return _mapping_items(value)
-
-
-def _macro_context_section_view(
+def _macro_core_section_view(
     raw: Mapping[str, object], *, series_names: Mapping[str, str]
-) -> MacroContextSectionView:
-    series_ids = _string_items(raw.get("series_ids"))
-    return MacroContextSectionView(
+) -> MacroCoreSectionView:
+    return MacroCoreSectionView(
         section_id=str(raw["section_id"]),
-        series=[
-            MacroSeriesReferenceView(
-                series_id=series_id, name=series_names.get(series_id, series_id)
-            )
-            for series_id in series_ids
-        ],
+        series=_macro_series_references(raw, series_names=series_names),
         fact_summary=[
             MacroFactSummaryView.model_validate(item)
             for item in _mapping_items(raw.get("fact_summary"))
         ],
         judgment=MacroSectionJudgmentView.model_validate(raw["judgment"]),
-        investment_connection=MacroInvestmentConnectionView.model_validate(
-            raw["investment_connection"]
-        ),
-        change_since_previous=(
-            str(raw["change_since_previous"])
-            if raw.get("change_since_previous") is not None
-            else None
-        ),
+        economic_connection=MacroEconomicConnectionView.model_validate(raw["economic_connection"]),
+        change_since_previous=_optional_text(raw.get("change_since_previous")),
+        previous_scorecard_review=_optional_text(raw.get("previous_scorecard_review")),
         material_deltas=[
             MacroMaterialDeltaView.model_validate(item)
             for item in _mapping_items(raw.get("material_deltas"))
         ],
-        sizing_cautions=[
-            MacroSizingCautionView.model_validate(item)
-            for item in _mapping_items(raw.get("sizing_cautions"))
-        ],
+        risk_environment=(
+            MacroRiskEnvironmentView.model_validate(raw["risk_environment"])
+            if raw.get("risk_environment") is not None
+            else None
+        ),
         scenarios=[
             MacroScenarioView.model_validate(item) for item in _mapping_items(raw.get("scenarios"))
         ],
@@ -643,6 +642,46 @@ def _macro_context_section_view(
             for item in _mapping_items(raw.get("monitoring_points"))
         ],
     )
+
+
+def _macro_connection_section_view(
+    raw: Mapping[str, object], *, series_names: Mapping[str, str]
+) -> MacroConnectionSectionView:
+    return MacroConnectionSectionView(
+        section_id=str(raw["section_id"]),
+        series=_macro_series_references(raw, series_names=series_names),
+        core_section_ids=_string_items(raw.get("core_section_ids")),
+        fact_summary=[
+            MacroFactSummaryView.model_validate(item)
+            for item in _mapping_items(raw.get("fact_summary"))
+        ],
+        judgment=MacroSectionJudgmentView.model_validate(raw["judgment"]),
+        research_priority_hints=[
+            MacroResearchPriorityHintView.model_validate(item)
+            for item in _mapping_items(raw.get("research_priority_hints"))
+        ],
+        sector_tilts=[
+            MacroSectorTiltView.model_validate(item)
+            for item in _mapping_items(raw.get("sector_tilts"))
+        ],
+        sizing_cautions=[
+            MacroSizingCautionView.model_validate(item)
+            for item in _mapping_items(raw.get("sizing_cautions"))
+        ],
+    )
+
+
+def _macro_series_references(
+    raw: Mapping[str, object], *, series_names: Mapping[str, str]
+) -> list[MacroSeriesReferenceView]:
+    return [
+        MacroSeriesReferenceView(series_id=series_id, name=series_names.get(series_id, series_id))
+        for series_id in _string_items(raw.get("series_ids"))
+    ]
+
+
+def _optional_text(value: object) -> str | None:
+    return None if value is None else str(value)
 
 
 def _string_items(value: object) -> list[str]:
@@ -762,25 +801,14 @@ def _holding_view(
     )
 
 
-def _macro_valid_until(macro: MacroContextSource | None, *, as_of: date) -> date | None:
-    if macro is None:
-        return None
-    context = macro.context(as_of=as_of)
-    if context is None:
-        return None
-    raw = context.get("valid_until")
-    return date.fromisoformat(str(raw)) if raw is not None else None
-
-
 def _upcoming_events(
     *,
     today: date,
     holdings: list[HoldingView],
     reservations: list[ReservationView],
-    macro_valid_until: date | None,
 ) -> list[UpcomingEventView]:
-    """Collapse holding earnings, reservation expiries, and the macro context expiry
-    into one chronological list within the next ``_EVENT_WINDOW_DAYS`` days.
+    """Collapse holding earnings and reservation expiries into one chronological list
+    within the next ``_EVENT_WINDOW_DAYS`` days.
 
     The window is inclusive on both ends: an event dated today (days_until 0) through
     ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped so the
@@ -815,16 +843,6 @@ def _upcoming_events(
                     days_until=(event_date - today).days,
                 )
             )
-    if macro_valid_until is not None and today <= macro_valid_until <= window_end:
-        events.append(
-            UpcomingEventView(
-                event_date=macro_valid_until,
-                kind="macro_valid_until",
-                ticker=None,
-                label="マクロcontext有効期限",
-                days_until=(macro_valid_until - today).days,
-            )
-        )
     events.sort(key=lambda item: (item.event_date, _EVENT_KIND_ORDER[item.kind], item.ticker or ""))
     return events
 

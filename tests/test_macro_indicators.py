@@ -673,6 +673,13 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 r"https://www\.pmi\.spglobal\.com/Public/Home/PressRelease/[0-9a-f]{32}",
             )
 
+    def test_spglobal_pmi_all_history_start_reaches_the_oldest_manifest_month(self) -> None:
+        # `--all-history` clips to the provider's declared start, so a manifest month
+        # older than that start would be unfetchable by the standard rebuild path.
+        oldest = min(entry.observed_at for entries in _manifest().values() for entry in entries)
+
+        self.assertLessEqual(SpGlobalPmiProvider.spec.all_history_start, oldest)
+
     def test_spglobal_pmi_manifest_rejects_duplicate_month(self) -> None:
         url = "https://www.pmi.spglobal.com/Public/Home/PressRelease/" + "a" * 32
         entries = [

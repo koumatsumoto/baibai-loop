@@ -278,7 +278,6 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
 const eventKindLabel: Record<UpcomingEventView['kind'], string> = {
   earnings: '決算',
   reservation_expiry: '予約期限',
-  macro_valid_until: 'マクロ期限',
 }
 
 function eventCountdownLabel(daysUntil: number) {
@@ -293,7 +292,7 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
       <CardHeader className="flex flex-row items-start justify-between gap-4 border-b px-5 py-5 sm:px-6">
         <div className="flex items-center gap-2">
           <CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" />
-          <div><CardTitle>今後 14 日のイベント</CardTitle><CardDescription className="mt-1">決算・予約期限・マクロ期限</CardDescription></div>
+          <div><CardTitle>今後 14 日のイベント</CardTitle><CardDescription className="mt-1">決算・予約期限</CardDescription></div>
         </div>
         <Badge variant="secondary">{events.length} 件</Badge>
       </CardHeader>

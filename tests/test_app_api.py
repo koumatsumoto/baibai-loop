@@ -11,8 +11,9 @@ from fastapi.testclient import TestClient
 from baibai_app.api.server import create_app
 from baibai_app.cli import main
 from baibai_engine.appdb.json import canonical_json
-from baibai_engine.macro.models import MacroContextDocument
-from baibai_engine.macro.service import MacroContextService
+from baibai_engine.macro.context.models import MacroContextDocument
+from baibai_engine.macro.context.service import MacroContextService
+from baibai_engine.macro.indicators.definitions import load_definitions
 from tests.helpers.macro_context import macro_context_payload
 
 
@@ -131,6 +132,70 @@ def test_macro_api_rejects_unknown_period_and_granularity(app_method_root: Path)
         assert client.get("/api/macro?granularity=quarterly").status_code == 422
 
 
+def test_macro_reading_api_reports_every_registered_series(app_method_root: Path) -> None:
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get("/api/macro/reading?asof=2026-07-19")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["asof"] == "2026-07-19"
+    assert body["rules_revision"]
+    # The fixture store carries no observations, so every series reads as empty rather
+    # than as a plausible number.
+    assert len(body["series"]) == len(load_definitions().series)
+    first = body["series"][0]
+    assert first["latest_value"] is None
+    assert first["stale"] is True
+    assert first["insufficient_history"] is True
+
+
+def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
+    app_method_root: Path,
+) -> None:
+    """A silent provider must be visible immediately, not after the staleness threshold.
+
+    The store keeps the previous observations, so the reading of a monthly series looks
+    healthy for weeks after its source stops answering; the last run status is the only
+    signal that arrives on the day it breaks.
+    """
+
+    store = app_method_root / "data/indicators/macro.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            """
+            INSERT INTO provider_runs(
+                run_id, provider, series_id, range_start, range_end,
+                started_at, finished_at, status, record_count, error_message
+            ) VALUES (
+                'run-1', 'fred_csv', 'us.10y', '2026-07-01', '2026-07-19',
+                '2026-07-19T00:00:00+00:00', '2026-07-19T00:00:05+00:00', 'failed', 0,
+                'provider returned 503'
+            )
+            """
+        )
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        body = client.get("/api/macro/reading?asof=2026-07-19").json()
+
+    failed = [item for item in body["fetch_health"] if item["status"] != "ok"]
+    assert [item["series_id"] for item in failed] == ["us.10y"]
+    assert failed[0]["error_message"] == "provider returned 503"
+    # The same series is not stale-flagged by the reading: it has no observations at all
+    # in the fixture, which is a different fact than "the last fetch failed".
+    assert body["series"]
+
+
+def test_macro_reading_api_is_absent_rather_than_broken_without_an_indicator_store(
+    app_method_root: Path,
+) -> None:
+    """A missing store must let the page hide the panel, not fail the request handler."""
+
+    (app_method_root / "data/indicators/macro.sqlite").unlink()
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        assert client.get("/api/macro/reading?asof=2026-07-19").status_code == 404
+
+
 def test_macro_api_indexes_published_reports_without_full_sections(
     app_method_root: Path,
 ) -> None:
@@ -149,7 +214,7 @@ def test_macro_api_indexes_published_reports_without_full_sections(
     assert body["reports"][0]["stale"] is False
 
 
-def test_macro_context_detail_renders_eight_sections_and_series_names(
+def test_macro_context_detail_renders_core_ten_plus_connection_and_series_names(
     app_method_root: Path,
 ) -> None:
     db_path = app_method_root / "data/app/baibai.sqlite"
@@ -162,23 +227,30 @@ def test_macro_context_detail_renders_eight_sections_and_series_names(
     assert response.status_code == 200
     body = response.json()
     assert body["context_id"] == document.context_id
-    assert [section["section_id"] for section in body["sections"]] == [
+    assert [section["section_id"] for section in body["core"]] == [
         "regime_summary",
         "rates_policy",
         "growth_demand",
         "inflation_costs",
-        "fx_liquidity",
-        "japan_specific",
-        "scenarios_connections",
-        "monitoring_points",
+        "liquidity_credit",
+        "fx",
+        "japan",
+        "valuation",
+        "risk_environment",
+        "monitoring",
     ]
-    assert body["sections"][0]["series"] == [
+    assert body["core"][0]["series"] == [
         {
             "series_id": "us.10y",
             "name": "米10Y利回り",
         }
     ]
-    assert body["sections"][6]["scenarios"][0]["case"] == "base"
+    risk_environment = body["core"][8]
+    assert risk_environment["risk_environment"]["stance"] == "neutral"
+    assert risk_environment["scenarios"][0]["case"] == "base"
+    assert len(risk_environment["scenarios"][0]["scorecard"]) == 2
+    assert body["connection"]["section_id"] == "japan_equity_loop"
+    assert body["connection"]["research_priority_hints"][0]["applies_to"]
 
 
 def test_macro_context_detail_404_for_unknown_and_future_context(
@@ -195,48 +267,41 @@ def test_macro_context_detail_404_for_unknown_and_future_context(
         assert future.status_code == 404
 
 
-def test_macro_api_displays_common_fields_for_sectionless_revision(
+def test_macro_api_does_not_serve_a_revision_from_an_earlier_contract(
     app_method_root: Path,
 ) -> None:
+    """Older revisions stay in the table as a log; the UI is never asked to render them."""
+
     db_path = app_method_root / "data/app/baibai.sqlite"
     payload = {
         "schema_version": 2,
         "kind": "macro-context",
-        "context_id": "macro-context-2026-07-19-sectionless",
+        "context_id": "macro-context-2026-07-19-earlier-contract",
         "as_of": "2026-07-19",
-        "valid_until": "2026-08-19",
         "published_at": "2026-07-19T12:00:00+09:00",
-        "summary": "共通 field の表示確認",
+        "summary": "旧契約のrevision",
     }
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
             INSERT INTO macro_context(
-                context_id, as_of, valid_until, published_at, supersedes_id, payload
-            ) VALUES (?, ?, ?, ?, NULL, ?)
+                context_id, schema_version, as_of, published_at, supersedes_id, payload
+            ) VALUES (?, 2, ?, ?, NULL, ?)
             """,
             (
                 payload["context_id"],
                 payload["as_of"],
-                payload["valid_until"],
                 payload["published_at"],
                 canonical_json(payload),
             ),
         )
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        response = client.get(f"/api/macro/context/{payload['context_id']}?as_of=2026-07-19")
+        detail = client.get(f"/api/macro/context/{payload['context_id']}?as_of=2026-07-19")
+        overview = client.get("/api/macro?as_of=2026-07-19")
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "context_id": payload["context_id"],
-        "as_of": payload["as_of"],
-        "valid_until": payload["valid_until"],
-        "published_at": payload["published_at"],
-        "summary": payload["summary"],
-        "stale": False,
-        "sections": [],
-    }
+    assert detail.status_code == 404
+    assert overview.json()["reports"] == []
 
 
 def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
@@ -251,7 +316,7 @@ def test_macro_api_preserves_immutable_context_when_series_definition_is_absent(
         response = client.get(f"/api/macro/context/{document.context_id}?as_of=2026-07-19")
 
     assert response.status_code == 200
-    assert response.json()["sections"][0]["series"] == [{"series_id": "us.10y", "name": "us.10y"}]
+    assert response.json()["core"][0]["series"] == [{"series_id": "us.10y", "name": "us.10y"}]
 
 
 def test_api_reads_the_explicit_application_database(app_method_root: Path) -> None:
