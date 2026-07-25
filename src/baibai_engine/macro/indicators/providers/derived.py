@@ -105,7 +105,7 @@ class DerivedProvider:
 def _align(
     formula: DerivedFormula, inputs: Mapping[str, Sequence[ObservationRecord]]
 ) -> dict[date, dict[str, ObservationRecord]]:
-    """Pair input observations into dated bundles without losing availability."""
+    """Pair input observations into bundles while retaining source availability."""
     match formula.alignment:
         case "exact":
             return _align_exact(inputs)
@@ -134,10 +134,9 @@ def _align_monthly(
     observation_date: MonthlyObservationDate,
 ) -> dict[date, dict[str, ObservationRecord]]:
     # Fold each input to one value per calendar month (its latest observed_at in
-    # that month, i.e. the month-end reading for a daily input). The output date
-    # is the latest selected input date, so a month-end value is never backdated
-    # to the first of its month. ``vintage_at`` separately carries when every
-    # selected input became available.
+    # that month, i.e. the month-end reading for a daily input). Each formula
+    # declares whether its output keeps the canonical month-start grid or uses
+    # the latest selected input date to avoid backdating within-month market data.
     by_period: dict[tuple[int, int], dict[str, ObservationRecord]] = {}
     for input_id, observations in inputs.items():
         latest_in_month: dict[tuple[int, int], ObservationRecord] = {}
