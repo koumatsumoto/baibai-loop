@@ -100,9 +100,14 @@ backup_remote_key() {
   # PMI history depends on release URLs the publisher eventually drops), so an
   # overwrite by a damaged or wrongly pruned snapshot must stay recoverable. R2
   # copies server-side, so this costs a request and no transfer.
+  # `--copy-props none` keeps the copy to the bytes: the CLI's default asks for the
+  # source object's tags, which a multipart copy fetches through GetObjectTagging, and
+  # R2 does not implement that operation. Every store here is large enough to copy in
+  # parts, and a rollback generation needs no metadata or tags.
   local key="$1"
   if remote_object_exists "${key}"; then
-    aws_s3 cp "s3://${stores_bucket}/${key}" "s3://${stores_bucket}/${key}.bak"
+    aws_s3 cp --copy-props none \
+      "s3://${stores_bucket}/${key}" "s3://${stores_bucket}/${key}.bak"
   fi
 }
 
