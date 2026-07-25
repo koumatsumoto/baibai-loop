@@ -80,9 +80,9 @@ validation や hash のように監査にも使える手段でも、現在の候
 - **(b)** 事実と意見が混ざると、AI が過去の解釈を「事実」として再生産してしまう。store・table単位で分けておけば「judgmentを AI に見せない」という選択ができ、後知恵バイアスと責任の所在の混乱を防げる。
 - **(c)** 同一tableに`type`列やflagでjudgmentを混在させる案は、混入したときに見落としやすく機械チェックも利きにくい。store・table単位の物理的な分離が最も安全。
 
-### 柱 2: マクロはmaterial delta、AIは企業別value captureとして扱う
+### 柱 2: マクロは機械読み値 + material delta、AIは企業別value captureとして扱う
 
-- **(a)** マクロ分析は、discount rate・需要・資金調達・共通tail risk・sizing cautionという外部経路が個別5年期待値を変えたときだけ記録する補助contextである。機械screening・ranking・sizingには混入させない。一方、macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、またはstaleでも候補抽出は継続し、未来情報だけをhard errorにする。
+- **(a)** マクロは 2 層に分ける。**macro reading（L2）** は登録全系列の記述統計（水準・方向・percentile・閾値注記・観測の齢）を毎営業日 機械で出す共通の物差しで、regime分類・合成score・売買signalを出さない。**macro context（L3）** は人間が判断するときだけ書く環境認識レポートで、use-case agnosticな環境評価（core）と日本株積立ループへの接続（connection）に分ける。core はリスク選好環境の評価（攻め／守りどちらの環境か）を反証条件付きのjudgmentとして持ち、日本株ループ固有のsector tilt・research優先度ヒント・sizing cautionはconnectionへ隔離する（参照方向を機械契約で強制し、coreの単体完結性を保つ）。どちらも機械screening・ranking・sizingには混入させず、行動指示（market timing・cash比率・配分指示）を出さない。macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、または古くても候補抽出は継続し、未来情報だけをhard errorにする。鮮度は書く側が賞味期限を宣言せず、読む側が`as_of`と自分の閾値で判断する。
 - **(b)** AIはsectorではなく企業別の構造変化lensである。enabler、infrastructure、complement、adopter、disruptedのどこに位置するかと、競争優位・価格決定力・必要capex・顧客交渉力を通じて株主価値を獲得できるかをthesisで判断する。AI需要が増えてもvalue captureがなければ採用根拠にしない。
 - **(c)** 非AI企業も個別のE[r]と永久損失リスクで同じ土俵に置く。macro/AIの合成score、自動sizing、sector順位は作らない。
 
@@ -133,14 +133,15 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | position → hold / add / reduce / exit | AI draft + 人間確認 | holding review（thesis health 判定） | — |
 | position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
 
-`macro context` はどの遷移にも属さない ambient 入力であり、OP3 と thesis 執筆の判断材料になる（screening は macro-blind のまま）。shortlist・proposal・ledger は「状態」と「その canonical record」が同一物であり、thesis・holding review は状態ではなく遷移の理由書である。
+`macro reading` と `macro context` はどの遷移にも属さない ambient 入力であり、reading は macro context 執筆の必須入力、macro context は OP3 と thesis 執筆の判断材料になる（screening は macro-blind のまま）。shortlist・proposal・ledger は「状態」と「その canonical record」が同一物であり、thesis・holding review は状態ではなく遷移の理由書である。
 
 ### 語彙表
 
 | 日本語概念名 | slug | 種別 | 層 | 役割 |
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | governance | — | 資本・許容リスク・ポジション管理・kill switch |
-| マクロ環境分析 | macro context | 判断文書 | L3 | 個別期待値を変えるmaterial deltaと共通riskの補助context |
+| マクロ機械読み値 | macro reading | 機械成果物 | L2 出力 | 全登録系列の水準・方向・percentile・閾値注記・観測の齢を毎営業日 決定論で出す共通の物差し |
+| マクロ環境分析 | macro context | 判断文書 | L3 | use-case agnosticな環境評価（core）と日本株積立ループ接続（connection）を持つ補助context |
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
 | スクリーニング実行結果 | screening run | 機械成果物 | L2 出力 | run storeに保存する再生成可能なobserved / derived / estimateのsnapshot |
@@ -157,7 +158,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
 | 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → longlist → shortlist → thesis → proposal を 1 trigger で進める operation session の kind |
 
-`research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は `src/`（機械の実装）、`method/`（改善ループが調整する手法。screening rules・macro panel・playbook の dated revision）、`docs/`（現在形の説明）の三分法で読む。
+`research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は `src/`（機械の実装）、`method/`（改善ループが調整する手法。screening rules・macro panel・macro reading rules・playbook の dated revision）、`docs/`（現在形の説明）の三分法で読む。
 
 ### Evidence Taxonomy
 
@@ -166,7 +167,8 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 ## 5. 責務境界
 
 - **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・thesis healthと税引後代替で保有を見直す規律を扱う。個別銘柄のthesisやentry/exit設計は扱わない。
-- **マクロ環境分析 (macro context)**：外部記事と指標データを参照し、個別期待値へ影響するmaterial deltaと共通riskを分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
+- **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
+- **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・機械照合可能なシナリオ条件・監視ポイント）と日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **深掘り候補一覧 (shortlist)**：OP3 gateでlonglistから選んだ深掘り候補のcanonical snapshot。selected narrativeとrejected理由を持ち、application DBに置き、source run revisionへの束縛を保つ。
 - **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。

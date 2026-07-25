@@ -38,7 +38,7 @@ baibai-loop
 | --- | --- | --- |
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
 | `market` | market price / calendar の取得と L1 SQLite | engine 内部 |
-| `macro` | indicator series と published macro context | `baibai-engine macro` |
+| `macro` | indicator series（L1）、macro reading（L2）、published macro context（L3） | `baibai-engine macro` |
 | `screening` | screening run、machine selection、shortlist、calibration | `baibai-engine screening` |
 | `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
 | `position` | event replay、draft / apply、holding review、outcome | `baibai-engine position` |
@@ -115,7 +115,7 @@ views + machine history         Bearer認証 + static UI
 | layer | examples | rule |
 | --- | --- | --- |
 | L1 fact | market price、calendar、macro series | provider由来を保持し、再取得可能なstoreへ置く |
-| L2 machine analysis | screening run、E[r]、FV anchor、machine selection | observed / derived / estimateを区別し、judgmentと呼ばない |
+| L2 machine analysis | screening run、E[r]、FV anchor、machine selection、macro reading | observed / derived / estimateを区別し、judgmentと呼ばない |
 | L3 judgment / operation | macro context、shortlist、research、proposal、ledger、task、operation | application DBを正本にし、人間境界をwrite-timeに検証する |
 
 fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。

@@ -24,7 +24,7 @@ flowchart LR
 
 | 工程 | input | output | doc |
 | --- | --- | --- | --- |
-| macro | indicator series、一次source、refresh trigger | material delta contextまたは変更なし | [`macro.md`](./macro.md) |
+| macro | indicator series、macro reading、一次source | 毎営業日のmacro reading（機械）と、人間が判断するときのmacro context report | [`macro.md`](./macro.md) |
 | screening | point-in-time market/financial data、rules | screening run、longlist、machine selection | [`screening.md`](./screening.md) |
 | research | shortlist、一次IR、ledger annotation | thesis、independent review、defer/reject | [`research.md`](./research.md) |
 | position | human result、thesis/review、ledger、market close | ledger draft、holding review、outcome | [`position.md`](./position.md) |

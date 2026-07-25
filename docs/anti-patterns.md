@@ -174,11 +174,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ### 再発防止チェックリスト
 
-- [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、staleはwarning）
-- [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / investment connection / material delta / sizing cautionのsource_ids、statusを照合したか
+- [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、古さはwarning）
+- [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / economic connection / material deltaのsource_ids、statusを照合したか
+- [ ] core セクションに日本株ループ固有の指示（sector tilt・research優先度ヒント・sizing caution）を書いていないか。connectionのseries引用がcoreの引用範囲内か
 - [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
 - [ ] material deltaが個別仮説に影響する場合だけ、thesisの判断と反証にsource付きで接続したか
-- [ ] **機械化チェック**: macro context publishのmodel / source / future / stale negative testを実行したか
+- [ ] **機械化チェック**: macro context publishのmodel / source / future / as_of鮮度warningのnegative testを実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -245,18 +246,22 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
-- [ ] manual indicator seed importは重複YAML key、未知・非manual series、manual系列欠落、
-      field / unit / source不一致、naive datetime、同一instant重複、非有限値をDB書き込み前に
-      拒否し、個別release URLを許可する場合もscheme / host / path全体をallowlistして
-      lookalike host・query・fragmentを拒否するか。月次manual履歴は月初日・値域・
-      観測月とrelease URLの完全一致・必要期間の連続性を検証し、manual read / refreshが
-      seed外のrowを書き込まないか
+- [ ] provider が個別 release URL の manifest を持つ場合、scheme / host / path全体をallowlistして
+      lookalike host・query・fragmentを拒否し、抽出値を妥当域で検証し、矛盾する複数候補を
+      hard errorにするか。manifest が公表カレンダーに追いつかない状態を無音にせず
+      取得側だけを失敗させるか（読み取りは既存rowを返す）
+- [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
+      同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
+- [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
+      履歴で percentile / z-score を黙って計算しないか（`insufficient_history` で null にする）
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
       macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
       fixture で検証し、月次全履歴を返すproviderは既知の最古月・公表lagを含む最新端・
       途中月の欠落をhard errorにするか
-- [ ] macro context は固定順8セクション、series定義とinputへの参照、source ID、base / bear / bull、
-      monitoring condition、section 2〜7内のmaterial delta / sizing cautionをnegative fixtureで検証するか
+- [ ] macro context は core 固定順10セクション + connection 1、series定義とinputへの参照、source ID、
+      reading input の必須（レジーム要約からの引用）、base / bear / bull と各シナリオ2件以上の
+      scorecard条件、monitoring condition、core セクション2〜8内のmaterial delta、
+      connectionのseries参照がcoreの引用範囲内であることをnegative fixtureで検証するか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。

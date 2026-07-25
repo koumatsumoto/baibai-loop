@@ -1,16 +1,16 @@
 ---
 title: "Workflow — macro analysis"
-summary: "マクロ環境分析：指標と一次情報から、世界・日本の局面と投資接続を8セクションのmacro-context reportに残す。"
+summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + connection 積立ループ接続 1）を書く。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-20
+last_reviewed: 2026-07-25
 ---
 
 # Workflow — マクロ環境分析
 
-マクロ環境分析は **独立した機能のまとまり**（データ取得層 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄の5年期待値を変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
+マクロ環境分析は **独立した機能のまとまり**（データ取得層 + 機械読み値 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄の5年期待値を変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
 
-扱うものは性質の異なる 3 種：**① データ（事実）／ ② 環境認識（macro-context record）／ ③ 知見（調べ方のメタ知識）**。マクロは標本数がほぼ 1 の判断であり、優位性の数値・統計的有意性・自動の投入額倍率は出さない（§誠実性）。
+扱うものは性質の異なる 4 種：**① データ（L1 の事実）／ ② 機械読み値（L2 macro reading）／ ③ 環境認識（L3 macro context report）／ ④ 知見（調べ方のメタ知識）**。①②は毎営業日 CI が機械で回し、③は人間が判断するときだけ書く。マクロは標本数がほぼ 1 の判断であり、優位性の数値・統計的有意性・自動の投入額倍率は出さない（§誠実性）。
 
 ## ① データ：indicator series を引く
 
@@ -25,7 +25,7 @@ uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   
 uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        # provider が提供する全履歴を同期
 ```
 
-`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` は frequency 別の鮮度窓（daily は 1 暦日、weekly は 14 日、monthly は 70 日）内の cache があればそれを返し、古い場合は最新確認用の短い窓（daily は 14 日、weekly は 60 日、monthly は 370 日）を provider で再取得する。環境認識を書く直前は、判断に使う主要 series を `refresh` で直近窓ごと再取得してから `get --latest` を読む。
+`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` は frequency 別の鮮度窓（daily は 1 暦日、weekly は 14 日、monthly は 70 日）内の cache があればそれを返し、古い場合は最新確認用の短い窓（daily は 14 日、weekly は 60 日、monthly は 370 日）を provider で再取得する。この窓は **cache を引き直すかどうかの閾値**であり、観測が古いことの警告ではない（観測の齢は §② の staleness が持つ）。
 
 `refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列の observation は registry の `source_url` と一致する cache だけを保持し、同内容の連続 vintage は provider run に取得記録を残して observation から除く。値・単位・期間・取得状態・source が変わる revision と、値が変化して同じ水準へ戻る revision は保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 
@@ -75,9 +75,46 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 202
 
 データ層の品質は **運用テスト** で担保する。すべて失敗 0 件で通す：(1) 全 series スイープ（`list | get --latest`）で error / stale を 0、(2) 桁・単位の妥当性、(3) provider ストレス（rate-limit 系を 1 プロセスで refresh し 429 が出ないか）、(4) 派生計算の単位整合（net liquidity = FRB総資産 − RRP − TGA、単位換算を明示）、(5) alias 解決、(6) 決定論、(7) `uv run pytest` とmacro model / config loaderのnegative test。
 
-## ② 環境認識：macro-context revision を publish する
+<a id="macro-reading"></a>
 
-市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。既存 head を読んで draft を作り、2件目以降は `--expected-head` にその ID を渡す。head が変わっていれば publish 全体が無変更で失敗する。
+## ② 機械読み値：macro reading
+
+macro reading は L1 store だけを入力に、登録全系列の **記述統計と鮮度** を決定論で出す L2 出力である。「今の VIX は歴史的に高いのか」を分析セッションごとに人が判断し直さないための共通の物差しであり、regime 分類・合成 score・売買 signal は出さない。
+
+```bash
+uv run baibai-engine macro reading --asof 2026-07-24                 # 表形式
+uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読み
+```
+
+各系列について次を出す。
+
+| 読み値 | 意味 |
+| --- | --- |
+| `latest_value` / `observed_at` | asof 以前で最も新しい観測とその観測日 |
+| `staleness_days` / `stale` | asof − `observed_at`。規則の `staleness_warn_days` を超えたら `stale` |
+| `window_years` / `window_observations` | percentile / z-score を計算した実効窓と、その窓に入った観測数 |
+| `insufficient_history` | 実効窓を履歴が満たさない。`percentile` / `z_score` は null になる |
+| `percentile` | 実効窓の観測のうち `latest_value` 以下の割合（0〜1） |
+| `z_score` | (`latest_value` − 窓平均) / 窓標準偏差。窓が定数なら null |
+| `short_trend` / `long_trend` | 規則の月数だけ前の基準日以前で最新の観測に対する変化。`anchor_observed_at` を併記する |
+| `flags` | 教科書的な閾値に触れていることの注記（PMI<50、curve 逆転、ERP≤0、VIX≥30 等） |
+
+読み方の規律：
+
+- **`insufficient_history` の系列は水準比較に使わない**。窓を満たさない履歴で percentile を出すと、その系列自身の短い生涯の中の順位を「歴史的な位置」と読み違える。reading は計算を拒否して null を返す
+- **`stale` は provider の無音の停止を疑う合図**であって、値の否定ではない。観測の齢は公表ラグと週末を含むため、規則の閾値は「平常の公表ラグ + 1 回の公表落ち」に置く
+- **`flags` は signal ではなく注記**である。閾値に触れたことを見落とさないための機械的な指差しで、水準の解釈と行動は L3 の判断に属する
+- **`z_score` の極端値は誤値と真の市場極値の両方で出る**。どちらかは reading では決めず、L3 が一次情報と突き合わせて判断する
+
+計算規則は `method/macro-reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest 起点 2023-07、ICE BofA OAS の 3 年）は percentile の実効窓を、週次でまとめて公表される日次系列（FRB H.10 由来）は staleness 閾値を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。
+
+percentile の実効窓を短縮した系列は、provider の履歴が伸びて default に届いたら override を外す（`window_years` が default と一致しているかを規則改版時に確認する）。
+
+reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。専用 store は持たず、日次バッチが Baibai App 向けの serving view として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
+
+## ③ 環境認識：macro context report を publish する
+
+市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.context.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。既存 head を読んで draft を作り、2件目以降は `--expected-head` にその ID を渡す。head が変わっていれば publish 全体が無変更で失敗する。
 
 ```bash
 uv run baibai-engine macro context head
@@ -86,45 +123,78 @@ uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
 uv run baibai-engine macro context show --latest --asof 2026-07-19
 ```
 
-report の共通 field：
+レポートは **1 種類だけ**で、常に下記の深度契約を満たす full 深度で書く。軽い事実確認のための軽量版は持たない（その用途は §② が毎営業日 機械で果たす）。
 
-- `context_id` / `as_of` / `valid_until` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening selectはpoint-in-time整合のため`as_of ≤ selection ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近ASOFのselectへ恒常的にbindされない
+**作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) opportunity cycle（OP3）の前で head が古いとき、の 3 つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
+
+### 2 部構造：core（環境評価）と connection（積立ループ接続）
+
+レポートは **core 10 セクション + connection 1 セクション** で構成する。core は use-case agnostic な環境評価であり、日本株積立ループ固有の語彙（sector tilt・research 優先度・sizing caution）を持たない。connection はそれらを 1 か所へ隔離する。
+
+この分離は書き手の注意ではなく **参照方向の機械契約** で守る：connection が引用できる series は core が引用済みのものだけで、connection は依拠する core セクションを `core_section_ids` で明示する。core 側へ sector tilt / research 優先度ヒント / sizing caution を書いた draft は schema が拒否する。core が単体で完結していることの構造的な証明になり、リポジトリ外のスポット資産運用判断の材料としてもそのまま読める。
+
+| 部 | 順 | セクション（`section_id`） | 確認するfact | judgmentと接続 |
+| --- | --- | --- | --- | --- |
+| core | 1 | レジーム要約（`regime_summary`） | 成長・インフレ・金融条件の水準と方向、比較可能な時点からの変化 | 成長×インフレ×金融条件の共通座標で現局面を定め、以降の読み順を示す。前回 scorecard の採点結果を接続する |
+| core | 2 | 金利・金融政策（`rates_policy`） | 政策金利、イールドカーブ、実質金利、主要中銀の方向 | discount rate経路とmaterial deltaを示す |
+| core | 3 | 景気・需要（`growth_demand`） | PMI、雇用、消費、生産、景気breadth | 需要経路への接続を示す |
+| core | 4 | インフレ・コスト（`inflation_costs`） | CPI、賃金、輸入物価、commodity、原油と通商政策 | 売価転嫁とmargin経路を示す |
+| core | 5 | 流動性・信用・リスク選好（`liquidity_credit`） | net liquidity、credit OAS、VIX/MOVE、NFCI | funding条件と共通tail riskを示す |
+| core | 6 | 為替（`fx`） | USD/JPY、金利差、実質実効為替 | 円水準の両側リスクを非対称ごと示す |
+| core | 7 | 日本（`japan`） | BOJ政策、国内賃金物価、鉱工業生産、海外投資家フロー、日本の需要fact | 日本経済の需要・費用・為替感応度への接続を示す |
+| core | 8 | バリュエーション（`valuation`） | 米 ERP / CAPE、日本 ERP（市場全体PERまたは益回り − JGB 10y）、金、BTC | 各資産の相対的な位置を示す |
+| core | 9 | リスク選好環境の評価とシナリオ（`risk_environment`） | セクション2〜8を支持・反証する系列 | 攻め／守りどちらの環境かを `stance`・確度・**反証条件**付きで評価し、base / bear / bull を scorecard 条件付きで置く |
+| core | 10 | 監視ポイント（`monitoring`） | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを明記する |
+| connection | 11 | 日本株積立ループ接続（`japan_equity_loop`） | core が引用済みの series のみ | research 優先度ヒント（効く候補タイプを `applies_to` で判別可能に）、sector tilt、sizing caution、バーゲン地形 |
+
+共通 field：
+
+- `context_id` / `as_of` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening selectはpoint-in-time整合のため`as_of ≤ selection ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近ASOFのselectへ恒常的にbindされない
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
-- `sections`：下表の固定順8セクション。各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`investment_connection`を持つ
-- `sections[0].change_since_previous`：Regime summaryで比較可能なpublished contextからの変化を示す。比較対象がない場合はその旨を示す
-- `material_deltas` / `sizing_cautions`：セクション2〜7の判断として置く。material deltaはchannel / direction / materiality / used_for、sizing cautionはseverityを持つ
-- `scenarios`：セクション7にbase / bear / bullの固定順で置き、成立条件と投資上の含意を分ける
-- `monitoring_points`：セクション8にevent、条件、条件成立時の見方の変更を置く
-
-### 8セクションの作成順
-
-| 順 | セクション | 確認するfact | judgmentと投資接続 |
-| --- | --- | --- | --- |
-| 1 | Regime summary | 成長・インフレ・金融条件の水準と方向、比較可能な時点からの変化 | 現局面を一文で定め、以降の読み順を示す |
-| 2 | 金利・金融政策 | 政策金利、イールドカーブ、実質金利、主要中銀の方向 | discount rate経路とmaterial deltaを示す |
-| 3 | 景気・需要 | PMI、雇用、消費、生産、景気breadth | セクター需要とresearch着手順への含意を示す |
-| 4 | インフレ・コスト | CPI、賃金、輸入物価、commodity | 売価転嫁とmargin経路を示す |
-| 5 | 為替・流動性 | USD/JPY、金利差、net liquidity、credit OAS、VIX/MOVE | risk appetite、funding、共通tail riskを示す |
-| 6 | 日本固有 | BOJ政策、国内賃金物価、鉱工業生産、海外投資家フロー | 日本企業の需要・費用・為替感応度への接続を示す |
-| 7 | シナリオと接続 | セクション2〜6を支持・反証する系列、市場内部（`screening market-snapshot`のbenchmark 20d/60d・breadth・regime）、日本株バリュエーションアンカー | base / bear / bull、バーゲン地形、sector tilt、research優先度ヒント、sizing cautionを判断面に置く |
-| 8 | 監視ポイント | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを明記する |
-
-### Decision-grade 深度契約（opportunity cycleの前提）
-
-macro contextの用途は2つあり、深度要件が異なる。**delta更新**（monitoring condition発火やmaterial change時の部分的な見直し）は変化した経路の事実確認で足りる。**decision-grade context**（opportunity cycleのshortlist作成が前提にする環境認識）は、銘柄選定のリスクリワード判断の土台になるため、次の深度契約を満たす。
-
-- **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`はTier-1中心に15本以上。
-- **日本の需要fact最低ライン**: セクション3または6に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
-- **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
-- **バーゲン地形**: セクション7に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeをfactとして引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」をjudgmentとして書く。
-- **日本株バリュエーションアンカー**: セクション7に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
-- **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各research_priority_hintとsector tiltは、どの候補タイプ・sectorに効くかを判別できる形で書く。
-- **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
-
-published contextがこの契約を満たさない、またはas_of以降にmonitoring pointのdated eventを跨いだ場合、opportunity cycleはshortlist作成前にdecision-grade refreshを行う。
+- `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する
+- 各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ
+- `material_deltas`：core セクション2〜8の判断として置く。channel / direction / materiality / used_forを持ち、レポート全体で最低1つ必要
+- `sizing_cautions` / `sector_tilts` / `research_priority_hints`：connection セクションだけに置く
 
 各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
+
+<a id="depth-contract"></a>
+
+### 深度契約（全レポート共通）
+
+レポートは銘柄選定とスポット判断のリスクリワード判断の土台になるため、次の深度契約を常に満たす。
+
+- **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`はTier-1中心に15本以上。
+- **日本の需要fact最低ライン**: セクション3または7に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
+- **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
+- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeをfactとして引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」をjudgmentとして書く。
+- **日本株バリュエーションアンカー**: セクション8に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
+- **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各 research 優先度ヒントと sector tilt は、どの候補タイプ・sectorに効くかを`applies_to`で判別できる形で書く。
+- **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
+- **reading 先読**: core を書く前に §② の reading を全系列読み、`stale` / `insufficient_history` / `flags` / 極端な `z_score` を確認する。機械読み値と自分の結論が矛盾する場合、どちらも盲信せず矛盾自体をjudgmentとして書く。
+
+### scenario scorecard：見立てを後から採点できる形で書く
+
+セクション9の base / bear / bull は、自由文の成立条件とは別に **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。
+
+狙いは予測精度の測定ではなく、**機械照合できる条件でしか書けなくすることでシナリオの記述品質を事前に縛る**ことである。「金融環境が引き締まれば」のような採点不能な条件は書けなくなる。定例が無くても、次のレポートがいつになっても L1 履歴から遡って採点できる。
+
+採点は次のレポート作成時にレジーム要約へ接続する。ただし **前回の採点は今回の解釈の前提にしない**：今回の評価をゼロベースで確定したあとに、採点結果を fact として接続する（後述の分析の独立性）。
+
+### 鮮度は読む側が判断する
+
+レポートは自分の賞味期限を宣言しない。鮮度の扱いは consumer が自分の規則として持つ。
+
+- **screening select**: head レポートの `as_of` が判断 asof から 45 日より古ければ `macro_context_stale` warning を出す。warning は context-level summary の材料であり、E[r]順位・candidateの事実層・候補抽出のいずれも変えない。`as_of` が判断 asof より未来のときだけ hard error にする
+- **opportunity cycle（OP3）/ スポット判断**: head が古い、または深度契約を満たさないと判断したら、shortlist 作成の前に書き直す。判断の前提が古いままかは判断する人が決める
+- **Baibai App**: Macro タブが head の `as_of` を表示し、読む人が古さを目で確認できる
+
+### 分析の独立性
+
+環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去の macro context revision にある分析・結論・tilt は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。比較可能な時点からの変化と前回 scorecard の採点は、結論を確定させた後にレジーム要約のfactとして接続する。
+
+**revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。revision には、screening / research / スポット判断の前提として使う環境認識と出所のメタデータだけを残す。
 
 ### 入門者向けの指標の読み方
 
@@ -139,13 +209,7 @@ published contextがこの契約を満たさない、またはas_of以降にmoni
 | 流動性・credit・volatility | net liquidityは構成系列を同じ単位にそろえる。OASやVIX/MOVEの上昇は資金調達・risk appetiteの悪化を示し得る | NFCI、HY/CCC OAS、株式breadth |
 | 日本固有系列 | BOJ、賃金物価、海外需要、投資家フローを順に接続する | USD/JPY、実質実効為替、鉱工業生産 |
 
-**revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。revision には、screening / research の前提として使う環境認識と出所のメタデータだけを残す。
-
-**分析の独立性**：環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去のmacro-context revisionにある分析・結論は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。比較可能な時点からの変化は、結論を確定させた後にRegime summaryのfactとして接続する。
-
-**更新のきっかけ**：macro-contextは定期的には生成せず、(a) discount rate・需要・資金調達・共通tail riskにmaterial changeがあったとき、(b) published contextのmonitoring conditionが発火したとき、(c) opportunity cycleの前提となるcontextが[Decision-grade 深度契約](#decision-grade-深度契約opportunity-cycleの前提)を満たさないとき、のいずれかで更新する。unchanged専用recordは作らない。`valid_until`はwarningの材料であり、screeningの前提条件ではない。triggerの選択と全体導線は[`../operations/decision-cycle.md`](../operations/decision-cycle.md)を正本とする。
-
-## ③ ナレッジ：8 分析レンズ
+## ④ ナレッジ：8 分析レンズ
 
 個別の指標は単体で読まず、以下のレンズに束ねて環境認識に使う（1枚のパネルとして横断的に読む）。操作routingはskill[`macro-analysis`](../../.agents/skills/macro-analysis/SKILL.md)、分析詳細とsource規律は本docを正本とする。
 
@@ -166,15 +230,18 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 
 マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
-- **select**（[`./screening.md`](./screening.md)）：material deltaとwarningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
+- **select**（[`./screening.md`](./screening.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
 - **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
+- **connection セクション**：OP3 が research 優先度ヒントと sizing caution を消化する入口になる（[`../operations/decision-cycle.md`](../operations/decision-cycle.md)）。
+
+行動指示（market timing・cash比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。
 
 ## 誠実性（honesty firewall）
 
-マクロは標本数がほぼ 1 であり、screening のように多数の銘柄を横断する統計検証ができない。この工程は優位性の数値・統計的有意性・自動売買スコアを出さない。ここで得られるのは再現性と、判断を事実に根付かせる基盤であって、統計的な厳密さではない。
+マクロは標本数がほぼ 1 であり、screening のように多数の銘柄を横断する統計検証ができない。この工程は優位性の数値・統計的有意性・自動売買スコアを出さない。ここで得られるのは再現性と、判断を事実に根付かせる基盤であって、統計的な厳密さではない。§② の reading も記述統計であり、regime の機械分類・合成 score・統計的 signal は作らない。
 
 ## 参考
 
 - [`../doctrine.md`](../doctrine.md)：思想・柱 2（macroとAIの責務境界）
-- [`./screening.md`](./screening.md)：material deltaをwarningとして出すselect
+- [`./screening.md`](./screening.md)：material deltaとas_of鮮度warningを出すselect
 - [`../reference/data-sources.md`](../reference/data-sources.md)：データソース Tier
