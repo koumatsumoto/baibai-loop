@@ -65,16 +65,26 @@ class ProviderSpec:
 class FetchContext:
     """Shared HTTP session, a per-run bytes cache, and a lazy headless browser.
 
-    The bytes cache lets bulk-file providers (FRB H.15, ECB FX) download one
-    shared file once and reuse it across every series that maps to it. The
-    browser is launched only when a WAF-gated provider first asks for it and is
-    reused for the rest of the run, so a batch pays at most one browser launch.
+    One context serves a whole refresh pass. The bytes cache lets bulk-file
+    providers (FRB H.15, ECB FX) download one shared file once and reuse it
+    across every series that maps to it. The browser is launched only when a
+    WAF-gated provider first asks for it and is reused for the rest of the pass,
+    so a pass pays at most one browser launch.
+
+    ``refetch_stored`` tells a provider whose fetch cost scales with the number
+    of observations (spglobal_pmi downloads one PDF per month) whether it must
+    re-read observations the store already holds. An all-history refresh sets it
+    so the store is rebuilt from source; an incremental refresh leaves it off so
+    only new or missing observations are fetched.
     """
 
-    def __init__(self, *, store_reader: StoreReader | None = None) -> None:
+    def __init__(
+        self, *, store_reader: StoreReader | None = None, refetch_stored: bool = False
+    ) -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[tuple[str, tuple[tuple[str, str], ...]], bytes] = {}
         self.store_reader = store_reader
+        self.refetch_stored = refetch_stored
         self._browser: BrowserFetcher | None = None
 
     def browser_fetcher(self) -> BrowserFetcher:
