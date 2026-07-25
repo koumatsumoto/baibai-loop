@@ -2235,6 +2235,68 @@ class IndicatorsRegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate indicator series_id.*us.10y"):
                 load_definitions(registry)
 
+    def test_registry_rejects_duplicate_yaml_mapping_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            definitions = Path(tmp) / "registry.yaml"
+            definitions.write_text(
+                "series:\n"
+                "  - series_id: test.series\n"
+                "    name: Test series\n"
+                "    category: rates\n"
+                "    geography: test\n"
+                "    frequency: daily\n"
+                "    unit: percent\n"
+                "    provider: fred_csv\n"
+                "    provider_series_id: TEST\n"
+                "    source_id: test-source\n"
+                "    source_url: https://example.com/test.csv\n"
+                "    aliases: [first]\n"
+                "    aliases: [second]\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "duplicate YAML mapping key: 'aliases'"):
+                load_definitions(definitions)
+
+    def test_registry_rejects_alias_colliding_with_other_canonical_identity(self) -> None:
+        for conflicting_alias in ("second.series", "Second series"):
+            with (
+                self.subTest(conflicting_alias=conflicting_alias),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                definitions = Path(tmp) / "registry.yaml"
+                definitions.write_text(
+                    "series:\n"
+                    "  - series_id: first.series\n"
+                    "    name: First series\n"
+                    "    category: rates\n"
+                    "    geography: test\n"
+                    "    frequency: daily\n"
+                    "    unit: percent\n"
+                    "    provider: fred_csv\n"
+                    "    provider_series_id: FIRST\n"
+                    "    source_id: first-source\n"
+                    "    source_url: https://example.com/first.csv\n"
+                    f"    aliases: [{conflicting_alias}]\n"
+                    "  - series_id: second.series\n"
+                    "    name: Second series\n"
+                    "    category: rates\n"
+                    "    geography: test\n"
+                    "    frequency: daily\n"
+                    "    unit: percent\n"
+                    "    provider: fred_csv\n"
+                    "    provider_series_id: SECOND\n"
+                    "    source_id: second-source\n"
+                    "    source_url: https://example.com/second.csv\n",
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "indicator alias collides with another series_id or name",
+                ):
+                    load_definitions(definitions)
+
     def test_every_registered_series_provider_is_registered(self) -> None:
         from baibai_engine.macro.indicators.providers import provider_spec
 

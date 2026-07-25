@@ -47,6 +47,7 @@ series:
     source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
     tradingview_symbol: TVC:JP10Y
     notes: 財務省「国債金利情報」の全履歴CSV。流通市場の固定利付国債実勢価格から算出した主要年限別の半年複利最終利回り。
+    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
   - series_id: jp.2y
     name: 日本2Y国債利回り
     category: rates
@@ -99,7 +100,6 @@ series:
     tradingview_symbol: TVC:JP30Y
     notes: 財務省「国債金利情報」全履歴CSVの30年物最終利回り。超長期。財政・保険需給の観測点。
     aliases: [日本30Y, JP 30Y, JGB 30Y]
-    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
   - series_id: jp.policy_rate
     name: 日本政策金利(無担保コールON)
     category: policy
