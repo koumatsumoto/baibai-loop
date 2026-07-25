@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, timedelta
 from functools import cache
 from pathlib import Path
 from typing import cast
@@ -29,6 +29,12 @@ _RELEASE_URL_RE = re.compile(
     r"https://www\.pmi\.spglobal\.com/Public/Home/PressRelease/[0-9a-f]{32}\Z"
 )
 MAX_PMI_PDF_BYTES = 5 * 1024 * 1024
+# S&P Global publishes a month's final release in the first business days of the
+# next month, so a refresh through a given month expects the manifest to reach the
+# previous month once that release window has passed. Before the grace day the
+# expectation stays one month further back, so the guard never fails for a release
+# that does not exist yet.
+MANIFEST_GRACE_DAY = 10
 
 
 class SpGlobalPmiProvider:
@@ -38,7 +44,13 @@ class SpGlobalPmiProvider:
     release-URL manifest. Each observed month names its release PDF; the provider
     fetches the PDF (plain HTTP first, headless-browser fallback for WAF-gated
     months), extracts the headline value from a bounded context, and range-checks
-    it before it can enter the store. Replaces hand-entered manual observations.
+    it before it can enter the store.
+
+    Fetch cost scales with the number of months in the window (one PDF each), so an
+    incremental refresh fetches only the months the store is missing. A final
+    headline reading is not revised once published, so re-reading a stored month
+    yields the same value; ``refresh --all-history`` re-reads every month and is the
+    way to rebuild the stream from source.
     """
 
     spec = ProviderSpec(name="spglobal_pmi", all_history_start=date(2023, 7, 1))
@@ -60,10 +72,21 @@ class SpGlobalPmiProvider:
                 f"spglobal_pmi has no release manifest for {series.provider_series_id!r}; "
                 f"supported: {supported}"
             )
-        observations: list[ObservationRecord] = []
+        if context is None or context.purpose != "read":
+            _require_current_manifest(series, releases, end=end)
+        stored_by_month = {
+            observation.observed_at: observation
+            for observation in _stored_observations(series, start=start, end=end, context=context)
+        }
+        fetched: list[ObservationRecord] = []
+        refetched_months: set[date] = set()
         for entry in releases:
             if not start <= entry.observed_at <= end:
                 continue
+            stored = stored_by_month.get(entry.observed_at)
+            if stored is not None and stored.source_url == entry.url:
+                continue
+            refetched_months.add(entry.observed_at)
             pdf_text = _release_text(entry.url, session=session, context=context)
             try:
                 value = extract_pmi_value(
@@ -80,7 +103,7 @@ class SpGlobalPmiProvider:
                     f"spglobal_pmi {series.series_id} {entry.observed_at}: "
                     f"no headline value found in {entry.url}"
                 )
-            observations.append(
+            fetched.append(
                 ObservationRecord(
                     series_id=series.series_id,
                     observed_at=entry.observed_at,
@@ -91,7 +114,67 @@ class SpGlobalPmiProvider:
                     source_url=entry.url,
                 )
             )
-        return observations
+        # Months that were not re-read are carried through from the store so the
+        # returned window stays the complete window even though nothing was fetched
+        # for them. Re-inserting them is a no-op for the store.
+        carried = [
+            observation
+            for month, observation in stored_by_month.items()
+            if month not in refetched_months
+        ]
+        return sorted(fetched + carried, key=lambda observation: observation.observed_at)
+
+
+def _stored_observations(
+    series: SeriesDefinition,
+    *,
+    start: date,
+    end: date,
+    context: FetchContext | None,
+) -> tuple[ObservationRecord, ...]:
+    """Observations already held for this series, whose months are not downloaded.
+
+    A month is only skipped when the stored observation came from the release URL
+    the manifest currently names, so correcting a URL re-reads that month. A
+    rebuild re-reads every month regardless. Without a store reader every month in
+    the window is fetched, so a caller that cannot supply one still gets correct
+    data — only the download count changes.
+    """
+
+    if context is None or context.store_reader is None or context.purpose == "rebuild":
+        return ()
+    return context.store_reader(series.series_id, start, end)
+
+
+def _require_current_manifest(
+    series: SeriesDefinition, releases: tuple[_Release, ...], *, end: date
+) -> None:
+    """Fail when the manifest has fallen behind the release calendar.
+
+    The manifest is maintained by hand, and a month missing from it is otherwise
+    invisible: the fetch simply returns nothing for that month and the series goes
+    stale with no error anywhere. Comparing the newest manifest month against the
+    month the release calendar implies for ``end`` turns that silence into a
+    failure the batch reports.
+    """
+
+    newest = max(release.observed_at for release in releases)
+    expected = _expected_newest_month(end)
+    if newest < expected:
+        raise IndicatorsProviderError(
+            f"spglobal_pmi manifest for {series.provider_series_id} ends at "
+            f"{newest.isoformat()} but a refresh through {end.isoformat()} expects "
+            f"{expected.isoformat()}; add the published release URLs to "
+            f"{MANIFEST_PATH.name}"
+        )
+
+
+def _expected_newest_month(end: date) -> date:
+    months_back = 1 if end.day >= MANIFEST_GRACE_DAY else 2
+    month = end.replace(day=1)
+    for _ in range(months_back):
+        month = (month - timedelta(days=1)).replace(day=1)
+    return month
 
 
 class _Release:

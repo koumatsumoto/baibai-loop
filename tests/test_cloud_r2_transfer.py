@@ -13,11 +13,37 @@ def _fake_aws(tmp_path: Path) -> tuple[Path, Path]:
     bin_dir.mkdir()
     log = tmp_path / "aws.log"
     executable = bin_dir / "aws"
+    # Mirrors the real CLI closely enough to catch the two ways an existence check
+    # silently stops working: `aws s3 ls` rejects the transfer-only flags this
+    # script passes to `aws s3`, and a prefix listing matches sibling keys.
     executable.write_text(
         """#!/usr/bin/env bash
 printf "%s\\n" "$*" >> "$AWS_LOG"
-if [[ -n "${AWS_FAKE_EXISTING_KEY:-}" && "$*" == *"/${AWS_FAKE_EXISTING_KEY}"* ]]; then
-  printf '2026-07-22 00:00:00 1 %s\\n' "$AWS_FAKE_EXISTING_KEY"
+if [[ "$1 $2" == "s3 ls" ]]; then
+  for argument in "$@"; do
+    case "$argument" in
+      --only-show-errors|--no-progress)
+        printf 'aws: [ERROR]: An error occurred (ParamValidation): Unknown options: %s\\n' \\
+          "$argument" >&2
+        exit 252
+        ;;
+    esac
+  done
+fi
+if [[ "$1 $2" == "s3api head-object" ]]; then
+  key=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--key" ]]; then
+      key="$2"
+    fi
+    shift
+  done
+  if [[ -n "${AWS_FAKE_EXISTING_KEY:-}" && "$key" == "$AWS_FAKE_EXISTING_KEY" ]]; then
+    printf '{"ContentLength": 1}\\n'
+    exit 0
+  fi
+  printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
+  exit 254
 fi
 """,
         encoding="utf-8",
@@ -143,7 +169,29 @@ def test_initial_seed_uploads_all_stores_when_contract_keys_are_absent(tmp_path:
 
     assert completed.returncode == 0
     commands = log.read_text(encoding="utf-8").splitlines()
-    assert len([command for command in commands if "s3 ls" in command]) == 4
+    assert len([command for command in commands if "s3 cp" in command]) == 4
+    # Nothing is being replaced, so no generation is kept.
+    assert all(".bak" not in command for command in commands)
+
+
+def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Path) -> None:
+    # A `.bak` left by an earlier push must not read as the store itself, or a
+    # recovery seed after the real key was lost would be refused.
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite.bak"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "seed-all"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
     assert len([command for command in commands if "s3 cp" in command]) == 4
 
 
@@ -180,5 +228,44 @@ def test_machine_store_push_uploads_three_stores_in_github_actions(tmp_path: Pat
 
     assert completed.returncode == 0
     commands = log.read_text(encoding="utf-8").splitlines()
-    assert len(commands) == 3
-    assert all("s3 cp" in command for command in commands)
+    assert len([command for command in commands if "s3 cp" in command]) == 3
+    assert all(".bak" not in command for command in commands)
+
+
+def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["AWS_FAKE_EXISTING_KEY"] = "macro.sqlite"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    backups = [index for index, command in enumerate(commands) if ".bak" in command]
+    uploads = [
+        index
+        for index, command in enumerate(commands)
+        if "s3 cp" in command
+        and command.endswith(
+            "s3://baibai-stores/macro.sqlite --endpoint-url "
+            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
+        )
+    ]
+    assert len(backups) == 1
+    assert len(uploads) == 1
+    # The generation is kept from the remote object before it is overwritten.
+    assert (
+        "s3://baibai-stores/macro.sqlite s3://baibai-stores/macro.sqlite.bak"
+        in (commands[backups[0]])
+    )
+    assert backups[0] < uploads[0]

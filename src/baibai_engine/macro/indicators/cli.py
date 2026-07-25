@@ -7,13 +7,19 @@ import sys
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
+from typing import assert_never
 
 from baibai_engine.foundation.env import load_project_env
 
 from .db import DEFAULT_DB_PATH, IndicatorsSchemaError
 from .definitions import SeriesDefinition
 from .providers import IndicatorsProviderError, provider_spec
-from .service import IndicatorsService, QueryResult
+from .service import (
+    IndicatorsService,
+    QueryResult,
+    RefreshFailure,
+    RefreshSuccess,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,19 +74,7 @@ def main(argv: list[str] | None = None) -> int:
                 _print_observations(result)
                 return 0
             case "refresh":
-                for series_id in args.series_ids:
-                    if args.all_history:
-                        result = service.refresh_all_history(series_id, end=args.end)
-                        _print_refresh_summary(result)
-                    else:
-                        result = service.get_range(
-                            series_id,
-                            start=args.start,
-                            end=args.end,
-                            refresh=True,
-                        )
-                        _print_observations(result)
-                return 0
+                return _run_refresh(service, args)
     except KeyError as exc:
         message = exc.args[0] if exc.args else str(exc)
         print(f"error: {message}", file=sys.stderr)
@@ -98,6 +92,50 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     raise AssertionError(f"unreachable command: {args.command!r}")
+
+
+def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
+    """Refresh every requested series, then report the failures as a set.
+
+    One failing source must not leave the rest of the requested series stale, so
+    each series is refreshed independently and the exit code reflects whether any
+    failed. The detail lines are followed by a single-line roll-up of the failed
+    series IDs: a batch log reader keeps only the tail of stderr (the daily batch
+    summarizes the last 20 lines), so with many failures that one line is what
+    survives.
+    """
+
+    outcomes = service.refresh_series(
+        args.series_ids,
+        start=None if args.all_history else args.start,
+        end=args.end,
+    )
+    failures: list[RefreshFailure] = []
+    for outcome in outcomes:
+        match outcome:
+            case RefreshSuccess(result=result):
+                if args.all_history:
+                    _print_refresh_summary(result)
+                else:
+                    _print_observations(result)
+            case RefreshFailure():
+                failures.append(outcome)
+            case _:  # pragma: no cover - exhaustiveness guard over RefreshOutcome
+                assert_never(outcome)
+    if not failures:
+        return 0
+    print(
+        f"error: {len(failures)} of {len(outcomes)} series failed to refresh:",
+        file=sys.stderr,
+    )
+    for failure in failures:
+        print(f"- {failure.series_id}: {failure.message}", file=sys.stderr)
+    print(
+        f"error: refresh failed for {len(failures)} of {len(outcomes)} series: "
+        f"{', '.join(failure.series_id for failure in failures)}",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def _run_get(service: IndicatorsService, args: argparse.Namespace) -> QueryResult:
