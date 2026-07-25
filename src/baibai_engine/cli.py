@@ -45,6 +45,10 @@ def _delegate(domain: str, arguments: list[str]) -> int:
             from baibai_engine.macro.context_cli import main
 
             return main(arguments[1:])
+        if arguments and arguments[0] == "reading":
+            from baibai_engine.macro.reading.cli import main
+
+            return main(arguments[1:])
         from baibai_engine.macro.indicators.cli import main
 
         return main(arguments)
