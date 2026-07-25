@@ -8,7 +8,9 @@ outside world.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 from statistics import fmean, stdev
 
@@ -16,7 +18,7 @@ from baibai_engine.macro.indicators.db import ObservationRecord
 from baibai_engine.macro.indicators.definitions import SeriesDefinition
 
 from .models import ReadingSnapshot, SeriesReading, SeriesTrend, TrendDirection
-from .rules import ReadingRules, ResolvedRule, window_start
+from .rules import ReadingRules, ReadingStatistic, ResolvedRule, window_start
 
 # Reads one series' observations in ``[start, end]`` (ascending). The caller binds
 # it to the L1 store, so compute never opens a connection of its own.
@@ -36,6 +38,28 @@ PERIODS_PER_YEAR: Mapping[str, int] = {"weekly": 52, "monthly": 12, "quarterly":
 # hand-maintained source fills the recent months first), so the distribution it
 # describes is the recent one wearing a ten-year label.
 MIN_WINDOW_COVERAGE = 0.6
+
+# Months a year-on-year change looks back, and the raw history read before the window
+# opens so the transformed sample starts where the window does.
+YOY_LOOKBACK_MONTHS = 12
+YOY_READ_AHEAD_MONTHS = 13
+
+# The partner of a year-on-year change is the latest observation on or before the same
+# calendar date a year earlier: a few days further back for a holiday (daily) or a stamp
+# cadence (weekly), but no further. Beyond this the year-earlier period is missing, and a
+# thirteen-month change reported as year-on-year would misstate the pace.
+MAX_YOY_PARTNER_GAP_DAYS = 380
+
+# The unit of a year-on-year statistic, whatever the series' own unit is.
+YOY_UNIT = "percent"
+
+
+@dataclass(frozen=True, slots=True)
+class _StatisticPoint:
+    """One point of the sample the percentile and z-score are taken over."""
+
+    observed_at: date
+    value: float
 
 
 def compute_reading(
@@ -62,11 +86,21 @@ def _read_series(
 ) -> SeriesReading:
     rule = rules.resolve(series_id=definition.series_id, frequency=definition.frequency)
     start = window_start(asof, rule.percentile_window_years)
-    observations = reader(definition.series_id, start, asof)
+    observations = reader(definition.series_id, _read_start(start, rule.statistic), asof)
     if not observations:
         return _empty_reading(definition, rule)
     latest = max(observations, key=lambda observation: observation.observed_at)
-    values = [observation.value for observation in observations]
+    sample = [
+        point
+        for point in _statistic_points(observations, statistic=rule.statistic)
+        if point.observed_at >= start
+    ]
+    values = [point.value for point in sample]
+    # A statistic exists for the latest observation only when the transform reaches it:
+    # a year-on-year change needs a partner a year back, and without one the series has
+    # no current position to rank.
+    reaches_latest = bool(sample) and sample[-1].observed_at == latest.observed_at
+    statistic_value = values[-1] if reaches_latest else None
     # The window is only a valid frame of reference when the series actually
     # spans it; a series that starts inside the window would otherwise be ranked
     # against its own short life and read as an extreme.
@@ -76,6 +110,7 @@ def _read_series(
     expected = _expected_observations(definition.frequency, rule.percentile_window_years)
     dense_enough = expected is None or len(values) >= expected * MIN_WINDOW_COVERAGE
     insufficient = not (covers_window and enough_points and dense_enough)
+    ranked = None if insufficient else statistic_value
     staleness_days = (asof - latest.observed_at).days
     return SeriesReading(
         series_id=definition.series_id,
@@ -93,8 +128,11 @@ def _read_series(
         window_observations=len(values),
         expected_observations=expected,
         insufficient_history=insufficient,
-        percentile=None if insufficient else _percentile(values, latest.value),
-        z_score=None if insufficient else _z_score(values, latest.value),
+        statistic=rule.statistic,
+        statistic_unit=_statistic_unit(rule.statistic, definition.unit),
+        statistic_value=statistic_value,
+        percentile=None if ranked is None else _percentile(values, ranked),
+        z_score=None if ranked is None else _z_score(values, ranked),
         short_trend=_trend(observations, months=rule.short_trend_months, latest=latest, asof=asof),
         long_trend=_trend(observations, months=rule.long_trend_months, latest=latest, asof=asof),
         flags=rule.matched_flags(latest.value),
@@ -118,12 +156,74 @@ def _empty_reading(definition: SeriesDefinition, rule: ResolvedRule) -> SeriesRe
         window_observations=0,
         expected_observations=None,
         insufficient_history=True,
+        statistic=rule.statistic,
+        statistic_unit=_statistic_unit(rule.statistic, definition.unit),
+        statistic_value=None,
         percentile=None,
         z_score=None,
         short_trend=None,
         long_trend=None,
         flags=(),
     )
+
+
+def _read_start(start: date, statistic: ReadingStatistic) -> date:
+    """Where the raw read begins: earlier than the window when the transform looks back.
+
+    A year-on-year sample needs a partner observation for its own first point, so the
+    read reaches back past the window opening. Coverage is still judged against the
+    window itself, so the extra history widens the transform's reach without widening
+    the frame of reference the percentile claims.
+    """
+
+    if statistic == "yoy":
+        return _months_before(start, YOY_READ_AHEAD_MONTHS)
+    return start
+
+
+def _statistic_unit(statistic: ReadingStatistic, series_unit: str) -> str:
+    return YOY_UNIT if statistic == "yoy" else series_unit
+
+
+def _statistic_points(
+    observations: Sequence[ObservationRecord], *, statistic: ReadingStatistic
+) -> tuple[_StatisticPoint, ...]:
+    ascending = sorted(observations, key=lambda observation: observation.observed_at)
+    if statistic == "level":
+        return tuple(
+            _StatisticPoint(observed_at=observation.observed_at, value=observation.value)
+            for observation in ascending
+        )
+    return _yoy_points(ascending)
+
+
+def _yoy_points(ascending: Sequence[ObservationRecord]) -> tuple[_StatisticPoint, ...]:
+    """Percent change against the observation a year earlier, where one exists.
+
+    Points without a usable partner are left out rather than approximated: a shorter
+    comparison labelled year-on-year would misstate the pace, and a non-positive partner
+    has no ratio to take. The sample thins as a result, which the observation count and
+    the density check then report as thin.
+    """
+
+    dates = [observation.observed_at for observation in ascending]
+    points: list[_StatisticPoint] = []
+    for index, observation in enumerate(ascending):
+        target = _months_before(observation.observed_at, YOY_LOOKBACK_MONTHS)
+        position = bisect_right(dates, target, hi=index) - 1
+        if position < 0:
+            continue
+        partner = ascending[position]
+        gap_days = (observation.observed_at - partner.observed_at).days
+        if gap_days > MAX_YOY_PARTNER_GAP_DAYS or partner.value <= 0:
+            continue
+        points.append(
+            _StatisticPoint(
+                observed_at=observation.observed_at,
+                value=(observation.value / partner.value - 1.0) * 100.0,
+            )
+        )
+    return tuple(points)
 
 
 def _expected_observations(frequency: str, window_years: int) -> int | None:
@@ -139,19 +239,19 @@ def _window_coverage_cutoff(start: date, asof: date) -> date:
     return start.fromordinal(start.toordinal() + span_days // 10)
 
 
-def _percentile(values: Sequence[float], latest: float) -> float:
-    """Share of window observations at or below the latest value, in [0, 1]."""
+def _percentile(values: Sequence[float], current: float) -> float:
+    """Share of the window's statistic sample at or below the current statistic, in [0, 1]."""
 
-    at_or_below = sum(1 for value in values if value <= latest)
+    at_or_below = sum(1 for value in values if value <= current)
     return at_or_below / len(values)
 
 
-def _z_score(values: Sequence[float], latest: float) -> float | None:
+def _z_score(values: Sequence[float], current: float) -> float | None:
     spread = stdev(values)
     if spread == 0:
         # A flat series has no scale to express distance in.
         return None
-    return (latest - fmean(values)) / spread
+    return (current - fmean(values)) / spread
 
 
 def _trend(
@@ -209,8 +309,10 @@ def _days_in_month(year: int, month: int) -> int:
 
 
 __all__ = [
+    "MAX_YOY_PARTNER_GAP_DAYS",
     "MIN_WINDOW_COVERAGE",
     "MIN_WINDOW_OBSERVATIONS",
+    "YOY_UNIT",
     "ObservationReader",
     "compute_reading",
 ]

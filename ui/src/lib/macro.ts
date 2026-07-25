@@ -26,18 +26,30 @@ export interface ReadingStatistics {
   readonly withheldNote: string | null
 }
 
-// The level statistics of one series, as the reading permits them to be shown. A series
-// whose history does not fill the effective window has no historical position at all, so
-// the panel shows blanks and says why rather than ranking it inside its own short life.
+// The statistics of one series, as the reading permits them to be shown. A series whose
+// history does not fill the effective window has no historical position at all, so the
+// panel shows blanks and says why rather than ranking it inside its own short life; a
+// year-on-year series with no observation a year back has no current statistic to rank.
 export function readingStatistics(series: MacroReadingSeriesView): ReadingStatistics {
   if (series.insufficient_history) {
     return { percentilePct: null, zScore: null, withheldNote: `履歴不足（${series.window_years}y 窓）` }
+  }
+  if (series.statistic_value === null) {
+    return { percentilePct: null, zScore: null, withheldNote: `${statisticName(series.statistic)}を取れない` }
   }
   return {
     percentilePct: series.percentile === null ? null : series.percentile * 100,
     zScore: series.z_score,
     withheldNote: null,
   }
+}
+
+// What percentile and z rank. Shown per row because a level percentile and a
+// year-on-year one answer different questions and share the same column.
+const STATISTIC_NAME: Readonly<Record<string, string>> = { level: '水準', yoy: '前年比' }
+
+export function statisticName(statistic: string): string {
+  return STATISTIC_NAME[statistic] ?? statistic
 }
 
 // A |z| at or beyond this is worth a second look: it comes out both for a wrong value and

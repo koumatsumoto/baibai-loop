@@ -439,7 +439,14 @@ export interface MacroReadingSeriesView {
   expected_observations: number | null
   // The effective window is not met, so percentile / z_score are withheld as null.
   insufficient_history: boolean
-  // Share of window observations at or below latest_value, expressed as 0–1.
+  // What percentile / z_score rank: 'level' for a value with a scale of its own, 'yoy'
+  // for the year-on-year percent change of a series whose scale is its own history.
+  statistic: string
+  statistic_unit: string
+  // The ranked statistic itself; null when the transform cannot reach the latest
+  // observation, which withholds the rank too.
+  statistic_value: number | null
+  // Share of the window's statistic sample at or below statistic_value, as 0–1.
   percentile: number | null
   z_score: number | null
   short_trend: MacroReadingTrendView | null

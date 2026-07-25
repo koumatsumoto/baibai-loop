@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatNumber, formatPct } from '../lib/format'
 import { LABEL } from '../lib/labels'
-import { EXTREME_Z_SCORE, failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary, type ReadingHealth } from '../lib/macro'
+import { EXTREME_Z_SCORE, failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary, statisticName, type ReadingHealth } from '../lib/macro'
 import { cn } from '../lib/utils'
 
 type MacroPeriod = MacroView['period']
@@ -52,6 +52,22 @@ function TrendCell({ trend }: { trend: MacroReadingTrendView | null }) {
   )
 }
 
+function StatisticCell({ series }: { series: MacroReadingSeriesView }) {
+  // A view exported before the statistic existed carries no such field. The row still
+  // renders, without claiming which statistic the percentile ranks.
+  if (!series.statistic) return <span className="text-muted-foreground">{EMPTY}</span>
+  const name = statisticName(series.statistic)
+  // A level percentile and a year-on-year one answer different questions in the same
+  // column, so every row states which one it is. The level itself is already in 最新値,
+  // so only a transformed statistic repeats a value here.
+  if (series.statistic === 'level') return <span className="text-xs text-muted-foreground">{name}</span>
+  return (
+    <span className="whitespace-nowrap font-mono text-xs tabular-nums">
+      {name} {series.statistic_value === null ? EMPTY : `${fmtValue(series.statistic_value)}${series.statistic_unit === 'percent' ? '%' : ''}`}
+    </span>
+  )
+}
+
 function ReadingRow({ series }: { series: MacroReadingSeriesView }) {
   const stats = readingStatistics(series)
   return (
@@ -67,6 +83,7 @@ function ReadingRow({ series }: { series: MacroReadingSeriesView }) {
       </TableCell>
       <TableCell><TrendCell trend={series.short_trend} /></TableCell>
       <TableCell><TrendCell trend={series.long_trend} /></TableCell>
+      <TableCell><StatisticCell series={series} /></TableCell>
       {/* 1 decimal: rounding to whole percent would flatten 99.7% into "100%" exactly where
           the historical position matters most. */}
       <TableCell className="text-right font-mono tabular-nums">{stats.percentilePct === null ? EMPTY : formatPct(stats.percentilePct)}</TableCell>
@@ -157,7 +174,7 @@ function ReadingPanel({ reading }: { reading: MacroReadingView }) {
     <section className="grid gap-5">
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">機械読み値</h2>
-        <p className="mt-1 text-sm text-muted-foreground">登録全系列の記述統計と鮮度。regime 分類も売買 signal も含まない。</p>
+        <p className="mt-1 text-sm text-muted-foreground">登録全系列の記述統計と鮮度。regime 分類も売買 signal も含まない。percentile と z は「統計」列の値の分布内の位置である。</p>
         <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">rules {reading.rules_revision} · {LABEL.asOf} {reading.asof} · {series.length} 系列</p>
       </div>
       <DataHealthCard failed={failedFetches(reading.fetch_health ?? [])} health={health} />
@@ -175,6 +192,7 @@ function ReadingPanel({ reading }: { reading: MacroReadingView }) {
                 <TableHead>観測日</TableHead>
                 <TableHead>短期</TableHead>
                 <TableHead>長期</TableHead>
+                <TableHead>統計</TableHead>
                 <TableHead className="text-right">percentile</TableHead>
                 <TableHead className="text-right">z</TableHead>
                 <TableHead>実効窓</TableHead>

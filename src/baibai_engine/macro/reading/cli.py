@@ -62,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
 def _print_table(snapshot: ReadingSnapshot) -> None:
     print(f"# macro reading asof={snapshot.asof.isoformat()} rules={snapshot.rules_revision}")
     print(
-        "series_id\tlatest\tobserved_at\tstale_days\t3m\t12m\tpercentile\tz\twindow\tnotes",
+        "series_id\tlatest\tobserved_at\tstale_days\t3m\t12m\t"
+        "statistic\tstat_value\tpercentile\tz\twindow\tnotes",
     )
     for reading in snapshot.series:
         notes = list(reading.flags)
@@ -79,6 +80,8 @@ def _print_table(snapshot: ReadingSnapshot) -> None:
                     "-" if reading.staleness_days is None else str(reading.staleness_days),
                     _direction_cell(reading, "short_trend"),
                     _direction_cell(reading, "long_trend"),
+                    reading.statistic,
+                    _number(reading.statistic_value),
                     _number(reading.percentile, digits=2),
                     _number(reading.z_score, digits=2),
                     f"{reading.window_years}y/{reading.window_observations}",
