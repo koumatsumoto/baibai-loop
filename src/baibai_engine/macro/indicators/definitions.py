@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.foundation.yaml_io import strict_safe_load
 
 # Series definitions are split across one yaml per region so no single file grows
 # unmanageable as the registry scales; the loader globs and merges them.
@@ -67,11 +67,12 @@ def load_definitions(path: Path = DEFAULT_REGISTRY_DIR) -> IndicatorDefinitions:
         raise ValueError(f"indicator registry directory has no yaml files: {path}")
     series: list[SeriesDefinition] = []
     for file in files:
-        raw = safe_load(file.read_text(encoding="utf-8"))
+        raw = strict_safe_load(file.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError(f"indicator definitions root must be a mapping: {file}")
         series.extend(_parse_series(item) for item in _list(raw.get("series")))
     _lint_unique_series_ids(series)
+    _lint_alias_identity_collisions(series)
     return IndicatorDefinitions(series=tuple(series))
 
 
@@ -83,6 +84,27 @@ def _lint_unique_series_ids(series: list[SeriesDefinition]) -> None:
     )
     if duplicates:
         raise ValueError(f"duplicate indicator series_id across registry: {', '.join(duplicates)}")
+
+
+def _lint_alias_identity_collisions(series: list[SeriesDefinition]) -> None:
+    canonical_owners: dict[str, set[str]] = {}
+    for item in series:
+        canonical_owners.setdefault(item.series_id.casefold(), set()).add(item.series_id)
+        canonical_owners.setdefault(item.name.casefold(), set()).add(item.series_id)
+
+    collisions: list[str] = []
+    for item in series:
+        for alias in item.aliases:
+            other_owners = canonical_owners.get(alias.casefold(), set()) - {item.series_id}
+            if other_owners:
+                collisions.append(
+                    f"{item.series_id}:{alias!r} -> {', '.join(sorted(other_owners))}"
+                )
+    if collisions:
+        raise ValueError(
+            "indicator alias collides with another series_id or name: "
+            + "; ".join(sorted(collisions))
+        )
 
 
 def _parse_series(raw: object) -> SeriesDefinition:
