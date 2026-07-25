@@ -29,6 +29,7 @@ from .macro import (
     macro_context_payload,
     macro_indicator_series,
     macro_reading_snapshot,
+    macro_registered_series,
     macro_series_fetch_health,
     macro_series_names,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "macro_indicator_series",
     "macro_latest_observed_at",
     "macro_reading_snapshot",
+    "macro_registered_series",
     "macro_series_fetch_health",
     "macro_series_names",
     "market_calendar_business_day",
