@@ -73,9 +73,9 @@ overrides:
     staleness_warn_days: 12
   natgas:
     staleness_warn_days: 12
-  # University of Michigan は当月の速報を月央、確報を月末に出す（ラグ約 25 日）ので、
-  # 平常時の齢は 56 日を超えない。default 100 日では 2 公表分の欠落を通してしまう
-  # （FRED の UMCSENT が 5 月で止まっている状態が注記なしで読める）。
+  # University of Michigan は当月の確報を月末に出し、store はその確報を取る（ラグ約
+  # 28 日）ので、平常時の齢は 58 日を超えない。default 100 日では 2 公表分の欠落を
+  # 注記なしで通してしまう。
   us.consumer_sentiment:
     staleness_warn_days: 65
   # JOLTS は M の求人を M+2 の第 1 週に公表する（他の月次より 1 か月遅い）。平常時の
