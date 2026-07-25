@@ -43,6 +43,7 @@ class Sources:
     operations: DbOperationsSource
     market: DbMarketPriceSource
     meta: DbMetaSource
+    app_db_path: Path
     runs_db_path: Path
 
 
@@ -80,5 +81,6 @@ def build_sources(
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(root / _MARKET_DB),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
+        app_db_path=resolved_db,
         runs_db_path=resolved_runs,
     )

@@ -75,8 +75,10 @@ paths=(
   /api/health
   /api/dashboard
   /api/screening/latest
+  /api/screening/history
   /api/operations
   /api/meta
+  /api/macro/reading
   "/api/securities/${ticker}"
 )
 for period in 1y 5y 10y max; do
@@ -85,10 +87,25 @@ for period in 1y 5y 10y max; do
   done
 done
 
+# Keyed routes, checked with a well-formed key that serving does not carry. The
+# credential still decides the response, and a correct one resolves to a clean 404, so
+# every route the Worker answers is exercised without depending on which keys exist.
+absent_key_paths=(
+  /api/screening/history/2000-01-01
+  /api/macro/context/no-such-context
+  /api/securities/ZZZZ
+)
+
 for path in "${paths[@]}"; do
   request "${path}" '' missing 401
   request "${path}" 'definitely-not-the-view-password' wrong 401
   request "${path}" "${password}" correct 200
+done
+
+for path in "${absent_key_paths[@]}"; do
+  request "${path}" '' missing 401
+  request "${path}" 'definitely-not-the-view-password' wrong 401
+  request "${path}" "${password}" correct 404
 done
 
 http_status="$(curl --silent --show-error --max-redirs 0 --output /dev/null --write-out '%{http_code}' "${base_url/https:/http:}/")"
@@ -97,4 +114,5 @@ if [[ "${http_status}" != 308 ]]; then
   exit 1
 fi
 
-printf 'verified %s API routes with missing, wrong, and correct credentials\n' "${#paths[@]}"
+printf 'verified %s API routes with missing, wrong, and correct credentials\n' \
+  "$((${#paths[@]} + ${#absent_key_paths[@]}))"

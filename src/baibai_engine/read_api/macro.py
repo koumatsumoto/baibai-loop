@@ -11,7 +11,7 @@ from typing import Literal
 from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
 from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
 from baibai_engine.macro.indicators import db as indicators_db
-from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.reading.compute import compute_reading
 from baibai_engine.macro.reading.models import snapshot_payload
 from baibai_engine.macro.reading.rules import (
@@ -106,6 +106,25 @@ def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
 def macro_series_names() -> dict[str, str]:
     """Return canonical macro series display names for read-only consumers."""
     return {item.series_id: item.name for item in load_definitions().series}
+
+
+def macro_registered_series(series_id: str) -> dict[str, str | None] | None:
+    """Registry display fields for one series, or None when no registry defines it.
+
+    The registry defines a series before any store carries an observation of it, so a
+    consumer configured from the registry can meet a series its store has never seen and
+    still name it correctly. An id the registry does not define is a configuration error
+    the consumer decides how to treat.
+    """
+
+    definition = _registry_by_id().get(series_id)
+    if definition is None:
+        return None
+    return {
+        "name": definition.name,
+        "unit": definition.unit,
+        "tradingview_symbol": definition.tradingview_symbol,
+    }
 
 
 def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object] | None:
@@ -252,6 +271,11 @@ def macro_indicator_series(
 
 
 @lru_cache(maxsize=1)
+def _registry_by_id() -> dict[str, SeriesDefinition]:
+    return load_definitions().by_id()
+
+
+@lru_cache(maxsize=1)
 def _tradingview_symbols() -> dict[str, str]:
     return {
         item.series_id: item.tradingview_symbol
@@ -296,6 +320,7 @@ __all__ = [
     "macro_context_payload",
     "macro_indicator_series",
     "macro_reading_snapshot",
+    "macro_registered_series",
     "macro_series_fetch_health",
     "macro_series_names",
 ]

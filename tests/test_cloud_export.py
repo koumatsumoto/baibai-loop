@@ -23,6 +23,7 @@ from baibai_app.readmodel.models import (
     SecurityDetailView,
 )
 from baibai_app.sources.db_sources import DbMetaSource
+from baibai_engine.appdb import LATEST_VERSION
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
@@ -383,3 +384,35 @@ def test_export_writes_meta_after_every_other_file(
 def test_main_rejects_a_root_without_project_markers(tmp_path: Path) -> None:
     assert main(["--output-dir", str(tmp_path / "out"), "--repo-root", str(tmp_path)]) == 1
     assert not (tmp_path / "out").exists()
+
+
+def test_export_refuses_an_app_store_on_a_different_schema(
+    app_method_root: Path, tmp_path: Path, capsys
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    with sqlite3.connect(app_method_root / "data/app/baibai.sqlite") as connection:
+        connection.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
+
+    # The mismatch is named before any view exists, so a partially written export never
+    # reaches the serving upload.
+    assert not output_dir.exists()
+    message = capsys.readouterr().err
+    assert f"schema is {LATEST_VERSION - 1}" in message
+    assert f"expects {LATEST_VERSION}" in message
+    assert "tools/cloud/publish.sh" in message
+
+
+def test_export_treats_an_absent_app_store_as_empty_judgment(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / "data/app/baibai.sqlite").unlink()
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+
+    assert (output_dir / "views/meta.json").exists()
+    assert json.loads((output_dir / "views/dashboard.json").read_text(encoding="utf-8"))

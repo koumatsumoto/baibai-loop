@@ -21,13 +21,20 @@ from baibai_app.sources.protocols import (
     ResearchSource,
     TaskSource,
 )
-from baibai_app.sources.types import CandidatesRun, ResearchRevision, TaskRecord, ThesisDetail
+from baibai_app.sources.types import (
+    CandidatesRun,
+    MacroSeriesConfig,
+    ResearchRevision,
+    TaskRecord,
+    ThesisDetail,
+)
 from baibai_engine.read_api import (
     MACRO_CONTEXT_STALE_DAYS,
     HoldingSnapshot,
     MacroGranularity,
     PortfolioLedgerError,
     PortfolioSnapshot,
+    macro_registered_series,
     macro_series_names,
 )
 
@@ -572,7 +579,8 @@ def _build_macro_groups(
                 granularity=granularity,
             )
             if raw_series is None:
-                raise ValueError(f"configured macro series is unavailable: {configured.series_id}")
+                series_views.append(_unfetched_macro_series_view(configured))
+                continue
             name = str(raw_series["name"])
             series_views.append(
                 MacroSeriesView(
@@ -593,6 +601,29 @@ def _build_macro_groups(
             )
         groups.append(MacroGroupView(title=group.title, series=series_views))
     return groups
+
+
+def _unfetched_macro_series_view(configured: MacroSeriesConfig) -> MacroSeriesView:
+    """A configured series the indicator store does not carry, shown as having no data.
+
+    The registry defines a series before any store fetches it, so a store that has not
+    caught up is a freshness state: the panel keeps the configured row and the card reads
+    as having no observations. An id the registry does not define is configuration drift
+    and fails the build rather than rendering as permanently empty.
+    """
+
+    registered = macro_registered_series(configured.series_id)
+    if registered is None:
+        raise ValueError(f"configured macro series is not registered: {configured.series_id}")
+    name = str(registered["name"])
+    return MacroSeriesView(
+        series_id=configured.series_id,
+        label=configured.label or name,
+        name=name,
+        unit=str(registered["unit"]),
+        tradingview_symbol=registered["tradingview_symbol"],
+        points=[],
+    )
 
 
 def _macro_period_start(as_of: date, *, period: MacroPeriod) -> date | None:
