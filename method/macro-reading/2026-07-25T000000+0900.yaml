@@ -52,7 +52,11 @@ overrides:
   # J-Quants Light の配信契約が運用日から 5 年 rolling。
   jp.topix:
     percentile_window_years: 5
+  # 同じ契約窓だが、実配信は 2022-04 起点で 5 年に届かない。
   jp.foreign_flows:
+    percentile_window_years: 3
+  # yahoo が配信する東証グロース 250 の履歴が 2018-01 起点。
+  jp.growth250:
     percentile_window_years: 5
   # spglobal_pmi は manifest に載っている月だけを持ち、stream ごとに起点と欠落が
   # 異なる（PDF を 1 月ずつ人手で追記する運用のため）。窓は 4 stream で揃えて置き、
@@ -81,12 +85,15 @@ overrides:
       - id: contraction
         comparison: below
         value: 50.0
-  # ICE BofA OAS の FRED 配信範囲が直近 3 年。
+  # ICE BofA OAS の FRED 配信範囲が直近 3 年。HY−IG spread は両者から導出するため
+  # 同じ制約を受ける。
   credit.us_ig_oas:
     percentile_window_years: 3
   credit.us_hy_oas:
     percentile_window_years: 3
   credit.us_ccc_oas:
+    percentile_window_years: 3
+  credit.hy_ig_spread:
     percentile_window_years: 3
   # 教科書的な閾値の注記（水準の解釈は L3 の判断に委ねる）。
   us.10y_2y_spread:
