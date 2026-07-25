@@ -454,16 +454,29 @@ class MacroReadingSeriesView(BaseModel):
     flags: list[str]
 
 
+class MacroSeriesFetchHealthView(BaseModel):
+    """The latest acquisition attempt for one series (not part of the reading itself)."""
+
+    series_id: str
+    status: str
+    finished_at: str
+    record_count: int
+    error_message: str | None
+
+
 class MacroReadingView(BaseModel):
     """The machine reading of every registered series for one as-of date.
 
     A projection of the L2 reading, recomputed from the indicator store; the panel it
     feeds is a display of that reading and not a second canonical artifact.
+    ``fetch_health`` rides along because staleness alone cannot see a provider that has
+    just gone silent — a low-frequency series stays inside its threshold for weeks.
     """
 
     asof: date
     rules_revision: str
     series: list[MacroReadingSeriesView]
+    fetch_health: list[MacroSeriesFetchHealthView]
 
 
 class MacroPointView(BaseModel):

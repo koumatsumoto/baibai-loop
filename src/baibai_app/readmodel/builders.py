@@ -514,7 +514,9 @@ def build_macro_reading(source: DbMacroSource, *, asof: date) -> MacroReadingVie
     """
 
     payload = source.reading(asof=asof)
-    return None if payload is None else MacroReadingView.model_validate(payload)
+    if payload is None:
+        return None
+    return MacroReadingView.model_validate({**payload, "fetch_health": source.fetch_health()})
 
 
 def build_macro_context_detail(

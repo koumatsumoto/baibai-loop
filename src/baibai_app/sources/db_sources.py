@@ -37,6 +37,7 @@ from baibai_engine.read_api import (
     macro_indicator_series,
     macro_latest_observed_at,
     macro_reading_snapshot,
+    macro_series_fetch_health,
     next_earnings_dates,
     portfolio_ledger_document,
     reconcile_portfolio,
@@ -272,6 +273,9 @@ class DbMacroSource:
         return macro_reading_snapshot(
             self._indicators_db_path, asof=asof, rules_path=self._reading_rules_path
         )
+
+    def fetch_health(self) -> list[dict[str, object]]:
+        return macro_series_fetch_health(self._indicators_db_path)
 
     def context_by_id(self, *, context_id: str, as_of: date) -> dict[str, object]:
         return macro_context_payload(self._app_db_path, context_id=context_id, as_of=as_of)

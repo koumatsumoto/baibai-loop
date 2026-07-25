@@ -20,7 +20,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
 
 ## 手順
 
-1. `baibai-engine macro context head`で現行 head を確認し、あれば`context show --latest --asof <date>`で`as_of`・監視ポイント・**前回のscorecard条件**を読む。head が無い（旧契約のrevisionだけがある）場合は新契約の最初のrevisionとして書く。
+1. `baibai-engine macro context head`で現行 head を確認し、あれば`context show --latest --asof <date>`で`as_of`・監視ポイント・**前回のscorecard条件**を読む。head が無ければ最初のrevisionとして書く。
 2. `baibai-engine macro refresh`で判断に使う主要seriesを直近窓ごと再取得し、`baibai-engine macro reading --asof <営業日>`を**全系列読む**。`stale`・`insufficient_history`・`flags`・極端な`z_score`を先に把握する（ここで見えるdata healthの異常は、以降の解釈より先に扱う）。
 3. readingで見えた論点と8分析レンズから、確認すべき一次sourceを決めて取得する。series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。
 4. core 10セクションをworkflowの固定順で書く。各セクションでseries・fact・judgment・経済経路への接続を分け、セクション9でリスク選好環境の評価（stance・確度・**反証条件**）とbase/bear/bullを置く。各シナリオには機械照合可能な観測条件（series_id・比較演算・閾値・期限日）を2件以上付ける。深度契約（8象限被覆・Tier-1 15本以上・日本需要fact・円両側リスク・バリュエーションアンカー・energy/通商/地政学）を全項目満たす。
@@ -37,7 +37,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
    - (g) scorecard条件が機械照合可能で、期限日がas_of以降か
 
    fail項目は修正してから進む。
-9. strict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。新契約の初回publishはexpected headを省略する。
+9. strict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。head が無いときだけ`--expected-head`を省略する。
 
 ## 禁止
 

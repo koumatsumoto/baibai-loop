@@ -4,7 +4,7 @@ import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus } from 'lucide-react
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, XAxis, YAxis } from 'recharts'
 
 import { fetchJson } from '../api/client'
-import type { MacroReadingSeriesView, MacroReadingTrendView, MacroReadingView, MacroSeriesView, MacroView } from '../api/types'
+import type { MacroReadingSeriesView, MacroReadingTrendView, MacroReadingView, MacroSeriesFetchHealthView, MacroSeriesView, MacroView } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatNumber, formatPct } from '../lib/format'
 import { LABEL } from '../lib/labels'
-import { EXTREME_Z_SCORE, readingCategories, readingHealth, readingStatistics, seriesWindowSummary, type ReadingHealth } from '../lib/macro'
+import { EXTREME_Z_SCORE, failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary, type ReadingHealth } from '../lib/macro'
 import { cn } from '../lib/utils'
 
 type MacroPeriod = MacroView['period']
@@ -96,14 +96,35 @@ function HealthList({ title, note, series, detail }: { title: string; note: stri
   )
 }
 
-function DataHealthCard({ health }: { health: ReadingHealth }) {
+function FetchHealthList({ failed }: { failed: readonly MacroSeriesFetchHealthView[] }) {
+  return (
+    <div className="grid content-start gap-1 rounded-lg border p-4">
+      <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">取得失敗</h3><Badge variant="outline">{failed.length} 件</Badge></div>
+      {/* The store keeps the previous values, so a series whose source stopped answering
+          still reads as healthy until its staleness threshold passes — weeks for a monthly
+          series. The last run status is the only immediate signal. */}
+      <p className="text-xs text-muted-foreground">直近の取得試行が失敗した系列。stale になる前に provider の停止を捉える。</p>
+      {failed.length === 0
+        ? <p className="text-sm">該当なし</p>
+        : failed.map((item) => (
+          <div key={item.series_id}>
+            <p className="font-mono text-xs tabular-nums">{item.series_id} · {formatJstDateTime(item.finished_at)}</p>
+            {item.error_message !== null && <p className="break-all text-[10px] text-muted-foreground">{item.error_message}</p>}
+          </div>
+        ))}
+    </div>
+  )
+}
+
+function DataHealthCard({ health, failed }: { health: ReadingHealth; failed: readonly MacroSeriesFetchHealthView[] }) {
   return (
     <Card className="gap-4 py-5 shadow-sm">
       <CardHeader className="px-5">
-        <CardTitle aria-level={3} role="heading">データ健全性 · stale {health.stale.length} 件 / 履歴不足 {health.insufficientHistory.length} 件 / 異常値の疑い {health.extremeZ.length} 件</CardTitle>
+        <CardTitle aria-level={3} role="heading">データ健全性 · 取得失敗 {failed.length} 件 / stale {health.stale.length} 件 / 履歴不足 {health.insufficientHistory.length} 件 / 異常値の疑い {health.extremeZ.length} 件</CardTitle>
         <CardDescription>いずれも値の否定ではなく、読む前に確認する注記である。</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-3 px-5 lg:grid-cols-3">
+      <CardContent className="grid gap-3 px-5 lg:grid-cols-2 xl:grid-cols-4">
+        <FetchHealthList failed={failed} />
         <HealthList
           detail={(series) => `${series.observed_at ?? EMPTY}・${series.staleness_days ?? EMPTY} 日前（閾値 ${series.staleness_warn_days} 日）`}
           note="観測が閾値より古い。provider の無音の停止を疑う合図。"
@@ -133,11 +154,11 @@ function ReadingPanel({ reading }: { reading: MacroReadingView }) {
   return (
     <section className="grid gap-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">機械読み値</h1>
+        <h2 className="text-2xl font-semibold tracking-tight">機械読み値</h2>
         <p className="mt-1 text-sm text-muted-foreground">登録全系列の記述統計と鮮度。regime 分類も売買 signal も含まない。</p>
         <p className="mt-1 font-mono text-xs text-muted-foreground tabular-nums">rules {reading.rules_revision} · {LABEL.asOf} {reading.asof} · {series.length} 系列</p>
       </div>
-      <DataHealthCard health={health} />
+      <DataHealthCard failed={failedFetches(reading.fetch_health ?? [])} health={health} />
       {readingCategories(series).map((group) => (
         <Card className="gap-0 overflow-hidden py-0 shadow-sm" key={group.category}>
           <CardHeader className="flex flex-row items-center justify-between gap-4 border-b px-5 py-4">
@@ -288,6 +309,9 @@ export function MacroPage() {
 
   return (
     <><AppShell /><main className="mx-auto grid max-w-[1600px] gap-8 px-4 py-6 sm:px-6 lg:px-8">
+      {/* The page keeps its own heading so the document outline survives a hidden
+          reading panel (an unavailable reading must not remove the page's h1). */}
+      <h1 className="text-3xl font-semibold tracking-tight">マクロ環境</h1>
       {reading !== null && <ReadingPanel reading={reading} />}
 
       <section className="grid gap-3">
@@ -303,7 +327,7 @@ export function MacroPage() {
                     {report.stale && <StaleBadge />}
                   </div>
                   <div className="flex shrink-0 items-center gap-3 font-mono text-xs text-muted-foreground tabular-nums">
-                    <span>{LABEL.asOf} {report.as_of}</span>
+                    <span>{LABEL.asOf} {report.as_of}（{report.age_days} 日前）</span>
                     <span className="hidden sm:inline">{LABEL.published} {formatJstDateTime(report.published_at)}</span>
                     <ArrowRight aria-hidden="true" className="size-4" />
                   </div>

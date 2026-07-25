@@ -93,7 +93,7 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 | `latest_value` / `observed_at` | asof 以前で最も新しい観測とその観測日 |
 | `staleness_days` / `stale` | asof − `observed_at`。規則の `staleness_warn_days` を超えたら `stale` |
 | `window_years` / `window_observations` | percentile / z-score を計算した実効窓と、その窓に入った観測数 |
-| `insufficient_history` | 実効窓を履歴が満たさない。`percentile` / `z_score` は null になる |
+| `insufficient_history` | 実効窓を履歴が満たさない。`percentile` / `z_score` は null になる（判定は下記） |
 | `percentile` | 実効窓の観測のうち `latest_value` 以下の割合（0〜1） |
 | `z_score` | (`latest_value` − 窓平均) / 窓標準偏差。窓が定数なら null |
 | `short_trend` / `long_trend` | 規則の月数だけ前の基準日以前で最新の観測に対する変化。`anchor_observed_at` を併記する |
@@ -101,7 +101,7 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 
 読み方の規律：
 
-- **`insufficient_history` の系列は水準比較に使わない**。窓を満たさない履歴で percentile を出すと、その系列自身の短い生涯の中の順位を「歴史的な位置」と読み違える。reading は計算を拒否して null を返す
+- **`insufficient_history` の系列は水準比較に使わない**。窓を満たさない履歴で percentile を出すと、その系列自身の短い生涯の中の順位を「歴史的な位置」と読み違える。reading は計算を拒否して null を返す。判定は 2 条件で、**先頭観測が窓の先頭 1/10 までに始まっている**（provider の rolling 窓のずれと、月次・四半期の観測日粒度を吸収する猶予）かつ **窓内の観測が 8 件以上**を満たさなければ立つ。窓の件数は `window_observations` に出るので、猶予の範囲で足りているかは読み手が確認できる
 - **`stale` は provider の無音の停止を疑う合図**であって、値の否定ではない。観測の齢は公表ラグと週末を含むため、規則の閾値は「平常の公表ラグ + 1 回の公表落ち」に置く
 - **`flags` は signal ではなく注記**である。閾値に触れたことを見落とさないための機械的な指差しで、水準の解釈と行動は L3 の判断に属する
 - **`z_score` の極端値は誤値と真の市場極値の両方で出る**。どちらかは reading では決めず、L3 が一次情報と突き合わせて判断する
@@ -155,9 +155,9 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
 - `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する
-- 各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ
+- core の各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ。connection セクションは`economic_connection`を持たず、代わりに`core_section_ids`とループ固有の項目を持つ
 - `material_deltas`：core セクション2〜8の判断として置く。channel / direction / materiality / used_forを持ち、レポート全体で最低1つ必要
-- `sizing_cautions` / `sector_tilts` / `research_priority_hints`：connection セクションだけに置く
+- `sizing_cautions` / `sector_tilts` / `research_priority_hints`：connection セクションだけに置く。research 優先度ヒントは 1 件以上必須（着手順位を渡すことがこのセクションの存在理由）、sector tilt と sizing caution は該当が無ければ空でよい（core が支持しない tilt を埋めるために書かせない）
 
 各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
 
@@ -178,7 +178,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 ### scenario scorecard：見立てを後から採点できる形で書く
 
-セクション9の base / bear / bull は、自由文の成立条件とは別に **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。
+セクション9の base / bear / bull は、自由文の成立条件とは別に **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。期限日は **as_of より後、かつ as_of から 18 か月以内**（四半期系列が 2 回公表される幅）で、それより遠い期限は次のレポートで採点できないため publish されない。
 
 狙いは予測精度の測定ではなく、**機械照合できる条件でしか書けなくすることでシナリオの記述品質を事前に縛る**ことである。「金融環境が引き締まれば」のような採点不能な条件は書けなくなる。定例が無くても、次のレポートがいつになっても L1 履歴から遡って採点できる。
 

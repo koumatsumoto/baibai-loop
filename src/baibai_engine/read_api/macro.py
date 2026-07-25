@@ -64,6 +64,45 @@ def macro_reading_snapshot(
     return snapshot_payload(snapshot)
 
 
+def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
+    """The latest provider run per series: did the last acquisition attempt succeed?
+
+    Staleness alone cannot see a provider that just went silent: a monthly series stays
+    inside its staleness threshold for weeks after its source stops answering. The run
+    record knows immediately, so the health panel reads both.
+    """
+
+    if not path.is_file():
+        return []
+    connection = connect_read_only(path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT series_id, status, finished_at, record_count, error_message FROM (
+                SELECT series_id, status, finished_at, record_count, error_message,
+                       row_number() OVER (
+                           PARTITION BY series_id ORDER BY finished_at DESC, run_id DESC
+                       ) AS rank
+                FROM provider_runs
+            )
+            WHERE rank = 1
+            ORDER BY series_id
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    return [
+        {
+            "series_id": str(row[0]),
+            "status": str(row[1]),
+            "finished_at": str(row[2]),
+            "record_count": int(row[3]),
+            "error_message": None if row[4] is None else str(row[4]),
+        }
+        for row in rows
+    ]
+
+
 def macro_series_names() -> dict[str, str]:
     """Return canonical macro series display names for read-only consumers."""
     return {item.series_id: item.name for item in load_definitions().series}
@@ -257,5 +296,6 @@ __all__ = [
     "macro_context_payload",
     "macro_indicator_series",
     "macro_reading_snapshot",
+    "macro_series_fetch_health",
     "macro_series_names",
 ]

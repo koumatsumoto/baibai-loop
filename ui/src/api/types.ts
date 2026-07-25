@@ -445,10 +445,22 @@ export interface MacroReadingSeriesView {
   flags: string[]
 }
 
+/** The latest acquisition attempt for one series. Not part of the reading itself. */
+export interface MacroSeriesFetchHealthView {
+  series_id: string
+  status: string
+  finished_at: string
+  record_count: number
+  error_message: string | null
+}
+
 export interface MacroReadingView {
   asof: string
   rules_revision: string
   series: MacroReadingSeriesView[]
+  // Staleness alone cannot see a provider that has just gone silent: a low-frequency
+  // series stays inside its threshold for weeks after its source stops answering.
+  fetch_health: MacroSeriesFetchHealthView[]
 }
 
 export interface MacroPointView {

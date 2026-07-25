@@ -149,6 +149,42 @@ def test_macro_reading_api_reports_every_registered_series(app_method_root: Path
     assert first["insufficient_history"] is True
 
 
+def test_macro_reading_api_surfaces_a_failed_acquisition_before_it_turns_stale(
+    app_method_root: Path,
+) -> None:
+    """A silent provider must be visible immediately, not after the staleness threshold.
+
+    The store keeps the previous observations, so the reading of a monthly series looks
+    healthy for weeks after its source stops answering; the last run status is the only
+    signal that arrives on the day it breaks.
+    """
+
+    store = app_method_root / "data/indicators/macro.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            """
+            INSERT INTO provider_runs(
+                run_id, provider, series_id, range_start, range_end,
+                started_at, finished_at, status, record_count, error_message
+            ) VALUES (
+                'run-1', 'fred_csv', 'us.10y', '2026-07-01', '2026-07-19',
+                '2026-07-19T00:00:00+00:00', '2026-07-19T00:00:05+00:00', 'failed', 0,
+                'provider returned 503'
+            )
+            """
+        )
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        body = client.get("/api/macro/reading?asof=2026-07-19").json()
+
+    failed = [item for item in body["fetch_health"] if item["status"] != "ok"]
+    assert [item["series_id"] for item in failed] == ["us.10y"]
+    assert failed[0]["error_message"] == "provider returned 503"
+    # The same series is not stale-flagged by the reading: it has no observations at all
+    # in the fixture, which is a different fact than "the last fetch failed".
+    assert body["series"]
+
+
 def test_macro_reading_api_is_absent_rather_than_broken_without_an_indicator_store(
     app_method_root: Path,
 ) -> None:

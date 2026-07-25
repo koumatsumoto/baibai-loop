@@ -343,7 +343,10 @@ class MacroConnectionSection(_StrictModel):
     fact_summary: tuple[FactSummary, ...] = Field(min_length=1)
     judgment: SectionJudgment
     research_priority_hints: tuple[ResearchPriorityHint, ...] = Field(min_length=1)
-    sector_tilts: tuple[SectorTilt, ...] = Field(min_length=1)
+    # Optional on purpose: a tilt that no path in the core supports would be a sector
+    # ranking invented to fill the field, which is exactly what this layer must not do.
+    # The research priority is required because ordering the work is why this section exists.
+    sector_tilts: tuple[SectorTilt, ...] = ()
     sizing_cautions: tuple[SizingCaution, ...] = ()
 
     @model_validator(mode="after")

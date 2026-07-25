@@ -27,6 +27,7 @@ baibai-loop
 └── method
     ├── screening-rules
     ├── macro-panel.yaml
+    ├── macro-reading
     └── playbooks
 ```
 
@@ -62,7 +63,7 @@ engine 内の domain は app に依存しない。app は `read_api` と query s
 
 application DB の default path は `data/app/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
 
-Git に残す `method/` は screening rules と Macro panel の method/config、`method/playbooks/` は research checklist である。application data を GitHub Issue や YAML file に複製しない。
+Git に残す `method/` は screening rules・Macro panel・macro reading rules の method/config、`method/playbooks/` は research checklist である。application data を GitHub Issue や YAML file に複製しない。
 
 ## Stable CLI
 
@@ -84,7 +85,7 @@ public entry point は次の2本だけである。
 
 ## Read-only app invariants
 
-`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIは3タブ（Dashboard、Macro、Stocks）とタブなし詳細（Macro report、shortlist、Security detail）を提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Macroは経済分析レポートとマクロ経済指標、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
+`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIは3タブ（Dashboard、Macro、Stocks）とタブなし詳細（Macro report、shortlist、Security detail）を提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Macroは機械読み値（全登録系列の記述統計とdata health。`/api/macro/reading`）・経済分析レポート・マクロ経済指標、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
 
 ## Cloud serving layer
 

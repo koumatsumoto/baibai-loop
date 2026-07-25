@@ -18,8 +18,9 @@ defaults:
     percentile_window_years: 10
     short_trend_months: 3
     long_trend_months: 12
-    # 週末 2 日 + 祝日連休を跨いでも当日扱いにする。
-    staleness_warn_days: 5
+    # 国内最長の連休（GW・年末年始は最終営業日から 6 日空く）を跨いでも平常時に
+    # 注記が出ない水準。1 週間止まれば注記が出る。
+    staleness_warn_days: 7
   weekly:
     percentile_window_years: 10
     short_trend_months: 3

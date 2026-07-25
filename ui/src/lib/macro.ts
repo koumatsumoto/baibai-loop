@@ -1,4 +1,4 @@
-import type { MacroPointView, MacroReadingSeriesView } from '../api/types'
+import type { MacroPointView, MacroReadingSeriesView, MacroSeriesFetchHealthView } from '../api/types'
 
 export interface SeriesWindowSummary {
   // Most recent observation in the window, or null when there are no points.
@@ -81,4 +81,13 @@ export function readingCategories(series: readonly MacroReadingSeriesView[]): re
   return [...grouped]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([category, items]) => ({ category, series: items }))
+}
+
+// Series whose last acquisition attempt failed. The observation store still holds the
+// previous values, so the reading looks healthy while the source has already stopped
+// answering — this is the only place that difference shows.
+export function failedFetches(
+  fetchHealth: readonly MacroSeriesFetchHealthView[],
+): readonly MacroSeriesFetchHealthView[] {
+  return fetchHealth.filter((item) => item.status !== 'ok')
 }

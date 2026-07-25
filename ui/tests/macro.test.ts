@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { MacroReadingSeriesView } from '../src/api/types'
-import { readingCategories, readingHealth, readingStatistics, seriesWindowSummary } from '../src/lib/macro'
+import { failedFetches, readingCategories, readingHealth, readingStatistics, seriesWindowSummary } from '../src/lib/macro'
 
 function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroReadingSeriesView {
   return {
@@ -15,6 +15,7 @@ function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroRe
     observed_at: '2026-06-30',
     staleness_days: 24,
     stale: false,
+    staleness_warn_days: 100,
     window_years: 10,
     window_observations: 120,
     insufficient_history: false,
@@ -118,5 +119,25 @@ describe('readingCategories', () => {
     ])
     expect(groups.map((group) => group.category)).toEqual(['inflation', 'rates'])
     expect(groups[1].series.map((item) => item.series_id)).toEqual(['a', 'c'])
+  })
+})
+
+describe('failedFetches', () => {
+  const run = (series_id: string, status: string) => ({
+    series_id,
+    status,
+    finished_at: '2026-07-25T02:38:50+00:00',
+    record_count: status === 'ok' ? 12 : 0,
+    error_message: status === 'ok' ? null : 'navigation timed out',
+  })
+
+  it('keeps only the series whose last acquisition attempt failed', () => {
+    const failed = failedFetches([run('a', 'ok'), run('b', 'failed'), run('c', 'ok')])
+
+    expect(failed.map((item) => item.series_id)).toEqual(['b'])
+  })
+
+  it('reports nothing when every series was fetched successfully', () => {
+    expect(failedFetches([run('a', 'ok')])).toEqual([])
   })
 })

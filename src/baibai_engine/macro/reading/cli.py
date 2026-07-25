@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         rules = load_reading_rules(args.rules)
-        conn = indicators_db.open_connection(args.db)
+        conn = indicators_db.open_read_only_connection(args.db)
         try:
             snapshot = compute_reading(
                 series=indicators_db.list_series(conn),
