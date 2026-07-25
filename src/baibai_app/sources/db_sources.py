@@ -23,7 +23,6 @@ from baibai_engine.read_api import (
     MacroGranularity,
     PortfolioSnapshot,
     application_db_updated_at,
-    latest_macro_context_payload,
     latest_shortlist_payload,
     latest_unadjusted_closes,
     list_holding_review_publications,
@@ -273,9 +272,6 @@ class DbMacroSource:
         return macro_reading_snapshot(
             self._indicators_db_path, asof=asof, rules_path=self._reading_rules_path
         )
-
-    def context(self, *, as_of: date) -> dict[str, object] | None:
-        return latest_macro_context_payload(self._app_db_path, as_of=as_of)
 
     def context_by_id(self, *, context_id: str, as_of: date) -> dict[str, object]:
         return macro_context_payload(self._app_db_path, context_id=context_id, as_of=as_of)

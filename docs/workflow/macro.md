@@ -110,7 +110,9 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 
 percentile の実効窓を短縮した系列は、provider の履歴が伸びて default に届いたら override を外す（`window_years` が default と一致しているかを規則改版時に確認する）。
 
-reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。専用 store は持たず、日次バッチが Baibai App 向けの serving view として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
+reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。専用 store は持たず、日次バッチが Baibai App 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
+
+Baibai App の Macro タブは先頭にこの読み値をヒート面（系列ごとの方向・percentile・実効窓・flags）と data health（`stale` な系列・`insufficient_history` の件数・`|z_score|` が極端な系列）として表示する。view が未生成のときはその区画だけを出さない（指標パネルとレポート index は通常表示する）。
 
 ## ③ 環境認識：macro context report を publish する
 

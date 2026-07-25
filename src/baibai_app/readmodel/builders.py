@@ -609,12 +609,6 @@ def _mapping_items(value: object) -> list[Mapping[str, object]]:
     return [item for item in value if isinstance(item, Mapping)]
 
 
-def _optional_mapping_items(value: object) -> list[Mapping[str, object]]:
-    if value is None:
-        return []
-    return _mapping_items(value)
-
-
 def _macro_core_section_view(
     raw: Mapping[str, object], *, series_names: Mapping[str, str]
 ) -> MacroCoreSectionView:
