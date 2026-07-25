@@ -143,6 +143,82 @@ def test_reading_rules_override_only_names_registered_series() -> None:
     assert set(rules.overrides) <= registered
 
 
+def test_reading_rules_reject_a_series_overridden_twice(tmp_path: Path) -> None:
+    """A series is overridden for unrelated reasons, so a second entry is an easy edit.
+
+    Plain YAML keeps the last mapping and drops the settings above it, which then reads
+    as a rule that was applied.
+    """
+
+    path = tmp_path / "duplicate.yaml"
+    path.write_text(
+        "schema_version: 1\n"
+        "defaults:\n"
+        "  monthly:\n"
+        "    percentile_window_years: 10\n"
+        "    short_trend_months: 3\n"
+        "    long_trend_months: 12\n"
+        "    staleness_warn_days: 100\n"
+        "overrides:\n"
+        "  jp.hourly_earnings:\n"
+        "    staleness_warn_days: 160\n"
+        "  jp.hourly_earnings:\n"
+        "    statistic: yoy\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ReadingRulesError, match="duplicate YAML mapping key"):
+        load_reading_rules(path)
+
+
+# Days since the latest observation, for a series that is waiting for its next release
+# and for one whose source has published since without the store catching up. The pairs
+# come from each source's publication calendar: the normal age is the source's lag plus
+# one publication interval, and the stopped age adds one more interval.
+_STALENESS_CASES: tuple[tuple[str, int, int], ...] = (
+    # OECD MEI republishes the Japanese wage index about 3.5 months late.
+    ("jp.hourly_earnings", 146, 177),
+    # The BOJ consumption index for month M lands in the middle of M+2.
+    ("jp.real_consumption", 106, 137),
+    # JOLTS publishes month M in the first week of M+2.
+    ("us.jolts_openings", 97, 128),
+    # OECD relays the Japanese labour force survey a few days after its own release.
+    ("jp.unemployment", 100, 131),
+    # Michigan publishes the preliminary reading mid-month, so waiting is short.
+    ("us.consumer_sentiment", 56, 87),
+    # FRED serves the EIA daily prices in weekly batches.
+    ("wti", 10, 17),
+    # A series on the monthly default: published mid-M+1, so the wait peaks near 76 days.
+    ("us.cpi.headline", 76, 107),
+)
+
+
+@pytest.mark.parametrize(
+    ("series_id", "waiting_days", "stopped_days"),
+    _STALENESS_CASES,
+    ids=[case[0] for case in _STALENESS_CASES],
+)
+def test_staleness_warns_only_once_a_publication_has_been_missed(
+    series_id: str, waiting_days: int, stopped_days: int
+) -> None:
+    definition = load_definitions().by_id()[series_id]
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+
+    def reading_at(age_days: int) -> bool:
+        observed_at = date.fromordinal(ASOF.toordinal() - age_days)
+        snapshot = compute_reading(
+            series=[definition],
+            reader=_reader(_observations(series_id, [(observed_at, 1.0)])),
+            rules=rules,
+            rules_revision="test",
+            asof=ASOF,
+        )
+        return snapshot.series[0].stale
+
+    assert not reading_at(waiting_days), "normal publication waiting must not warn"
+    assert reading_at(stopped_days), "a missed publication must warn"
+
+
 def test_reading_rules_reject_a_frequency_without_defaults() -> None:
     rules = load_reading_rules(DEFAULT_RULES_PATH)
 
