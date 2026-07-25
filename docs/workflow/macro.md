@@ -31,6 +31,8 @@ uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        
 
 observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。したがって **同じ refresh を何度実行しても、ソースが改定した series の観測だけが新 vintage として増え、それ以外はテーブルが不変**になる（べき等）。ローカルで `--all-history` seed → cloud で日次 refresh、cloud の多重実行や手動 rerun も同じ性質で安全に収束する。cloud 正本の履歴を後から深くするときは、ローカルで `--all-history` を回してから `tools/cloud/r2_transfer.sh push-macro` で載せる（cloud copy を merge してから upload するので、日次 refresh が取った最新観測を失わない）。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
 
+registry は系列定義の正本だが、DB を開く read 操作は登録外系列の facts を削除しない。open 時は現行定義と aliases の upsert だけを行い、最後に成功した明示 refresh の registry snapshot（`registry_series`）も変更しない。`series` / `observations` / `provider_runs` の prune と snapshot 更新は、有効な observation を 1 件以上取得した `macro refresh` の完了時だけ実行する。prune した場合は `registry-prune` 行へ series_id と observation / provider run の削除件数を必ず出力するため、registry の縮退や typo による削除を運用ログで検出できる。
+
 ### データソース registry
 
 | Provider | 取得 | 担当ドメイン | 確認手順・既知の caveat |

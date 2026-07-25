@@ -9,28 +9,15 @@ from typing import cast
 
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 
-SQLITE_SCHEMA_VERSION = 2
+SQLITE_SCHEMA_VERSION = 3
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 DEFAULT_DB_PATH = Path("data/indicators/macro.sqlite")
 _ROW_COUNT_SQL = {
     "series": "SELECT COUNT(*) FROM series",
     "aliases": "SELECT COUNT(*) FROM aliases",
+    "registry_series": "SELECT COUNT(*) FROM registry_series",
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
-}
-_SERIES_ID_PRUNE_SQL = {
-    "series": (
-        "SELECT series_id FROM series",
-        "DELETE FROM series WHERE series_id = ?",
-    ),
-    "observations": (
-        "SELECT DISTINCT series_id FROM observations",
-        "DELETE FROM observations WHERE series_id = ?",
-    ),
-    "provider_runs": (
-        "SELECT DISTINCT series_id FROM provider_runs",
-        "DELETE FROM provider_runs WHERE series_id = ?",
-    ),
 }
 _MIGRATE_V1_TO_V2_SQL = """
 CREATE TABLE aliases_v2(
@@ -46,6 +33,16 @@ CREATE INDEX IF NOT EXISTS idx_aliases_alias ON aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
   ON observations(series_id, fetch_status, observed_at, vintage_at);
 PRAGMA user_version = 2;
+"""
+_MIGRATE_V2_TO_V3_SQL = """
+-- Version 3 fences clients whose registry seed deleted absent series on every
+-- writable open. Membership records the last registry snapshot applied by a
+-- successful refresh; ordinary opens never change it.
+CREATE TABLE IF NOT EXISTS registry_series(
+  series_id TEXT PRIMARY KEY REFERENCES series(series_id)
+);
+INSERT OR IGNORE INTO registry_series(series_id) SELECT series_id FROM series;
+PRAGMA user_version = 3;
 """
 
 
@@ -66,15 +63,24 @@ class ObservationRecord:
     fetch_status: str = "ok"
 
 
+@dataclass(frozen=True, slots=True)
+class RegistryPruneResult:
+    series_id: str
+    observation_rows: int
+    provider_run_rows: int
+
+
 def initialize_database(
     db_path: Path = DEFAULT_DB_PATH,
     *,
     definitions: IndicatorDefinitions | None = None,
 ) -> sqlite3.Connection:
+    resolved_definitions = definitions or load_definitions()
     conn = _connect(db_path)
     try:
         _ensure_schema(conn)
-        seed_definitions(conn, definitions or load_definitions())
+        seed_definitions(conn, resolved_definitions)
+        apply_registry_membership(conn, resolved_definitions)
         conn.commit()
     except BaseException:
         conn.close()
@@ -82,13 +88,17 @@ def initialize_database(
     return conn
 
 
-def open_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+def open_connection(
+    db_path: Path = DEFAULT_DB_PATH,
+    *,
+    definitions: IndicatorDefinitions | None = None,
+) -> sqlite3.Connection:
     if not db_path.exists():
-        return initialize_database(db_path)
+        return initialize_database(db_path, definitions=definitions)
     conn = _connect(db_path)
     try:
         _ensure_schema(conn)
-        seed_definitions(conn, load_definitions())
+        seed_definitions(conn, definitions or load_definitions())
         conn.commit()
     except BaseException:
         conn.close()
@@ -105,11 +115,6 @@ def validate_current_schema(conn: sqlite3.Connection) -> None:
 
 
 def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions) -> None:
-    series_ids = tuple(series.series_id for series in definitions.series)
-    conn.execute("DELETE FROM aliases")
-    _delete_rows_not_in(conn, "provider_runs", "series_id", series_ids)
-    _delete_rows_not_in(conn, "observations", "series_id", series_ids)
-    _delete_rows_not_in(conn, "series", "series_id", series_ids)
     for series in definitions.series:
         conn.execute(
             "INSERT INTO series("
@@ -137,6 +142,9 @@ def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions
                 series.notes,
             ),
         )
+        # Replace aliases only for definitions this registry knows. A stale
+        # branch must not erase aliases of newer series whose facts are retained.
+        conn.execute("DELETE FROM aliases WHERE series_id = ?", (series.series_id,))
         conn.execute(
             "INSERT OR REPLACE INTO aliases(alias, series_id) VALUES (?, ?)",
             (series.name, series.series_id),
@@ -146,6 +154,58 @@ def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions
                 "INSERT OR REPLACE INTO aliases(alias, series_id) VALUES (?, ?)",
                 (alias, series.series_id),
             )
+
+
+def apply_registry_membership(
+    conn: sqlite3.Connection,
+    definitions: IndicatorDefinitions,
+) -> None:
+    """Replace the merge authorization set with one trusted registry snapshot."""
+
+    conn.execute("DELETE FROM registry_series")
+    conn.executemany(
+        "INSERT INTO registry_series(series_id) VALUES (?)",
+        ((series.series_id,) for series in definitions.series),
+    )
+
+
+def prune_definitions(
+    conn: sqlite3.Connection,
+    definitions: IndicatorDefinitions,
+) -> tuple[RegistryPruneResult, ...]:
+    """Delete facts for series absent from an explicitly trusted registry snapshot."""
+
+    apply_registry_membership(conn, definitions)
+    registered = {series.series_id for series in definitions.series}
+    stored = {
+        str(row["series_id"]) for row in conn.execute("SELECT series_id FROM series").fetchall()
+    }
+    results: list[RegistryPruneResult] = []
+    for series_id in sorted(stored - registered):
+        observation_rows = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM observations WHERE series_id = ?",
+                (series_id,),
+            ).fetchone()[0]
+        )
+        provider_run_rows = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM provider_runs WHERE series_id = ?",
+                (series_id,),
+            ).fetchone()[0]
+        )
+        conn.execute("DELETE FROM provider_runs WHERE series_id = ?", (series_id,))
+        conn.execute("DELETE FROM observations WHERE series_id = ?", (series_id,))
+        conn.execute("DELETE FROM aliases WHERE series_id = ?", (series_id,))
+        conn.execute("DELETE FROM series WHERE series_id = ?", (series_id,))
+        results.append(
+            RegistryPruneResult(
+                series_id=series_id,
+                observation_rows=observation_rows,
+                provider_run_rows=provider_run_rows,
+            )
+        )
+    return tuple(results)
 
 
 def get_series(conn: sqlite3.Connection, series_id: str) -> SeriesDefinition:
@@ -162,8 +222,8 @@ def get_series(conn: sqlite3.Connection, series_id: str) -> SeriesDefinition:
 def open_read_only_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     """Open the store for reading only, so a read command cannot alter it.
 
-    ``open_connection`` seeds the registry (and drops rows for series no longer
-    registered), which is right for a fetch path and wrong for one that only reads.
+    ``open_connection`` refreshes registry metadata and aliases, while this path
+    also prevents those non-destructive writes for immutable consumers.
     """
 
     if not db_path.exists():
@@ -434,6 +494,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         return
     if version == 1:
         conn.executescript(_MIGRATE_V1_TO_V2_SQL)
+        version = 2
+    if version == 2:
+        conn.executescript(_MIGRATE_V2_TO_V3_SQL)
         return
     if version != 0:
         raise IndicatorsSchemaError(
@@ -482,25 +545,3 @@ def row_count(conn: sqlite3.Connection, table: str) -> int:
     if sql is None:
         raise ValueError(f"unsupported indicator table: {table}")
     return cast(int, conn.execute(sql).fetchone()[0])
-
-
-def _delete_rows_not_in(
-    conn: sqlite3.Connection,
-    table: str,
-    column: str,
-    values: tuple[str, ...],
-) -> None:
-    sql_pair = _SERIES_ID_PRUNE_SQL.get(table)
-    if sql_pair is None:
-        raise ValueError(f"unsupported indicator table: {table}")
-    if column != "series_id":
-        raise ValueError(f"unsupported indicator column: {column}")
-    select_sql, delete_sql = sql_pair
-    allowed = set(values)
-    stale_ids = {
-        str(row["series_id"])
-        for row in conn.execute(select_sql).fetchall()
-        if str(row["series_id"]) not in allowed
-    }
-    for series_id in stale_ids:
-        conn.execute(delete_sql, (series_id,))

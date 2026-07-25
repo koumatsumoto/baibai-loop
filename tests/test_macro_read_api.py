@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -172,6 +173,42 @@ def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) 
         )
     with pytest.raises(ValueError, match="limit must be positive"):
         macro_indicator_series(database, series_id="us.10y", limit=0)
+
+
+def test_macro_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -> None:
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        connection.execute(
+            "INSERT INTO series("
+            "series_id, name, category, geography, frequency, unit, provider, "
+            "provider_series_id, source_id, source_url"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "retired.series",
+                "Retired",
+                "test",
+                "world",
+                "monthly",
+                "index",
+                "fred_csv",
+                "RETIRED",
+                "retired",
+                "https://example.com/retired.csv",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert macro_indicator_series(database, series_id="retired.series") is None
+    with sqlite3.connect(database) as check:
+        assert (
+            check.execute(
+                "SELECT COUNT(*) FROM series WHERE series_id = 'retired.series'"
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def _points(

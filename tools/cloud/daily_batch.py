@@ -118,6 +118,7 @@ def _run_step(
     cwd: Path,
     allowed_exit_codes: Sequence[int] = (0,),
     echo_stdout: bool = True,
+    echo_stdout_prefixes: Sequence[str] = (),
 ) -> CommandResult:
     print(f"$ {' '.join(argv)}", flush=True)
     started = time.monotonic()
@@ -128,6 +129,14 @@ def _run_step(
     elapsed = time.monotonic() - started
     if echo_stdout and result.stdout:
         print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", flush=True)
+    elif result.stdout and echo_stdout_prefixes:
+        selected = [
+            line
+            for line in result.stdout.splitlines()
+            if any(line.startswith(prefix) for prefix in echo_stdout_prefixes)
+        ]
+        if selected:
+            print("\n".join(selected), flush=True)
     print(f"step {name}: exit {result.returncode} ({elapsed:.1f}s)", flush=True)
     if result.returncode not in allowed_exit_codes:
         raise BatchStepError(
@@ -379,6 +388,7 @@ def run_daily_batch(
                 ),
                 cwd=root,
                 echo_stdout=False,
+                echo_stdout_prefixes=("registry-prune\t",),
             )
         except BatchStepError as exc:
             _record_deferred(exc)

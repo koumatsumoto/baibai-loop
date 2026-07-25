@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import zipfile
 from collections.abc import Mapping, Sequence
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -73,6 +73,7 @@ from baibai_engine.macro.indicators.service import (
     RefreshFailure,
     RefreshSuccess,
 )
+from baibai_engine.macro.reading.cli import main as reading_main
 
 
 class IndicatorsDBTests(unittest.TestCase):
@@ -91,59 +92,49 @@ class IndicatorsDBTests(unittest.TestCase):
             self.assertEqual(series.name, "米10Y利回り")
             self.assertGreater(alias_count, 0)
 
-    def test_open_connection_prunes_series_removed_from_registry(self) -> None:
+    def test_v2_migration_preserves_every_fact_and_fences_older_clients(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            with sqlite3.connect(database) as connection:
+                connection.execute("PRAGMA user_version = 2")
+                before = tuple(
+                    connection.execute(
+                        "SELECT "
+                        "(SELECT COUNT(*) FROM series), "
+                        "(SELECT COUNT(*) FROM observations), "
+                        "(SELECT COUNT(*) FROM provider_runs)"
+                    ).fetchone()
+                )
+
+            migrated = open_connection(database)
+            try:
+                version = migrated.execute("PRAGMA user_version").fetchone()[0]
+                applied_registry_count = migrated.execute(
+                    "SELECT COUNT(*) FROM registry_series"
+                ).fetchone()[0]
+                after = tuple(
+                    migrated.execute(
+                        "SELECT "
+                        "(SELECT COUNT(*) FROM series), "
+                        "(SELECT COUNT(*) FROM observations), "
+                        "(SELECT COUNT(*) FROM provider_runs)"
+                    ).fetchone()
+                )
+            finally:
+                migrated.close()
+
+            self.assertEqual(version, SQLITE_SCHEMA_VERSION)
+            self.assertEqual(after, before)
+            self.assertEqual(applied_registry_count, before[0])
+            # Pre-fix clients accept only schema v2, so this semantic version
+            # boundary stops their destructive registry seed before it can run.
+            self.assertNotEqual(SQLITE_SCHEMA_VERSION, 2)
+
+    def test_open_connection_preserves_series_removed_from_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
-            conn = initialize_database(db)
-            try:
-                conn.execute(
-                    "INSERT INTO series("
-                    "series_id, name, category, geography, frequency, unit, provider, "
-                    "provider_series_id, source_id, source_url"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        "jp.cpi.stale",
-                        "stale",
-                        "inflation",
-                        "japan",
-                        "monthly",
-                        "index",
-                        "fred_csv",
-                        "JPNCPIALLMINMEI",
-                        "fred-jp-cpi",
-                        "https://example.com/stale.csv",
-                    ),
-                )
-                conn.execute(
-                    "INSERT INTO aliases(alias, series_id) VALUES (?, ?)",
-                    ("stale alias", "jp.cpi.stale"),
-                )
-                insert_observations(
-                    conn,
-                    [
-                        ObservationRecord(
-                            series_id="jp.cpi.stale",
-                            observed_at=date(2021, 12, 1),
-                            value=100.0,
-                            unit="index",
-                            source_url="https://example.com/stale.csv",
-                            vintage_at=datetime(2026, 5, 1, tzinfo=UTC),
-                        )
-                    ],
-                )
-                record_provider_run(
-                    conn,
-                    provider="fred_csv",
-                    series_id="jp.cpi.stale",
-                    start=date(2021, 1, 1),
-                    end=date(2021, 12, 31),
-                    started_at=datetime(2026, 5, 1, tzinfo=UTC),
-                    status="ok",
-                    record_count=1,
-                )
-                conn.commit()
-            finally:
-                conn.close()
+            _write_retired_series(db)
 
             conn = open_connection(db)
             try:
@@ -160,13 +151,203 @@ class IndicatorsDBTests(unittest.TestCase):
                     "SELECT COUNT(*) FROM aliases WHERE series_id = ?",
                     ("jp.cpi.stale",),
                 ).fetchone()[0]
+                stale_membership = conn.execute(
+                    "SELECT COUNT(*) FROM registry_series WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
             finally:
                 conn.close()
 
-            self.assertNotIn("jp.cpi.stale", series_ids)
-            self.assertEqual(stale_rows, 0)
-            self.assertEqual(stale_runs, 0)
-            self.assertEqual(stale_aliases, 0)
+            self.assertIn("jp.cpi.stale", series_ids)
+            self.assertEqual(stale_rows, 1)
+            self.assertEqual(stale_runs, 1)
+            # An old branch must not erase aliases belonging to retained metadata
+            # for series it does not know.
+            self.assertEqual(stale_aliases, 1)
+            self.assertEqual(stale_membership, 0)
+
+    def test_read_paths_hide_retired_series_without_deleting_its_facts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+
+            service = IndicatorsService(database)
+            with (
+                patch("baibai_engine.macro.indicators.service.fetch_observations") as fetch,
+                self.assertRaisesRegex(KeyError, "unknown indicator series"),
+            ):
+                service.get_range(
+                    "jp.cpi.stale",
+                    start=date(2021, 12, 1),
+                    end=date(2021, 12, 1),
+                )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                reading_exit = reading_main(
+                    [
+                        "--asof",
+                        "2021-12-01",
+                        "--db",
+                        str(database),
+                    ]
+                )
+
+            conn = sqlite3.connect(database)
+            try:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM observations WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+            fetch.assert_not_called()
+            self.assertNotIn("jp.cpi.stale", {item.series_id for item in service.list_series()})
+            self.assertEqual(service.search("stale"), ())
+            self.assertEqual(reading_exit, 0)
+            self.assertNotIn("jp.cpi.stale", stdout.getvalue())
+            self.assertEqual(remaining, 1)
+
+    def test_refresh_prunes_retired_series_and_reports_deleted_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            definition = load_definitions().by_id()["us.10y"]
+            refreshed = ObservationRecord(
+                series_id=definition.series_id,
+                observed_at=date(2026, 5, 1),
+                value=4.39,
+                unit=definition.unit,
+                source_url=definition.source_url,
+                vintage_at=datetime(2026, 5, 2, tzinfo=UTC),
+            )
+            stdout = io.StringIO()
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[refreshed],
+                ),
+                redirect_stdout(stdout),
+            ):
+                exit_code = main(
+                    [
+                        "refresh",
+                        "us.10y",
+                        "--start",
+                        "2026-05-01",
+                        "--end",
+                        "2026-05-01",
+                        "--db",
+                        str(database),
+                    ]
+                )
+
+            conn = sqlite3.connect(database)
+            try:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM series WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn(
+                "registry-prune\tjp.cpi.stale\tobservations=1\tprovider_runs=1",
+                stdout.getvalue(),
+            )
+            self.assertEqual(remaining, 0)
+
+    def test_refresh_prune_failure_rolls_back_every_retired_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            conn = sqlite3.connect(database)
+            try:
+                conn.execute(
+                    "CREATE TRIGGER block_retired_series_delete "
+                    "BEFORE DELETE ON series "
+                    "WHEN OLD.series_id = 'jp.cpi.stale' "
+                    "BEGIN SELECT RAISE(ABORT, 'blocked'); END"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[_obs("us.10y", date(2026, 5, 1), 4.39)],
+                ),
+                self.assertRaisesRegex(sqlite3.IntegrityError, "blocked"),
+            ):
+                IndicatorsService(database).refresh_series(
+                    ["us.10y"],
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                )
+
+            conn = sqlite3.connect(database)
+            try:
+                counts = (
+                    conn.execute(
+                        "SELECT COUNT(*) FROM series WHERE series_id = ?",
+                        ("jp.cpi.stale",),
+                    ).fetchone()[0],
+                    conn.execute(
+                        "SELECT COUNT(*) FROM observations WHERE series_id = ?",
+                        ("jp.cpi.stale",),
+                    ).fetchone()[0],
+                    conn.execute(
+                        "SELECT COUNT(*) FROM provider_runs WHERE series_id = ?",
+                        ("jp.cpi.stale",),
+                    ).fetchone()[0],
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual(counts, (1, 1, 1))
+
+    def test_refresh_prune_log_failure_rolls_back_every_retired_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[_obs("us.10y", date(2026, 5, 1), 4.39)],
+                ),
+                patch("builtins.print", side_effect=BrokenPipeError("closed")),
+                self.assertRaisesRegex(BrokenPipeError, "closed"),
+            ):
+                IndicatorsService(database).refresh_series(
+                    ["us.10y"],
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                )
+
+            conn = sqlite3.connect(database)
+            try:
+                counts = (
+                    conn.execute(
+                        "SELECT COUNT(*) FROM series WHERE series_id = ?",
+                        ("jp.cpi.stale",),
+                    ).fetchone()[0],
+                    conn.execute(
+                        "SELECT COUNT(*) FROM observations WHERE series_id = ?",
+                        ("jp.cpi.stale",),
+                    ).fetchone()[0],
+                    conn.execute(
+                        "SELECT COUNT(*) FROM provider_runs WHERE series_id = ?",
+                        ("jp.cpi.stale",),
+                    ).fetchone()[0],
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual(counts, (1, 1, 1))
 
     def test_observations_in_range_returns_latest_vintage_per_observed_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2844,6 +3025,95 @@ class IndicatorsServiceTests(unittest.TestCase):
             assert isinstance(failure, RefreshFailure)
             self.assertEqual(failure.message, "unknown indicator series: jp.cpi.stale")
 
+    def test_unknown_only_refresh_does_not_authorize_registry_prune(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+
+            outcomes = IndicatorsService(database).refresh_series(
+                ["jp.cpi.stale"],
+                start=date(2026, 7, 1),
+                end=date(2026, 7, 20),
+            )
+
+            conn = sqlite3.connect(database)
+            try:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM observations WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertEqual(
+                outcomes,
+                [
+                    RefreshFailure(
+                        "jp.cpi.stale",
+                        "unknown indicator series: jp.cpi.stale",
+                    )
+                ],
+            )
+            self.assertEqual(remaining, 1)
+
+    def test_all_provider_failures_do_not_authorize_registry_prune(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    side_effect=IndicatorsProviderError("offline"),
+                ),
+                patch("baibai_engine.macro.indicators.service.time.sleep"),
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["us.10y"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            conn = sqlite3.connect(database)
+            try:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM observations WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertEqual(len(outcomes), 1)
+            self.assertIsInstance(outcomes[0], RefreshFailure)
+            self.assertEqual(remaining, 1)
+
+    def test_empty_refresh_does_not_authorize_registry_prune(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+
+            with patch(
+                "baibai_engine.macro.indicators.service.fetch_observations",
+                return_value=[],
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["us.10y"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            conn = sqlite3.connect(database)
+            try:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM observations WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertIsInstance(outcomes[0], RefreshSuccess)
+            self.assertEqual(remaining, 1)
+
     def test_refresh_series_shares_one_fetch_context_across_the_pass(self) -> None:
         # A shared context is what makes a bulk source file download once for every
         # series that maps to it and a browser-backed provider launch once.
@@ -3356,6 +3626,59 @@ class IndicatorsServiceTests(unittest.TestCase):
             db = Path(tmp) / "macro.sqlite"
 
             self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)
+
+
+def _write_retired_series(database: Path) -> None:
+    conn = initialize_database(database)
+    try:
+        conn.execute(
+            "INSERT INTO series("
+            "series_id, name, category, geography, frequency, unit, provider, "
+            "provider_series_id, source_id, source_url"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "jp.cpi.stale",
+                "stale",
+                "inflation",
+                "japan",
+                "monthly",
+                "index",
+                "fred_csv",
+                "JPNCPIALLMINMEI",
+                "fred-jp-cpi",
+                "https://example.com/stale.csv",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO aliases(alias, series_id) VALUES (?, ?)",
+            ("stale alias", "jp.cpi.stale"),
+        )
+        insert_observations(
+            conn,
+            [
+                ObservationRecord(
+                    series_id="jp.cpi.stale",
+                    observed_at=date(2021, 12, 1),
+                    value=100.0,
+                    unit="index",
+                    source_url="https://example.com/stale.csv",
+                    vintage_at=datetime(2026, 5, 1, tzinfo=UTC),
+                )
+            ],
+        )
+        record_provider_run(
+            conn,
+            provider="fred_csv",
+            series_id="jp.cpi.stale",
+            start=date(2021, 1, 1),
+            end=date(2021, 12, 31),
+            started_at=datetime(2026, 5, 1, tzinfo=UTC),
+            status="ok",
+            record_count=1,
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:

@@ -33,12 +33,9 @@ def _build_store(
     run_series: Sequence[str] = (),
 ) -> None:
     registry = load_definitions().by_id()
-    connection = initialize_database(path)
+    definitions = IndicatorDefinitions(series=tuple(registry[item] for item in series_ids))
+    connection = initialize_database(path, definitions=definitions)
     try:
-        seed_definitions(
-            connection,
-            IndicatorDefinitions(series=tuple(registry[item] for item in series_ids)),
-        )
         insert_observations(connection, list(observations), deduplicate_unchanged=False)
         for series_id in run_series:
             record_provider_run(
@@ -183,8 +180,8 @@ def test_merge_skips_facts_of_a_series_the_target_registry_does_not_define(
 
     report = merge_stores(cloud, local)
 
-    # A series only the cloud holds is a retired series: opening the store deletes it and its
-    # facts, so carrying it would publish rows the next open removes again.
+    # A series only the cloud holds is retired relative to the target's explicit
+    # registry snapshot, so carrying it would publish facts the target does not define.
     assert _rows(local, "SELECT series_id FROM series") == [("us.10y",)]
     assert _observations(local) == {
         ("us.10y", "2016-07-20", 1.55),
@@ -194,6 +191,37 @@ def test_merge_skips_facts_of_a_series_the_target_registry_does_not_define(
     assert report.retired_series == ("jp.10y",)
     assert report.skipped == 2
     assert "jp.10y" in report.render()
+
+
+def test_merge_uses_applied_registry_not_metadata_from_stale_open(tmp_path: Path) -> None:
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y", "jp.10y"),
+        observations=(_observation("jp.10y", date(2026, 7, 23), 1.62),),
+        run_series=("jp.10y",),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+    registry = load_definitions().by_id()
+    stale_definitions = IndicatorDefinitions(series=(registry["us.10y"], registry["jp.10y"]))
+    with sqlite3.connect(local) as connection:
+        seed_definitions(connection, stale_definitions)
+        connection.commit()
+
+    report = merge_stores(cloud, local)
+
+    # A stale branch can re-add jp.10y metadata on ordinary open, but it cannot
+    # alter the registry snapshot applied by the last successful refresh.
+    assert ("jp.10y",) in _rows(local, "SELECT series_id FROM series")
+    assert ("jp.10y",) not in _rows(local, "SELECT series_id FROM registry_series")
+    assert ("jp.10y", "2026-07-23", 1.62) not in _observations(local)
+    assert report.retired_series == ("jp.10y",)
+    assert report.skipped == 2
 
 
 def test_merge_leaves_the_registry_owned_tables_to_the_target(tmp_path: Path) -> None:

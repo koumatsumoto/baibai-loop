@@ -360,6 +360,33 @@ def test_daily_batch_defers_macro_refresh_failure_until_after_export(
     assert "deferred failure" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_daily_batch_always_echoes_registry_prune_audit_lines(
+    tmp_path: Path, capsys, returncode: int
+) -> None:
+    script = _success_script()
+    script["macro refresh"] = [
+        CommandResult(
+            returncode,
+            "us.10y\t2026-07-21\t4.2\n"
+            "registry-prune\tretired.series\tobservations=42\tprovider_runs=3\n",
+            "provider down\n" if returncode else "",
+        ),
+        OK,
+        OK,
+    ]
+    runner = _runner(script)
+
+    exit_code = run_daily_batch(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+
+    output = capsys.readouterr().out
+    assert "registry-prune\tretired.series\tobservations=42\tprovider_runs=3" in output
+    assert "us.10y\t2026-07-21\t4.2" not in output
+    assert exit_code == (3 if returncode else 0)
+
+
 def test_daily_batch_passes_previous_run_revision_when_resolvable(tmp_path: Path) -> None:
     _publish_run(
         tmp_path, asof="2026-07-17", run_at="2026-07-17T18:00:00+09:00", revision_id="old-1"
