@@ -638,9 +638,9 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         self.assertEqual(value, 50.0)
 
-    def test_extract_pmi_value_ignores_a_comparison_month_in_the_primary_statement(self) -> None:
-        # The prior month appears only as a "from X in <prior month>" comparison;
-        # asking for that month must not harvest the comparison value.
+    def test_extract_pmi_value_reads_the_previous_month_named_in_a_restating_release(self) -> None:
+        # A release states the month before it as well as its own, which is how a
+        # month whose own release is unavailable is read.
         text = (
             "The headline index posted 53.2 in November, up fractionally from 53.1 "
             "in October and signalled a further solid expansion."
@@ -650,6 +650,253 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             text,
             expected_observed_at=date(2025, 10, 1),
             release_observed_at=date(2025, 11, 1),
+        )
+
+        self.assertEqual(value, 53.1)
+
+    def test_extract_pmi_value_reads_the_previous_month_from_a_bare_comparison(self) -> None:
+        # The comparison names no month, so it can only be read for the month before
+        # the one the release reports.
+        text = (
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
+            "Index™ (PMI®) remained above the crucial 50.0 no-change mark in March. "
+            "Recording 50.2, down from 52.7, the PMI signaled a marginal improvement."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 2, 1),
+            release_observed_at=date(2025, 3, 1),
+        )
+
+        self.assertEqual(value, 52.7)
+
+    def test_extract_pmi_value_does_not_attribute_a_release_reading_to_the_previous_month(
+        self,
+    ) -> None:
+        # The statement introduces its reading without naming a month, so it belongs
+        # to the release's own month and must not answer for the month before it.
+        text = "The headline index posted 53.2 in November, ending a soft patch."
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 10, 1),
+            release_observed_at=date(2025, 11, 1),
+        )
+
+        self.assertIsNone(value)
+
+    def test_extract_pmi_value_reads_a_value_the_pdf_text_split_at_the_decimal(self) -> None:
+        # pypdf renders "47.9" as "47 .9" in some releases.
+        text = "The PMI fell to 47 .9 in August, from 49.0 in July, indicating a downturn."
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2023, 8, 1),
+            release_observed_at=date(2023, 8, 1),
+        )
+
+        self.assertEqual(value, 47.9)
+
+    def test_extract_pmi_value_reads_a_month_stated_before_its_value(self) -> None:
+        # "in <month> to <value>" — the month leads the value in the same clause.
+        text = (
+            "The seasonally adjusted S&P Global US Services PMI ® Business Activity "
+            "Index fell for the third month running in April to 51.3 from 51.7 in March."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2024, 4, 1),
+            release_observed_at=date(2024, 4, 1),
+        )
+
+        self.assertEqual(value, 51.3)
+
+    def test_extract_pmi_value_reads_a_value_stated_during_the_month(self) -> None:
+        # "during <month>", and the flash estimate in the same sentence is provisional.
+        text = (
+            "The S&P Global US Services PMI® Business Activity Index recorded 53.7 "
+            "during May, which was stronger than the earlier 'flash' reading of 52.3."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 5, 1),
+            release_observed_at=date(2025, 5, 1),
+        )
+
+        self.assertEqual(value, 53.7)
+
+    def test_extract_pmi_value_reads_the_level_stated_after_the_threshold_sentence(self) -> None:
+        # The statement sentence gives only the no-change threshold; the reading
+        # follows in the next sentence.
+        text = (
+            "The headline au Jibun Bank Japan Services Business Activity Index remained "
+            "above the 50.0 no-change mark for the fourteenth successive month in "
+            "October, signalling a further expansion. That said, at 51.6 the index was "
+            "down from 53.8 in September and pointed to a modest rise in output."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2023, 10, 1),
+            release_observed_at=date(2023, 10, 1),
+        )
+
+        self.assertEqual(value, 51.6)
+
+    def test_extract_pmi_value_reads_a_movement_destination_stated_after_a_comparison(
+        self,
+    ) -> None:
+        # "slipped from <previous> in <previous month> to <reading>".
+        text = (
+            "However, the headline index slipped from 53.2 in November to 51.6, to "
+            "signal a modest rate of growth that was the slowest seen since May."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 12, 1),
+            release_observed_at=date(2025, 12, 1),
+        )
+
+        self.assertEqual(value, 51.6)
+
+    def test_extract_pmi_value_reads_a_reading_named_as_a_record_level(self) -> None:
+        # "reaching a 33-month high of <reading> following a reading of <previous>".
+        text = (
+            "The seasonally adjusted S&P Global US Services PMI® Business Activity Index "
+            "rose for the second month running in December, reaching a 33-month high of "
+            "56.8 following a reading of 56.1 in November."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2024, 12, 1),
+            release_observed_at=date(2024, 12, 1),
+        )
+
+        self.assertEqual(value, 56.8)
+
+    def test_extract_pmi_value_reads_a_reading_equal_to_the_no_change_mark(self) -> None:
+        # A reading of exactly 50.0 is stated as equal to the threshold.
+        text = (
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
+            "Index™ (PMI ®) posted in line with the 50.0 no-change mark in April to "
+            "point to stable business conditions."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2024, 4, 1),
+            release_observed_at=date(2024, 4, 1),
+        )
+
+        self.assertEqual(value, 50.0)
+
+    def test_extract_pmi_value_ignores_a_hedged_comparison_with_the_no_change_mark(self) -> None:
+        # "broadly in line with" states an approximation, not the reading.
+        text = (
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
+            "Index™ (PMI ®) was broadly in line with the 50.0 no-change mark in April."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2024, 4, 1),
+            release_observed_at=date(2024, 4, 1),
+        )
+
+        self.assertIsNone(value)
+
+    def test_extract_pmi_value_ignores_a_threshold_the_reading_is_measured_against(self) -> None:
+        # "below the 50.0 no-change mark in November" is the threshold; the reading is
+        # the level stated beside it.
+        text = (
+            "The seasonally adjusted S&P Global US Manufacturing Purchasing Managers’ "
+            "Index™ (PMI®) remained below the 50.0 no-change mark in November, but at "
+            "49.7 pointed to only a marginal worsening in the health of the sector."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2024, 11, 1),
+            release_observed_at=date(2024, 11, 1),
+        )
+
+        self.assertEqual(value, 49.7)
+
+    def test_extract_pmi_value_ignores_an_average_over_several_months(self) -> None:
+        # A span average is not any single month's reading.
+        text = (
+            "The Business Activity Index has trended at 53.7 from January to November, "
+            "comfortably above the next-highest annual average of 52.4 set in 2013."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2023, 11, 1),
+            release_observed_at=date(2023, 11, 1),
+        )
+
+        self.assertIsNone(value)
+
+    def test_extract_pmi_value_ignores_the_composite_index_statement(self) -> None:
+        # The composite index is published in the same release and its statement reads
+        # like the headline one.
+        text = (
+            "S&P Global US Services PMI® At 50.7 in November, the final S&P Global US "
+            "Composite PMI Output Index* was unchanged from October. The headline S&P "
+            "Global US Services PMI® Business Activity Index recorded 54.1 in November."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 11, 1),
+            release_observed_at=date(2025, 11, 1),
+        )
+
+        self.assertEqual(value, 54.1)
+
+    def test_extract_pmi_value_ignores_a_sub_index_statement(self) -> None:
+        # A sub-index moves on its own and must never answer for the headline.
+        text = (
+            "The headline index posted 49.7 in November, a marginal worsening. "
+            "The New Orders Index rose to 48.2 in November."
+        )
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2024, 11, 1),
+            release_observed_at=date(2024, 11, 1),
+        )
+
+        self.assertEqual(value, 49.7)
+
+    def test_extract_pmi_value_ignores_a_comparison_sharing_the_movement_preposition(
+        self,
+    ) -> None:
+        # "compared to <previous>" borrows the preposition a movement uses, without
+        # stating the release's own reading.
+        text = "The headline index improved in October, compared to 52.0 in September."
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2025, 10, 1),
+            release_observed_at=date(2025, 10, 1),
+        )
+
+        self.assertIsNone(value)
+
+    def test_extract_pmi_value_ignores_a_year_beside_the_month(self) -> None:
+        # A chart caption pairs the month with a year, which is not a reading.
+        text = "Comment January 2026 Index, sa, >50 = growth m/m. The headline index eased."
+
+        value = extract_pmi_value(
+            text,
+            expected_observed_at=date(2026, 1, 1),
+            release_observed_at=date(2026, 1, 1),
         )
 
         self.assertIsNone(value)
