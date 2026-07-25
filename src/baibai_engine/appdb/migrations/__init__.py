@@ -373,15 +373,18 @@ MIGRATIONS: tuple[Migration, ...] = (
                 payload TEXT NOT NULL CHECK (json_valid(payload))
             ) STRICT
             """,
-            # A revision supersedes the head that existed when it was published, so
-            # publication order is a topological order for the self reference.
+            # SQLite checks immediate foreign keys at statement end, so the whole
+            # copy lands before the self reference is verified; the ordering is only
+            # there to keep the rows readable in publication order. The version is cast
+            # because a non-integer in the payload would otherwise abort the migration
+            # with no forward path.
             """
             INSERT INTO macro_context_next (
                 context_id, schema_version, as_of, published_at, supersedes_id, payload
             )
             SELECT
                 context_id,
-                COALESCE(json_extract(payload, '$.schema_version'), 0),
+                CAST(COALESCE(json_extract(payload, '$.schema_version'), 0) AS INTEGER),
                 as_of,
                 published_at,
                 supersedes_id,

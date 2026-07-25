@@ -18,6 +18,7 @@ function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroRe
     staleness_warn_days: 100,
     window_years: 10,
     window_observations: 120,
+    expected_observations: 120,
     insufficient_history: false,
     percentile: 0.83,
     z_score: 0.9,

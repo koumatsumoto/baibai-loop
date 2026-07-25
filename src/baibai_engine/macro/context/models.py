@@ -6,15 +6,18 @@ accumulation loop. ``connection`` is the only place that translates the assessme
 into that loop (research priority, sector tilt, sizing caution).
 
 The separation is enforced by reference direction rather than by the author's care:
-connection may only cite series that core already cites, and names the core sections
-it builds on. Putting a loop-specific instruction into a core section is rejected by
-the schema itself, so ``core`` being self-contained is a structural fact.
+connection may only cite series that core already cites, and names the core sections it
+builds on. The loop-specific *fields* (sector tilt, research priority, sizing caution)
+exist only on the connection section, so they cannot be placed in core at all. Prose is
+not policed — a judgment written in core can still smuggle in an instruction, which is
+what the skill's adversarial self-check is for.
 """
 
 from __future__ import annotations
 
 import re
 from calendar import monthrange
+from collections.abc import Mapping
 from datetime import date, datetime
 from functools import lru_cache
 from typing import Literal, Self
@@ -75,6 +78,19 @@ MACRO_CONTEXT_SCHEMA_VERSION = 4
 # leave the scenario unfalsifiable in practice; the bound is wide enough for a quarterly
 # series to print twice.
 SCORECARD_HORIZON_MONTHS = 18
+
+# A scorecard condition also needs room for at least one further print of its series to
+# land and be observed; a deadline before that cannot be settled either.
+MIN_SCORECARD_DAYS_BY_FREQUENCY: Mapping[str, int] = {
+    "daily": 14,
+    "weekly": 30,
+    "monthly": 60,
+    "quarterly": 150,
+}
+
+# The reading is recomputable for any as-of, so a report cites the reading of its own
+# as-of. This allowance covers writing across a weekend, not reading an old snapshot.
+MAX_READING_LAG_DAYS = 7
 
 
 class _StrictModel(BaseModel):
@@ -206,7 +222,7 @@ class ScorecardCondition(_StrictModel):
 
     series_id: str = Field(min_length=1)
     comparison: Literal["below", "at_or_below", "above", "at_or_above"]
-    threshold: float
+    threshold: float = Field(allow_inf_nan=False)
     deadline: date
 
 
@@ -224,6 +240,18 @@ class MacroScenario(_SourcedStatement):
     def require_non_blank_items(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if any(not value.strip() for value in values):
             raise ValueError("scenario items must be non-blank")
+        return values
+
+    @field_validator("scorecard")
+    @classmethod
+    def require_distinct_conditions(
+        cls, values: tuple[ScorecardCondition, ...]
+    ) -> tuple[ScorecardCondition, ...]:
+        # Otherwise the two-condition rule is satisfied by writing one twice, which is
+        # exactly the single observation met by accident that the rule exists to prevent.
+        keys = [(item.series_id, item.comparison, item.threshold) for item in values]
+        if len(keys) != len(set(keys)):
+            raise ValueError("scorecard conditions must differ from each other")
         return values
 
 
@@ -369,10 +397,17 @@ class MacroContextDocument(_StrictModel):
     core: tuple[MacroCoreSection, ...] = Field(min_length=10, max_length=10)
     connection: MacroConnectionSection
 
+    @field_validator("summary")
+    @classmethod
+    def require_non_blank_summary(cls, value: str) -> str:
+        # This is the label the report index renders, so a blank is worse than absent.
+        if not value.strip():
+            raise ValueError("summary must be non-blank")
+        return value
+
     @model_validator(mode="after")
     def validate_domain_contract(self) -> Self:
-        if not re.fullmatch(r"macro-context-\d{4}-\d{2}-\d{2}-[a-z0-9-]+", self.context_id):
-            raise ValueError("context_id has an invalid format")
+        self._validate_context_id()
         if self.published_at.tzinfo is None or self.published_at.utcoffset() is None:
             raise ValueError("published_at must include a timezone")
         if self.published_at.date() < self.as_of:
@@ -396,6 +431,15 @@ class MacroContextDocument(_StrictModel):
             raise ValueError("a material delta is required")
         return self
 
+    def _validate_context_id(self) -> None:
+        match = re.fullmatch(r"macro-context-(\d{4}-\d{2}-\d{2})-[a-z0-9-]+", self.context_id)
+        if match is None:
+            raise ValueError("context_id has an invalid format")
+        # The id is what a human reads in the index, so its date must not disagree with
+        # the market date the report is about.
+        if match.group(1) != self.as_of.isoformat():
+            raise ValueError("context_id date must equal as_of")
+
     def _index_inputs(self) -> tuple[dict[str, str], dict[str, set[str]], set[str]]:
         statuses: dict[str, str] = {}
         series_input_ids: dict[str, set[str]] = {}
@@ -417,6 +461,11 @@ class MacroContextDocument(_StrictModel):
             register(reading.input_id, reading.status)
             if reading.reading_asof > self.as_of:
                 raise ValueError("a reading snapshot must not be read past the report as_of")
+            if (self.as_of - reading.reading_asof).days > MAX_READING_LAG_DAYS:
+                raise ValueError(
+                    "a reading snapshot must be no more than "
+                    f"{MAX_READING_LAG_DAYS} days older than as_of"
+                )
             if reading.status == "ok":
                 reading_input_ids.add(reading.input_id)
         if not statuses:
@@ -469,13 +518,33 @@ class MacroContextDocument(_StrictModel):
             raise ValueError(
                 "connection may only cite series the core cites: " + ", ".join(outside)
             )
+        # The named core sections must be the ones the connection actually builds on,
+        # otherwise the reference is decorative and the trail back into core is lost.
+        named = {
+            series_id
+            for section in self.core
+            if section.section_id in set(self.connection.core_section_ids)
+            for series_id in section.series_ids
+        }
+        unbacked = sorted(set(self.connection.series_ids) - named)
+        if unbacked:
+            raise ValueError(
+                "connection core_section_ids must cover the series it cites: " + ", ".join(unbacked)
+            )
 
     def _validate_scorecard_deadlines(self) -> None:
         horizon = _months_after(self.as_of, SCORECARD_HORIZON_MONTHS)
+        frequencies = _series_frequencies()
         for scenario in self.scenarios:
             for condition in scenario.scorecard:
-                if condition.deadline <= self.as_of:
-                    raise ValueError("a scorecard deadline must fall after as_of")
+                minimum_days = MIN_SCORECARD_DAYS_BY_FREQUENCY.get(
+                    frequencies.get(condition.series_id, ""), 14
+                )
+                if (condition.deadline - self.as_of).days < minimum_days:
+                    raise ValueError(
+                        f"a scorecard deadline on {condition.series_id} must leave at least "
+                        f"{minimum_days} days for the series to print again"
+                    )
                 if condition.deadline > horizon:
                     raise ValueError(
                         "a scorecard deadline must fall within "
@@ -538,6 +607,11 @@ def _months_after(value: date, months: int) -> date:
 @lru_cache(maxsize=1)
 def _canonical_series_ids() -> frozenset[str]:
     return frozenset(series.series_id for series in load_definitions().series)
+
+
+@lru_cache(maxsize=1)
+def _series_frequencies() -> Mapping[str, str]:
+    return {series.series_id: series.frequency for series in load_definitions().series}
 
 
 __all__ = [

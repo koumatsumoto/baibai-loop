@@ -71,7 +71,9 @@ function ReadingRow({ series }: { series: MacroReadingSeriesView }) {
           the historical position matters most. */}
       <TableCell className="text-right font-mono tabular-nums">{stats.percentilePct === null ? EMPTY : formatPct(stats.percentilePct)}</TableCell>
       <TableCell className="text-right font-mono tabular-nums">{stats.zScore === null ? EMPTY : fmtValue(stats.zScore)}</TableCell>
-      <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground tabular-nums">{series.window_years}y / {formatNumber(series.window_observations)} 観測</TableCell>
+      {/* The implied count (monthly / weekly / quarterly) shows how full the window is:
+          a window with holes describes the periods it happens to hold, not the decade. */}
+      <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground tabular-nums">{series.window_years}y / {formatNumber(series.window_observations)}{series.expected_observations === null ? '' : `/${formatNumber(series.expected_observations)}`} 観測</TableCell>
       <TableCell className="pr-5 sm:pr-6">
         {/* Flags note that a textbook threshold is touched; they are not signals, so they get a
             neutral badge that implies no direction to trade. */}
@@ -132,8 +134,8 @@ function DataHealthCard({ health, failed }: { health: ReadingHealth; failed: rea
           title="stale"
         />
         <HealthList
-          detail={(series) => `${series.window_years}y 窓 / ${formatNumber(series.window_observations)} 観測`}
-          note="実効窓を履歴が満たさないため percentile / z を出さない。水準比較に使わない。"
+          detail={(series) => `${series.window_years}y 窓 / ${formatNumber(series.window_observations)}${series.expected_observations === null ? '' : `/${formatNumber(series.expected_observations)}`} 観測`}
+          note="実効窓を履歴が満たさない（開始が遅い・件数不足・欠落が多い）ため percentile / z を出さない。水準比較に使わない。"
           series={health.insufficientHistory}
           title="履歴不足"
         />

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
 
 from .models import MACRO_CONTEXT_SCHEMA_VERSION, MacroContextDocument
 
@@ -36,6 +37,7 @@ class MacroContextService:
         *,
         expected_head: str | None,
     ) -> MacroContextDocument:
+        _require_known_reading_revisions(document)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -121,6 +123,33 @@ class MacroContextService:
                 f"future macro context is not eligible: {context_id} as_of={document.as_of}"
             )
         return document
+
+
+def _require_known_reading_revisions(document: MacroContextDocument) -> None:
+    """Reject a cited reading revision that does not exist.
+
+    `rules_revision` is otherwise free text, so a report could claim a reading computed
+    under rules that were never written — provenance that reads as verified but is not.
+    Every dated revision stays in the tree, so an older report keeps validating.
+    """
+
+    directory = READING_RULES_PATH.parent
+    if not directory.is_dir():
+        raise MacroContextConflictError(
+            f"macro reading rules directory not found: {directory} "
+            "(publish from the repository root)"
+        )
+    known = {path.stem for path in directory.glob("*.yaml")}
+    cited = {
+        reading.rules_revision
+        for reading in document.inputs.reading_snapshots
+        if reading.status == "ok"
+    }
+    unknown = sorted(cited - known)
+    if unknown:
+        raise MacroContextConflictError(
+            "cited macro reading revision does not exist: " + ", ".join(unknown)
+        )
 
 
 def _current_head_id(connection: sqlite3.Connection) -> str | None:

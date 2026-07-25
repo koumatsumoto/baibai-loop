@@ -8,7 +8,7 @@ outside world.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from statistics import fmean, stdev
 
@@ -25,6 +25,17 @@ type ObservationReader = Callable[[str, date, date], Sequence[ObservationRecord]
 # A percentile / z-score needs enough points that it describes a distribution
 # rather than a handful of readings.
 MIN_WINDOW_OBSERVATIONS = 8
+
+# Observations a frequency implies per year. A daily series has no such number — how
+# many days a market trades and a provider serves is not a property of the frequency —
+# so daily series are judged by the window-start rule alone.
+PERIODS_PER_YEAR: Mapping[str, int] = {"weekly": 52, "monthly": 12, "quarterly": 4}
+
+# Share of the implied periods a window must actually hold. A window with half its
+# months missing still spans the years, but its holes are not spread evenly (a
+# hand-maintained source fills the recent months first), so the distribution it
+# describes is the recent one wearing a ten-year label.
+MIN_WINDOW_COVERAGE = 0.6
 
 
 def compute_reading(
@@ -62,7 +73,9 @@ def _read_series(
     first_observed_at = min(observation.observed_at for observation in observations)
     covers_window = first_observed_at <= _window_coverage_cutoff(start, asof)
     enough_points = len(values) >= MIN_WINDOW_OBSERVATIONS
-    insufficient = not (covers_window and enough_points)
+    expected = _expected_observations(definition.frequency, rule.percentile_window_years)
+    dense_enough = expected is None or len(values) >= expected * MIN_WINDOW_COVERAGE
+    insufficient = not (covers_window and enough_points and dense_enough)
     staleness_days = (asof - latest.observed_at).days
     return SeriesReading(
         series_id=definition.series_id,
@@ -78,6 +91,7 @@ def _read_series(
         staleness_warn_days=rule.staleness_warn_days,
         window_years=rule.percentile_window_years,
         window_observations=len(values),
+        expected_observations=expected,
         insufficient_history=insufficient,
         percentile=None if insufficient else _percentile(values, latest.value),
         z_score=None if insufficient else _z_score(values, latest.value),
@@ -102,6 +116,7 @@ def _empty_reading(definition: SeriesDefinition, rule: ResolvedRule) -> SeriesRe
         staleness_warn_days=rule.staleness_warn_days,
         window_years=rule.percentile_window_years,
         window_observations=0,
+        expected_observations=None,
         insufficient_history=True,
         percentile=None,
         z_score=None,
@@ -109,6 +124,11 @@ def _empty_reading(definition: SeriesDefinition, rule: ResolvedRule) -> SeriesRe
         long_trend=None,
         flags=(),
     )
+
+
+def _expected_observations(frequency: str, window_years: int) -> int | None:
+    per_year = PERIODS_PER_YEAR.get(frequency)
+    return None if per_year is None else per_year * window_years
 
 
 def _window_coverage_cutoff(start: date, asof: date) -> date:
@@ -188,4 +208,9 @@ def _days_in_month(year: int, month: int) -> int:
     return (date(year, month + 1, 1) - date(year, month, 1)).days
 
 
-__all__ = ["MIN_WINDOW_OBSERVATIONS", "ObservationReader", "compute_reading"]
+__all__ = [
+    "MIN_WINDOW_COVERAGE",
+    "MIN_WINDOW_OBSERVATIONS",
+    "ObservationReader",
+    "compute_reading",
+]

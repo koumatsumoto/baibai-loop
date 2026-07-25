@@ -62,18 +62,38 @@ def macro_context_diagnostics(
         warnings.append("macro_context_future")
     if context.is_stale_for(asof_date):
         warnings.append("macro_context_stale")
+    # A report may declare an input it could not obtain. Declaring it honestly must not
+    # make it invisible to the reader, or omitting it would be the easier path.
+    failed_inputs = context_failed_inputs(context.payload)
+    if failed_inputs:
+        warnings.append("macro_context_failed_inputs")
     return {
         "context_id": context.context_id,
         "as_of": context.as_of.isoformat(),
         "age_days": context.age_days(asof_date),
         "future": context.as_of > asof_date,
         "stale": context.is_stale_for(asof_date),
+        "failed_inputs": list(failed_inputs),
         "material_deltas": list(context_material_deltas(context.payload)),
         "sizing_cautions": list(context_sizing_cautions(context.payload)),
         "research_questions": list(context_research_questions(context.payload)),
         "refresh_triggers": list(context_refresh_triggers(context.payload)),
         "warnings": warnings,
     }
+
+
+def context_failed_inputs(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    """Input ids the report itself declares as failed, across every input type."""
+
+    inputs = payload.get("inputs")
+    if not isinstance(inputs, Mapping):
+        return ()
+    return tuple(
+        str(item["input_id"])
+        for key in ("articles", "indicator_series", "reading_snapshots")
+        for item in _mapping_sequence(inputs.get(key))
+        if item.get("status") == "failed" and isinstance(item.get("input_id"), str)
+    )
 
 
 def context_material_deltas(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
@@ -130,6 +150,7 @@ def _mapping_sequence(value: object) -> tuple[Mapping[str, Any], ...]:
 __all__ = [
     "MACRO_CONTEXT_STALE_DAYS",
     "MacroContext",
+    "context_failed_inputs",
     "context_material_deltas",
     "context_refresh_triggers",
     "context_research_questions",

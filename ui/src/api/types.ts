@@ -434,6 +434,9 @@ export interface MacroReadingSeriesView {
   staleness_warn_days: number
   window_years: number
   window_observations: number
+  // Observations the frequency implies for the window; null for a daily series, where
+  // the count depends on the market calendar rather than on the frequency.
+  expected_observations: number | null
   // The effective window is not met, so percentile / z_score are withheld as null.
   insufficient_history: boolean
   // Share of window observations at or below latest_value, expressed as 0–1.

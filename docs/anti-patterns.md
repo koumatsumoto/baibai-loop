@@ -253,15 +253,18 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
 - [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
-      履歴で percentile / z-score を黙って計算しないか（`insufficient_history` で null にする）
+      履歴で percentile / z-score を黙って計算しないか（開始が遅い・件数不足・**窓の期数に対する
+      欠落が多い**の3条件を `insufficient_history` で null にする）
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
       macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
       fixture で検証し、月次全履歴を返すproviderは既知の最古月・公表lagを含む最新端・
       途中月の欠落をhard errorにするか
 - [ ] macro context は core 固定順10セクション + connection 1、series定義とinputへの参照、source ID、
-      reading input の必須（レジーム要約からの引用）、base / bear / bull と各シナリオ2件以上の
-      scorecard条件、monitoring condition、core セクション2〜8内のmaterial delta、
-      connectionのseries参照がcoreの引用範囲内であることをnegative fixtureで検証するか
+      reading input の必須（レジーム要約からの引用・実在する rules revision・as_of との日数差）、
+      base / bear / bull と各シナリオ2件以上の相異なる scorecard条件（期限は公表間隔以上18か月以内）、
+      monitoring condition、core セクション2〜8内のmaterial delta、connectionのseries参照が
+      coreの引用範囲内かつ core_section_ids に裏付けられていること、context_id の日付とas_ofの一致を
+      negative fixtureで検証するか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。

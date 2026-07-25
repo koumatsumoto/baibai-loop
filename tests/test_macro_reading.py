@@ -206,6 +206,60 @@ def test_reading_declines_statistics_below_the_minimum_observation_count() -> No
     assert snapshot.series[0].percentile is None
 
 
+def test_reading_declines_statistics_for_a_window_with_half_its_periods_missing() -> None:
+    """A sparse window describes the periods it happens to hold, not the whole window.
+
+    A hand-maintained monthly source fills recent months first, so its holes sit in the
+    older half: ranking today against that sample reads as a decade-long position while
+    it is really a recent one.
+    """
+
+    definition = _definition("test.sparse_monthly", frequency="monthly")
+    # Ten years of month-starts, but only every other month is present.
+    points = [
+        point
+        for index, point in enumerate(_decade_of_monthly_points(date(2026, 7, 1)))
+        if index % 2 == 0
+    ]
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.window_observations == 60
+    assert reading.expected_observations == 120
+    assert reading.insufficient_history
+    assert reading.percentile is None
+
+
+def test_reading_does_not_hold_a_daily_series_to_an_implied_period_count() -> None:
+    """How many days a market trades is not a property of the frequency.
+
+    A daily series only ever holds business days, so an implied 252-per-year count would
+    declare every healthy daily series insufficient.
+    """
+
+    definition = _definition("test.business_days", frequency="daily")
+    points = _daily_points(200, end=ASOF, step=0.1)
+    observations = _observations(definition.series_id, points)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(observations),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    assert snapshot.series[0].expected_observations is None
+
+
 def test_reading_reports_staleness_against_the_asof_date() -> None:
     definition = _definition("test.stalled")
     observations = _observations(

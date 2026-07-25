@@ -166,6 +166,17 @@ def test_revision_written_under_an_earlier_contract_is_a_log_not_a_read(tmp_path
     assert kept == 2
 
 
+def test_publish_rejects_a_reading_revision_that_does_not_exist(tmp_path: Path) -> None:
+    """`rules_revision` is free text, so fabricated provenance must not reach the store."""
+
+    payload = macro_context_payload()
+    payload["inputs"]["reading_snapshots"][0]["rules_revision"] = "2099-01-01T000000+0900"
+    document = MacroContextDocument.model_validate(payload)
+
+    with pytest.raises(MacroContextConflictError, match="does not exist"):
+        MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
+
+
 def test_published_report_flows_through_db_backed_screening_read_path(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     document = _document()
@@ -201,6 +212,30 @@ def test_selection_warns_when_the_head_report_is_older_than_the_policy_threshold
     stale = macro_context_summary(context, asof_date=past_edge)
     assert stale["warnings"] == ["macro_context_stale"]
     assert stale["age_days"] == MACRO_CONTEXT_STALE_DAYS + 1
+
+
+def test_selection_surfaces_an_input_the_report_declares_as_failed() -> None:
+    """Honest disclosure must reach the reader, or omitting the input is the easier path."""
+
+    payload = macro_context_payload()
+    payload["inputs"]["articles"].append(
+        {
+            "input_id": "unreachable-source",
+            "source": "official",
+            "title": "取得できなかった一次情報",
+            "url": "https://example.com/source",
+            "published_at": "2026-07-19T09:00:00+09:00",
+            "accessed_at": "2026-07-19T12:00:00+09:00",
+            "status": "failed",
+            "used_for": "取得を試みたが到達できなかった",
+        }
+    )
+    context = macro_context_from_payload(payload, source="fixture.yaml")
+
+    summary = macro_context_summary(context, asof_date=date(2026, 7, 19))
+
+    assert summary["failed_inputs"] == ["unreachable-source"]
+    assert summary["warnings"] == ["macro_context_failed_inputs"]
 
 
 def test_missing_context_summary_keeps_the_same_keys_as_a_present_one() -> None:
@@ -416,6 +451,38 @@ _BYPASSES: tuple[tuple[str, Callable[[dict[str, Any]], object]], ...] = (
             "deadline", "2029-01-31"
         ),
     ),
+    (
+        "scorecard deadline too near for the series to print again",
+        lambda payload: _risk(payload)["scenarios"][0]["scorecard"][0].__setitem__(
+            "deadline", "2026-07-25"
+        ),
+    ),
+    (
+        "the same scorecard condition written twice",
+        lambda payload: _risk(payload)["scenarios"][0].__setitem__(
+            "scorecard", [_risk(payload)["scenarios"][0]["scorecard"][0]] * 2
+        ),
+    ),
+    (
+        "non-finite scorecard threshold",
+        lambda payload: _risk(payload)["scenarios"][0]["scorecard"][0].__setitem__(
+            "threshold", float("inf")
+        ),
+    ),
+    (
+        "reading snapshot older than the report's own as_of window",
+        lambda payload: payload["inputs"]["reading_snapshots"][0].__setitem__(
+            "reading_asof", "2026-06-01"
+        ),
+    ),
+    (
+        "context_id date disagreeing with as_of",
+        lambda payload: payload.__setitem__("context_id", "macro-context-2026-07-01-base"),
+    ),
+    (
+        "blank document summary",
+        lambda payload: payload.__setitem__("summary", "   "),
+    ),
 )
 
 
@@ -428,6 +495,45 @@ def test_document_rejects_validator_bypass(mutate: Callable[[dict[str, Any]], ob
     payload = _document().payload()
     mutate(payload)
     with pytest.raises(ValidationError):
+        MacroContextDocument.model_validate(payload)
+
+
+def test_connection_must_name_the_core_sections_its_series_come_from() -> None:
+    """Otherwise `core_section_ids` is decorative and the trail back into core is lost."""
+
+    payload = _document().payload()
+    extra_input = "us-breakeven"
+    payload["inputs"]["indicator_series"].append(
+        {
+            "input_id": extra_input,
+            "provider": "fred",
+            "series_id": "us.breakeven_10y",
+            "window": "2026-07-01/2026-07-17",
+            "observation_as_of": "2026-07-17",
+            "published_at": "2026-07-17T16:00:00-04:00",
+            "accessed_at": "2026-07-19T12:00:00+09:00",
+            "status": "ok",
+            "used_for": "期待インフレの確認",
+        }
+    )
+    valuation = _core(payload, "valuation")
+    valuation["series_ids"] = ["us.10y", "us.breakeven_10y"]
+    valuation["fact_summary"][0]["source_ids"] = ["us-10y", extra_input]
+    connection = payload["connection"]
+    connection["series_ids"] = ["us.breakeven_10y"]
+    connection["fact_summary"][0]["source_ids"] = [extra_input]
+    connection["judgment"]["source_ids"] = [extra_input]
+    connection["research_priority_hints"][0]["source_ids"] = [extra_input]
+    connection["sector_tilts"][0]["source_ids"] = [extra_input]
+    connection["sizing_cautions"][0]["source_ids"] = [extra_input]
+
+    # Naming the section the series actually comes from validates...
+    connection["core_section_ids"] = ["valuation"]
+    MacroContextDocument.model_validate(payload)
+
+    # ...naming an unrelated section does not.
+    connection["core_section_ids"] = ["rates_policy"]
+    with pytest.raises(ValidationError, match="core_section_ids"):
         MacroContextDocument.model_validate(payload)
 
 

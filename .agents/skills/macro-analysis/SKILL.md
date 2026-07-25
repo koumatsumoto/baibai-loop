@@ -34,7 +34,8 @@ description: 市場環境の評価（macro context report）を人間の判断�
    - (d) 為替・金利の判断が両側リスクを持つか
    - (e) 各research優先度ヒントが候補タイプを判別できる識別力を持つか
    - (f) 各factの公表日が当該統計の最新公表か
-   - (g) scorecard条件が機械照合可能で、期限日がas_of以降か
+   - (g) scorecard条件が機械照合可能で、期限日が「その系列がもう一度公表される」以降18か月以内か。同じ条件を2回書いていないか
+   - (h) coreのjudgment・fact要約に日本株ループへの行動指示（買え・売れ・sizeを落とせ）を書いていないか。schemaはprose を止めないので、ここが最後の関門になる
 
    fail項目は修正してから進む。
 9. strict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。head が無いときだけ`--expected-head`を省略する。

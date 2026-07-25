@@ -44,6 +44,9 @@ class SeriesReading:
     staleness_warn_days: int
     window_years: int
     window_observations: int
+    # Observations the frequency implies for the window; None for a daily series, where
+    # the implied count is a property of the market calendar rather than the frequency.
+    expected_observations: int | None
     insufficient_history: bool
     percentile: float | None
     z_score: float | None
@@ -95,6 +98,7 @@ def series_payload(reading: SeriesReading) -> dict[str, object]:
         "staleness_warn_days": reading.staleness_warn_days,
         "window_years": reading.window_years,
         "window_observations": reading.window_observations,
+        "expected_observations": reading.expected_observations,
         "insufficient_history": reading.insufficient_history,
         "percentile": reading.percentile,
         "z_score": reading.z_score,

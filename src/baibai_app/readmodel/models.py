@@ -446,6 +446,7 @@ class MacroReadingSeriesView(BaseModel):
     staleness_warn_days: int
     window_years: int
     window_observations: int
+    expected_observations: int | None
     insufficient_history: bool
     percentile: float | None
     z_score: float | None
