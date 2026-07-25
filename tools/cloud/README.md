@@ -11,7 +11,8 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite` / `runs.sqlite` / `macro.sqlite` | `cloud-daily-batch` |
+| `baibai-stores` | `market.sqlite` / `runs.sqlite` | `cloud-daily-batch` |
+| `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/select/<asof>.json` | 日次batch、削除しない |
@@ -80,6 +81,17 @@ tools/cloud/publish.sh
 
 application DBのschemaはローカルのCLI実行でmigrateされ、クラウドはこのstoreをread-onlyで読む。schema migrationを含むcodeがmainへ入ったら、次の`cloud-daily-batch`より前に`publish.sh`を実行する。exportはstoreのschemaがcodeと一致しない間viewを1件も書かずexit 1で停止するため、未publishのままではscreening結果も含めて何も更新されない。
 
+indicator storeの履歴を深くしてクラウドへ載せる。日次batchはfrequency別のrolling窓しか引き直さないため、cloud正本の履歴は前へ伸びるだけで過去へ伸びない。系列を追加した後や窓を超える取得断の後は、ローカルで全履歴を取得してから`push-macro`する。
+
+```bash
+uv run baibai-engine macro refresh <series_id> ... --all-history --end YYYY-MM-DD
+uv run baibai-engine macro reading --asof YYYY-MM-DD   # 履歴不足・異常値を確認
+tools/cloud/r2_transfer.sh push-macro
+gh workflow run cloud-materialize.yml --ref main
+```
+
+`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeは全tableを主キーで`INSERT OR IGNORE`し、target側にある行はtargetの値を残す（series定義は現registry由来のものを保つ）。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`market.sqlite` / `runs.sqlite`はcloudが唯一のwriterなので`push-macro`は触らない。
+
 decision-cycleやmacro分析を始める前に、クラウド正本のmachine storeをローカルへ取得する。
 
 ```bash
@@ -116,7 +128,7 @@ npx wrangler secret put VIEW_PASSWORD
 ## R2 transferの安全境界
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。machine storeのpushはGitHub Actionsからだけ許可する。
+- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（cloudが唯一のwriterである`market.sqlite` / `runs.sqlite`を古いローカルcopyで巻き戻さないため）。`macro.sqlite`はローカルからも`push-macro`でuploadできるが、cloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
 - pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す。
 - `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集ミスによる観測行のpruneは無音で起きるので、series registryを変更した日は当日のうちにMacroタブのdata healthとseries件数を確認する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。

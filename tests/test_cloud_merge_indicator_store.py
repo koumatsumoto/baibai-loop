@@ -1,0 +1,200 @@
+"""The indicator-store merge must lose no row from either side."""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Sequence
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+import pytest
+from tools.cloud.merge_indicator_store import MergeError, main, merge_stores
+
+from baibai_engine.macro.indicators.db import (
+    ObservationRecord,
+    initialize_database,
+    insert_observations,
+    record_provider_run,
+    seed_definitions,
+)
+from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
+
+STARTED_AT = datetime(2026, 7, 24, 11, 47, tzinfo=UTC)
+# Every observation carries an explicit vintage so a row present in both stores collides on
+# the primary key instead of arriving twice under two fetch times.
+VINTAGE = datetime(2026, 7, 24, 0, 0, tzinfo=UTC)
+
+
+def _build_store(
+    path: Path,
+    *,
+    series_ids: Sequence[str],
+    observations: Sequence[ObservationRecord],
+    run_series: Sequence[str] = (),
+) -> None:
+    registry = load_definitions().by_id()
+    connection = initialize_database(path)
+    try:
+        seed_definitions(
+            connection,
+            IndicatorDefinitions(series=tuple(registry[item] for item in series_ids)),
+        )
+        insert_observations(connection, list(observations), deduplicate_unchanged=False)
+        for series_id in run_series:
+            record_provider_run(
+                connection,
+                provider=registry[series_id].provider,
+                series_id=series_id,
+                start=date(2026, 7, 1),
+                end=date(2026, 7, 24),
+                started_at=STARTED_AT,
+                status="ok",
+                record_count=1,
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _observation(series_id: str, day: date, value: float) -> ObservationRecord:
+    return ObservationRecord(
+        series_id=series_id,
+        observed_at=day,
+        value=value,
+        unit="percent",
+        source_url="https://example.com/series",
+        vintage_at=VINTAGE,
+    )
+
+
+def _rows(path: Path, sql: str) -> list[tuple[object, ...]]:
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return [tuple(row) for row in connection.execute(sql)]
+    finally:
+        connection.close()
+
+
+def _observations(path: Path) -> set[tuple[object, ...]]:
+    return set(_rows(path, "SELECT series_id, observed_at, value FROM observations"))
+
+
+def test_merge_adds_source_only_rows_and_keeps_the_target_value(tmp_path: Path) -> None:
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y",),
+        observations=(
+            _observation("us.10y", date(2026, 7, 23), 4.31),
+            _observation("us.10y", date(2026, 7, 20), 4.20),
+        ),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y", "jp.2y"),
+        observations=(
+            _observation("us.10y", date(2016, 7, 20), 1.55),
+            _observation("us.10y", date(2026, 7, 20), 4.99),
+        ),
+    )
+
+    report = merge_stores(cloud, local)
+
+    # The cloud-only day arrives, the deep history stays, and the day both stores hold keeps
+    # the target's value: the merge adds rows and never rewrites what the target knows.
+    assert _observations(local) == {
+        ("us.10y", "2026-07-23", 4.31),
+        ("us.10y", "2016-07-20", 1.55),
+        ("us.10y", "2026-07-20", 4.99),
+    }
+    observations = next(item for item in report.tables if item.table == "observations")
+    assert (observations.source_rows, observations.inserted, observations.target_rows_after) == (
+        2,
+        1,
+        3,
+    )
+
+
+def test_merge_is_idempotent(tmp_path: Path) -> None:
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2026, 7, 23), 4.31),),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+
+    first = merge_stores(cloud, local)
+    second = merge_stores(cloud, local)
+
+    assert first.inserted == 1
+    assert second.inserted == 0
+
+
+def test_merge_carries_a_series_the_target_has_never_seen(tmp_path: Path) -> None:
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y", "jp.10y"),
+        observations=(_observation("jp.10y", date(2026, 7, 23), 1.62),),
+        run_series=("jp.10y",),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+
+    merge_stores(cloud, local)
+
+    assert _rows(local, "SELECT series_id FROM series ORDER BY series_id") == [
+        ("jp.10y",),
+        ("us.10y",),
+    ]
+    assert ("jp.10y", "2026-07-23", 1.62) in _observations(local)
+    # The cloud's own fetch record survives, which is what the data-health panel reads to
+    # tell a silent provider from a merely stale series.
+    assert _rows(local, "SELECT series_id FROM provider_runs") == [("jp.10y",)]
+    assert _rows(local, "PRAGMA foreign_key_check") == []
+
+
+def test_merge_refuses_a_store_on_a_different_schema(tmp_path: Path) -> None:
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2026, 7, 23), 4.31),),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+    with sqlite3.connect(cloud) as connection:
+        connection.execute("PRAGMA user_version = 99")
+
+    with pytest.raises(MergeError, match="schema is 99"):
+        merge_stores(cloud, local)
+
+    assert _observations(local) == {("us.10y", "2016-07-20", 1.55)}
+
+
+def test_main_reports_a_missing_store(tmp_path: Path, capsys) -> None:
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+
+    assert main(["--source", str(tmp_path / "absent.sqlite"), "--target", str(local)]) == 1
+
+    assert "does not exist" in capsys.readouterr().err

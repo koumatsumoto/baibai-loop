@@ -72,6 +72,12 @@ snapshot_sqlite() {
       --source "$1" --output "$2"
 }
 
+merge_indicator_store() {
+  UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+    uv run python "${repo_root}/tools/cloud/merge_indicator_store.py" \
+      --source "$1" --target "$2"
+}
+
 pull_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key target
@@ -147,7 +153,7 @@ upload_serving() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-app|upload-serving DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-macro|push-app|upload-serving DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -167,6 +173,20 @@ case "${1:-}" in
       exit 2
     fi
     push_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  push-macro)
+    # Deep history is fetched locally with `macro refresh --all-history`, which the
+    # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
+    # recent observations the local store has never seen. So the local store is only
+    # publishable once it contains the cloud copy: pull it, merge it in, and let the
+    # merge refuse the upload if any cloud row would be left behind.
+    transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+    aws_s3 cp "s3://${stores_bucket}/macro.sqlite" "${transfer_staging}/macro.sqlite"
+    check_sqlite "${transfer_staging}/macro.sqlite"
+    merge_indicator_store "${transfer_staging}/macro.sqlite" "$(store_path macro.sqlite)"
+    cleanup_staging
+    transfer_staging=""
+    push_keys macro.sqlite
     ;;
   push-app)
     push_keys baibai.sqlite
