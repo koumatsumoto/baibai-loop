@@ -338,6 +338,11 @@ def test_daily_source_can_use_a_monthly_statistic_sample() -> None:
     assert reading.latest_value == 121.0
 
 
+def test_reading_rules_reject_an_unsupported_weekly_sampling_override() -> None:
+    with pytest.raises(ValueError, match="sampling_cadence"):
+        SeriesOverride(sampling_cadence="weekly")  # type: ignore[arg-type]
+
+
 def test_quarterly_reading_counts_one_statistic_point_per_calendar_quarter() -> None:
     definition = _definition("test.mixed_quarterly", frequency="quarterly")
     last_quarter = 2026 * 4 + 2
