@@ -22,6 +22,14 @@ if [[ ! "${ticker}" =~ ^[0-9A-Z]{4}$ ]]; then
   exit 2
 fi
 
+# The password is typed, never passed as an argument or read from a file, so it stays
+# out of shell history and process listings. Without a terminal the read reaches EOF and
+# `set -e` would end the script before it sends a single request: an empty run must not
+# be mistaken for a passing verification.
+if [[ ! -t 0 ]]; then
+  printf 'VIEW_PASSWORD must be typed at a terminal; run this from an interactive shell\n' >&2
+  exit 2
+fi
 read -r -s -p 'VIEW_PASSWORD: ' password
 printf '\n'
 if [[ -z "${password}" ]]; then
