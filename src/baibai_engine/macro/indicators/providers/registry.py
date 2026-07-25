@@ -26,6 +26,7 @@ from .multpl import MultplProvider
 from .nikkei_indexes import NikkeiIndexesProvider
 from .spglobal_pmi import SpGlobalPmiProvider
 from .tsr_bankruptcies import TsrBankruptciesProvider
+from .umich_sca import UmichScaProvider
 from .yahoo import YahooChartProvider
 
 # The single registration point. Adding a provider means importing its class and
@@ -48,6 +49,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         NikkeiIndexesProvider(),
         SpGlobalPmiProvider(),
         TsrBankruptciesProvider(),
+        UmichScaProvider(),
         YahooChartProvider(),
         DerivedProvider(),
     )

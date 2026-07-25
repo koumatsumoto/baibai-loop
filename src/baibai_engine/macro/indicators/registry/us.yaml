@@ -502,11 +502,11 @@ series:
     geography: us
     frequency: monthly
     unit: index
-    provider: fred_csv
-    provider_series_id: UMCSENT
-    source_id: fred-umcsent
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=UMCSENT
-    notes: ミシガン大消費者信頼感指数(月次・1966Q1=100)。消費者マインドと期待インフレの温度計
+    provider: umich_sca
+    provider_series_id: ICS_ALL
+    source_id: umich-sca-ics
+    source_url: https://www.sca.isr.umich.edu/files/tbmics.csv
+    notes: ミシガン大消費者態度指数(月次・1966Q1=100)。消費者マインドの温度計。公表元の月次表を直読し、当月分は月末の確報で確定する
     aliases: [消費者信頼感, ミシガン, consumer sentiment, UMCSENT, 消費者マインド]
   - series_id: us.pmi_manufacturing
     name: 米製造業PMI

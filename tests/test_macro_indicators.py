@@ -67,6 +67,7 @@ from baibai_engine.macro.indicators.providers.spglobal_pmi import (
     _Release,
     extract_pdf_text,
 )
+from baibai_engine.macro.indicators.providers.umich_sca import parse_umich_table
 from baibai_engine.macro.indicators.service import (
     IndicatorsService,
     RefreshFailure,
@@ -413,6 +414,50 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].observed_at, date(2026, 5, 4))
         self.assertEqual(observations[0].value, 4.45)
+
+    def test_parse_umich_table_reads_the_column_for_each_published_month(self) -> None:
+        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        # The early history is quarterly, so consecutive rows can skip months.
+        text = "Month,YYYY,ICS_ALL\nNovember,1952,86.2\nFebruary,1953,90.7\nJune,2026,49.5\n"
+
+        observations = parse_umich_table(series, text, start=date(1952, 1, 1), end=date(2026, 7, 1))
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(1952, 11, 1), 86.2), (date(1953, 2, 1), 90.7), (date(2026, 6, 1), 49.5)],
+        )
+
+    def test_parse_umich_table_filters_to_the_requested_window(self) -> None:
+        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        text = "Month,YYYY,ICS_ALL\nApril,2026,49.8\nMay,2026,44.8\nJune,2026,49.5\n"
+
+        observations = parse_umich_table(
+            series, text, start=date(2026, 5, 1), end=date(2026, 5, 31)
+        )
+
+        self.assertEqual([item.observed_at for item in observations], [date(2026, 5, 1)])
+
+    def test_parse_umich_table_skips_a_month_published_without_a_value(self) -> None:
+        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        text = "Month,YYYY,ICS_ALL\nMay,2026,44.8\nJune,2026,\n"
+
+        observations = parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
+
+        self.assertEqual([item.observed_at for item in observations], [date(2026, 5, 1)])
+
+    def test_parse_umich_table_rejects_a_row_that_is_not_a_month_of_a_year(self) -> None:
+        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        text = "Month,YYYY,ICS_ALL\nQ2,2026,49.5\n"
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "not a month of a year"):
+            parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
+
+    def test_parse_umich_table_rejects_a_missing_value_column(self) -> None:
+        series = _series("umich_sca", "ICS_ALL", unit="index", frequency="monthly")
+        text = "Month,YYYY,ICE_ALL\nJune,2026,49.5\n"
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing column ICS_ALL"):
+            parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
 
     def test_parse_h15_csv_computes_spread_bp(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B-RIFLGFCY02_N.B", unit="bp")
