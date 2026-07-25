@@ -410,6 +410,12 @@ _BYPASSES: tuple[tuple[str, Callable[[dict[str, Any]], object]], ...] = (
             "deadline", "2026-07-19"
         ),
     ),
+    (
+        "scorecard deadline beyond the settleable horizon",
+        lambda payload: _risk(payload)["scenarios"][0]["scorecard"][0].__setitem__(
+            "deadline", "2029-01-31"
+        ),
+    ),
 )
 
 

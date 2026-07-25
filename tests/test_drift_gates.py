@@ -59,6 +59,20 @@ def test_legacy_semantics_gate_rejects_obsolete_skill_instruction(tmp_path: Path
     ]
 
 
+def test_legacy_semantics_gate_rejects_the_retired_macro_context_contract(
+    tmp_path: Path,
+) -> None:
+    """The report declares no shelf life, so `valid_until` must not return to a doc."""
+
+    path = tmp_path / "docs" / "workflow" / "macro.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("`valid_until`はwarningの材料である。\n", encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == [
+        "docs/workflow/macro.md: obsolete operation instruction 'valid_until'"
+    ]
+
+
 def test_duplicate_policy_constant_gate_rejects_skill_copy(tmp_path: Path) -> None:
     policy = tmp_path / "src/baibai_engine/position/policy.py"
     policy.parent.mkdir(parents=True)

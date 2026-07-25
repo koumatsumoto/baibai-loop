@@ -14,6 +14,7 @@ the schema itself, so ``core`` being self-contained is a structural fact.
 from __future__ import annotations
 
 import re
+from calendar import monthrange
 from datetime import date, datetime
 from functools import lru_cache
 from typing import Literal, Self
@@ -68,6 +69,12 @@ CONNECTION_SECTION_ID = "japan_equity_loop"
 # The contract version that consumers read. Revisions stored under an earlier version
 # stay in the table as a log and are filtered out of every read path.
 MACRO_CONTEXT_SCHEMA_VERSION = 4
+
+# A scorecard condition exists to be settled by a later report. A deadline beyond this
+# horizon cannot be settled while the scenario is still the operative one, which would
+# leave the scenario unfalsifiable in practice; the bound is wide enough for a quarterly
+# series to print twice.
+SCORECARD_HORIZON_MONTHS = 18
 
 
 class _StrictModel(BaseModel):
@@ -461,10 +468,16 @@ class MacroContextDocument(_StrictModel):
             )
 
     def _validate_scorecard_deadlines(self) -> None:
+        horizon = _months_after(self.as_of, SCORECARD_HORIZON_MONTHS)
         for scenario in self.scenarios:
             for condition in scenario.scorecard:
                 if condition.deadline <= self.as_of:
                     raise ValueError("a scorecard deadline must fall after as_of")
+                if condition.deadline > horizon:
+                    raise ValueError(
+                        "a scorecard deadline must fall within "
+                        f"{SCORECARD_HORIZON_MONTHS} months of as_of"
+                    )
 
     @property
     def scenarios(self) -> tuple[MacroScenario, ...]:
@@ -511,6 +524,12 @@ def _sourced_items(
         *section.scenarios,
         *section.monitoring_points,
     )
+
+
+def _months_after(value: date, months: int) -> date:
+    total = value.year * 12 + (value.month - 1) + months
+    year, month = divmod(total, 12)
+    return date(year, month + 1, min(value.day, monthrange(year, month + 1)[1]))
 
 
 @lru_cache(maxsize=1)

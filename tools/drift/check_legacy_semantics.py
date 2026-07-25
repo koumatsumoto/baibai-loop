@@ -15,6 +15,12 @@ _BEHAVIOR_LEGACY = re.compile(
     # method tree is method/ (records/ was renamed), so reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
     r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"
+    # Retired macro context contract: the report declares no shelf life
+    # (`valid_until`), core sections carry an economic connection rather than an
+    # investment one, and there is one full-depth report instead of a
+    # decision-grade / delta pair.
+    r"valid_until|investment_connection|scenarios_connections|japan_specific|"
+    r"fx_liquidity|decision-grade|delta 更新|delta更新|"
     # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
     # skipping `/records/` fragments inside external URLs.
     r"(?<!/)\brecords/|macro-dashboard",

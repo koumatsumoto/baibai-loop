@@ -54,7 +54,9 @@ overrides:
     percentile_window_years: 5
   jp.foreign_flows:
     percentile_window_years: 5
-  # spglobal_pmi の release manifest が 2023-07 起点。
+  # spglobal_pmi は manifest に載っている月だけを持ち、stream ごとに起点と欠落が
+  # 異なる（PDF を 1 月ずつ人手で追記する運用のため）。窓は 4 stream で揃えて置き、
+  # 窓を満たさない stream は insufficient_history として percentile を出さない。
   jp.pmi_manufacturing:
     percentile_window_years: 3
     flags:
