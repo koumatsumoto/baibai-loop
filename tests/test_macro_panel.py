@@ -15,7 +15,6 @@ from baibai_engine.macro.indicators.db import (
     ObservationRecord,
     initialize_database,
     insert_observations,
-    seed_definitions,
 )
 from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
 from baibai_engine.read_api import MACRO_READING_RULES_PATH
@@ -49,13 +48,14 @@ def test_panel_groups_are_non_empty() -> None:
 
 def _panel_source(tmp_path: Path, *, series_ids: tuple[str, ...], stored: str) -> DbMacroSource:
     store = tmp_path / "macro.sqlite"
-    connection = initialize_database(store)
+    stored_definition = load_definitions().by_id()[stored]
+    connection = initialize_database(
+        store,
+        definitions=IndicatorDefinitions(series=(stored_definition,)),
+    )
     try:
-        # Only the fetched series is seeded, which is how a store written before the
-        # registry grew looks: it has no row at all for the series added since.
-        seed_definitions(
-            connection, IndicatorDefinitions(series=(load_definitions().by_id()[stored],))
-        )
+        # This is how a store written before the registry grew looks: it has no
+        # row at all for the series added since.
         insert_observations(
             connection,
             [

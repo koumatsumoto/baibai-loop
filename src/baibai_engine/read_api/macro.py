@@ -51,7 +51,7 @@ def macro_reading_snapshot(
     connection = connect_read_only(path)
     try:
         snapshot = compute_reading(
-            series=indicators_db.list_series(connection),
+            series=load_definitions().series,
             reader=lambda series_id, start, end: indicators_db.observations_in_range(
                 connection, series_id, start, end
             ),
@@ -91,6 +91,7 @@ def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
         ).fetchall()
     finally:
         connection.close()
+    registered = _registry_by_id()
     return [
         {
             "series_id": str(row[0]),
@@ -100,6 +101,7 @@ def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
             "error_message": None if row[4] is None else str(row[4]),
         }
         for row in rows
+        if str(row[0]) in registered
     ]
 
 
@@ -216,13 +218,11 @@ def macro_indicator_series(
         raise ValueError("macro indicator end must be on or after start")
     if not path.is_file():
         return None
+    definition = _registry_by_id().get(series_id)
+    if definition is None:
+        return None
     connection = connect_read_only(path)
     try:
-        series = connection.execute(
-            "SELECT name, unit, provider FROM series WHERE series_id = ?", (series_id,)
-        ).fetchone()
-        if series is None:
-            return None
         start_text = start.isoformat() if start is not None else None
         end_text = end.isoformat() if end is not None else None
         rows = connection.execute(
@@ -248,7 +248,7 @@ def macro_indicator_series(
                 start_text,
                 end_text,
                 end_text,
-                str(series[2]),
+                definition.provider,
                 end_text,
                 end_text,
             ),
@@ -263,8 +263,8 @@ def macro_indicator_series(
         points = points[-limit:]
     return {
         "series_id": series_id,
-        "name": str(series[0]),
-        "unit": str(series[1]),
+        "name": definition.name,
+        "unit": definition.unit,
         "tradingview_symbol": _tradingview_symbols().get(series_id),
         "points": points,
     }

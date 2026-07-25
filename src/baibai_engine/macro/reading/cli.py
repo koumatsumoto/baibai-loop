@@ -11,6 +11,7 @@ from pathlib import Path
 
 from baibai_engine.macro.indicators import db as indicators_db
 from baibai_engine.macro.indicators.db import DEFAULT_DB_PATH, IndicatorsSchemaError
+from baibai_engine.macro.indicators.definitions import load_definitions
 
 from .compute import compute_reading
 from .models import ReadingSnapshot, SeriesReading, snapshot_payload
@@ -33,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         conn = indicators_db.open_read_only_connection(args.db)
         try:
             snapshot = compute_reading(
-                series=indicators_db.list_series(conn),
+                series=load_definitions().series,
                 reader=lambda series_id, start, end: indicators_db.observations_in_range(
                     conn, series_id, start, end
                 ),

@@ -5,12 +5,11 @@ cloud, and an operator deepens history locally with ``macro refresh --all-histor
 therefore holds observations the other has never seen, so publishing the local store means
 merging the cloud copy into it first and proving that nothing cloud-side is left behind.
 
-Only the tables that accumulate facts are merged. ``series`` and ``aliases`` are rebuilt from
-the series registry every time a store is opened — and opening also deletes the observations
-and provider runs of a series the registry no longer defines — so merging them would carry
-rows the next open deletes again, while publishing them would keep a retired series alive in
-the cloud copy forever. The registry is therefore the authority for what a store may hold,
-and source rows for a series it does not define are reported as skipped rather than carried.
+Only the tables that accumulate facts are merged. Registry-owned tables are not imported from
+the source. ``registry_series`` records the registry snapshot applied by the target's last
+successful refresh; ordinary opens may retain metadata for preserved facts but cannot alter
+that authorization set. During merge, source rows outside the applied snapshot are reported as
+skipped rather than silently reviving a retired series.
 
 Facts are keyed, so the merge is an ``INSERT OR IGNORE`` per table: a row the target already
 has keeps the target's version, and a row only the source has is added verbatim with its
@@ -35,11 +34,11 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "provider_runs": ("run_id",),
 }
 # The tables the registry owns: rebuilt on open, so the target's version is the only one.
-REGISTRY_TABLES: tuple[str, ...] = ("series", "aliases")
+REGISTRY_TABLES: tuple[str, ...] = ("series", "aliases", "registry_series")
 
-# A row is only carried when the target's registry defines its series, which is what keeps a
-# retired series out of the published store.
-_REGISTERED = 'series_id IN (SELECT series_id FROM main."series")'
+# A row is only carried when the target's last successful refresh applied its
+# series. Ordinary opens never alter this persisted authorization boundary.
+_REGISTERED = 'series_id IN (SELECT series_id FROM main."registry_series")'
 
 
 class MergeError(RuntimeError):

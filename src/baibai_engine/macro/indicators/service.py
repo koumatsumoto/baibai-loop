@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from . import db
 from .db import IndicatorsSchemaError, ObservationRecord
-from .definitions import SeriesDefinition
+from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 from .providers import (
     FetchContext,
     IndicatorsProviderError,
@@ -66,16 +66,32 @@ class IndicatorsService:
         self.db_path = db_path
 
     def list_series(self, *, category: str | None = None) -> tuple[SeriesDefinition, ...]:
-        conn = db.open_connection(self.db_path)
+        definitions = load_definitions()
+        conn = db.open_connection(self.db_path, definitions=definitions)
         try:
-            return db.list_series(conn, category=category)
+            return tuple(
+                sorted(
+                    (
+                        series
+                        for series in definitions.series
+                        if category is None or series.category == category
+                    ),
+                    key=lambda series: (series.priority, series.series_id),
+                )
+            )
         finally:
             conn.close()
 
     def search(self, query: str) -> tuple[SeriesDefinition, ...]:
-        conn = db.open_connection(self.db_path)
+        definitions = load_definitions()
+        conn = db.open_connection(self.db_path, definitions=definitions)
         try:
-            return db.search_series(conn, query)
+            return tuple(
+                sorted(
+                    definitions.search(query),
+                    key=lambda series: (series.priority, series.series_id),
+                )
+            )
         finally:
             conn.close()
 
@@ -89,7 +105,10 @@ class IndicatorsService:
     ) -> QueryResult:
         if end < start:
             raise ValueError("--end must be on or after --start")
-        conn = db.open_connection(self.db_path)
+        definitions = load_definitions()
+        if series_id not in definitions.by_id():
+            raise KeyError(f"unknown indicator series: {series_id}")
+        conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             with FetchContext(
                 store_reader=_store_reader(conn),
@@ -102,10 +121,15 @@ class IndicatorsService:
             conn.close()
 
     def refresh_all_history(self, series_id: str, *, end: date) -> QueryResult:
-        conn = db.open_connection(self.db_path)
+        definitions = load_definitions()
+        if series_id not in definitions.by_id():
+            raise KeyError(f"unknown indicator series: {series_id}")
+        conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             with FetchContext(store_reader=_store_reader(conn), purpose="rebuild") as context:
-                return self._refresh_all_history(conn, series_id, end=end, context=context)
+                result = self._refresh_all_history(conn, series_id, end=end, context=context)
+            _prune_registry_for_refresh(conn, definitions)
+            return result
         finally:
             conn.close()
 
@@ -129,8 +153,15 @@ class IndicatorsService:
 
         if start is not None and end < start:
             raise ValueError("--end must be on or after --start")
+        definitions = load_definitions()
+        registered_ids = definitions.by_id()
+        if not any(series_id in registered_ids for series_id in series_ids):
+            return [
+                RefreshFailure(series_id, f"unknown indicator series: {series_id}")
+                for series_id in series_ids
+            ]
         outcomes: list[RefreshOutcome] = []
-        conn = db.open_connection(self.db_path)
+        conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             with FetchContext(
                 store_reader=_store_reader(conn),
@@ -160,6 +191,11 @@ class IndicatorsService:
                         outcomes.append(RefreshFailure(series_id, _failure_message(exc)))
                         continue
                     outcomes.append(RefreshSuccess(series_id, result))
+            if any(
+                isinstance(outcome, RefreshSuccess) and outcome.result.observations
+                for outcome in outcomes
+            ):
+                _prune_registry_for_refresh(conn, definitions)
         finally:
             conn.close()
         return outcomes
@@ -231,7 +267,10 @@ class IndicatorsService:
 
     def get_latest(self, series_id: str, *, refresh: bool = False) -> QueryResult:
         end = datetime.now(UTC).date()
-        conn = db.open_connection(self.db_path)
+        definitions = load_definitions()
+        if series_id not in definitions.by_id():
+            raise KeyError(f"unknown indicator series: {series_id}")
+        conn = db.open_connection(self.db_path, definitions=definitions)
         try:
             series = db.get_series(conn, series_id)
             spec = provider_spec(series.provider)
@@ -381,6 +420,29 @@ def _store_reader(conn: sqlite3.Connection) -> StoreReader:
         return db.observations_in_range(conn, series_id, start, end)
 
     return read
+
+
+def _prune_registry_for_refresh(
+    conn: sqlite3.Connection,
+    definitions: IndicatorDefinitions,
+) -> None:
+    """Commit explicit registry pruning and report every destructive change."""
+
+    try:
+        pruned = db.prune_definitions(conn, definitions)
+        for result in pruned:
+            # Flush before commit so an unwritable audit stream cannot leave a
+            # destructive change committed without its required record.
+            print(
+                f"registry-prune\t{result.series_id}\t"
+                f"observations={result.observation_rows}\t"
+                f"provider_runs={result.provider_run_rows}",
+                flush=True,
+            )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def _reject_non_finite(series: SeriesDefinition, observations: list[ObservationRecord]) -> None:

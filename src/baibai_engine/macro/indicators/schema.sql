@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS aliases(
 CREATE INDEX IF NOT EXISTS idx_aliases_alias
   ON aliases(alias);
 
+CREATE TABLE IF NOT EXISTS registry_series(
+  series_id TEXT PRIMARY KEY REFERENCES series(series_id)
+);
+
 CREATE TABLE IF NOT EXISTS observations(
   series_id TEXT NOT NULL REFERENCES series(series_id),
   observed_at TEXT NOT NULL,
@@ -59,4 +63,4 @@ CREATE TABLE IF NOT EXISTS provider_runs(
 CREATE INDEX IF NOT EXISTS idx_provider_runs_series_range
   ON provider_runs(series_id, range_start, range_end, status);
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
