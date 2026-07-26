@@ -96,6 +96,7 @@ def parse_trades_spec(
     for row in rows:
         # 日付・数値はレンジ外行も検証して、列が欠けた schema 崩れを必ず捕捉する。
         published_at = _row_date(row)
+        period_end = _require_period_end(row)
         value = _net_value(
             row,
             balance_keys=balance_keys,
@@ -104,7 +105,7 @@ def parse_trades_spec(
             metric=series.provider_series_id,
         )
         if start <= published_at <= end:
-            period_end = _optional_row_date(row, _END_DATE_KEYS) or published_at
+            # period_start は読み値に影響しないので、欠けたら 1 日期間として保守的に置く。
             period_start = _optional_row_date(row, _START_DATE_KEYS) or period_end
             if not start <= period_end <= end:
                 continue
@@ -189,6 +190,22 @@ def _row_date(row: Mapping[str, object]) -> date:
         tried = ", ".join((*_PUBLISHED_DATE_KEYS, *_END_DATE_KEYS))
         raise IndicatorsProviderError(f"jquants_flows row missing a date column; tried {tried}")
     return _parse_date(raw)
+
+
+def _require_period_end(row: Mapping[str, object]) -> date:
+    """観測日は集計週末そのもの。
+
+    公表日で代替すると、週次フローが集計週ではなく公表日に付き、同じ値が週末と公表日の
+    2 点として並ぶ。列名が変わっただけで系列全体が公表日付けへ静かに移るため拒否する。
+    """
+
+    period_end = _optional_row_date(row, _END_DATE_KEYS)
+    if period_end is None:
+        tried = ", ".join(_END_DATE_KEYS)
+        raise IndicatorsProviderError(
+            f"jquants_flows row missing an aggregation period end column; tried {tried}"
+        )
+    return period_end
 
 
 def _optional_row_date(row: Mapping[str, object], keys: ColumnKeys) -> date | None:

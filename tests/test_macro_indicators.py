@@ -3433,7 +3433,9 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
     def test_parse_trades_spec_falls_back_to_purchases_minus_sales(self) -> None:
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [{"PubDate": "2026-05-08", "FrgnBuy": 1500, "FrgnSell": 1000}]
+        rows = [
+            {"PubDate": "2026-05-08", "EnDate": "2026-05-08", "FrgnBuy": 1500, "FrgnSell": 1000}
+        ]
 
         observations = parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
 
@@ -3480,10 +3482,37 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
     def test_parse_trades_spec_rejects_missing_foreign_columns(self) -> None:
         series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
-        rows = [{"PubDate": "2026-05-08", "Section": "TSEPrime"}]
+        rows = [{"PubDate": "2026-05-08", "EnDate": "2026-05-08", "Section": "TSEPrime"}]
 
         with self.assertRaisesRegex(IndicatorsProviderError, "missing"):
             parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
+
+    def test_parse_trades_spec_rejects_a_row_without_an_aggregation_period_end(self) -> None:
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
+        rows = [{"PubDate": "2026-05-08", "FrgnBal": 500}]
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "aggregation period end"):
+            parse_trades_spec(series, rows, start=date(2026, 5, 1), end=date(2026, 5, 15))
+
+    def test_parse_trades_spec_dates_the_week_by_its_end_not_its_publication(self) -> None:
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
+        rows = [
+            {
+                "PubDate": "2026-07-02",
+                "StDate": "2026-06-22",
+                "EnDate": "2026-06-26",
+                "FrgnBal": -1208567543,
+            }
+        ]
+
+        observations = parse_trades_spec(
+            series, rows, start=date(2026, 6, 1), end=date(2026, 7, 31)
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2026, 6, 26))
+        self.assertEqual(observations[0].period_start, date(2026, 6, 22))
+        self.assertEqual(observations[0].vintage_at, datetime(2026, 7, 2, tzinfo=UTC))
 
     def test_fetch_observations_rejects_unknown_provider(self) -> None:
         series = _series("nonexistent_provider", "X")
