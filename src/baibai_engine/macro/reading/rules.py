@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
-DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-26T113000+0900.yaml")
+DEFAULT_RULES_PATH = Path("method/macro-reading/2026-07-26T160000+0900.yaml")
 
 type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
 

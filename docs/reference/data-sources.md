@@ -100,6 +100,7 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 ### 日本の省庁（総務省・財務省・日銀に準ずる）
 
 - [厚生労働省](https://www.mhlw.go.jp/) — 有効求人倍率 / 毎月勤労統計
+- [総務省統計局 統計ダッシュボード API](https://dashboard.e-stat.go.jp/static/api) — 各省の月次統計を安定した IndicatorCode で機械可読に配信する。認証不要。完全失業率（季節調整値）と名目賃金指数（現金給与総額）の取得経路。e-Stat の DB API が掲載を止めた統計（毎月勤労統計は 2021-10 で更新停止し、月次結果は release 毎のファイル資源のみ）を機械可読に読むために使う。数値は publisher の確報と一致することを release CSV で照合する
 - [経済産業省](https://www.meti.go.jp/) — 鉱工業生産指数 / 商業動態統計
 - [財務省 国債金利情報](https://www.mof.go.jp/jgbs/reference/interest_rate/index.htm) — 日本国債の主要年限別利回り。全履歴 CSV と当月 CSV を併用し、日次の 10 年国債利回りを取得する
 - [日本銀行 コール市場関連統計](https://www.boj.or.jp/statistics/market/short/mutan/index.htm) — 無担保コール O/N 物レートの速報・確報。日次の確報 xlsx から平均レートを取得する

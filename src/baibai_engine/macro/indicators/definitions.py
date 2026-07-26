@@ -20,6 +20,7 @@ _TRADINGVIEW_SYMBOL_RE = re.compile(r"[A-Za-z0-9._-]+:[A-Za-z0-9._!/-]+\Z")
 # themselves without consulting git history or a network service.
 _REGISTRY_MEMBERSHIP_GENERATIONS = {
     "216243143e489d470030896183313ff0ceedffcbc6f476ad1cd2a2f849e6687c": 1,
+    "7f4cee72f7eb5ac52cfea6862472d58fe33e71a9c3e9df6ccb8e3ab8ac443a5d": 2,
 }
 
 

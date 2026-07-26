@@ -17,6 +17,7 @@ from .cftc import CftcProvider
 from .derived import DerivedProvider
 from .ecb_fx import EcbFxProvider
 from .estat import EStatProvider
+from .estat_dashboard import EStatDashboardProvider
 from .frb_h15 import FrbH15Provider
 from .fred import FredProvider
 from .jquants_flows import JQuantsFlowsProvider
@@ -42,6 +43,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         BojTimeSeriesProvider(),
         CftcProvider(),
         EStatProvider(),
+        EStatDashboardProvider(),
         JQuantsFlowsProvider(),
         JQuantsIndicesProvider(),
         MofJgbProvider(),

@@ -435,6 +435,18 @@ def _prune_registry_for_refresh(
                 f"(store={stored_generation}, client={definitions.generation}); "
                 "refusing refresh"
             )
+        unregistered = db.unregistered_series_ids(conn, definitions)
+        if unregistered and stored_generation == definitions.generation:
+            # One generation is one membership: changing the canonical series set
+            # requires a new digest and a higher generation. Series the registry
+            # does not name while the generations match therefore means another
+            # working tree wrote its own membership at this generation, and its
+            # facts are not this client's to delete.
+            raise ValueError(
+                "indicator store holds series this registry does not name at the same "
+                f"generation (generation={stored_generation}, "
+                f"unregistered={', '.join(unregistered)}); refusing refresh"
+            )
         pruned = db.prune_definitions(conn, definitions)
         if pruned:
             pending = "\n".join(
