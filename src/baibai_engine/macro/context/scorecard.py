@@ -242,6 +242,10 @@ def evaluate_scorecard_from_stores(
     )
     connection = indicators_db.open_read_only_connection(indicators_db_path)
     try:
+        # Observation and provider-run reads jointly define one citable machine
+        # snapshot. An explicit read transaction prevents a concurrent refresh from
+        # moving one side of that evidence boundary between SELECT statements.
+        connection.execute("BEGIN")
         return evaluate_scorecard(
             document,
             reader=build_store_observation_reader(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -443,6 +444,7 @@ def test_settlement_run_must_use_the_active_provider_after_the_watermark(
 def test_scorecard_cli_emits_citable_json_without_mutating_either_store(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context_db = tmp_path / "app.sqlite"
     indicators_db = tmp_path / "macro.sqlite"
@@ -477,6 +479,33 @@ def test_scorecard_cli_emits_citable_json_without_mutating_either_store(
     finally:
         connection.close()
     before = (_digest(context_db), _digest(indicators_db))
+    transaction_states: list[bool] = []
+
+    def checked_provider_run(
+        connection: sqlite3.Connection,
+        *,
+        series_id: str,
+        provider: str,
+        start: date,
+        end: date,
+        completed_on_or_after: datetime | None,
+        asof: date,
+    ) -> bool:
+        transaction_states.append(connection.in_transaction)
+        return _has_provider_run(
+            connection,
+            series_id=series_id,
+            provider=provider,
+            start=start,
+            end=end,
+            completed_on_or_after=completed_on_or_after,
+            asof=asof,
+        )
+
+    monkeypatch.setattr(
+        "baibai_engine.macro.context.scorecard._has_provider_run",
+        checked_provider_run,
+    )
 
     exit_code = context_main(
         [
@@ -496,6 +525,8 @@ def test_scorecard_cli_emits_citable_json_without_mutating_either_store(
     )
 
     assert exit_code == 0
+    assert transaction_states
+    assert all(transaction_states)
     assert before == (_digest(context_db), _digest(indicators_db))
     payload = json.loads(capsys.readouterr().out)
     assert payload["kind"] == "macro-scorecard-evaluation"
