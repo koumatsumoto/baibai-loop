@@ -38,6 +38,7 @@ from .models import (
 type ScorecardStatus = Literal["met", "not_met", "pending"]
 type ScenarioCase = Literal["base", "bear", "bull"]
 type ProviderRunChecker = Callable[[str, str, date, date, datetime | None, date], bool]
+type StaleAfterResolver = Callable[[str, date], date]
 
 _VINTAGE_POLICY = (
     "latest eligible vintage per observation; publication-quality vintages "
@@ -101,7 +102,7 @@ def evaluate_scorecard(
     reader: ObservationReader,
     provider_run_checker: ProviderRunChecker,
     providers: Mapping[str, str],
-    staleness_warn_days: Mapping[str, int],
+    stale_after: StaleAfterResolver,
     rules_revision: str,
     asof: date,
     accessed_at: datetime,
@@ -143,7 +144,7 @@ def evaluate_scorecard(
                     start=start,
                     provider_run_checker=provider_run_checker,
                     provider=providers[condition.series_id],
-                    staleness_warn_days=staleness_warn_days[condition.series_id],
+                    stale_after=stale_after,
                 )
             )
 
@@ -206,11 +207,11 @@ def evaluate_scorecard_from_stores(
     definitions = load_definitions()
     rules = load_reading_rules(rules_path)
     revision = rules_revision(rules_path)
-    staleness_warn_days = {
+    resolved_rules = {
         definition.series_id: rules.resolve(
             series_id=definition.series_id,
             frequency=definition.frequency,
-        ).staleness_warn_days
+        )
         for definition in definitions.series
     }
     resolved_context_db = database_path(context_db).resolve()
@@ -264,7 +265,9 @@ def evaluate_scorecard_from_stores(
             providers={
                 definition.series_id: definition.provider for definition in definitions.series
             },
-            staleness_warn_days=staleness_warn_days,
+            stale_after=lambda series_id, observed_at: resolved_rules[series_id].stale_after(
+                observed_at
+            ),
             rules_revision=revision,
             asof=asof,
             accessed_at=accessed_at,
@@ -303,7 +306,7 @@ def _evaluate_condition(
     start: date,
     provider_run_checker: ProviderRunChecker,
     provider: str,
-    staleness_warn_days: int,
+    stale_after: StaleAfterResolver,
 ) -> ScorecardResult:
     first_met = next(
         (
@@ -318,7 +321,7 @@ def _evaluate_condition(
         None,
     )
     used: ObservationRecord | None
-    settlement_ready_on = condition.deadline + timedelta(days=staleness_warn_days)
+    settlement_ready_on = stale_after(condition.series_id, condition.deadline)
     if first_met is not None:
         if first_met.vintage_at is None:
             raise ScorecardEvaluationError(
@@ -363,13 +366,13 @@ def _evaluate_condition(
             ),
             asof=asof,
         )
-        age = (condition.deadline - used.observed_at).days
-        if age > staleness_warn_days:
+        observation_stale_after = stale_after(condition.series_id, used.observed_at)
+        if condition.deadline > observation_stale_after:
             raise ScorecardEvaluationError(
                 "cannot settle expired scorecard condition from stale data: "
                 f"{case}[{condition_index}] {condition.series_id} "
                 f"last_observed_at={used.observed_at} deadline={condition.deadline} "
-                f"age_days={age} limit={staleness_warn_days}"
+                f"stale_after={observation_stale_after}"
             )
     else:
         status = "pending"

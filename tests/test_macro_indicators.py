@@ -603,6 +603,14 @@ class IndicatorsDBTests(unittest.TestCase):
                 readings["jp.foreign_flows"]["latest_value"],
                 -408854431.0,
             )
+            self.assertEqual(
+                readings["jp.foreign_flows"]["next_print_estimate"],
+                "2024-09-06",
+            )
+            self.assertEqual(
+                readings["jp.foreign_flows"]["print_due_in_days"],
+                6,
+            )
 
     def test_refresh_prunes_retired_series_and_reports_deleted_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

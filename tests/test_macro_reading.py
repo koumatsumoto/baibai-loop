@@ -10,8 +10,10 @@ import pytest
 from baibai_engine.macro.indicators.db import ObservationRecord
 from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.reading.compute import MIN_WINDOW_OBSERVATIONS, compute_reading
+from baibai_engine.macro.reading.models import SeriesReading
 from baibai_engine.macro.reading.rules import (
     DEFAULT_RULES_PATH,
+    PUBLICATION_INTERVAL_DAYS,
     ReadingRules,
     ReadingRulesError,
     SeriesOverride,
@@ -152,11 +154,65 @@ def test_reading_rules_resolve_for_every_registered_series() -> None:
     # A series must never silently get an arbitrary window: registering one without
     # a resolvable rule has to fail here rather than produce a plausible number.
     rules = load_reading_rules(DEFAULT_RULES_PATH)
+    assert rules.schema_version == 2
 
     for definition in load_definitions().series:
         resolved = rules.resolve(series_id=definition.series_id, frequency=definition.frequency)
         assert resolved.percentile_window_years >= 1
+        assert resolved.publication_cadence in PUBLICATION_INTERVAL_DAYS
+        assert resolved.publication_lag_days is not None
+        assert resolved.staleness_margin_days is not None
+        assert not resolved.explicit_staleness_warn_days
         assert resolved.staleness_warn_days >= 1
+
+
+def test_current_rules_derive_staleness_after_the_next_print() -> None:
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+
+    for definition in load_definitions().series:
+        rule = rules.resolve(
+            series_id=definition.series_id,
+            frequency=definition.frequency,
+        )
+        assert rule.publication_lag_days is not None
+        assert rule.staleness_margin_days is not None
+        next_print = rule.next_print_estimate(ASOF)
+        assert next_print is not None
+        assert rule.stale_after(ASOF) == (next_print + date.resolution * rule.staleness_margin_days)
+
+
+@pytest.mark.parametrize(
+    "rules_path",
+    [
+        path
+        for path in sorted(DEFAULT_RULES_PATH.parent.glob("*.yaml"))
+        if load_reading_rules(path)
+        .resolve(series_id="test.legacy", frequency="monthly")
+        .publication_lag_days
+        is None
+    ],
+    ids=lambda path: path.stem,
+)
+def test_historical_rules_load_and_omit_the_forward_print_estimate(rules_path: Path) -> None:
+    historical = load_reading_rules(rules_path)
+    assert historical.schema_version == 1
+    assert historical.resolve(
+        series_id="test.legacy",
+        frequency="monthly",
+    ).explicit_staleness_warn_days
+    definition = _definition(frequency="monthly")
+    observed_at = date(2026, 6, 1)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        rules=historical,
+        rules_revision="historical",
+        asof=ASOF,
+    )
+
+    assert snapshot.series[0].next_print_estimate is None
+    assert snapshot.series[0].print_due_in_days is None
 
 
 def test_reading_rules_default_the_statistic_to_the_level() -> None:
@@ -250,6 +306,55 @@ def test_reading_rules_reject_a_series_overridden_twice(tmp_path: Path) -> None:
         load_reading_rules(path)
 
 
+@pytest.mark.parametrize(
+    ("schema_version", "default_fields", "override_fields", "message"),
+    [
+        (
+            1,
+            "    staleness_warn_days: 100\n"
+            "    publication_lag_days: 45\n"
+            "    staleness_margin_days: 7\n",
+            "",
+            "schema_version 1 defaults.*cannot declare",
+        ),
+        (
+            2,
+            "    publication_lag_days: 45\n",
+            "",
+            "schema_version 2 defaults.*require both",
+        ),
+        (
+            2,
+            "    publication_lag_days: 45\n    staleness_margin_days: 7\n",
+            "  test.series:\n    staleness_warn_days: 999\n",
+            "schema_version 2 override.*cannot declare staleness_warn_days",
+        ),
+    ],
+)
+def test_reading_rules_reject_mixed_or_incomplete_publication_contracts(
+    tmp_path: Path,
+    schema_version: int,
+    default_fields: str,
+    override_fields: str,
+    message: str,
+) -> None:
+    path = tmp_path / "invalid-publication-contract.yaml"
+    path.write_text(
+        f"schema_version: {schema_version}\n"
+        "defaults:\n"
+        "  monthly:\n"
+        "    percentile_window_years: 10\n"
+        "    short_trend_months: 3\n"
+        "    long_trend_months: 12\n"
+        f"{default_fields}"
+        + ("overrides:\n" + override_fields if override_fields else "overrides: {}\n"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ReadingRulesError, match=message):
+        load_reading_rules(path)
+
+
 # Days since the latest observation, for a series that is waiting for its next release
 # and for one whose source has published since without the store catching up. The pairs
 # come from each source's publication calendar: the normal age is the source's lag plus
@@ -296,6 +401,165 @@ def test_staleness_warns_only_once_a_publication_has_been_missed(
 
     assert not reading_at(waiting_days), "normal publication waiting must not warn"
     assert reading_at(stopped_days), "a missed publication must warn"
+
+
+@pytest.mark.parametrize(
+    ("series_id", "observed_at", "expected_print", "expected_due_days"),
+    [
+        ("us.cpi.headline", date(2026, 6, 1), date(2026, 8, 17), 24),
+        ("us.consumer_sentiment", date(2026, 6, 1), date(2026, 7, 29), 5),
+        ("us.jolts_openings", date(2026, 5, 1), date(2026, 8, 6), 13),
+        ("jp.hourly_earnings", date(2026, 3, 1), date(2026, 7, 27), 3),
+        ("wti", date(2026, 7, 13), date(2026, 7, 23), -1),
+        ("usd_cny", date(2026, 7, 17), date(2026, 7, 27), 3),
+        ("us.erp", date(2026, 7, 24), date(2026, 7, 27), 3),
+        ("us.fed_assets", date(2026, 7, 22), date(2026, 7, 30), 6),
+        ("us.tga", date(2026, 7, 22), date(2026, 7, 30), 6),
+        ("us.net_liquidity", date(2026, 7, 22), date(2026, 7, 30), 6),
+        ("jp.monetary_base", date(2026, 6, 1), date(2026, 8, 3), 10),
+    ],
+)
+def test_next_print_estimate_uses_the_series_publication_lag(
+    series_id: str,
+    observed_at: date,
+    expected_print: date,
+    expected_due_days: int,
+) -> None:
+    definition = load_definitions().by_id()[series_id]
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(series_id, [(observed_at, 1.0)])),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.next_print_estimate == expected_print
+    assert reading.print_due_in_days == expected_due_days
+
+
+def test_publication_cadence_can_differ_from_registry_frequency() -> None:
+    definition = load_definitions().by_id()["us.erp"]
+    rule = load_reading_rules(DEFAULT_RULES_PATH).resolve(
+        series_id=definition.series_id,
+        frequency=definition.frequency,
+    )
+
+    assert definition.frequency == "monthly"
+    assert rule.sampling_cadence == "monthly"
+    assert rule.publication_cadence == "business_daily"
+    assert rule.staleness_warn_days == 7
+
+
+def test_month_end_print_estimate_advances_by_a_calendar_month() -> None:
+    definition = _definition(frequency="monthly")
+    observed_at = date(2026, 1, 31)
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=date(2026, 2, 1),
+    )
+
+    assert snapshot.series[0].next_print_estimate == date(2026, 4, 14)
+
+
+def test_month_end_staleness_uses_the_same_calendar_boundary_as_print_due() -> None:
+    definition = _definition(frequency="monthly")
+    observed_at = date(2026, 1, 31)
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+
+    def reading_at(asof: date) -> SeriesReading:
+        return compute_reading(
+            series=[definition],
+            reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+            rules=rules,
+            rules_revision="test",
+            asof=asof,
+        ).series[0]
+
+    margin_last_day = reading_at(date(2026, 4, 21))
+    margin_exceeded = reading_at(date(2026, 4, 22))
+    assert margin_last_day.next_print_estimate == date(2026, 4, 14)
+    assert margin_last_day.staleness_warn_days == 80
+    assert not margin_last_day.stale
+    assert margin_exceeded.stale
+
+
+def test_daily_print_estimate_skips_a_weekend_without_an_event_calendar() -> None:
+    definition = _definition(frequency="daily")
+    observed_at = date(2026, 7, 24)  # Friday
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=date(2026, 7, 26),
+    )
+
+    reading = snapshot.series[0]
+    assert reading.next_print_estimate == date(2026, 7, 27)
+    assert reading.print_due_in_days == 1
+
+
+def test_calendar_daily_print_estimate_keeps_weekend_observations() -> None:
+    definition = load_definitions().by_id()["btc_usd"]
+    observed_at = date(2026, 7, 24)  # Friday
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=observed_at,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.next_print_estimate == date(2026, 7, 25)
+    assert reading.print_due_in_days == 1
+
+
+def test_every_registered_series_gets_a_forward_print_estimate() -> None:
+    definitions = load_definitions().series
+    observations = {
+        definition.series_id: ObservationRecord(
+            series_id=definition.series_id,
+            observed_at=ASOF,
+            value=1.0,
+            unit=definition.unit,
+            source_url=definition.source_url,
+        )
+        for definition in definitions
+    }
+
+    def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
+        observation = observations[series_id]
+        return (observation,) if start <= observation.observed_at <= end else ()
+
+    snapshot = compute_reading(
+        series=definitions,
+        reader=read,
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    assert len(definitions) >= 109
+    assert len(snapshot.series) == len(definitions)
+    assert all(reading.next_print_estimate is not None for reading in snapshot.series)
+    assert all(reading.print_due_in_days is not None for reading in snapshot.series)
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+    definitions_by_id = {definition.series_id: definition for definition in definitions}
+    for reading in snapshot.series:
+        assert reading.next_print_estimate is not None
+        definition = definitions_by_id[reading.series_id]
+        rule = rules.resolve(
+            series_id=definition.series_id,
+            frequency=definition.frequency,
+        )
+        if rule.publication_cadence != "calendar_daily":
+            assert reading.next_print_estimate.weekday() < 5
 
 
 def test_reading_rules_reject_a_frequency_without_defaults() -> None:
@@ -711,6 +975,8 @@ def test_reading_reports_staleness_against_the_asof_date() -> None:
     assert reading.observed_at == date(2026, 7, 1)
     assert reading.staleness_days == 23
     assert reading.stale
+    assert reading.next_print_estimate == date(2026, 7, 2)
+    assert reading.print_due_in_days == -22
 
 
 def test_reading_trend_anchors_on_a_date_not_an_observation_count() -> None:
@@ -781,3 +1047,5 @@ def test_reading_reports_a_series_with_no_observations_without_failing() -> None
     assert reading.latest_value is None
     assert reading.stale
     assert reading.insufficient_history
+    assert reading.next_print_estimate is None
+    assert reading.print_due_in_days is None

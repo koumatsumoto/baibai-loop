@@ -303,18 +303,38 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
     assert [report.context_id for report in overview.reports] == [document.context_id]
 
 
-def test_export_skips_the_reading_view_without_failing_when_its_rules_are_absent(
-    app_method_root: Path, tmp_path: Path
+def test_export_fails_before_writing_when_reading_rules_are_absent(
+    app_method_root: Path, tmp_path: Path, capsys
 ) -> None:
-    """A rules revision that is not deployed must cost the panel, not the whole export."""
-
     (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     (app_method_root / MACRO_READING_RULES_PATH).unlink()
     output_dir = tmp_path / "export"
 
-    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
-    assert not (output_dir / "views/macro-reading.json").exists()
-    assert (output_dir / "views/macro--1y-daily.json").is_file()
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
+    assert "failed to read macro reading rules" in capsys.readouterr().err
+    assert not output_dir.exists()
+
+
+def test_export_fails_before_writing_when_rules_do_not_cover_the_registry(
+    app_method_root: Path, tmp_path: Path, capsys
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / MACRO_READING_RULES_PATH).write_text(
+        "schema_version: 2\n"
+        "defaults:\n"
+        "  monthly:\n"
+        "    percentile_window_years: 10\n"
+        "    short_trend_months: 3\n"
+        "    long_trend_months: 12\n"
+        "    publication_lag_days: 45\n"
+        "    staleness_margin_days: 7\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
+    assert "macro reading rules have no defaults for frequency" in capsys.readouterr().err
+    assert not output_dir.exists()
 
 
 def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Path) -> None:

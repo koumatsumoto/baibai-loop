@@ -37,6 +37,11 @@ from baibai_app.sources.factory import build_sources
 from baibai_app.sources.protocols import LedgerSource, ResearchSource
 from baibai_app.sources.types import CandidatesRun
 from baibai_engine.appdb import LATEST_VERSION as APP_SCHEMA_VERSION
+from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.macro.reading.rules import (
+    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
+)
+from baibai_engine.macro.reading.rules import ReadingRulesError, load_reading_rules
 from baibai_engine.read_api import screening_run_asof_dates
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -70,6 +75,7 @@ def export_read_models(
 
     stores = build_sources(root)
     _require_readable_app_schema(stores.app_db_path)
+    _require_readable_macro_rules(root / MACRO_READING_RULES_PATH)
     views_dir = output_dir / "views"
     if views_dir.is_dir():
         shutil.rmtree(views_dir)
@@ -174,6 +180,20 @@ def _require_readable_app_schema(path: Path) -> None:
             f"{APP_SCHEMA_VERSION}: {path} "
             "(publish the migrated store with tools/cloud/publish.sh)"
         )
+
+
+def _require_readable_macro_rules(path: Path) -> None:
+    """Fail before writing when the trusted publication contract is unavailable."""
+
+    try:
+        rules = load_reading_rules(path)
+        for definition in load_definitions().series:
+            rules.resolve(
+                series_id=definition.series_id,
+                frequency=definition.frequency,
+            )
+    except ReadingRulesError as exc:
+        raise ExportPreconditionError(str(exc)) from exc
 
 
 class _CachedLatestRunCandidates:

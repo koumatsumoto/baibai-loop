@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
 def _print_table(snapshot: ReadingSnapshot) -> None:
     print(f"# macro reading asof={snapshot.asof.isoformat()} rules={snapshot.rules_revision}")
     print(
-        "series_id\tlatest\tobserved_at\tstale_days\t3m\t12m\t"
+        "series_id\tlatest\tobserved_at\tnext_print\tdue_days\tstale_days\t3m\t12m\t"
         "statistic\tstat_value\tpercentile\tz\twindow\tnotes",
     )
     for reading in snapshot.series:
@@ -81,6 +81,12 @@ def _print_table(snapshot: ReadingSnapshot) -> None:
                     reading.series_id,
                     _number(reading.latest_value),
                     "-" if reading.observed_at is None else reading.observed_at.isoformat(),
+                    (
+                        "-"
+                        if reading.next_print_estimate is None
+                        else reading.next_print_estimate.isoformat()
+                    ),
+                    ("-" if reading.print_due_in_days is None else str(reading.print_due_in_days)),
                     "-" if reading.staleness_days is None else str(reading.staleness_days),
                     _direction_cell(reading, "short_trend"),
                     _direction_cell(reading, "long_trend"),

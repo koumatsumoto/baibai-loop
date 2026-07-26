@@ -128,6 +128,7 @@ def _read_series(
     insufficient = not (covers_window and enough_points and dense_enough)
     ranked = None if insufficient else statistic_value
     staleness_days = (asof - latest.observed_at).days
+    next_print_estimate = rule.next_print_estimate(latest.observed_at)
     return SeriesReading(
         series_id=definition.series_id,
         name=definition.name,
@@ -138,8 +139,12 @@ def _read_series(
         latest_value=latest.value,
         observed_at=latest.observed_at,
         staleness_days=staleness_days,
-        stale=staleness_days > rule.staleness_warn_days,
-        staleness_warn_days=rule.staleness_warn_days,
+        stale=rule.is_stale(latest.observed_at, asof=asof),
+        staleness_warn_days=rule.staleness_limit_days(latest.observed_at),
+        next_print_estimate=next_print_estimate,
+        print_due_in_days=(
+            None if next_print_estimate is None else (next_print_estimate - asof).days
+        ),
         window_years=rule.percentile_window_years,
         window_observations=len(values),
         expected_observations=expected,
@@ -168,6 +173,8 @@ def _empty_reading(definition: SeriesDefinition, rule: ResolvedRule) -> SeriesRe
         staleness_days=None,
         stale=True,
         staleness_warn_days=rule.staleness_warn_days,
+        next_print_estimate=None,
+        print_due_in_days=None,
         window_years=rule.percentile_window_years,
         window_observations=0,
         expected_observations=None,

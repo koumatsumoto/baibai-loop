@@ -49,6 +49,8 @@ class SeriesReading:
     staleness_days: int | None
     stale: bool
     staleness_warn_days: int
+    next_print_estimate: date | None
+    print_due_in_days: int | None
     window_years: int
     window_observations: int
     # Observations the frequency implies for the window; None for a daily series, where
@@ -108,6 +110,10 @@ def series_payload(reading: SeriesReading) -> dict[str, object]:
         "staleness_days": reading.staleness_days,
         "stale": reading.stale,
         "staleness_warn_days": reading.staleness_warn_days,
+        "next_print_estimate": (
+            None if reading.next_print_estimate is None else reading.next_print_estimate.isoformat()
+        ),
+        "print_due_in_days": reading.print_due_in_days,
         "window_years": reading.window_years,
         "window_observations": reading.window_observations,
         "expected_observations": reading.expected_observations,

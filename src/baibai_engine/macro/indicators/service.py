@@ -471,15 +471,11 @@ def _latest_cache_is_fresh(
 ) -> bool:
     """Use the same publication-lag-aware observation age as the L2 reading."""
 
-    max_age_days = (
-        load_reading_rules()
-        .resolve(
-            series_id=series.series_id,
-            frequency=series.frequency,
-        )
-        .staleness_warn_days
+    rule = load_reading_rules().resolve(
+        series_id=series.series_id,
+        frequency=series.frequency,
     )
-    return observation.observed_at >= asof - timedelta(days=max_age_days)
+    return not rule.is_stale(observation.observed_at, asof=asof)
 
 
 def _reject_non_finite(series: SeriesDefinition, observations: list[ObservationRecord]) -> None:
