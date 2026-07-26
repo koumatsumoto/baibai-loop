@@ -538,7 +538,7 @@ series:
     notes: 景気動向指数「個別系列の数値」表(0003446462)の先行系列L6=消費者態度指数(内閣府 消費動向調査・季節調整済)。us.consumer_sentimentの日本版で、消費の需要先行を読む。消費動向調査はe-StatのDB配信を持たないため、同じ内閣府が組む景気動向指数の構成系列として取る(そのぶん公表は調査本体より約1か月遅い)
     aliases: [消費者態度指数, 消費者マインド, consumer confidence, 消費動向調査, JP consumer sentiment]
   - series_id: jp.bank_lending_yoy
-    name: 日本銀行貸出残高 前年比
+    name: 銀行貸出平均残高 前年比(銀行計)
     category: monetary
     geography: japan
     frequency: monthly

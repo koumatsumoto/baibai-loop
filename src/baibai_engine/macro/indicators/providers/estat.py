@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from datetime import date
 from typing import cast
@@ -23,6 +24,13 @@ from .base import (
 
 # e-Stat marks cells with no usable number using these tokens; each is skipped.
 _ESTAT_NULL_MARKERS = frozenset({"", "-", "***", "X", "…", "..."})
+
+# Time codes are the year, the period kind, and the first and last month of the
+# period. "00" is the monthly kind; a year total is either the calendar-year kind
+# or the monthly kind with no month named.
+_ESTAT_TIME_CODE_RE = re.compile(r"(?P<year>\d{4})(?P<kind>\d{2})(?P<first>\d{2})(?P<last>\d{2})")
+_ESTAT_MONTHLY_KIND = "00"
+_ESTAT_NO_MONTH = "00"
 
 # Every returned cell echoes the dimension codes it belongs to, so the narrowing
 # a registry entry asks for can be checked against what came back. e-Stat answers
@@ -116,7 +124,7 @@ def parse_estat_json(
             continue
         row = cast(Mapping[str, object], entry)
         _require_narrowed_cell(row, expectations=expectations, series=series)
-        observed_at = _parse_estat_month(row.get("@time"))
+        observed_at = _parse_estat_month(row.get("@time"), series=series)
         if observed_at is None or not start <= observed_at <= end:
             continue
         value = _parse_estat_value(row.get("$"))
@@ -196,15 +204,34 @@ def _require_mapping(node: object, label: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], node)
 
 
-def _parse_estat_month(raw: object) -> date | None:
-    # e-Stat monthly time codes lead with the 4-digit year and end with the
-    # 2-digit month (e.g. "2026000101" -> January 2026); anything else is skipped.
-    if not isinstance(raw, str) or len(raw) < 6 or not raw.isdigit():
+def _parse_estat_month(raw: object, *, series: SeriesDefinition) -> date | None:
+    """The month an e-Stat cell belongs to, or None when the cell is an aggregate.
+
+    A time code is the year, a two-digit period kind, and the first and last month
+    of the period ("2026000101" is January 2026). Calendar-year and fiscal-year
+    totals share the table with the months and carry no month, so they are
+    skipped. Everything else is refused, because a month read as an aggregate
+    disappears from the series without a trace.
+    """
+
+    if not isinstance(raw, str):
+        raise IndicatorsProviderError(f"e-Stat gave {series.series_id} a non-string time code")
+    match = _ESTAT_TIME_CODE_RE.fullmatch(raw)
+    if match is None:
+        raise IndicatorsProviderError(
+            f"e-Stat gave {series.series_id} a time code it cannot place (time={raw!r})"
+        )
+    if match["kind"] != _ESTAT_MONTHLY_KIND or match["first"] == _ESTAT_NO_MONTH:
         return None
-    month = int(raw[-2:])
-    if not 1 <= month <= 12:
-        return None
-    return date(int(raw[:4]), month, 1)
+    month = int(match["first"])
+    # The publisher does not always fill the closing month in, so an open close
+    # is read as the month itself; a close that widens the period is not a month.
+    if not 1 <= month <= 12 or match["last"] not in {match["first"], _ESTAT_NO_MONTH}:
+        raise IndicatorsProviderError(
+            f"e-Stat gave {series.series_id} a monthly cell spanning more than "
+            f"one month (time={raw!r})"
+        )
+    return date(int(match["year"]), month, 1)
 
 
 def _parse_estat_value(raw: object) -> float | None:

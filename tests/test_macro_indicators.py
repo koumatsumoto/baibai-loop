@@ -2664,6 +2664,56 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "no row attribute"):
             parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
+    def test_parse_estat_json_reads_a_month_whose_closing_month_is_left_open(self) -> None:
+        """e-Stat published 2024-01 of the watcher survey as "2024000100".
+
+        Reading the closing field as the month drops that observation, and the
+        series then has a hole no error ever reports.
+        """
+
+        series = _series("estat", "0003348423", unit="pt")
+        text = _estat_payload({"@time": "2024000100", "$": "50.2"})
+
+        observations = parse_estat_json(
+            series, text, start=date(2024, 1, 1), end=date(2024, 12, 31)
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].observed_at, date(2024, 1, 1))
+        self.assertEqual(observations[0].value, 50.2)
+
+    def test_parse_estat_json_skips_the_year_totals_that_share_the_table(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+        text = _estat_payload(
+            [
+                {"@time": "2025100000", "$": "112.3"},
+                {"@time": "2025000000", "$": "112.5"},
+                {"@time": "2025000101", "$": "110.0"},
+            ]
+        )
+
+        observations = parse_estat_json(
+            series, text, start=date(2025, 1, 1), end=date(2025, 12, 31)
+        )
+
+        self.assertEqual(
+            [(o.observed_at, o.value) for o in observations], [(date(2025, 1, 1), 110.0)]
+        )
+
+    def test_parse_estat_json_rejects_a_cell_spanning_more_than_one_month(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+        text = _estat_payload({"@time": "2025000103", "$": "110.0"})
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "more than one month"):
+            parse_estat_json(series, text, start=date(2025, 1, 1), end=date(2025, 12, 31))
+
+    def test_parse_estat_json_rejects_a_time_code_it_cannot_place(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+        text = _estat_payload({"@time": "202501", "$": "110.0"})
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "cannot place"):
+            parse_estat_json(series, text, start=date(2025, 1, 1), end=date(2025, 12, 31))
+
     def test_parse_estat_json_rejects_a_rejected_request(self) -> None:
         series = _series("estat", "0003427113", unit="index")
         text = json.dumps(
