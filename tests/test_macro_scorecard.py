@@ -325,11 +325,14 @@ def test_scorecard_separates_observation_deadline_from_vintage_cutoff(
     indicators_db = tmp_path / "macro.sqlite"
     connection = initialize_database(indicators_db)
     try:
+        definition = load_definitions().by_id()["jp.foreign_flows"]
+        value = max(4.0, definition.plausible_min or 4.0)
+        assert definition.plausible_max is None or value <= definition.plausible_max
         observation = ObservationRecord(
             series_id="jp.foreign_flows",
             observed_at=date(2026, 8, 21),
-            value=4.0,
-            unit="jpy",
+            value=value,
+            unit=definition.unit,
             source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
             vintage_at=datetime(2026, 8, 27, tzinfo=UTC),
         )
