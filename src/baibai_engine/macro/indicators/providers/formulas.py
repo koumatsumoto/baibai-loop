@@ -80,6 +80,24 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         plausible_min=-5.0,
         plausible_max=10.0,
     ),
+    # A 2-year yield is the market's price for the next two years of policy, so its
+    # distance from the policy rate is how much easing or tightening is already paid
+    # for. The repository holds no consensus forecast — the licences do not allow one —
+    # and this spread is the closest thing the store can build from its own facts.
+    "us.policy_path_gap": DerivedFormula(
+        inputs=("us.2y", "us.fed_funds.upper"),
+        unit="percent",
+        compute=lambda v: v["us.2y"] - v["us.fed_funds.upper"],
+        plausible_min=-8.0,
+        plausible_max=8.0,
+    ),
+    "jp.policy_path_gap": DerivedFormula(
+        inputs=("jp.2y", "jp.policy_rate"),
+        unit="percent",
+        compute=lambda v: v["jp.2y"] - v["jp.policy_rate"],
+        plausible_min=-8.0,
+        plausible_max=8.0,
+    ),
     "credit.hy_ig_spread": DerivedFormula(
         inputs=("credit.us_hy_oas", "credit.us_ig_oas"),
         unit="bp",

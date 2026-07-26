@@ -25,6 +25,8 @@ groups:
       - id: us.breakeven_10y
       - id: us.inflation_5y5y
       - id: rate_diff.us_jp_10y
+      - id: us.policy_path_gap
+      - id: jp.policy_path_gap
   - title: インフレ・賃金
     series:
       - id: us.cpi.headline

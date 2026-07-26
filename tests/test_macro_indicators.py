@@ -2158,6 +2158,28 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         self.assertAlmostEqual(value, 1.835, places=3)
 
+    def test_derived_policy_path_gap_formulas(self) -> None:
+        """A 2Y yield above the policy rate is tightening priced; below it, easing."""
+
+        tightening = FORMULAS["us.policy_path_gap"].evaluate(
+            {"us.2y": 4.37, "us.fed_funds.upper": 3.75}
+        )
+        easing = FORMULAS["us.policy_path_gap"].evaluate({"us.2y": 3.88, "us.fed_funds.upper": 4.5})
+        normalization = FORMULAS["jp.policy_path_gap"].evaluate(
+            {"jp.2y": 1.45, "jp.policy_rate": 0.978}
+        )
+
+        assert tightening is not None
+        assert easing is not None
+        assert normalization is not None
+        self.assertAlmostEqual(tightening, 0.62, places=3)
+        self.assertAlmostEqual(easing, -0.62, places=3)
+        self.assertAlmostEqual(normalization, 0.472, places=3)
+
+    def test_derived_policy_path_gap_rejects_an_impossible_spread(self) -> None:
+        with self.assertRaisesRegex(DerivedComputationError, "outside plausible range"):
+            FORMULAS["jp.policy_path_gap"].evaluate({"jp.2y": 12.0, "jp.policy_rate": 0.0})
+
     def test_derived_terms_of_trade_formula(self) -> None:
         value = FORMULAS["jp.terms_of_trade"].evaluate(
             {"jp.export_price_index": 162.6, "jp.import_price_index": 196.6}
@@ -3566,7 +3588,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         )
 
     def test_canonical_registry_membership_has_a_known_generation(self) -> None:
-        self.assertEqual(load_definitions().generation, 3)
+        self.assertEqual(load_definitions().generation, 4)
         with (
             patch(
                 "baibai_engine.macro.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",

@@ -44,6 +44,34 @@ series:
     source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
     notes: 米10Y − 日10Y。円 carry の基本観測点
     aliases: [日米金利差, US-JP 10Y differential, rate differential]
+  - series_id: us.policy_path_gap
+    name: 米政策経路ギャップ(2Y−FF上限)
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    plausible_min: -8
+    plausible_max: 8
+    provider: derived
+    provider_series_id: us.policy_path_gap
+    source_id: derived-us-policy-path-gap
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 米2Y − FF目標レンジ上限。負は市場が利下げを織り込む幅、深い負は景気懸念の織り込み
+    aliases: [米政策経路ギャップ, US policy path gap, 2Y-FF spread]
+  - series_id: jp.policy_path_gap
+    name: 日本政策経路ギャップ(2Y−政策金利)
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -8
+    plausible_max: 8
+    provider: derived
+    provider_series_id: jp.policy_path_gap
+    source_id: derived-jp-policy-path-gap
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 日本2Y − 無担保コールO/N。正は市場が利上げ継続を織り込む幅（BOJ正常化の織り込み度）
+    aliases: [日本政策経路ギャップ, JP policy path gap]
   - series_id: credit.hy_ig_spread
     name: 米HY-IGスプレッド
     category: credit
