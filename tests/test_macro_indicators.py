@@ -2593,21 +2593,13 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
     def test_parse_estat_json_filters_range_and_skips_nonnumeric(self) -> None:
         series = _series("estat", "0003427113", unit="index")
-        text = json.dumps(
-            {
-                "GET_STATS_DATA": {
-                    "STATISTICAL_DATA": {
-                        "DATA_INF": {
-                            "VALUE": [
-                                {"@time": "2026000101", "$": "100.1"},
-                                {"@time": "2026000202", "$": "100.8"},
-                                {"@time": "2026000303", "$": "-"},
-                                {"@time": "2026000404", "$": "101.3"},
-                            ]
-                        }
-                    }
-                }
-            }
+        text = _estat_payload(
+            [
+                {"@time": "2026000101", "$": "100.1"},
+                {"@time": "2026000202", "$": "100.8"},
+                {"@time": "2026000303", "$": "-"},
+                {"@time": "2026000404", "$": "101.3"},
+            ]
         )
 
         observations = parse_estat_json(series, text, start=date(2026, 2, 1), end=date(2026, 3, 31))
@@ -2618,15 +2610,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
     def test_parse_estat_json_handles_single_value_object(self) -> None:
         series = _series("estat", "0003427113", unit="index")
-        text = json.dumps(
-            {
-                "GET_STATS_DATA": {
-                    "STATISTICAL_DATA": {
-                        "DATA_INF": {"VALUE": {"@time": "2026000505", "$": "102.0"}}
-                    }
-                }
-            }
-        )
+        text = _estat_payload({"@time": "2026000505", "$": "102.0"})
 
         observations = parse_estat_json(
             series, text, start=date(2026, 1, 1), end=date(2026, 12, 31)
@@ -2641,6 +2625,60 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(IndicatorsProviderError, "GET_STATS_DATA"):
             parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_estat_json_rejects_a_cell_outside_the_requested_narrowing(self) -> None:
+        """An e-Stat table carries dozens of series behind one statsDataId.
+
+        A narrowing code the table does not define is answered by leaving that
+        dimension open, and the store's upsert would then keep whichever cell of
+        the period came last. The answer is checked cell by cell instead.
+        """
+
+        series = _series("estat", "0003355222?cdCat01=160&cdCat02=100&cdTab=100", unit="index")
+        text = _estat_payload(
+            [
+                {
+                    "@tab": "100",
+                    "@cat01": "160",
+                    "@cat02": "100",
+                    "@time": "2026000505",
+                    "$": "961973.8",
+                },
+                {
+                    "@tab": "100",
+                    "@cat01": "110",
+                    "@cat02": "100",
+                    "@time": "2026000505",
+                    "$": "2874019.3",
+                },
+            ]
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "outside the requested narrowing"):
+            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_estat_json_rejects_a_narrowing_key_it_cannot_check(self) -> None:
+        series = _series("estat", "0003355222?lvCat01=3", unit="index")
+        text = _estat_payload({"@time": "2026000505", "$": "102.0"})
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "no row attribute"):
+            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_estat_json_rejects_a_rejected_request(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+        text = json.dumps(
+            {"GET_STATS_DATA": {"RESULT": {"STATUS": 100, "ERROR_MSG": "統計表が存在しません。"}}}
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "status=100"):
+            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
+
+    def test_parse_estat_json_rejects_one_page_of_a_longer_result(self) -> None:
+        series = _series("estat", "0003427113", unit="index")
+        text = _estat_payload({"@time": "2026000505", "$": "102.0"}, next_key=100001)
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "one page of a longer result"):
+            parse_estat_json(series, text, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_estat_dashboard_fetch_always_opens_the_request_at_the_history_floor(self) -> None:
         """ "No data" is the same answer as "unknown IndicatorCode" on this API.
@@ -3483,6 +3521,20 @@ class IndicatorsRegistryTests(unittest.TestCase):
             by_id["jp.bank_lending_yoy"].provider_series_id,
             "MD13:FAAPOBAL1@",
         )
+
+    def test_estat_series_narrow_on_dimensions_the_answer_can_be_checked_against(self) -> None:
+        """A narrowing key the parser cannot verify belongs to no registry entry.
+
+        The provider refuses such a key mid-fetch, which would surface as one
+        failing series in the daily batch long after the registry edit.
+        """
+
+        empty = _estat_payload([])
+        for series in load_definitions().series:
+            if series.provider != "estat":
+                continue
+            with self.subTest(series=series.series_id):
+                parse_estat_json(series, empty, start=date(1970, 1, 1), end=date(2100, 1, 1))
 
     def test_estat_dashboard_series_pin_one_upstream_series_in_their_source_url(self) -> None:
         """The registry, not a fetch, is where a mis-pinned selector must be caught.
@@ -5273,6 +5325,28 @@ def _series(
         source_url="https://example.com/data.csv",
         plausible_min=plausible_min,
         plausible_max=plausible_max,
+    )
+
+
+def _estat_payload(
+    value: object,
+    *,
+    status: int = 0,
+    next_key: int | None = None,
+) -> str:
+    result_inf: dict[str, object] = {"TOTAL_NUMBER": 1}
+    if next_key is not None:
+        result_inf["NEXT_KEY"] = next_key
+    return json.dumps(
+        {
+            "GET_STATS_DATA": {
+                "RESULT": {"STATUS": status},
+                "STATISTICAL_DATA": {
+                    "RESULT_INF": result_inf,
+                    "DATA_INF": {"VALUE": value},
+                },
+            }
+        }
     )
 
 

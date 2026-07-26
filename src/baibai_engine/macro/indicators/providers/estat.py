@@ -24,6 +24,18 @@ from .base import (
 # e-Stat marks cells with no usable number using these tokens; each is skipped.
 _ESTAT_NULL_MARKERS = frozenset({"", "-", "***", "X", "…", "..."})
 
+# Every returned cell echoes the dimension codes it belongs to, so the narrowing
+# a registry entry asks for can be checked against what came back. e-Stat answers
+# a narrowing code the table does not define by leaving that dimension open
+# rather than by failing, and the store's upsert would then let the last cell of
+# each period silently win. Only dimensions that echo a single code are mappable;
+# an unmapped narrowing key is refused so that adding one is a deliberate act.
+_NARROWING_ROW_ATTRIBUTES = {
+    "cdTab": "@tab",
+    "cdArea": "@area",
+    "cdTime": "@time",
+} | {f"cdCat{index:02d}": f"@cat{index:02d}" for index in range(1, 16)}
+
 
 class EStatProvider:
     """e-Stat getStatsData JSON (appId via ESTAT_APP_ID). Japan official statistics.
@@ -96,11 +108,14 @@ def parse_estat_json(
         payload: object = json.loads(text)
     except json.JSONDecodeError as exc:
         raise IndicatorsProviderError(f"e-Stat response is not valid JSON: {exc}") from exc
+    _, narrowing = _split_stats_data_id(series.provider_series_id)
+    expectations = _narrowing_row_expectations(narrowing)
     observations: list[ObservationRecord] = []
     for entry in _extract_value_entries(payload):
         if not isinstance(entry, dict):
             continue
         row = cast(Mapping[str, object], entry)
+        _require_narrowed_cell(row, expectations=expectations, series=series)
         observed_at = _parse_estat_month(row.get("@time"))
         if observed_at is None or not start <= observed_at <= end:
             continue
@@ -111,12 +126,41 @@ def parse_estat_json(
     return observations
 
 
+def _narrowing_row_expectations(narrowing: Mapping[str, str]) -> dict[str, str]:
+    expectations: dict[str, str] = {}
+    for key, value in narrowing.items():
+        attribute = _NARROWING_ROW_ATTRIBUTES.get(key)
+        if attribute is None:
+            raise IndicatorsProviderError(
+                f"e-Stat narrowing key {key} has no row attribute to check the answer against"
+            )
+        expectations[attribute] = value
+    return expectations
+
+
+def _require_narrowed_cell(
+    row: Mapping[str, object],
+    *,
+    expectations: Mapping[str, str],
+    series: SeriesDefinition,
+) -> None:
+    for attribute, wanted in expectations.items():
+        answered = row.get(attribute)
+        if answered != wanted:
+            raise IndicatorsProviderError(
+                f"e-Stat answered {series.series_id} with a cell outside the requested "
+                f"narrowing ({attribute}={answered!r}, requested {wanted!r})"
+            )
+
+
 def _extract_value_entries(payload: object) -> list[object]:
     if not isinstance(payload, dict):
         raise IndicatorsProviderError("e-Stat response is not a JSON object")
     root = cast(Mapping[str, object], payload)
     get_stats_data = _require_mapping(root.get("GET_STATS_DATA"), "GET_STATS_DATA")
+    _require_successful_result(get_stats_data)
     statistical_data = _require_mapping(get_stats_data.get("STATISTICAL_DATA"), "STATISTICAL_DATA")
+    _require_whole_series(statistical_data)
     data_inf = _require_mapping(statistical_data.get("DATA_INF"), "DATA_INF")
     value_node = data_inf.get("VALUE")
     if isinstance(value_node, dict):
@@ -124,6 +168,26 @@ def _extract_value_entries(payload: object) -> list[object]:
     if isinstance(value_node, list):
         return cast(list[object], value_node)
     raise IndicatorsProviderError("e-Stat response missing DATA_INF.VALUE list")
+
+
+def _require_successful_result(get_stats_data: Mapping[str, object]) -> None:
+    # e-Stat reports a rejected request with a 200 and a non-zero STATUS, so the
+    # message it carries is the only readable account of what was wrong.
+    result = _require_mapping(get_stats_data.get("RESULT"), "RESULT")
+    status = result.get("STATUS")
+    if status != 0:
+        message = result.get("ERROR_MSG")
+        raise IndicatorsProviderError(f"e-Stat request failed (status={status!r}): {message!r}")
+
+
+def _require_whole_series(statistical_data: Mapping[str, object]) -> None:
+    # A response past e-Stat's row cap carries a resume key. Reading only the
+    # first page would look like a series that simply stops, so it is refused.
+    result_inf = statistical_data.get("RESULT_INF")
+    if isinstance(result_inf, dict) and "NEXT_KEY" in result_inf:
+        raise IndicatorsProviderError(
+            "e-Stat response is one page of a longer result; narrow the series or add paging"
+        )
 
 
 def _require_mapping(node: object, label: str) -> Mapping[str, object]:

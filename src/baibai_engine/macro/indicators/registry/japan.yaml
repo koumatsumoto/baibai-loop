@@ -561,7 +561,7 @@ series:
     plausible_max: 500
     provider: estat_dashboard
     provider_series_id: "0302030201010090010"
-    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030201010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
     source_id: estat-dashboard-real-wage-index
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030201010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
     notes: 厚労省 毎月勤労統計の実質賃金指数(現金給与総額・事業所規模5人以上・調査産業計・季節調整値)。名目賃金を消費者物価で割った家計の購買力で、日銀が賃金と物価の好循環を判断する中心。jp.nominal_wage_indexと対で名目と実質の乖離=物価による目減りを読む。デフレーターは消費者物価指数の「持家の帰属家賃を除く総合」であってjp.cpi.headline(総合)ではないため、名目÷jp.cpi.headlineでは再現しない(2026-05の含意デフレーターは115.8、総合は113.5)。selectorを訂正したときと基準改定のときは`refresh --all-history`を1回通す。事業所入替えとベンチマーク更新により2024年1月以降と2023年12月以前には段差がある
     aliases: [実質賃金, 実質賃金指数, real wage index, 実質賃金前年比]
