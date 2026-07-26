@@ -117,6 +117,32 @@ class IndicatorsService:
         finally:
             conn.close()
 
+    def retract(
+        self,
+        series_id: str,
+        observed_dates: Sequence[date],
+    ) -> tuple[db.RetractionOutcome, ...]:
+        """Withdraw the latest vintage of observation dates without removing any history."""
+
+        definitions = load_definitions()
+        if series_id not in definitions.by_id():
+            raise KeyError(f"unknown indicator series: {series_id}")
+        conn = db.open_connection(self.db_path, definitions=definitions)
+        try:
+            retractions = db.retract_observations(
+                conn,
+                series_id,
+                observed_dates,
+                vintage_at=datetime.now(UTC),
+            )
+            conn.commit()
+            return retractions
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def refresh_all_history(self, series_id: str, *, end: date) -> QueryResult:
         definitions = load_definitions()
         if series_id not in definitions.by_id():
@@ -329,24 +355,32 @@ class IndicatorsService:
                     end=end,
                     observations=observations,
                 )
+            # Every store-rewrite policy below spares retractions. A retraction is a
+            # decision about a row the provider is not going to re-deliver, so letting a
+            # refresh drop it would let the merge restore the retracted row and undo the
+            # decision on the next push. A source that does re-deliver the date buries
+            # the retraction under a newer vintage, which is the correct outcome.
             if trim_before_first and observations:
                 # FRED's current licensed delivery window defines reproducible
                 # all-history coverage for a series.
                 first_observed_at = min(item.observed_at for item in observations)
                 conn.execute(
-                    "DELETE FROM observations WHERE series_id = ? AND observed_at < ?",
-                    (series.series_id, first_observed_at.isoformat()),
+                    "DELETE FROM observations WHERE series_id = ? AND observed_at < ? "
+                    "AND fetch_status != ?",
+                    (series.series_id, first_observed_at.isoformat(), db.RETRACTED_STATUS),
                 )
             if remove_other_sources and observations:
                 conn.execute(
                     "DELETE FROM observations WHERE series_id = ? AND source_url != ? "
-                    "AND observed_at BETWEEN ? AND ? AND substr(vintage_at, 1, 10) <= ?",
+                    "AND observed_at BETWEEN ? AND ? AND substr(vintage_at, 1, 10) <= ? "
+                    "AND fetch_status != ?",
                     (
                         series.series_id,
                         series.source_url,
                         start.isoformat(),
                         end.isoformat(),
                         end.isoformat(),
+                        db.RETRACTED_STATUS,
                     ),
                 )
             if range_replacement != "none" and observations:
@@ -356,19 +390,26 @@ class IndicatorsService:
                     conn.execute(
                         "DELETE FROM observations WHERE series_id = ? "
                         "AND observed_at BETWEEN ? AND ? "
-                        "AND substr(vintage_at, 1, 10) <= ?",
+                        "AND substr(vintage_at, 1, 10) <= ? "
+                        "AND fetch_status != ?",
                         (
                             series.series_id,
                             replacement_start,
                             end.isoformat(),
                             end.isoformat(),
+                            db.RETRACTED_STATUS,
                         ),
                     )
                 elif range_replacement == "all_vintages":
                     conn.execute(
                         "DELETE FROM observations WHERE series_id = ? "
-                        "AND observed_at BETWEEN ? AND ?",
-                        (series.series_id, replacement_start, end.isoformat()),
+                        "AND observed_at BETWEEN ? AND ? AND fetch_status != ?",
+                        (
+                            series.series_id,
+                            replacement_start,
+                            end.isoformat(),
+                            db.RETRACTED_STATUS,
+                        ),
                     )
                 else:  # pragma: no cover - exhaustiveness guard over the policy literal
                     assert_never(range_replacement)

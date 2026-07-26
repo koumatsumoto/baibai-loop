@@ -15,7 +15,9 @@ from baibai_engine.macro.indicators.db import (
     ObservationRecord,
     initialize_database,
     insert_observations,
+    observations_in_range,
     record_provider_run,
+    retract_observations,
     seed_definitions,
 )
 from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
@@ -164,29 +166,80 @@ def test_merge_is_idempotent(tmp_path: Path) -> None:
     assert second.inserted == 0
 
 
-def test_merge_normalizes_legacy_foreign_flow_unit_from_v4_source(tmp_path: Path) -> None:
+def test_merge_carries_a_retraction_to_the_other_store(tmp_path: Path) -> None:
+    """The retraction has to travel like any fact, or the next push undoes the decision."""
+
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    observation = _observation("jp.10y", date(2026, 7, 23), 1.62)
+    _build_store(cloud, series_ids=("jp.10y",), observations=(observation,))
+    _build_store(local, series_ids=("jp.10y",), observations=(observation,))
+    connection = sqlite3.connect(local)
+    connection.row_factory = sqlite3.Row
+    try:
+        retract_observations(
+            connection,
+            "jp.10y",
+            [date(2026, 7, 23)],
+            vintage_at=datetime(2026, 7, 25, tzinfo=UTC),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    pull = merge_stores(cloud, local)
+    push = merge_stores(local, cloud)
+
+    assert pull.inserted == 0
+    assert push.inserted == 1
+    assert _rows(
+        cloud,
+        "SELECT observed_at, fetch_status FROM observations ORDER BY vintage_at",
+    ) == [("2026-07-23", "ok"), ("2026-07-23", "retracted")]
+    assert _read_range(cloud) == ()
+    assert _read_range(local) == ()
+
+
+def _read_range(path: Path) -> tuple[object, ...]:
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        return tuple(
+            observations_in_range(connection, "jp.10y", date(2026, 7, 1), date(2026, 7, 31))
+        )
+    finally:
+        connection.close()
+
+
+def test_merge_reads_a_source_one_schema_behind_the_target(tmp_path: Path) -> None:
+    """The rollout shape: a local store on the new schema pushing against a cloud copy.
+
+    The cloud copy is whatever the last push left, so the first push after a schema
+    change always meets a source one version behind.
+    """
+
     source = tmp_path / "source.sqlite"
     target = tmp_path / "target.sqlite"
-    flow = load_definitions().by_id()["jp.foreign_flows"]
-    observation = ObservationRecord(
-        series_id=flow.series_id,
-        observed_at=date(2024, 1, 26),
-        value=405_492_743.0,
-        unit=flow.unit,
-        source_url=flow.source_url,
-        vintage_at=VINTAGE,
-    )
-    _build_store(source, series_ids=(flow.series_id,), observations=(observation,))
-    _build_store(target, series_ids=(flow.series_id,), observations=())
-    _downgrade_store_to_v4(source, legacy_foreign_flow_unit=True)
+    observation = _observation("jp.10y", date(2026, 7, 23), 1.62)
+    _build_store(source, series_ids=("jp.10y",), observations=(observation,))
+    _build_store(target, series_ids=("jp.10y",), observations=())
+    _downgrade_store_to_previous_schema(source)
 
     report = merge_stores(source, target)
 
     assert report.inserted == 1
-    assert _rows(
-        target,
-        "SELECT value, unit FROM observations WHERE series_id = 'jp.foreign_flows'",
-    ) == [(405_492_743.0, "jpy-thousand")]
+    assert _rows(target, "SELECT observed_at, value FROM observations") == [("2026-07-23", 1.62)]
+
+
+def test_merge_refuses_a_source_two_schemas_behind_the_target(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite"
+    target = tmp_path / "target.sqlite"
+    _build_store(source, series_ids=("jp.10y",), observations=())
+    _build_store(target, series_ids=("jp.10y",), observations=())
+    _downgrade_store_to_v4(source, legacy_foreign_flow_unit=False)
+
+    with pytest.raises(MergeError, match="schema is 4 but this code expects"):
+        merge_stores(source, target)
 
 
 def test_merge_carries_the_cloud_fetch_record_of_a_registered_series(tmp_path: Path) -> None:
@@ -569,23 +622,63 @@ def _inject_source_observation(path: Path, observation: ObservationRecord) -> No
         connection.commit()
 
 
+def _downgrade_store_to_previous_schema(path: Path) -> None:
+    """Rebuild `observations` under the v5 fetch_status domain, before 'retracted'."""
+
+    with sqlite3.connect(path) as connection:
+        trigger_sql = _contract_trigger_sql(connection)
+        connection.executescript(
+            """
+            DROP TRIGGER validate_observation_plausibility_before_insert;
+            DROP TRIGGER validate_observation_plausibility_before_update;
+            DROP TRIGGER validate_series_contract_before_update;
+            CREATE TABLE observations_v5(
+              series_id TEXT NOT NULL REFERENCES series(series_id),
+              observed_at TEXT NOT NULL,
+              period_start TEXT,
+              period_end TEXT,
+              value REAL NOT NULL,
+              unit TEXT NOT NULL,
+              vintage_at TEXT NOT NULL,
+              fetch_status TEXT NOT NULL,
+              source_url TEXT NOT NULL,
+              PRIMARY KEY(series_id, observed_at, vintage_at),
+              CHECK(fetch_status IN ('ok', 'failed', 'unreleased'))
+            );
+            INSERT INTO observations_v5 SELECT * FROM observations;
+            DROP TABLE observations;
+            ALTER TABLE observations_v5 RENAME TO observations;
+            CREATE INDEX idx_observations_series_date ON observations(series_id, observed_at);
+            CREATE INDEX idx_observations_series_status_date_vintage
+              ON observations(series_id, fetch_status, observed_at, vintage_at);
+            """
+        )
+        for statement in trigger_sql:
+            connection.execute(statement)
+        connection.execute("PRAGMA user_version = 5")
+
+
+def _contract_trigger_sql(connection: sqlite3.Connection) -> tuple[str, ...]:
+    return tuple(
+        str(row[0])
+        for row in connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+            "AND name IN ("
+            "'validate_observation_plausibility_before_insert', "
+            "'validate_observation_plausibility_before_update', "
+            "'validate_series_contract_before_update'"
+            ") ORDER BY name"
+        )
+    )
+
+
 def _downgrade_store_to_v4(
     path: Path,
     *,
     legacy_foreign_flow_unit: bool,
 ) -> None:
     with sqlite3.connect(path) as connection:
-        trigger_sql = tuple(
-            str(row[0])
-            for row in connection.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
-                "AND name IN ("
-                "'validate_observation_plausibility_before_insert', "
-                "'validate_observation_plausibility_before_update', "
-                "'validate_series_contract_before_update'"
-                ") ORDER BY name"
-            )
-        )
+        trigger_sql = _contract_trigger_sql(connection)
         for trigger in (
             "validate_observation_plausibility_before_insert",
             "validate_observation_plausibility_before_update",

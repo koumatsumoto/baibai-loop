@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from functools import cache
 from pathlib import Path
@@ -10,7 +11,9 @@ from typing import cast
 
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 
-SQLITE_SCHEMA_VERSION = 5
+SQLITE_SCHEMA_VERSION = 6
+# The acquisition outcome that says "this observation is withdrawn from the reads".
+RETRACTED_STATUS = "retracted"
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 DEFAULT_DB_PATH = Path("data/indicators/macro.sqlite")
 _ROW_COUNT_SQL = {
@@ -183,6 +186,80 @@ BEGIN
 END;
 PRAGMA user_version = 5;
 """
+_MIGRATE_V5_TO_V6_SQL = """
+-- Version 6 widens the fetch_status domain with 'retracted'. A CHECK constraint can
+-- only change by rebuilding the table, and every trigger that names `observations`
+-- has to stand aside while the table is swapped, so all three are dropped and
+-- recreated verbatim around the copy.
+DROP TRIGGER validate_observation_plausibility_before_insert;
+DROP TRIGGER validate_observation_plausibility_before_update;
+DROP TRIGGER validate_series_contract_before_update;
+CREATE TABLE observations_v6(
+  series_id TEXT NOT NULL REFERENCES series(series_id),
+  observed_at TEXT NOT NULL,
+  period_start TEXT,
+  period_end TEXT,
+  value REAL NOT NULL,
+  unit TEXT NOT NULL,
+  vintage_at TEXT NOT NULL,
+  fetch_status TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  PRIMARY KEY(series_id, observed_at, vintage_at),
+  CHECK(fetch_status IN ('ok', 'failed', 'unreleased', 'retracted'))
+);
+INSERT INTO observations_v6(
+  series_id, observed_at, period_start, period_end, value, unit,
+  vintage_at, fetch_status, source_url
+)
+SELECT series_id, observed_at, period_start, period_end, value, unit,
+       vintage_at, fetch_status, source_url
+FROM observations;
+DROP TABLE observations;
+ALTER TABLE observations_v6 RENAME TO observations;
+CREATE INDEX IF NOT EXISTS idx_observations_series_date
+  ON observations(series_id, observed_at);
+CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
+  ON observations(series_id, fetch_status, observed_at, vintage_at);
+CREATE TRIGGER validate_observation_plausibility_before_insert
+BEFORE INSERT ON observations
+WHEN NOT EXISTS (
+  SELECT 1 FROM series
+  WHERE series_id = NEW.series_id
+    AND NEW.unit = unit
+    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
+    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
+END;
+CREATE TRIGGER validate_observation_plausibility_before_update
+BEFORE UPDATE OF series_id, value, unit ON observations
+WHEN NOT EXISTS (
+  SELECT 1 FROM series
+  WHERE series_id = NEW.series_id
+    AND NEW.unit = unit
+    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
+    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
+END;
+CREATE TRIGGER validate_series_contract_before_update
+BEFORE UPDATE OF unit, plausible_min, plausible_max ON series
+WHEN EXISTS (
+  SELECT 1 FROM observations
+  WHERE series_id = NEW.series_id
+    AND (
+      unit != NEW.unit
+      OR (NEW.plausible_min IS NOT NULL AND value < NEW.plausible_min)
+      OR (NEW.plausible_max IS NOT NULL AND value > NEW.plausible_max)
+    )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'series contract excludes an existing observation');
+END;
+PRAGMA user_version = 6;
+"""
 
 
 class IndicatorsSchemaError(RuntimeError):
@@ -219,6 +296,18 @@ class ObservationRecord:
     period_end: date | None = None
     vintage_at: datetime | None = None
     fetch_status: str = "ok"
+
+
+@dataclass(frozen=True, slots=True)
+class RetractionOutcome:
+    """What a retraction withdrew, and what the reads fell back to."""
+
+    series_id: str
+    observed_at: date
+    withdrawn: ObservationRecord
+    # The observation that stood under the withdrawn vintage and reads again, or None
+    # when nothing did and the date left the reads.
+    restored: ObservationRecord | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -813,6 +902,11 @@ def observations_in_range(
     # ``point_in_time`` clamps to observations published by the explicit vintage
     # cutoff, or by ``end`` when the caller uses one date for both dimensions.
     # Non-point-in-time providers still return the latest acquisition vintage.
+    #
+    # The newest vintage is chosen among 'ok' and 'retracted' rows, then only 'ok' is
+    # returned: a retraction is the newest thing known about that observation date, so
+    # it hides it. 'failed' and 'unreleased' are acquisition outcomes rather than
+    # statements about the value, so they never hide an observation that was read.
     end_text = end.isoformat()
     vintage_text = (vintage_on_or_before or end).isoformat()
     pit = 1 if point_in_time else 0
@@ -826,7 +920,7 @@ def observations_in_range(
         "SELECT MAX(inner_o.vintage_at) FROM observations inner_o "
         "WHERE inner_o.series_id = o.series_id "
         "AND inner_o.observed_at = o.observed_at "
-        "AND inner_o.fetch_status = 'ok' "
+        "AND inner_o.fetch_status IN ('ok', 'retracted') "
         "AND (NOT ? OR substr(inner_o.vintage_at, 1, 10) <= ?)"
         ") ORDER BY o.observed_at",
         (
@@ -851,27 +945,101 @@ def latest_observation(
     point_in_time: bool = False,
 ) -> ObservationRecord | None:
     cutoff = on_or_before.isoformat() if on_or_before is not None else None
+    floor = on_or_after.isoformat() if on_or_after is not None else None
     pit = 1 if point_in_time else 0
     row = conn.execute(
         "SELECT o.* FROM observations o "
         "WHERE o.series_id = ? AND o.fetch_status = 'ok' "
-        "AND (? IS NULL OR observed_at <= ?) "
-        "AND (? IS NULL OR observed_at >= ?) "
+        "AND (? IS NULL OR o.observed_at <= ?) "
+        "AND (? IS NULL OR o.observed_at >= ?) "
         "AND (NOT ? OR ? IS NULL "
         "OR substr(o.vintage_at, 1, 10) <= ?) "
-        "ORDER BY observed_at DESC, vintage_at DESC LIMIT 1",
+        # A retracted date is not the latest observation, so the newest vintage is
+        # resolved the same way the range read resolves it.
+        "AND o.vintage_at = ("
+        "SELECT MAX(inner_o.vintage_at) FROM observations inner_o "
+        "WHERE inner_o.series_id = o.series_id "
+        "AND inner_o.observed_at = o.observed_at "
+        "AND inner_o.fetch_status IN ('ok', 'retracted') "
+        "AND (NOT ? OR ? IS NULL OR substr(inner_o.vintage_at, 1, 10) <= ?)"
+        ") "
+        "ORDER BY o.observed_at DESC LIMIT 1",
         (
             series_id,
             cutoff,
             cutoff,
-            on_or_after.isoformat() if on_or_after is not None else None,
-            on_or_after.isoformat() if on_or_after is not None else None,
+            floor,
+            floor,
+            pit,
+            cutoff,
+            cutoff,
             pit,
             cutoff,
             cutoff,
         ),
     ).fetchone()
     return _observation_from_row(row) if row is not None else None
+
+
+def retract_observations(
+    conn: sqlite3.Connection,
+    series_id: str,
+    observed_dates: Sequence[date],
+    *,
+    vintage_at: datetime,
+) -> tuple[RetractionOutcome, ...]:
+    """Withdraw the latest vintage of an observation date and let the belief under it stand.
+
+    Deleting the row does not hold. The merge that keeps this store and the cloud copy
+    convergent restores every fact either side has, so a delete comes back on the next
+    push — the property that protects real history, and the reason a wrong row needs a
+    different exit. The exit is another vintage: what the store now knows about that
+    date is written on top, so it travels through the merge like any other row, and a
+    point-in-time replay whose cutoff predates it still sees what was believed then.
+
+    What gets written on top is whatever stood *below* the withdrawn vintage. A date
+    whose earlier vintage is a good observation goes back to reading that observation —
+    the common case when a faulty writer stamped a wrong value over a correct one. A
+    date with nothing under it, or with a retraction under it, is withdrawn from the
+    reads entirely.
+
+    Either way the written row carries a stored value and unit, so the plausibility
+    contract still holds for it. A date whose latest vintage is already retracted is
+    left alone; a date with no observation at all is an error, because retracting
+    something that was never stored means the caller is working from a stale list.
+    """
+
+    outcomes: list[RetractionOutcome] = []
+    written: list[ObservationRecord] = []
+    for observed_at in observed_dates:
+        rows = conn.execute(
+            "SELECT * FROM observations WHERE series_id = ? AND observed_at = ? "
+            "AND fetch_status IN ('ok', ?) ORDER BY vintage_at DESC LIMIT 2",
+            (series_id, observed_at.isoformat(), RETRACTED_STATUS),
+        ).fetchall()
+        if not rows:
+            raise ValueError(f"no observation to retract: {series_id} {observed_at.isoformat()}")
+        withdrawn = _observation_from_row(rows[0])
+        if withdrawn.fetch_status == RETRACTED_STATUS:
+            continue
+        underneath = _observation_from_row(rows[1]) if len(rows) > 1 else None
+        if underneath is not None and underneath.fetch_status == RETRACTED_STATUS:
+            underneath = None
+        if underneath is None:
+            written.append(replace(withdrawn, vintage_at=vintage_at, fetch_status=RETRACTED_STATUS))
+        else:
+            written.append(replace(underneath, vintage_at=vintage_at))
+        outcomes.append(
+            RetractionOutcome(
+                series_id=series_id,
+                observed_at=observed_at,
+                withdrawn=withdrawn,
+                restored=underneath,
+            )
+        )
+    if written:
+        insert_observations(conn, written, deduplicate_unchanged=False)
+    return tuple(outcomes)
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -890,7 +1058,7 @@ def _ensure_schema(
     if version == SQLITE_SCHEMA_VERSION:
         validate_current_schema(conn)
         return
-    if version not in {0, 1, 2, 3, 4}:
+    if version not in {0, 1, 2, 3, 4, 5}:
         raise IndicatorsSchemaError(
             f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
@@ -901,11 +1069,11 @@ def _ensure_schema(
 
     conn.execute("BEGIN IMMEDIATE")
     try:
-        if version == 4:
+        if version in {4, 5}:
             validate_schema_contract(
                 conn,
                 schema="main",
-                expected_version=4,
+                expected_version=version,
             )
         _validate_foreign_key_integrity(conn)
         _validate_existing_observations(
@@ -924,6 +1092,9 @@ def _ensure_schema(
             version = 4
         if version == 4:
             _execute_sql_statements(conn, _MIGRATE_V4_TO_V5_SQL)
+            version = 5
+        if version == 5:
+            _execute_sql_statements(conn, _MIGRATE_V5_TO_V6_SQL)
         validate_current_schema(conn)
     except BaseException:
         conn.rollback()

@@ -20,6 +20,7 @@ import requests
 import baibai_engine.macro.indicators.db as indicators_db
 from baibai_engine.macro.indicators.cli import build_parser, main
 from baibai_engine.macro.indicators.db import (
+    RETRACTED_STATUS,
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
     ObservationRecord,
@@ -28,10 +29,12 @@ from baibai_engine.macro.indicators.db import (
     has_ok_coverage,
     initialize_database,
     insert_observations,
+    latest_observation,
     list_series,
     observations_in_range,
     open_connection,
     record_provider_run,
+    retract_observations,
     row_count,
 )
 from baibai_engine.macro.indicators.definitions import (
@@ -399,7 +402,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 patch("baibai_engine.macro.indicators.db.SQLITE_SCHEMA_VERSION", 4),
                 self.assertRaisesRegex(
                     IndicatorsSchemaError,
-                    "unsupported indicator SQLite schema: 5; expected 4",
+                    "unsupported indicator SQLite schema: 6; expected 4",
                 ),
             ):
                 open_connection(database)
@@ -1350,6 +1353,426 @@ class IndicatorsDBTests(unittest.TestCase):
                 conn.close()
 
             self.assertEqual([row[0] for row in rows], ["us.cpi.core", "us.cpi.headline"])
+
+
+class RetractionVintageTests(unittest.TestCase):
+    """Taking a wrong observation out of the reads without taking it out of the store."""
+
+    def test_retraction_hides_the_observation_date_from_range_and_latest_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [
+                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
+                        _rate(series, date(2026, 5, 4), 4.41, datetime(2026, 5, 5, tzinfo=UTC)),
+                    ],
+                )
+                retract_observations(
+                    conn,
+                    "us.10y",
+                    [date(2026, 5, 4)],
+                    vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+                )
+                conn.commit()
+
+                observations = observations_in_range(
+                    conn, "us.10y", date(2026, 5, 1), date(2026, 5, 31)
+                )
+                latest = latest_observation(conn, "us.10y")
+                stored = row_count(conn, "observations")
+            finally:
+                conn.close()
+
+            self.assertEqual([item.observed_at for item in observations], [date(2026, 5, 1)])
+            self.assertIsNotNone(latest)
+            assert latest is not None
+            self.assertEqual(latest.observed_at, date(2026, 5, 1))
+            self.assertEqual(stored, 3)
+
+    def test_point_in_time_replay_before_the_retraction_still_reads_the_observation(self) -> None:
+        """A replay must show what was believed then, not what is believed now."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "jp.foreign_flows")
+                insert_observations(
+                    conn,
+                    [
+                        _flow(
+                            series,
+                            date(2024, 8, 23),
+                            -408854431.0,
+                            datetime(2024, 8, 29, tzinfo=UTC),
+                        )
+                    ],
+                )
+                retract_observations(
+                    conn,
+                    "jp.foreign_flows",
+                    [date(2024, 8, 23)],
+                    vintage_at=datetime(2024, 9, 15, tzinfo=UTC),
+                )
+                conn.commit()
+
+                before = observations_in_range(
+                    conn,
+                    "jp.foreign_flows",
+                    date(2024, 8, 1),
+                    date(2024, 9, 30),
+                    point_in_time=True,
+                    vintage_on_or_before=date(2024, 9, 1),
+                )
+                after = observations_in_range(
+                    conn,
+                    "jp.foreign_flows",
+                    date(2024, 8, 1),
+                    date(2024, 9, 30),
+                    point_in_time=True,
+                    vintage_on_or_before=date(2024, 9, 30),
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual([item.value for item in before], [-408854431.0])
+            self.assertEqual(after, ())
+
+    def test_a_newer_provider_vintage_revives_a_retracted_observation(self) -> None:
+        """A source that asserts the date again outranks the retraction, which is correct."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                )
+                retract_observations(
+                    conn,
+                    "us.10y",
+                    [date(2026, 5, 1)],
+                    vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+                )
+                insert_observations(
+                    conn,
+                    [_rate(series, date(2026, 5, 1), 4.44, datetime(2026, 5, 20, tzinfo=UTC))],
+                )
+                conn.commit()
+
+                observations = observations_in_range(
+                    conn, "us.10y", date(2026, 5, 1), date(2026, 5, 1)
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual([item.value for item in observations], [4.44])
+
+    def test_delete_unchanged_vintages_keeps_a_retraction_of_an_identical_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                )
+                retract_observations(
+                    conn,
+                    "us.10y",
+                    [date(2026, 5, 1)],
+                    vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+                )
+                conn.commit()
+
+                deleted = delete_unchanged_vintages(conn, "us.10y")
+                observations = observations_in_range(
+                    conn, "us.10y", date(2026, 5, 1), date(2026, 5, 1)
+                )
+                stored = row_count(conn, "observations")
+            finally:
+                conn.close()
+
+            self.assertEqual(deleted, 0)
+            self.assertEqual(observations, ())
+            self.assertEqual(stored, 2)
+
+    def test_all_history_refresh_keeps_a_retraction_the_provider_does_not_redeliver(self) -> None:
+        """Otherwise the next push restores the retracted row and undoes the decision."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                series = get_series(conn, "jp.foreign_flows")
+                week = _flow(
+                    series, date(2026, 7, 3), 400343944.0, datetime(2026, 7, 9, tzinfo=UTC)
+                )
+                phantom = replace(
+                    week,
+                    observed_at=date(2026, 7, 9),
+                    period_start=date(2026, 7, 9),
+                    period_end=date(2026, 7, 9),
+                    vintage_at=datetime(2026, 7, 10, tzinfo=UTC),
+                )
+                insert_observations(conn, [week, phantom])
+                retract_observations(
+                    conn,
+                    "jp.foreign_flows",
+                    [date(2026, 7, 9)],
+                    vintage_at=datetime(2026, 7, 11, tzinfo=UTC),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[week],
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "refresh",
+                        "jp.foreign_flows",
+                        "--all-history",
+                        "--end",
+                        "2026-07-20",
+                        "--db",
+                        str(database),
+                    ]
+                )
+
+            conn = sqlite3.connect(database)
+            conn.row_factory = sqlite3.Row
+            try:
+                retractions = conn.execute(
+                    "SELECT COUNT(*) FROM observations WHERE fetch_status = ?",
+                    (RETRACTED_STATUS,),
+                ).fetchone()[0]
+                observations = observations_in_range(
+                    conn, "jp.foreign_flows", date(2026, 7, 1), date(2026, 7, 20)
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(retractions, 1)
+            self.assertEqual([item.observed_at for item in observations], [date(2026, 7, 3)])
+
+    def test_retraction_falls_back_to_the_vintage_underneath_it(self) -> None:
+        """A faulty writer stamping a wrong value over a good one must not cost the good one."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [
+                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
+                        _rate(series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC)),
+                    ],
+                )
+                outcomes = retract_observations(
+                    conn,
+                    "us.10y",
+                    [date(2026, 5, 1)],
+                    vintage_at=datetime(2026, 7, 27, tzinfo=UTC),
+                )
+                conn.commit()
+                observations = observations_in_range(
+                    conn, "us.10y", date(2026, 5, 1), date(2026, 5, 1)
+                )
+                stored = row_count(conn, "observations")
+            finally:
+                conn.close()
+
+            self.assertEqual(outcomes[0].withdrawn.value, 9.99)
+            self.assertIsNotNone(outcomes[0].restored)
+            assert outcomes[0].restored is not None
+            self.assertEqual(outcomes[0].restored.value, 4.39)
+            self.assertEqual([item.value for item in observations], [4.39])
+            self.assertEqual(stored, 3)
+
+    def test_a_restored_observation_survives_a_merge_of_the_store_it_came_from(self) -> None:
+        """The wrong vintage still exists on the other side; the fallback has to outrank it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "us.10y")
+                wrong = _rate(series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC))
+                insert_observations(
+                    conn,
+                    [
+                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
+                        wrong,
+                    ],
+                )
+                retract_observations(
+                    conn,
+                    "us.10y",
+                    [date(2026, 5, 1)],
+                    vintage_at=datetime(2026, 7, 27, tzinfo=UTC),
+                )
+                # A merge restores the row the other store still holds.
+                insert_observations(conn, [wrong], deduplicate_unchanged=False)
+                conn.commit()
+                observations = observations_in_range(
+                    conn, "us.10y", date(2026, 5, 1), date(2026, 5, 1)
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual([item.value for item in observations], [4.39])
+
+    def test_retract_refuses_a_date_the_store_never_observed(self) -> None:
+        """A retraction list that no longer matches the store is a stale list, not a no-op."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                with self.assertRaisesRegex(ValueError, "no observation to retract"):
+                    retract_observations(
+                        conn,
+                        "us.10y",
+                        [date(2026, 5, 1)],
+                        vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+                    )
+            finally:
+                conn.close()
+
+    def test_retracting_an_already_retracted_date_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                )
+                retract_observations(
+                    conn,
+                    "us.10y",
+                    [date(2026, 5, 1)],
+                    vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+                )
+                again = retract_observations(
+                    conn,
+                    "us.10y",
+                    [date(2026, 5, 1)],
+                    vintage_at=datetime(2026, 5, 11, tzinfo=UTC),
+                )
+                conn.commit()
+                stored = row_count(conn, "observations")
+            finally:
+                conn.close()
+
+            self.assertEqual(again, ())
+            self.assertEqual(stored, 2)
+
+    def test_retract_cli_names_every_observation_it_withdrew(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        "retract",
+                        "us.10y",
+                        "--observed-at",
+                        "2026-05-01",
+                        "--db",
+                        str(database),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("us.10y\t2026-05-01\twithdrawn\t4.39\t-", stdout.getvalue())
+            self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
+
+    def test_v5_to_v6_migration_keeps_every_fact_and_accepts_a_retraction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            _downgrade_fixture_to_v5(database)
+
+            migrated = open_connection(database)
+            try:
+                version = int(migrated.execute("PRAGMA user_version").fetchone()[0])
+                kept = row_count(migrated, "observations")
+                retract_observations(
+                    migrated,
+                    "us.10y",
+                    [date(2026, 5, 1)],
+                    vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+                )
+                migrated.commit()
+                observations = observations_in_range(
+                    migrated, "us.10y", date(2026, 5, 1), date(2026, 5, 1)
+                )
+            finally:
+                migrated.close()
+
+            self.assertEqual(version, SQLITE_SCHEMA_VERSION)
+            self.assertEqual(kept, 1)
+            self.assertEqual(observations, ())
+
+    def test_a_v5_store_rejects_a_retraction_before_it_is_migrated(self) -> None:
+        """The widened domain is what makes the retraction storable, so pin it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            _downgrade_fixture_to_v5(database)
+
+            legacy = sqlite3.connect(database)
+            legacy.row_factory = sqlite3.Row
+            try:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    retract_observations(
+                        legacy,
+                        "us.10y",
+                        [date(2026, 5, 1)],
+                        vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+                    )
+            finally:
+                legacy.close()
 
 
 class IndicatorsProviderParserTests(unittest.TestCase):
@@ -5296,6 +5719,86 @@ def _drop_v4_contract_triggers(connection: sqlite3.Connection) -> None:
         "validate_series_contract_before_update",
     ):
         connection.execute(f"DROP TRIGGER {trigger}")
+
+
+def _rate(
+    series: SeriesDefinition,
+    observed_at: date,
+    value: float,
+    vintage_at: datetime,
+) -> ObservationRecord:
+    return ObservationRecord(
+        series_id=series.series_id,
+        observed_at=observed_at,
+        value=value,
+        unit=series.unit,
+        source_url=series.source_url,
+        vintage_at=vintage_at,
+    )
+
+
+def _flow(
+    series: SeriesDefinition,
+    observed_at: date,
+    value: float,
+    vintage_at: datetime,
+) -> ObservationRecord:
+    return ObservationRecord(
+        series_id=series.series_id,
+        observed_at=observed_at,
+        value=value,
+        unit=series.unit,
+        source_url=series.source_url,
+        period_start=observed_at - timedelta(days=4),
+        period_end=observed_at,
+        vintage_at=vintage_at,
+    )
+
+
+def _downgrade_fixture_to_v5(database: Path) -> None:
+    """Rebuild `observations` under the v5 fetch_status domain, before 'retracted'."""
+
+    with sqlite3.connect(database) as connection:
+        trigger_sql = tuple(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                "AND name IN ("
+                "'validate_observation_plausibility_before_insert', "
+                "'validate_observation_plausibility_before_update', "
+                "'validate_series_contract_before_update'"
+                ") ORDER BY name"
+            )
+        )
+        connection.executescript(
+            """
+            DROP TRIGGER validate_observation_plausibility_before_insert;
+            DROP TRIGGER validate_observation_plausibility_before_update;
+            DROP TRIGGER validate_series_contract_before_update;
+            CREATE TABLE observations_v5(
+              series_id TEXT NOT NULL REFERENCES series(series_id),
+              observed_at TEXT NOT NULL,
+              period_start TEXT,
+              period_end TEXT,
+              value REAL NOT NULL,
+              unit TEXT NOT NULL,
+              vintage_at TEXT NOT NULL,
+              fetch_status TEXT NOT NULL,
+              source_url TEXT NOT NULL,
+              PRIMARY KEY(series_id, observed_at, vintage_at),
+              CHECK(fetch_status IN ('ok', 'failed', 'unreleased'))
+            );
+            INSERT INTO observations_v5 SELECT * FROM observations;
+            DROP TABLE observations;
+            ALTER TABLE observations_v5 RENAME TO observations;
+            CREATE INDEX idx_observations_series_date ON observations(series_id, observed_at);
+            CREATE INDEX idx_observations_series_status_date_vintage
+              ON observations(series_id, fetch_status, observed_at, vintage_at);
+            """
+        )
+        for statement in trigger_sql:
+            connection.execute(statement)
+        connection.execute("PRAGMA user_version = 5")
 
 
 def _downgrade_fixture_to_v4(
