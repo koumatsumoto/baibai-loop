@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import cache
 from pathlib import Path
@@ -25,7 +26,7 @@ from .base import (
 from .pmi_extraction import PmiExtractionError, extract_pmi_value
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
-_RELEASE_URL_RE = re.compile(
+RELEASE_URL_RE = re.compile(
     r"https://www\.pmi\.spglobal\.com/Public/Home/PressRelease/[0-9a-f]{32}\Z"
 )
 MAX_PMI_PDF_BYTES = 5 * 1024 * 1024
@@ -68,9 +69,9 @@ class SpGlobalPmiProvider:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
-        releases = load_manifest().get(series.provider_series_id)
+        releases = load_manifest(MANIFEST_PATH).get(series.provider_series_id)
         if releases is None:
-            supported = ", ".join(sorted(load_manifest()))
+            supported = ", ".join(sorted(load_manifest(MANIFEST_PATH)))
             raise IndicatorsProviderError(
                 f"spglobal_pmi has no release manifest for {series.provider_series_id!r}; "
                 f"supported: {supported}"
@@ -180,13 +181,13 @@ def _expected_newest_month(end: date) -> date:
     return month
 
 
+@dataclass(frozen=True, slots=True)
 class Release:
-    __slots__ = ("observed_at", "release_observed_at", "url")
+    """One month of a PMI stream and the release PDF it is read from."""
 
-    def __init__(self, observed_at: date, release_observed_at: date, url: str) -> None:
-        self.observed_at = observed_at
-        self.release_observed_at = release_observed_at
-        self.url = url
+    observed_at: date
+    release_observed_at: date
+    url: str
 
 
 def release_text(url: str, *, session: HttpSession, context: FetchContext | None) -> str:
@@ -240,7 +241,13 @@ def extract_pdf_text(content: bytes) -> str:
 
 
 @cache
-def load_manifest(path: Path = MANIFEST_PATH) -> dict[str, tuple[Release, ...]]:
+def load_manifest(path: Path) -> dict[str, tuple[Release, ...]]:
+    """The manifest at ``path``, parsed and validated.
+
+    The path is required rather than defaulted so one file cannot end up behind
+    two cache keys, which would let a caller read a copy the writer has replaced.
+    """
+
     raw = strict_safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or raw.get("schema_version") != 2:
         raise IndicatorsProviderError("PMI release manifest must use schema_version 2")
@@ -277,7 +284,7 @@ def _parse_stream(stream: str, entries: list[object]) -> tuple[Release, ...]:
             _entry_date(release_raw, stream=stream) if release_raw is not None else observed_at
         )
         url = entry.get("url")
-        if not isinstance(url, str) or _RELEASE_URL_RE.fullmatch(url) is None:
+        if not isinstance(url, str) or RELEASE_URL_RE.fullmatch(url) is None:
             raise IndicatorsProviderError(
                 f"PMI manifest {stream} {observed_at} has an invalid release URL: {url!r}"
             )

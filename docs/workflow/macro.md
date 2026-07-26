@@ -70,7 +70,7 @@ PMI は data API が無いため、月次 release URL の manifest（`src/baibai
 
 1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。final headline は公表後に改定されないため、同じ URL から取り直した月は同じ値になる。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 
-**新しい月の追記は `tools/append_pmi_manifest.py` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title で系列を同定し、PDF から期待月の headline が読めることを確かめてから manifest へ追記する。title の取り違えや publish 月と報告月のずれは「期待月の値が読めない」として落ちるので、検証を通った entry だけが書かれる。edge WAF が plain HTTP を challenge page で返す月は、PDF 経路と同じ headless browser で index を読み直す。書き込みは manifest を text として編集したうえで provider の loader で読み直し、schema を通らなければ元に戻す。追記後は `macro refresh` で該当月を取得して公表値と照合してから commit する。
+**新しい月の追記は `tools/append_pmi_manifest.py` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が headline をその月に結び付けていること**を確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title の取り違え・publish 月と報告月のずれは「期待月の値が読めない」として落ちる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `macro refresh` で該当月を取得して公表値と照合してから commit する。
 
 ```bash
 uv run python tools/append_pmi_manifest.py --dry-run   # 何が追記されるかだけ見る

@@ -77,6 +77,7 @@ from baibai_engine.macro.indicators.providers.pmi_extraction import (
     extract_pmi_value,
 )
 from baibai_engine.macro.indicators.providers.spglobal_pmi import (
+    MANIFEST_PATH,
     Release,
     SpGlobalPmiProvider,
     _parse_stream,
@@ -1929,7 +1930,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             extract_pdf_text(b"<html>blocked</html>")
 
     def test_spglobal_pmi_manifest_parses_jp_manufacturing_stream(self) -> None:
-        streams = load_manifest()
+        streams = load_manifest(MANIFEST_PATH)
 
         self.assertIn("jp_manufacturing", streams)
         entries = streams["jp_manufacturing"]
@@ -1946,7 +1947,11 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_spglobal_pmi_all_history_start_reaches_the_oldest_manifest_month(self) -> None:
         # `--all-history` clips to the provider's declared start, so a manifest month
         # older than that start would be unfetchable by the standard rebuild path.
-        oldest = min(entry.observed_at for entries in load_manifest().values() for entry in entries)
+        oldest = min(
+            entry.observed_at
+            for entries in load_manifest(MANIFEST_PATH).values()
+            for entry in entries
+        )
 
         self.assertLessEqual(SpGlobalPmiProvider.spec.all_history_start, oldest)
 
@@ -1971,7 +1976,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         # newly registered PMI series can never ship without its release URLs.
         from baibai_engine.macro.indicators.definitions import load_definitions
 
-        streams = set(load_manifest())
+        streams = set(load_manifest(MANIFEST_PATH))
         pmi_series = [s for s in load_definitions().series if s.provider == "spglobal_pmi"]
         self.assertTrue(pmi_series)
         for series in pmi_series:
