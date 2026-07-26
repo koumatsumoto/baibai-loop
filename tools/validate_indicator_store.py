@@ -13,6 +13,7 @@ from baibai_engine.macro.indicators.db import (
     DEFAULT_DB_PATH,
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
+    normalize_observation_unit,
     validate_current_schema,
 )
 from baibai_engine.macro.indicators.definitions import (
@@ -83,7 +84,12 @@ def validate_store(
             if series is None:
                 record(f"{identity}: series is absent from the current registry")
                 continue
-            if str(row["unit"]) != series.unit:
+            actual_unit = normalize_observation_unit(
+                series_id,
+                str(row["unit"]),
+                schema_version=schema_version,
+            )
+            if actual_unit != series.unit:
                 record(f"{identity}: unit {row['unit']!r}; expected {series.unit!r}")
                 continue
             value = float(row["value"])

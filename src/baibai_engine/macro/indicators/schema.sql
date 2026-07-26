@@ -122,4 +122,4 @@ CREATE TABLE IF NOT EXISTS provider_runs(
 CREATE INDEX IF NOT EXISTS idx_provider_runs_series_range
   ON provider_runs(series_id, range_start, range_end, status);
 
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;

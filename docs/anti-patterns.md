@@ -258,8 +258,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       全履歴・全 vintage が通ることを機械確認したか。複数行の途中違反を caller が catch 後に
       commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
       schema version 一致だけで通さないか。`foreign_keys=OFF` の直接writerでもunknown seriesを
-      拒否し、migration途中失敗は元versionへrollbackして再試行でき、registry generation /
-      prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
+      拒否し、migrationはwriter lock内の履歴preflightに成功してからversion・DDL・dataを原子的に
+      進めるか。cloud mergeは直前schemaのread-only sourceをrollout可能にし、同一fact keyの全payload
+      不一致・legacy unit正規化後の不一致・source/target域外値をtransaction前後で拒否するか。
+      registry generation / prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
 - [ ] macro registry の series ID 集合を変更する場合は membership generation digest を追記し、
       stale generation の refresh / merge 拒否、無許可 series DELETE trigger、件数集計から削除までの
       writer lock、pending / committed audit の各 negative testを通すか

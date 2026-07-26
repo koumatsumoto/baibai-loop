@@ -8,6 +8,7 @@ import unittest
 import zipfile
 from collections.abc import Mapping, Sequence
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -173,8 +174,12 @@ class IndicatorsDBTests(unittest.TestCase):
                     )
 
                 connection.set_authorizer(deny_alias_rename)
+                connection.execute("BEGIN IMMEDIATE")
                 with self.assertRaisesRegex(sqlite3.DatabaseError, "not authorized"):
-                    connection.executescript(indicators_db._MIGRATE_V1_TO_V2_SQL)
+                    indicators_db._execute_sql_statements(
+                        connection,
+                        indicators_db._MIGRATE_V1_TO_V2_SQL,
+                    )
                 connection.set_authorizer(None)
                 connection.rollback()
                 tables = {
@@ -276,6 +281,198 @@ class IndicatorsDBTests(unittest.TestCase):
             self.assertIn("plausible_max", columns)
             self.assertEqual(version, 3)
 
+    def test_v4_to_v5_migration_preflights_history_before_advancing_schema(self) -> None:
+        canonical = load_definitions().by_id()["us.10y"]
+        wide = replace(canonical, plausible_max=1000.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            connection = initialize_database(
+                database,
+                definitions=IndicatorDefinitions(series=(wide,)),
+            )
+            try:
+                insert_observations(
+                    connection,
+                    [_obs("us.10y", date(2026, 5, 1), 999.0)],
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            _downgrade_fixture_to_v4(database)
+
+            with self.assertRaisesRegex(
+                IndicatorsSchemaError,
+                r"us\.10y 2026-05-01.*outside plausible range",
+            ):
+                open_connection(
+                    database,
+                    definitions=IndicatorDefinitions(series=(canonical,)),
+                )
+
+            with sqlite3.connect(database) as connection:
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                value = connection.execute(
+                    "SELECT value FROM observations WHERE series_id = 'us.10y'"
+                ).fetchone()[0]
+                triggers = {
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+                    )
+                }
+            self.assertEqual(version, 4)
+            self.assertEqual(value, 999.0)
+            self.assertIn("validate_observation_plausibility_before_insert", triggers)
+
+    def test_v4_to_v5_migration_relabels_foreign_flow_without_rescaling(self) -> None:
+        definition = load_definitions().by_id()["jp.foreign_flows"]
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            connection = initialize_database(
+                database,
+                definitions=IndicatorDefinitions(series=(definition,)),
+            )
+            try:
+                insert_observations(
+                    connection,
+                    [
+                        ObservationRecord(
+                            series_id=definition.series_id,
+                            observed_at=date(2024, 1, 26),
+                            value=405_492_743.0,
+                            unit=definition.unit,
+                            source_url=definition.source_url,
+                            vintage_at=datetime(2024, 2, 1, tzinfo=UTC),
+                        )
+                    ],
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            _downgrade_fixture_to_v4(database, legacy_foreign_flow_unit=True)
+
+            migrated = open_connection(
+                database,
+                definitions=IndicatorDefinitions(series=(definition,)),
+            )
+            try:
+                row = migrated.execute(
+                    "SELECT value, unit FROM observations WHERE series_id = 'jp.foreign_flows'"
+                ).fetchone()
+            finally:
+                migrated.close()
+
+            self.assertEqual(tuple(row), (405_492_743.0, "jpy-thousand"))
+            with (
+                patch("baibai_engine.macro.indicators.db.SQLITE_SCHEMA_VERSION", 4),
+                self.assertRaisesRegex(
+                    IndicatorsSchemaError,
+                    "unsupported indicator SQLite schema: 5; expected 4",
+                ),
+            ):
+                open_connection(database)
+
+    def test_v4_to_v5_migration_rejects_changed_trigger_without_repairing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            initialize_database(database).close()
+            _downgrade_fixture_to_v4(database)
+            with sqlite3.connect(database) as connection:
+                connection.execute("DROP TRIGGER validate_observation_plausibility_before_insert")
+                connection.execute(
+                    "CREATE TRIGGER validate_observation_plausibility_before_insert "
+                    "BEFORE INSERT ON observations BEGIN SELECT 1; END"
+                )
+                trigger_sql_before = connection.execute(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type = 'trigger' "
+                    "AND name = 'validate_observation_plausibility_before_insert'"
+                ).fetchone()[0]
+
+            with self.assertRaisesRegex(
+                IndicatorsSchemaError,
+                r"trigger contract mismatch.*changed",
+            ):
+                open_connection(database)
+
+            with sqlite3.connect(database) as connection:
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                trigger_sql_after = connection.execute(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type = 'trigger' "
+                    "AND name = 'validate_observation_plausibility_before_insert'"
+                ).fetchone()[0]
+            self.assertEqual(version, 4)
+            self.assertEqual(trigger_sql_after, trigger_sql_before)
+
+    def test_v4_to_v5_migration_rejects_orphan_provider_run_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            initialize_database(database).close()
+            _downgrade_fixture_to_v4(database)
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO provider_runs(
+                      run_id, provider, series_id, range_start, range_end,
+                      started_at, finished_at, status, record_count, error_message
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "orphan-run",
+                        "test",
+                        "missing.series",
+                        "2026-01-01",
+                        "2026-01-31",
+                        "2026-02-01T00:00:00+00:00",
+                        "2026-02-01T00:00:01+00:00",
+                        "ok",
+                        0,
+                        None,
+                    ),
+                )
+
+            with self.assertRaisesRegex(
+                IndicatorsSchemaError,
+                r"foreign key contract is invalid.*provider_runs",
+            ):
+                open_connection(database)
+
+            with sqlite3.connect(database) as connection:
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                orphan_count = connection.execute(
+                    "SELECT COUNT(*) FROM provider_runs WHERE run_id = 'orphan-run'"
+                ).fetchone()[0]
+            self.assertEqual(version, 4)
+            self.assertEqual(orphan_count, 1)
+
+    def test_legacy_unit_normalization_is_bounded_to_released_schemas(self) -> None:
+        self.assertEqual(
+            indicators_db.normalize_observation_unit(
+                "jp.foreign_flows",
+                "jpy",
+                schema_version=4,
+            ),
+            "jpy-thousand",
+        )
+        self.assertEqual(
+            indicators_db.normalize_observation_unit(
+                "jp.foreign_flows",
+                "jpy",
+                schema_version=5,
+            ),
+            "jpy",
+        )
+        with patch("baibai_engine.macro.indicators.db.SQLITE_SCHEMA_VERSION", 6):
+            self.assertEqual(
+                indicators_db.normalize_observation_unit(
+                    "jp.foreign_flows",
+                    "jpy",
+                    schema_version=5,
+                ),
+                "jpy",
+            )
+
     def test_open_connection_preserves_series_removed_from_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
@@ -346,7 +543,7 @@ class IndicatorsDBTests(unittest.TestCase):
                             series_id="jp.foreign_flows",
                             observed_at=date(2024, 8, 23),
                             value=value,
-                            unit="jpy",
+                            unit="jpy-thousand",
                             source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
                             period_start=date(2024, 8, 19),
                             period_end=date(2024, 8, 23),
@@ -912,7 +1109,7 @@ class IndicatorsDBTests(unittest.TestCase):
                             series_id="jp.foreign_flows",
                             observed_at=date(2024, 8, 23),
                             value=value,
-                            unit="jpy",
+                            unit="jpy-thousand",
                             source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
                             period_start=date(2024, 8, 19),
                             period_end=date(2024, 8, 23),
@@ -1300,8 +1497,19 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         self.assertIsNone(value)
 
+    def test_extract_pmi_value_accepts_full_diffusion_index_domain(self) -> None:
+        for expected in (0.0, 9.9, 21.5, 70.4, 100.0):
+            with self.subTest(expected=expected):
+                value = extract_pmi_value(
+                    f"the headline PMI posted {expected:.1f} in June.",
+                    expected_observed_at=date(2026, 6, 1),
+                    release_observed_at=date(2026, 6, 1),
+                )
+
+                self.assertEqual(value, expected)
+
     def test_extract_pmi_value_rejects_implausible_reading(self) -> None:
-        text = "the headline PMI collapsed to 12.3 in June, an unprecedented reading."
+        text = "the headline PMI surged to 101.0 in June, an unprecedented reading."
 
         with self.assertRaisesRegex(PmiExtractionError, "outside plausible range"):
             extract_pmi_value(
@@ -2853,7 +3061,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(_split_stats_data_id("0003427113"), ("0003427113", {}))
 
     def test_parse_trades_spec_filters_range_and_uses_foreign_balance(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
         rows = [
             {
                 "PubDate": "2026-05-08",
@@ -2895,10 +3103,10 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(observations[0].vintage_at, datetime(2026, 5, 8, tzinfo=UTC))
         self.assertEqual(observations[1].observed_at, date(2026, 5, 9))
         self.assertEqual(observations[1].value, -800.0)
-        self.assertEqual(observations[0].unit, "jpy")
+        self.assertEqual(observations[0].unit, "jpy-thousand")
 
     def test_parse_trades_spec_falls_back_to_purchases_minus_sales(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
         rows = [{"PubDate": "2026-05-08", "FrgnBuy": 1500, "FrgnSell": 1000}]
 
         observations = parse_trades_spec(series, rows, start=date(2026, 5, 8), end=date(2026, 5, 8))
@@ -2909,7 +3117,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_parse_trades_spec_keeps_each_period_for_duplicate_publication_date(
         self,
     ) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
         rows = [
             {
                 "PubDate": "2024-09-10",
@@ -2945,7 +3153,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(observations[1].vintage_at, datetime(2024, 9, 10, tzinfo=UTC))
 
     def test_parse_trades_spec_rejects_missing_foreign_columns(self) -> None:
-        series = _series("jquants_flows", "foreigners_net_value", unit="jpy")
+        series = _series("jquants_flows", "foreigners_net_value", unit="jpy-thousand")
         rows = [{"PubDate": "2026-05-08", "Section": "TSEPrime"}]
 
         with self.assertRaisesRegex(IndicatorsProviderError, "missing"):
@@ -3724,7 +3932,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                             series_id="jp.foreign_flows",
                             observed_at=observed_at,
                             value=1.0,
-                            unit="jpy",
+                            unit="jpy-thousand",
                             source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
                             vintage_at=vintage_at,
                         )
@@ -3742,7 +3950,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                 series_id="jp.foreign_flows",
                 observed_at=date(2025, 12, 26),
                 value=1.0,
-                unit="jpy",
+                unit="jpy-thousand",
                 source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
                 vintage_at=datetime(2026, 1, 1, tzinfo=UTC),
             )
@@ -4657,6 +4865,36 @@ def _drop_v4_contract_triggers(connection: sqlite3.Connection) -> None:
         "validate_series_contract_before_update",
     ):
         connection.execute(f"DROP TRIGGER {trigger}")
+
+
+def _downgrade_fixture_to_v4(
+    database: Path,
+    *,
+    legacy_foreign_flow_unit: bool = False,
+) -> None:
+    with sqlite3.connect(database) as connection:
+        trigger_sql = tuple(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                "AND name IN ("
+                "'validate_observation_plausibility_before_insert', "
+                "'validate_observation_plausibility_before_update', "
+                "'validate_series_contract_before_update'"
+                ") ORDER BY name"
+            )
+        )
+        _drop_v4_contract_triggers(connection)
+        if legacy_foreign_flow_unit:
+            connection.execute(
+                "UPDATE observations SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
+            )
+            connection.execute(
+                "UPDATE series SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
+            )
+        for statement in trigger_sql:
+            connection.execute(statement)
+        connection.execute("PRAGMA user_version = 4")
 
 
 def _retired_counts(database: Path) -> tuple[int, int, int]:

@@ -8,6 +8,7 @@ import pytest
 from tools.validate_indicator_store import validate_store
 
 from baibai_engine.macro.indicators.db import (
+    SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
     ObservationRecord,
     initialize_database,
@@ -74,7 +75,7 @@ def test_validate_store_accepts_every_stored_vintage_within_registry_contract(
     )
 
     assert report.valid
-    assert report.schema_version == 4
+    assert report.schema_version == SQLITE_SCHEMA_VERSION
     assert report.registry_series == 1
     assert report.observations == 1
 
