@@ -12,9 +12,11 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from .base import IndicatorsProviderError
 
-# A real Chromium navigation is required for sources whose edge WAF gates plain
-# HTTP clients (S&P Global PMI PDFs, Nikkei / NBS valuation pages). One launch is
-# shared across every browser-backed series in a run via FetchContext.
+# A real Chromium navigation is required where an edge WAF answers a plain HTTP
+# client with a challenge page carrying a 200: the S&P Global PMI release PDFs and
+# the press-release index the manifest append reads. A source that merely checks the
+# User-Agent does not need this and sends that header from the plain client instead.
+# One launch is shared across every browser-backed fetch in a run via FetchContext.
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -25,7 +27,12 @@ _MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
 
 
 class BrowserFetcher:
-    """Lazily-launched headless Chromium for WAF-gated fetches (PDF and HTML).
+    """Lazily-launched headless Chromium for WAF-gated fetches.
+
+    Two callers need it, and each needs a different result: the PMI provider
+    downloads a release PDF (:meth:`fetch_pdf`), and the manifest append reads the
+    press-release index (:meth:`fetch_html`). Both are gated by the same edge, so
+    both fall back here after the plain client is answered with a challenge page.
 
     The browser starts on first use and is reused for every fetch in the run, so
     a batch that refreshes several browser-backed series pays one launch. All
