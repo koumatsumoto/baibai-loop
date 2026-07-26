@@ -45,8 +45,14 @@ def macro_latest_observed_at(path: Path) -> date | None:
     connection = connect_read_only(path)
     try:
         rows = connection.execute(
-            "SELECT series_id, max(observed_at) FROM observations "
-            "WHERE fetch_status = 'ok' GROUP BY series_id"
+            # A retracted date is not an observation any consumer reads, so it must not
+            # be what the freshness badge dates the store by.
+            "SELECT o.series_id, max(o.observed_at) FROM observations o "
+            "WHERE o.fetch_status = 'ok' AND o.vintage_at = ("
+            "SELECT max(i.vintage_at) FROM observations i "
+            "WHERE i.series_id = o.series_id AND i.observed_at = o.observed_at "
+            "AND i.fetch_status IN ('ok', 'retracted')"
+            ") GROUP BY o.series_id"
         ).fetchall()
     finally:
         connection.close()

@@ -262,6 +262,13 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       進めるか。cloud mergeは直前schemaのread-only sourceをrollout可能にし、同一fact keyの全payload
       不一致・legacy unit正規化後の不一致・source/target域外値をtransaction前後で拒否するか。
       registry generation / prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
+- [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
+      no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」
+      無音の失敗になる。retraction を入れたら、store 書き換え（`trim_before_first` /
+      `remove_other_sources` / `range_replacement` の全 DELETE）が retraction を残すこと、
+      provider の再配信で復活すること、`delete_unchanged_vintages` が消さないこと、
+      merge round-trip で両 store に伝播すること、PIT replay では retraction 前の vintage が
+      見え続けることを、それぞれ test で固定したか
 - [ ] macro registry の series ID 集合を変更する場合は membership generation digest を追記し、
       stale generation の refresh / merge 拒否、無許可 series DELETE trigger、件数集計から削除までの
       writer lock、pending / committed audit の各 negative testを通すか

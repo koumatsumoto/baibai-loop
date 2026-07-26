@@ -8,10 +8,13 @@ import pytest
 
 from baibai_engine.macro.indicators.db import (
     ObservationRecord,
+    get_series,
     initialize_database,
     insert_observations,
+    retract_observations,
 )
 from baibai_engine.macro.reading.rules import ReadingRulesError
+from baibai_engine.read_api.freshness import macro_latest_observed_at
 from baibai_engine.read_api.macro import (
     MacroGranularity,
     macro_indicator_series,
@@ -275,6 +278,47 @@ def test_macro_indicator_series_hides_retained_unregistered_metadata(tmp_path: P
             ).fetchone()[0]
             == 1
         )
+
+
+def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path: Path) -> None:
+    """A withdrawn observation is not a point on the chart, nor the date the store is fresh to."""
+
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        series = get_series(connection, "us.10y")
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=observed_at,
+                    value=value,
+                    unit=series.unit,
+                    source_url=series.source_url,
+                    vintage_at=datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
+                )
+                for observed_at, value in (
+                    (date(2026, 5, 1), 4.39),
+                    (date(2026, 5, 4), 4.41),
+                )
+            ],
+        )
+        retract_observations(
+            connection,
+            "us.10y",
+            [date(2026, 5, 4)],
+            vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    chart = macro_indicator_series(database, series_id="us.10y", granularity="daily")
+
+    assert chart is not None
+    assert chart["points"] == [{"observed_at": "2026-05-01", "value": 4.39}]
+    assert macro_latest_observed_at(database) == date(2026, 5, 1)
 
 
 def _points(

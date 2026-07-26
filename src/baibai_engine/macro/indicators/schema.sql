@@ -55,7 +55,11 @@ CREATE TABLE IF NOT EXISTS observations(
   fetch_status TEXT NOT NULL,
   source_url TEXT NOT NULL,
   PRIMARY KEY(series_id, observed_at, vintage_at),
-  CHECK(fetch_status IN ('ok', 'failed', 'unreleased'))
+  -- 'retracted' is how a wrong observation leaves the reads without leaving the store.
+  -- Deleting it does not hold: the cloud merge restores every fact either side has, so
+  -- the row returns on the next push. Stacking a retraction at a newer vintage says the
+  -- newest thing known about that observation date is that it must not be read.
+  CHECK(fetch_status IN ('ok', 'failed', 'unreleased', 'retracted'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_observations_series_date
@@ -122,4 +126,4 @@ CREATE TABLE IF NOT EXISTS provider_runs(
 CREATE INDEX IF NOT EXISTS idx_provider_runs_series_range
   ON provider_runs(series_id, range_start, range_end, status);
 
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
