@@ -92,9 +92,3 @@ def provider_spec(name: str) -> ProviderSpec:
 
 def registered_specs() -> tuple[ProviderSpec, ...]:
     return tuple(provider.spec for provider in _PROVIDERS.values())
-
-
-def point_in_time_providers() -> frozenset[str]:
-    """Provider names whose reads clamp to observations published on/before the cutoff."""
-
-    return frozenset(spec.name for spec in registered_specs() if spec.point_in_time_vintage)

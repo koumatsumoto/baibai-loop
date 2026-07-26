@@ -8,18 +8,17 @@ from baibai_engine.foundation.env import load_project_env
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
+from ..read_contracts import JQUANTS_FLOWS_SPEC
 from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
-    ProviderSpec,
     parse_float,
 )
 
 # screening と同じ資格情報を使う。env 名は screening 側 (ScreeningConfig.from_env が読む
 # "JQUANTS_API_KEY") と一致させ、indicators 用に別 secret を増やさない。
-# Env var name (a credential key, not a secret value); B105 false positive.
-_API_KEY_ENV = "JQUANTS_API_KEY"  # nosec B105
+_API_KEY_ENV = JQUANTS_FLOWS_SPEC.required_env[0]
 
 # 投資部門別売買状況は市場区分ごとに 1 週 1 行を返す。区分を絞らないと同一週に複数区分が
 # 並んで単一時系列にならないため、海外勢フローが最も効く東証プライムに固定する。
@@ -61,13 +60,7 @@ class JQuantsFlowsProvider:
     認証と取得だけを行い、解析は純粋関数 parse_trades_spec に委譲する。
     """
 
-    spec = ProviderSpec(
-        name="jquants_flows",
-        all_history_rolling_years=5,
-        range_replacement="through_end_vintage",
-        point_in_time_vintage=True,
-        required_env=(_API_KEY_ENV,),
-    )
+    spec = JQUANTS_FLOWS_SPEC
     name = spec.name
 
     def fetch(

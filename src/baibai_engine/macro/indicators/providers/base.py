@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -10,6 +9,8 @@ import requests
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
+from ..provider_specs import ProviderSpec as ProviderSpec
+from ..provider_specs import RangeReplacementPolicy as RangeReplacementPolicy
 
 if TYPE_CHECKING:
     from .browser import BrowserFetcher
@@ -29,56 +30,10 @@ type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
 # fetch context: a rebuild re-reads observations the store already holds, and a
 # source-currency guard fails a refresh or rebuild but never blocks a read.
 type FetchPurpose = Literal["read", "refresh", "rebuild"]
-type RangeReplacementPolicy = Literal["none", "through_end_vintage", "all_vintages"]
 
 
 class IndicatorsProviderError(RuntimeError):
     """Raised when an indicator provider cannot return requested observations."""
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProviderSpec:
-    """A provider's fetch/store capabilities, declared next to its parser.
-
-    The service reads behavior from this spec instead of branching on the
-    provider name, so adding a provider means writing one module (parser + spec)
-    and registering it once — no edits to the service or store layers.
-    """
-
-    name: str
-    # ``http`` fetches from an external source; ``local`` computes from other
-    # stored series (derived). The batch refreshes every ``http`` series before
-    # any ``local`` one so a derived series reads fresh inputs.
-    kind: Literal["http", "local"] = "http"
-    # All-history refresh floor. ``all_history_start`` is the reproducible fixed
-    # start a bulk source exposes; ``all_history_rolling_years`` derives the floor
-    # from today instead (a licensed rolling window such as J-Quants Light's 5
-    # years).
-    all_history_start: date | None = None
-    all_history_rolling_years: int | None = None
-    # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops
-    # observations older than the first the provider returns (FRED's licensed
-    # window defines its reproducible start). ``range_replacement`` controls
-    # all-history replacement: point-in-time sources delete only vintages known by
-    # the requested end, while recomputable outputs discard every old vintage in
-    # the range because the current formula supersedes the old observation grid.
-    trim_before_first: bool = False
-    range_replacement: RangeReplacementPolicy = "none"
-    # A provider can opt only formulas whose observation grid is intentionally
-    # replaceable into a stronger policy. Keys are provider_series_id values.
-    range_replacement_overrides: Mapping[str, RangeReplacementPolicy] = field(default_factory=dict)
-    # Reads clamp to observations whose vintage is on/before the read cutoff, so a
-    # publish-lagged series stays point-in-time correct (J-Quants weekly flows).
-    point_in_time_vintage: bool = False
-    # Credential env var names required to fetch (diagnostics only; values are
-    # read from the environment by the provider, never stored in the registry).
-    required_env: tuple[str, ...] = field(default=())
-
-    def range_replacement_for(self, series: SeriesDefinition) -> RangeReplacementPolicy:
-        return self.range_replacement_overrides.get(
-            series.provider_series_id,
-            self.range_replacement,
-        )
 
 
 class FetchContext:

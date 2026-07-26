@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..read_contracts import point_in_time_providers
 from .base import (
     FetchContext,
     HttpSession,
@@ -19,7 +20,6 @@ from .mof_jgb import parse_mof_jgb_csv
 from .multpl import parse_multpl_current, parse_multpl_history
 from .registry import (
     fetch_observations,
-    point_in_time_providers,
     provider_spec,
     registered_specs,
     resolve_provider,

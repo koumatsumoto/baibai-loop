@@ -15,6 +15,7 @@ from baibai_engine.macro.indicators.definitions import load_definitions
 
 from .compute import compute_reading
 from .models import ReadingSnapshot, SeriesReading, snapshot_payload
+from .reader import build_store_observation_reader
 from .rules import DEFAULT_RULES_PATH, ReadingRulesError, load_reading_rules, rules_revision
 
 
@@ -31,12 +32,14 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         rules = load_reading_rules(args.rules)
+        definitions = load_definitions()
         conn = indicators_db.open_read_only_connection(args.db)
         try:
             snapshot = compute_reading(
-                series=load_definitions().series,
-                reader=lambda series_id, start, end: indicators_db.observations_in_range(
-                    conn, series_id, start, end
+                series=definitions.series,
+                reader=build_store_observation_reader(
+                    conn,
+                    series=definitions.series,
                 ),
                 rules=rules,
                 rules_revision=rules_revision(args.rules),
