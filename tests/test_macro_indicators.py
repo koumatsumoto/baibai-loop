@@ -86,6 +86,30 @@ from baibai_engine.macro.reading.cli import main as reading_main
 
 
 class IndicatorsDBTests(unittest.TestCase):
+    def test_read_only_connection_encodes_uri_metacharacters_and_rejects_writes(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            real_db = directory / "real.sqlite"
+            initialize_database(real_db).close()
+            crafted = directory / "real.sqlite?mode=rw&x="
+            crafted.touch()
+
+            connection = indicators_db.open_read_only_connection(crafted)
+            try:
+                with self.assertRaises(sqlite3.OperationalError):
+                    connection.execute("CREATE TABLE write_probe(value INTEGER)")
+            finally:
+                connection.close()
+
+            with sqlite3.connect(real_db) as check:
+                self.assertIsNone(
+                    check.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name = 'write_probe'"
+                    ).fetchone()
+                )
+
     def test_initialize_database_seeds_series_and_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"

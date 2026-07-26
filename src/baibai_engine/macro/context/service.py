@@ -7,16 +7,23 @@ contract cannot express is not a report the current consumers may read.
 
 from __future__ import annotations
 
+import shlex
 import sqlite3
 from contextlib import closing
 from datetime import date
 from pathlib import Path
 
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as READING_RULES_PATH
 
-from .models import MACRO_CONTEXT_SCHEMA_VERSION, MacroContextDocument
+from .models import (
+    MACRO_CONTEXT_SCHEMA_VERSION,
+    MacroContextDocument,
+    ScorecardSnapshotInput,
+)
+from .scorecard import evaluate_scorecard_from_stores
 
 
 class MacroContextConflictError(ValueError):
@@ -58,6 +65,12 @@ class MacroContextService:
                     raise MacroContextConflictError(
                         f"context_id already exists: {document.context_id}"
                     )
+                _require_previous_scorecard_snapshot(
+                    document,
+                    previous_context_id=current,
+                    previous_context_as_of=_context_as_of(connection, current),
+                    application_db=database_path(self._db_path).resolve(),
+                )
                 connection.execute(
                     """
                     INSERT INTO macro_context (
@@ -145,11 +158,118 @@ def _require_known_reading_revisions(document: MacroContextDocument) -> None:
         for reading in document.inputs.reading_snapshots
         if reading.status == "ok"
     }
+    cited.update(
+        snapshot.rules_revision
+        for snapshot in document.inputs.machine_snapshots
+        if isinstance(snapshot, ScorecardSnapshotInput) and snapshot.status == "ok"
+    )
     unknown = sorted(cited - known)
     if unknown:
         raise MacroContextConflictError(
             "cited macro reading revision does not exist: " + ", ".join(unknown)
         )
+
+
+def _require_previous_scorecard_snapshot(
+    document: MacroContextDocument,
+    *,
+    previous_context_id: str | None,
+    previous_context_as_of: date | None,
+    application_db: Path,
+) -> None:
+    """Require every revision after the first to cite its predecessor's scorecard."""
+
+    if (
+        previous_context_id is None
+        or previous_context_as_of is None
+        or document.as_of <= previous_context_as_of
+    ):
+        return
+    candidates: list[ScorecardSnapshotInput] = []
+    for snapshot in document.inputs.machine_snapshots:
+        if not isinstance(snapshot, ScorecardSnapshotInput):
+            continue
+        if (
+            snapshot.context_id == previous_context_id
+            and snapshot.snapshot_asof == document.as_of
+            and snapshot.status == "ok"
+            and Path(snapshot.context_db).resolve() == application_db
+            and _is_canonical_scorecard_snapshot(snapshot)
+        ):
+            candidates.append(snapshot)
+    if len(candidates) != 1:
+        raise MacroContextConflictError(
+            "a macro context revision must include exactly one successful scorecard "
+            f"snapshot for previous context {previous_context_id} at asof {document.as_of}"
+        )
+
+    snapshot = candidates[0]
+    if document.core[0].previous_scorecard_snapshot_id != snapshot.input_id:
+        raise MacroContextConflictError(
+            "the regime summary previous_scorecard_snapshot_id must reference "
+            "the previous scorecard snapshot input"
+        )
+    rules_path = READING_RULES_PATH.parent / f"{snapshot.rules_revision}.yaml"
+    recomputed = evaluate_scorecard_from_stores(
+        context_db=application_db,
+        indicators_db_path=Path(snapshot.indicators_db),
+        context_id=previous_context_id,
+        asof=document.as_of,
+        accessed_at=document.published_at,
+        rules_path=rules_path,
+    )
+    if (
+        recomputed.machine_snapshot.result_digest != snapshot.result_digest
+        or recomputed.machine_snapshot.input_id != snapshot.input_id
+    ):
+        raise MacroContextConflictError(
+            "previous scorecard snapshot identity does not match a read-only recomputation"
+        )
+
+
+def _is_canonical_scorecard_snapshot(snapshot: ScorecardSnapshotInput) -> bool:
+    indicators_db = Path(snapshot.indicators_db).resolve()
+    rules_path = (READING_RULES_PATH.parent / f"{snapshot.rules_revision}.yaml").resolve()
+    expected = shlex.join(
+        (
+            "baibai-engine",
+            "macro",
+            "context",
+            "--db",
+            str(Path(snapshot.context_db).resolve()),
+            "scorecard",
+            "--context-id",
+            snapshot.context_id,
+            "--asof",
+            snapshot.snapshot_asof.isoformat(),
+            "--indicators-db",
+            str(indicators_db),
+            "--rules",
+            str(rules_path),
+            "--format",
+            "json",
+        )
+    )
+    return (
+        snapshot.command == expected
+        and Path(snapshot.context_db).is_absolute()
+        and Path(snapshot.indicators_db).is_absolute()
+        and indicators_db.is_file()
+        and rules_path.is_file()
+    )
+
+
+def _context_as_of(
+    connection: sqlite3.Connection,
+    context_id: str | None,
+) -> date | None:
+    if context_id is None:
+        return None
+    row = connection.execute(
+        "SELECT as_of FROM macro_context WHERE context_id = ?",
+        (context_id,),
+    ).fetchone()
+    return None if row is None else date.fromisoformat(str(row[0]))
 
 
 def _current_head_id(connection: sqlite3.Connection) -> str | None:

@@ -589,10 +589,13 @@ def open_read_only_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connec
     also prevents those non-destructive writes for immutable consumers.
     """
 
-    if not db_path.exists():
-        raise IndicatorsSchemaError(f"indicators store not found: {db_path}")
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    resolved = db_path.resolve()
+    if not resolved.exists():
+        raise IndicatorsSchemaError(f"indicators store not found: {resolved}")
+    conn = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only = ON")
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -796,11 +799,13 @@ def observations_in_range(
     end: date,
     *,
     point_in_time: bool = False,
+    vintage_on_or_before: date | None = None,
 ) -> tuple[ObservationRecord, ...]:
-    # ``point_in_time`` clamps to observations published on/before ``end`` so a
-    # publish-lagged series stays point-in-time correct; otherwise the latest
-    # vintage of each observed_at is returned regardless of publication date.
+    # ``point_in_time`` clamps to observations published by the explicit vintage
+    # cutoff, or by ``end`` when the caller uses one date for both dimensions.
+    # Non-point-in-time providers still return the latest acquisition vintage.
     end_text = end.isoformat()
+    vintage_text = (vintage_on_or_before or end).isoformat()
     pit = 1 if point_in_time else 0
     rows = conn.execute(
         "SELECT o.* FROM observations o "
@@ -815,7 +820,15 @@ def observations_in_range(
         "AND inner_o.fetch_status = 'ok' "
         "AND (NOT ? OR substr(inner_o.vintage_at, 1, 10) <= ?)"
         ") ORDER BY o.observed_at",
-        (series_id, start.isoformat(), end_text, pit, end_text, pit, end_text),
+        (
+            series_id,
+            start.isoformat(),
+            end_text,
+            pit,
+            vintage_text,
+            pit,
+            vintage_text,
+        ),
     ).fetchall()
     return tuple(_observation_from_row(row) for row in rows)
 

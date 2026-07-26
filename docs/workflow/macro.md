@@ -173,7 +173,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 - `context_id` / `as_of` / `published_at`。`as_of`は**市場データの最終完全営業日**にする（著述日ではない）。screening selectはpoint-in-time整合のため`as_of ≤ selection ASOF`のcontextだけをbindするので、週末・祝日に書くcontextの`as_of`を著述日にすると直近ASOFのselectへ恒常的にbindされない
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
-- `inputs.machine_snapshots`：引用した自前コマンドの決定論出力（`screening market-snapshot` 等）。一意な `input_id`、`command` / `snapshot_asof` / `observation_as_of` / `accessed_at` / `status` / `used_for`。**自前出力は記事ではない**ので `inputs.articles` へ入れない：発行者も URL も無く、コマンドと訊ねた日付が identity である（記事枠へ入れると定義 doc の URL が数値の出所として読まれる）。`snapshot_asof` は as_of より未来にできず、`observation_as_of`（実際に使った最終市場日）はその as_of を超えられない
+- `inputs.machine_snapshots`：引用した自前コマンドの決定論出力（`screening market-snapshot` 等）。一意な `input_id`、`command` / `snapshot_asof` / `observation_as_of` / `accessed_at` / `status` / `used_for`。**自前出力は記事ではない**ので `inputs.articles` へ入れない：発行者も URL も無く、コマンドと訊ねた日付が identity である（記事枠へ入れると定義 doc の URL が数値の出所として読まれる）。`snapshot_asof` は as_of より未来にできず、`observation_as_of`（実際に使った最終市場日）はその as_of を超えられない。scorecard は専用 snapshot 契約で context / rules revision / 両 store / result digest も固定し、観測を 1 件も使わない pending-only 結果だけ `observation_as_of: null` を許す
 - `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する。`reading_asof` は as_of より未来でも 7 日より古くてもならず（reading は任意の as_of で再計算できるので、レポートは自分の as_of の reading を引く）、`rules_revision` は `method/macro-reading/` に実在する revision でなければ publish されない
 - core の各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ。connection セクションは`economic_connection`を持たず、代わりに`core_section_ids`とループ固有の項目を持つ
 - `material_deltas`：core セクション2〜8の判断として置く。channel / direction / materiality / used_forを持ち、レポート全体で最低1つ必要
@@ -202,7 +202,9 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 狙いは予測精度の測定ではなく、**機械照合できる条件でしか書けなくすることでシナリオの記述品質を事前に縛る**ことである。「金融環境が引き締まれば」のような採点不能な条件は書けなくなる。定例が無くても、次のレポートがいつになっても L1 履歴から遡って採点できる。
 
-採点は次のレポート作成時にレジーム要約へ接続する。ただし **前回の採点は今回の解釈の前提にしない**：今回の評価をゼロベースで確定したあとに、採点結果を fact として接続する（後述の分析の独立性）。
+採点は次のレポート作成時に `baibai-engine macro context scorecard --context-id <前回id> --asof <今回asof> --format json` で L1 履歴と機械照合し、出力の `machine_snapshot` を inputs に引用して、その `input_id` をレジーム要約の `previous_scorecard_snapshot_id` へ置く。ただし **前回の採点は今回の解釈の前提にしない**：今回の評価をゼロベースで確定したあとに、採点結果を fact として接続する（後述の分析の独立性）。採点専用 ledger は持たず、発行済み revision の `previous_scorecard_review` と structured snapshot reference がその時点の latest-known-data による採点を固定する。将来の較正はこの固定済み review を横断集計し、コマンドの再実行は current store での再評価として区別する。
+
+scorecard はレポート `as_of` の翌日から各条件の期限日までを評価する。期限内の最初の成立を `met`、期限後に公表待ちを含む保守的な settlement watermark を越えても不成立なら `not_met`、それまでは `pending` とし、`met` は最初の成立観測、`not_met` は期限内の最終観測を必ず出す。`met` は開始から成立観測まで、`not_met` は全評価窓を active provider が再取得した successful run（1 件以上）で裏付け、run は timezone-aware な完了時刻が採点 `asof` の JST 日末以前でなければならない。watermark は固定した reading rules revision の系列別 staleness 上限を期限へ加えた日であり、`not_met` の run は watermark 後の完了も要求する。未来 `asof`、必要な run の欠落、期限時点で staleness 上限を超える観測は、不成立と推測せず hard error にする。読み取りは通常の L1 reader と同じ latest eligible vintage を使い、観測日の上限は条件期限、publication-quality vintage の上限は採点 `asof` として分離する。JSON は実際に読んだ store path、rules revision、採用観測の unit / vintage / source、結果 digest を含み、後続 context の publish 時に read-only 再計算して digest を照合する。
 
 ### 鮮度は読む側が判断する
 

@@ -268,6 +268,11 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
       履歴で percentile / z-score を黙って計算しないか（開始が遅い・件数不足・**窓の期数に対する
       欠落が多い**の3条件を `insufficient_history` で null にする）
+- [ ] macro scorecard は未来 asof、`met` までの full-window run / `not_met` の active provider
+      post-watermark run 不足、期限時点の stale 観測を hard error にし、run 完了時刻を JST の score
+      asof 以前に制約するか。`met` 観測の vintage 欠落を拒否するか。観測期限と vintage cutoff を分離し、rules revision と両 store を identity
+      に固定しているか。後続 context は前回 context の structured scorecard snapshot を exactly one
+      で持ち、regime summary の専用 field がその input ID を参照し、publish が digest を再計算するか
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
       macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
       fixture で検証し、月次全履歴を返すproviderは既知の最古月・公表lagを含む最新端・
