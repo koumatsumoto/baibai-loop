@@ -177,6 +177,7 @@ uv sync --frozen --all-groups
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
+uv run mypy tools/append_pmi_manifest.py
 uv run lint-imports
 uv run python tools/drift/check_markdown_links.py
 uv run python tools/drift/check_cli_doc.py
@@ -185,7 +186,7 @@ uv run python tools/drift/check_duplicate_constants.py
 uv run python tools/drift/check_skill_inventory.py
 uv run coverage run -m pytest
 uv run coverage report -m
-uv run bandit -c pyproject.toml -r src/baibai_engine src/baibai_app -q
+uv run bandit -c pyproject.toml -q -r src/baibai_engine src/baibai_app tools/append_pmi_manifest.py
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel

@@ -31,7 +31,9 @@ jobs:
         run: uv sync --frozen --all-groups
 
       - name: Bandit
-        run: uv run bandit -c pyproject.toml -r src/baibai_engine src/baibai_app -q
+        run: >-
+          uv run bandit -c pyproject.toml -q -r
+          src/baibai_engine src/baibai_app tools/append_pmi_manifest.py
 
       - name: Dependency audit
         # CVE-2026-3219: pip 26.0.1 treats archives that identify as both tar

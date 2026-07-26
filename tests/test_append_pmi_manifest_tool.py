@@ -75,6 +75,12 @@ series:
 _TODAY = date(2026, 7, 26)
 
 
+def _release_text_for(title: str, body: str, *, embargoed: str = "1 July 2026") -> str:
+    """Release text shaped like the publisher's: the PMI it is, then its embargo."""
+
+    return f"© 2026 S&P Global {title}® News Release Embargoed until 0930 JST {embargoed} {body}"
+
+
 def _manifest_file(tmp_path: Path, text: str = _MANIFEST) -> Path:
     path = tmp_path / "pmi_release_urls.yaml"
     path.write_text(text, encoding="utf-8")
@@ -156,11 +162,17 @@ def test_verified_value_refuses_a_release_that_does_not_name_the_month() -> None
     month at all, which is exactly the mistake this tool exists to prevent.
     """
 
-    text = (
+    text = _release_text_for(
+        "S&P Global Japan Manufacturing PMI",
         "The S&P Global Japan Manufacturing PMI posted 54.8, up from 54.5, signalling "
-        "a further improvement in operating conditions."
+        "a further improvement in operating conditions.",
     )
-    candidate = Candidate(stream="jp_manufacturing", observed_at=date(2026, 6, 1), url=_JP_MFG_URL)
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
 
     with (
         FetchContext(purpose="refresh") as context,
@@ -171,11 +183,17 @@ def test_verified_value_refuses_a_release_that_does_not_name_the_month() -> None
 
 
 def test_verified_value_reads_a_release_that_ties_its_headline_to_the_month() -> None:
-    text = (
+    text = _release_text_for(
+        "S&P Global Japan Manufacturing PMI",
         "The S&P Global Japan Manufacturing PMI posted 54.8 in June, up from 54.5 in May, "
-        "signalling a further improvement in operating conditions."
+        "signalling a further improvement in operating conditions.",
     )
-    candidate = Candidate(stream="jp_manufacturing", observed_at=date(2026, 6, 1), url=_JP_MFG_URL)
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
 
     with (
         FetchContext(purpose="refresh") as context,
@@ -191,7 +209,12 @@ def test_manifest_with_entry_appends_inside_the_stream_it_names() -> None:
     schema cannot catch because both entries are well formed.
     """
 
-    candidate = Candidate(stream="jp_manufacturing", observed_at=date(2026, 6, 1), url=_JP_MFG_URL)
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
 
     updated = manifest_with_entry(_MANIFEST, candidate)
 
@@ -203,7 +226,12 @@ def test_manifest_with_entry_appends_inside_the_stream_it_names() -> None:
 def test_manifest_with_entry_appends_to_the_last_stream_in_the_file() -> None:
     """The last block ends at the end of the file, not at another stream key."""
 
-    candidate = Candidate(stream="us_manufacturing", observed_at=date(2026, 6, 1), url=_JP_MFG_URL)
+    candidate = Candidate(
+        stream="us_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
 
     updated = manifest_with_entry(_MANIFEST, candidate)
 
@@ -217,7 +245,12 @@ def test_manifest_with_entry_does_not_join_a_file_whose_last_line_is_unterminate
     destroyed rather than the new one rejected.
     """
 
-    candidate = Candidate(stream="us_manufacturing", observed_at=date(2026, 6, 1), url=_JP_MFG_URL)
+    candidate = Candidate(
+        stream="us_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
 
     updated = manifest_with_entry(_MANIFEST.rstrip("\n"), candidate)
 
@@ -225,7 +258,12 @@ def test_manifest_with_entry_does_not_join_a_file_whose_last_line_is_unterminate
 
 
 def test_manifest_with_entry_refuses_a_stream_the_manifest_does_not_name() -> None:
-    candidate = Candidate(stream="uk_services", observed_at=date(2026, 6, 1), url="https://x")
+    candidate = Candidate(
+        stream="uk_services",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url="https://x",
+    )
 
     with pytest.raises(IndicatorsProviderError, match="no stream named"):
         manifest_with_entry(_MANIFEST, candidate)
@@ -327,6 +365,7 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_the_entry_is_r
     candidate = Candidate(
         stream="jp_manufacturing",
         observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
         url="https://www.pmi.spglobal.com/Public/Home/PressRelease/not-a-release-id",
     )
 
@@ -346,7 +385,12 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_the_edit_break
     """
 
     manifest = _manifest_file(tmp_path)
-    candidate = Candidate(stream="jp_manufacturing", observed_at=date(2026, 6, 1), url=_JP_MFG_URL)
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
 
     with (
         patch.object(tool, "manifest_with_entry", return_value="series: [unclosed\n"),
@@ -359,9 +403,131 @@ def test_append_verified_entry_leaves_the_manifest_untouched_when_the_edit_break
 
 def test_append_verified_entry_leaves_no_temporary_file_behind(tmp_path: Path) -> None:
     manifest = _manifest_file(tmp_path)
-    candidate = Candidate(stream="jp_manufacturing", observed_at=date(2026, 6, 1), url=_JP_MFG_URL)
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
 
     _append_verified_entry(candidate, manifest_path=manifest)
 
     assert not [path for path in tmp_path.iterdir() if path.name.endswith(".tmp")]
     assert "2026-06-01" in manifest.read_text(encoding="utf-8")
+
+
+def test_verified_value_refuses_a_release_of_a_different_pmi() -> None:
+    """Proving the month does not prove which PMI the release belongs to.
+
+    A services release states its headline the same way a manufacturing one does, so
+    a title mapped to the wrong PMI would still yield a value for the right month.
+    """
+
+    text = _release_text_for(
+        "S&P Global Japan Services PMI",
+        "The S&P Global Japan Services PMI posted 52.2 in June, signalling growth.",
+    )
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
+
+    with (
+        FetchContext(purpose="refresh") as context,
+        patch.object(tool, "release_text", return_value=text),
+        pytest.raises(IndicatorsProviderError, match="does not name"),
+    ):
+        verified_value(candidate, context=context)
+
+
+def test_verified_value_refuses_a_release_the_index_dated_in_another_month() -> None:
+    """The release states its own embargo date, which is what it was published on.
+
+    An index that dates a release a month early would have the month before it read
+    out of the restatement, which is a value the manifest records differently.
+    """
+
+    text = _release_text_for(
+        "S&P Global Japan Manufacturing PMI",
+        "The S&P Global Japan Manufacturing PMI posted 54.8 in June, up from 54.5 in May.",
+        embargoed="1 July 2026",
+    )
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 5, 1),
+        published_on=date(2026, 6, 1),
+        url=_JP_MFG_URL,
+    )
+
+    with (
+        FetchContext(purpose="refresh") as context,
+        patch.object(tool, "release_text", return_value=text),
+        pytest.raises(IndicatorsProviderError, match="embargoed until"),
+    ):
+        verified_value(candidate, context=context)
+
+
+def test_verified_value_refuses_a_release_that_states_no_embargo_date() -> None:
+    text = "S&P Global Japan Manufacturing PMI posted 54.8 in June."
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
+
+    with (
+        FetchContext(purpose="refresh") as context,
+        patch.object(tool, "release_text", return_value=text),
+        pytest.raises(IndicatorsProviderError, match="no embargo date"),
+    ):
+        verified_value(candidate, context=context)
+
+
+def test_append_verified_entry_keeps_the_permissions_the_manifest_had(tmp_path: Path) -> None:
+    """The entry arrives by replacing the file, and a fresh copy starts private."""
+
+    manifest = _manifest_file(tmp_path)
+    manifest.chmod(0o644)
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
+
+    _append_verified_entry(candidate, manifest_path=manifest)
+
+    assert manifest.stat().st_mode & 0o777 == 0o644
+
+
+def test_append_verified_entry_leaves_the_manifest_untouched_when_a_key_repeats(
+    tmp_path: Path,
+) -> None:
+    """A repeated mapping key is rejected by the loader as a plain value error.
+
+    Catching only the manifest's own error type would leave the canonical file
+    holding an edit that no longer loads.
+    """
+
+    manifest = _manifest_file(tmp_path)
+    candidate = Candidate(
+        stream="jp_manufacturing",
+        observed_at=date(2026, 6, 1),
+        published_on=date(2026, 7, 1),
+        url=_JP_MFG_URL,
+    )
+
+    with (
+        patch.object(
+            tool,
+            "manifest_with_entry",
+            return_value="schema_version: 2\nseries:\n  a: 1\n  a: 2\n",
+        ),
+        pytest.raises(IndicatorsProviderError, match="unreadable"),
+    ):
+        _append_verified_entry(candidate, manifest_path=manifest)
+
+    assert manifest.read_text(encoding="utf-8") == _MANIFEST

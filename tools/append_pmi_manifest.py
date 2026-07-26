@@ -63,6 +63,13 @@ _LIST_ITEM_RE = re.compile(
     re.S,
 )
 _PUBLISHED_RE = re.compile(r"(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2})\s+(?P<year>\d{4})")
+# Every release opens with the moment it may be reported, in the publisher's local
+# time zone ("Embargoed until 0930 JST 1 July 2026", "0945 EDT 1 July 2026"). It is
+# the release's own account of when it was published.
+_EMBARGO_RE = re.compile(
+    r"Embargoed until\s+\d{3,4}\s+[A-Z]{2,4}\s+(?P<day>\d{1,2})\s+(?P<month>[A-Za-z]+)\s+"
+    r"(?P<year>\d{4})"
+)
 _MONTH_NAMES = (
     "January",
     "February",
@@ -106,6 +113,7 @@ class Candidate:
 
     stream: str
     observed_at: date
+    published_on: date
     url: str
 
 
@@ -203,6 +211,7 @@ def newest_candidate(entries: tuple[IndexEntry, ...], *, stream: str) -> Candida
     return Candidate(
         stream=stream,
         observed_at=observed_month_of(newest.published_on),
+        published_on=newest.published_on,
         url=newest.url,
     )
 
@@ -220,6 +229,7 @@ def verified_value(candidate: Candidate, *, context: FetchContext) -> float:
     """
 
     text = release_text(candidate.url, session=context.session, context=context)
+    _require_release_identity(text, candidate=candidate)
     try:
         value = extract_pmi_value(
             text,
@@ -236,6 +246,37 @@ def verified_value(candidate: Candidate, *, context: FetchContext) -> float:
             f"in {candidate.url}"
         )
     return value
+
+
+def _require_release_identity(text: str, *, candidate: Candidate) -> None:
+    """Require the PDF to be the release of this PMI on the date the index gave.
+
+    Proving the month is not enough on its own. The headline statement of a services
+    release is read the same way as a manufacturing one, so a title mapped to the
+    wrong PMI would still yield a value for the right month. The release names the
+    PMI it belongs to and states its own embargo date, and both have to agree with
+    what the index said before the headline is read at all.
+    """
+
+    title = STREAM_TITLES[candidate.stream]
+    if title not in text:
+        raise IndicatorsProviderError(
+            f"{candidate.stream} {candidate.observed_at}: the release does not name "
+            f"{title!r} ({candidate.url})"
+        )
+    match = _EMBARGO_RE.search(text)
+    if match is None:
+        raise IndicatorsProviderError(
+            f"{candidate.stream} {candidate.observed_at}: the release states no embargo "
+            f"date to check the index against ({candidate.url})"
+        )
+    embargoed_on = _parse_published(f"{match['month']} {match['day']} {match['year']}")
+    if embargoed_on is None or embargoed_on.replace(day=1) != candidate.published_on.replace(day=1):
+        raise IndicatorsProviderError(
+            f"{candidate.stream} {candidate.observed_at}: the index dates the release "
+            f"{candidate.published_on.isoformat()} but the release is embargoed until "
+            f"{match[0]!r} ({candidate.url})"
+        )
 
 
 def manifest_with_entry(text: str, candidate: Candidate) -> str:
@@ -339,17 +380,23 @@ def _append_verified_entry(candidate: Candidate, *, manifest_path: Path) -> None
 
     original = manifest_path.read_text(encoding="utf-8")
     candidate_text = manifest_with_entry(original, candidate)
-    with tempfile.NamedTemporaryFile(
+    # The copy lives beside the manifest so the move that follows stays within one
+    # filesystem, and it is named before it is written so a failed write still has a
+    # path to clean up. A temporary file is created private, so the manifest's own
+    # permissions are carried over rather than replaced by the move.
+    handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed via the staged path below
         mode="w",
         encoding="utf-8",
         dir=manifest_path.parent,
         prefix=f".{manifest_path.name}.",
         suffix=".tmp",
         delete=False,
-    ) as handle:
-        handle.write(candidate_text)
-        staged = Path(handle.name)
+    )
+    staged = Path(handle.name)
     try:
+        with handle:
+            handle.write(candidate_text)
+        staged.chmod(manifest_path.stat().st_mode & 0o7777)
         _require_entry_loads(staged, candidate)
         staged.replace(manifest_path)
     finally:
@@ -361,7 +408,7 @@ def _require_entry_loads(staged: Path, candidate: Candidate) -> None:
     load_manifest.cache_clear()
     try:
         stored = load_manifest(staged).get(candidate.stream, ())
-    except (IndicatorsProviderError, yaml.YAMLError) as exc:
+    except (IndicatorsProviderError, yaml.YAMLError, ValueError) as exc:
         raise IndicatorsProviderError(
             f"{candidate.stream} {candidate.observed_at} would leave the manifest unreadable: {exc}"
         ) from exc
@@ -425,7 +472,13 @@ def main(argv: list[str] | None = None) -> int:
                         today=today,
                     )
                 )
-            except (IndicatorsProviderError, OSError, yaml.YAMLError) as exc:
+            except (
+                IndicatorsProviderError,
+                OSError,
+                yaml.YAMLError,
+                ValueError,
+                ImportError,
+            ) as exc:
                 outcomes.append(StreamOutcome(stream, str(exc), resolved=False))
     for outcome in outcomes:
         marker = "ok" if outcome.resolved else "unresolved"
