@@ -137,376 +137,24 @@ class IndicatorsDBTests(unittest.TestCase):
             self.assertEqual((series.plausible_min, series.plausible_max), (-20.0, 30.0))
             self.assertGreater(alias_count, 0)
 
-    def test_v2_migration_preserves_every_fact_and_fences_older_clients(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            _write_retired_series(database)
-            _downgrade_fixture_to_v2(database)
-            with sqlite3.connect(database) as connection:
-                before = tuple(
-                    connection.execute(
-                        "SELECT "
-                        "(SELECT COUNT(*) FROM series), "
-                        "(SELECT COUNT(*) FROM observations), "
-                        "(SELECT COUNT(*) FROM provider_runs)"
-                    ).fetchone()
-                )
+    def test_a_store_on_an_older_schema_is_refused_rather_than_migrated(self) -> None:
+        """One rule everywhere: the current schema, or nothing.
 
-            migrated = open_connection(database)
-            try:
-                version = migrated.execute("PRAGMA user_version").fetchone()[0]
-                after = tuple(
-                    migrated.execute(
-                        "SELECT "
-                        "(SELECT COUNT(*) FROM series), "
-                        "(SELECT COUNT(*) FROM observations), "
-                        "(SELECT COUNT(*) FROM provider_runs)"
-                    ).fetchone()
-                )
-            finally:
-                migrated.close()
+        A store is either empty or current, so a path out of an older schema would be a
+        route into a past that no file occupies.
+        """
 
-            self.assertEqual(version, SQLITE_SCHEMA_VERSION)
-            self.assertEqual(after, before)
-            self.assertNotEqual(SQLITE_SCHEMA_VERSION, 2)
-            with (
-                patch("baibai_engine.macro.indicators.db.SQLITE_SCHEMA_VERSION", 2),
-                self.assertRaisesRegex(
-                    IndicatorsSchemaError,
-                    rf"unsupported indicator SQLite schema: {SQLITE_SCHEMA_VERSION}; expected 2",
-                ),
-            ):
-                open_connection(database)
-            self.assertEqual(_retired_counts(database), (1, 1, 1))
-
-    def test_v1_migration_rolls_back_and_retries_after_rename_failure(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            _write_retired_series(database)
-            _downgrade_fixture_to_v1(database)
-            with sqlite3.connect(database) as connection:
-                before = tuple(
-                    connection.execute(
-                        "SELECT "
-                        "(SELECT COUNT(*) FROM aliases), "
-                        "(SELECT COUNT(*) FROM observations), "
-                        "(SELECT COUNT(*) FROM provider_runs)"
-                    ).fetchone()
-                )
-                aliases_before = set(connection.execute("SELECT alias, series_id FROM aliases"))
-
-                def deny_alias_rename(
-                    action: int,
-                    _arg1: str | None,
-                    _arg2: str | None,
-                    _database: str | None,
-                    _trigger: str | None,
-                ) -> int:
-                    return (
-                        sqlite3.SQLITE_DENY
-                        if action == sqlite3.SQLITE_ALTER_TABLE
-                        else sqlite3.SQLITE_OK
-                    )
-
-                connection.set_authorizer(deny_alias_rename)
-                connection.execute("BEGIN IMMEDIATE")
-                with self.assertRaisesRegex(sqlite3.DatabaseError, "not authorized"):
-                    indicators_db._execute_sql_statements(
-                        connection,
-                        indicators_db._MIGRATE_V1_TO_V2_SQL,
-                    )
-                connection.set_authorizer(None)
-                connection.rollback()
-                tables = {
-                    str(row[0])
-                    for row in connection.execute(
-                        "SELECT name FROM sqlite_master WHERE type = 'table'"
-                    )
-                }
-                after_failure = tuple(
-                    connection.execute(
-                        "SELECT "
-                        "(SELECT COUNT(*) FROM aliases), "
-                        "(SELECT COUNT(*) FROM observations), "
-                        "(SELECT COUNT(*) FROM provider_runs)"
-                    ).fetchone()
-                )
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-
-            self.assertIn("aliases", tables)
-            self.assertNotIn("aliases_v2", tables)
-            self.assertEqual(version, 1)
-            self.assertEqual(after_failure, before)
-
-            open_connection(database).close()
-            with sqlite3.connect(database) as connection:
-                retried_version = connection.execute("PRAGMA user_version").fetchone()[0]
-                after_retry = tuple(
-                    connection.execute(
-                        "SELECT "
-                        "(SELECT COUNT(*) FROM aliases), "
-                        "(SELECT COUNT(*) FROM observations), "
-                        "(SELECT COUNT(*) FROM provider_runs)"
-                    ).fetchone()
-                )
-                aliases_after_retry = set(
-                    connection.execute("SELECT alias, series_id FROM aliases")
-                )
-            self.assertEqual(retried_version, SQLITE_SCHEMA_VERSION)
-            self.assertEqual(after_retry[1:], before[1:])
-            self.assertTrue(aliases_before <= aliases_after_retry)
-
-    def test_v3_trigger_blocks_a_v2_connection_that_checked_schema_before_migration(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            _write_retired_series(database)
-            _downgrade_fixture_to_v2(database)
-            old_connection = sqlite3.connect(database)
-            self.assertEqual(old_connection.execute("PRAGMA user_version").fetchone()[0], 2)
-
-            open_connection(database).close()
-
-            try:
-                old_connection.execute("DELETE FROM aliases")
-                old_connection.execute(
-                    "DELETE FROM provider_runs WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                )
-                old_connection.execute(
-                    "DELETE FROM observations WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                )
-                with self.assertRaisesRegex(
-                    sqlite3.IntegrityError,
-                    "explicit registry prune authorization required",
-                ):
-                    old_connection.execute(
-                        "DELETE FROM series WHERE series_id = ?",
-                        ("jp.cpi.stale",),
-                    )
-            finally:
-                old_connection.close()
-
-            self.assertEqual(_retired_counts(database), (1, 1, 1))
-            with sqlite3.connect(database) as connection:
-                aliases = connection.execute(
-                    "SELECT COUNT(*) FROM aliases WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                ).fetchone()[0]
-            self.assertEqual(aliases, 1)
-
-    def test_v4_migration_rolls_back_if_a_column_addition_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
             initialize_database(database).close()
             with sqlite3.connect(database) as connection:
-                _drop_v4_contract_triggers(connection)
-                connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
-                connection.execute("PRAGMA user_version = 3")
-
-            with self.assertRaisesRegex(sqlite3.OperationalError, "duplicate column"):
-                open_connection(database)
-
-            with sqlite3.connect(database) as connection:
-                columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(series)")}
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-            self.assertNotIn("plausible_min", columns)
-            self.assertIn("plausible_max", columns)
-            self.assertEqual(version, 3)
-
-    def test_v4_to_v5_migration_preflights_history_before_advancing_schema(self) -> None:
-        canonical = load_definitions().by_id()["us.10y"]
-        wide = replace(canonical, plausible_max=1000.0)
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            connection = initialize_database(
-                database,
-                definitions=IndicatorDefinitions(series=(wide,)),
-            )
-            try:
-                insert_observations(
-                    connection,
-                    [_obs("us.10y", date(2026, 5, 1), 999.0)],
-                )
-                connection.commit()
-            finally:
-                connection.close()
-            _downgrade_fixture_to_v4(database)
+                connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
 
             with self.assertRaisesRegex(
                 IndicatorsSchemaError,
-                r"us\.10y 2026-05-01.*outside plausible range",
-            ):
-                open_connection(
-                    database,
-                    definitions=IndicatorDefinitions(series=(canonical,)),
-                )
-
-            with sqlite3.connect(database) as connection:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-                value = connection.execute(
-                    "SELECT value FROM observations WHERE series_id = 'us.10y'"
-                ).fetchone()[0]
-                triggers = {
-                    str(row[0])
-                    for row in connection.execute(
-                        "SELECT name FROM sqlite_master WHERE type = 'trigger'"
-                    )
-                }
-            self.assertEqual(version, 4)
-            self.assertEqual(value, 999.0)
-            self.assertIn("validate_observation_plausibility_before_insert", triggers)
-
-    def test_v4_to_v5_migration_relabels_foreign_flow_without_rescaling(self) -> None:
-        definition = load_definitions().by_id()["jp.foreign_flows"]
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            connection = initialize_database(
-                database,
-                definitions=IndicatorDefinitions(series=(definition,)),
-            )
-            try:
-                insert_observations(
-                    connection,
-                    [
-                        ObservationRecord(
-                            series_id=definition.series_id,
-                            observed_at=date(2024, 1, 26),
-                            value=405_492_743.0,
-                            unit=definition.unit,
-                            source_url=definition.source_url,
-                            vintage_at=datetime(2024, 2, 1, tzinfo=UTC),
-                        )
-                    ],
-                )
-                connection.commit()
-            finally:
-                connection.close()
-            _downgrade_fixture_to_v4(database, legacy_foreign_flow_unit=True)
-
-            migrated = open_connection(
-                database,
-                definitions=IndicatorDefinitions(series=(definition,)),
-            )
-            try:
-                row = migrated.execute(
-                    "SELECT value, unit FROM observations WHERE series_id = 'jp.foreign_flows'"
-                ).fetchone()
-            finally:
-                migrated.close()
-
-            self.assertEqual(tuple(row), (405_492_743.0, "jpy-thousand"))
-            with (
-                patch("baibai_engine.macro.indicators.db.SQLITE_SCHEMA_VERSION", 4),
-                self.assertRaisesRegex(
-                    IndicatorsSchemaError,
-                    "unsupported indicator SQLite schema: 6; expected 4",
-                ),
+                f"unsupported indicator SQLite schema: {SQLITE_SCHEMA_VERSION - 1}",
             ):
                 open_connection(database)
-
-    def test_v4_to_v5_migration_rejects_changed_trigger_without_repairing_it(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            initialize_database(database).close()
-            _downgrade_fixture_to_v4(database)
-            with sqlite3.connect(database) as connection:
-                connection.execute("DROP TRIGGER validate_observation_plausibility_before_insert")
-                connection.execute(
-                    "CREATE TRIGGER validate_observation_plausibility_before_insert "
-                    "BEFORE INSERT ON observations BEGIN SELECT 1; END"
-                )
-                trigger_sql_before = connection.execute(
-                    "SELECT sql FROM sqlite_master "
-                    "WHERE type = 'trigger' "
-                    "AND name = 'validate_observation_plausibility_before_insert'"
-                ).fetchone()[0]
-
-            with self.assertRaisesRegex(
-                IndicatorsSchemaError,
-                r"trigger contract mismatch.*changed",
-            ):
-                open_connection(database)
-
-            with sqlite3.connect(database) as connection:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-                trigger_sql_after = connection.execute(
-                    "SELECT sql FROM sqlite_master "
-                    "WHERE type = 'trigger' "
-                    "AND name = 'validate_observation_plausibility_before_insert'"
-                ).fetchone()[0]
-            self.assertEqual(version, 4)
-            self.assertEqual(trigger_sql_after, trigger_sql_before)
-
-    def test_v4_to_v5_migration_rejects_orphan_provider_run_without_mutation(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            initialize_database(database).close()
-            _downgrade_fixture_to_v4(database)
-            with sqlite3.connect(database) as connection:
-                connection.execute(
-                    """
-                    INSERT INTO provider_runs(
-                      run_id, provider, series_id, range_start, range_end,
-                      started_at, finished_at, status, record_count, error_message
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        "orphan-run",
-                        "test",
-                        "missing.series",
-                        "2026-01-01",
-                        "2026-01-31",
-                        "2026-02-01T00:00:00+00:00",
-                        "2026-02-01T00:00:01+00:00",
-                        "ok",
-                        0,
-                        None,
-                    ),
-                )
-
-            with self.assertRaisesRegex(
-                IndicatorsSchemaError,
-                r"foreign key contract is invalid.*provider_runs",
-            ):
-                open_connection(database)
-
-            with sqlite3.connect(database) as connection:
-                version = connection.execute("PRAGMA user_version").fetchone()[0]
-                orphan_count = connection.execute(
-                    "SELECT COUNT(*) FROM provider_runs WHERE run_id = 'orphan-run'"
-                ).fetchone()[0]
-            self.assertEqual(version, 4)
-            self.assertEqual(orphan_count, 1)
-
-    def test_legacy_unit_normalization_is_bounded_to_released_schemas(self) -> None:
-        self.assertEqual(
-            indicators_db.normalize_observation_unit(
-                "jp.foreign_flows",
-                "jpy",
-                schema_version=4,
-            ),
-            "jpy-thousand",
-        )
-        self.assertEqual(
-            indicators_db.normalize_observation_unit(
-                "jp.foreign_flows",
-                "jpy",
-                schema_version=5,
-            ),
-            "jpy",
-        )
-        with patch("baibai_engine.macro.indicators.db.SQLITE_SCHEMA_VERSION", 6):
-            self.assertEqual(
-                indicators_db.normalize_observation_unit(
-                    "jp.foreign_flows",
-                    "jpy",
-                    schema_version=5,
-                ),
-                "jpy",
-            )
 
     def test_open_connection_preserves_series_removed_from_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1708,44 +1356,8 @@ class RetractionVintageTests(unittest.TestCase):
             self.assertIn("us.10y\t2026-05-01\twithdrawn\t4.39\t-", stdout.getvalue())
             self.assertIn("0 fell back to an earlier vintage, 1 left the reads", stdout.getvalue())
 
-    def test_v5_to_v6_migration_keeps_every_fact_and_accepts_a_retraction(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            conn = initialize_database(database)
-            try:
-                series = get_series(conn, "us.10y")
-                insert_observations(
-                    conn,
-                    [_rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC))],
-                )
-                conn.commit()
-            finally:
-                conn.close()
-            _downgrade_fixture_to_v5(database)
-
-            migrated = open_connection(database)
-            try:
-                version = int(migrated.execute("PRAGMA user_version").fetchone()[0])
-                kept = row_count(migrated, "observations")
-                retract_observations(
-                    migrated,
-                    "us.10y",
-                    [date(2026, 5, 1)],
-                    vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
-                )
-                migrated.commit()
-                observations = observations_in_range(
-                    migrated, "us.10y", date(2026, 5, 1), date(2026, 5, 1)
-                )
-            finally:
-                migrated.close()
-
-            self.assertEqual(version, SQLITE_SCHEMA_VERSION)
-            self.assertEqual(kept, 1)
-            self.assertEqual(observations, ())
-
-    def test_a_v5_store_rejects_a_retraction_before_it_is_migrated(self) -> None:
-        """The widened domain is what makes the retraction storable, so pin it."""
+    def test_the_previous_fetch_status_domain_cannot_hold_a_retraction(self) -> None:
+        """The widened CHECK is what makes a retraction storable at all, so pin it."""
 
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
@@ -5712,15 +5324,6 @@ def _write_retired_series(database: Path) -> None:
         conn.close()
 
 
-def _drop_v4_contract_triggers(connection: sqlite3.Connection) -> None:
-    for trigger in (
-        "validate_observation_plausibility_before_insert",
-        "validate_observation_plausibility_before_update",
-        "validate_series_contract_before_update",
-    ):
-        connection.execute(f"DROP TRIGGER {trigger}")
-
-
 def _rate(
     series: SeriesDefinition,
     observed_at: date,
@@ -5801,36 +5404,6 @@ def _downgrade_fixture_to_v5(database: Path) -> None:
         connection.execute("PRAGMA user_version = 5")
 
 
-def _downgrade_fixture_to_v4(
-    database: Path,
-    *,
-    legacy_foreign_flow_unit: bool = False,
-) -> None:
-    with sqlite3.connect(database) as connection:
-        trigger_sql = tuple(
-            str(row[0])
-            for row in connection.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
-                "AND name IN ("
-                "'validate_observation_plausibility_before_insert', "
-                "'validate_observation_plausibility_before_update', "
-                "'validate_series_contract_before_update'"
-                ") ORDER BY name"
-            )
-        )
-        _drop_v4_contract_triggers(connection)
-        if legacy_foreign_flow_unit:
-            connection.execute(
-                "UPDATE observations SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
-            )
-            connection.execute(
-                "UPDATE series SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
-            )
-        for statement in trigger_sql:
-            connection.execute(statement)
-        connection.execute("PRAGMA user_version = 4")
-
-
 def _retired_counts(database: Path) -> tuple[int, int, int]:
     conn = sqlite3.connect(database)
     try:
@@ -5846,36 +5419,6 @@ def _retired_counts(database: Path) -> tuple[int, int, int]:
         )
     finally:
         conn.close()
-
-
-def _downgrade_fixture_to_v2(database: Path) -> None:
-    with sqlite3.connect(database) as connection:
-        _drop_v4_contract_triggers(connection)
-        connection.execute("DROP TRIGGER protect_series_from_implicit_prune")
-        connection.execute("DROP TABLE registry_prune_authorizations")
-        connection.execute("DROP TABLE registry_state")
-        connection.execute("ALTER TABLE series DROP COLUMN plausible_max")
-        connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
-        connection.execute("PRAGMA user_version = 2")
-
-
-def _downgrade_fixture_to_v1(database: Path) -> None:
-    _downgrade_fixture_to_v2(database)
-    with sqlite3.connect(database) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE aliases_v1(
-              alias TEXT PRIMARY KEY,
-              series_id TEXT NOT NULL REFERENCES series(series_id)
-            );
-            INSERT OR IGNORE INTO aliases_v1(alias, series_id)
-              SELECT alias, series_id FROM aliases;
-            DROP TABLE aliases;
-            ALTER TABLE aliases_v1 RENAME TO aliases;
-            DROP INDEX idx_observations_series_status_date_vintage;
-            PRAGMA user_version = 1;
-            """
-        )
 
 
 def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:

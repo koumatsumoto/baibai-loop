@@ -31,8 +31,6 @@ from pathlib import Path
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
-    legacy_unit_renames_apply,
-    normalize_observation_unit,
     validate_current_schema,
     validate_schema_contract,
 )
@@ -107,10 +105,10 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             raise MergeError(f"indicator store does not exist: {path}")
     uri = f"{target.resolve().as_uri()}"
     with closing(sqlite3.connect(uri, uri=True, isolation_level=None)) as connection:
-        target_version = _require_schema(connection, path=target)
+        _require_schema(connection, path=target)
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
         try:
-            source_version = _require_schema(
+            _require_schema(
                 connection,
                 path=source,
                 schema="source",
@@ -134,37 +132,14 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                         + ", ".join(missing)
                     )
                 _validate_target_registry_contracts(connection)
-                _validate_observations(
-                    connection,
-                    schema="main",
-                    schema_version=target_version,
-                )
-                _validate_observations(
-                    connection,
-                    schema="source",
-                    schema_version=source_version,
-                )
+                _validate_observations(connection, schema="main")
+                _validate_observations(connection, schema="source")
                 retired = _retired_series(connection)
                 for table in FACT_KEYS:
-                    _require_matching_payloads(
-                        connection,
-                        table,
-                        source_schema_version=source_version,
-                    )
-                tables = tuple(
-                    _merge_table(
-                        connection,
-                        table,
-                        source_schema_version=source_version,
-                    )
-                    for table in FACT_KEYS
-                )
+                    _require_matching_payloads(connection, table)
+                tables = tuple(_merge_table(connection, table) for table in FACT_KEYS)
                 for table in FACT_KEYS:
-                    _require_matching_payloads(
-                        connection,
-                        table,
-                        source_schema_version=source_version,
-                    )
+                    _require_matching_payloads(connection, table)
                 violations = connection.execute("PRAGMA foreign_key_check").fetchall()
                 if violations:
                     raise MergeError(f"merge would break foreign keys: {violations[:3]}")
@@ -216,7 +191,6 @@ def _validate_observations(
     connection: sqlite3.Connection,
     *,
     schema: str,
-    schema_version: int,
 ) -> None:
     """Reject either store's facts when they violate the target contract."""
 
@@ -225,13 +199,6 @@ def _validate_observations(
     registered = (
         'o.series_id IN (SELECT series_id FROM main."series")' if schema == "source" else "1"
     )
-    normalized_unit = _source_column_expression(
-        "observations",
-        "unit",
-        source_schema_version=schema_version,
-        alias="o",
-    )
-
     row = connection.execute(
         f"""
         SELECT o.series_id, o.observed_at, o.value, o.unit,
@@ -239,7 +206,7 @@ def _validate_observations(
         FROM {schema}.observations o
         JOIN main.series s ON s.series_id = o.series_id
         WHERE {registered}
-          AND ({normalized_unit} != s.unit
+          AND (o.unit != s.unit
            OR (s.plausible_min IS NOT NULL AND o.value < s.plausible_min)
            OR (s.plausible_max IS NOT NULL AND o.value > s.plausible_max))
         ORDER BY o.series_id, o.observed_at, o.vintage_at
@@ -249,12 +216,7 @@ def _validate_observations(
     if row is None:
         return
     series_id, observed_at, value, actual_unit, expected_unit, low, high = row
-    normalized_actual_unit = normalize_observation_unit(
-        str(series_id),
-        str(actual_unit),
-        schema_version=schema_version,
-    )
-    if normalized_actual_unit != str(expected_unit):
+    if str(actual_unit) != str(expected_unit):
         raise MergeError(
             f"{schema} observation {series_id} {observed_at} has unit "
             f"{actual_unit!r}; target registry expects {expected_unit!r}"
@@ -267,26 +229,13 @@ def _validate_observations(
     )
 
 
-def _merge_table(
-    connection: sqlite3.Connection,
-    table: str,
-    *,
-    source_schema_version: int,
-) -> TableMerge:
+def _merge_table(connection: sqlite3.Connection, table: str) -> TableMerge:
     source_rows = _count(connection, f'SELECT count(*) FROM source."{table}"')
     before = _count(connection, f'SELECT count(*) FROM main."{table}"')
     skipped = _count(connection, f'SELECT count(*) FROM source."{table}" WHERE NOT {_REGISTERED}')
     columns = _columns(connection, table, schema="main")
     target_columns = ", ".join(f'"{column}"' for column in columns)
-    source_columns = ", ".join(
-        _source_column_expression(
-            table,
-            column,
-            source_schema_version=source_schema_version,
-            alias=f'source."{table}"',
-        )
-        for column in columns
-    )
+    source_columns = ", ".join(f'source."{table}"."{column}"' for column in columns)
     connection.execute(
         f'INSERT OR IGNORE INTO main."{table}" ({target_columns}) '
         f'SELECT {source_columns} FROM source."{table}" WHERE {_REGISTERED}'
@@ -302,26 +251,12 @@ def _merge_table(
     )
 
 
-def _require_matching_payloads(
-    connection: sqlite3.Connection,
-    table: str,
-    *,
-    source_schema_version: int,
-) -> None:
+def _require_matching_payloads(connection: sqlite3.Connection, table: str) -> None:
     columns = _columns(connection, table, schema="main")
     keys = FACT_KEYS[table]
     payload = tuple(column for column in columns if column not in keys)
     key_match = " AND ".join(f't."{key}" = s."{key}"' for key in keys)
-    payload_differs = " OR ".join(
-        f't."{column}" IS NOT '
-        + _source_column_expression(
-            table,
-            column,
-            source_schema_version=source_schema_version,
-            alias="s",
-        )
-        for column in payload
-    )
+    payload_differs = " OR ".join(f't."{column}" IS NOT s."{column}"' for column in payload)
     row = connection.execute(
         f"SELECT {', '.join(f's.{key}' for key in keys)} "
         f'FROM source."{table}" s '
@@ -334,26 +269,6 @@ def _require_matching_payloads(
         raise MergeError(
             f"{table} payload disagrees for shared key: " + ", ".join(repr(value) for value in row)
         )
-
-
-def _source_column_expression(
-    table: str,
-    column: str,
-    *,
-    source_schema_version: int,
-    alias: str,
-) -> str:
-    qualified = f'{alias}."{column}"'
-    if (
-        table == "observations"
-        and column == "unit"
-        and legacy_unit_renames_apply(source_schema_version)
-    ):
-        return (
-            f"CASE WHEN {alias}.series_id = 'jp.foreign_flows' "
-            f"AND {qualified} = 'jpy' THEN 'jpy-thousand' ELSE {qualified} END"
-        )
-    return qualified
 
 
 def _source_only_rows(connection: sqlite3.Connection, table: str) -> int:

@@ -258,9 +258,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       全履歴・全 vintage が通ることを機械確認したか。複数行の途中違反を caller が catch 後に
       commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
       schema version 一致だけで通さないか。`foreign_keys=OFF` の直接writerでもunknown seriesを
-      拒否し、migrationはwriter lock内の履歴preflightに成功してからversion・DDL・dataを原子的に
-      進めるか。cloud mergeは直前schemaのread-only sourceをrollout可能にし、同一fact keyの全payload
-      不一致・legacy unit正規化後の不一致・source/target域外値をtransaction前後で拒否するか。
+      拒否し、storeは空か現行schemaだけを受けて他は明確なエラーで拒否するか（過去のschemaへ戻る
+      通路は持たない。schemaを進めるときはその1段だけを書く）。cloud mergeは直前schemaのread-only sourceをrollout可能にし（schema変更後の
+      最初のpushは必ず1世代前のcloud copyに当たる）、同一fact keyの全payload不一致・
+      source/target域外値をtransaction前後で拒否するか。
       registry generation / prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
 - [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
       no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」

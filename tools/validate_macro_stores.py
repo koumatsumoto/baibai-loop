@@ -32,9 +32,7 @@ from baibai_engine.macro.context.models import (
 )
 from baibai_engine.macro.indicators.db import (
     DEFAULT_DB_PATH,
-    SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
-    normalize_observation_unit,
     validate_current_schema,
 )
 from baibai_engine.macro.indicators.definitions import (
@@ -95,15 +93,7 @@ def validate_store(
     connection.row_factory = sqlite3.Row
     try:
         schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if schema_version == SQLITE_SCHEMA_VERSION:
-            validate_current_schema(connection)
-        elif 1 <= schema_version < SQLITE_SCHEMA_VERSION:
-            _validate_observation_read_capability(connection, schema_version)
-        else:
-            raise IndicatorsSchemaError(
-                f"unsupported indicator SQLite schema: {schema_version}; "
-                f"expected 1..{SQLITE_SCHEMA_VERSION}"
-            )
+        validate_current_schema(connection)
         observations = 0
         for row in connection.execute(
             "SELECT series_id, observed_at, vintage_at, value, unit "
@@ -116,12 +106,7 @@ def validate_store(
             if series is None:
                 record(f"{identity}: series is absent from the current registry")
                 continue
-            actual_unit = normalize_observation_unit(
-                series_id,
-                str(row["unit"]),
-                schema_version=schema_version,
-            )
-            if actual_unit != series.unit:
+            if str(row["unit"]) != series.unit:
                 record(f"{identity}: unit {row['unit']!r}; expected {series.unit!r}")
                 continue
             value = float(row["value"])
@@ -198,22 +183,6 @@ def validate_published_contexts(
         failures=tuple(failures),
         warnings=tuple(warnings),
     )
-
-
-def _validate_observation_read_capability(
-    connection: sqlite3.Connection,
-    schema_version: int,
-) -> None:
-    """Accept pre-migration stores only when the read-only scan contract exists."""
-
-    required = {"series_id", "observed_at", "vintage_at", "value", "unit"}
-    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(observations)")}
-    missing = sorted(required - columns)
-    if missing:
-        raise IndicatorsSchemaError(
-            f"indicator SQLite schema {schema_version} cannot be validated; "
-            f"observations is missing columns: {', '.join(missing)}"
-        )
 
 
 def build_parser() -> argparse.ArgumentParser:
