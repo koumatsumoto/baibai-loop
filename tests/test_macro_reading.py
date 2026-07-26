@@ -374,6 +374,9 @@ _STALENESS_CASES: tuple[tuple[str, int, int], ...] = (
     ("wti", 10, 17),
     # A series on the monthly default: published mid-M+1, so the wait peaks near 76 days.
     ("us.cpi.headline", 76, 107),
+    # e-Stat posts the Japanese CPI late in M+1, which is the slowest monthly calendar
+    # in the registry and the one the monthly default does not cover.
+    ("jp.cpi.headline", 92, 123),
 )
 
 
@@ -403,10 +406,28 @@ def test_staleness_warns_only_once_a_publication_has_been_missed(
     assert reading_at(stopped_days), "a missed publication must warn"
 
 
+def test_japanese_cpi_stays_settleable_through_the_day_its_next_print_lands() -> None:
+    """A scorecard settles an expired condition only from data the rules call fresh.
+
+    e-Stat posts the March CPI late in April, so a February observation is the newest
+    one a condition with an April deadline can be settled from. Calling it stale would
+    turn the normal publication wait into an unscorable condition.
+    """
+
+    rule = load_reading_rules(DEFAULT_RULES_PATH).resolve(
+        series_id="jp.cpi.headline",
+        frequency="monthly",
+    )
+
+    assert rule.stale_after(date(2027, 2, 1)) >= date(2027, 4, 23)
+    assert not rule.is_stale(date(2027, 2, 1), asof=date(2027, 4, 23))
+
+
 @pytest.mark.parametrize(
     ("series_id", "observed_at", "expected_print", "expected_due_days"),
     [
         ("us.cpi.headline", date(2026, 6, 1), date(2026, 8, 17), 24),
+        ("jp.cpi.headline", date(2026, 6, 1), date(2026, 8, 31), 38),
         ("us.consumer_sentiment", date(2026, 6, 1), date(2026, 7, 29), 5),
         ("us.jolts_openings", date(2026, 5, 1), date(2026, 8, 6), 13),
         ("jp.nominal_wage_index", date(2026, 5, 1), date(2026, 8, 25), 32),
