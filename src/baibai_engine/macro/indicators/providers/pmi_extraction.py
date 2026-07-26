@@ -23,14 +23,14 @@ from datetime import date, timedelta
 #   index range, so a misparse raises instead of entering the store as data.
 __all__ = ["PmiExtractionError", "extract_pmi_value"]
 
-_PLAUSIBLE_MIN = 30.0
-_PLAUSIBLE_MAX = 70.0
+_PLAUSIBLE_MIN = 0.0
+_PLAUSIBLE_MAX = 100.0
 
-# A headline reading is two digits and one decimal. pypdf sometimes splits the
+# A headline reading is one to three digits and one decimal. pypdf sometimes splits the
 # decimal point off its digits ("47 .9"), so the token tolerates one space on each
 # side of the point; the lookarounds keep it from matching part of a longer number
 # such as a year or a two-decimal figure.
-_VALUE = r"(?<![\d.])\d{2}\s?\.\s?\d(?!\d)"
+_VALUE = r"(?<![\d.])\d{1,3}\s?\.\s?\d(?!\d)"
 # A gap that stays inside one sentence. A decimal point between digits is let
 # through, so a value standing in the gap ("slipped from 53.2 in November to 51.6")
 # does not read as a sentence end.

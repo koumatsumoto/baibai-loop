@@ -81,7 +81,7 @@ def _observations(path: Path) -> set[tuple[object, ...]]:
     return set(_rows(path, "SELECT series_id, observed_at, value FROM observations"))
 
 
-def test_merge_adds_source_only_rows_and_keeps_the_target_value(tmp_path: Path) -> None:
+def test_merge_rejects_different_payload_for_the_same_observation_key(tmp_path: Path) -> None:
     cloud = tmp_path / "cloud.sqlite"
     local = tmp_path / "local.sqlite"
     _build_store(
@@ -101,21 +101,46 @@ def test_merge_adds_source_only_rows_and_keeps_the_target_value(tmp_path: Path) 
         ),
     )
 
-    report = merge_stores(cloud, local)
+    with pytest.raises(
+        MergeError,
+        match="observations payload disagrees for shared key",
+    ):
+        merge_stores(cloud, local)
 
-    # The cloud-only day arrives, the deep history stays, and the day both stores hold keeps
-    # the target's value: the merge adds rows and never rewrites what the target knows.
+    # A conflicting vintage makes the source/target lineage ambiguous, so no
+    # source-only row may be committed alongside it.
     assert _observations(local) == {
-        ("us.10y", "2026-07-23", 4.31),
         ("us.10y", "2016-07-20", 1.55),
         ("us.10y", "2026-07-20", 4.99),
     }
-    observations = next(item for item in report.tables if item.table == "observations")
-    assert (observations.source_rows, observations.inserted, observations.target_rows_after) == (
-        2,
-        1,
-        3,
+
+
+def test_merge_rejects_different_payload_for_the_same_provider_run_key(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.sqlite"
+    target = tmp_path / "target.sqlite"
+    _build_store(source, series_ids=("us.10y",), observations=())
+    _build_store(target, series_ids=("us.10y",), observations=())
+    insert_sql = (
+        "INSERT INTO provider_runs("
+        "run_id, provider, series_id, range_start, range_end, started_at, finished_at, "
+        "status, record_count, error_message"
+        ") VALUES ('shared-run', 'fred_csv', 'us.10y', '2026-07-01', '2026-07-24', "
+        "'2026-07-24T00:00:00+00:00', '2026-07-24T00:00:01+00:00', 'ok', ?, NULL)"
     )
+    with sqlite3.connect(source) as connection:
+        connection.execute(insert_sql, (1,))
+    with sqlite3.connect(target) as connection:
+        connection.execute(insert_sql, (2,))
+
+    with pytest.raises(
+        MergeError,
+        match="provider_runs payload disagrees for shared key",
+    ):
+        merge_stores(source, target)
+
+    assert _rows(target, "SELECT run_id, record_count FROM provider_runs") == [("shared-run", 2)]
 
 
 def test_merge_is_idempotent(tmp_path: Path) -> None:
@@ -137,6 +162,31 @@ def test_merge_is_idempotent(tmp_path: Path) -> None:
 
     assert first.inserted == 1
     assert second.inserted == 0
+
+
+def test_merge_normalizes_legacy_foreign_flow_unit_from_v4_source(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite"
+    target = tmp_path / "target.sqlite"
+    flow = load_definitions().by_id()["jp.foreign_flows"]
+    observation = ObservationRecord(
+        series_id=flow.series_id,
+        observed_at=date(2024, 1, 26),
+        value=405_492_743.0,
+        unit=flow.unit,
+        source_url=flow.source_url,
+        vintage_at=VINTAGE,
+    )
+    _build_store(source, series_ids=(flow.series_id,), observations=(observation,))
+    _build_store(target, series_ids=(flow.series_id,), observations=())
+    _downgrade_store_to_v4(source, legacy_foreign_flow_unit=True)
+
+    report = merge_stores(source, target)
+
+    assert report.inserted == 1
+    assert _rows(
+        target,
+        "SELECT value, unit FROM observations WHERE series_id = 'jp.foreign_flows'",
+    ) == [(405_492_743.0, "jpy-thousand")]
 
 
 def test_merge_carries_the_cloud_fetch_record_of_a_registered_series(tmp_path: Path) -> None:
@@ -383,6 +433,25 @@ def test_merge_rejects_source_value_outside_target_band_without_changing_target(
     assert _observations(local) == {("us.10y", "2016-07-20", 1.55)}
 
 
+def test_merge_rejects_target_value_outside_its_registry_band(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite"
+    target = tmp_path / "target.sqlite"
+    _build_store(source, series_ids=("us.10y",), observations=())
+    _build_store(target, series_ids=("us.10y",), observations=())
+    _inject_source_observation(
+        target,
+        _observation("us.10y", date(2026, 7, 23), 999.0),
+    )
+
+    with pytest.raises(
+        MergeError,
+        match=r"main observation us\.10y 2026-07-23 value 999.*outside target",
+    ):
+        merge_stores(source, target)
+
+    assert _observations(target) == {("us.10y", "2026-07-23", 999.0)}
+
+
 def test_merge_rejects_source_unit_mismatch_without_changing_target(tmp_path: Path) -> None:
     cloud = tmp_path / "cloud.sqlite"
     local = tmp_path / "local.sqlite"
@@ -498,3 +567,38 @@ def _inject_source_observation(path: Path, observation: ObservationRecord) -> No
         insert_observations(connection, [observation], deduplicate_unchanged=False)
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         connection.commit()
+
+
+def _downgrade_store_to_v4(
+    path: Path,
+    *,
+    legacy_foreign_flow_unit: bool,
+) -> None:
+    with sqlite3.connect(path) as connection:
+        trigger_sql = tuple(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                "AND name IN ("
+                "'validate_observation_plausibility_before_insert', "
+                "'validate_observation_plausibility_before_update', "
+                "'validate_series_contract_before_update'"
+                ") ORDER BY name"
+            )
+        )
+        for trigger in (
+            "validate_observation_plausibility_before_insert",
+            "validate_observation_plausibility_before_update",
+            "validate_series_contract_before_update",
+        ):
+            connection.execute(f"DROP TRIGGER {trigger}")
+        if legacy_foreign_flow_unit:
+            connection.execute(
+                "UPDATE observations SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
+            )
+            connection.execute(
+                "UPDATE series SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
+            )
+        for statement in trigger_sql:
+            connection.execute(statement)
+        connection.execute("PRAGMA user_version = 4")

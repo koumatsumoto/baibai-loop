@@ -302,14 +302,14 @@ series:
     category: flows
     geography: japan
     frequency: weekly
-    unit: jpy
+    unit: jpy-thousand
     plausible_min: -20000000000
     plausible_max: 20000000000
     provider: jquants_flows
     provider_series_id: foreigners_net_value
     source_id: jquants-trades-spec
     source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
-    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
+    notes: 東証プライムの投資部門別売買状況。API/JPX公表値の単位は千円。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
     aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
   - series_id: jp.growth250
     name: 東証グロース市場250指数(2516連動ETF proxy)
