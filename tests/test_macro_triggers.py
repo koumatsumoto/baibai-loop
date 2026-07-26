@@ -43,6 +43,10 @@ def _document(machine_conditions: list[dict[str, Any]] | None = None) -> MacroCo
     )
 
 
+def _document_without_conditions() -> MacroContextDocument:
+    return MacroContextDocument.model_validate(macro_context_payload(machine_conditions=[]))
+
+
 def _reader(observations: Sequence[ObservationRecord]):  # type: ignore[no-untyped-def]
     def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
         return tuple(
@@ -148,7 +152,7 @@ def test_a_report_without_machine_conditions_evaluates_to_nothing() -> None:
     """Every published report predates this field, so its absence must stay ordinary."""
 
     evaluation = evaluate_triggers(
-        _document(),
+        _document_without_conditions(),
         reader=_reader([]),
         known_series=frozenset({"us.10y"}),
         asof=date(2026, 7, 25),
@@ -186,9 +190,11 @@ def test_selection_warns_when_a_report_stated_condition_has_been_met() -> None:
     assert fired_diagnostics["fired_triggers"] == list(fired.fired_triggers)
 
 
-def test_fired_trigger_summaries_report_nothing_without_an_indicator_store(
+def test_an_absent_indicator_store_reads_as_unchecked_not_as_quiet(
     tmp_path: Path,
 ) -> None:
+    """ "Nothing fired" and "nobody looked" must not produce the same answer."""
+
     application_db = tmp_path / "app.sqlite"
     document = _document(_BREAKOUT)
     MacroContextService(application_db).publish(document, expected_head=None)
@@ -200,7 +206,27 @@ def test_fired_trigger_summaries_report_nothing_without_an_indicator_store(
             context_id=document.context_id,
             asof=date(2026, 7, 22),
         )
-        == ()
+        is None
+    )
+
+
+def test_an_unreadable_indicator_store_degrades_instead_of_failing(tmp_path: Path) -> None:
+    """`screening select` treats this as a fatal step, so a broken store must not raise."""
+
+    application_db = tmp_path / "app.sqlite"
+    document = _document(_BREAKOUT)
+    MacroContextService(application_db).publish(document, expected_head=None)
+    broken = tmp_path / "macro.sqlite"
+    broken.write_bytes(b"this is not a database")
+
+    assert (
+        fired_trigger_summaries(
+            context_db=application_db,
+            indicators_db_path=broken,
+            context_id=document.context_id,
+            asof=date(2026, 7, 22),
+        )
+        is None
     )
 
 

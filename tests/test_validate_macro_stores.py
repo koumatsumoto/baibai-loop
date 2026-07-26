@@ -235,7 +235,12 @@ def test_validate_published_contexts_warns_instead_of_failing_on_a_retired_serie
     assert report.documents == 1
     assert any("cites retired series: us.10y" in warning for warning in report.warnings)
     assert any(
-        "scorecard is unsettleable on retired series: us.10y" in warning
+        "scorecard is unsettleable on retired series (us.10y)" in warning
+        and "cannot be published until they are registered again" in warning
+        for warning in report.warnings
+    )
+    assert any(
+        "monitoring conditions are unmonitorable on retired series: us.10y" in warning
         for warning in report.warnings
     )
 

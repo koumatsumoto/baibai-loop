@@ -29,9 +29,12 @@ class MacroContext:
     as_of: date
     payload: Mapping[str, Any]
     # Invalidation conditions the report itself stated that the L1 history has since
-    # met. Filled by the loader, which is the layer that knows where the stores are;
-    # empty when nothing fired or when no indicator store was available to ask.
+    # met. Filled by the loader, which is the layer that knows where the stores are.
     fired_triggers: tuple[str, ...] = ()
+    # Whether anything asked the store at all. An empty ``fired_triggers`` means "asked
+    # and nothing fired" only when this is true; without it the reader cannot tell a
+    # quiet report from one nobody checked.
+    triggers_checked: bool = False
 
     def age_days(self, asof_date: date) -> int:
         return (asof_date - self.as_of).days
@@ -87,6 +90,7 @@ def macro_context_diagnostics(
         "research_questions": list(context_research_questions(context.payload)),
         "refresh_triggers": list(context_refresh_triggers(context.payload)),
         "fired_triggers": list(context.fired_triggers),
+        "triggers_checked": context.triggers_checked,
         "warnings": warnings,
     }
 

@@ -15,8 +15,9 @@ look again, so a series that has not printed yet is reported as such and blocks 
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal, assert_never
 
@@ -31,9 +32,6 @@ from .models import MacroContextDocument, TriggerCondition
 from .scorecard import load_context_document
 
 type TriggerStatus = Literal["fired", "quiet", "not_evaluable"]
-
-# Sorts before every real vintage, so a row without one never wins a tie-break.
-_EPOCH = datetime.min.replace(tzinfo=UTC)
 
 
 class _OutputModel(BaseModel):
@@ -105,7 +103,7 @@ def evaluate_triggers(
     for point_index, point in enumerate(document.monitoring_points, start=1):
         for condition_index, condition in enumerate(point.machine_conditions, start=1):
             observations = (
-                _latest_per_observed_date(reader(condition.series_id, start, asof))
+                reader(condition.series_id, start, asof)
                 if start <= asof and condition.series_id in known_series
                 else ()
             )
@@ -152,30 +150,53 @@ def evaluate_triggers_from_stores(
         connection.close()
 
 
+def evaluate_triggers_if_readable(
+    *,
+    context_db: Path | None,
+    indicators_db_path: Path,
+    context_id: str,
+    asof: date,
+) -> TriggerEvaluation | None:
+    """Evaluate the report's conditions, or return None when no store can answer.
+
+    Only an unreadable *store* degrades to None. A checkout that carries the application
+    database without the indicator store has nothing to contradict the report with, which
+    is an ordinary state — but a report that cannot be read is the failure that took the
+    daily batch down once already, so it is raised rather than reported as "nothing
+    fired". Every consumer of this shares the distinction; keeping it in one place is why
+    the two callers cannot drift apart on which failures are survivable.
+    """
+
+    if not indicators_db_path.is_file():
+        return None
+    try:
+        return evaluate_triggers_from_stores(
+            context_db=context_db,
+            indicators_db_path=indicators_db_path,
+            context_id=context_id,
+            asof=asof,
+        )
+    except (OSError, sqlite3.Error, indicators_db.IndicatorsSchemaError):
+        return None
+
+
 def fired_trigger_summaries(
     *,
     context_db: Path | None,
     indicators_db_path: Path,
     context_id: str,
     asof: date,
-) -> tuple[str, ...]:
-    """One line per fired condition, or nothing when the stores cannot answer.
+) -> tuple[str, ...] | None:
+    """One line per fired condition, or None when no store could answer at all."""
 
-    A consumer that only wants the warning must not fail because the indicator store is
-    absent — a checkout without one has nothing to contradict the report.
-    """
-
-    if not indicators_db_path.is_file():
-        return ()
-    try:
-        evaluation = evaluate_triggers_from_stores(
-            context_db=context_db,
-            indicators_db_path=indicators_db_path,
-            context_id=context_id,
-            asof=asof,
-        )
-    except (OSError, ValueError, indicators_db.IndicatorsSchemaError):
-        return ()
+    evaluation = evaluate_triggers_if_readable(
+        context_db=context_db,
+        indicators_db_path=indicators_db_path,
+        context_id=context_id,
+        asof=asof,
+    )
+    if evaluation is None:
+        return None
     return tuple(
         f"{item.event}: {item.series_id} {item.comparison} {item.threshold:g}"
         + (
@@ -236,19 +257,6 @@ def _evaluate_condition(
         ),
         view_change=view_change,
     )
-
-
-def _latest_per_observed_date(
-    observations: Sequence[ObservationRecord],
-) -> tuple[ObservationRecord, ...]:
-    """Keep one row per observation date, newest vintage wins, in date order."""
-
-    selected: dict[date, ObservationRecord] = {}
-    for observation in observations:
-        current = selected.get(observation.observed_at)
-        if current is None or (observation.vintage_at or _EPOCH) >= (current.vintage_at or _EPOCH):
-            selected[observation.observed_at] = observation
-    return tuple(selected[observed_at] for observed_at in sorted(selected))
 
 
 def _matches(

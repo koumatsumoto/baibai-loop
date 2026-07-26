@@ -28,6 +28,7 @@ from baibai_engine.macro.context.models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
     MacroContextDocument,
     cited_series_ids,
+    monitoring_condition_series_ids,
     scorecard_series_ids,
 )
 from baibai_engine.macro.indicators.db import (
@@ -96,8 +97,13 @@ def validate_store(
         validate_current_schema(connection)
         observations = 0
         for row in connection.execute(
+            # A withdrawn row is not a claim about a value, so the registry band does not
+            # apply to it. Checking it anyway would make "retract an outlier, then tighten
+            # the band" impossible: the retraction itself would fail the scan, and it
+            # cannot be deleted because the merge restores it.
             "SELECT series_id, observed_at, vintage_at, value, unit "
-            "FROM observations ORDER BY series_id, observed_at, vintage_at"
+            "FROM observations WHERE fetch_status != 'retracted' "
+            "ORDER BY series_id, observed_at, vintage_at"
         ):
             observations += 1
             series_id = str(row["series_id"])
@@ -174,9 +180,22 @@ def validate_published_contexts(
             warnings.append(f"{context_id}: cites retired series: {', '.join(retired)}")
         unsettleable = sorted(scorecard_series_ids(document) - registry)
         if unsettleable:
+            # Worth its own line because the consequence reaches past this report: a new
+            # revision must cite a successful scorecard snapshot of its predecessor, and
+            # that snapshot cannot be produced for a retired condition series. The head
+            # revision in this state blocks the next publish until the series returns.
             warnings.append(
-                f"{context_id}: scorecard is unsettleable on retired series: "
-                + ", ".join(unsettleable)
+                f"{context_id}: scorecard is unsettleable on retired series "
+                f"({', '.join(unsettleable)}); a revision after this one cannot be "
+                "published until they are registered again"
+            )
+        unmonitorable = sorted(monitoring_condition_series_ids(document) - registry)
+        if unmonitorable:
+            # Silent otherwise: a condition on a retired series reads as "not printed
+            # yet", which is what a condition waiting for its next observation looks like.
+            warnings.append(
+                f"{context_id}: monitoring conditions are unmonitorable on retired series: "
+                + ", ".join(unmonitorable)
             )
     return PublishedContextReport(
         documents=len(rows),

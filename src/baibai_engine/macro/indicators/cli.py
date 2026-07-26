@@ -5,7 +5,7 @@ import json
 import sqlite3
 import sys
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import assert_never
 
@@ -62,6 +62,14 @@ def build_parser() -> argparse.ArgumentParser:
         dest="observed_at",
         type=date.fromisoformat,
         help="observation date to withdraw (repeatable)",
+    )
+    retract_parser.add_argument(
+        "--expected-vintage",
+        required=True,
+        action="append",
+        dest="expected_vintage",
+        type=datetime.fromisoformat,
+        help="the vintage each --observed-at is expected to withdraw (repeatable, paired)",
     )
     retract_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
 
@@ -158,7 +166,9 @@ def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
 def _run_retract(service: IndicatorsService, args: argparse.Namespace) -> int:
     """Print what each date lost and what it fell back to, so the change reads at a glance."""
 
-    requested = sorted(set(args.observed_at))
+    if len(args.observed_at) != len(args.expected_vintage):
+        raise ValueError("--observed-at and --expected-vintage must be given in pairs")
+    requested = sorted(set(zip(args.observed_at, args.expected_vintage, strict=True)))
     outcomes = service.retract(args.series_id, requested)
     handled = {item.observed_at for item in outcomes}
     restored = sum(1 for item in outcomes if item.restored is not None)
@@ -170,7 +180,7 @@ def _run_retract(service: IndicatorsService, args: argparse.Namespace) -> int:
             f"{item.series_id}\t{item.observed_at.isoformat()}\t{outcome}\t"
             f"{item.withdrawn.value:g}\t{restored_value}"
         )
-    for observed_at in requested:
+    for observed_at, _ in requested:
         if observed_at not in handled:
             print(f"{args.series_id}\t{observed_at.isoformat()}\talready-retracted\t-\t-")
     print(

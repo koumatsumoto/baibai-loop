@@ -307,15 +307,17 @@ def _with_fired_triggers(
     are; everything downstream stays a pure read of the context object.
     """
 
-    return replace(
-        context,
-        fired_triggers=fired_trigger_summaries(
-            context_db=application_db,
-            indicators_db_path=INDICATORS_DB_PATH,
-            context_id=context.context_id,
-            asof=asof_date,
-        ),
+    fired = fired_trigger_summaries(
+        context_db=application_db,
+        indicators_db_path=INDICATORS_DB_PATH,
+        context_id=context.context_id,
+        asof=asof_date,
     )
+    if fired is None:
+        # No indicator store answered. Recording that is what keeps "nothing fired" from
+        # reading the same as "nobody looked".
+        return context
+    return replace(context, fired_triggers=fired, triggers_checked=True)
 
 
 def _rules_path_from_env() -> Path:

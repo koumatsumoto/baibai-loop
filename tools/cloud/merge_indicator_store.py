@@ -196,9 +196,11 @@ def _validate_observations(
 
     if schema not in {"main", "source"}:
         raise ValueError(f"unsupported SQLite schema name: {schema!r}")
+    # A withdrawn row carries the value it withdrew, not a claim about one, so the
+    # registry band does not apply to it on either side of the merge.
     registered = (
         'o.series_id IN (SELECT series_id FROM main."series")' if schema == "source" else "1"
-    )
+    ) + " AND o.fetch_status != 'retracted'"
     row = connection.execute(
         f"""
         SELECT o.series_id, o.observed_at, o.value, o.unit,

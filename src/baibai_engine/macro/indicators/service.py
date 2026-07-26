@@ -23,6 +23,7 @@ from .providers import (
     provider_spec,
 )
 from .providers.base import StoreReader
+from .providers.formulas import FORMULAS
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {
@@ -120,7 +121,7 @@ class IndicatorsService:
     def retract(
         self,
         series_id: str,
-        observed_dates: Sequence[date],
+        targets: Sequence[tuple[date, datetime]],
     ) -> tuple[db.RetractionOutcome, ...]:
         """Withdraw the latest vintage of observation dates without removing any history."""
 
@@ -129,10 +130,11 @@ class IndicatorsService:
             raise KeyError(f"unknown indicator series: {series_id}")
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
+            _require_no_stale_derived_dependents(conn, series_id, targets)
             retractions = db.retract_observations(
                 conn,
                 series_id,
-                observed_dates,
+                targets,
                 vintage_at=datetime.now(UTC),
             )
             conn.commit()
@@ -355,32 +357,37 @@ class IndicatorsService:
                     end=end,
                     observations=observations,
                 )
-            # Every store-rewrite policy below spares retractions. A retraction is a
-            # decision about a row the provider is not going to re-deliver, so letting a
-            # refresh drop it would let the merge restore the retracted row and undo the
-            # decision on the next push. A source that does re-deliver the date buries
-            # the retraction under a newer vintage, which is the correct outcome.
+            # Every store-rewrite policy below spares what the store learned after the
+            # provider's newest statement. A rewrite replaces what the provider is
+            # restating; a retraction and the belief it put back are decisions about
+            # rows the provider is not going to re-deliver, so dropping them would let
+            # the merge restore the withdrawn row and undo the decision on the next
+            # push. For a provider that stamps acquisition time this spares nothing
+            # extra — its newest statement is now. A source that does re-deliver the
+            # date buries the decision under a newer vintage, which is correct.
+            kept_after = _newest_provider_statement(observations)
             if trim_before_first and observations:
                 # FRED's current licensed delivery window defines reproducible
                 # all-history coverage for a series.
                 first_observed_at = min(item.observed_at for item in observations)
                 conn.execute(
                     "DELETE FROM observations WHERE series_id = ? AND observed_at < ? "
-                    "AND fetch_status != ?",
-                    (series.series_id, first_observed_at.isoformat(), db.RETRACTED_STATUS),
+                    "AND (? IS NULL OR vintage_at <= ?)",
+                    (series.series_id, first_observed_at.isoformat(), kept_after, kept_after),
                 )
             if remove_other_sources and observations:
                 conn.execute(
                     "DELETE FROM observations WHERE series_id = ? AND source_url != ? "
                     "AND observed_at BETWEEN ? AND ? AND substr(vintage_at, 1, 10) <= ? "
-                    "AND fetch_status != ?",
+                    "AND (? IS NULL OR vintage_at <= ?)",
                     (
                         series.series_id,
                         series.source_url,
                         start.isoformat(),
                         end.isoformat(),
                         end.isoformat(),
-                        db.RETRACTED_STATUS,
+                        kept_after,
+                        kept_after,
                     ),
                 )
             if range_replacement != "none" and observations:
@@ -391,24 +398,27 @@ class IndicatorsService:
                         "DELETE FROM observations WHERE series_id = ? "
                         "AND observed_at BETWEEN ? AND ? "
                         "AND substr(vintage_at, 1, 10) <= ? "
-                        "AND fetch_status != ?",
+                        "AND (? IS NULL OR vintage_at <= ?)",
                         (
                             series.series_id,
                             replacement_start,
                             end.isoformat(),
                             end.isoformat(),
-                            db.RETRACTED_STATUS,
+                            kept_after,
+                            kept_after,
                         ),
                     )
                 elif range_replacement == "all_vintages":
                     conn.execute(
                         "DELETE FROM observations WHERE series_id = ? "
-                        "AND observed_at BETWEEN ? AND ? AND fetch_status != ?",
+                        "AND observed_at BETWEEN ? AND ? "
+                        "AND (? IS NULL OR vintage_at <= ?)",
                         (
                             series.series_id,
                             replacement_start,
                             end.isoformat(),
-                            db.RETRACTED_STATUS,
+                            kept_after,
+                            kept_after,
                         ),
                     )
                 else:  # pragma: no cover - exhaustiveness guard over the policy literal
@@ -458,6 +468,54 @@ def _store_reader(conn: sqlite3.Connection) -> StoreReader:
         return db.observations_in_range(conn, series_id, start, end)
 
     return read
+
+
+def _newest_provider_statement(observations: list[ObservationRecord]) -> str | None:
+    """The newest vintage the provider just stated, or None when it stamps none itself."""
+
+    vintages = [item.vintage_at for item in observations if item.vintage_at is not None]
+    return max(vintages).isoformat() if vintages else None
+
+
+def _require_no_stale_derived_dependents(
+    conn: sqlite3.Connection,
+    series_id: str,
+    targets: Sequence[tuple[date, datetime]],
+) -> None:
+    """Refuse a retraction that would leave a derived value computed from it behind.
+
+    A derived series stores its own observations, so withdrawing an input does not
+    withdraw what was computed from it. Recomputation cannot repair it either: the
+    withdrawn date stops appearing among the inputs, so the formula produces nothing for
+    it and the stale row keeps winning on vintage — permanently, and silently.
+
+    The dependency graph is small and a retraction is rare, so this refuses and names the
+    exact follow-up rather than propagating on its own. Refusing before anything is
+    written also keeps the store out of a half-repaired state.
+    """
+
+    dependents = tuple(
+        sorted(
+            derived_id for derived_id, formula in FORMULAS.items() if series_id in formula.inputs
+        )
+    )
+    if not dependents:
+        return
+    stale: list[str] = []
+    for derived_id in dependents:
+        for observed_at, _ in targets:
+            vintage_at = db.latest_vintage_at(conn, derived_id, observed_at)
+            if vintage_at is None:
+                continue
+            stale.append(
+                f"macro retract {derived_id} --observed-at {observed_at.isoformat()} "
+                f"--expected-vintage {vintage_at.isoformat()}"
+            )
+    if stale:
+        raise IndicatorsProviderError(
+            f"retracting {series_id} would leave derived observations computed from it; "
+            "withdraw these first:\n" + "\n".join(stale)
+        )
 
 
 def _prune_registry_for_refresh(

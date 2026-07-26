@@ -22,6 +22,7 @@ from .models import (
     MACRO_CONTEXT_SCHEMA_VERSION,
     MacroContextDocument,
     ScorecardSnapshotInput,
+    require_machine_checkable_monitoring,
     require_registry_agreement,
 )
 from .scorecard import evaluate_scorecard_from_stores
@@ -50,6 +51,7 @@ class MacroContextService:
         # registry move on, and a published report has to stay readable when they do.
         _require_known_reading_revisions(document)
         require_registry_agreement(document)
+        require_machine_checkable_monitoring(document)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")

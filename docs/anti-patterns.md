@@ -259,17 +259,21 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
       schema version 一致だけで通さないか。`foreign_keys=OFF` の直接writerでもunknown seriesを
       拒否し、storeは空か現行schemaだけを受けて他は明確なエラーで拒否するか（過去のschemaへ戻る
-      通路は持たない。schemaを進めるときはその1段だけを書く）。cloud mergeは直前schemaのread-only sourceをrollout可能にし（schema変更後の
-      最初のpushは必ず1世代前のcloud copyに当たる）、同一fact keyの全payload不一致・
-      source/target域外値をtransaction前後で拒否するか。
+      通路は持たない。schemaを進めるときはその1段だけを書く）。cloud mergeは直前schemaのread-only
+      sourceをrollout可能にし（schema変更後の最初のpushは必ず1世代前のcloud copyに当たる。
+      ただし列集合が一致する変更に限る）、同一fact keyの全payload不一致・source/target域外値を
+      transaction前後で拒否するか。撤回済みrowは値についての主張ではないのでband検査の対象外か。
       registry generation / prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
+- [ ] 破壊的な運用コマンドは冪等か compare-and-swap で守られているか。2 回流して結果が変わる
+      コマンドは、再実行という最も起きやすい操作で正本データを黙って壊す
 - [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
       no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」
       無音の失敗になる。retraction を入れたら、store 書き換え（`trim_before_first` /
       `remove_other_sources` / `range_replacement` の全 DELETE）が retraction を残すこと、
       provider の再配信で復活すること、`delete_unchanged_vintages` が消さないこと、
       merge round-trip で両 store に伝播すること、PIT replay では retraction 前の vintage が
-      見え続けることを、それぞれ test で固定したか
+      見え続けることを、それぞれ test で固定したか。**撤回した値から計算済みの derived 系列**が
+      残らないこと（入力が消えるので再計算では直らない）も確認したか
 - [ ] macro registry の series ID 集合を変更する場合は membership generation digest を追記し、
       stale generation の refresh / merge 拒否、無許可 series DELETE trigger、件数集計から削除までの
       writer lock、pending / committed audit の各 negative testを通すか

@@ -45,7 +45,7 @@ series:
     notes: 米10Y − 日10Y。円 carry の基本観測点
     aliases: [日米金利差, US-JP 10Y differential, rate differential]
   - series_id: us.policy_path_gap
-    name: 米政策経路ギャップ(2Y−FF上限)
+    name: 米政策経路ギャップ(2Y−FF中点)
     category: rates
     geography: us
     frequency: daily
@@ -56,7 +56,7 @@ series:
     provider_series_id: us.policy_path_gap
     source_id: derived-us-policy-path-gap
     source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
-    notes: 米2Y − FF目標レンジ上限。負は市場が利下げを織り込む幅、深い負は景気懸念の織り込み
+    notes: 米2Y − FF目標レンジ中点。負は市場が利下げを織り込む幅、深い負は景気懸念の織り込み。日本側は実効コールレート基準なので、どちらも「実際に効いている政策金利」との差になる
     aliases: [米政策経路ギャップ, US policy path gap, 2Y-FF spread]
   - series_id: jp.policy_path_gap
     name: 日本政策経路ギャップ(2Y−政策金利)
