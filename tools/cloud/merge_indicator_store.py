@@ -5,11 +5,12 @@ cloud, and an operator deepens history locally with ``macro refresh --all-histor
 therefore holds observations the other has never seen, so publishing the local store means
 merging the cloud copy into it first and proving that nothing cloud-side is left behind.
 
-Only the tables that accumulate facts are merged. Registry-owned tables are not imported from
-the source. ``registry_series`` records the registry snapshot applied by the target's last
-successful refresh; ordinary opens may retain metadata for preserved facts but cannot alter
-that authorization set. During merge, source rows outside the applied snapshot are reported as
-skipped rather than silently reviving a retired series.
+Only the tables that accumulate facts are merged. ``series`` and ``aliases`` are owned by the
+target store and are not imported from the source. Ordinary opens preserve metadata for series
+that a stale branch does not know, so cloud facts for those retained series remain eligible for
+merge. A target with an older registry generation is rejected before merge. A same-generation
+target missing source series is also rejected as incomplete. Only a strictly newer target may
+report absent source series as skipped retirement instead of reviving them.
 
 Facts are keyed, so the merge is an ``INSERT OR IGNORE`` per table: a row the target already
 has keeps the target's version, and a row only the source has is added verbatim with its
@@ -33,12 +34,17 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "observations": ("series_id", "observed_at", "vintage_at"),
     "provider_runs": ("run_id",),
 }
-# The tables the registry owns: rebuilt on open, so the target's version is the only one.
-REGISTRY_TABLES: tuple[str, ...] = ("series", "aliases", "registry_series")
+# The tables the registry owns: the target's version is the only one.
+REGISTRY_TABLES: tuple[str, ...] = (
+    "series",
+    "aliases",
+    "registry_state",
+    "registry_prune_authorizations",
+)
 
-# A row is only carried when the target's last successful refresh applied its
-# series. Ordinary opens never alter this persisted authorization boundary.
-_REGISTERED = 'series_id IN (SELECT series_id FROM main."registry_series")'
+# A row is only carried when the target store retains its series metadata. Only
+# an explicit refresh may remove that metadata and make the series ineligible.
+_REGISTERED = 'series_id IN (SELECT series_id FROM main."series")'
 
 
 class MergeError(RuntimeError):
@@ -101,7 +107,19 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
+                target_generation = _registry_generation(connection, schema="main")
+                source_generation = _registry_generation(connection, schema="source")
+                if target_generation < source_generation:
+                    raise MergeError(
+                        "target registry generation is older than source; "
+                        f"target={target_generation}, source={source_generation}"
+                    )
                 retired = _retired_series(connection)
+                if retired and target_generation == source_generation:
+                    raise MergeError(
+                        "source facts belong to series missing from same-generation target: "
+                        + ", ".join(retired)
+                    )
                 tables = tuple(_merge_table(connection, table) for table in FACT_KEYS)
                 violations = connection.execute("PRAGMA foreign_key_check").fetchall()
                 if violations:
@@ -180,6 +198,13 @@ def _require_identical_columns(connection: sqlite3.Connection) -> None:
             connection, table, schema="source"
         ):
             raise MergeError(f"indicator stores disagree on the columns of {table}")
+
+
+def _registry_generation(connection: sqlite3.Connection, *, schema: str) -> int:
+    return _count(
+        connection,
+        f'SELECT generation FROM {schema}."registry_state" WHERE singleton = 1',
+    )
 
 
 def _columns(connection: sqlite3.Connection, table: str, *, schema: str) -> Sequence[str]:

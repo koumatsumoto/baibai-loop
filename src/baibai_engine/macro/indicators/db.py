@@ -15,7 +15,6 @@ DEFAULT_DB_PATH = Path("data/indicators/macro.sqlite")
 _ROW_COUNT_SQL = {
     "series": "SELECT COUNT(*) FROM series",
     "aliases": "SELECT COUNT(*) FROM aliases",
-    "registry_series": "SELECT COUNT(*) FROM registry_series",
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
 }
@@ -35,13 +34,25 @@ CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
 PRAGMA user_version = 2;
 """
 _MIGRATE_V2_TO_V3_SQL = """
--- Version 3 fences clients whose registry seed deleted absent series on every
--- writable open. Membership records the last registry snapshot applied by a
--- successful refresh; ordinary opens never change it.
-CREATE TABLE IF NOT EXISTS registry_series(
-  series_id TEXT PRIMARY KEY REFERENCES series(series_id)
+-- Version 3 is a semantic compatibility fence. Version 2 clients prune facts
+-- during ordinary opens, so they must reject a store once non-destructive opens
+-- become part of its contract.
+CREATE TABLE IF NOT EXISTS registry_state(
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  generation INTEGER NOT NULL CHECK(generation >= 0)
 );
-INSERT OR IGNORE INTO registry_series(series_id) SELECT series_id FROM series;
+INSERT OR IGNORE INTO registry_state(singleton, generation) VALUES (1, 0);
+CREATE TABLE IF NOT EXISTS registry_prune_authorizations(
+  series_id TEXT PRIMARY KEY REFERENCES series(series_id) ON DELETE CASCADE
+);
+CREATE TRIGGER IF NOT EXISTS protect_series_from_implicit_prune
+BEFORE DELETE ON series
+WHEN NOT EXISTS(
+  SELECT 1 FROM registry_prune_authorizations WHERE series_id = OLD.series_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'explicit registry prune authorization required');
+END;
 PRAGMA user_version = 3;
 """
 
@@ -75,12 +86,12 @@ def initialize_database(
     *,
     definitions: IndicatorDefinitions | None = None,
 ) -> sqlite3.Connection:
-    resolved_definitions = definitions or load_definitions()
     conn = _connect(db_path)
     try:
         _ensure_schema(conn)
+        resolved_definitions = definitions or load_definitions()
         seed_definitions(conn, resolved_definitions)
-        apply_registry_membership(conn, resolved_definitions)
+        set_registry_generation(conn, resolved_definitions.generation)
         conn.commit()
     except BaseException:
         conn.close()
@@ -156,26 +167,12 @@ def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions
             )
 
 
-def apply_registry_membership(
-    conn: sqlite3.Connection,
-    definitions: IndicatorDefinitions,
-) -> None:
-    """Replace the merge authorization set with one trusted registry snapshot."""
-
-    conn.execute("DELETE FROM registry_series")
-    conn.executemany(
-        "INSERT INTO registry_series(series_id) VALUES (?)",
-        ((series.series_id,) for series in definitions.series),
-    )
-
-
 def prune_definitions(
     conn: sqlite3.Connection,
     definitions: IndicatorDefinitions,
 ) -> tuple[RegistryPruneResult, ...]:
     """Delete facts for series absent from an explicitly trusted registry snapshot."""
 
-    apply_registry_membership(conn, definitions)
     registered = {series.series_id for series in definitions.series}
     stored = {
         str(row["series_id"]) for row in conn.execute("SELECT series_id FROM series").fetchall()
@@ -194,6 +191,10 @@ def prune_definitions(
                 (series_id,),
             ).fetchone()[0]
         )
+        conn.execute(
+            "INSERT INTO registry_prune_authorizations(series_id) VALUES (?)",
+            (series_id,),
+        )
         conn.execute("DELETE FROM provider_runs WHERE series_id = ?", (series_id,))
         conn.execute("DELETE FROM observations WHERE series_id = ?", (series_id,))
         conn.execute("DELETE FROM aliases WHERE series_id = ?", (series_id,))
@@ -205,7 +206,24 @@ def prune_definitions(
                 provider_run_rows=provider_run_rows,
             )
         )
+    set_registry_generation(conn, definitions.generation)
     return tuple(results)
+
+
+def registry_generation(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT generation FROM registry_state WHERE singleton = 1").fetchone()
+    if row is None:
+        raise IndicatorsSchemaError("indicator registry state is missing")
+    return int(row[0])
+
+
+def set_registry_generation(conn: sqlite3.Connection, generation: int) -> None:
+    cursor = conn.execute(
+        "UPDATE registry_state SET generation = ? WHERE singleton = 1",
+        (generation,),
+    )
+    if cursor.rowcount != 1:
+        raise IndicatorsSchemaError("indicator registry state is missing")
 
 
 def get_series(conn: sqlite3.Connection, series_id: str) -> SeriesDefinition:
