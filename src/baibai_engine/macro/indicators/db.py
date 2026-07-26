@@ -22,10 +22,6 @@ _ROW_COUNT_SQL = {
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
 }
-_LEGACY_UNIT_RENAMES = {
-    ("jp.foreign_flows", "jpy"): "jpy-thousand",
-}
-_LEGACY_UNIT_RENAME_MAX_SCHEMA_VERSION = 4
 _SCHEMA_VALIDATION_SQL = {
     "main": {
         "user_version": "PRAGMA main.user_version",
@@ -56,233 +52,10 @@ _SCHEMA_VALIDATION_SQL = {
         "triggers": "SELECT name, sql FROM source.sqlite_master WHERE type = 'trigger'",
     },
 }
-_MIGRATE_V1_TO_V2_SQL = """
-CREATE TABLE aliases_v2(
-  alias TEXT NOT NULL,
-  series_id TEXT NOT NULL REFERENCES series(series_id),
-  PRIMARY KEY(alias, series_id)
-);
-INSERT OR IGNORE INTO aliases_v2(alias, series_id)
-  SELECT alias, series_id FROM aliases;
-DROP TABLE aliases;
-ALTER TABLE aliases_v2 RENAME TO aliases;
-CREATE INDEX IF NOT EXISTS idx_aliases_alias ON aliases(alias);
-CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
-  ON observations(series_id, fetch_status, observed_at, vintage_at);
-PRAGMA user_version = 2;
-"""
-_MIGRATE_V2_TO_V3_SQL = """
--- Version 3 is a semantic compatibility fence. Version 2 clients prune facts
--- during ordinary opens, so they must reject a store once non-destructive opens
--- become part of its contract.
-CREATE TABLE IF NOT EXISTS registry_state(
-  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-  generation INTEGER NOT NULL CHECK(generation >= 0)
-);
-INSERT OR IGNORE INTO registry_state(singleton, generation) VALUES (1, 0);
-CREATE TABLE IF NOT EXISTS registry_prune_authorizations(
-  series_id TEXT PRIMARY KEY REFERENCES series(series_id) ON DELETE CASCADE
-);
-CREATE TRIGGER IF NOT EXISTS protect_series_from_implicit_prune
-BEFORE DELETE ON series
-WHEN NOT EXISTS(
-  SELECT 1 FROM registry_prune_authorizations WHERE series_id = OLD.series_id
-)
-BEGIN
-  SELECT RAISE(ABORT, 'explicit registry prune authorization required');
-END;
-PRAGMA user_version = 3;
-"""
-_MIGRATE_V3_TO_V4_SQL = """
-ALTER TABLE series ADD COLUMN plausible_min REAL;
-ALTER TABLE series ADD COLUMN plausible_max REAL;
-CREATE TRIGGER validate_observation_plausibility_before_insert
-BEFORE INSERT ON observations
-WHEN NOT EXISTS (
-  SELECT 1 FROM series
-  WHERE series_id = NEW.series_id
-    AND NEW.unit = unit
-    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
-    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
-)
-BEGIN
-  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
-END;
-CREATE TRIGGER validate_observation_plausibility_before_update
-BEFORE UPDATE OF series_id, value, unit ON observations
-WHEN NOT EXISTS (
-  SELECT 1 FROM series
-  WHERE series_id = NEW.series_id
-    AND NEW.unit = unit
-    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
-    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
-)
-BEGIN
-  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
-END;
-CREATE TRIGGER validate_series_contract_before_update
-BEFORE UPDATE OF unit, plausible_min, plausible_max ON series
-WHEN EXISTS (
-  SELECT 1 FROM observations
-  WHERE series_id = NEW.series_id
-    AND (
-      unit != NEW.unit
-      OR (NEW.plausible_min IS NOT NULL AND value < NEW.plausible_min)
-      OR (NEW.plausible_max IS NOT NULL AND value > NEW.plausible_max)
-    )
-)
-BEGIN
-  SELECT RAISE(ABORT, 'series contract excludes an existing observation');
-END;
-PRAGMA user_version = 4;
-"""
-_MIGRATE_V4_TO_V5_SQL = """
-DROP TRIGGER validate_observation_plausibility_before_insert;
-DROP TRIGGER validate_observation_plausibility_before_update;
-DROP TRIGGER validate_series_contract_before_update;
-UPDATE observations
-SET unit = 'jpy-thousand'
-WHERE series_id = 'jp.foreign_flows' AND unit = 'jpy';
-UPDATE series
-SET unit = 'jpy-thousand'
-WHERE series_id = 'jp.foreign_flows' AND unit = 'jpy';
-CREATE TRIGGER validate_observation_plausibility_before_insert
-BEFORE INSERT ON observations
-WHEN NOT EXISTS (
-  SELECT 1 FROM series
-  WHERE series_id = NEW.series_id
-    AND NEW.unit = unit
-    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
-    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
-)
-BEGIN
-  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
-END;
-CREATE TRIGGER validate_observation_plausibility_before_update
-BEFORE UPDATE OF series_id, value, unit ON observations
-WHEN NOT EXISTS (
-  SELECT 1 FROM series
-  WHERE series_id = NEW.series_id
-    AND NEW.unit = unit
-    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
-    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
-)
-BEGIN
-  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
-END;
-CREATE TRIGGER validate_series_contract_before_update
-BEFORE UPDATE OF unit, plausible_min, plausible_max ON series
-WHEN EXISTS (
-  SELECT 1 FROM observations
-  WHERE series_id = NEW.series_id
-    AND (
-      unit != NEW.unit
-      OR (NEW.plausible_min IS NOT NULL AND value < NEW.plausible_min)
-      OR (NEW.plausible_max IS NOT NULL AND value > NEW.plausible_max)
-    )
-)
-BEGIN
-  SELECT RAISE(ABORT, 'series contract excludes an existing observation');
-END;
-PRAGMA user_version = 5;
-"""
-_MIGRATE_V5_TO_V6_SQL = """
--- Version 6 widens the fetch_status domain with 'retracted'. A CHECK constraint can
--- only change by rebuilding the table, and every trigger that names `observations`
--- has to stand aside while the table is swapped, so all three are dropped and
--- recreated verbatim around the copy.
-DROP TRIGGER validate_observation_plausibility_before_insert;
-DROP TRIGGER validate_observation_plausibility_before_update;
-DROP TRIGGER validate_series_contract_before_update;
-CREATE TABLE observations_v6(
-  series_id TEXT NOT NULL REFERENCES series(series_id),
-  observed_at TEXT NOT NULL,
-  period_start TEXT,
-  period_end TEXT,
-  value REAL NOT NULL,
-  unit TEXT NOT NULL,
-  vintage_at TEXT NOT NULL,
-  fetch_status TEXT NOT NULL,
-  source_url TEXT NOT NULL,
-  PRIMARY KEY(series_id, observed_at, vintage_at),
-  CHECK(fetch_status IN ('ok', 'failed', 'unreleased', 'retracted'))
-);
-INSERT INTO observations_v6(
-  series_id, observed_at, period_start, period_end, value, unit,
-  vintage_at, fetch_status, source_url
-)
-SELECT series_id, observed_at, period_start, period_end, value, unit,
-       vintage_at, fetch_status, source_url
-FROM observations;
-DROP TABLE observations;
-ALTER TABLE observations_v6 RENAME TO observations;
-CREATE INDEX IF NOT EXISTS idx_observations_series_date
-  ON observations(series_id, observed_at);
-CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
-  ON observations(series_id, fetch_status, observed_at, vintage_at);
-CREATE TRIGGER validate_observation_plausibility_before_insert
-BEFORE INSERT ON observations
-WHEN NOT EXISTS (
-  SELECT 1 FROM series
-  WHERE series_id = NEW.series_id
-    AND NEW.unit = unit
-    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
-    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
-)
-BEGIN
-  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
-END;
-CREATE TRIGGER validate_observation_plausibility_before_update
-BEFORE UPDATE OF series_id, value, unit ON observations
-WHEN NOT EXISTS (
-  SELECT 1 FROM series
-  WHERE series_id = NEW.series_id
-    AND NEW.unit = unit
-    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
-    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
-)
-BEGIN
-  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
-END;
-CREATE TRIGGER validate_series_contract_before_update
-BEFORE UPDATE OF unit, plausible_min, plausible_max ON series
-WHEN EXISTS (
-  SELECT 1 FROM observations
-  WHERE series_id = NEW.series_id
-    AND (
-      unit != NEW.unit
-      OR (NEW.plausible_min IS NOT NULL AND value < NEW.plausible_min)
-      OR (NEW.plausible_max IS NOT NULL AND value > NEW.plausible_max)
-    )
-)
-BEGIN
-  SELECT RAISE(ABORT, 'series contract excludes an existing observation');
-END;
-PRAGMA user_version = 6;
-"""
 
 
 class IndicatorsSchemaError(RuntimeError):
     """Raised when the indicator SQLite schema is missing or unsupported."""
-
-
-def normalize_observation_unit(
-    series_id: str,
-    unit: str,
-    *,
-    schema_version: int,
-) -> str:
-    """Map a released legacy unit name to the current registry contract."""
-
-    if legacy_unit_renames_apply(schema_version):
-        return _LEGACY_UNIT_RENAMES.get((series_id, unit), unit)
-    return unit
-
-
-def legacy_unit_renames_apply(schema_version: int) -> bool:
-    """Limit compatibility to schemas that actually wrote legacy unit names."""
-
-    return 1 <= schema_version <= _LEGACY_UNIT_RENAME_MAX_SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
@@ -325,7 +98,7 @@ def initialize_database(
     conn = _connect(db_path)
     try:
         resolved_definitions = definitions or load_definitions()
-        _ensure_schema(conn, resolved_definitions)
+        _ensure_schema(conn)
         seed_definitions(conn, resolved_definitions)
         set_registry_generation(conn, resolved_definitions.generation)
         conn.commit()
@@ -345,7 +118,7 @@ def open_connection(
     conn = _connect(db_path)
     try:
         resolved_definitions = definitions or load_definitions()
-        _ensure_schema(conn, resolved_definitions)
+        _ensure_schema(conn)
         seed_definitions(conn, resolved_definitions)
         conn.commit()
     except BaseException:
@@ -534,8 +307,6 @@ def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions
 def _validate_existing_observations(
     conn: sqlite3.Connection,
     definitions: IndicatorDefinitions,
-    *,
-    schema_version: int = SQLITE_SCHEMA_VERSION,
 ) -> None:
     """Fail before a registry update could contradict facts already in the store."""
 
@@ -546,13 +317,7 @@ def _validate_existing_observations(
             FROM observations
             WHERE series_id = ?
               AND (
-                CASE
-                  WHEN ? BETWEEN 1 AND 4
-                   AND series_id = 'jp.foreign_flows'
-                   AND unit = 'jpy'
-                  THEN 'jpy-thousand'
-                  ELSE unit
-                END != ?
+                unit != ?
                 OR (? IS NOT NULL AND value < ?)
                 OR (? IS NOT NULL AND value > ?)
               )
@@ -561,7 +326,6 @@ def _validate_existing_observations(
             """,
             (
                 series.series_id,
-                schema_version,
                 series.unit,
                 series.plausible_min,
                 series.plausible_min,
@@ -571,12 +335,7 @@ def _validate_existing_observations(
         ).fetchone()
         if row is None:
             continue
-        normalized_unit = normalize_observation_unit(
-            series.series_id,
-            str(row["unit"]),
-            schema_version=schema_version,
-        )
-        if normalized_unit != series.unit:
+        if str(row["unit"]) != series.unit:
             detail = f"unit {row['unit']!r}; expected {series.unit!r}"
         else:
             low = "-inf" if series.plausible_min is None else f"{series.plausible_min:g}"
@@ -585,19 +344,6 @@ def _validate_existing_observations(
         raise IndicatorsSchemaError(
             f"stored observation violates registry contract: {series.series_id} "
             f"{row['observed_at']} vintage {row['vintage_at']}: {detail}"
-        )
-
-
-def _validate_foreign_key_integrity(conn: sqlite3.Connection) -> None:
-    """Reject legacy stores whose disabled-FK writes left orphaned facts."""
-
-    violations = conn.execute("PRAGMA foreign_key_check").fetchall()
-    if violations:
-        table, rowid, parent, constraint = violations[0]
-        raise IndicatorsSchemaError(
-            "indicator SQLite foreign key contract is invalid: "
-            f"{table} rowid {rowid} references {parent} "
-            f"(constraint {constraint}); {len(violations)} violation(s)"
         )
 
 
@@ -1050,71 +796,27 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _ensure_schema(
-    conn: sqlite3.Connection,
-    definitions: IndicatorDefinitions,
-) -> None:
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create the schema, confirm it, or refuse — there is no third state.
+
+    A store is either empty or on the current schema. Every store that exists is on the
+    current one, so a path from an older schema would be a route into the past that
+    nothing can travel: dead code that still has to be read, reasoned about, and kept
+    correct. A future schema change writes the one step it actually needs.
+    """
+
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version == SQLITE_SCHEMA_VERSION:
         validate_current_schema(conn)
         return
-    if version not in {0, 1, 2, 3, 4, 5}:
+    if version != 0:
         raise IndicatorsSchemaError(
-            f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
+            f"unsupported indicator SQLite schema: {version}; "
+            f"expected {SQLITE_SCHEMA_VERSION}. Open it with a checkout that reads it, "
+            "or rebuild the store from its sources"
         )
-    if version == 0:
-        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        validate_current_schema(conn)
-        return
-
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        if version in {4, 5}:
-            validate_schema_contract(
-                conn,
-                schema="main",
-                expected_version=version,
-            )
-        _validate_foreign_key_integrity(conn)
-        _validate_existing_observations(
-            conn,
-            definitions,
-            schema_version=version,
-        )
-        if version == 1:
-            _execute_sql_statements(conn, _MIGRATE_V1_TO_V2_SQL)
-            version = 2
-        if version == 2:
-            _execute_sql_statements(conn, _MIGRATE_V2_TO_V3_SQL)
-            version = 3
-        if version == 3:
-            _execute_sql_statements(conn, _MIGRATE_V3_TO_V4_SQL)
-            version = 4
-        if version == 4:
-            _execute_sql_statements(conn, _MIGRATE_V4_TO_V5_SQL)
-            version = 5
-        if version == 5:
-            _execute_sql_statements(conn, _MIGRATE_V5_TO_V6_SQL)
-        validate_current_schema(conn)
-    except BaseException:
-        conn.rollback()
-        raise
-    else:
-        conn.commit()
-
-
-def _execute_sql_statements(conn: sqlite3.Connection, script: str) -> None:
-    """Execute migration DDL without sqlite3.executescript's implicit commit."""
-
-    statement = ""
-    for line in script.splitlines(keepends=True):
-        statement += line
-        if not sqlite3.complete_statement(statement):
-            continue
-        conn.execute(statement)
-        statement = ""
-    if statement.strip():
-        raise IndicatorsSchemaError("incomplete indicator schema migration statement")
+    conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    validate_current_schema(conn)
 
 
 def _series_from_row(row: sqlite3.Row, *, aliases: tuple[str, ...]) -> SeriesDefinition:

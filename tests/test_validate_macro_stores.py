@@ -163,25 +163,14 @@ def test_validate_store_reports_a_series_absent_from_current_registry(tmp_path: 
     assert "series is absent from the current registry" in report.violations[0]
 
 
-def test_validate_store_scans_a_v2_store_without_modifying_or_creating_sidecars(
+def test_validate_store_reads_without_modifying_or_creating_sidecars(
     tmp_path: Path,
 ) -> None:
+    """The live store is git-ignored and irreplaceable in part; a scan must not touch it."""
+
     database = tmp_path / "macro.sqlite"
     definition = _definition()
     _build_store(database, definition)
-    with sqlite3.connect(database) as connection:
-        for trigger in (
-            "validate_observation_plausibility_before_insert",
-            "validate_observation_plausibility_before_update",
-            "validate_series_contract_before_update",
-            "protect_series_from_implicit_prune",
-        ):
-            connection.execute(f"DROP TRIGGER {trigger}")
-        connection.execute("DROP TABLE registry_prune_authorizations")
-        connection.execute("DROP TABLE registry_state")
-        connection.execute("ALTER TABLE series DROP COLUMN plausible_max")
-        connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
-        connection.execute("PRAGMA user_version = 2")
     before = database.stat()
 
     report = validate_store(
@@ -191,12 +180,23 @@ def test_validate_store_scans_a_v2_store_without_modifying_or_creating_sidecars(
 
     after = database.stat()
     assert report.valid
-    assert report.schema_version == 2
+    assert report.schema_version == SQLITE_SCHEMA_VERSION
     assert report.observations == 1
     assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
     assert not Path(f"{database}-wal").exists()
     assert not Path(f"{database}-shm").exists()
     assert not Path(f"{database}-journal").exists()
+
+
+def test_validate_store_refuses_a_store_on_another_schema(tmp_path: Path) -> None:
+    database = tmp_path / "macro.sqlite"
+    definition = _definition()
+    _build_store(database, definition)
+    with sqlite3.connect(database) as connection:
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION - 1}")
+
+    with pytest.raises(IndicatorsSchemaError, match="unsupported indicator SQLite schema"):
+        validate_store(database, definitions=IndicatorDefinitions(series=(definition,)))
 
 
 def _publish_report(path: Path) -> MacroContextDocument:
