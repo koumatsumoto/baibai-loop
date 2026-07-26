@@ -153,10 +153,10 @@ series:
     plausible_min: 0.2
     plausible_max: 2000
     provider: estat_dashboard
-    provider_series_id: "0302030202010090010?Cycle=1&IsSeasonalAdjustment=1&RegionCode=00000"
+    provider_series_id: "0302030202010090010?Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000"
     source_id: estat-dashboard-nominal-wage-index
     source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData
-    notes: 厚労省 毎月勤労統計の名目賃金指数(現金給与総額・事業所規模5人以上・調査産業計・原数値・2020年=100)。月額の給与水準であり時間当たり賃金ではない。賃金は日銀の反応関数の中心で、前年比を読む。毎月勤労統計はe-StatのDB配信が2021年で止まり月次結果はrelease毎のファイルのみなので、統計ダッシュボードのIndicatorCodeを機械可読な経路とする。確報のみを載せる(速報は入らない)ため公表は対象月+約85日。2012-01起点
+    notes: 厚労省 毎月勤労統計の名目賃金指数(現金給与総額・事業所規模5人以上・調査産業計・季節調整値)。月額の給与水準であり時間当たり賃金ではない。原数値は賞与月に指数が倍近くまで跳ねるため、月次の水準比較を賞与の有無で支配させない季節調整値を読む(前年比は原数値とほぼ一致する)。賃金は日銀の反応関数の中心で、前年比を読む。毎月勤労統計はe-StatのDB配信が2021年で止まり月次結果はrelease毎のファイルのみなので、統計ダッシュボードのIndicatorCodeを機械可読な経路とする。確報のみを載せる(速報は入らない)ため公表は対象月+約85日。2012-01起点
     aliases: [日本名目賃金, 名目賃金指数, 現金給与総額, JP nominal wage index, 日本賃金指数]
   - series_id: jp.real_effective_exchange_rate
     name: 日本実質実効為替レート

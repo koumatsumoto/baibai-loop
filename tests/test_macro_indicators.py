@@ -3386,7 +3386,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
 
         self.assertEqual(
             by_id["jp.nominal_wage_index"].provider_series_id,
-            "0302030202010090010?Cycle=1&IsSeasonalAdjustment=1&RegionCode=00000",
+            "0302030202010090010?Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000",
         )
         self.assertEqual(
             by_id["jp.unemployment"].provider_series_id,
