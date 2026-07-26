@@ -19,6 +19,36 @@ _ROW_COUNT_SQL = {
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
 }
+_SCHEMA_VALIDATION_SQL = {
+    "main": {
+        "user_version": "PRAGMA main.user_version",
+        "registry_tables": (
+            "SELECT name, sql FROM main.sqlite_master "
+            "WHERE type = 'table' AND name IN "
+            "('registry_state', 'registry_prune_authorizations')"
+        ),
+        "registry_state": (
+            "SELECT singleton, generation, typeof(singleton), typeof(generation) "
+            "FROM main.registry_state"
+        ),
+        "prune_authorizations": ("SELECT COUNT(*) FROM main.registry_prune_authorizations"),
+        "triggers": "SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger'",
+    },
+    "source": {
+        "user_version": "PRAGMA source.user_version",
+        "registry_tables": (
+            "SELECT name, sql FROM source.sqlite_master "
+            "WHERE type = 'table' AND name IN "
+            "('registry_state', 'registry_prune_authorizations')"
+        ),
+        "registry_state": (
+            "SELECT singleton, generation, typeof(singleton), typeof(generation) "
+            "FROM source.registry_state"
+        ),
+        "prune_authorizations": ("SELECT COUNT(*) FROM source.registry_prune_authorizations"),
+        "triggers": "SELECT name, sql FROM source.sqlite_master WHERE type = 'trigger'",
+    },
+}
 _MIGRATE_V1_TO_V2_SQL = """
 BEGIN IMMEDIATE;
 CREATE TABLE aliases_v2(
@@ -174,7 +204,8 @@ def validate_current_schema(
 ) -> None:
     if schema not in {"main", "source"}:
         raise ValueError(f"unsupported SQLite schema name: {schema!r}")
-    version = int(conn.execute(f"PRAGMA {schema}.user_version").fetchone()[0])
+    queries = _SCHEMA_VALIDATION_SQL[schema]
+    version = int(conn.execute(queries["user_version"]).fetchone()[0])
     if version != SQLITE_SCHEMA_VERSION:
         raise IndicatorsSchemaError(
             f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
@@ -184,14 +215,11 @@ def validate_current_schema(
 
 
 def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) -> None:
+    queries = _SCHEMA_VALIDATION_SQL[schema]
     expected = _canonical_registry_table_sql()
     actual = {
         str(row[0]): _normalize_schema_sql(str(row[1]))
-        for row in conn.execute(
-            f"SELECT name, sql FROM {schema}.sqlite_master "
-            "WHERE type = 'table' AND name IN ('registry_state', "
-            "'registry_prune_authorizations')"
-        )
+        for row in conn.execute(queries["registry_tables"])
     }
     missing = sorted(set(expected) - set(actual))
     changed = sorted(name for name in set(expected) & set(actual) if actual[name] != expected[name])
@@ -205,10 +233,7 @@ def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) 
             f"indicator SQLite registry table contract mismatch in {schema} ({'; '.join(details)})"
         )
 
-    rows = conn.execute(
-        f"SELECT singleton, generation, typeof(singleton), typeof(generation) "
-        f"FROM {schema}.registry_state"
-    ).fetchall()
+    rows = conn.execute(queries["registry_state"]).fetchall()
     if (
         len(rows) != 1
         or rows[0][0] != 1
@@ -220,9 +245,7 @@ def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) 
             f"indicator SQLite registry state in {schema} must contain exactly "
             "singleton=1 with a non-negative integer generation"
         )
-    authorizations = int(
-        conn.execute(f"SELECT COUNT(*) FROM {schema}.registry_prune_authorizations").fetchone()[0]
-    )
+    authorizations = int(conn.execute(queries["prune_authorizations"]).fetchone()[0])
     if authorizations:
         raise IndicatorsSchemaError(
             f"indicator SQLite registry prune authorization state in {schema} "
@@ -231,11 +254,9 @@ def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) 
 
 
 def _validate_trigger_contract(conn: sqlite3.Connection, *, schema: str) -> None:
+    queries = _SCHEMA_VALIDATION_SQL[schema]
     actual = {
-        str(row[0]): _normalize_schema_sql(str(row[1]))
-        for row in conn.execute(
-            f"SELECT name, sql FROM {schema}.sqlite_master WHERE type = 'trigger'"
-        )
+        str(row[0]): _normalize_schema_sql(str(row[1])) for row in conn.execute(queries["triggers"])
     }
     expected = _canonical_trigger_sql()
     missing = sorted(set(expected) - set(actual))
