@@ -135,7 +135,7 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 読み方の規律：
 
 - **`insufficient_history` の系列は水準比較に使わない**。窓を満たさない履歴で percentile を出すと、その系列自身の短い生涯の中の順位を「歴史的な位置」と読み違える。reading は計算を拒否して null を返す。判定は 3 条件で、**先頭観測が窓の先頭 1/10 までに始まっている**（provider の rolling 窓のずれと、月次・四半期の観測日粒度を吸収する猶予）・**窓内の観測が 8 件以上**・**frequency が示す期数の 6 割以上が埋まっている**（週次・月次・四半期のみ。日次は「1 年に何営業日あるか」が frequency の性質ではないので件数を課さない）のいずれかを欠けば立つ。密度を見るのは、欠落が均等に散らないためである: 人手で埋めるソースは直近の月から埋まるので、穴の空いた 10 年窓は「直近の分布に 10 年のラベルを貼ったもの」になる。実際の件数と期待件数は `window_observations` / `expected_observations` に出る
-- **`next_print_estimate` は公表予定日の目安であり、イベントカレンダーではない**。`publication_cadence` の次期と `publication_lag_days` だけから決定論で導出する。daily の既定は `business_daily` で推定日が土日なら翌平日へ送り、土日も観測を持つ系列は `calendar_daily` を明示する。cadence の既定は registry frequency だが、統計標本は月次でも当月値を営業日更新する `us.erp`、日次観測を週次バッチで公表する H.10 / EIA のような系列は override する。祝日や当局の個別日程は手維持しない。`print_due_in_days` が小さい正値なら公表が近く、負値なら公表済みのはずで取得待ちである。精密な会合・イベント日は L3 monitoring で一次情報を確認する
+- **`next_print_estimate` は公表予定日の目安であり、イベントカレンダーではない**。`publication_cadence` の次期と `publication_lag_days` だけから決定論で導出する。daily の既定は `business_daily` で推定日が土日なら翌平日へ送り、土日も観測を持つ系列は `calendar_daily` を明示する。cadence の既定は registry frequency だが、統計標本は月次でも当月値を営業日更新する `us.erp`、日次観測を週次バッチで公表する H.10 / EIA のような系列は override する。祝日や当局の個別日程は手維持しない。`print_due_in_days` が小さい正値なら公表が近く、負値なら公表済みのはずで取得待ちである。精密な会合・イベント日は L3 monitoring で一次情報を確認する（推定は上端であり entry timing には使えない。後述の「意図的な境界」）
 - **`stale` は provider の無音の停止を疑う合図**であって、値の否定ではない。観測の齢は公表ラグと週末を含むため、境界日は **`next_print_estimate + staleness_margin_days`** から同じ calendar arithmetic で導出する。`staleness_warn_days` はその観測日から境界日までの日数を表示する。次の公表を待っている平常時には出ず、1 回の公表落ちで出る水準である。lag / cadence が frequency default と構造的に違う source（H.4.1 の翌日公表、EIA の日次価格を週次でまとめる FRED、M+2 公表の JOLTS、OECD の中継、日次更新する月次派生値）は系列別に override する。**閾値が緩すぎると 2 公表分の欠落を通す**ので、公表が速い source ほど閾値も短くする
 - **`flags` は signal ではなく注記**である。閾値に触れたことを見落とさないための機械的な指差しで、水準の解釈と行動は L3 の判断に属する
 - **`z_score` の極端値は誤値と真の市場極値の両方で出る**。どちらかは reading では決めず、L3 が一次情報と突き合わせて判断する
@@ -261,7 +261,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 | 指標群 | 基本の読み方 | 必ず組み合わせる確認 |
 | --- | --- | --- |
 | 政策金利・国債金利 | 政策の現在地と市場が織り込む将来経路を分ける。長期金利上昇は割引率の上昇要因になりやすい | 実質金利、期待インフレ、イールドカーブ |
-| PMI・生産・雇用・消費 | 50などの基準、水準の方向、雇用の遅行性を区別する | 新規受注、失業保険申請、生産、実質消費 |
+| PMI・生産・雇用・消費 | 50などの基準、水準の方向、雇用の遅行性を区別する。PMI の percentile は 3 年窓（post-COVID 局面のみ）なので 10 年窓の同じ数字より含意が弱い | 新規受注、失業保険申請、生産、実質消費 |
 | CPI・賃金・輸入物価 | 総合と基調、前年比と前月比を分ける。賃金上昇は需要とcostの両経路を持つ | service CPI、実質賃金、為替、原油・銅 |
 | 為替・金利差 | 為替だけで因果を確定せず、金融政策差とrisk-offを分ける | 日米金利、VIX、trade-weighted dollar |
 | 流動性・credit・volatility | net liquidityは構成系列を同じ単位にそろえる。OASやVIX/MOVEの上昇は資金調達・risk appetiteの悪化を示し得る | NFCI、HY/CCC OAS、株式breadth |
@@ -279,6 +279,16 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 6. **バリュエーション・ERP**：`us.sp500_earnings_yield` − `us.10y` ＝ 米ERP。益回り < 名目金利（ERP≤0）は警戒域。`us.sp500_cape` で長期割高度。**日本側は市場全体PER/益回り（日経・JPX公表値またはin-house universe中央値）− JGB 10y** を同じ構図で読み、個別FVアンカーの外側検算に使う。
 7. **グローバル中銀の同期**：`us.fed_funds.upper` + `jp.policy_rate` + `ecb.policy_rate`。1 国でなく同期を読む。
 8. **エネルギー・地政学**：`wti`/`brent` + `gold`。日本はエネルギー輸入依存が高く（中東 ~95%・ホルムズ ~74%）原油 spike が通貨・スタグフレーションに直結するため `usd_jpy` と併読。
+
+## 意図的な境界（不足ではなく設計）
+
+次の 3 点は「機能が足りない」ように読めるが、意図して引いた境界である。
+
+**中国は proxy basket で読む。** 中国の直接系列は `usd_cny` の 1 本だけである。NBS 等の公式配信に機械可読で安定した無認証経路が無く、脆い scrape provider を足すと「取り込みの停止」と「系列自体の停止」を store の上で区別できない無音の失敗を増やす（§① の relay に関する注意と同じ理由）。代わりに **`copper`（中国の実需）・`aud_jpy`（資源国通貨として中国感応度が高い）・`em.equity`（EEM）・`usd_cny`** を横に読み、中国の需要と資金の向きを推す。安定した機械可読 source が現れたらこの方針を再評価する。境界は **L1 の系列取り込み**の側にあり、L3 のレポートでは NBS / 海関総署の公表値を `inputs.articles` の一次情報として引いてよい（[`../reference/data-sources.md`](../reference/data-sources.md)）。
+
+**`next_print_estimate` は上端であり、entry timing には使えない。** これは「これ以降なら公表済みのはず」の線で、平常の公表待ちで負値や `stale` を出さないよう遅い側へ寄せてある。staleness 判定と scorecard の settlement watermark にはこれが正しい。一方で「保有ウィンドウ内に CPI が落ちるか」のような事前確認には、**早い側に外れるイベントを見逃す**ので使えない。その用途には下端推定が要り、現状は L3 の monitoring と人手の暦確認が担う。
+
+**3 年窓の percentile は 10 年窓と同じ意味を持たない。** PMI 4 系列（manifest 起点 2022-12）・credit OAS 4 系列（ICE BofA の配信範囲）・`jp.foreign_flows` は 3 年窓で読む。とくに PMI の 3 年は post-COVID の引き締め〜緩和局面しか含まないので、「PMI 48 = 25th percentile」は 10 年窓の同じ数字より弱い含意しか持たない。reading は `window_years` と `window_observations` を出しているので機械側は誠実であり、L3 執筆時は窓の長さを見てから percentile を読む。
 
 ## Material deltaとAIの境界
 
