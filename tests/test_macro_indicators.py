@@ -94,6 +94,7 @@ from baibai_engine.macro.indicators.service import (
     RefreshSuccess,
 )
 from baibai_engine.macro.reading.cli import main as reading_main
+from tests.helpers.indicator_store import downgrade_to_previous_schema
 
 
 class IndicatorsDBTests(unittest.TestCase):
@@ -1021,7 +1022,7 @@ class RetractionVintageTests(unittest.TestCase):
                 retract_observations(
                     conn,
                     "us.10y",
-                    [date(2026, 5, 4)],
+                    [(date(2026, 5, 4), datetime(2026, 5, 5, tzinfo=UTC))],
                     vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
                 )
                 conn.commit()
@@ -1061,7 +1062,7 @@ class RetractionVintageTests(unittest.TestCase):
                 retract_observations(
                     conn,
                     "jp.foreign_flows",
-                    [date(2024, 8, 23)],
+                    [(date(2024, 8, 23), datetime(2024, 8, 29, tzinfo=UTC))],
                     vintage_at=datetime(2024, 9, 15, tzinfo=UTC),
                 )
                 conn.commit()
@@ -1102,7 +1103,7 @@ class RetractionVintageTests(unittest.TestCase):
                 retract_observations(
                     conn,
                     "us.10y",
-                    [date(2026, 5, 1)],
+                    [(date(2026, 5, 1), datetime(2026, 5, 2, tzinfo=UTC))],
                     vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
                 )
                 insert_observations(
@@ -1131,7 +1132,7 @@ class RetractionVintageTests(unittest.TestCase):
                 retract_observations(
                     conn,
                     "us.10y",
-                    [date(2026, 5, 1)],
+                    [(date(2026, 5, 1), datetime(2026, 5, 2, tzinfo=UTC))],
                     vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
                 )
                 conn.commit()
@@ -1170,7 +1171,7 @@ class RetractionVintageTests(unittest.TestCase):
                 retract_observations(
                     conn,
                     "jp.foreign_flows",
-                    [date(2026, 7, 9)],
+                    [(date(2026, 7, 9), datetime(2026, 7, 10, tzinfo=UTC))],
                     vintage_at=datetime(2026, 7, 11, tzinfo=UTC),
                 )
                 conn.commit()
@@ -1230,7 +1231,7 @@ class RetractionVintageTests(unittest.TestCase):
                 outcomes = retract_observations(
                     conn,
                     "us.10y",
-                    [date(2026, 5, 1)],
+                    [(date(2026, 5, 1), datetime(2026, 6, 23, tzinfo=UTC))],
                     vintage_at=datetime(2026, 7, 27, tzinfo=UTC),
                 )
                 conn.commit()
@@ -1266,7 +1267,7 @@ class RetractionVintageTests(unittest.TestCase):
                 retract_observations(
                     conn,
                     "us.10y",
-                    [date(2026, 5, 1)],
+                    [(date(2026, 5, 1), datetime(2026, 6, 23, tzinfo=UTC))],
                     vintage_at=datetime(2026, 7, 27, tzinfo=UTC),
                 )
                 # A merge restores the row the other store still holds.
@@ -1280,6 +1281,147 @@ class RetractionVintageTests(unittest.TestCase):
 
             self.assertEqual([item.value for item in observations], [4.39])
 
+    def test_repeating_a_retraction_refuses_instead_of_walking_back_down(self) -> None:
+        """Without this, a second pass reads the restored row and puts the wrong value back."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = initialize_database(Path(tmp) / "macro.sqlite")
+            try:
+                series = get_series(conn, "us.10y")
+                insert_observations(
+                    conn,
+                    [
+                        _rate(series, date(2026, 5, 1), 4.39, datetime(2026, 5, 2, tzinfo=UTC)),
+                        _rate(series, date(2026, 5, 1), 9.99, datetime(2026, 6, 23, tzinfo=UTC)),
+                    ],
+                )
+                retract_observations(
+                    conn,
+                    "us.10y",
+                    [(date(2026, 5, 1), datetime(2026, 6, 23, tzinfo=UTC))],
+                    vintage_at=datetime(2026, 7, 27, tzinfo=UTC),
+                )
+                conn.commit()
+
+                with self.assertRaisesRegex(ValueError, "not the latest vintage"):
+                    retract_observations(
+                        conn,
+                        "us.10y",
+                        [(date(2026, 5, 1), datetime(2026, 6, 23, tzinfo=UTC))],
+                        vintage_at=datetime(2026, 7, 28, tzinfo=UTC),
+                    )
+                observations = observations_in_range(
+                    conn, "us.10y", date(2026, 5, 1), date(2026, 5, 1)
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual([item.value for item in observations], [4.39])
+
+    def test_retracting_an_input_refuses_while_a_derived_value_still_reads_it(self) -> None:
+        """Recomputation cannot repair a derived row whose input date has gone."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            registry = load_definitions().by_id()
+            definitions = IndicatorDefinitions(
+                series=tuple(
+                    registry[item] for item in ("us.10y", "jp.10y", "rate_diff.us_jp_10y")
+                ),
+                generation=1,
+            )
+            conn = initialize_database(database, definitions=definitions)
+            try:
+                vintage = datetime(2026, 7, 21, tzinfo=UTC)
+                insert_observations(
+                    conn,
+                    [
+                        _rate(get_series(conn, "us.10y"), date(2026, 7, 20), 4.5, vintage),
+                        _rate(get_series(conn, "jp.10y"), date(2026, 7, 20), 1.6, vintage),
+                        _rate(
+                            get_series(conn, "rate_diff.us_jp_10y"),
+                            date(2026, 7, 20),
+                            2.9,
+                            vintage,
+                        ),
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            service = IndicatorsService(database)
+
+            with self.assertRaisesRegex(
+                IndicatorsProviderError,
+                r"would leave derived observations computed from it",
+            ):
+                service.retract("us.10y", [(date(2026, 7, 20), vintage)])
+
+            conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                kept = observations_in_range(conn, "us.10y", date(2026, 7, 20), date(2026, 7, 20))
+            finally:
+                conn.close()
+
+            self.assertEqual([item.value for item in kept], [4.5])
+
+    def test_all_history_refresh_keeps_the_belief_a_retraction_put_back(self) -> None:
+        """The restored row is an ordinary `ok` row, so only the vintage rule protects it."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                series = get_series(conn, "jp.foreign_flows")
+                week = _flow(
+                    series, date(2026, 7, 3), 400343944.0, datetime(2026, 7, 9, tzinfo=UTC)
+                )
+                wrong = replace(
+                    week, value=200238561.0, vintage_at=datetime(2026, 7, 10, tzinfo=UTC)
+                )
+                insert_observations(conn, [week, wrong])
+                retract_observations(
+                    conn,
+                    "jp.foreign_flows",
+                    [(date(2026, 7, 3), datetime(2026, 7, 10, tzinfo=UTC))],
+                    vintage_at=datetime(2026, 7, 26, tzinfo=UTC),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[week],
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = main(
+                    [
+                        "refresh",
+                        "jp.foreign_flows",
+                        "--all-history",
+                        "--end",
+                        "2026-07-20",
+                        "--db",
+                        str(database),
+                    ]
+                )
+
+            conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                observations = observations_in_range(
+                    conn, "jp.foreign_flows", date(2026, 7, 1), date(2026, 7, 20)
+                )
+            finally:
+                conn.close()
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual([item.value for item in observations], [400343944.0])
+
     def test_retract_refuses_a_date_the_store_never_observed(self) -> None:
         """A retraction list that no longer matches the store is a stale list, not a no-op."""
 
@@ -1290,7 +1432,7 @@ class RetractionVintageTests(unittest.TestCase):
                     retract_observations(
                         conn,
                         "us.10y",
-                        [date(2026, 5, 1)],
+                        [(date(2026, 5, 1), datetime(2026, 5, 2, tzinfo=UTC))],
                         vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
                     )
             finally:
@@ -1308,13 +1450,13 @@ class RetractionVintageTests(unittest.TestCase):
                 retract_observations(
                     conn,
                     "us.10y",
-                    [date(2026, 5, 1)],
+                    [(date(2026, 5, 1), datetime(2026, 5, 2, tzinfo=UTC))],
                     vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
                 )
                 again = retract_observations(
                     conn,
                     "us.10y",
-                    [date(2026, 5, 1)],
+                    [(date(2026, 5, 1), datetime(2026, 5, 10, tzinfo=UTC))],
                     vintage_at=datetime(2026, 5, 11, tzinfo=UTC),
                 )
                 conn.commit()
@@ -1347,6 +1489,8 @@ class RetractionVintageTests(unittest.TestCase):
                         "us.10y",
                         "--observed-at",
                         "2026-05-01",
+                        "--expected-vintage",
+                        "2026-05-02T00:00:00+00:00",
                         "--db",
                         str(database),
                     ]
@@ -1371,7 +1515,7 @@ class RetractionVintageTests(unittest.TestCase):
                 conn.commit()
             finally:
                 conn.close()
-            _downgrade_fixture_to_v5(database)
+            downgrade_to_previous_schema(database)
 
             legacy = sqlite3.connect(database)
             legacy.row_factory = sqlite3.Row
@@ -1380,7 +1524,7 @@ class RetractionVintageTests(unittest.TestCase):
                     retract_observations(
                         legacy,
                         "us.10y",
-                        [date(2026, 5, 1)],
+                        [(date(2026, 5, 1), datetime(2026, 5, 2, tzinfo=UTC))],
                         vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
                     )
             finally:
@@ -2162,9 +2306,11 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         """A 2Y yield above the policy rate is tightening priced; below it, easing."""
 
         tightening = FORMULAS["us.policy_path_gap"].evaluate(
-            {"us.2y": 4.37, "us.fed_funds.upper": 3.75}
+            {"us.2y": 4.37, "us.fed_funds.upper": 3.75, "us.fed_funds.lower": 3.5}
         )
-        easing = FORMULAS["us.policy_path_gap"].evaluate({"us.2y": 3.88, "us.fed_funds.upper": 4.5})
+        easing = FORMULAS["us.policy_path_gap"].evaluate(
+            {"us.2y": 3.88, "us.fed_funds.upper": 4.5, "us.fed_funds.lower": 4.25}
+        )
         normalization = FORMULAS["jp.policy_path_gap"].evaluate(
             {"jp.2y": 1.45, "jp.policy_rate": 0.978}
         )
@@ -2172,8 +2318,8 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         assert tightening is not None
         assert easing is not None
         assert normalization is not None
-        self.assertAlmostEqual(tightening, 0.62, places=3)
-        self.assertAlmostEqual(easing, -0.62, places=3)
+        self.assertAlmostEqual(tightening, 0.745, places=3)
+        self.assertAlmostEqual(easing, -0.495, places=3)
         self.assertAlmostEqual(normalization, 0.472, places=3)
 
     def test_derived_policy_path_gap_rejects_an_impossible_spread(self) -> None:
@@ -5378,52 +5524,6 @@ def _flow(
         period_end=observed_at,
         vintage_at=vintage_at,
     )
-
-
-def _downgrade_fixture_to_v5(database: Path) -> None:
-    """Rebuild `observations` under the v5 fetch_status domain, before 'retracted'."""
-
-    with sqlite3.connect(database) as connection:
-        trigger_sql = tuple(
-            str(row[0])
-            for row in connection.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
-                "AND name IN ("
-                "'validate_observation_plausibility_before_insert', "
-                "'validate_observation_plausibility_before_update', "
-                "'validate_series_contract_before_update'"
-                ") ORDER BY name"
-            )
-        )
-        connection.executescript(
-            """
-            DROP TRIGGER validate_observation_plausibility_before_insert;
-            DROP TRIGGER validate_observation_plausibility_before_update;
-            DROP TRIGGER validate_series_contract_before_update;
-            CREATE TABLE observations_v5(
-              series_id TEXT NOT NULL REFERENCES series(series_id),
-              observed_at TEXT NOT NULL,
-              period_start TEXT,
-              period_end TEXT,
-              value REAL NOT NULL,
-              unit TEXT NOT NULL,
-              vintage_at TEXT NOT NULL,
-              fetch_status TEXT NOT NULL,
-              source_url TEXT NOT NULL,
-              PRIMARY KEY(series_id, observed_at, vintage_at),
-              CHECK(fetch_status IN ('ok', 'failed', 'unreleased'))
-            );
-            INSERT INTO observations_v5 SELECT * FROM observations;
-            DROP TABLE observations;
-            ALTER TABLE observations_v5 RENAME TO observations;
-            CREATE INDEX idx_observations_series_date ON observations(series_id, observed_at);
-            CREATE INDEX idx_observations_series_status_date_vintage
-              ON observations(series_id, fetch_status, observed_at, vintage_at);
-            """
-        )
-        for statement in trigger_sql:
-            connection.execute(statement)
-        connection.execute("PRAGMA user_version = 5")
 
 
 def _retired_counts(database: Path) -> tuple[int, int, int]:

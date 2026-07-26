@@ -727,10 +727,25 @@ def latest_observation(
     return _observation_from_row(row) if row is not None else None
 
 
+def latest_vintage_at(
+    conn: sqlite3.Connection,
+    series_id: str,
+    observed_at: date,
+) -> datetime | None:
+    """The vintage a retraction of this observation date would withdraw, if any."""
+
+    row = conn.execute(
+        "SELECT vintage_at FROM observations WHERE series_id = ? AND observed_at = ? "
+        "AND fetch_status IN ('ok', ?) ORDER BY vintage_at DESC LIMIT 1",
+        (series_id, observed_at.isoformat(), RETRACTED_STATUS),
+    ).fetchone()
+    return None if row is None else datetime.fromisoformat(str(row[0]))
+
+
 def retract_observations(
     conn: sqlite3.Connection,
     series_id: str,
-    observed_dates: Sequence[date],
+    targets: Sequence[tuple[date, datetime]],
     *,
     vintage_at: datetime,
 ) -> tuple[RetractionOutcome, ...]:
@@ -750,14 +765,20 @@ def retract_observations(
     reads entirely.
 
     Either way the written row carries a stored value and unit, so the plausibility
-    contract still holds for it. A date whose latest vintage is already retracted is
-    left alone; a date with no observation at all is an error, because retracting
-    something that was never stored means the caller is working from a stale list.
+    contract still holds for it.
+
+    Each target names the vintage it expects to withdraw, the same compare-and-swap the
+    context publisher uses for its head. Without it the operation is not safe to repeat:
+    a second pass would read the row the first pass restored, find the wrong value under
+    it, and put that back — silently, and then through the merge into the cloud copy.
+    Naming the vintage makes a repeat a refusal instead. A date with no observation at
+    all is an error too, because retracting something that was never stored means the
+    caller is working from a stale list.
     """
 
     outcomes: list[RetractionOutcome] = []
     written: list[ObservationRecord] = []
-    for observed_at in observed_dates:
+    for observed_at, expected_vintage_at in targets:
         rows = conn.execute(
             "SELECT * FROM observations WHERE series_id = ? AND observed_at = ? "
             "AND fetch_status IN ('ok', ?) ORDER BY vintage_at DESC LIMIT 2",
@@ -766,6 +787,12 @@ def retract_observations(
         if not rows:
             raise ValueError(f"no observation to retract: {series_id} {observed_at.isoformat()}")
         withdrawn = _observation_from_row(rows[0])
+        if withdrawn.vintage_at != expected_vintage_at:
+            raise ValueError(
+                f"observation to retract is not the latest vintage: {series_id} "
+                f"{observed_at.isoformat()} expected {expected_vintage_at.isoformat()} "
+                f"but found {withdrawn.vintage_at.isoformat() if withdrawn.vintage_at else 'none'}"
+            )
         if withdrawn.fetch_status == RETRACTED_STATUS:
             continue
         underneath = _observation_from_row(rows[1]) if len(rows) > 1 else None

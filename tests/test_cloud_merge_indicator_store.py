@@ -21,6 +21,7 @@ from baibai_engine.macro.indicators.db import (
     seed_definitions,
 )
 from baibai_engine.macro.indicators.definitions import IndicatorDefinitions, load_definitions
+from tests.helpers.indicator_store import downgrade_to_previous_schema
 
 STARTED_AT = datetime(2026, 7, 24, 11, 47, tzinfo=UTC)
 # Every observation carries an explicit vintage so a row present in both stores collides on
@@ -180,7 +181,7 @@ def test_merge_carries_a_retraction_to_the_other_store(tmp_path: Path) -> None:
         retract_observations(
             connection,
             "jp.10y",
-            [date(2026, 7, 23)],
+            [(date(2026, 7, 23), VINTAGE)],
             vintage_at=datetime(2026, 7, 25, tzinfo=UTC),
         )
         connection.commit()
@@ -223,7 +224,7 @@ def test_merge_reads_a_source_one_schema_behind_the_target(tmp_path: Path) -> No
     observation = _observation("jp.10y", date(2026, 7, 23), 1.62)
     _build_store(source, series_ids=("jp.10y",), observations=(observation,))
     _build_store(target, series_ids=("jp.10y",), observations=())
-    _downgrade_store_to_previous_schema(source)
+    downgrade_to_previous_schema(source)
 
     report = merge_stores(source, target)
 
@@ -620,42 +621,6 @@ def _inject_source_observation(path: Path, observation: ObservationRecord) -> No
         insert_observations(connection, [observation], deduplicate_unchanged=False)
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         connection.commit()
-
-
-def _downgrade_store_to_previous_schema(path: Path) -> None:
-    """Rebuild `observations` under the v5 fetch_status domain, before 'retracted'."""
-
-    with sqlite3.connect(path) as connection:
-        trigger_sql = _contract_trigger_sql(connection)
-        connection.executescript(
-            """
-            DROP TRIGGER validate_observation_plausibility_before_insert;
-            DROP TRIGGER validate_observation_plausibility_before_update;
-            DROP TRIGGER validate_series_contract_before_update;
-            CREATE TABLE observations_v5(
-              series_id TEXT NOT NULL REFERENCES series(series_id),
-              observed_at TEXT NOT NULL,
-              period_start TEXT,
-              period_end TEXT,
-              value REAL NOT NULL,
-              unit TEXT NOT NULL,
-              vintage_at TEXT NOT NULL,
-              fetch_status TEXT NOT NULL,
-              source_url TEXT NOT NULL,
-              PRIMARY KEY(series_id, observed_at, vintage_at),
-              CHECK(fetch_status IN ('ok', 'failed', 'unreleased'))
-            );
-            INSERT INTO observations_v5 SELECT * FROM observations;
-            DROP TABLE observations;
-            ALTER TABLE observations_v5 RENAME TO observations;
-            CREATE INDEX idx_observations_series_date ON observations(series_id, observed_at);
-            CREATE INDEX idx_observations_series_status_date_vintage
-              ON observations(series_id, fetch_status, observed_at, vintage_at);
-            """
-        )
-        for statement in trigger_sql:
-            connection.execute(statement)
-        connection.execute("PRAGMA user_version = 5")
 
 
 def _contract_trigger_sql(connection: sqlite3.Connection) -> tuple[str, ...]:

@@ -31,12 +31,14 @@ uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        
 
 observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。したがって **同じ refresh を何度実行しても、ソースが改定した series の観測だけが新 vintage として増え、それ以外はテーブルが不変**になる（べき等）。ローカルで `--all-history` seed → cloud で日次 refresh、cloud の多重実行や手動 rerun も同じ性質で安全に収束する。cloud 正本の履歴を後から深くするときは、ローカルで `--all-history` を回してから `tools/cloud/r2_transfer.sh push-macro` で載せる（cloud copy を merge してから upload するので、日次 refresh が取った最新観測を失わない）。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
 
-誤って入った observation は削除では消えない。cloud との merge は双方の fact を必ず戻す no-loss 契約なので、ローカルで消しても次の push で復活する。この契約は本物の履歴を守るためのものなので緩めず、代わりに **今わかっていることを新しい vintage として上に積む**: `baibai-engine macro retract <series_id> --observed-at <date>` が対象 observation 日の**最新 vintage を撤回**し、その 1 つ下にあった状態を現在時刻の vintage で書き直す。
+誤って入った observation は削除では消えない。cloud との merge は双方の fact を必ず戻す no-loss 契約なので、ローカルで消しても次の push で復活する。この契約は本物の履歴を守るためのものなので緩めず、代わりに **今わかっていることを新しい vintage として上に積む**: `baibai-engine macro retract <series_id> --observed-at <date> --expected-vintage <ts>` が対象 observation 日の**最新 vintage を撤回**し、その 1 つ下にあった状態を現在時刻の vintage で書き直す。撤回する vintage を名指すのは publish の `--expected-head` と同じ compare-and-swap で、これが無いと同じコマンドの 2 回目が「復元した行の下にある誤値」を読んで書き戻してしまう。名指してあれば 2 回目は拒否になる。**撤回対象が derived 系列の入力なら、その derived 系列の同じ日も先に撤回する必要があり、コマンドが書き込み前に拒否して対象を印字する**（derived は自分の観測を持つので、入力を撤回しても計算済みの値は消えず、再計算でも直らない）。
 
 - 下に正しい観測があれば **その観測が再び読まれる**（誤った writer が正しい値の上に別の値を刻んだ場合。撤回のたびに 1 つずつ vintage を遡る）
 - 下に何も無い、または下も撤回済みなら `fetch_status='retracted'` を書き、その日は reading / chart / scorecard / freshness のすべてから外れる
 
-読みは「観測日ごとに `ok` と `retracted` の中から最大 vintage を採り、それが `ok` のときだけ返す」。`failed` / `unreleased` は取得の結果であって値についての主張ではないので、読めていた観測を隠さない。書かれた行は普通の fact なので merge が両方向へ運び、他方の store に残る誤った行より必ず新しいため上書きされない。`--all-history` を含む全ての store 書き換えは retraction を残す（provider が同じ観測日を再配信した場合だけ、新しい `ok` vintage が上に乗って復活する。これは「源泉が再び主張する事実は読む」で正しい）。point-in-time replay では撤回の vintage が cutoff より後なら旧 `ok` 行が見え続ける——当時そう信じていたことの誠実な表現である。
+読みは「観測日ごとに `ok` と `retracted` の中から最大 vintage を採り、それが `ok` のときだけ返す」。`failed` / `unreleased` は取得の結果であって値についての主張ではないので、読めていた観測を隠さない。書かれた行は普通の fact なので merge が両方向へ運び、他方の store に残る誤った行より必ず新しいため上書きされない。`--all-history` を含む全ての store 書き換えは、**provider の最新の主張より新しい vintage の行を消さない**——書き換えが置換してよいのは provider が言い直すものだけで、その後に store が下した決定（撤回とそれが戻した観測）ではないからである。取得時刻を vintage に刻む provider では最新の主張が「今」なので、この規則は何も余分に残さない。provider が同じ観測日を再配信した場合だけ、新しい `ok` vintage が上に乗って復活する（「源泉が再び主張する事実は読む」で正しい）。
+
+point-in-time provider（`jquants_flows`）では撤回の vintage が公表時刻ではなく操作時刻になるため、**撤回は撤回時刻以降の as-of にしか効かない**（それ以前の as-of での replay は撤回前の値を読み続ける。当時そう信じていたことの誠実な表現である）。同じ理由で、撤回時刻より前の公表 vintage を持つ改定は撤回の下に埋もれる。実際に撤回した観測は source が publish しない幽霊日なので改定の余地が無いが、real な観測日を撤回するときはこの境界を意識する。
 
 registry は系列定義の正本だが、DB を開く read 操作は登録外系列の facts・metadata・aliases を削除しない。open 時は現行 registry が知る系列の metadata / aliases だけを upsert し、`series` / `observations` / `provider_runs` の prune は、現行 registry の系列を 1 件以上指定した明示的な `macro refresh` の開始時だけ実行する。registry の series ID 集合には単調増加する generation を対応付け、store の generation が client より新しければ stale branch として refresh を拒否する。series ID を追加・削除するときは `definitions.py` の membership digest を次の generation として追記し、退役・改名では後述の validator を前後で回して発行済みレポートへの影響を確認する。prune は `BEGIN IMMEDIATE` 内で件数集計から commit までを行い、commit 前の `registry-prune-pending` と commit 後の `registry-prune` を同じ transaction ID で出力する。pending を出力できなければ全削除を rollback し、pending だけが残った実行は未確定として扱う。無許可の series DELETE は trigger が拒否する。
 
@@ -203,7 +205,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
 
-publish 済み revision は immutable なので、検証は**参照先が動くかどうか**で 2 層に分かれる。文書が自分自身について述べること（セクション構成・引用の連結・failed input・期限窓・context_id と as_of の一致）は読むたびに検証する。**registry membership と系列の公表頻度は publish 時だけ検証する**：系列の退役・改名・再分類は正常な運用であり、読み取りでも照合すると後からの registry 変更が過去のレポートを遡って invalid にし、発行済み履歴を読む下流（`screening select` を含む）ごと止まる。退役系列を引用するレポートは読み続けられるが、その系列を条件に持つ scorecard は採点できず、系列名を明示したエラーになる（採点には active provider の run 証明が要る）。
+publish 済み revision は immutable なので、検証は**参照先が動くかどうか**で 2 層に分かれる。文書が自分自身について述べること（セクション構成・引用の連結・failed input・期限窓・context_id と as_of の一致）は読むたびに検証する。**registry membership と系列の公表頻度は publish 時だけ検証する**：系列の退役・改名・再分類は正常な運用であり、読み取りでも照合すると後からの registry 変更が過去のレポートを遡って invalid にし、発行済み履歴を読む下流（`screening select` を含む）ごと止まる。退役系列を引用するレポートは読み続けられるが、その系列を条件に持つ scorecard は採点できず、系列名を明示したエラーになる（採点には active provider の run 証明が要る）。**この帰結は次のレポートにも及ぶ**: 新しい revision は前回 scorecard の snapshot を必ず引用するので、head の scorecard 条件系列を退役させると次の publish が通らなくなる。復旧はその系列を registry へ戻すことだけなので、退役の前に validator を回して head が条件に使っていないことを確認する。
 
 <a id="depth-contract"></a>
 
@@ -236,7 +238,11 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 評価は `baibai-engine macro context triggers --context-id <id> --asof <date> [--format json]`。レポート `as_of` の**翌日**から `asof` までを窓とし（レポートは自分の as_of までを読み終えているので、その日の観測は「変化」ではない）、窓内のどれか 1 つでも条件を満たせば `fired`、観測はあるが満たさなければ `quiet`、窓内に観測が無ければ `not_evaluable` とする。**一度でも閾値を割った事実**を拾うのが目的なので、瞬間的に触れて戻った水準も `fired` にする。scorecard のような provider run 証明・staleness 検査は課さない——trigger は書き直しの判断を促すだけで、何かを決済しないためである。欠測は block せず `not_evaluable` として見えるようにする。
 
-`screening select` は head レポートを読むときにこれを評価し、`fired` が 1 件以上なら `macro_context_invalidated` warning を出す。`macro_context_stale` と同じ扱いで、E[r]順位・候補抽出は変えない。indicator store が無い環境では評価を skip して warning を出さない。Baibai App のレポート詳細 view にも評価結果（条件ごとの `fired` / `quiet` / `not_evaluable` と採用観測）が載る。
+**monitoring セクション全体で最低 1 件の `machine_conditions` が publish の要件**である（点ごとではないので、測れない事象は従来どおり prose だけで書ける）。任意のままだと「1 件も書かない」が最も安いレポートの書き方になり、レポートは暦だけで古びることになる。このフィールドが存在しなかった時期の発行済み revision は要件の対象外で、そのまま load できる。
+
+`screening select` は head レポートを読むときにこれを評価し、`fired` が 1 件以上なら `macro_context_invalidated` warning を出す。`macro_context_stale` と同じ扱いで、E[r]順位・候補抽出は変えない。indicator store が読めない環境では評価を skip し、`triggers_checked: false` として「照合していない」ことを summary に残す（「照合したが静か」と同じ出力にしない）。評価結果は export の context detail view にも載る。
+
+日次バッチは `screening select` を `macro refresh` より前に走らせるので、**trigger 照合はその日の取得を 1 営業日遅れで見る**。順序は「macro の取得失敗が screening の publish を止めない」ための設計であり、trigger は gate ではなく書き直しの促しなので、この遅れは受け入れる。
 
 これで「日次で機械が測る（§② reading）⇄ 月次で人が判断する（§③ report）」のループが事実ベースで閉じる。時間だけを基準にした鮮度規則は、月中のレジーム断絶を見られないためである。
 

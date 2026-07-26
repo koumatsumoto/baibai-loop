@@ -23,7 +23,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
 1. `baibai-engine macro context head`で現行 head を確認し、あれば`context show --latest --asof <date>`で`as_of`・監視ポイント・**前回のscorecard条件**を読み、`context triggers --context-id <head> --asof <date>`で**前回の無効化条件が満たされているか**を機械照合する（`fired`は書き直しの根拠であって、今回の結論の前提ではない）。head が無ければ最初のrevisionとして書く。
 2. `baibai-engine macro refresh`で判断に使う主要seriesを直近窓ごと再取得し、`baibai-engine macro reading --asof <営業日>`を**全系列読む**。`stale`・`insufficient_history`・`flags`・極端な`z_score`を先に把握し、`next_print_estimate` / `print_due_in_days` で判断・保有窓内に近い公表を確認する（ここで見えるdata healthの異常は、以降の解釈より先に扱う。公表目安は event calendar ではない）。
 3. readingで見えた論点と8分析レンズから、確認すべき一次sourceを決めて取得する。series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。
-4. core 10セクションをworkflowの固定順で書く。各セクションでseries・fact・judgment・経済経路への接続を分け、セクション9でリスク選好環境の評価（stance・確度・**反証条件**）とbase/bear/bullを置く。各シナリオには機械照合可能な観測条件（series_id・比較演算・閾値・期限日）を2件以上付ける。セクション10の監視ポイントは、**機械で測れる無効化条件を`machine_conditions`（series_id・比較演算・閾値。期限は持たない）に書く**——書かないと誰も日次で照合しない。政治イベントのように測れない事象はproseだけでよい。深度契約（8象限被覆・Tier-1 15本以上・日本需要fact・円両側リスク・バリュエーションアンカー・energy/通商/地政学）を全項目満たす。
+4. core 10セクションをworkflowの固定順で書く。各セクションでseries・fact・judgment・経済経路への接続を分け、セクション9でリスク選好環境の評価（stance・確度・**反証条件**）とbase/bear/bullを置く。各シナリオには機械照合可能な観測条件（series_id・比較演算・閾値・期限日）を2件以上付ける。セクション10の監視ポイントは、**機械で測れる無効化条件を`machine_conditions`（series_id・比較演算・閾値。期限は持たない）に書く**。セクション全体で最低1件はpublishの要件であり、書かないと誰も日次で照合しない。政治イベントのように測れない事象はproseだけでよい。深度契約（8象限被覆・Tier-1 15本以上・日本需要fact・円両側リスク・バリュエーションアンカー・energy/通商/地政学）を全項目満たす。
 5. **前回scorecardの採点を接続する**: 今回の評価をゼロベースで確定した**後に**、`baibai-engine macro context scorecard --context-id <前回id> --asof <今回asof> --format json`で前回条件をL1履歴と照合する。settlement watermark / provider run / staleness error があれば採点不能を解消してから進む。出力の`machine_snapshot`をinputsへ引用し、その`input_id`をレジーム要約の`previous_scorecard_snapshot_id`へ置き、結果を`previous_scorecard_review`へ書く（当たり外れの事実だけを書き、今回の解釈の前提にしない）。前回レポートがなければその旨を書く。
 6. connectionセクションをcoreから導出する: research優先度ヒント（どの候補タイプ・sectorに効くかを`applies_to`で判別可能に）、sector tilt、sizing caution。引用できるseriesはcoreが引用済みのものだけで、依拠するcoreセクションを明示する。市場内部（`screening market-snapshot`）を引用してバーゲン地形を書く。
 7. 個別thesisのどのscenario/claimを変えるかを1〜3行で示す。
@@ -35,7 +35,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
    - (e) 各research優先度ヒントが候補タイプを判別できる識別力を持つか
    - (f) 各factの公表日が当該統計の最新公表か
    - (g) scorecard条件が機械照合可能で、期限日が「その系列がもう一度公表される」以降18か月以内か。同じ条件を2回書いていないか
-   - (h) 各監視ポイントの`condition`が機械で測れる形なら`machine_conditions`にも書いてあるか。条件のseriesをそのセクションが引用しているか
+   - (h) 各監視ポイントの`condition`が機械で測れる形なら`machine_conditions`にも書いてあるか（セクション全体で最低1件は必須）。条件のseriesをそのセクションが引用しているか
    - (i) coreのjudgment・fact要約に日本株ループへの行動指示（買え・売れ・sizeを落とせ）を書いていないか。schemaはprose を止めないので、ここが最後の関門になる
 
    fail項目は修正してから進む。

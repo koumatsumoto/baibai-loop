@@ -85,9 +85,13 @@ FORMULAS: Mapping[str, DerivedFormula] = {
     # for. The repository holds no consensus forecast — the licences do not allow one —
     # and this spread is the closest thing the store can build from its own facts.
     "us.policy_path_gap": DerivedFormula(
-        inputs=("us.2y", "us.fed_funds.upper"),
+        # Against the midpoint of the target range, not its ceiling: the sign of this
+        # spread is what carries the meaning, and measuring from the ceiling shifts the
+        # neutral point by half the width of the range — a quarter of a cut, exactly
+        # where the series says the most.
+        inputs=("us.2y", "us.fed_funds.upper", "us.fed_funds.lower"),
         unit="percent",
-        compute=lambda v: v["us.2y"] - v["us.fed_funds.upper"],
+        compute=lambda v: v["us.2y"] - (v["us.fed_funds.upper"] + v["us.fed_funds.lower"]) / 2.0,
         plausible_min=-8.0,
         plausible_max=8.0,
     ),

@@ -90,6 +90,9 @@ def _foreign_flow_document() -> MacroContextDocument:
         for scenario in section["scenarios"]:
             for condition in scenario["scorecard"]:
                 condition["series_id"] = "jp.foreign_flows"
+        for point in section["monitoring_points"]:
+            for condition in point.get("machine_conditions", []):
+                condition["series_id"] = "jp.foreign_flows"
     payload["connection"]["series_ids"] = ["jp.foreign_flows"]
     return MacroContextDocument.model_validate(payload)
 

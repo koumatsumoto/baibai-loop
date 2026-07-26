@@ -299,6 +299,9 @@ def _payload_citing(series_id: str) -> dict[str, Any]:
     for scenario in _risk(payload)["scenarios"]:
         for condition in scenario["scorecard"]:
             condition["series_id"] = series_id
+    for point in _core(payload, "monitoring")["monitoring_points"]:
+        for condition in point.get("machine_conditions", []):
+            condition["series_id"] = series_id
     return payload
 
 
@@ -343,6 +346,21 @@ def test_publish_rejects_a_deadline_too_near_for_the_series_to_print_again(
 
     with pytest.raises(ValueError, match="days for the series to print again"):
         MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
+
+
+def test_publish_requires_a_machine_checkable_invalidation_condition(tmp_path: Path) -> None:
+    """Left optional, the cheapest report to write is one nothing can check between publications."""
+
+    document = MacroContextDocument.model_validate(macro_context_payload(machine_conditions=[]))
+
+    with pytest.raises(ValueError, match="at least one machine-checkable condition"):
+        MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
+
+
+def test_a_report_written_before_the_field_existed_still_reads() -> None:
+    document = MacroContextDocument.model_validate(macro_context_payload(machine_conditions=[]))
+
+    assert macro_context_from_payload(document.payload(), source="fixture.yaml").context_id
 
 
 def test_published_report_flows_through_db_backed_screening_read_path(tmp_path: Path) -> None:

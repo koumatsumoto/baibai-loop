@@ -756,7 +756,38 @@ def scorecard_series_ids(document: MacroContextDocument) -> frozenset[str]:
     )
 
 
-def unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
+def require_machine_checkable_monitoring(document: MacroContextDocument) -> None:
+    """Require the report to name at least one condition a machine can check.
+
+    Monitoring is the only part of the report that keeps working between publications,
+    and it only works on conditions something evaluates. Left optional, the cheapest way
+    to satisfy the contract is to write none — and then the report ages by the calendar
+    alone, which is the gap the daily check exists to close. One condition for the whole
+    section is the floor: an invalidation that cannot be measured (an election, a policy
+    statement) still belongs in prose, and this does not ask for it to be forced into a
+    threshold.
+
+    This is a publication gate rather than a document rule because every report written
+    before the field existed is valid and must keep loading.
+    """
+
+    if not any(point.machine_conditions for point in document.monitoring_points):
+        raise ValueError(
+            "the monitoring section must carry at least one machine-checkable condition"
+        )
+
+
+def monitoring_condition_series_ids(document: MacroContextDocument) -> frozenset[str]:
+    """The series the report's own invalidation conditions are checked against."""
+
+    return frozenset(
+        condition.series_id
+        for point in document.monitoring_points
+        for condition in point.machine_conditions
+    )
+
+
+def document_unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
     """Cited series — from the inputs and from the sections — that the registry lacks."""
 
     return tuple(sorted(cited_series_ids(document) - _canonical_series_ids()))
@@ -773,7 +804,7 @@ def require_registry_agreement(document: MacroContextDocument) -> None:
     written — and take every consumer of the published history down with it.
     """
 
-    unknown = unregistered_series_ids(document)
+    unknown = document_unregistered_series_ids(document)
     if unknown:
         raise ValueError("unregistered macro series_id: " + ", ".join(unknown))
     frequencies = _series_frequencies()
@@ -836,8 +867,10 @@ __all__ = [
     "MacroCoreSectionId",
     "ScorecardSnapshotInput",
     "cited_series_ids",
+    "document_unregistered_series_ids",
+    "monitoring_condition_series_ids",
+    "require_machine_checkable_monitoring",
     "require_registry_agreement",
     "scorecard_series_ids",
     "scorecard_snapshot_input_id",
-    "unregistered_series_ids",
 ]

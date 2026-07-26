@@ -307,7 +307,12 @@ def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path:
         retract_observations(
             connection,
             "us.10y",
-            [date(2026, 5, 4)],
+            [
+                (
+                    date(2026, 5, 4),
+                    datetime.combine(date(2026, 5, 4), datetime.min.time(), tzinfo=UTC),
+                )
+            ],
             vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
         )
         connection.commit()

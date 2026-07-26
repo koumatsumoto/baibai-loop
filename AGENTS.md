@@ -110,4 +110,12 @@ uv run pytest
 uv run lint-imports
 ```
 
+macro subsystem（`src/baibai_engine/macro/`・`method/macro-*`・indicator registry）に触れた変更では、
+加えて次を通す。git 管理外の 2 store を突き合わせる検査であり、CI には application store が無いので
+機械化できるのはここだけである。
+
+```bash
+uv run python tools/validate_macro_stores.py
+```
+
 これはローカル用の subset。drift gate・bandit・pip-audit・UI build を含む完全な CI gate は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とする。

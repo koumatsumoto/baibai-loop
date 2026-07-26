@@ -46,12 +46,14 @@ def macro_latest_observed_at(path: Path) -> date | None:
     try:
         rows = connection.execute(
             # A retracted date is not an observation any consumer reads, so it must not
-            # be what the freshness badge dates the store by.
+            # be what the freshness badge dates the store by. Asking whether a newer
+            # retraction exists costs a third of resolving the newest vintage outright,
+            # and retractions are rare enough that the check almost always short-circuits.
             "SELECT o.series_id, max(o.observed_at) FROM observations o "
-            "WHERE o.fetch_status = 'ok' AND o.vintage_at = ("
-            "SELECT max(i.vintage_at) FROM observations i "
-            "WHERE i.series_id = o.series_id AND i.observed_at = o.observed_at "
-            "AND i.fetch_status IN ('ok', 'retracted')"
+            "WHERE o.fetch_status = 'ok' AND NOT EXISTS ("
+            "SELECT 1 FROM observations r "
+            "WHERE r.series_id = o.series_id AND r.observed_at = o.observed_at "
+            "AND r.fetch_status = 'retracted' AND r.vintage_at > o.vintage_at"
             ") GROUP BY o.series_id"
         ).fetchall()
     finally:
