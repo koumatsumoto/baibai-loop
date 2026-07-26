@@ -16,6 +16,7 @@ from unittest.mock import patch
 import openpyxl
 import requests
 
+import baibai_engine.macro.indicators.db as indicators_db
 from baibai_engine.macro.indicators.cli import build_parser, main
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
@@ -102,11 +103,8 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
             _write_retired_series(database)
+            _downgrade_fixture_to_v2(database)
             with sqlite3.connect(database) as connection:
-                _drop_v4_contract_triggers(connection)
-                connection.execute("ALTER TABLE series DROP COLUMN plausible_max")
-                connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
-                connection.execute("PRAGMA user_version = 2")
                 before = tuple(
                     connection.execute(
                         "SELECT "
@@ -119,9 +117,6 @@ class IndicatorsDBTests(unittest.TestCase):
             migrated = open_connection(database)
             try:
                 version = migrated.execute("PRAGMA user_version").fetchone()[0]
-                applied_registry_count = migrated.execute(
-                    "SELECT COUNT(*) FROM registry_series"
-                ).fetchone()[0]
                 after = tuple(
                     migrated.execute(
                         "SELECT "
@@ -135,10 +130,130 @@ class IndicatorsDBTests(unittest.TestCase):
 
             self.assertEqual(version, SQLITE_SCHEMA_VERSION)
             self.assertEqual(after, before)
-            self.assertEqual(applied_registry_count, before[0])
-            # Pre-fix clients accept only schema v2, so this semantic version
-            # boundary stops their destructive registry seed before it can run.
             self.assertNotEqual(SQLITE_SCHEMA_VERSION, 2)
+            with (
+                patch("baibai_engine.macro.indicators.db.SQLITE_SCHEMA_VERSION", 2),
+                self.assertRaisesRegex(
+                    IndicatorsSchemaError,
+                    rf"unsupported indicator SQLite schema: {SQLITE_SCHEMA_VERSION}; expected 2",
+                ),
+            ):
+                open_connection(database)
+            self.assertEqual(_retired_counts(database), (1, 1, 1))
+
+    def test_v1_migration_rolls_back_and_retries_after_rename_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            _downgrade_fixture_to_v1(database)
+            with sqlite3.connect(database) as connection:
+                before = tuple(
+                    connection.execute(
+                        "SELECT "
+                        "(SELECT COUNT(*) FROM aliases), "
+                        "(SELECT COUNT(*) FROM observations), "
+                        "(SELECT COUNT(*) FROM provider_runs)"
+                    ).fetchone()
+                )
+                aliases_before = set(connection.execute("SELECT alias, series_id FROM aliases"))
+
+                def deny_alias_rename(
+                    action: int,
+                    _arg1: str | None,
+                    _arg2: str | None,
+                    _database: str | None,
+                    _trigger: str | None,
+                ) -> int:
+                    return (
+                        sqlite3.SQLITE_DENY
+                        if action == sqlite3.SQLITE_ALTER_TABLE
+                        else sqlite3.SQLITE_OK
+                    )
+
+                connection.set_authorizer(deny_alias_rename)
+                with self.assertRaisesRegex(sqlite3.DatabaseError, "not authorized"):
+                    connection.executescript(indicators_db._MIGRATE_V1_TO_V2_SQL)
+                connection.set_authorizer(None)
+                connection.rollback()
+                tables = {
+                    str(row[0])
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+                after_failure = tuple(
+                    connection.execute(
+                        "SELECT "
+                        "(SELECT COUNT(*) FROM aliases), "
+                        "(SELECT COUNT(*) FROM observations), "
+                        "(SELECT COUNT(*) FROM provider_runs)"
+                    ).fetchone()
+                )
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+
+            self.assertIn("aliases", tables)
+            self.assertNotIn("aliases_v2", tables)
+            self.assertEqual(version, 1)
+            self.assertEqual(after_failure, before)
+
+            open_connection(database).close()
+            with sqlite3.connect(database) as connection:
+                retried_version = connection.execute("PRAGMA user_version").fetchone()[0]
+                after_retry = tuple(
+                    connection.execute(
+                        "SELECT "
+                        "(SELECT COUNT(*) FROM aliases), "
+                        "(SELECT COUNT(*) FROM observations), "
+                        "(SELECT COUNT(*) FROM provider_runs)"
+                    ).fetchone()
+                )
+                aliases_after_retry = set(
+                    connection.execute("SELECT alias, series_id FROM aliases")
+                )
+            self.assertEqual(retried_version, SQLITE_SCHEMA_VERSION)
+            self.assertEqual(after_retry[1:], before[1:])
+            self.assertTrue(aliases_before <= aliases_after_retry)
+
+    def test_v3_trigger_blocks_a_v2_connection_that_checked_schema_before_migration(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            _downgrade_fixture_to_v2(database)
+            old_connection = sqlite3.connect(database)
+            self.assertEqual(old_connection.execute("PRAGMA user_version").fetchone()[0], 2)
+
+            open_connection(database).close()
+
+            try:
+                old_connection.execute("DELETE FROM aliases")
+                old_connection.execute(
+                    "DELETE FROM provider_runs WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                )
+                old_connection.execute(
+                    "DELETE FROM observations WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                )
+                with self.assertRaisesRegex(
+                    sqlite3.IntegrityError,
+                    "explicit registry prune authorization required",
+                ):
+                    old_connection.execute(
+                        "DELETE FROM series WHERE series_id = ?",
+                        ("jp.cpi.stale",),
+                    )
+            finally:
+                old_connection.close()
+
+            self.assertEqual(_retired_counts(database), (1, 1, 1))
+            with sqlite3.connect(database) as connection:
+                aliases = connection.execute(
+                    "SELECT COUNT(*) FROM aliases WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
+            self.assertEqual(aliases, 1)
 
     def test_v4_migration_rolls_back_if_a_column_addition_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -163,7 +278,6 @@ class IndicatorsDBTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
             _write_retired_series(db)
-
             conn = open_connection(db)
             try:
                 series_ids = {series.series_id for series in list_series(conn)}
@@ -179,20 +293,13 @@ class IndicatorsDBTests(unittest.TestCase):
                     "SELECT COUNT(*) FROM aliases WHERE series_id = ?",
                     ("jp.cpi.stale",),
                 ).fetchone()[0]
-                stale_membership = conn.execute(
-                    "SELECT COUNT(*) FROM registry_series WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                ).fetchone()[0]
             finally:
                 conn.close()
 
             self.assertIn("jp.cpi.stale", series_ids)
             self.assertEqual(stale_rows, 1)
             self.assertEqual(stale_runs, 1)
-            # An old branch must not erase aliases belonging to retained metadata
-            # for series it does not know.
             self.assertEqual(stale_aliases, 1)
-            self.assertEqual(stale_membership, 0)
 
     def test_read_paths_hide_retired_series_without_deleting_its_facts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -200,10 +307,7 @@ class IndicatorsDBTests(unittest.TestCase):
             _write_retired_series(database)
 
             service = IndicatorsService(database)
-            with (
-                patch("baibai_engine.macro.indicators.service.fetch_observations") as fetch,
-                self.assertRaisesRegex(KeyError, "unknown indicator series"),
-            ):
+            with self.assertRaisesRegex(KeyError, "unknown indicator series"):
                 service.get_range(
                     "jp.cpi.stale",
                     start=date(2021, 12, 1),
@@ -211,14 +315,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 )
             stdout = io.StringIO()
             with redirect_stdout(stdout):
-                reading_exit = reading_main(
-                    [
-                        "--asof",
-                        "2021-12-01",
-                        "--db",
-                        str(database),
-                    ]
-                )
+                reading_exit = reading_main(["--asof", "2021-12-01", "--db", str(database)])
 
             conn = sqlite3.connect(database)
             try:
@@ -229,7 +326,6 @@ class IndicatorsDBTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            fetch.assert_not_called()
             self.assertNotIn("jp.cpi.stale", {item.series_id for item in service.list_series()})
             self.assertEqual(service.search("stale"), ())
             self.assertEqual(reading_exit, 0)
@@ -285,6 +381,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 "registry-prune\tjp.cpi.stale\tobservations=1\tprovider_runs=1",
                 stdout.getvalue(),
             )
+            self.assertIn("registry-prune-pending\tjp.cpi.stale", stdout.getvalue())
             self.assertEqual(remaining, 0)
 
     def test_refresh_prune_failure_rolls_back_every_retired_row(self) -> None:
@@ -304,10 +401,6 @@ class IndicatorsDBTests(unittest.TestCase):
                 conn.close()
 
             with (
-                patch(
-                    "baibai_engine.macro.indicators.service.fetch_observations",
-                    return_value=[_obs("us.10y", date(2026, 5, 1), 4.39)],
-                ),
                 # This test deliberately injects a non-canonical trigger to
                 # exercise prune rollback after open; schema-drift rejection is
                 # covered independently below.
@@ -320,26 +413,35 @@ class IndicatorsDBTests(unittest.TestCase):
                     end=date(2026, 5, 1),
                 )
 
-            conn = sqlite3.connect(database)
-            try:
-                counts = (
-                    conn.execute(
-                        "SELECT COUNT(*) FROM series WHERE series_id = ?",
-                        ("jp.cpi.stale",),
-                    ).fetchone()[0],
-                    conn.execute(
-                        "SELECT COUNT(*) FROM observations WHERE series_id = ?",
-                        ("jp.cpi.stale",),
-                    ).fetchone()[0],
-                    conn.execute(
-                        "SELECT COUNT(*) FROM provider_runs WHERE series_id = ?",
-                        ("jp.cpi.stale",),
-                    ).fetchone()[0],
-                )
-            finally:
-                conn.close()
+            self.assertEqual(_retired_counts(database), (1, 1, 1))
 
-            self.assertEqual(counts, (1, 1, 1))
+    def test_newer_store_registry_generation_rejects_stale_client_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definitions = load_definitions()
+            initialize_database(
+                database,
+                definitions=IndicatorDefinitions(
+                    series=definitions.series,
+                    generation=definitions.generation + 1,
+                ),
+            ).close()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                r"store=2, client=1.*refusing refresh",
+            ):
+                IndicatorsService(database).refresh_series(
+                    ["us.10y"],
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                )
+
+            with sqlite3.connect(database) as connection:
+                generation = connection.execute(
+                    "SELECT generation FROM registry_state WHERE singleton = 1"
+                ).fetchone()[0]
+            self.assertEqual(generation, 2)
 
     def test_refresh_prune_log_failure_rolls_back_every_retired_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -347,10 +449,6 @@ class IndicatorsDBTests(unittest.TestCase):
             _write_retired_series(database)
 
             with (
-                patch(
-                    "baibai_engine.macro.indicators.service.fetch_observations",
-                    return_value=[_obs("us.10y", date(2026, 5, 1), 4.39)],
-                ),
                 patch("builtins.print", side_effect=BrokenPipeError("closed")),
                 self.assertRaisesRegex(BrokenPipeError, "closed"),
             ):
@@ -360,26 +458,68 @@ class IndicatorsDBTests(unittest.TestCase):
                     end=date(2026, 5, 1),
                 )
 
-            conn = sqlite3.connect(database)
-            try:
-                counts = (
-                    conn.execute(
-                        "SELECT COUNT(*) FROM series WHERE series_id = ?",
-                        ("jp.cpi.stale",),
-                    ).fetchone()[0],
-                    conn.execute(
-                        "SELECT COUNT(*) FROM observations WHERE series_id = ?",
-                        ("jp.cpi.stale",),
-                    ).fetchone()[0],
-                    conn.execute(
-                        "SELECT COUNT(*) FROM provider_runs WHERE series_id = ?",
-                        ("jp.cpi.stale",),
-                    ).fetchone()[0],
-                )
-            finally:
-                conn.close()
+            self.assertEqual(_retired_counts(database), (1, 1, 1))
 
-            self.assertEqual(counts, (1, 1, 1))
+    def test_refresh_post_commit_log_failure_leaves_pending_audit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            emitted: list[str] = []
+
+            def _audit_print(value: object, **_: object) -> None:
+                line = str(value)
+                emitted.append(line)
+                if line.startswith("registry-prune\t"):
+                    raise BrokenPipeError("closed after commit")
+
+            with (
+                patch("builtins.print", side_effect=_audit_print),
+                self.assertRaisesRegex(BrokenPipeError, "closed after commit"),
+            ):
+                IndicatorsService(database).refresh_series(
+                    ["us.10y"],
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                )
+
+            self.assertEqual(_retired_counts(database), (0, 0, 0))
+            self.assertTrue(emitted[0].startswith("registry-prune-pending\t"))
+            self.assertTrue(emitted[1].startswith("registry-prune\t"))
+
+    def test_refresh_prune_counts_and_deletes_under_one_writer_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            _write_retired_series(database)
+            blocked: list[bool] = []
+
+            def _try_concurrent_write(value: object, **_: object) -> None:
+                if not str(value).startswith("registry-prune-pending\t"):
+                    return
+                connection = sqlite3.connect(database, timeout=0)
+                try:
+                    with self.assertRaisesRegex(sqlite3.OperationalError, "locked"):
+                        connection.execute(
+                            "UPDATE observations SET value = 101 WHERE series_id = 'jp.cpi.stale'"
+                        )
+                    blocked.append(True)
+                finally:
+                    connection.close()
+
+            with (
+                patch("builtins.print", side_effect=_try_concurrent_write),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[_obs("us.10y", date(2026, 5, 1), 4.39)],
+                ),
+            ):
+                IndicatorsService(database).refresh_series(
+                    ["us.10y"],
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                )
+
+            self.assertEqual(blocked, [True])
+            self.assertEqual(_retired_counts(database), (0, 0, 0))
 
     def test_observations_in_range_returns_latest_vintage_per_observed_date(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -472,6 +612,55 @@ class IndicatorsDBTests(unittest.TestCase):
                 conn.close()
 
             self.assertEqual(stored, 0)
+
+    def test_persistent_gate_rejects_unknown_series_when_foreign_keys_are_disabled(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(conn, [_obs("us.10y", date(2026, 5, 1), 4.39)])
+                conn.commit()
+            finally:
+                conn.close()
+
+            with sqlite3.connect(database) as connection:
+                self.assertEqual(connection.execute("PRAGMA foreign_keys").fetchone()[0], 0)
+                with self.assertRaisesRegex(
+                    sqlite3.IntegrityError,
+                    "observation violates series unit or plausible range",
+                ):
+                    connection.execute(
+                        "INSERT INTO observations("
+                        "series_id, observed_at, value, unit, vintage_at, fetch_status, source_url"
+                        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            "unknown.series",
+                            "2026-05-02",
+                            4.0,
+                            "percent",
+                            "2026-05-03T00:00:00+00:00",
+                            "ok",
+                            "https://example.com/data.csv",
+                        ),
+                    )
+                with self.assertRaisesRegex(
+                    sqlite3.IntegrityError,
+                    "observation violates series unit or plausible range",
+                ):
+                    connection.execute(
+                        "UPDATE observations SET series_id = 'unknown.series' "
+                        "WHERE series_id = 'us.10y'"
+                    )
+                connection.commit()
+                rows = list(
+                    connection.execute(
+                        "SELECT series_id, observed_at FROM observations ORDER BY observed_at"
+                    )
+                )
+
+            self.assertEqual(rows, [("us.10y", "2026-05-01")])
 
     def test_insert_gate_preserves_the_callers_prior_transaction_on_batch_failure(
         self,
@@ -2721,6 +2910,17 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
 
 class IndicatorsRegistryTests(unittest.TestCase):
+    def test_canonical_registry_membership_has_a_known_generation(self) -> None:
+        self.assertEqual(load_definitions().generation, 1)
+        with (
+            patch(
+                "baibai_engine.macro.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
+                {},
+            ),
+            self.assertRaisesRegex(ValueError, "without a new generation digest"),
+        ):
+            load_definitions()
+
     def test_new_tier1_series_registered_with_expected_provider_and_category(self) -> None:
         by_id = load_definitions().by_id()
         expected = {
@@ -3721,15 +3921,6 @@ class IndicatorsServiceTests(unittest.TestCase):
                 end=date(2026, 7, 20),
             )
 
-            conn = sqlite3.connect(database)
-            try:
-                remaining = conn.execute(
-                    "SELECT COUNT(*) FROM observations WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                ).fetchone()[0]
-            finally:
-                conn.close()
-
             self.assertEqual(
                 outcomes,
                 [
@@ -3739,65 +3930,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     )
                 ],
             )
-            self.assertEqual(remaining, 1)
-
-    def test_all_provider_failures_do_not_authorize_registry_prune(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            _write_retired_series(database)
-
-            with (
-                patch(
-                    "baibai_engine.macro.indicators.service.fetch_observations",
-                    side_effect=IndicatorsProviderError("offline"),
-                ),
-                patch("baibai_engine.macro.indicators.service.time.sleep"),
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["us.10y"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            conn = sqlite3.connect(database)
-            try:
-                remaining = conn.execute(
-                    "SELECT COUNT(*) FROM observations WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                ).fetchone()[0]
-            finally:
-                conn.close()
-
-            self.assertEqual(len(outcomes), 1)
-            self.assertIsInstance(outcomes[0], RefreshFailure)
-            self.assertEqual(remaining, 1)
-
-    def test_empty_refresh_does_not_authorize_registry_prune(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            database = Path(tmp) / "macro.sqlite"
-            _write_retired_series(database)
-
-            with patch(
-                "baibai_engine.macro.indicators.service.fetch_observations",
-                return_value=[],
-            ):
-                outcomes = IndicatorsService(database).refresh_series(
-                    ["us.10y"],
-                    start=date(2026, 7, 1),
-                    end=date(2026, 7, 20),
-                )
-
-            conn = sqlite3.connect(database)
-            try:
-                remaining = conn.execute(
-                    "SELECT COUNT(*) FROM observations WHERE series_id = ?",
-                    ("jp.cpi.stale",),
-                ).fetchone()[0]
-            finally:
-                conn.close()
-
-            self.assertIsInstance(outcomes[0], RefreshSuccess)
-            self.assertEqual(remaining, 1)
+            self.assertEqual(_retired_counts(database), (1, 1, 1))
 
     def test_refresh_series_shares_one_fetch_context_across_the_pass(self) -> None:
         # A shared context is what makes a bulk source file download once for every
@@ -4373,6 +4506,53 @@ def _drop_v4_contract_triggers(connection: sqlite3.Connection) -> None:
         "validate_series_contract_before_update",
     ):
         connection.execute(f"DROP TRIGGER {trigger}")
+
+
+def _retired_counts(database: Path) -> tuple[int, int, int]:
+    conn = sqlite3.connect(database)
+    try:
+        return cast(
+            tuple[int, int, int],
+            tuple(
+                conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE series_id = ?",
+                    ("jp.cpi.stale",),
+                ).fetchone()[0]
+                for table in ("series", "observations", "provider_runs")
+            ),
+        )
+    finally:
+        conn.close()
+
+
+def _downgrade_fixture_to_v2(database: Path) -> None:
+    with sqlite3.connect(database) as connection:
+        _drop_v4_contract_triggers(connection)
+        connection.execute("DROP TRIGGER protect_series_from_implicit_prune")
+        connection.execute("DROP TABLE registry_prune_authorizations")
+        connection.execute("DROP TABLE registry_state")
+        connection.execute("ALTER TABLE series DROP COLUMN plausible_max")
+        connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
+        connection.execute("PRAGMA user_version = 2")
+
+
+def _downgrade_fixture_to_v1(database: Path) -> None:
+    _downgrade_fixture_to_v2(database)
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE aliases_v1(
+              alias TEXT PRIMARY KEY,
+              series_id TEXT NOT NULL REFERENCES series(series_id)
+            );
+            INSERT OR IGNORE INTO aliases_v1(alias, series_id)
+              SELECT alias, series_id FROM aliases;
+            DROP TABLE aliases;
+            ALTER TABLE aliases_v1 RENAME TO aliases;
+            DROP INDEX idx_observations_series_status_date_vintage;
+            PRAGMA user_version = 1;
+            """
+        )
 
 
 def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:

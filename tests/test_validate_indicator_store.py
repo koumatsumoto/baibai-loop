@@ -4,12 +4,15 @@ import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import pytest
 from tools.validate_indicator_store import validate_store
 
 from baibai_engine.macro.indicators.db import (
+    IndicatorsSchemaError,
     ObservationRecord,
     initialize_database,
     insert_observations,
+    open_connection,
 )
 from baibai_engine.macro.indicators.definitions import (
     IndicatorDefinitions,
@@ -76,6 +79,46 @@ def test_validate_store_accepts_every_stored_vintage_within_registry_contract(
     assert report.observations == 1
 
 
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (
+            "DELETE FROM registry_state",
+            "registry state.*must contain exactly singleton=1",
+        ),
+        (
+            "DROP TABLE registry_prune_authorizations",
+            "registry table contract mismatch.*registry_prune_authorizations",
+        ),
+        (
+            "INSERT INTO registry_prune_authorizations(series_id) VALUES ('test.series')",
+            "registry prune authorization state.*must be empty",
+        ),
+    ],
+)
+def test_validate_store_rejects_invalid_registry_generation_state(
+    tmp_path: Path,
+    mutation: str,
+    message: str,
+) -> None:
+    database = tmp_path / "macro.sqlite"
+    definition = _definition()
+    _build_store(database, definition)
+    with sqlite3.connect(database) as connection:
+        connection.execute(mutation)
+
+    with pytest.raises(IndicatorsSchemaError, match=message):
+        validate_store(
+            database,
+            definitions=IndicatorDefinitions(series=(definition,)),
+        )
+    with pytest.raises(IndicatorsSchemaError, match=message):
+        open_connection(
+            database,
+            definitions=IndicatorDefinitions(series=(definition,)),
+        )
+
+
 def test_validate_store_reports_band_drift_with_observation_identity(tmp_path: Path) -> None:
     database = tmp_path / "macro.sqlite"
     definition = _definition()
@@ -117,9 +160,11 @@ def test_validate_store_scans_a_v2_store_without_modifying_or_creating_sidecars(
             "validate_observation_plausibility_before_insert",
             "validate_observation_plausibility_before_update",
             "validate_series_contract_before_update",
+            "protect_series_from_implicit_prune",
         ):
             connection.execute(f"DROP TRIGGER {trigger}")
-        connection.execute("DROP TABLE registry_series")
+        connection.execute("DROP TABLE registry_prune_authorizations")
+        connection.execute("DROP TABLE registry_state")
         connection.execute("ALTER TABLE series DROP COLUMN plausible_max")
         connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
         connection.execute("PRAGMA user_version = 2")

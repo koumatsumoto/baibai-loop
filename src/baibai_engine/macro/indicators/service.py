@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import sqlite3
 import time
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -126,10 +127,9 @@ class IndicatorsService:
             raise KeyError(f"unknown indicator series: {series_id}")
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
-            with FetchContext(store_reader=_store_reader(conn), purpose="rebuild") as context:
-                result = self._refresh_all_history(conn, series_id, end=end, context=context)
             _prune_registry_for_refresh(conn, definitions)
-            return result
+            with FetchContext(store_reader=_store_reader(conn), purpose="rebuild") as context:
+                return self._refresh_all_history(conn, series_id, end=end, context=context)
         finally:
             conn.close()
 
@@ -163,6 +163,7 @@ class IndicatorsService:
         outcomes: list[RefreshOutcome] = []
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
+            _prune_registry_for_refresh(conn, definitions)
             with FetchContext(
                 store_reader=_store_reader(conn),
                 purpose="rebuild" if start is None else "refresh",
@@ -191,11 +192,6 @@ class IndicatorsService:
                         outcomes.append(RefreshFailure(series_id, _failure_message(exc)))
                         continue
                     outcomes.append(RefreshSuccess(series_id, result))
-            if any(
-                isinstance(outcome, RefreshSuccess) and outcome.result.observations
-                for outcome in outcomes
-            ):
-                _prune_registry_for_refresh(conn, definitions)
         finally:
             conn.close()
         return outcomes
@@ -430,21 +426,42 @@ def _prune_registry_for_refresh(
 ) -> None:
     """Commit explicit registry pruning and report every destructive change."""
 
+    transaction_id = uuid.uuid4().hex
     try:
-        pruned = db.prune_definitions(conn, definitions)
-        for result in pruned:
-            # Flush before commit so an unwritable audit stream cannot leave a
-            # destructive change committed without its required record.
-            print(
-                f"registry-prune\t{result.series_id}\t"
-                f"observations={result.observation_rows}\t"
-                f"provider_runs={result.provider_run_rows}",
-                flush=True,
+        conn.execute("BEGIN IMMEDIATE")
+        stored_generation = db.registry_generation(conn)
+        if stored_generation > definitions.generation:
+            raise ValueError(
+                "indicator registry is newer than this client "
+                f"(store={stored_generation}, client={definitions.generation}); "
+                "refusing refresh"
             )
+        pruned = db.prune_definitions(conn, definitions)
+        if pruned:
+            pending = "\n".join(
+                f"registry-prune-pending\t{result.series_id}\t"
+                f"observations={result.observation_rows}\t"
+                f"provider_runs={result.provider_run_rows}\t"
+                f"transaction={transaction_id}"
+                for result in pruned
+            )
+            # A durable stdout stream is the prerequisite for commit. Pending
+            # records make a later commit/output failure distinguishable from a
+            # completed prune without adding an audit-history subsystem.
+            print(pending, flush=True)
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
+    if pruned:
+        committed = "\n".join(
+            f"registry-prune\t{result.series_id}\t"
+            f"observations={result.observation_rows}\t"
+            f"provider_runs={result.provider_run_rows}\t"
+            f"transaction={transaction_id}"
+            for result in pruned
+        )
+        print(committed, flush=True)
 
 
 def _reject_non_finite(series: SeriesDefinition, observations: list[ObservationRecord]) -> None:

@@ -15,6 +15,26 @@ CREATE TABLE IF NOT EXISTS series(
   plausible_max REAL
 );
 
+CREATE TABLE IF NOT EXISTS registry_state(
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  generation INTEGER NOT NULL CHECK(generation >= 0)
+);
+
+INSERT OR IGNORE INTO registry_state(singleton, generation) VALUES (1, 0);
+
+CREATE TABLE IF NOT EXISTS registry_prune_authorizations(
+  series_id TEXT PRIMARY KEY REFERENCES series(series_id) ON DELETE CASCADE
+);
+
+CREATE TRIGGER IF NOT EXISTS protect_series_from_implicit_prune
+BEFORE DELETE ON series
+WHEN NOT EXISTS(
+  SELECT 1 FROM registry_prune_authorizations WHERE series_id = OLD.series_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'explicit registry prune authorization required');
+END;
+
 CREATE TABLE IF NOT EXISTS aliases(
   alias TEXT NOT NULL,
   series_id TEXT NOT NULL REFERENCES series(series_id),
@@ -23,10 +43,6 @@ CREATE TABLE IF NOT EXISTS aliases(
 
 CREATE INDEX IF NOT EXISTS idx_aliases_alias
   ON aliases(alias);
-
-CREATE TABLE IF NOT EXISTS registry_series(
-  series_id TEXT PRIMARY KEY REFERENCES series(series_id)
-);
 
 CREATE TABLE IF NOT EXISTS observations(
   series_id TEXT NOT NULL REFERENCES series(series_id),
@@ -50,14 +66,12 @@ CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
 
 CREATE TRIGGER IF NOT EXISTS validate_observation_plausibility_before_insert
 BEFORE INSERT ON observations
-WHEN EXISTS (
+WHEN NOT EXISTS (
   SELECT 1 FROM series
   WHERE series_id = NEW.series_id
-    AND (
-      NEW.unit != unit
-      OR (plausible_min IS NOT NULL AND NEW.value < plausible_min)
-      OR (plausible_max IS NOT NULL AND NEW.value > plausible_max)
-    )
+    AND NEW.unit = unit
+    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
+    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
 )
 BEGIN
   SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
@@ -65,14 +79,12 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS validate_observation_plausibility_before_update
 BEFORE UPDATE OF series_id, value, unit ON observations
-WHEN EXISTS (
+WHEN NOT EXISTS (
   SELECT 1 FROM series
   WHERE series_id = NEW.series_id
-    AND (
-      NEW.unit != unit
-      OR (plausible_min IS NOT NULL AND NEW.value < plausible_min)
-      OR (plausible_max IS NOT NULL AND NEW.value > plausible_max)
-    )
+    AND NEW.unit = unit
+    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
+    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
 )
 BEGIN
   SELECT RAISE(ABORT, 'observation violates series unit or plausible range');

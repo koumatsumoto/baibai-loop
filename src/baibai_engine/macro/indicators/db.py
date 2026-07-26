@@ -16,11 +16,11 @@ DEFAULT_DB_PATH = Path("data/indicators/macro.sqlite")
 _ROW_COUNT_SQL = {
     "series": "SELECT COUNT(*) FROM series",
     "aliases": "SELECT COUNT(*) FROM aliases",
-    "registry_series": "SELECT COUNT(*) FROM registry_series",
     "observations": "SELECT COUNT(*) FROM observations",
     "provider_runs": "SELECT COUNT(*) FROM provider_runs",
 }
 _MIGRATE_V1_TO_V2_SQL = """
+BEGIN IMMEDIATE;
 CREATE TABLE aliases_v2(
   alias TEXT NOT NULL,
   series_id TEXT NOT NULL REFERENCES series(series_id),
@@ -34,16 +34,31 @@ CREATE INDEX IF NOT EXISTS idx_aliases_alias ON aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_observations_series_status_date_vintage
   ON observations(series_id, fetch_status, observed_at, vintage_at);
 PRAGMA user_version = 2;
+COMMIT;
 """
 _MIGRATE_V2_TO_V3_SQL = """
--- Version 3 fences clients whose registry seed deleted absent series on every
--- writable open. Membership records the last registry snapshot applied by a
--- successful refresh; ordinary opens never change it.
-CREATE TABLE IF NOT EXISTS registry_series(
-  series_id TEXT PRIMARY KEY REFERENCES series(series_id)
+BEGIN IMMEDIATE;
+-- Version 3 is a semantic compatibility fence. Version 2 clients prune facts
+-- during ordinary opens, so they must reject a store once non-destructive opens
+-- become part of its contract.
+CREATE TABLE IF NOT EXISTS registry_state(
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  generation INTEGER NOT NULL CHECK(generation >= 0)
 );
-INSERT OR IGNORE INTO registry_series(series_id) SELECT series_id FROM series;
+INSERT OR IGNORE INTO registry_state(singleton, generation) VALUES (1, 0);
+CREATE TABLE IF NOT EXISTS registry_prune_authorizations(
+  series_id TEXT PRIMARY KEY REFERENCES series(series_id) ON DELETE CASCADE
+);
+CREATE TRIGGER IF NOT EXISTS protect_series_from_implicit_prune
+BEFORE DELETE ON series
+WHEN NOT EXISTS(
+  SELECT 1 FROM registry_prune_authorizations WHERE series_id = OLD.series_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'explicit registry prune authorization required');
+END;
 PRAGMA user_version = 3;
+COMMIT;
 """
 _MIGRATE_V3_TO_V4_SQL = """
 BEGIN IMMEDIATE;
@@ -51,28 +66,24 @@ ALTER TABLE series ADD COLUMN plausible_min REAL;
 ALTER TABLE series ADD COLUMN plausible_max REAL;
 CREATE TRIGGER validate_observation_plausibility_before_insert
 BEFORE INSERT ON observations
-WHEN EXISTS (
+WHEN NOT EXISTS (
   SELECT 1 FROM series
   WHERE series_id = NEW.series_id
-    AND (
-      NEW.unit != unit
-      OR (plausible_min IS NOT NULL AND NEW.value < plausible_min)
-      OR (plausible_max IS NOT NULL AND NEW.value > plausible_max)
-    )
+    AND NEW.unit = unit
+    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
+    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
 )
 BEGIN
   SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
 END;
 CREATE TRIGGER validate_observation_plausibility_before_update
 BEFORE UPDATE OF series_id, value, unit ON observations
-WHEN EXISTS (
+WHEN NOT EXISTS (
   SELECT 1 FROM series
   WHERE series_id = NEW.series_id
-    AND (
-      NEW.unit != unit
-      OR (plausible_min IS NOT NULL AND NEW.value < plausible_min)
-      OR (plausible_max IS NOT NULL AND NEW.value > plausible_max)
-    )
+    AND NEW.unit = unit
+    AND (plausible_min IS NULL OR NEW.value >= plausible_min)
+    AND (plausible_max IS NULL OR NEW.value <= plausible_max)
 )
 BEGIN
   SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
@@ -125,12 +136,12 @@ def initialize_database(
     *,
     definitions: IndicatorDefinitions | None = None,
 ) -> sqlite3.Connection:
-    resolved_definitions = definitions or load_definitions()
     conn = _connect(db_path)
     try:
         _ensure_schema(conn)
+        resolved_definitions = definitions or load_definitions()
         seed_definitions(conn, resolved_definitions)
-        apply_registry_membership(conn, resolved_definitions)
+        set_registry_generation(conn, resolved_definitions.generation)
         conn.commit()
     except BaseException:
         conn.close()
@@ -168,12 +179,60 @@ def validate_current_schema(
         raise IndicatorsSchemaError(
             f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
+    _validate_registry_state_contract(conn, schema=schema)
     _validate_trigger_contract(conn, schema=schema)
+
+
+def _validate_registry_state_contract(conn: sqlite3.Connection, *, schema: str) -> None:
+    expected = _canonical_registry_table_sql()
+    actual = {
+        str(row[0]): _normalize_schema_sql(str(row[1]))
+        for row in conn.execute(
+            f"SELECT name, sql FROM {schema}.sqlite_master "
+            "WHERE type = 'table' AND name IN ('registry_state', "
+            "'registry_prune_authorizations')"
+        )
+    }
+    missing = sorted(set(expected) - set(actual))
+    changed = sorted(name for name in set(expected) & set(actual) if actual[name] != expected[name])
+    if missing or changed:
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        if changed:
+            details.append(f"changed: {', '.join(changed)}")
+        raise IndicatorsSchemaError(
+            f"indicator SQLite registry table contract mismatch in {schema} ({'; '.join(details)})"
+        )
+
+    rows = conn.execute(
+        f"SELECT singleton, generation, typeof(singleton), typeof(generation) "
+        f"FROM {schema}.registry_state"
+    ).fetchall()
+    if (
+        len(rows) != 1
+        or rows[0][0] != 1
+        or rows[0][2] != "integer"
+        or rows[0][3] != "integer"
+        or int(rows[0][1]) < 0
+    ):
+        raise IndicatorsSchemaError(
+            f"indicator SQLite registry state in {schema} must contain exactly "
+            "singleton=1 with a non-negative integer generation"
+        )
+    authorizations = int(
+        conn.execute(f"SELECT COUNT(*) FROM {schema}.registry_prune_authorizations").fetchone()[0]
+    )
+    if authorizations:
+        raise IndicatorsSchemaError(
+            f"indicator SQLite registry prune authorization state in {schema} "
+            f"must be empty; found {authorizations}"
+        )
 
 
 def _validate_trigger_contract(conn: sqlite3.Connection, *, schema: str) -> None:
     actual = {
-        str(row[0]): _normalize_trigger_sql(str(row[1]))
+        str(row[0]): _normalize_schema_sql(str(row[1]))
         for row in conn.execute(
             f"SELECT name, sql FROM {schema}.sqlite_master WHERE type = 'trigger'"
         )
@@ -201,7 +260,7 @@ def _canonical_trigger_sql() -> dict[str, str]:
     try:
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         return {
-            str(row[0]): _normalize_trigger_sql(str(row[1]))
+            str(row[0]): _normalize_schema_sql(str(row[1]))
             for row in connection.execute(
                 "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'"
             )
@@ -210,10 +269,27 @@ def _canonical_trigger_sql() -> dict[str, str]:
         connection.close()
 
 
-def _normalize_trigger_sql(sql: str) -> str:
+@cache
+def _canonical_registry_table_sql() -> dict[str, str]:
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        return {
+            str(row[0]): _normalize_schema_sql(str(row[1]))
+            for row in connection.execute(
+                "SELECT name, sql FROM sqlite_master "
+                "WHERE type = 'table' AND name IN "
+                "('registry_state', 'registry_prune_authorizations')"
+            )
+        }
+    finally:
+        connection.close()
+
+
+def _normalize_schema_sql(sql: str) -> str:
     return " ".join(sql.casefold().split()).replace(
-        "create trigger if not exists",
-        "create trigger",
+        " if not exists",
+        "",
         1,
     )
 
@@ -307,26 +383,12 @@ def _validate_existing_observations(
         )
 
 
-def apply_registry_membership(
-    conn: sqlite3.Connection,
-    definitions: IndicatorDefinitions,
-) -> None:
-    """Replace the merge authorization set with one trusted registry snapshot."""
-
-    conn.execute("DELETE FROM registry_series")
-    conn.executemany(
-        "INSERT INTO registry_series(series_id) VALUES (?)",
-        ((series.series_id,) for series in definitions.series),
-    )
-
-
 def prune_definitions(
     conn: sqlite3.Connection,
     definitions: IndicatorDefinitions,
 ) -> tuple[RegistryPruneResult, ...]:
     """Delete facts for series absent from an explicitly trusted registry snapshot."""
 
-    apply_registry_membership(conn, definitions)
     registered = {series.series_id for series in definitions.series}
     stored = {
         str(row["series_id"]) for row in conn.execute("SELECT series_id FROM series").fetchall()
@@ -345,6 +407,10 @@ def prune_definitions(
                 (series_id,),
             ).fetchone()[0]
         )
+        conn.execute(
+            "INSERT INTO registry_prune_authorizations(series_id) VALUES (?)",
+            (series_id,),
+        )
         conn.execute("DELETE FROM provider_runs WHERE series_id = ?", (series_id,))
         conn.execute("DELETE FROM observations WHERE series_id = ?", (series_id,))
         conn.execute("DELETE FROM aliases WHERE series_id = ?", (series_id,))
@@ -356,7 +422,24 @@ def prune_definitions(
                 provider_run_rows=provider_run_rows,
             )
         )
+    set_registry_generation(conn, definitions.generation)
     return tuple(results)
+
+
+def registry_generation(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT generation FROM registry_state WHERE singleton = 1").fetchone()
+    if row is None:
+        raise IndicatorsSchemaError("indicator registry state is missing")
+    return int(row[0])
+
+
+def set_registry_generation(conn: sqlite3.Connection, generation: int) -> None:
+    cursor = conn.execute(
+        "UPDATE registry_state SET generation = ? WHERE singleton = 1",
+        (generation,),
+    )
+    if cursor.rowcount != 1:
+        raise IndicatorsSchemaError("indicator registry state is missing")
 
 
 def get_series(conn: sqlite3.Connection, series_id: str) -> SeriesDefinition:
@@ -651,7 +734,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version == SQLITE_SCHEMA_VERSION:
-        _validate_trigger_contract(conn, schema="main")
+        validate_current_schema(conn)
         return
     if version == 1:
         conn.executescript(_MIGRATE_V1_TO_V2_SQL)
@@ -661,14 +744,14 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         version = 3
     if version == 3:
         conn.executescript(_MIGRATE_V3_TO_V4_SQL)
-        _validate_trigger_contract(conn, schema="main")
+        validate_current_schema(conn)
         return
     if version != 0:
         raise IndicatorsSchemaError(
             f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-    _validate_trigger_contract(conn, schema="main")
+    validate_current_schema(conn)
 
 
 def _series_from_row(row: sqlite3.Row, *, aliases: tuple[str, ...]) -> SeriesDefinition:

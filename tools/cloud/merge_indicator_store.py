@@ -5,11 +5,12 @@ cloud, and an operator deepens history locally with ``macro refresh --all-histor
 therefore holds observations the other has never seen, so publishing the local store means
 merging the cloud copy into it first and proving that nothing cloud-side is left behind.
 
-Only the tables that accumulate facts are merged. Registry-owned tables are not imported from
-the source. ``registry_series`` records the registry snapshot applied by the target's last
-successful refresh; ordinary opens may retain metadata for preserved facts but cannot alter
-that authorization set. During merge, source rows outside the applied snapshot are reported as
-skipped rather than silently reviving a retired series.
+Only the tables that accumulate facts are merged. ``series`` and ``aliases`` are owned by the
+target store and are not imported from the source. Ordinary opens preserve metadata for series
+that a stale branch does not know, so cloud facts for those retained series remain eligible for
+merge. A target with an older registry generation is rejected before merge. A same-generation
+target missing source series is also rejected as incomplete. Only a strictly newer target may
+report absent source series as skipped retirement instead of reviving them.
 
 Facts are keyed, so the merge is an ``INSERT OR IGNORE`` per table: a row the target already
 has keeps the target's version, and a row only the source has is added verbatim with its
@@ -38,12 +39,17 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "observations": ("series_id", "observed_at", "vintage_at"),
     "provider_runs": ("run_id",),
 }
-# The tables the registry owns: rebuilt on open, so the target's version is the only one.
-REGISTRY_TABLES: tuple[str, ...] = ("series", "aliases", "registry_series")
+# The tables the registry owns: the target's version is the only one.
+REGISTRY_TABLES: tuple[str, ...] = (
+    "series",
+    "aliases",
+    "registry_state",
+    "registry_prune_authorizations",
+)
 
-# A row is only carried when the target's last successful refresh applied its
-# series. Ordinary opens never alter this persisted authorization boundary.
-_REGISTERED = 'series_id IN (SELECT series_id FROM main."registry_series")'
+# A row is only carried when the target store retains its series metadata. Only
+# an explicit refresh may remove that metadata and make the series ineligible.
+_REGISTERED = 'series_id IN (SELECT series_id FROM main."series")'
 
 
 class MergeError(RuntimeError):
@@ -106,6 +112,19 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
+                target_generation = _registry_generation(connection, schema="main")
+                source_generation = _registry_generation(connection, schema="source")
+                if target_generation < source_generation:
+                    raise MergeError(
+                        "target registry generation is older than source; "
+                        f"target={target_generation}, source={source_generation}"
+                    )
+                missing = _source_series_missing_from_target(connection)
+                if missing and target_generation == source_generation:
+                    raise MergeError(
+                        "source registry contains series missing from same-generation target: "
+                        + ", ".join(missing)
+                    )
                 _validate_target_registry_contracts(connection)
                 _validate_source_observations(connection)
                 retired = _retired_series(connection)
@@ -132,23 +151,18 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
 
 
 def _validate_target_registry_contracts(connection: sqlite3.Connection) -> None:
-    """Require a complete finite band for every series authorized by the target."""
+    """Require a complete finite band for every series retained by the target."""
 
     rows = connection.execute(
         """
-        SELECT r.series_id, s.series_id, s.plausible_min, s.plausible_max
-        FROM main.registry_series r
-        LEFT JOIN main.series s ON s.series_id = r.series_id
-        ORDER BY r.series_id
+        SELECT series_id, plausible_min, plausible_max
+        FROM main.series
+        ORDER BY series_id
         """
     )
-    for registry_id, stored_id, low, high in rows:
-        if stored_id is None:
-            raise MergeError(f"target registry series {registry_id} has no series metadata")
+    for series_id, low, high in rows:
         if low is None or high is None:
-            raise MergeError(
-                f"target registry series {registry_id} has an incomplete plausible range"
-            )
+            raise MergeError(f"target series {series_id} has an incomplete plausible range")
         numeric_low = float(low)
         numeric_high = float(high)
         if (
@@ -157,7 +171,7 @@ def _validate_target_registry_contracts(connection: sqlite3.Connection) -> None:
             or numeric_low > numeric_high
         ):
             raise MergeError(
-                f"target registry series {registry_id} has invalid plausible range "
+                f"target series {series_id} has invalid plausible range "
                 f"[{numeric_low!r}, {numeric_high!r}]"
             )
 
@@ -170,7 +184,6 @@ def _validate_source_observations(connection: sqlite3.Connection) -> None:
         SELECT o.series_id, o.observed_at, o.value, o.unit,
                s.unit, s.plausible_min, s.plausible_max
         FROM source.observations o
-        JOIN main.registry_series r ON r.series_id = o.series_id
         JOIN main.series s ON s.series_id = o.series_id
         WHERE o.unit != s.unit
            OR (s.plausible_min IS NOT NULL AND o.value < s.plausible_min)
@@ -234,6 +247,24 @@ def _retired_series(connection: sqlite3.Connection) -> tuple[str, ...]:
     return tuple(str(row[0]) for row in connection.execute(f"{union} ORDER BY series_id"))
 
 
+def _source_series_missing_from_target(connection: sqlite3.Connection) -> tuple[str, ...]:
+    """Registry members the same-generation target must retain, even before first fetch."""
+
+    return tuple(
+        str(row[0])
+        for row in connection.execute(
+            """
+            SELECT source.series.series_id
+            FROM source.series
+            LEFT JOIN main.series
+              ON main.series.series_id = source.series.series_id
+            WHERE main.series.series_id IS NULL
+            ORDER BY source.series.series_id
+            """
+        )
+    )
+
+
 def _require_schema(connection: sqlite3.Connection, *, path: Path, schema: str = "main") -> None:
     version = _count(connection, f"PRAGMA {schema}.user_version")
     if version != SQLITE_SCHEMA_VERSION:
@@ -255,6 +286,13 @@ def _require_identical_columns(connection: sqlite3.Connection) -> None:
             connection, table, schema="source"
         ):
             raise MergeError(f"indicator stores disagree on the columns of {table}")
+
+
+def _registry_generation(connection: sqlite3.Connection, *, schema: str) -> int:
+    return _count(
+        connection,
+        f'SELECT generation FROM {schema}."registry_state" WHERE singleton = 1',
+    )
 
 
 def _columns(connection: sqlite3.Connection, table: str, *, schema: str) -> Sequence[str]:

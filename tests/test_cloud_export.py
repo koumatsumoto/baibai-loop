@@ -101,6 +101,53 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path
     assert view.generated_at.tzinfo is not None
 
 
+def test_build_meta_freshness_ignores_retained_unregistered_series(
+    app_method_root: Path,
+) -> None:
+    _seed_macro_observations(app_method_root)
+    database = app_method_root / "data/indicators/macro.sqlite"
+    connection = open_connection(database)
+    try:
+        connection.execute(
+            "INSERT INTO series("
+            "series_id, name, category, geography, frequency, unit, provider, "
+            "provider_series_id, source_id, source_url"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "retired.series",
+                "Retired",
+                "test",
+                "world",
+                "daily",
+                "index",
+                "fred_csv",
+                "RETIRED",
+                "retired",
+                "https://example.com/retired",
+            ),
+        )
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id="retired.series",
+                    observed_at=date(2026, 8, 1),
+                    value=100.0,
+                    unit="index",
+                    source_url="https://example.com/retired",
+                )
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    view = build_meta(_meta_source(app_method_root))
+
+    assert view.macro_asof == date(2026, 7, 17)
+    assert view.data_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
+
+
 def test_build_meta_takes_the_latest_judgment_write_across_stores(
     app_method_root: Path,
 ) -> None:
