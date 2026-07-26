@@ -3,6 +3,7 @@
 - ``models``: the canonical document contract (core 10 + connection 1)
 - ``service``: publication and revision queries against the application DB
 - ``diagnostics``: freshness policy and payload accessors for consumers
+- ``triggers``: whether the L1 history has met the report's own invalidation conditions
 - ``cli``: ``baibai-engine macro context``
 """
 
@@ -24,6 +25,11 @@ from .service import (
     MacroContextNotFoundError,
     MacroContextService,
 )
+from .triggers import (
+    TriggerEvaluation,
+    evaluate_triggers_from_stores,
+    fired_trigger_summaries,
+)
 
 __all__ = [
     "CORE_SECTION_ORDER",
@@ -34,6 +40,9 @@ __all__ = [
     "MacroContextDocument",
     "MacroContextNotFoundError",
     "MacroContextService",
+    "TriggerEvaluation",
+    "evaluate_triggers_from_stores",
+    "fired_trigger_summaries",
     "macro_context_diagnostics",
     "macro_context_from_payload",
 ]

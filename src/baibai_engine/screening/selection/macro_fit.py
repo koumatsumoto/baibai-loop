@@ -25,6 +25,7 @@ def macro_context_summary(
             "sizing_cautions": [],
             "research_questions": [],
             "refresh_triggers": [],
+            "fired_triggers": [],
             "warnings": ["macro_context_missing"],
         }
     diagnostics = macro_context_diagnostics(macro_context, asof_date=asof_date)
@@ -37,5 +38,6 @@ def macro_context_summary(
         "sizing_cautions": diagnostics["sizing_cautions"],
         "research_questions": diagnostics["research_questions"],
         "refresh_triggers": diagnostics["refresh_triggers"],
+        "fired_triggers": diagnostics["fired_triggers"],
         "warnings": diagnostics["warnings"],
     }

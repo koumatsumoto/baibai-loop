@@ -353,10 +353,28 @@ class MacroScenario(_SourcedStatement):
         return values
 
 
+class TriggerCondition(_StrictModel):
+    """A monitoring condition a machine can check against the L1 history.
+
+    The shape of a scorecard condition without the deadline. A scorecard condition is
+    settled by a later report and therefore expires; a monitoring condition asks whether
+    the ground has moved since this report was written, which has no settlement date —
+    the report stands until someone writes the next one.
+    """
+
+    series_id: str = Field(min_length=1)
+    comparison: Literal["below", "at_or_below", "above", "at_or_above"]
+    threshold: float = Field(allow_inf_nan=False)
+
+
 class MonitoringPoint(_SourcedStatement):
     event: str = Field(min_length=1)
     condition: str = Field(min_length=1)
     view_change: str = Field(min_length=1)
+    # Optional because not every invalidation is measurable — an election result or a
+    # policy statement is watched in prose. A condition that *is* measurable belongs
+    # here, or nothing checks it between reports.
+    machine_conditions: tuple[TriggerCondition, ...] = ()
 
     @field_validator("event", "condition", "view_change")
     @classmethod
@@ -364,6 +382,16 @@ class MonitoringPoint(_SourcedStatement):
         if not value.strip():
             raise ValueError("monitoring point fields must be non-blank")
         return value
+
+    @field_validator("machine_conditions")
+    @classmethod
+    def require_distinct_conditions(
+        cls, values: tuple[TriggerCondition, ...]
+    ) -> tuple[TriggerCondition, ...]:
+        keys = [(item.series_id, item.comparison, item.threshold) for item in values]
+        if len(keys) != len(set(keys)):
+            raise ValueError("monitoring conditions must differ from each other")
+        return values
 
 
 class MacroCoreSection(_StrictModel):
@@ -391,9 +419,27 @@ class MacroCoreSection(_StrictModel):
         if self.section_id == "monitoring":
             if not self.monitoring_points:
                 raise ValueError("monitoring section requires monitoring points")
+            self._validate_machine_conditions()
         elif self.monitoring_points:
             raise ValueError("monitoring points belong in the monitoring section")
         return self
+
+    def _validate_machine_conditions(self) -> None:
+        # Same discipline as the scorecard: a condition on a series the section never
+        # examined would be a threshold with no reading behind it.
+        cited = set(self.series_ids)
+        unknown = sorted(
+            {
+                condition.series_id
+                for point in self.monitoring_points
+                for condition in point.machine_conditions
+            }
+            - cited
+        )
+        if unknown:
+            raise ValueError(
+                "monitoring conditions must cite series the section cites: " + ", ".join(unknown)
+            )
 
     def _validate_regime_summary_fields(self) -> None:
         if self.section_id == "regime_summary":
@@ -667,6 +713,10 @@ class MacroContextDocument(_StrictModel):
         return self.core[CORE_SECTION_ORDER.index("risk_environment")].scenarios
 
     @property
+    def monitoring_points(self) -> tuple[MonitoringPoint, ...]:
+        return self.core[CORE_SECTION_ORDER.index("monitoring")].monitoring_points
+
+    @property
     def material_deltas(self) -> tuple[MaterialDelta, ...]:
         return tuple(delta for section in self.core for delta in section.material_deltas)
 
@@ -680,8 +730,7 @@ class MacroContextDocument(_StrictModel):
 
     @property
     def refresh_triggers(self) -> tuple[str, ...]:
-        monitoring = self.core[CORE_SECTION_ORDER.index("monitoring")]
-        return tuple(point.condition for point in monitoring.monitoring_points)
+        return tuple(point.condition for point in self.monitoring_points)
 
     def payload(self) -> dict[str, object]:
         return self.model_dump(mode="json")

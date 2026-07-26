@@ -6,7 +6,7 @@ import os
 import sqlite3
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO
@@ -18,8 +18,10 @@ from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.macro.context import (
     MacroContext,
+    fired_trigger_summaries,
     macro_context_from_payload,
 )
+from baibai_engine.macro.indicators.db import DEFAULT_DB_PATH as INDICATORS_DB_PATH
 from baibai_engine.market.store import latest_daily_bar_date
 from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
 from baibai_engine.screening.market_snapshot import build_market_snapshot
@@ -275,9 +277,13 @@ def _load_selection_inputs_db(
     context = (
         None
         if context_payload is None
-        else macro_context_from_payload(
-            context_payload,
-            source=str(context_payload["context_id"]),
+        else _with_fired_triggers(
+            macro_context_from_payload(
+                context_payload,
+                source=str(context_payload["context_id"]),
+            ),
+            application_db=resolved_app_db,
+            asof_date=asof_date,
         )
     )
     return _SelectionInputs(
@@ -286,6 +292,29 @@ def _load_selection_inputs_db(
         previous_candidates=previous_candidates,
         candidates_ref=run_revision_id,
         macro_context_ref=None if context is None else context.context_id,
+    )
+
+
+def _with_fired_triggers(
+    context: MacroContext,
+    *,
+    application_db: Path,
+    asof_date: date,
+) -> MacroContext:
+    """Ask the L1 store whether the report's own invalidation conditions have been met.
+
+    The evaluation happens here because this is the layer that knows where both stores
+    are; everything downstream stays a pure read of the context object.
+    """
+
+    return replace(
+        context,
+        fired_triggers=fired_trigger_summaries(
+            context_db=application_db,
+            indicators_db_path=INDICATORS_DB_PATH,
+            context_id=context.context_id,
+            asof=asof_date,
+        ),
     )
 
 
