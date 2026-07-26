@@ -21,6 +21,7 @@ _TRADINGVIEW_SYMBOL_RE = re.compile(r"[A-Za-z0-9._-]+:[A-Za-z0-9._!/-]+\Z")
 _REGISTRY_MEMBERSHIP_GENERATIONS = {
     "216243143e489d470030896183313ff0ceedffcbc6f476ad1cd2a2f849e6687c": 1,
     "7f4cee72f7eb5ac52cfea6862472d58fe33e71a9c3e9df6ccb8e3ab8ac443a5d": 2,
+    "26e66a2dbe11090a3ebe7badd216899d679ae1a93c0ee9b6a6f9a773718eeffc": 3,
 }
 
 

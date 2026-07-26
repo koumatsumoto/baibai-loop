@@ -3409,7 +3409,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         )
 
     def test_canonical_registry_membership_has_a_known_generation(self) -> None:
-        self.assertEqual(load_definitions().generation, 2)
+        self.assertEqual(load_definitions().generation, 3)
         with (
             patch(
                 "baibai_engine.macro.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
@@ -3432,6 +3432,14 @@ class IndicatorsRegistryTests(unittest.TestCase):
             "credit.us_hy_oas": ("fred_csv", "credit"),
             "credit.us_ccc_oas": ("fred_csv", "credit"),
             "btc_usd": ("fred_csv", "crypto"),
+            "jp.machinery_orders": ("estat", "activity"),
+            "jp.watcher_current_di": ("estat", "activity"),
+            "jp.consumer_confidence": ("estat", "activity"),
+            "jp.bank_lending_yoy": ("boj_timeseries", "credit"),
+            "jp.tankan_large_nonmfg_di": ("boj_timeseries", "activity"),
+            "jp.real_wage_index": ("estat_dashboard", "labor"),
+            "us.empire_manufacturing": ("fred_csv", "activity"),
+            "us.philly_fed_manufacturing": ("fred_csv", "activity"),
         }
 
         for series_id, (provider, category) in expected.items():
@@ -3455,6 +3463,25 @@ class IndicatorsRegistryTests(unittest.TestCase):
         self.assertEqual(
             by_id["jp.cpi.services"].provider_series_id,
             "0003427113?cdCat01=0220&cdArea=00000&cdTab=1",
+        )
+        # The narrowing codes are the series identity for an e-Stat table that
+        # carries dozens of series, so an edit to them changes what is stored
+        # without changing anything else the tests look at.
+        self.assertEqual(
+            by_id["jp.machinery_orders"].provider_series_id,
+            "0003355222?cdCat01=160&cdCat02=100&cdTab=100",
+        )
+        self.assertEqual(
+            by_id["jp.watcher_current_di"].provider_series_id,
+            "0003348423?cdCat01=100&cdCat02=100&cdTab=140",
+        )
+        self.assertEqual(
+            by_id["jp.consumer_confidence"].provider_series_id,
+            "0003446462?cdCat01=1060&cdTab=200",
+        )
+        self.assertEqual(
+            by_id["jp.bank_lending_yoy"].provider_series_id,
+            "MD13:FAAPOBAL1@",
         )
 
     def test_estat_dashboard_series_pin_one_upstream_series_in_their_source_url(self) -> None:
