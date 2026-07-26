@@ -687,8 +687,8 @@ class MacroContextDocument(_StrictModel):
         return self.model_dump(mode="json")
 
 
-def unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
-    """Cited series — from the inputs and from the sections — that the registry lacks."""
+def cited_series_ids(document: MacroContextDocument) -> frozenset[str]:
+    """Every series the report names, from its inputs and from its sections."""
 
     sections: tuple[MacroCoreSection | MacroConnectionSection, ...] = (
         *document.core,
@@ -696,7 +696,21 @@ def unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
     )
     cited = {indicator.series_id for indicator in document.inputs.indicator_series}
     cited.update(series_id for section in sections for series_id in section.series_ids)
-    return tuple(sorted(cited - _canonical_series_ids()))
+    return frozenset(cited)
+
+
+def scorecard_series_ids(document: MacroContextDocument) -> frozenset[str]:
+    """The series a later report has to read to settle this one's scenarios."""
+
+    return frozenset(
+        condition.series_id for scenario in document.scenarios for condition in scenario.scorecard
+    )
+
+
+def unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
+    """Cited series — from the inputs and from the sections — that the registry lacks."""
+
+    return tuple(sorted(cited_series_ids(document) - _canonical_series_ids()))
 
 
 def require_registry_agreement(document: MacroContextDocument) -> None:
@@ -772,7 +786,9 @@ __all__ = [
     "MacroContextDocument",
     "MacroCoreSectionId",
     "ScorecardSnapshotInput",
+    "cited_series_ids",
     "require_registry_agreement",
+    "scorecard_series_ids",
     "scorecard_snapshot_input_id",
     "unregistered_series_ids",
 ]

@@ -254,7 +254,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
 - [ ] indicator registry の `plausible_min` / `plausible_max` は有限かつ順序が正しく、標準の全系列で
       両端を宣言しているか。境界値は許可し、band 外が 1 点でもあれば部分 insert せず failed
-      provider run を残すか。band 変更前後に `tools/validate_indicator_store.py` で live store の
+      provider run を残すか。band 変更前後に `tools/validate_macro_stores.py` で live store の
       全履歴・全 vintage が通ることを機械確認したか。複数行の途中違反を caller が catch 後に
       commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
       schema version 一致だけで通さないか。`foreign_keys=OFF` の直接writerでもunknown seriesを
