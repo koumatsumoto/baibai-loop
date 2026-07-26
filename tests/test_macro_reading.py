@@ -50,13 +50,14 @@ def _monthly_ramp(months: int, *, end: date) -> list[tuple[date, float]]:
 def _definition(
     series_id: str = "test.series",
     *,
+    category: str = "rates",
     frequency: str = "daily",
     unit: str = "percent",
 ) -> SeriesDefinition:
     return SeriesDefinition(
         series_id=series_id,
         name="Test Series",
-        category="rates",
+        category=category,
         geography="world",
         frequency=frequency,
         unit=unit,
@@ -64,6 +65,53 @@ def _definition(
         provider_series_id="TEST",
         source_id="test-source",
         source_url="https://example.com/data.csv",
+    )
+
+
+def _expects_growth_statistic(definition: SeriesDefinition) -> bool:
+    """Whether registry semantics make an unscaled level percentile misleading."""
+
+    if definition.category == "equity-index":
+        return True
+    if definition.category == "inflation" and definition.unit == "index":
+        return True
+    if definition.category == "monetary":
+        return True
+    if definition.category == "labor":
+        return definition.unit == "index" or definition.unit.endswith(("persons", "-per-hour"))
+    if definition.category == "activity":
+        return definition.unit == "index" or definition.unit.endswith(
+            ("-million", "-billion", "-100m")
+        )
+    return False
+
+
+def _statistic_assignment_drift(
+    definitions: Sequence[SeriesDefinition],
+    rules: ReadingRules,
+) -> tuple[set[str], set[str], set[str]]:
+    candidates = {
+        definition.series_id for definition in definitions if _expects_growth_statistic(definition)
+    }
+    explicit_level = {
+        series_id
+        for series_id, override in rules.overrides.items()
+        if override.statistic == "level"
+    }
+    actual_yoy = {
+        definition.series_id
+        for definition in definitions
+        if rules.resolve(
+            series_id=definition.series_id,
+            frequency=definition.frequency,
+        ).statistic
+        == "yoy"
+    }
+    expected_yoy = candidates - explicit_level
+    return (
+        expected_yoy - actual_yoy,
+        actual_yoy - expected_yoy,
+        explicit_level - candidates,
     )
 
 
@@ -118,6 +166,37 @@ def test_reading_rules_default_the_statistic_to_the_level() -> None:
 
     assert rules.resolve(series_id="test.unlisted", frequency="daily").statistic == "level"
     assert rules.resolve(series_id="us.nonfarm_payrolls", frequency="monthly").statistic == "yoy"
+
+
+def test_reading_rules_statistic_assignments_match_registry_semantics() -> None:
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+
+    missing_yoy, unexpected_yoy, stale_level_exceptions = _statistic_assignment_drift(
+        load_definitions().series,
+        rules,
+    )
+
+    assert missing_yoy == set()
+    assert unexpected_yoy == set()
+    assert stale_level_exceptions == set()
+
+
+def test_reading_rules_detect_an_unclassified_equity_index() -> None:
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+    added = _definition(
+        "test.unlisted_equity",
+        category="equity-index",
+        unit="index",
+    )
+
+    missing_yoy, unexpected_yoy, stale_level_exceptions = _statistic_assignment_drift(
+        (*load_definitions().series, added),
+        rules,
+    )
+
+    assert missing_yoy == {"test.unlisted_equity"}
+    assert unexpected_yoy == set()
+    assert stale_level_exceptions == set()
 
 
 def test_reading_rules_take_the_yoy_statistic_only_where_the_level_has_no_scale() -> None:
