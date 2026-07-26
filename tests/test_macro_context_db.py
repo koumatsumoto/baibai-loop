@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Callable
 from datetime import date
@@ -288,6 +289,62 @@ def test_publish_rejects_a_reading_revision_that_does_not_exist(tmp_path: Path) 
         MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
 
 
+def _payload_citing(series_id: str) -> dict[str, Any]:
+    """A report that is coherent with itself while naming a series the registry may lack."""
+
+    payload = macro_context_payload()
+    payload["inputs"]["indicator_series"][0]["series_id"] = series_id
+    for section in (*payload["core"], payload["connection"]):
+        section["series_ids"] = [series_id]
+    for scenario in _risk(payload)["scenarios"]:
+        for condition in scenario["scorecard"]:
+            condition["series_id"] = series_id
+    return payload
+
+
+@pytest.mark.parametrize("series_id", ["not.registered", "DGS10"])
+def test_retiring_a_series_keeps_the_reports_that_cite_it_readable(series_id: str) -> None:
+    """Retiring or renaming a series is normal operation, so it must not void the history."""
+
+    document = MacroContextDocument.model_validate(_payload_citing(series_id))
+    context = macro_context_from_payload(document.payload(), source="fixture.yaml")
+
+    assert context.context_id == document.context_id
+
+
+def test_read_still_rejects_a_report_that_contradicts_itself() -> None:
+    """Only registry agreement moved to publication; self-consistency is checked on load."""
+
+    payload = _payload_citing("not.registered")
+    payload["inputs"]["indicator_series"][0]["status"] = "failed"
+
+    with pytest.raises(ValidationError):
+        MacroContextDocument.model_validate(payload)
+
+
+@pytest.mark.parametrize("series_id", ["not.registered", "DGS10"])
+def test_publish_rejects_a_series_the_registry_does_not_define(
+    series_id: str, tmp_path: Path
+) -> None:
+    document = MacroContextDocument.model_validate(_payload_citing(series_id))
+
+    with pytest.raises(ValueError, match=re.escape(f"unregistered macro series_id: {series_id}")):
+        MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
+
+
+def test_publish_rejects_a_deadline_too_near_for_the_series_to_print_again(
+    tmp_path: Path,
+) -> None:
+    """How much room a deadline needs comes from the series frequency, which the registry owns."""
+
+    payload = macro_context_payload()
+    _risk(payload)["scenarios"][0]["scorecard"][0]["deadline"] = "2026-07-25"
+    document = MacroContextDocument.model_validate(payload)
+
+    with pytest.raises(ValueError, match="days for the series to print again"):
+        MacroContextService(tmp_path / "app.sqlite").publish(document, expected_head=None)
+
+
 def test_published_report_flows_through_db_backed_screening_read_path(tmp_path: Path) -> None:
     path = tmp_path / "app.sqlite"
     document = _document()
@@ -433,16 +490,6 @@ _BYPASSES: tuple[tuple[str, Callable[[dict[str, Any]], object]], ...] = (
         ),
     ),
     (
-        "unregistered series",
-        lambda payload: _core(payload, "regime_summary").__setitem__(
-            "series_ids", ["not.registered"]
-        ),
-    ),
-    (
-        "provider series id instead of the canonical id",
-        lambda payload: _core(payload, "regime_summary").__setitem__("series_ids", ["DGS10"]),
-    ),
-    (
         "series with no indicator input",
         lambda payload: _core(payload, "regime_summary").__setitem__(
             "series_ids", ["jp.policy_rate"]
@@ -583,12 +630,6 @@ _BYPASSES: tuple[tuple[str, Callable[[dict[str, Any]], object]], ...] = (
         "scorecard deadline beyond the settleable horizon",
         lambda payload: _risk(payload)["scenarios"][0]["scorecard"][0].__setitem__(
             "deadline", "2029-01-31"
-        ),
-    ),
-    (
-        "scorecard deadline too near for the series to print again",
-        lambda payload: _risk(payload)["scenarios"][0]["scorecard"][0].__setitem__(
-            "deadline", "2026-07-25"
         ),
     ),
     (

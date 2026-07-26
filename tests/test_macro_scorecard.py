@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import replace
@@ -100,6 +101,7 @@ def _evaluate(
     accessed_at: datetime,
     settlement: bool = True,
     staleness_warn_days: int = 1,
+    providers: dict[str, str] | None = None,
 ) -> ScorecardEvaluation:
     return evaluate_scorecard(
         _document(),
@@ -107,7 +109,7 @@ def _evaluate(
         provider_run_checker=(
             lambda _series_id, _provider, _start, _end, _completed_after, _asof: settlement
         ),
-        providers={"us.10y": "fred_csv"},
+        providers={"us.10y": "fred_csv"} if providers is None else providers,
         stale_after=lambda _series_id, observed_at: (
             observed_at + timedelta(days=staleness_warn_days)
         ),
@@ -278,6 +280,18 @@ def test_scorecard_rejects_a_future_asof() -> None:
             _observations((date(2026, 7, 20), 4.0)),
             asof=date(2026, 7, 21),
             accessed_at=datetime(2026, 7, 20, 14, 59, tzinfo=UTC),
+        )
+
+
+def test_scorecard_refuses_to_settle_a_condition_on_a_retired_series() -> None:
+    """The report stays readable after a retirement; its scorecard becomes unsettleable."""
+
+    with pytest.raises(ScorecardEvaluationError, match=re.escape("no longer defines: us.10y")):
+        _evaluate(
+            _observations((date(2026, 7, 20), 4.0)),
+            asof=date(2026, 7, 20),
+            accessed_at=datetime(2026, 7, 20, 12, tzinfo=UTC),
+            providers={},
         )
 
 

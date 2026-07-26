@@ -11,6 +11,12 @@ builds on. The loop-specific *fields* (sector tilt, research priority, sizing ca
 exist only on the connection section, so they cannot be placed in core at all. Prose is
 not policed — a judgment written in core can still smuggle in an instruction, which is
 what the skill's adversarial self-check is for.
+
+Validation is split by what it consults. The model itself checks only what the document
+says about itself — section order, citation trails, deadline windows — so a published
+report stays readable forever. Agreement with the indicator registry, which is state
+that keeps moving as series are retired and reclassified, is checked by
+``require_registry_agreement`` at publication time only.
 """
 
 from __future__ import annotations
@@ -507,6 +513,8 @@ class MacroContextDocument(_StrictModel):
 
     @model_validator(mode="after")
     def validate_domain_contract(self) -> Self:
+        """Check the report against itself, using nothing that can change after publication."""
+
         self._validate_context_id()
         if self.published_at.tzinfo is None or self.published_at.utcoffset() is None:
             raise ValueError("published_at must include a timezone")
@@ -554,8 +562,6 @@ class MacroContextDocument(_StrictModel):
             register(article.input_id, article.status)
         for indicator in self.inputs.indicator_series:
             register(indicator.input_id, indicator.status)
-            if indicator.series_id not in _canonical_series_ids():
-                raise ValueError(f"unregistered macro series_id: {indicator.series_id}")
             series_input_ids.setdefault(indicator.series_id, set()).add(indicator.input_id)
         for reading in self.inputs.reading_snapshots:
             register(reading.input_id, reading.status)
@@ -593,8 +599,6 @@ class MacroContextDocument(_StrictModel):
         items = _sourced_items(section)
         section_source_ids = {source_id for item in items for source_id in item.source_ids}
         for series_id in section.series_ids:
-            if series_id not in _canonical_series_ids():
-                raise ValueError(f"unregistered macro series_id: {series_id}")
             if series_id not in series_input_ids:
                 raise ValueError(f"section series_id has no indicator input: {series_id}")
             ok_input_ids = {
@@ -642,17 +646,15 @@ class MacroContextDocument(_StrictModel):
             )
 
     def _validate_scorecard_deadlines(self) -> None:
+        # The window a deadline must fall in is fixed by the report's own as_of. How much
+        # room a *particular series* needs inside that window depends on its publication
+        # frequency, which is registry state, so that part is checked at publication.
         horizon = _months_after(self.as_of, SCORECARD_HORIZON_MONTHS)
-        frequencies = _series_frequencies()
         for scenario in self.scenarios:
             for condition in scenario.scorecard:
-                minimum_days = MIN_SCORECARD_DAYS_BY_FREQUENCY.get(
-                    frequencies.get(condition.series_id, ""), 14
-                )
-                if (condition.deadline - self.as_of).days < minimum_days:
+                if condition.deadline <= self.as_of:
                     raise ValueError(
-                        f"a scorecard deadline on {condition.series_id} must leave at least "
-                        f"{minimum_days} days for the series to print again"
+                        f"a scorecard deadline on {condition.series_id} must fall after as_of"
                     )
                 if condition.deadline > horizon:
                     raise ValueError(
@@ -683,6 +685,45 @@ class MacroContextDocument(_StrictModel):
 
     def payload(self) -> dict[str, object]:
         return self.model_dump(mode="json")
+
+
+def unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
+    """Cited series — from the inputs and from the sections — that the registry lacks."""
+
+    sections: tuple[MacroCoreSection | MacroConnectionSection, ...] = (
+        *document.core,
+        document.connection,
+    )
+    cited = {indicator.series_id for indicator in document.inputs.indicator_series}
+    cited.update(series_id for section in sections for series_id in section.series_ids)
+    return tuple(sorted(cited - _canonical_series_ids()))
+
+
+def require_registry_agreement(document: MacroContextDocument) -> None:
+    """Check the report against the indicator registry it is being written against.
+
+    Registry membership and a series' publication frequency are environment state that
+    keeps moving: a series can be retired, renamed, or reclassified long after a report
+    is published. The report is immutable, so agreeing with the registry is a condition
+    of *writing* it, not of reading it. Enforcing it on every load would let a later
+    registry change retroactively invalidate a report that was correct when it was
+    written — and take every consumer of the published history down with it.
+    """
+
+    unknown = unregistered_series_ids(document)
+    if unknown:
+        raise ValueError("unregistered macro series_id: " + ", ".join(unknown))
+    frequencies = _series_frequencies()
+    for scenario in document.scenarios:
+        for condition in scenario.scorecard:
+            minimum_days = MIN_SCORECARD_DAYS_BY_FREQUENCY.get(
+                frequencies.get(condition.series_id, ""), 14
+            )
+            if (condition.deadline - document.as_of).days < minimum_days:
+                raise ValueError(
+                    f"a scorecard deadline on {condition.series_id} must leave at least "
+                    f"{minimum_days} days for the series to print again"
+                )
 
 
 def _sourced_items(
@@ -731,5 +772,7 @@ __all__ = [
     "MacroContextDocument",
     "MacroCoreSectionId",
     "ScorecardSnapshotInput",
+    "require_registry_agreement",
     "scorecard_snapshot_input_id",
+    "unregistered_series_ids",
 ]
