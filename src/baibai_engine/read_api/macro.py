@@ -17,11 +17,7 @@ from baibai_engine.macro.reading.reader import build_store_observation_reader
 from baibai_engine.macro.reading.rules import (
     DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
 )
-from baibai_engine.macro.reading.rules import (
-    ReadingRulesError,
-    load_reading_rules,
-    rules_revision,
-)
+from baibai_engine.macro.reading.rules import load_reading_rules, rules_revision
 
 from .sqlite import connect_read_only
 
@@ -38,16 +34,14 @@ def macro_reading_snapshot(
 
     The reading is a pure function of the store, the rules revision and the as-of date,
     so a read-only consumer recomputes it instead of depending on a stored snapshot. A
-    missing store or unreadable rules yields None so a consumer degrades to hiding the
-    panel rather than failing the whole view.
+    missing store yields None so a consumer can hide the panel. Rules are trusted
+    configuration: read or validation failures propagate and stop materialization,
+    because publishing a fresh generation with the reading silently absent is unsafe.
     """
 
     if not path.is_file():
         return None
-    try:
-        rules = load_reading_rules(rules_path)
-    except ReadingRulesError:
-        return None
+    rules = load_reading_rules(rules_path)
     connection = connect_read_only(path)
     try:
         definitions = load_definitions()

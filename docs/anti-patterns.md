@@ -268,9 +268,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
       履歴で percentile / z-score を黙って計算しないか（開始が遅い・件数不足・**窓の期数に対する
       欠落が多い**の3条件を `insufficient_history` で null にする）。公表lagを変更するときは全系列の
-      `next_print_estimate` が解決し、registry frequency と実更新 cadence が異なる系列・速い
-      source 固有lag・正常な公表待ち / 1回の公表落ちの `stale` 判定が意図せず変わらず、月末の
-      calendar arithmetic・期限超過の負の `print_due_in_days`・lag fieldを持たない既発行revisionを
+      `next_print_estimate` が解決し、registry frequency と実更新 cadence が異なる系列・週次batchの
+      phase・速い source 固有lag・正常な公表待ち / 1回の公表落ちの `stale` 判定が意図せず変わらず、
+      月末の calendar arithmetic・calendar/business daily の土日境界・期限超過の負の
+      `print_due_in_days`・margin境界・schema v1 の既発行revision・v1/v2 shape混在の拒否を
       fixtureで検証するか
 - [ ] macro scorecard は未来 asof、`met` までの full-window run / `not_met` の active provider
       post-watermark run 不足、期限時点の stale 観測を hard error にし、run 完了時刻を JST の score

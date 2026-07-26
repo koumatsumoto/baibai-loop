@@ -24,21 +24,25 @@
 #   trend_months             latest と比較する基準時点（asof からの月数）。yoy へ
 #                            切り替えた系列でも trend は系列自身の単位の絶対変化で、
 #                            percentile が測る %変化と単位が違う。
-#   publication_cadence     次の観測基準日を進める間隔。既定は registry frequency。
+#   publication_cadence     次の観測基準日を進める間隔。daily は既定で
+#                            business_daily。土日も点を持つ系列は calendar_daily、
+#                            日次観測を週次batchで公表する系列は weekly とする。
 #                            統計上は月次でも当月値が日次更新される派生系列など、
-#                            frequency が実際の更新間隔と異なる場合だけ override する。
+#                            frequency が実際の更新間隔と異なる場合も override する。
 #   publication_lag_days    1 観測の基準日から公表までの暦日数。reading は
 #                            `latest observed_at + 1 公表間隔 + lag` を次回公表目安
-#                            とする。daily は土日だけを飛ばす。手維持の event calendar
-#                            ではなく、系列の公表 cadence から機械導出する。
+#                            とする。business / weekly / monthly / quarterly の推定日が
+#                            土日なら翌平日へ送る。手維持の event calendar ではなく、
+#                            系列の公表 cadence から機械導出する。
 #   staleness_margin_days   次回公表目安を過ぎてから stale とするまでの猶予。
-#                            staleness_warn_days は `lag + 1 公表間隔 + margin` から
-#                            導出する。観測の齢であり cache の齢ではない。
+#                            staleness_warn_days は観測日から
+#                            `next_print_estimate + margin` までの日数として導出する。
+#                            観測の齢であり cache の齢ではない。
 #                            `macro get --latest` もJST運用日から同じ閾値を計算し、
 #                            cache 再取得判定に使う。
 #   flags                    閾値フラグ。signal ではなく注記であり、初期値は教科書値。
 #                            水準に対する比較なので statistic の切り替えに影響されない。
-schema_version: 1
+schema_version: 2
 
 defaults:
   daily:
@@ -72,23 +76,42 @@ defaults:
     staleness_margin_days: 7
 
 overrides:
-  # FRB H.10 由来の日次系列は週次公表（前週分をまとめて出す）ため、日次 default
-  # では平常時に注記が出る。
+  # FRED が暦日ごとの観測を配信する系列。live store の直近3か月でも土日点が連続
+  # しており、business-day defaultでは実在する次の観測を飛ばす。
+  btc_usd:
+    publication_cadence: calendar_daily
+  ecb.policy_rate:
+    publication_cadence: calendar_daily
+  us.fed_funds.lower:
+    publication_cadence: calendar_daily
+  us.fed_funds.upper:
+    publication_cadence: calendar_daily
+  # FRB H.10 は前週の日次値を月曜にまとめて公表する。観測 grid は日次のまま、
+  # publication は金曜相当の最終観測から次の月曜までの weekly + 3 日で表す。
+  # https://www.federalreserve.gov/releases/h10/
   usd_cny:
-    publication_lag_days: 5
+    publication_cadence: weekly
+    publication_lag_days: 3
+    staleness_margin_days: 2
   usd_index.broad:
-    publication_lag_days: 5
+    publication_cadence: weekly
+    publication_lag_days: 3
+    staleness_margin_days: 2
   # FRED の EIA 由来の日次価格も週次でまとめて公表される（実測: 07-13 までの週が
-  # 07-20、07-20 までの週が 07-23 に初出）。次の週次公表を待つ間に観測は 10 日まで
-  # 古くなるため、H.10 系列と同じ閾値に置く。
+  # 07-20、07-20 までの週が 07-23 に初出）。標準公表は水曜で、holiday週は木曜へ
+  # 遅れるため、weekly + 3 日で近似する。
+  # https://www.eia.gov/petroleum/supply/weekly/schedule.php
   wti:
-    publication_lag_days: 9
+    publication_cadence: weekly
+    publication_lag_days: 3
     staleness_margin_days: 2
   brent:
-    publication_lag_days: 9
+    publication_cadence: weekly
+    publication_lag_days: 3
     staleness_margin_days: 2
   natgas:
-    publication_lag_days: 9
+    publication_cadence: weekly
+    publication_lag_days: 3
     staleness_margin_days: 2
   # University of Michigan は当月の確報を月末に出し、store はその確報を取る（ラグ約
   # 28 日）ので、平常時の齢は 58 日を超えない。default 100 日では 2 公表分の欠落を
@@ -183,7 +206,7 @@ overrides:
   us.erp:
     # 月次標本だが当月点は daily market input の最終日へ置換されるため、次回更新は
     # 翌営業日。外部 publisher の公表待ちは持たない。
-    publication_cadence: daily
+    publication_cadence: business_daily
     publication_lag_days: 0
     staleness_margin_days: 6
     flags:

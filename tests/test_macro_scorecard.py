@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -34,6 +34,7 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.macro.reading.reader import build_store_observation_reader
+from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH, rules_revision
 from tests.helpers.macro_context import macro_context_payload
 
 
@@ -106,7 +107,9 @@ def _evaluate(
             lambda _series_id, _provider, _start, _end, _completed_after, _asof: settlement
         ),
         providers={"us.10y": "fred_csv"},
-        staleness_warn_days={"us.10y": staleness_warn_days},
+        stale_after=lambda _series_id, observed_at: (
+            observed_at + timedelta(days=staleness_warn_days)
+        ),
         rules_revision="test-rules",
         asof=asof,
         accessed_at=accessed_at,
@@ -350,7 +353,7 @@ def test_scorecard_separates_observation_deadline_from_vintage_cutoff(
                 lambda _series_id, _provider, _start, _end, _completed_after, _asof: True
             ),
             providers={"jp.foreign_flows": "jquants_flows"},
-            staleness_warn_days={"jp.foreign_flows": 21},
+            stale_after=lambda _series_id, observed_at: observed_at + timedelta(days=21),
             rules_revision="test-rules",
             asof=date(2026, 9, 1),
             accessed_at=datetime(2026, 9, 1, 12, tzinfo=UTC),
@@ -502,18 +505,19 @@ def test_scorecard_cli_emits_citable_json_without_mutating_either_store(
     }
     assert {item["status"] for item in payload["results"]} == {"met", "pending"}
     snapshot = payload["machine_snapshot"]
+    current_rules_revision = rules_revision(DEFAULT_RULES_PATH)
     assert snapshot == {
         "kind": "macro-scorecard-evaluation",
         "input_id": scorecard_snapshot_input_id(
             context_id="macro-context-2026-07-19-base",
             snapshot_asof=date(2026, 7, 20),
-            rules_revision="2026-07-26T072200+0900",
+            rules_revision=current_rules_revision,
             context_db=str(context_db.resolve()),
             indicators_db=str(indicators_db.resolve()),
             result_digest=snapshot["result_digest"],
         ),
         "context_id": "macro-context-2026-07-19-base",
-        "rules_revision": "2026-07-26T072200+0900",
+        "rules_revision": current_rules_revision,
         "context_db": str(context_db.resolve()),
         "indicators_db": str(indicators_db.resolve()),
         "result_digest": snapshot["result_digest"],
@@ -521,7 +525,7 @@ def test_scorecard_cli_emits_citable_json_without_mutating_either_store(
             f"baibai-engine macro context --db {context_db.resolve()} scorecard "
             "--context-id macro-context-2026-07-19-base "
             f"--asof 2026-07-20 --indicators-db {indicators_db.resolve()} "
-            f"--rules {(Path('method/macro-reading/2026-07-26T072200+0900.yaml')).resolve()} "
+            f"--rules {DEFAULT_RULES_PATH.resolve()} "
             "--format json"
         ),
         "snapshot_asof": "2026-07-20",

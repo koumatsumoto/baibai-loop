@@ -10,11 +10,11 @@ untrue needs an entry.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from baibai_engine.foundation.yaml_io import strict_safe_load
 
@@ -35,13 +35,19 @@ type SamplingCadence = Literal["raw", "monthly", "quarterly"]
 # How the next observation date advances before its publication lag is added.
 # This usually matches the registry frequency, but a derived series can retain a
 # monthly statistical grid while its current-period value updates every day.
-type PublicationCadence = Literal["daily", "weekly", "monthly", "quarterly"]
+type PublicationCadence = Literal[
+    "calendar_daily",
+    "business_daily",
+    "weekly",
+    "monthly",
+    "quarterly",
+]
 
-# Maximum calendar-day span used when deriving a conservative staleness threshold.
-# The print estimate itself advances calendar months, so February and month-end dates
-# remain calendar-correct.
+# Maximum calendar-day span used for the context-free threshold shown when a series has
+# no observation. Actual freshness is computed from the observation's calendar date.
 PUBLICATION_INTERVAL_DAYS: Mapping[str, int] = {
-    "daily": 1,
+    "calendar_daily": 1,
+    "business_daily": 1,
     "weekly": 7,
     "monthly": 31,
     "quarterly": 92,
@@ -83,19 +89,6 @@ class FrequencyDefaults(_StrictModel):
     staleness_margin_days: int | None = Field(default=None, ge=0)
     staleness_warn_days: int | None = Field(default=None, ge=1)
 
-    @model_validator(mode="after")
-    def _require_staleness_inputs(self) -> FrequencyDefaults:
-        """Accept old explicit thresholds or the forward-looking current contract."""
-
-        if self.staleness_warn_days is not None:
-            return self
-        if self.publication_lag_days is None or self.staleness_margin_days is None:
-            raise ValueError(
-                "defaults require staleness_warn_days or both "
-                "publication_lag_days and staleness_margin_days"
-            )
-        return self
-
 
 class SeriesOverride(_StrictModel):
     percentile_window_years: int | None = Field(default=None, ge=1)
@@ -117,9 +110,58 @@ class SeriesOverride(_StrictModel):
 
 
 class ReadingRules(_StrictModel):
-    schema_version: Literal[1]
+    schema_version: Literal[1, 2]
     defaults: Mapping[str, FrequencyDefaults]
     overrides: Mapping[str, SeriesOverride] = {}
+
+    @model_validator(mode="after")
+    def _enforce_versioned_publication_contract(self) -> ReadingRules:
+        """Keep legacy thresholds and forward publication facts unambiguous."""
+
+        for frequency, default in self.defaults.items():
+            if self.schema_version == 1:
+                if default.staleness_warn_days is None:
+                    raise ValueError(
+                        f"schema_version 1 defaults for {frequency!r} require staleness_warn_days"
+                    )
+                if (
+                    default.publication_lag_days is not None
+                    or default.staleness_margin_days is not None
+                ):
+                    raise ValueError(
+                        f"schema_version 1 defaults for {frequency!r} cannot declare "
+                        "publication_lag_days or staleness_margin_days"
+                    )
+            else:
+                if default.staleness_warn_days is not None:
+                    raise ValueError(
+                        f"schema_version 2 defaults for {frequency!r} cannot declare "
+                        "staleness_warn_days"
+                    )
+                if default.publication_lag_days is None or default.staleness_margin_days is None:
+                    raise ValueError(
+                        f"schema_version 2 defaults for {frequency!r} require both "
+                        "publication_lag_days and staleness_margin_days"
+                    )
+        if self.schema_version == 1:
+            for series_id, override in self.overrides.items():
+                if (
+                    override.publication_cadence is not None
+                    or override.publication_lag_days is not None
+                    or override.staleness_margin_days is not None
+                ):
+                    raise ValueError(
+                        f"schema_version 1 override for {series_id!r} cannot declare "
+                        "forward publication fields"
+                    )
+        else:
+            for series_id, override in self.overrides.items():
+                if override.staleness_warn_days is not None:
+                    raise ValueError(
+                        f"schema_version 2 override for {series_id!r} cannot declare "
+                        "staleness_warn_days; override publication lag or margin instead"
+                    )
+        return self
 
     def resolve(self, *, series_id: str, frequency: str) -> ResolvedRule:
         """Resolve the rule for one series, or fail if no default covers it.
@@ -152,6 +194,7 @@ class ReadingRules(_StrictModel):
             override.staleness_warn_days,
             base.staleness_warn_days,
         )
+        explicit_staleness_warn_days = staleness_warn_days is not None
         if staleness_warn_days is None:
             if publication_lag_days is None or staleness_margin_days is None:
                 raise ReadingRulesError(
@@ -178,7 +221,9 @@ class ReadingRules(_StrictModel):
             long_trend_months=override.long_trend_months or base.long_trend_months,
             publication_cadence=publication_cadence,
             publication_lag_days=publication_lag_days,
+            staleness_margin_days=staleness_margin_days,
             staleness_warn_days=staleness_warn_days,
+            explicit_staleness_warn_days=explicit_staleness_warn_days,
             flags=override.flags,
         )
 
@@ -191,11 +236,52 @@ class ResolvedRule(_StrictModel):
     long_trend_months: int
     publication_cadence: PublicationCadence
     publication_lag_days: int | None
+    staleness_margin_days: int | None
     staleness_warn_days: int
+    explicit_staleness_warn_days: bool
     flags: tuple[ThresholdFlag, ...]
 
     def matched_flags(self, value: float) -> tuple[str, ...]:
         return tuple(flag.id for flag in self.flags if flag.matches(value))
+
+    def next_print_estimate(self, observed_at: date) -> date | None:
+        """Estimate the next publication from one observation's dated policy."""
+
+        if self.publication_lag_days is None:
+            return None
+        match self.publication_cadence:
+            case "calendar_daily":
+                next_observation = observed_at + timedelta(days=1)
+            case "business_daily":
+                next_observation = _next_weekday(observed_at)
+            case "weekly":
+                next_observation = observed_at + timedelta(days=7)
+            case "monthly":
+                next_observation = _months_after(observed_at, 1)
+            case "quarterly":
+                next_observation = _months_after(observed_at, 3)
+        estimated = next_observation + timedelta(days=self.publication_lag_days)
+        if self.publication_cadence == "calendar_daily":
+            return estimated
+        return _weekday_on_or_after(estimated)
+
+    def stale_after(self, observed_at: date) -> date:
+        """Return the last as-of date on which the observation remains fresh."""
+
+        if self.explicit_staleness_warn_days:
+            return observed_at + timedelta(days=self.staleness_warn_days)
+        next_print = self.next_print_estimate(observed_at)
+        if next_print is None or self.staleness_margin_days is None:
+            return observed_at + timedelta(days=self.staleness_warn_days)
+        return next_print + timedelta(days=self.staleness_margin_days)
+
+    def staleness_limit_days(self, observed_at: date) -> int:
+        """Observation age represented by the calendar-aware freshness boundary."""
+
+        return (self.stale_after(observed_at) - observed_at).days
+
+    def is_stale(self, observed_at: date, *, asof: date) -> bool:
+        return asof > self.stale_after(observed_at)
 
 
 def load_reading_rules(path: Path = DEFAULT_RULES_PATH) -> ReadingRules:
@@ -215,7 +301,10 @@ def load_reading_rules(path: Path = DEFAULT_RULES_PATH) -> ReadingRules:
         raise ReadingRulesError(f"failed to read macro reading rules: {path}: {exc}") from exc
     if not isinstance(raw, Mapping):
         raise ReadingRulesError(f"macro reading rules root must be a mapping: {path}")
-    return ReadingRules.model_validate(raw)
+    try:
+        return ReadingRules.model_validate(raw)
+    except ValidationError as exc:
+        raise ReadingRulesError(f"invalid macro reading rules: {path}: {exc}") from exc
 
 
 def rules_revision(path: Path = DEFAULT_RULES_PATH) -> str:
@@ -234,7 +323,9 @@ def _default_sampling_cadence(frequency: str) -> SamplingCadence:
 
 def _publication_cadence(frequency: str, *, series_id: str) -> PublicationCadence:
     match frequency:
-        case "daily" | "weekly" | "monthly" | "quarterly":
+        case "daily":
+            return "business_daily"
+        case "weekly" | "monthly" | "quarterly":
             return frequency
         case _:
             raise ReadingRulesError(
@@ -245,6 +336,30 @@ def _publication_cadence(frequency: str, *, series_id: str) -> PublicationCadenc
 
 def _override_or_default[T](override: T | None, default: T | None) -> T | None:
     return default if override is None else override
+
+
+def _months_after(value: date, months: int) -> date:
+    total = value.year * 12 + (value.month - 1) + months
+    year, month = divmod(total, 12)
+    day = min(value.day, _days_in_month(year, month + 1))
+    return date(year, month + 1, day)
+
+
+def _next_weekday(value: date) -> date:
+    return _weekday_on_or_after(value + timedelta(days=1))
+
+
+def _weekday_on_or_after(value: date) -> date:
+    candidate = value
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def _days_in_month(year: int, month: int) -> int:
+    if month == 12:
+        return (date(year + 1, 1, 1) - date(year, 12, 1)).days
+    return (date(year, month + 1, 1) - date(year, month, 1)).days
 
 
 def window_start(asof: date, years: int) -> date:

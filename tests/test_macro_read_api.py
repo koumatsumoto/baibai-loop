@@ -11,6 +11,7 @@ from baibai_engine.macro.indicators.db import (
     initialize_database,
     insert_observations,
 )
+from baibai_engine.macro.reading.rules import ReadingRulesError
 from baibai_engine.read_api.macro import (
     MacroGranularity,
     macro_indicator_series,
@@ -211,6 +212,18 @@ def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vint
     # FRED bulk-history vintage is acquisition time, not publication time, so it
     # remains visible before the store happened to acquire it.
     assert readings["us.10y"]["latest_value"] == 4.25
+
+
+def test_macro_reading_snapshot_fails_closed_when_rules_are_missing(tmp_path: Path) -> None:
+    database = tmp_path / "macro.sqlite"
+    initialize_database(database).close()
+
+    with pytest.raises(ReadingRulesError, match="failed to read macro reading rules"):
+        macro_reading_snapshot(
+            database,
+            asof=date(2026, 7, 26),
+            rules_path=tmp_path / "missing-rules.yaml",
+        )
 
 
 def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> None:
