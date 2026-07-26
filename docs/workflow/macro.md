@@ -45,7 +45,7 @@ uv run python tools/validate_indicator_store.py --db data/indicators/macro.sqlit
 
 | Provider | 取得 | 担当ドメイン | 確認手順・既知の caveat |
 | --- | --- | --- | --- |
-| `fred_csv` | 無認証 CSV | 米マクロ・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性・NFCI・JP 失業率/賃金/実質実効為替 | 系列 ID を `fredgraph.csv?id=<ID>` の header で実 fetch 確認。ICE BofA OAS は直近 3 年、S&P / Dow は直近 10 年が現在の配信範囲。**廃止系列あり**（JP OECD CPI は 2021 停止、金 LBMA は 2025/5 停止）。金・SOX は `yahoo`。relay の取り込み停止は store の上では系列自体の停止と区別できないので、publisher が機械可読な配信を持つ系列は publisher 直読を優先する |
+| `fred_csv` | 無認証 CSV | 米マクロ・実質金利/期待インフレ・FX・原油・VIX・クレジット OAS・BTC・流動性・NFCI・JP 実質実効為替 | 系列 ID を `fredgraph.csv?id=<ID>` の header で実 fetch 確認。ICE BofA OAS は直近 3 年、S&P / Dow は直近 10 年が現在の配信範囲。**廃止系列あり**（JP OECD CPI は 2021 停止、金 LBMA は 2025/5 停止）。金・SOX は `yahoo`。relay の取り込み停止は store の上では系列自体の停止と区別できないので、publisher が機械可読な配信を持つ系列は publisher 直読を優先する |
 | `frb_h15` | 無認証 CSV | 米国債金利・スプレッド | 1 package を series 横断に 1 回 DL |
 | `ecb_fx` | 無認証 ZIP | JPY クロス（USD/EUR/AUD） | JPY と基軸通貨の比で算出 |
 | `estat` | API（`ESTAT_APP_ID`） | JP 公式マクロ（CPI 総合・サービス、鉱工業生産 等） | JP CPI の一次ソース。`statsDataId` と分類 code は e-Stat で確認。**e-Stat の DB 掲載は統計ごとに止まる**（毎月勤労統計は 2021-10 以降更新なし。月次結果は release 毎のファイル資源だけになる）ので、新規系列は `getStatsList` の `UPDATED_DATE` が現在かを先に確認する |
