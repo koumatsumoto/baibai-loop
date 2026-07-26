@@ -105,6 +105,7 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 | --- | --- |
 | `latest_value` / `observed_at` | asof 以前で最も新しい観測とその観測日 |
 | `staleness_days` / `stale` | asof − `observed_at`。規則の `staleness_warn_days` を超えたら `stale` |
+| `next_print_estimate` / `print_due_in_days` | `observed_at + 1 publication_cadence + publication_lag_days` で求める次回公表目安と asof からの日数。負値は公表済みのはずで取得待ち |
 | `window_years` / `window_observations` | percentile / z-score を計算した実効窓と、その窓に入った観測数 |
 | `insufficient_history` | 実効窓を履歴が満たさない。`percentile` / `z_score` は null になる（判定は下記） |
 | `statistic` / `statistic_unit` / `statistic_value` | percentile / z-score が位置を測る対象（`level` = 水準そのもの、`yoy` = 前年比 %）と、その単位・最新値 |
@@ -116,14 +117,17 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 読み方の規律：
 
 - **`insufficient_history` の系列は水準比較に使わない**。窓を満たさない履歴で percentile を出すと、その系列自身の短い生涯の中の順位を「歴史的な位置」と読み違える。reading は計算を拒否して null を返す。判定は 3 条件で、**先頭観測が窓の先頭 1/10 までに始まっている**（provider の rolling 窓のずれと、月次・四半期の観測日粒度を吸収する猶予）・**窓内の観測が 8 件以上**・**frequency が示す期数の 6 割以上が埋まっている**（週次・月次・四半期のみ。日次は「1 年に何営業日あるか」が frequency の性質ではないので件数を課さない）のいずれかを欠けば立つ。密度を見るのは、欠落が均等に散らないためである: 人手で埋めるソースは直近の月から埋まるので、穴の空いた 10 年窓は「直近の分布に 10 年のラベルを貼ったもの」になる。実際の件数と期待件数は `window_observations` / `expected_observations` に出る
-- **`stale` は provider の無音の停止を疑う合図**であって、値の否定ではない。観測の齢は公表ラグと週末を含むため、閾値は **その source の公表ラグ + 1 公表間隔 + 数日の余裕** に置く。次の公表を待っている平常時には出ず、1 回の公表落ちで出る水準である。ラグが frequency default と構造的に違う source（EIA の日次価格を週次でまとめる FRED、M+2 に公表する JOLTS、OECD の中継、月央に速報を出す UMich）は系列別に override する。**閾値が緩すぎると 2 公表分の欠落を通す**ので、公表が速い source ほど閾値も短くする
+- **`next_print_estimate` は公表予定日の目安であり、イベントカレンダーではない**。`publication_cadence` の次期と `publication_lag_days` だけから決定論で導出する。cadence の既定は registry frequency だが、統計標本は月次でも当月値を日次更新する `us.erp` のような系列は override する。daily の次期は土日を飛ばすが、祝日や当局の個別日程は手維持しない。`print_due_in_days` が小さい正値なら公表が近く、負値なら公表済みのはずで取得待ちである。精密な会合・イベント日は L3 monitoring で一次情報を確認する
+- **`stale` は provider の無音の停止を疑う合図**であって、値の否定ではない。観測の齢は公表ラグと週末を含むため、閾値は **`publication_lag_days + 1 publication_cadence + staleness_margin_days`** から導出する。次の公表を待っている平常時には出ず、1 回の公表落ちで出る水準である。lag / cadence が frequency default と構造的に違う source（H.4.1 の翌日公表、EIA の日次価格を週次でまとめる FRED、M+2 公表の JOLTS、OECD の中継、日次更新する月次派生値）は系列別に override する。**閾値が緩すぎると 2 公表分の欠落を通す**ので、公表が速い source ほど閾値も短くする
 - **`flags` は signal ではなく注記**である。閾値に触れたことを見落とさないための機械的な指差しで、水準の解釈と行動は L3 の判断に属する
 - **`z_score` の極端値は誤値と真の市場極値の両方で出る**。どちらかは reading では決めず、L3 が一次情報と突き合わせて判断する
 - **percentile は `statistic` と一緒に読む**。水準の尺度が自らの履歴でしか決まらない系列（物価・数量の指数、名目の集計値、累積の雇用者数、株価指数）は水準の percentile が時間の経過を映すだけになるため、`statistic: yoy` として前年比 %の分布内の位置を出す。金利・スプレッド・比率・DI・ボラティリティ・為替・商品価格は水準自体に解釈があるので `level` を保つ。`yoy` の系列でも `latest_value`・`flags`・`short_trend` / `long_trend` は水準のままで、trend は系列自身の単位の絶対変化、percentile は %変化の位置を示す
 - **統計標本の1点は reading rule の `sampling_cadence` に合わせる**。既定は registry frequency から解決し、monthly / quarterly 系列は同じ暦月・暦四半期の最終観測1点へ折ってから level / yoy を計算する。取得 cadence と統計 cadence が異なる source は系列 override で分離する。latest value・trend・flags は折る前の観測を読む
 - **`statistic_value` が null なら位置は出ない**。前年比は 1 年前の観測を相手に取るので、その月が欠けている系列（相手が 380 日より前しかない）や相手が 0 以下の系列は該当点を標本から落とし、最新点が落ちれば percentile / z も null にする
 
-計算規則は `method/macro-reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest が持つ月だけ、ICE BofA OAS の 3 年）は percentile の実効窓を、水準に位置が無い系列は `statistic` を、公表ラグが frequency default と違う source（週次でまとめて公表される日次系列、M+2 公表の月次、OECD 中継）は staleness 閾値を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。1 つの系列は複数の理由で override されるため、**同じ series を 2 度書いた revision は load 時に失敗する**（YAML は後の entry だけを残すので、上の設定が黙って落ちて「適用済み」と読める）。
+計算規則は `method/macro-reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest が持つ月だけ、ICE BofA OAS の 3 年）は percentile の実効窓を、水準に位置が無い系列は `statistic` を、公表 cadence / lag が frequency default と違う source（日次更新する月次派生値、H.4.1 の翌日公表、M+2 公表の月次、OECD 中継）は `publication_cadence` / `publication_lag_days` / `staleness_margin_days` を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。1 つの系列は複数の理由で override されるため、**同じ series を 2 度書いた revision は load 時に失敗する**（YAML は後の entry だけを残すので、上の設定が黙って落ちて「適用済み」と読める）。
+
+`publication_lag_days` を持たない既発行 revision は引き続き load・再計算できる。その revision では当時存在しなかった `next_print_estimate` / `print_due_in_days` を null とし、既存の明示 `staleness_warn_days` をそのまま使う。過去 revision の意味を現在の lag 推定で書き換えない。
 
 `statistic` の既定は `level` なので、水準に位置が無い系列を registry へ追加したら override を書く（書き忘れは percentile が 100% 近傍に張り付く形で reading 自身に現れる）。`yoy` の系列では窓の先頭より 13 か月前まで raw を読み、標本は窓の中だけを使う。履歴が窓の先頭で始まる系列（provider が rolling 窓を配信する場合）は先頭 1 年に相手が居ないため標本がその分薄くなるが、`insufficient_history` の判定は raw 履歴が窓を張るかで行うので percentile は出る。
 

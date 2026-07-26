@@ -145,6 +145,8 @@ def test_macro_reading_api_reports_every_registered_series(app_method_root: Path
     assert len(body["series"]) == len(load_definitions().series)
     first = body["series"][0]
     assert first["latest_value"] is None
+    assert first["next_print_estimate"] is None
+    assert first["print_due_in_days"] is None
     assert first["stale"] is True
     assert first["insufficient_history"] is True
 

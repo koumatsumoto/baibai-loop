@@ -1,0 +1,331 @@
+# macro reading（L2 機械読み値）の計算規則。
+#
+# 全登録 series に規則が解決することが要件であり、系列追加が本ファイルの編集を
+# 要求しない。したがって frequency 別の defaults を正とし、override は「default が
+# 事実に反する系列」だけに書く。網羅性は tests/test_macro_reading.py が保証する。
+#
+# 用語:
+#   percentile_window_years  percentile / z-score の統計窓（年）。provider の提供
+#                            履歴が構造的にこの長さに届かない系列だけ override する。
+#   statistic                percentile / z-score が位置を測る対象。既定は水準
+#                            （level）で、水準の尺度が自らの履歴でしか決まらない系列
+#                            だけ前年比（yoy・%）へ切り替える。指数・累積・名目集計の
+#                            水準 percentile は「増え続けている」以上の意味を持たず、
+#                            時間の経過を percentile として表示してしまう。金利・
+#                            スプレッド・比率・DI・ボラティリティ・為替・商品価格は
+#                            水準自体に解釈があるので level を保つ。
+#                            registry の category / unit が yoy 候補を決め、test が
+#                            本ファイルとの drift を拒否する。新しい候補系列は
+#                            `statistic: yoy`、水準を読む例外は `statistic: level` を
+#                            明示する。
+#   sampling_cadence         percentile / z-score の標本間隔。既定は registry の
+#                            frequency に従う。取得・鮮度の cadence と統計標本の
+#                            cadence が異なる source だけ override する。
+#   trend_months             latest と比較する基準時点（asof からの月数）。yoy へ
+#                            切り替えた系列でも trend は系列自身の単位の絶対変化で、
+#                            percentile が測る %変化と単位が違う。
+#   publication_cadence     次の観測基準日を進める間隔。既定は registry frequency。
+#                            統計上は月次でも当月値が日次更新される派生系列など、
+#                            frequency が実際の更新間隔と異なる場合だけ override する。
+#   publication_lag_days    1 観測の基準日から公表までの暦日数。reading は
+#                            `latest observed_at + 1 公表間隔 + lag` を次回公表目安
+#                            とする。daily は土日だけを飛ばす。手維持の event calendar
+#                            ではなく、系列の公表 cadence から機械導出する。
+#   staleness_margin_days   次回公表目安を過ぎてから stale とするまでの猶予。
+#                            staleness_warn_days は `lag + 1 公表間隔 + margin` から
+#                            導出する。観測の齢であり cache の齢ではない。
+#                            `macro get --latest` もJST運用日から同じ閾値を計算し、
+#                            cache 再取得判定に使う。
+#   flags                    閾値フラグ。signal ではなく注記であり、初期値は教科書値。
+#                            水準に対する比較なので statistic の切り替えに影響されない。
+schema_version: 1
+
+defaults:
+  daily:
+    percentile_window_years: 10
+    short_trend_months: 3
+    long_trend_months: 12
+    publication_lag_days: 0
+    # 国内最長の連休（GW・年末年始は最終営業日から 6 日空く）を吸収する。
+    staleness_margin_days: 6
+  weekly:
+    percentile_window_years: 10
+    short_trend_months: 3
+    long_trend_months: 12
+    publication_lag_days: 7
+    staleness_margin_days: 7
+  monthly:
+    percentile_window_years: 10
+    short_trend_months: 3
+    long_trend_months: 12
+    # 観測は月初日付で、月 M の値は M+1 の中旬〜下旬に公表される。次の公表を待つ
+    # 平常時の齢は約 76 日。公表日の振れを吸収し、1 回の公表落ちで stale とする。
+    publication_lag_days: 45
+    staleness_margin_days: 7
+  quarterly:
+    percentile_window_years: 10
+    short_trend_months: 6
+    long_trend_months: 12
+    # 四半期 Q の値は Q+1 の下旬に公表されるため、平常時の最大齢は約 210 日
+    # （Q1 の値が 7 月下旬まで最新）。四半期系列は構造的に検知が遅い。
+    publication_lag_days: 118
+    staleness_margin_days: 7
+
+overrides:
+  # FRB H.10 由来の日次系列は週次公表（前週分をまとめて出す）ため、日次 default
+  # では平常時に注記が出る。
+  usd_cny:
+    publication_lag_days: 5
+  usd_index.broad:
+    publication_lag_days: 5
+  # FRED の EIA 由来の日次価格も週次でまとめて公表される（実測: 07-13 までの週が
+  # 07-20、07-20 までの週が 07-23 に初出）。次の週次公表を待つ間に観測は 10 日まで
+  # 古くなるため、H.10 系列と同じ閾値に置く。
+  wti:
+    publication_lag_days: 9
+    staleness_margin_days: 2
+  brent:
+    publication_lag_days: 9
+    staleness_margin_days: 2
+  natgas:
+    publication_lag_days: 9
+    staleness_margin_days: 2
+  # University of Michigan は当月の確報を月末に出し、store はその確報を取る（ラグ約
+  # 28 日）ので、平常時の齢は 58 日を超えない。default 100 日では 2 公表分の欠落を
+  # 注記なしで通してしまう。
+  us.consumer_sentiment:
+    statistic: level
+    publication_lag_days: 28
+    staleness_margin_days: 6
+  # multpl は長期の月次履歴表と日々変わる current page を組み合わせる。取得・鮮度は
+  # daily のまま、統計標本だけを月1点にそろえて直近月の過重を防ぐ。
+  us.sp500_cape:
+    sampling_cadence: monthly
+  us.sp500_pe:
+    sampling_cadence: monthly
+  us.sp500_earnings_yield:
+    sampling_cadence: monthly
+  # JOLTS は M の求人を M+2 の第 1 週に公表する（他の月次より 1 か月遅い）。平常時の
+  # 齢は 97 日に達する。
+  us.jolts_openings:
+    publication_lag_days: 66
+  # OECD が労働力調査（M+1 末公表）を数日遅れて中継するため、平常時の齢は 100 日
+  # 近くまで伸びる（実測 110 日）。
+  jp.unemployment:
+    publication_lag_days: 69
+  # J-Quants Light の配信契約が運用日から 5 年 rolling。
+  jp.topix:
+    percentile_window_years: 5
+    statistic: yoy
+  # 同じ契約窓だが、実配信は 2022-04 起点で 5 年に届かない。
+  jp.foreign_flows:
+    percentile_window_years: 3
+  # yahoo が配信する東証グロース 250 の履歴が 2018-01 起点。
+  jp.growth250:
+    percentile_window_years: 5
+    statistic: yoy
+  # spglobal_pmi は manifest に載っている月だけを持ち、stream ごとに起点と欠落が
+  # 異なる（PDF を 1 月ずつ人手で追記する運用のため）。窓は 4 stream で揃えて置き、
+  # 窓を満たさない stream は insufficient_history として percentile を出さない。
+  jp.pmi_manufacturing:
+    percentile_window_years: 3
+    statistic: level
+    publication_lag_days: 31
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  jp.pmi_services:
+    percentile_window_years: 3
+    statistic: level
+    publication_lag_days: 31
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  us.pmi_manufacturing:
+    percentile_window_years: 3
+    statistic: level
+    publication_lag_days: 31
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  us.pmi_services:
+    percentile_window_years: 3
+    statistic: level
+    publication_lag_days: 31
+    flags:
+      - id: contraction
+        comparison: below
+        value: 50.0
+  # ICE BofA OAS の FRED 配信範囲が直近 3 年。HY−IG spread は両者から導出するため
+  # 同じ制約を受ける。
+  credit.us_ig_oas:
+    percentile_window_years: 3
+  credit.us_hy_oas:
+    percentile_window_years: 3
+  credit.us_ccc_oas:
+    percentile_window_years: 3
+  credit.hy_ig_spread:
+    percentile_window_years: 3
+  # 教科書的な閾値の注記（水準の解釈は L3 の判断に委ねる）。
+  us.10y_2y_spread:
+    flags:
+      - id: inverted
+        comparison: below
+        value: 0.0
+  us.10y_3m_spread:
+    flags:
+      - id: inverted
+        comparison: below
+        value: 0.0
+  us.erp:
+    # 月次標本だが当月点は daily market input の最終日へ置換されるため、次回更新は
+    # 翌営業日。外部 publisher の公表待ちは持たない。
+    publication_cadence: daily
+    publication_lag_days: 0
+    staleness_margin_days: 6
+    flags:
+      - id: non_positive
+        comparison: at_or_below
+        value: 0.0
+  jp.erp:
+    flags:
+      - id: non_positive
+        comparison: at_or_below
+        value: 0.0
+  vix:
+    flags:
+      - id: stress
+        comparison: at_or_above
+        value: 30.0
+  jp.real_10y_proxy:
+    flags:
+      - id: negative
+        comparison: below
+        value: 0.0
+  us.real_10y:
+    flags:
+      - id: negative
+        comparison: below
+        value: 0.0
+  # 物価指数。基準年が任意で、物価が上がる限り水準は最高値を更新し続ける。位置を
+  # 持つのは前年比（＝インフレ率）であり、水準の percentile は物価の存在を測る。
+  jp.cgpi:
+    statistic: yoy
+  jp.cpi.core:
+    statistic: yoy
+  jp.cpi.headline:
+    statistic: yoy
+  jp.cpi.services:
+    statistic: yoy
+  jp.export_price_index:
+    statistic: yoy
+  jp.import_price_index:
+    statistic: yoy
+  us.cpi.core:
+    statistic: yoy
+  us.cpi.headline:
+    statistic: yoy
+  us.pce.core:
+    statistic: yoy
+    # 月 M の値が M+1 末に届く。
+    publication_lag_days: 57
+  us.ppi:
+    statistic: yoy
+  # 数量指数と名目の集計値。景気の強弱は水準ではなく伸び率で読む系列であり、名目の
+  # 売上・受注は物価上昇の分だけ水準が上がり続ける。
+  jp.industrial_production:
+    statistic: yoy
+    # 月 M の速報は M+1 末に届く。
+    publication_lag_days: 60
+  jp.job_openings_ratio:
+    # 月 M の値は M+1 末に届く。
+    publication_lag_days: 60
+  jp.real_consumption:
+    statistic: yoy
+    # 日銀消費活動指数は M の値を M+2 の中旬に公表するため、平常時の齢は 106 日に達する。
+    publication_lag_days: 75
+  jp.real_exports:
+    statistic: yoy
+  us.core_capex_orders:
+    statistic: yoy
+    # 月末近くに公表されるため、月次 default より約 10 日遅い。
+    publication_lag_days: 55
+  us.industrial_production:
+    statistic: yoy
+  us.retail_sales:
+    statistic: yoy
+  # 雇用者数は累積の残高、賃金は水準が下がらない系列。雇用の強弱は増加ペース、賃金は
+  # 上昇率が位置を持つ。件数の増減（求人・失業保険申請・倒産）は水準が景気で往復する
+  # ので level のまま。
+  jp.hourly_earnings:
+    statistic: yoy
+    # OECD MEI は毎月勤労統計の時間当たり賃金を約 3.5 か月遅れで再公表する（2026-07-25
+    # 時点の FRED 最新は 4 月分）。平常時の齢は 146 日に達する。
+    publication_lag_days: 115
+  us.average_hourly_earnings:
+    statistic: yoy
+    # 雇用統計は月 M の値が M+1 第1週に届く。
+    publication_lag_days: 35
+  us.nonfarm_payrolls:
+    statistic: yoy
+    publication_lag_days: 35
+  us.unemployment:
+    publication_lag_days: 35
+  # 通貨集計と中央銀行バランスシート。名目の残高なので水準の percentile は政策の
+  # 方向を示さず、拡大・縮小のペースが位置を持つ。TGA・ON RRP は残高がゼロ近傍まで
+  # 往復するため前年比が発散し、水準の percentile が読める側なので level に残す。
+  ecb.balance_sheet:
+    statistic: yoy
+  jp.monetary_base:
+    statistic: yoy
+    # 日銀の公表契約は翌月第2営業日。月初へ正規化した次期観測からの暦日近似は33日。
+    # https://www.boj.or.jp/en/statistics/outline/exp/exbase.htm
+    publication_lag_days: 33
+  us.fed_assets:
+    statistic: yoy
+    # H.4.1 は水曜時点を原則木曜16:30に公表する。
+    # https://www.federalreserve.gov/releases/h41/
+    publication_lag_days: 1
+  us.m2:
+    statistic: yoy
+    # 月 M の値が M+1 末に届く。
+    publication_lag_days: 57
+  us.reverse_repo:
+    statistic: level
+  us.tga:
+    statistic: level
+    # WTREGEN は H.4.1 の水曜時点系列で、fed_assets と同じ翌日公表。
+    publication_lag_days: 1
+  # H.4.1 入力を exact 整列する local 派生値も翌日の base refresh で更新される。
+  us.net_liquidity:
+    publication_lag_days: 1
+  # 四半期初日へ正規化された観測は、次の四半期開始後およそ1か月で届く。
+  jp.tankan_large_mfg_di:
+    publication_lag_days: 30
+  us.sloos_ci_tightening:
+    publication_lag_days: 35
+  # 株価指数。利益の内部留保と物価の分だけ水準が構造的に切り上がるので、水準の
+  # percentile は強気相場である限り 100% 近傍に張り付く。1 年騰落率なら「この上げ方が
+  # 過去と比べて速いか」を測れる。バリュエーション（PER・PBR・CAPE・ERP）は比率で
+  # 水準に解釈があるため level のまま。
+  em.equity:
+    statistic: yoy
+  europe.stoxx:
+    statistic: yoy
+  jp.nikkei225:
+    statistic: yoy
+  us.dow:
+    statistic: yoy
+  us.nasdaq:
+    statistic: yoy
+  us.russell2000:
+    statistic: yoy
+  us.sox:
+    statistic: yoy
+  us.sp500:
+    statistic: yoy
+  world.acwi_ex_us:
+    statistic: yoy

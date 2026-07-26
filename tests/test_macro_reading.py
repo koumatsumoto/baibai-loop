@@ -12,6 +12,7 @@ from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_de
 from baibai_engine.macro.reading.compute import MIN_WINDOW_OBSERVATIONS, compute_reading
 from baibai_engine.macro.reading.rules import (
     DEFAULT_RULES_PATH,
+    PUBLICATION_INTERVAL_DAYS,
     ReadingRules,
     ReadingRulesError,
     SeriesOverride,
@@ -156,7 +157,49 @@ def test_reading_rules_resolve_for_every_registered_series() -> None:
     for definition in load_definitions().series:
         resolved = rules.resolve(series_id=definition.series_id, frequency=definition.frequency)
         assert resolved.percentile_window_years >= 1
+        assert resolved.publication_cadence in PUBLICATION_INTERVAL_DAYS
+        assert resolved.publication_lag_days is not None
         assert resolved.staleness_warn_days >= 1
+
+
+def test_current_rules_derive_staleness_after_the_next_print() -> None:
+    rules = load_reading_rules(DEFAULT_RULES_PATH)
+
+    for definition in load_definitions().series:
+        rule = rules.resolve(
+            series_id=definition.series_id,
+            frequency=definition.frequency,
+        )
+        assert rule.publication_lag_days is not None
+        assert rule.staleness_warn_days > (
+            rule.publication_lag_days + PUBLICATION_INTERVAL_DAYS[rule.publication_cadence]
+        )
+
+
+@pytest.mark.parametrize(
+    "rules_path",
+    [
+        path
+        for path in sorted(DEFAULT_RULES_PATH.parent.glob("*.yaml"))
+        if path != DEFAULT_RULES_PATH
+    ],
+    ids=lambda path: path.stem,
+)
+def test_historical_rules_load_and_omit_the_forward_print_estimate(rules_path: Path) -> None:
+    historical = load_reading_rules(rules_path)
+    definition = _definition(frequency="monthly")
+    observed_at = date(2026, 6, 1)
+
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        rules=historical,
+        rules_revision="historical",
+        asof=ASOF,
+    )
+
+    assert snapshot.series[0].next_print_estimate is None
+    assert snapshot.series[0].print_due_in_days is None
 
 
 def test_reading_rules_default_the_statistic_to_the_level() -> None:
@@ -296,6 +339,114 @@ def test_staleness_warns_only_once_a_publication_has_been_missed(
 
     assert not reading_at(waiting_days), "normal publication waiting must not warn"
     assert reading_at(stopped_days), "a missed publication must warn"
+
+
+@pytest.mark.parametrize(
+    ("series_id", "observed_at", "expected_print", "expected_due_days"),
+    [
+        ("us.cpi.headline", date(2026, 6, 1), date(2026, 8, 15), 22),
+        ("us.consumer_sentiment", date(2026, 6, 1), date(2026, 7, 29), 5),
+        ("us.jolts_openings", date(2026, 5, 1), date(2026, 8, 6), 13),
+        ("jp.hourly_earnings", date(2026, 3, 1), date(2026, 7, 25), 1),
+        ("wti", date(2026, 7, 13), date(2026, 7, 23), -1),
+        ("us.erp", date(2026, 7, 24), date(2026, 7, 27), 3),
+        ("us.fed_assets", date(2026, 7, 22), date(2026, 7, 30), 6),
+        ("us.tga", date(2026, 7, 22), date(2026, 7, 30), 6),
+        ("us.net_liquidity", date(2026, 7, 22), date(2026, 7, 30), 6),
+        ("jp.monetary_base", date(2026, 6, 1), date(2026, 8, 3), 10),
+    ],
+)
+def test_next_print_estimate_uses_the_series_publication_lag(
+    series_id: str,
+    observed_at: date,
+    expected_print: date,
+    expected_due_days: int,
+) -> None:
+    definition = load_definitions().by_id()[series_id]
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(series_id, [(observed_at, 1.0)])),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    reading = snapshot.series[0]
+    assert reading.next_print_estimate == expected_print
+    assert reading.print_due_in_days == expected_due_days
+
+
+def test_publication_cadence_can_differ_from_registry_frequency() -> None:
+    definition = load_definitions().by_id()["us.erp"]
+    rule = load_reading_rules(DEFAULT_RULES_PATH).resolve(
+        series_id=definition.series_id,
+        frequency=definition.frequency,
+    )
+
+    assert definition.frequency == "monthly"
+    assert rule.sampling_cadence == "monthly"
+    assert rule.publication_cadence == "daily"
+    assert rule.staleness_warn_days == 7
+
+
+def test_month_end_print_estimate_advances_by_a_calendar_month() -> None:
+    definition = _definition(frequency="monthly")
+    observed_at = date(2026, 1, 31)
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=date(2026, 2, 1),
+    )
+
+    assert snapshot.series[0].next_print_estimate == date(2026, 4, 14)
+
+
+def test_daily_print_estimate_skips_a_weekend_without_an_event_calendar() -> None:
+    definition = _definition(frequency="daily")
+    observed_at = date(2026, 7, 24)  # Friday
+    snapshot = compute_reading(
+        series=[definition],
+        reader=_reader(_observations(definition.series_id, [(observed_at, 1.0)])),
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=date(2026, 7, 26),
+    )
+
+    reading = snapshot.series[0]
+    assert reading.next_print_estimate == date(2026, 7, 27)
+    assert reading.print_due_in_days == 1
+
+
+def test_every_registered_series_gets_a_forward_print_estimate() -> None:
+    definitions = load_definitions().series
+    observations = {
+        definition.series_id: ObservationRecord(
+            series_id=definition.series_id,
+            observed_at=ASOF,
+            value=1.0,
+            unit=definition.unit,
+            source_url=definition.source_url,
+        )
+        for definition in definitions
+    }
+
+    def read(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
+        observation = observations[series_id]
+        return (observation,) if start <= observation.observed_at <= end else ()
+
+    snapshot = compute_reading(
+        series=definitions,
+        reader=read,
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="test",
+        asof=ASOF,
+    )
+
+    assert len(snapshot.series) == 109
+    assert all(reading.next_print_estimate is not None for reading in snapshot.series)
+    assert all(reading.print_due_in_days is not None for reading in snapshot.series)
 
 
 def test_reading_rules_reject_a_frequency_without_defaults() -> None:
@@ -711,6 +862,8 @@ def test_reading_reports_staleness_against_the_asof_date() -> None:
     assert reading.observed_at == date(2026, 7, 1)
     assert reading.staleness_days == 23
     assert reading.stale
+    assert reading.next_print_estimate == date(2026, 7, 2)
+    assert reading.print_due_in_days == -22
 
 
 def test_reading_trend_anchors_on_a_date_not_an_observation_count() -> None:
@@ -781,3 +934,5 @@ def test_reading_reports_a_series_with_no_observations_without_failing() -> None
     assert reading.latest_value is None
     assert reading.stale
     assert reading.insufficient_history
+    assert reading.next_print_estimate is None
+    assert reading.print_due_in_days is None

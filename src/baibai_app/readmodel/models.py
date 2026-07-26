@@ -444,6 +444,8 @@ class MacroReadingSeriesView(BaseModel):
     staleness_days: int | None
     stale: bool
     staleness_warn_days: int
+    next_print_estimate: date | None
+    print_due_in_days: int | None
     window_years: int
     window_observations: int
     expected_observations: int | None

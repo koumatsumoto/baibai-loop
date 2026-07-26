@@ -14,7 +14,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from statistics import fmean, stdev
 
 from baibai_engine.macro.indicators.db import ObservationRecord
@@ -128,6 +128,11 @@ def _read_series(
     insufficient = not (covers_window and enough_points and dense_enough)
     ranked = None if insufficient else statistic_value
     staleness_days = (asof - latest.observed_at).days
+    next_print_estimate = _next_print_estimate(
+        latest.observed_at,
+        publication_cadence=rule.publication_cadence,
+        publication_lag_days=rule.publication_lag_days,
+    )
     return SeriesReading(
         series_id=definition.series_id,
         name=definition.name,
@@ -140,6 +145,10 @@ def _read_series(
         staleness_days=staleness_days,
         stale=staleness_days > rule.staleness_warn_days,
         staleness_warn_days=rule.staleness_warn_days,
+        next_print_estimate=next_print_estimate,
+        print_due_in_days=(
+            None if next_print_estimate is None else (next_print_estimate - asof).days
+        ),
         window_years=rule.percentile_window_years,
         window_observations=len(values),
         expected_observations=expected,
@@ -168,6 +177,8 @@ def _empty_reading(definition: SeriesDefinition, rule: ResolvedRule) -> SeriesRe
         staleness_days=None,
         stale=True,
         staleness_warn_days=rule.staleness_warn_days,
+        next_print_estimate=None,
+        print_due_in_days=None,
         window_years=rule.percentile_window_years,
         window_observations=0,
         expected_observations=None,
@@ -348,6 +359,43 @@ def _months_before(value: date, months: int) -> date:
     year, month = divmod(total, 12)
     day = min(value.day, _days_in_month(year, month + 1))
     return date(year, month + 1, day)
+
+
+def _next_print_estimate(
+    observed_at: date,
+    *,
+    publication_cadence: str,
+    publication_lag_days: int | None,
+) -> date | None:
+    if publication_lag_days is None:
+        # Historical rules revisions predate the forward-looking publication contract.
+        return None
+    match publication_cadence:
+        case "daily":
+            next_observation = _next_weekday(observed_at)
+        case "weekly":
+            next_observation = observed_at + timedelta(days=7)
+        case "monthly":
+            next_observation = _months_after(observed_at, 1)
+        case "quarterly":
+            next_observation = _months_after(observed_at, 3)
+        case _:
+            raise ValueError(f"unsupported publication cadence: {publication_cadence!r}")
+    return next_observation + timedelta(days=publication_lag_days)
+
+
+def _months_after(value: date, months: int) -> date:
+    total = value.year * 12 + (value.month - 1) + months
+    year, month = divmod(total, 12)
+    day = min(value.day, _days_in_month(year, month + 1))
+    return date(year, month + 1, day)
+
+
+def _next_weekday(value: date) -> date:
+    candidate = value + timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def _days_in_month(year: int, month: int) -> int:

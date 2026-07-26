@@ -432,6 +432,10 @@ export interface MacroReadingSeriesView {
   staleness_days: number | null
   stale: boolean
   staleness_warn_days: number
+  // Mechanical estimate from the series cadence and publication lag; not an event calendar.
+  next_print_estimate: string | null
+  // Days from the reading as-of; negative means the next print is expected already.
+  print_due_in_days: number | null
   window_years: number
   window_observations: number
   // Observations the frequency implies for the window; null for a daily series, where

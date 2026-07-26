@@ -16,6 +16,8 @@ function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroRe
     staleness_days: 24,
     stale: false,
     staleness_warn_days: 100,
+    next_print_estimate: '2026-08-15',
+    print_due_in_days: 22,
     window_years: 10,
     window_observations: 120,
     expected_observations: 120,
@@ -187,4 +189,3 @@ describe('readingCategories', () => {
     expect(groups[1].series.map((item) => item.series_id)).toEqual(['a', 'c'])
   })
 })
-
