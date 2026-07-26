@@ -8,8 +8,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from tools.cloud.daily_batch import (
-    _MACRO_REFRESH_WINDOW_DAYS,
-    _MACRO_REFRESH_WINDOW_DEFAULT_DAYS,
     BatchStepError,
     CalendarCoverageError,
     CommandResult,
@@ -19,6 +17,10 @@ from tools.cloud.daily_batch import (
     run_daily_batch,
 )
 
+from baibai_engine.macro.indicators.service import (
+    DEFAULT_LATEST_LOOKBACK_DAYS,
+    LATEST_FETCH_LOOKBACK_DAYS,
+)
 from baibai_engine.market.sqlite import store_jquants_market_calendar
 from baibai_engine.screening.run_store import ScreeningRunStore
 
@@ -231,18 +233,6 @@ def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: P
             "2026-07-21",
         ],
     ]
-
-
-def test_macro_refresh_windows_match_engine_latest_fetch_lookback() -> None:
-    from baibai_engine.macro.indicators.service import (
-        DEFAULT_LATEST_LOOKBACK_DAYS,
-        LATEST_FETCH_LOOKBACK_DAYS,
-    )
-
-    assert _MACRO_REFRESH_WINDOW_DEFAULT_DAYS == DEFAULT_LATEST_LOOKBACK_DAYS
-    for frequency, expected in LATEST_FETCH_LOOKBACK_DAYS.items():
-        resolved = _MACRO_REFRESH_WINDOW_DAYS.get(frequency, _MACRO_REFRESH_WINDOW_DEFAULT_DAYS)
-        assert resolved == expected
 
 
 def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path) -> None:
@@ -562,8 +552,8 @@ def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None
     groups = _macro_refresh_groups(parsed)
 
     assert groups == [
-        (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["us.10y"]),
-        (_MACRO_REFRESH_WINDOW_DEFAULT_DAYS, ["jp.pmi_manufacturing", "jp.cpi"]),
+        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y"]),
+        (DEFAULT_LATEST_LOOKBACK_DAYS, ["jp.pmi_manufacturing", "jp.cpi"]),
     ]
 
 
@@ -584,6 +574,6 @@ def test_macro_refresh_groups_orders_derived_after_base() -> None:
 
     # Same daily window, but base (http) is refreshed before the derived (local) series.
     assert groups == [
-        (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["us.10y", "gold"]),
-        (_MACRO_REFRESH_WINDOW_DAYS["daily"], ["gold_copper_ratio"]),
+        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y", "gold"]),
+        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["gold_copper_ratio"]),
     ]

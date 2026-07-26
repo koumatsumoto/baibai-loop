@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import assert_never
 from zoneinfo import ZoneInfo
 
+from ..reading.rules import load_reading_rules
 from . import db
 from .db import IndicatorsSchemaError, ObservationRecord
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
@@ -28,11 +29,6 @@ LATEST_FETCH_LOOKBACK_DAYS = {
     "daily": 14,
     "weekly": 60,
     "monthly": DEFAULT_LATEST_LOOKBACK_DAYS,
-}
-LATEST_CACHE_MAX_AGE_DAYS = {
-    "daily": 1,
-    "weekly": 14,
-    "monthly": 70,
 }
 PROVIDER_FETCH_ATTEMPTS = 2
 PROVIDER_FETCH_RETRY_BACKOFF_SECONDS = 1.0
@@ -262,9 +258,10 @@ class IndicatorsService:
         return QueryResult(series, tuple(ordered), cache_hit=False)
 
     def get_latest(self, series_id: str, *, refresh: bool = False) -> QueryResult:
-        end = datetime.now(UTC).date()
+        end = _today_jst()
         definitions = load_definitions()
-        if series_id not in definitions.by_id():
+        registered = definitions.by_id()
+        if series_id not in registered:
             raise KeyError(f"unknown indicator series: {series_id}")
         conn = db.open_connection(self.db_path, definitions=definitions)
         try:
@@ -273,10 +270,12 @@ class IndicatorsService:
             cached_latest = db.latest_observation(
                 conn, series_id, on_or_before=end, point_in_time=spec.point_in_time_vintage
             )
-            if not refresh and cached_latest is not None:
-                max_age = LATEST_CACHE_MAX_AGE_DAYS.get(series.frequency, 370)
-                if cached_latest.observed_at >= end - timedelta(days=max_age):
-                    return QueryResult(series, (cached_latest,), cache_hit=True)
+            if (
+                not refresh
+                and cached_latest is not None
+                and _latest_cache_is_fresh(series, cached_latest, asof=end)
+            ):
+                return QueryResult(series, (cached_latest,), cache_hit=True)
         finally:
             conn.close()
         lookback_days = LATEST_FETCH_LOOKBACK_DAYS.get(
@@ -462,6 +461,25 @@ def _prune_registry_for_refresh(
             for result in pruned
         )
         print(committed, flush=True)
+
+
+def _latest_cache_is_fresh(
+    series: SeriesDefinition,
+    observation: ObservationRecord,
+    *,
+    asof: date,
+) -> bool:
+    """Use the same publication-lag-aware observation age as the L2 reading."""
+
+    max_age_days = (
+        load_reading_rules()
+        .resolve(
+            series_id=series.series_id,
+            frequency=series.frequency,
+        )
+        .staleness_warn_days
+    )
+    return observation.observed_at >= asof - timedelta(days=max_age_days)
 
 
 def _reject_non_finite(series: SeriesDefinition, observations: list[ObservationRecord]) -> None:
