@@ -3435,7 +3435,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
             "jp.machinery_orders": ("estat", "activity"),
             "jp.watcher_current_di": ("estat", "activity"),
             "jp.consumer_confidence": ("estat", "activity"),
-            "jp.bank_lending_yoy": ("boj_timeseries", "credit"),
+            "jp.bank_lending_yoy": ("boj_timeseries", "monetary"),
             "jp.tankan_large_nonmfg_di": ("boj_timeseries", "activity"),
             "jp.real_wage_index": ("estat_dashboard", "labor"),
             "us.empire_manufacturing": ("fred_csv", "activity"),
