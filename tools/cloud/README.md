@@ -90,7 +90,7 @@ tools/cloud/r2_transfer.sh push-macro
 gh workflow run cloud-materialize.yml --ref main
 ```
 
-`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeの対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`し、target側にある行はtargetの値を残す。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。registry-owned tableはsourceから取り込まない。targetの`registry_series`は最後に成功した明示refreshで適用したregistry snapshotを保持し、merge許可集合はこれだけを使う。通常のopenは登録外seriesのfactsとmetadataを保持してもこの集合を変えず、明示refreshだけが現行registryへ更新して不在seriesをpruneするため、古いbranchのread後にpushしても新系列を失わない。適用済みsnapshotが定義しないseriesのrowはskip件数として報告する。`market.sqlite` / `runs.sqlite`はcloudが唯一のwriterなので`push-macro`は触らない。
+`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeの対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`し、target側にある行はtargetの値を残す。source / target はschema version・列構成に加えて必須triggerのcanonical定義も一致させる。targetのactive seriesは両端が有限なplausible rangeを持つことを前提とし、source observationはmerge transactionの先頭でtarget registryのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。registry-owned tableはsourceから取り込まない。targetの`registry_series`は最後に成功した明示refreshで適用したregistry snapshotを保持し、merge許可集合はこれだけを使う。通常のopenは登録外seriesのfactsとmetadataを保持してもこの集合を変えず、明示refreshだけが現行registryへ更新して不在seriesをpruneするため、古いbranchのread後にpushしても新系列を失わない。適用済みsnapshotが定義しないseriesのrowはskip件数として報告する。`market.sqlite` / `runs.sqlite`はcloudが唯一のwriterなので`push-macro`は触らない。
 
 decision-cycleやmacro分析を始める前に、クラウド正本のmachine storeをローカルへ取得する。
 

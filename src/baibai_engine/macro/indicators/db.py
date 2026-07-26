@@ -4,12 +4,13 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from functools import cache
 from pathlib import Path
 from typing import cast
 
 from .definitions import IndicatorDefinitions, SeriesDefinition, load_definitions
 
-SQLITE_SCHEMA_VERSION = 3
+SQLITE_SCHEMA_VERSION = 4
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 DEFAULT_DB_PATH = Path("data/indicators/macro.sqlite")
 _ROW_COUNT_SQL = {
@@ -43,6 +44,55 @@ CREATE TABLE IF NOT EXISTS registry_series(
 );
 INSERT OR IGNORE INTO registry_series(series_id) SELECT series_id FROM series;
 PRAGMA user_version = 3;
+"""
+_MIGRATE_V3_TO_V4_SQL = """
+BEGIN IMMEDIATE;
+ALTER TABLE series ADD COLUMN plausible_min REAL;
+ALTER TABLE series ADD COLUMN plausible_max REAL;
+CREATE TRIGGER validate_observation_plausibility_before_insert
+BEFORE INSERT ON observations
+WHEN EXISTS (
+  SELECT 1 FROM series
+  WHERE series_id = NEW.series_id
+    AND (
+      NEW.unit != unit
+      OR (plausible_min IS NOT NULL AND NEW.value < plausible_min)
+      OR (plausible_max IS NOT NULL AND NEW.value > plausible_max)
+    )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
+END;
+CREATE TRIGGER validate_observation_plausibility_before_update
+BEFORE UPDATE OF series_id, value, unit ON observations
+WHEN EXISTS (
+  SELECT 1 FROM series
+  WHERE series_id = NEW.series_id
+    AND (
+      NEW.unit != unit
+      OR (plausible_min IS NOT NULL AND NEW.value < plausible_min)
+      OR (plausible_max IS NOT NULL AND NEW.value > plausible_max)
+    )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'observation violates series unit or plausible range');
+END;
+CREATE TRIGGER validate_series_contract_before_update
+BEFORE UPDATE OF unit, plausible_min, plausible_max ON series
+WHEN EXISTS (
+  SELECT 1 FROM observations
+  WHERE series_id = NEW.series_id
+    AND (
+      unit != NEW.unit
+      OR (NEW.plausible_min IS NOT NULL AND value < NEW.plausible_min)
+      OR (NEW.plausible_max IS NOT NULL AND value > NEW.plausible_max)
+    )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'series contract excludes an existing observation');
+END;
+PRAGMA user_version = 4;
+COMMIT;
 """
 
 
@@ -106,27 +156,83 @@ def open_connection(
     return conn
 
 
-def validate_current_schema(conn: sqlite3.Connection) -> None:
-    version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+def validate_current_schema(
+    conn: sqlite3.Connection,
+    *,
+    schema: str = "main",
+) -> None:
+    if schema not in {"main", "source"}:
+        raise ValueError(f"unsupported SQLite schema name: {schema!r}")
+    version = int(conn.execute(f"PRAGMA {schema}.user_version").fetchone()[0])
     if version != SQLITE_SCHEMA_VERSION:
         raise IndicatorsSchemaError(
             f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
+    _validate_trigger_contract(conn, schema=schema)
+
+
+def _validate_trigger_contract(conn: sqlite3.Connection, *, schema: str) -> None:
+    actual = {
+        str(row[0]): _normalize_trigger_sql(str(row[1]))
+        for row in conn.execute(
+            f"SELECT name, sql FROM {schema}.sqlite_master WHERE type = 'trigger'"
+        )
+    }
+    expected = _canonical_trigger_sql()
+    missing = sorted(set(expected) - set(actual))
+    changed = sorted(name for name in set(expected) & set(actual) if actual[name] != expected[name])
+    unexpected = sorted(set(actual) - set(expected))
+    if missing or changed or unexpected:
+        details = []
+        if missing:
+            details.append(f"missing: {', '.join(missing)}")
+        if changed:
+            details.append(f"changed: {', '.join(changed)}")
+        if unexpected:
+            details.append(f"unexpected: {', '.join(unexpected)}")
+        raise IndicatorsSchemaError(
+            f"indicator SQLite trigger contract mismatch in {schema} ({'; '.join(details)})"
+        )
+
+
+@cache
+def _canonical_trigger_sql() -> dict[str, str]:
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        return {
+            str(row[0]): _normalize_trigger_sql(str(row[1]))
+            for row in connection.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    finally:
+        connection.close()
+
+
+def _normalize_trigger_sql(sql: str) -> str:
+    return " ".join(sql.casefold().split()).replace(
+        "create trigger if not exists",
+        "create trigger",
+        1,
+    )
 
 
 def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions) -> None:
+    _validate_existing_observations(conn, definitions)
     for series in definitions.series:
         conn.execute(
             "INSERT INTO series("
             "series_id, name, category, geography, frequency, unit, provider, provider_series_id, "
-            "source_id, source_url, priority, notes"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "source_id, source_url, priority, notes, plausible_min, plausible_max"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(series_id) DO UPDATE SET "
             "name = excluded.name, category = excluded.category, geography = excluded.geography, "
             "frequency = excluded.frequency, unit = excluded.unit, provider = excluded.provider, "
             "provider_series_id = excluded.provider_series_id, source_id = excluded.source_id, "
             "source_url = excluded.source_url, priority = excluded.priority, "
-            "notes = excluded.notes",
+            "notes = excluded.notes, plausible_min = excluded.plausible_min, "
+            "plausible_max = excluded.plausible_max",
             (
                 series.series_id,
                 series.name,
@@ -140,6 +246,8 @@ def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions
                 series.source_url,
                 series.priority,
                 series.notes,
+                series.plausible_min,
+                series.plausible_max,
             ),
         )
         # Replace aliases only for definitions this registry knows. A stale
@@ -154,6 +262,49 @@ def seed_definitions(conn: sqlite3.Connection, definitions: IndicatorDefinitions
                 "INSERT OR REPLACE INTO aliases(alias, series_id) VALUES (?, ?)",
                 (alias, series.series_id),
             )
+
+
+def _validate_existing_observations(
+    conn: sqlite3.Connection,
+    definitions: IndicatorDefinitions,
+) -> None:
+    """Fail before a registry update could contradict facts already in the store."""
+
+    for series in definitions.series:
+        row = conn.execute(
+            """
+            SELECT observed_at, vintage_at, value, unit
+            FROM observations
+            WHERE series_id = ?
+              AND (
+                unit != ?
+                OR (? IS NOT NULL AND value < ?)
+                OR (? IS NOT NULL AND value > ?)
+              )
+            ORDER BY observed_at, vintage_at
+            LIMIT 1
+            """,
+            (
+                series.series_id,
+                series.unit,
+                series.plausible_min,
+                series.plausible_min,
+                series.plausible_max,
+                series.plausible_max,
+            ),
+        ).fetchone()
+        if row is None:
+            continue
+        if str(row["unit"]) != series.unit:
+            detail = f"unit {row['unit']!r}; expected {series.unit!r}"
+        else:
+            low = "-inf" if series.plausible_min is None else f"{series.plausible_min:g}"
+            high = "inf" if series.plausible_max is None else f"{series.plausible_max:g}"
+            detail = f"value {float(row['value']):g} outside plausible range [{low}, {high}]"
+        raise IndicatorsSchemaError(
+            f"stored observation violates registry contract: {series.series_id} "
+            f"{row['observed_at']} vintage {row['vintage_at']}: {detail}"
+        )
 
 
 def apply_registry_membership(
@@ -264,20 +415,29 @@ def insert_observations(
     *,
     deduplicate_unchanged: bool = True,
 ) -> None:
-    rows = _observation_rows(observations)
-    if deduplicate_unchanged:
-        rows = _observation_rows_without_unchanged_vintages(conn, rows)
-    conn.executemany(
-        "INSERT INTO observations("
-        "series_id, observed_at, period_start, period_end, value, unit, vintage_at, "
-        "fetch_status, source_url"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(series_id, observed_at, vintage_at) DO UPDATE SET "
-        "period_start = excluded.period_start, period_end = excluded.period_end, "
-        "value = excluded.value, unit = excluded.unit, fetch_status = excluded.fetch_status, "
-        "source_url = excluded.source_url",
-        rows,
-    )
+    savepoint = f"insert_observations_{uuid.uuid4().hex}"
+    conn.execute(f"SAVEPOINT {savepoint}")
+    try:
+        rows = _observation_rows(observations)
+        if deduplicate_unchanged:
+            rows = _observation_rows_without_unchanged_vintages(conn, rows)
+        conn.executemany(
+            "INSERT INTO observations("
+            "series_id, observed_at, period_start, period_end, value, unit, vintage_at, "
+            "fetch_status, source_url"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(series_id, observed_at, vintage_at) DO UPDATE SET "
+            "period_start = excluded.period_start, period_end = excluded.period_end, "
+            "value = excluded.value, unit = excluded.unit, fetch_status = excluded.fetch_status, "
+            "source_url = excluded.source_url",
+            rows,
+        )
+    except BaseException:
+        conn.execute(f"ROLLBACK TO {savepoint}")
+        conn.execute(f"RELEASE {savepoint}")
+        raise
+    else:
+        conn.execute(f"RELEASE {savepoint}")
 
 
 def _observation_rows(observations: list[ObservationRecord]) -> list[tuple[object, ...]]:
@@ -491,18 +651,24 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if version == SQLITE_SCHEMA_VERSION:
+        _validate_trigger_contract(conn, schema="main")
         return
     if version == 1:
         conn.executescript(_MIGRATE_V1_TO_V2_SQL)
         version = 2
     if version == 2:
         conn.executescript(_MIGRATE_V2_TO_V3_SQL)
+        version = 3
+    if version == 3:
+        conn.executescript(_MIGRATE_V3_TO_V4_SQL)
+        _validate_trigger_contract(conn, schema="main")
         return
     if version != 0:
         raise IndicatorsSchemaError(
             f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    _validate_trigger_contract(conn, schema="main")
 
 
 def _series_from_row(row: sqlite3.Row, *, aliases: tuple[str, ...]) -> SeriesDefinition:
@@ -519,6 +685,8 @@ def _series_from_row(row: sqlite3.Row, *, aliases: tuple[str, ...]) -> SeriesDef
         source_url=str(row["source_url"]),
         priority=int(row["priority"]),
         notes=str(row["notes"]) if row["notes"] is not None else None,
+        plausible_min=(float(row["plausible_min"]) if row["plausible_min"] is not None else None),
+        plausible_max=(float(row["plausible_max"]) if row["plausible_max"] is not None else None),
         aliases=aliases,
     )
 

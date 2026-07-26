@@ -252,6 +252,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       取得側だけを失敗させるか（読み取りは既存rowを返す）
 - [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
+- [ ] indicator registry の `plausible_min` / `plausible_max` は有限かつ順序が正しく、標準の全系列で
+      両端を宣言しているか。境界値は許可し、band 外が 1 点でもあれば部分 insert せず failed
+      provider run を残すか。band 変更前後に `tools/validate_indicator_store.py` で live store の
+      全履歴・全 vintage が通ることを機械確認したか。複数行の途中違反を caller が catch 後に
+      commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
+      schema version 一致だけで通さないか
 - [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
       履歴で percentile / z-score を黙って計算しないか（開始が遅い・件数不足・**窓の期数に対する
       欠落が多い**の3条件を `insufficient_history` で null にする）

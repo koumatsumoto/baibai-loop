@@ -33,6 +33,14 @@ observation は `(series_id, observed_at, vintage_at)` を主キーに upsert �
 
 registry は系列定義の正本だが、DB を開く read 操作は登録外系列の facts を削除しない。open 時は現行定義と aliases の upsert だけを行い、最後に成功した明示 refresh の registry snapshot（`registry_series`）も変更しない。`series` / `observations` / `provider_runs` の prune と snapshot 更新は、有効な observation を 1 件以上取得した `macro refresh` の完了時だけ実行する。prune した場合は `registry-prune` 行へ series_id と observation / provider run の削除件数を必ず出力するため、registry の縮退や typo による削除を運用ログで検出できる。
 
+全 provider の observation は insert 前に requested `series_id`・registry の unit・finite・series 固有の `plausible_min` / `plausible_max` を照合する。SQLite の INSERT / UPDATE 境界も unit と band を強制し、複数行 insert は savepoint 単位で全件成功または全件 rollback するため、cloud merge を含む service 外の writer も部分取り込みや検証迂回を起こせない。schema v4 は `schema.sql` が定義する全 persistent trigger と実storeを完全一致させ、version番号だけ合う欠落・改変・予期しない追加triggerを拒否する。band は直近 10 年の実績へ十分な桁余裕を持たせ、長期履歴も全件通るまで拡張した明白な列・桁・単位ずれの検出境界であり、景気急変を異常扱いする前回値ジャンプ判定ではない。band 内に残る scale 変更は source identity / header / metadata の provider 固有検証で守る。BOJ xlsx は値列番号・英語 header・metadata列番号・基準年または単位metadataを組にして検証し、隣列に同じ旧metadataが残っても代用しない。対象期間の date row があるのに選択列の数値が 0 件なら失敗する。1 点でも契約違反なら部分取り込みせず、その series の provider run を failed として残す。
+
+registry の band を追加・変更する前後は、git 管理外の live store を read-only validator で全履歴・全 vintage 検査する。導入前の旧schemaは observation の必要列を capability check してscanし、現行schemaはcanonical trigger契約も検証するため、検査のためにlive storeを先にmigrateしない。登録外系列、band 未宣言、unit 不一致、非有限値、band 外値のいずれかがあれば observation identity を出して非 0 で終了する。
+
+```bash
+uv run python tools/validate_indicator_store.py --db data/indicators/macro.sqlite
+```
+
 ### データソース registry
 
 | Provider | 取得 | 担当ドメイン | 確認手順・既知の caveat |
@@ -42,7 +50,7 @@ registry は系列定義の正本だが、DB を開く read 操作は登録外�
 | `ecb_fx` | 無認証 ZIP | JPY クロス（USD/EUR/AUD） | JPY と基軸通貨の比で算出 |
 | `estat` | API（`ESTAT_APP_ID`） | JP 公式マクロ（CPI 総合・サービス、鉱工業生産 等） | JP CPI の一次ソース。`statsDataId` と分類 code は e-Stat で確認 |
 | `jquants_flows` | 認証（`JQUANTS_API_KEY`） | JP 市場内部（海外投資家フロー） | screening と同じ Light credential。`--all-history` は運用日から5年の契約窓を要求する。集計週末を observation、公表日を vintage として同一公表日の複数週を保持する |
-| `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース 等） | `mblong.xlsx` を openpyxl で読む |
+| `boj` | 無認証 xlsx | BOJ 長期時系列（マネタリーベース・実質輸出・消費活動指数） | 第1 sheetを openpyxl で読み、registry の `provider_series_id` が宣言する値列・英語header・metadata列・基準年または単位metadataを照合する |
 | `boj_timeseries` | 無認証 JSON API | BOJ 無担保コール O/N 平均 | `FM01:STRDCLUCON` の日次値を一括取得する。公表タイミングは BOJ 時系列統計データ検索の更新日に従う |
 | `mof_jgb` | 無認証 CSV | JP 国債金利（主要年限） | `jgbcm_all.csv` と当月 `jgbcm.csv` を CP932 で読み、和暦の基準日を ISO date に正規化する |
 | `tsr_bankruptcies` | 無認証 JSON API | JP 企業倒産件数 | 東京商工リサーチの掲載ページが参照する公式 JSON から月次全履歴を取得 |

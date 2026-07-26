@@ -19,6 +19,7 @@ import requests
 from baibai_engine.macro.indicators.cli import build_parser, main
 from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
+    IndicatorsSchemaError,
     ObservationRecord,
     delete_unchanged_vintages,
     get_series,
@@ -31,7 +32,11 @@ from baibai_engine.macro.indicators.db import (
     record_provider_run,
     row_count,
 )
-from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.macro.indicators.definitions import (
+    IndicatorDefinitions,
+    SeriesDefinition,
+    load_definitions,
+)
 from baibai_engine.macro.indicators.providers import (
     IndicatorsProviderError,
     fetch_observations,
@@ -90,6 +95,7 @@ class IndicatorsDBTests(unittest.TestCase):
 
             self.assertEqual(version, SQLITE_SCHEMA_VERSION)
             self.assertEqual(series.name, "米10Y利回り")
+            self.assertEqual((series.plausible_min, series.plausible_max), (-20.0, 30.0))
             self.assertGreater(alias_count, 0)
 
     def test_v2_migration_preserves_every_fact_and_fences_older_clients(self) -> None:
@@ -97,6 +103,9 @@ class IndicatorsDBTests(unittest.TestCase):
             database = Path(tmp) / "macro.sqlite"
             _write_retired_series(database)
             with sqlite3.connect(database) as connection:
+                _drop_v4_contract_triggers(connection)
+                connection.execute("ALTER TABLE series DROP COLUMN plausible_max")
+                connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
                 connection.execute("PRAGMA user_version = 2")
                 before = tuple(
                     connection.execute(
@@ -130,6 +139,25 @@ class IndicatorsDBTests(unittest.TestCase):
             # Pre-fix clients accept only schema v2, so this semantic version
             # boundary stops their destructive registry seed before it can run.
             self.assertNotEqual(SQLITE_SCHEMA_VERSION, 2)
+
+    def test_v4_migration_rolls_back_if_a_column_addition_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            initialize_database(database).close()
+            with sqlite3.connect(database) as connection:
+                _drop_v4_contract_triggers(connection)
+                connection.execute("ALTER TABLE series DROP COLUMN plausible_min")
+                connection.execute("PRAGMA user_version = 3")
+
+            with self.assertRaisesRegex(sqlite3.OperationalError, "duplicate column"):
+                open_connection(database)
+
+            with sqlite3.connect(database) as connection:
+                columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(series)")}
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+            self.assertNotIn("plausible_min", columns)
+            self.assertIn("plausible_max", columns)
+            self.assertEqual(version, 3)
 
     def test_open_connection_preserves_series_removed_from_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,6 +308,10 @@ class IndicatorsDBTests(unittest.TestCase):
                     "baibai_engine.macro.indicators.service.fetch_observations",
                     return_value=[_obs("us.10y", date(2026, 5, 1), 4.39)],
                 ),
+                # This test deliberately injects a non-canonical trigger to
+                # exercise prune rollback after open; schema-drift rejection is
+                # covered independently below.
+                patch("baibai_engine.macro.indicators.db._validate_trigger_contract"),
                 self.assertRaisesRegex(sqlite3.IntegrityError, "blocked"),
             ):
                 IndicatorsService(database).refresh_series(
@@ -389,6 +421,244 @@ class IndicatorsDBTests(unittest.TestCase):
 
             self.assertEqual(len(observations), 1)
             self.assertEqual(observations[0].value, 4.41)
+
+    def test_insert_gate_rejects_out_of_range_value_and_wrong_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                for observation, expected in (
+                    (_obs("us.10y", date(2026, 5, 1), 999.0), "plausible range"),
+                    (
+                        ObservationRecord(
+                            series_id="us.10y",
+                            observed_at=date(2026, 5, 1),
+                            value=4.39,
+                            unit="basis-points",
+                            source_url="https://example.com/data.csv",
+                            vintage_at=datetime.now(UTC),
+                        ),
+                        "series unit",
+                    ),
+                ):
+                    with (
+                        self.subTest(expected=expected),
+                        self.assertRaisesRegex(sqlite3.IntegrityError, expected),
+                    ):
+                        insert_observations(conn, [observation])
+                    conn.rollback()
+                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertEqual(stored, 0)
+
+    def test_insert_gate_rolls_back_the_entire_batch_after_a_late_violation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                with self.assertRaisesRegex(sqlite3.IntegrityError, "plausible range"):
+                    insert_observations(
+                        conn,
+                        [
+                            _obs("us.10y", date(2026, 5, 1), 4.39),
+                            _obs("us.10y", date(2026, 5, 2), 999.0),
+                        ],
+                    )
+                conn.commit()
+                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertEqual(stored, 0)
+
+    def test_insert_gate_preserves_the_callers_prior_transaction_on_batch_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(
+                    conn,
+                    [_obs("us.10y", date(2026, 4, 30), 4.30)],
+                )
+                with self.assertRaisesRegex(sqlite3.IntegrityError, "plausible range"):
+                    insert_observations(
+                        conn,
+                        [
+                            _obs("us.10y", date(2026, 5, 1), 4.39),
+                            _obs("us.10y", date(2026, 5, 2), 999.0),
+                        ],
+                    )
+                conn.commit()
+                stored = [
+                    tuple(row)
+                    for row in conn.execute(
+                        "SELECT observed_at, value FROM observations ORDER BY observed_at"
+                    )
+                ]
+            finally:
+                conn.close()
+
+            self.assertEqual(stored, [("2026-04-30", 4.3)])
+
+    def test_insert_gate_rolls_back_prior_rows_when_a_late_conflict_update_fails(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            existing = _obs("us.10y", date(2026, 5, 2), 4.40)
+            try:
+                insert_observations(conn, [existing])
+                conn.commit()
+                with self.assertRaisesRegex(sqlite3.IntegrityError, "plausible range"):
+                    insert_observations(
+                        conn,
+                        [
+                            _obs("us.10y", date(2026, 5, 1), 4.39),
+                            ObservationRecord(
+                                series_id="us.10y",
+                                observed_at=existing.observed_at,
+                                value=999.0,
+                                unit=existing.unit,
+                                source_url=existing.source_url,
+                                vintage_at=existing.vintage_at,
+                            ),
+                        ],
+                        deduplicate_unchanged=False,
+                    )
+                conn.commit()
+                stored = [
+                    tuple(row)
+                    for row in conn.execute(
+                        "SELECT observed_at, value FROM observations ORDER BY observed_at"
+                    )
+                ]
+            finally:
+                conn.close()
+
+            self.assertEqual(stored, [("2026-05-02", 4.4)])
+
+    def test_update_gate_preserves_valid_observation_on_contract_violation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(conn, [_obs("us.10y", date(2026, 5, 1), 4.39)])
+                conn.commit()
+
+                with self.assertRaisesRegex(sqlite3.IntegrityError, "plausible range"):
+                    conn.execute("UPDATE observations SET value = 999 WHERE series_id = 'us.10y'")
+                conn.rollback()
+                stored = conn.execute(
+                    "SELECT value FROM observations WHERE series_id = 'us.10y'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertEqual(stored, 4.39)
+
+    def test_registry_update_rejects_a_band_that_excludes_existing_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            original = _series("fred_csv", "TEST")
+            conn = initialize_database(
+                database,
+                definitions=IndicatorDefinitions(series=(original,)),
+            )
+            try:
+                insert_observations(
+                    conn,
+                    [_obs("test.series", date(2026, 5, 1), 100.0)],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            narrowed = _series(
+                "fred_csv",
+                "TEST",
+                plausible_min=-2.0,
+                plausible_max=20.0,
+            )
+
+            with self.assertRaisesRegex(
+                IndicatorsSchemaError,
+                r"test\.series 2026-05-01.*value 100 outside plausible range \[-2, 20\]",
+            ):
+                open_connection(
+                    database,
+                    definitions=IndicatorDefinitions(series=(narrowed,)),
+                )
+
+            with sqlite3.connect(database) as connection:
+                stored = connection.execute(
+                    "SELECT plausible_min, plausible_max FROM series "
+                    "WHERE series_id = 'test.series'"
+                ).fetchone()
+            self.assertEqual(stored, (None, None))
+
+    def test_series_contract_update_trigger_rejects_excluded_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definition = _series("fred_csv", "TEST")
+            conn = initialize_database(
+                database,
+                definitions=IndicatorDefinitions(series=(definition,)),
+            )
+            try:
+                insert_observations(
+                    conn,
+                    [_obs("test.series", date(2026, 5, 1), 100.0)],
+                )
+                conn.commit()
+
+                with self.assertRaisesRegex(
+                    sqlite3.IntegrityError,
+                    "series contract excludes an existing observation",
+                ):
+                    conn.execute(
+                        "UPDATE series SET plausible_max = 20 WHERE series_id = 'test.series'"
+                    )
+                conn.rollback()
+                stored = conn.execute(
+                    "SELECT plausible_max FROM series WHERE series_id = 'test.series'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+
+            self.assertIsNone(stored)
+
+    def test_current_schema_rejects_missing_changed_or_unexpected_contract_trigger(
+        self,
+    ) -> None:
+        for mode in ("missing", "changed", "unexpected"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                database = Path(tmp) / "macro.sqlite"
+                initialize_database(database).close()
+                with sqlite3.connect(database) as connection:
+                    if mode in {"missing", "changed"}:
+                        connection.execute(
+                            "DROP TRIGGER validate_observation_plausibility_before_insert"
+                        )
+                    if mode == "changed":
+                        connection.execute(
+                            "CREATE TRIGGER validate_observation_plausibility_before_insert "
+                            "BEFORE INSERT ON observations BEGIN SELECT 1; END"
+                        )
+                    if mode == "unexpected":
+                        connection.execute(
+                            "CREATE TRIGGER unexpected_observation_trigger "
+                            "AFTER INSERT ON observations BEGIN SELECT 1; END"
+                        )
+
+                with self.assertRaisesRegex(
+                    IndicatorsSchemaError,
+                    f"trigger contract mismatch.*{mode}",
+                ):
+                    open_connection(database)
 
     def test_jquants_range_excludes_vintages_published_after_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1613,7 +1883,11 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 (None, date(2026, 3, 31), 370000.0, 9999.0),
             ]
         )
-        series = _series("boj", "3", unit="jpy-100m")
+        series = _series(
+            "boj",
+            "3|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+        )
 
         observations = parse_boj_xlsx(
             series, content, start=date(2026, 2, 1), end=date(2026, 3, 31)
@@ -1632,7 +1906,11 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 (None, date(2026, 2, 28), 360000.0, None),
             ]
         )
-        series = _series("boj", "3", unit="jpy-100m")
+        series = _series(
+            "boj",
+            "3|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+        )
 
         observations = parse_boj_xlsx(
             series, content, start=date(2026, 1, 1), end=date(2026, 12, 31)
@@ -1641,24 +1919,130 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         self.assertEqual(len(observations), 1)
         self.assertEqual(observations[0].value, 360000.0)
 
+    def test_parse_boj_xlsx_rejects_shifted_value_column_even_when_value_is_in_band(
+        self,
+    ) -> None:
+        content = _boj_workbook_bytes(
+            [(None, date(2026, 1, 31), 9999.0, 350000.0)],
+            header_column=4,
+        )
+        series = _series(
+            "boj",
+            "3|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+            plausible_min=2000.0,
+            plausible_max=100000000.0,
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "header mismatch"):
+            parse_boj_xlsx(
+                series,
+                content,
+                start=date(2026, 1, 1),
+                end=date(2026, 1, 31),
+            )
+
+    def test_parse_boj_xlsx_rejects_empty_selected_column_for_in_range_dates(self) -> None:
+        content = _boj_workbook_bytes(
+            [
+                (None, date(2026, 1, 31), None, 350000.0),
+                (None, date(2026, 2, 28), None, 360000.0),
+            ]
+        )
+        series = _series(
+            "boj",
+            "3|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "no numeric values"):
+            parse_boj_xlsx(
+                series,
+                content,
+                start=date(2026, 1, 1),
+                end=date(2026, 2, 28),
+            )
+
+    def test_parse_boj_xlsx_rejects_scale_metadata_change_with_in_band_value(
+        self,
+    ) -> None:
+        content = _boj_workbook_bytes(
+            [(None, date(2026, 1, 31), 350000.0)],
+            metadata="Unit: yen",
+        )
+        series = _series(
+            "boj",
+            "3|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+            plausible_min=2000.0,
+            plausible_max=100000000.0,
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "metadata column 8 mismatch"):
+            parse_boj_xlsx(
+                series,
+                content,
+                start=date(2026, 1, 1),
+                end=date(2026, 1, 31),
+            )
+
+    def test_parse_boj_xlsx_does_not_accept_expected_metadata_from_an_adjacent_series(
+        self,
+    ) -> None:
+        content = _boj_workbook_bytes(
+            [(date(2026, 1, 1), 119.0, 100.0)],
+            header_column=2,
+            header_label="Real exports",
+            metadata_column=2,
+            metadata="s.a., CY 2025=100, 2025 prices",
+            other_metadata=(3, "s.a., CY 2020=100, 2020 prices"),
+        )
+        series = _series(
+            "boj",
+            "2|Real exports|2|s.a., CY 2020=100, 2020 prices",
+            unit="index",
+            plausible_min=1.0,
+            plausible_max=2000.0,
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "metadata column 2 mismatch"):
+            parse_boj_xlsx(
+                series,
+                content,
+                start=date(2026, 1, 1),
+                end=date(2026, 1, 31),
+            )
+
     def test_parse_boj_xlsx_rejects_non_xlsx_bytes(self) -> None:
-        series = _series("boj", "3", unit="jpy-100m")
+        series = _series(
+            "boj",
+            "3|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+        )
 
         with self.assertRaisesRegex(IndicatorsProviderError, "not a .xlsx"):
             parse_boj_xlsx(series, b"not a zip", start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_boj_xlsx_rejects_non_numeric_column_index(self) -> None:
         content = _boj_workbook_bytes([(None, date(2026, 1, 31), 1.0, 2.0)])
-        series = _series("boj", "BS01'MABJMTA", unit="jpy-100m")
+        series = _series(
+            "boj",
+            "BS01'MABJMTA|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+        )
 
-        with self.assertRaisesRegex(IndicatorsProviderError, "1-based column index"):
+        with self.assertRaisesRegex(IndicatorsProviderError, "start with a 1-based column index"):
             parse_boj_xlsx(series, content, start=date(2026, 1, 1), end=date(2026, 12, 31))
 
     def test_parse_boj_xlsx_wraps_corrupt_zip_as_provider_error(self) -> None:
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
             archive.writestr("not-a-workbook.txt", "garbage")
-        series = _series("boj", "3", unit="jpy-100m")
+        series = _series(
+            "boj",
+            "3|Monetary Base|8|Unit: 100 million yen",
+            unit="jpy-100m",
+        )
 
         with self.assertRaisesRegex(IndicatorsProviderError, "could not be read"):
             parse_boj_xlsx(
@@ -2462,6 +2846,58 @@ class IndicatorsRegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate YAML mapping key: 'aliases'"):
                 load_definitions(definitions)
 
+    def test_registry_parses_optional_plausible_range(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            definitions = Path(tmp) / "registry.yaml"
+            definitions.write_text(
+                _registry_yaml(plausible_min="-2", plausible_max="20"),
+                encoding="utf-8",
+            )
+
+            series = load_definitions(definitions).series[0]
+
+            self.assertEqual(series.plausible_min, -2.0)
+            self.assertEqual(series.plausible_max, 20.0)
+
+    def test_registry_rejects_invalid_plausible_range(self) -> None:
+        cases = (
+            ("true", "20", "finite number"),
+            ("low", "20", "finite number"),
+            (".inf", "20", "finite number"),
+            ("20", "-2", "less than or equal"),
+        )
+        for plausible_min, plausible_max, expected in cases:
+            with self.subTest(plausible_min=plausible_min), tempfile.TemporaryDirectory() as tmp:
+                definitions = Path(tmp) / "registry.yaml"
+                definitions.write_text(
+                    _registry_yaml(
+                        plausible_min=plausible_min,
+                        plausible_max=plausible_max,
+                    ),
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(ValueError, expected):
+                    load_definitions(definitions)
+
+    def test_series_definition_rejects_invalid_programmatic_plausible_range(self) -> None:
+        for plausible_min, plausible_max, expected in (
+            (float("nan"), 20.0, "plausible_min must be a finite number"),
+            (-2.0, float("inf"), "plausible_max must be a finite number"),
+            (True, 20.0, "plausible_min must be a finite number"),
+            (20.0, -2.0, "plausible_min must be less than or equal"),
+        ):
+            with (
+                self.subTest(plausible_min=plausible_min, plausible_max=plausible_max),
+                self.assertRaisesRegex(ValueError, expected),
+            ):
+                _series(
+                    "fred_csv",
+                    "TEST",
+                    plausible_min=plausible_min,
+                    plausible_max=plausible_max,
+                )
+
     def test_registry_rejects_alias_colliding_with_other_canonical_identity(self) -> None:
         for conflicting_alias in ("second.series", "Second series"):
             with (
@@ -2509,8 +2945,257 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 # resolve_provider (via provider_spec) raises for an unknown provider.
                 self.assertEqual(provider_spec(series.provider).name, series.provider)
 
+    def test_every_registered_series_declares_a_complete_plausible_range(self) -> None:
+        for series in load_definitions().series:
+            with self.subTest(series_id=series.series_id):
+                self.assertIsNotNone(series.plausible_min)
+                self.assertIsNotNone(series.plausible_max)
+
+    def test_every_boj_series_binds_its_column_to_an_expected_header(self) -> None:
+        boj_series = [series for series in load_definitions().series if series.provider == "boj"]
+
+        self.assertGreater(len(boj_series), 0)
+        for series in boj_series:
+            with self.subTest(series_id=series.series_id):
+                column, expected_header, metadata_column, expected_metadata = (
+                    series.provider_series_id.split("|")
+                )
+                self.assertGreaterEqual(int(column), 2)
+                self.assertTrue(expected_header.strip())
+                self.assertGreaterEqual(int(metadata_column), 1)
+                self.assertTrue(expected_metadata.strip())
+
+    def test_derived_formula_and_registry_plausible_ranges_do_not_drift(self) -> None:
+        registry = load_definitions().by_id()
+
+        self.assertEqual(
+            set(FORMULAS), {key for key, value in registry.items() if value.provider == "derived"}
+        )
+        for series_id, formula in FORMULAS.items():
+            with self.subTest(series_id=series_id):
+                series = registry[series_id]
+                self.assertEqual(
+                    (formula.plausible_min, formula.plausible_max),
+                    (series.plausible_min, series.plausible_max),
+                )
+
 
 class IndicatorsServiceTests(unittest.TestCase):
+    def test_refresh_rejects_observation_for_another_registered_series(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            requested = _series(
+                "fred_csv",
+                "TEST",
+                plausible_min=-2.0,
+                plausible_max=20.0,
+            )
+            other = _series(
+                "fred_csv",
+                "OTHER",
+                series_id="other.series",
+                plausible_min=-2.0,
+                plausible_max=20.0,
+            )
+            definitions = IndicatorDefinitions(series=(requested, other))
+            initialize_database(database, definitions=definitions).close()
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.load_definitions",
+                    return_value=definitions,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[_obs("other.series", date(2026, 7, 20), 4.2)],
+                ),
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["test.series"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            with sqlite3.connect(database) as conn:
+                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+                run = conn.execute(
+                    "SELECT series_id, status, record_count, error_message FROM provider_runs"
+                ).fetchone()
+
+            self.assertIsInstance(outcomes[0], RefreshFailure)
+            self.assertEqual(stored, 0)
+            self.assertEqual(run[0:3], ("test.series", "failed", 0))
+            self.assertIn("provider returned observation for other.series", run[3])
+
+    def test_refresh_rejects_observation_with_wrong_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definition = _series(
+                "fred_csv",
+                "TEST",
+                plausible_min=-2.0,
+                plausible_max=20.0,
+            )
+            definitions = IndicatorDefinitions(series=(definition,))
+            initialize_database(database, definitions=definitions).close()
+            observation = ObservationRecord(
+                series_id="test.series",
+                observed_at=date(2026, 7, 20),
+                value=4.2,
+                unit="basis-points",
+                source_url="https://example.com/data.csv",
+                vintage_at=datetime.now(UTC),
+            )
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.load_definitions",
+                    return_value=definitions,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[observation],
+                ),
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["test.series"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            with sqlite3.connect(database) as conn:
+                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+                run = conn.execute(
+                    "SELECT status, record_count, error_message FROM provider_runs"
+                ).fetchone()
+
+            self.assertIsInstance(outcomes[0], RefreshFailure)
+            self.assertEqual(stored, 0)
+            self.assertEqual(run[0:2], ("failed", 0))
+            self.assertIn("provider returned unit 'basis-points'; expected 'percent'", run[2])
+
+    def test_refresh_rejects_one_out_of_range_value_without_partial_insert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definition = _series(
+                "fred_csv",
+                "TEST",
+                plausible_min=-2.0,
+                plausible_max=20.0,
+            )
+            definitions = IndicatorDefinitions(series=(definition,))
+            initialize_database(database, definitions=definitions).close()
+            observations = [
+                _obs("test.series", date(2026, 7, 19), 4.2),
+                _obs("test.series", date(2026, 7, 20), 2000.0),
+            ]
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.load_definitions",
+                    return_value=definitions,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=observations,
+                ),
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["test.series"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            conn = sqlite3.connect(database)
+            try:
+                stored = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+                run = conn.execute(
+                    "SELECT status, record_count, error_message FROM provider_runs"
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(len(outcomes), 1)
+            failure = outcomes[0]
+            self.assertIsInstance(failure, RefreshFailure)
+            assert isinstance(failure, RefreshFailure)
+            self.assertIn("outside plausible range [-2, 20]", failure.message)
+            self.assertEqual(stored, 0)
+            self.assertEqual(run[0:2], ("failed", 0))
+            self.assertIn("value 2000", run[2])
+
+    def test_refresh_without_plausible_range_keeps_backward_compatibility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definition = _series("fred_csv", "TEST")
+            definitions = IndicatorDefinitions(series=(definition,))
+            initialize_database(database, definitions=definitions).close()
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.load_definitions",
+                    return_value=definitions,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[_obs("test.series", date(2026, 7, 20), 1e100)],
+                ),
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["test.series"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            self.assertIsInstance(outcomes[0], RefreshSuccess)
+            conn = sqlite3.connect(database)
+            try:
+                stored = conn.execute("SELECT value FROM observations").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(stored, 1e100)
+
+    def test_refresh_accepts_values_on_both_plausible_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            definition = _series(
+                "fred_csv",
+                "TEST",
+                plausible_min=-2.0,
+                plausible_max=20.0,
+            )
+            definitions = IndicatorDefinitions(series=(definition,))
+            initialize_database(database, definitions=definitions).close()
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.load_definitions",
+                    return_value=definitions,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[
+                        _obs("test.series", date(2026, 7, 19), -2.0),
+                        _obs("test.series", date(2026, 7, 20), 20.0),
+                    ],
+                ),
+            ):
+                outcomes = IndicatorsService(database).refresh_series(
+                    ["test.series"],
+                    start=date(2026, 7, 1),
+                    end=date(2026, 7, 20),
+                )
+
+            self.assertIsInstance(outcomes[0], RefreshSuccess)
+            conn = sqlite3.connect(database)
+            try:
+                stored = conn.execute(
+                    "SELECT value FROM observations ORDER BY observed_at"
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(stored, [(-2.0,), (20.0,)])
+
     def test_refresh_all_history_uses_provider_floor_and_forces_fetch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
@@ -3681,6 +4366,15 @@ def _write_retired_series(database: Path) -> None:
         conn.close()
 
 
+def _drop_v4_contract_triggers(connection: sqlite3.Connection) -> None:
+    for trigger in (
+        "validate_observation_plausibility_before_insert",
+        "validate_observation_plausibility_before_update",
+        "validate_series_contract_before_update",
+    ):
+        connection.execute(f"DROP TRIGGER {trigger}")
+
+
 def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:
     return ObservationRecord(
         series_id=series_id,
@@ -3696,11 +4390,14 @@ def _series(
     provider: str,
     provider_series_id: str,
     *,
+    series_id: str = "test.series",
     unit: str = "percent",
     frequency: str = "daily",
+    plausible_min: float | None = None,
+    plausible_max: float | None = None,
 ) -> SeriesDefinition:
     return SeriesDefinition(
-        series_id="test.series",
+        series_id=series_id,
         name="Test Series",
         category="test",
         geography="world",
@@ -3710,6 +4407,26 @@ def _series(
         provider_series_id=provider_series_id,
         source_id="test-source",
         source_url="https://example.com/data.csv",
+        plausible_min=plausible_min,
+        plausible_max=plausible_max,
+    )
+
+
+def _registry_yaml(*, plausible_min: str, plausible_max: str) -> str:
+    return (
+        "series:\n"
+        "  - series_id: test.series\n"
+        "    name: Test series\n"
+        "    category: rates\n"
+        "    geography: test\n"
+        "    frequency: daily\n"
+        "    unit: percent\n"
+        "    provider: fred_csv\n"
+        "    provider_series_id: TEST\n"
+        "    source_id: test-source\n"
+        "    source_url: https://example.com/test.csv\n"
+        f"    plausible_min: {plausible_min}\n"
+        f"    plausible_max: {plausible_max}\n"
     )
 
 
@@ -3778,9 +4495,29 @@ def _fetch_pmi_stream(
     return observations, fetched
 
 
-def _boj_workbook_bytes(rows: list[tuple[object, ...]]) -> bytes:
+def _boj_workbook_bytes(
+    rows: list[tuple[object, ...]],
+    *,
+    header_column: int = 3,
+    header_label: str = "Monetary Base",
+    metadata_column: int = 8,
+    metadata: str = "Unit: 100 million yen",
+    other_metadata: tuple[int, str] | None = None,
+) -> bytes:
     workbook = openpyxl.Workbook()
     worksheet = workbook.active
+    header = [None] * header_column
+    header[header_column - 1] = header_label
+    worksheet.append(header)
+    metadata_width = max(
+        metadata_column,
+        other_metadata[0] if other_metadata is not None else 0,
+    )
+    metadata_row: list[object] = [None] * metadata_width
+    metadata_row[metadata_column - 1] = metadata
+    if other_metadata is not None:
+        metadata_row[other_metadata[0] - 1] = other_metadata[1]
+    worksheet.append(metadata_row)
     for row in rows:
         worksheet.append(list(row))
     buffer = io.BytesIO()

@@ -63,7 +63,7 @@ def _panel_source(tmp_path: Path, *, series_ids: tuple[str, ...], stored: str) -
                     series_id=stored,
                     observed_at=date(2026, 7, 15),
                     value=4.3,
-                    unit="%",
+                    unit=stored_definition.unit,
                     source_url="https://example.com/series",
                 )
             ],

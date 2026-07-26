@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from collections import Counter
 from collections.abc import Mapping
@@ -29,8 +30,30 @@ class SeriesDefinition:
     source_url: str
     priority: int = 100
     notes: str | None = None
+    plausible_min: float | None = None
+    plausible_max: float | None = None
     aliases: tuple[str, ...] = ()
     tradingview_symbol: str | None = None
+
+    def __post_init__(self) -> None:
+        for field, value in (
+            ("plausible_min", self.plausible_min),
+            ("plausible_max", self.plausible_max),
+        ):
+            _validate_plausible_bound(field, value)
+        if (
+            self.plausible_min is not None
+            and self.plausible_max is not None
+            and self.plausible_min > self.plausible_max
+        ):
+            raise ValueError("plausible_min must be less than or equal to plausible_max")
+
+
+def _validate_plausible_bound(field: str, value: object) -> None:
+    if value is not None and (
+        isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+    ):
+        raise ValueError(f"{field} must be a finite number")
 
 
 @dataclass(frozen=True)
@@ -109,6 +132,8 @@ def _lint_alias_identity_collisions(series: list[SeriesDefinition]) -> None:
 
 def _parse_series(raw: object) -> SeriesDefinition:
     entry = _mapping(raw, "series")
+    plausible_min = _optional_float(entry, "plausible_min")
+    plausible_max = _optional_float(entry, "plausible_max")
     return SeriesDefinition(
         series_id=_required_str(entry, "series_id"),
         name=_required_str(entry, "name"),
@@ -122,6 +147,8 @@ def _parse_series(raw: object) -> SeriesDefinition:
         source_url=_required_str(entry, "source_url"),
         priority=_optional_int(entry, "priority") or 100,
         notes=_optional_str(entry, "notes"),
+        plausible_min=plausible_min,
+        plausible_max=plausible_max,
         aliases=tuple(str(alias) for alias in _list(entry.get("aliases"))),
         tradingview_symbol=_optional_tradingview_symbol(entry),
     )
@@ -156,6 +183,21 @@ def _optional_int(entry: Mapping[str, object], key: str) -> int | None:
     if isinstance(value, int):
         return value
     raise ValueError(f"indicator definition field {key!r} must be an integer")
+
+
+def _optional_float(entry: Mapping[str, object], key: str) -> float | None:
+    value = entry.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"indicator definition field {key!r} must be a finite number")
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"indicator definition field {key!r} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"indicator definition field {key!r} must be a finite number")
+    return number
 
 
 def _optional_tradingview_symbol(entry: Mapping[str, object]) -> str | None:

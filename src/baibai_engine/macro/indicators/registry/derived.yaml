@@ -8,6 +8,8 @@ series:
     geography: us
     frequency: weekly
     unit: usd-billion
+    plausible_min: 50
+    plausible_max: 100000
     provider: derived
     provider_series_id: us.net_liquidity
     source_id: derived-net-liquidity
@@ -20,6 +22,8 @@ series:
     geography: us
     frequency: monthly
     unit: percent
+    plausible_min: -10
+    plausible_max: 15
     provider: derived
     provider_series_id: us.erp
     source_id: derived-us-erp
@@ -32,6 +36,8 @@ series:
     geography: world
     frequency: daily
     unit: percent
+    plausible_min: -5
+    plausible_max: 10
     provider: derived
     provider_series_id: rate_diff.us_jp_10y
     source_id: derived-us-jp-10y
@@ -44,6 +50,8 @@ series:
     geography: us
     frequency: daily
     unit: bp
+    plausible_min: 0
+    plausible_max: 2500
     provider: derived
     provider_series_id: credit.hy_ig_spread
     source_id: derived-hy-ig
@@ -56,6 +64,8 @@ series:
     geography: world
     frequency: daily
     unit: ratio
+    plausible_min: 0
+    plausible_max: 2000
     provider: derived
     provider_series_id: gold_copper_ratio
     source_id: derived-gold-copper
@@ -68,6 +78,8 @@ series:
     geography: japan
     frequency: daily
     unit: percent
+    plausible_min: -10
+    plausible_max: 15
     provider: derived
     provider_series_id: jp.erp
     source_id: derived-jp-erp
@@ -80,6 +92,8 @@ series:
     geography: japan
     frequency: monthly
     unit: ratio
+    plausible_min: 0.2
+    plausible_max: 5
     provider: derived
     provider_series_id: jp.terms_of_trade
     source_id: derived-jp-terms-of-trade
@@ -92,6 +106,8 @@ series:
     geography: japan
     frequency: monthly
     unit: percent
+    plausible_min: -8
+    plausible_max: 8
     provider: derived
     provider_series_id: jp.real_10y_proxy
     source_id: derived-jp-real-10y-proxy

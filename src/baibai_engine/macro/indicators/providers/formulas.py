@@ -61,6 +61,8 @@ FORMULAS: Mapping[str, DerivedFormula] = {
         inputs=("us.fed_assets", "us.reverse_repo", "us.tga"),
         unit="usd-billion",
         compute=lambda v: (v["us.fed_assets"] - v["us.reverse_repo"] - v["us.tga"]) / 1000.0,
+        plausible_min=50.0,
+        plausible_max=100000.0,
     ),
     "us.erp": DerivedFormula(
         inputs=("us.sp500_earnings_yield", "us.10y"),

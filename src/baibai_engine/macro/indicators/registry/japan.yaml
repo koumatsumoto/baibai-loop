@@ -5,6 +5,8 @@ series:
     geography: japan
     frequency: daily
     unit: jpy-per-usd
+    plausible_min: 5
+    plausible_max: 2000
     provider: ecb_fx
     provider_series_id: USDJPY
     source_id: ecb-fx
@@ -17,6 +19,8 @@ series:
     geography: japan
     frequency: daily
     unit: jpy-per-eur
+    plausible_min: 5
+    plausible_max: 2000
     provider: ecb_fx
     provider_series_id: EURJPY
     source_id: ecb-fx
@@ -29,6 +33,8 @@ series:
     geography: japan
     frequency: daily
     unit: jpy-per-aud
+    plausible_min: 5
+    plausible_max: 2000
     provider: ecb_fx
     provider_series_id: AUDJPY
     source_id: ecb-fx
@@ -41,6 +47,8 @@ series:
     geography: japan
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: mof_jgb
     provider_series_id: 10年
     source_id: mof-jgbcm-all
@@ -54,6 +62,8 @@ series:
     geography: japan
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: mof_jgb
     provider_series_id: 2年
     source_id: mof-jgbcm-all
@@ -67,6 +77,8 @@ series:
     geography: japan
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: mof_jgb
     provider_series_id: 5年
     source_id: mof-jgbcm-all
@@ -80,6 +92,8 @@ series:
     geography: japan
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: mof_jgb
     provider_series_id: 20年
     source_id: mof-jgbcm-all
@@ -93,6 +107,8 @@ series:
     geography: japan
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: mof_jgb
     provider_series_id: 30年
     source_id: mof-jgbcm-all
@@ -106,6 +122,8 @@ series:
     geography: japan
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: boj_timeseries
     provider_series_id: FM01:STRDCLUCON
     source_id: boj-timeseries-strdclucon
@@ -118,6 +136,8 @@ series:
     geography: japan
     frequency: monthly
     unit: percent
+    plausible_min: 0
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: LRUNTTTTJPM156S
     source_id: fred-lrunttttjpm156s
@@ -129,6 +149,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 0.2
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: LCEAMN01JPM661S
     source_id: fred-lceamn01jpm661s
@@ -141,6 +163,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: RBJPBIS
     source_id: fred-rbjpbis
@@ -153,6 +177,8 @@ series:
     geography: japan
     frequency: daily
     unit: index
+    plausible_min: 5
+    plausible_max: 1000000
     provider: fred_csv
     provider_series_id: NIKKEI225
     source_id: fred-nikkei225
@@ -165,6 +191,8 @@ series:
     geography: japan
     frequency: monthly
     unit: count
+    plausible_min: 20
+    plausible_max: 20000
     provider: tsr_bankruptcies
     provider_series_id: jp_bankruptcies_tsr
     source_id: tsr-bankruptcies
@@ -177,6 +205,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 0
+    plausible_max: 100
     provider: spglobal_pmi
     provider_series_id: jp_manufacturing
     source_id: spglobal-jp-pmi-mfg
@@ -189,6 +219,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 0
+    plausible_max: 100
     provider: spglobal_pmi
     provider_series_id: jp_services
     source_id: spglobal-jp-pmi-svc
@@ -201,11 +233,13 @@ series:
     geography: japan
     frequency: monthly
     unit: jpy-100m
+    plausible_min: 2000
+    plausible_max: 100000000
     provider: boj
-    provider_series_id: "3"
+    provider_series_id: "3|Monetary Base|8|Unit: 100 million yen"
     source_id: boj-mblong
     source_url: https://www.boj.or.jp/statistics/boj/other/mb/mblong.xlsx
-    notes: BOJ長期時系列xlsx(平残シート)のC列=マネタリーベース(月次・億円)。provider_series_idは1始まりの値列番号。live確認済
+    notes: BOJ長期時系列xlsx(平残シート)のC列=マネタリーベース(月次・億円)。provider_series_idは値列番号・英語header・metadata列番号・単位metadataを結び、列位置とscale identityを検証する
     aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
   - series_id: jp.cpi.headline
     name: 日本CPI総合
@@ -213,6 +247,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 2000
     provider: estat
     provider_series_id: "0003427113?cdCat01=0001&cdArea=00000&cdTab=1"
     source_id: estat-cpi
@@ -225,6 +261,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 2000
     provider: estat
     provider_series_id: "0003427113?cdCat01=0161&cdArea=00000&cdTab=1"
     source_id: estat-cpi-core
@@ -237,6 +275,8 @@ series:
     geography: japan
     frequency: monthly
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: estat
     provider_series_id: "0003427113?cdCat01=0161&cdArea=00000&cdTab=3"
     source_id: estat-cpi-core-yoy
@@ -249,6 +289,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 2000
     provider: estat
     provider_series_id: "0003427113?cdCat01=0220&cdArea=00000&cdTab=1"
     source_id: estat-cpi-services
@@ -261,6 +303,8 @@ series:
     geography: japan
     frequency: weekly
     unit: jpy
+    plausible_min: -20000000000
+    plausible_max: 20000000000
     provider: jquants_flows
     provider_series_id: foreigners_net_value
     source_id: jquants-trades-spec
@@ -273,6 +317,8 @@ series:
     geography: japan
     frequency: daily
     unit: jpy
+    plausible_min: 100
+    plausible_max: 20000
     provider: yahoo
     provider_series_id: 2516.T
     source_id: yahoo-2516t
@@ -285,6 +331,8 @@ series:
     geography: japan
     frequency: daily
     unit: index
+    plausible_min: 100
+    plausible_max: 20000
     provider: jquants_indices
     provider_series_id: topix
     source_id: jquants-indices-topix
@@ -298,6 +346,8 @@ series:
     geography: japan
     frequency: daily
     unit: ratio
+    plausible_min: 5
+    plausible_max: 40
     provider: nikkei_indexes
     provider_series_id: per
     source_id: nikkei-per
@@ -310,6 +360,8 @@ series:
     geography: japan
     frequency: daily
     unit: ratio
+    plausible_min: 0.5
+    plausible_max: 4
     provider: nikkei_indexes
     provider_series_id: pbr
     source_id: nikkei-pbr
@@ -322,11 +374,13 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 1
+    plausible_max: 2000
     provider: boj
-    provider_series_id: "2"
+    provider_series_id: "2|Real exports|2|s.a., CY 2020=100, 2020 prices"
     source_id: boj-reri
     source_url: https://www.boj.or.jp/research/research_data/reri/rs_reri.xlsx
-    notes: 日本銀行「実質輸出入の動向」の実質輸出指数(月次・季節調整済・2020年基準)。外需依存の日本で輸出モメンタムを測る。xlsx第1シートB列。研究データ扱いで遡及改定あり
+    notes: 日本銀行「実質輸出入の動向」の実質輸出指数(月次・季節調整済・2020年基準)。外需依存の日本で輸出モメンタムを測る。xlsx第1シートB列・英語header・基準metadataを検証する。研究データ扱いで遡及改定あり
     aliases: [実質輸出, real exports, 日本輸出, 輸出数量]
   - series_id: jp.real_consumption
     name: 日本実質消費活動指数(旅行収支調整済)
@@ -334,11 +388,13 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: boj
-    provider_series_id: "5"
+    provider_series_id: "5|Real Consumption Activity Index (travel balance adjusted)|5|s.a., CY 2020=100"
     source_id: boj-cai
     source_url: https://www.boj.or.jp/research/research_data/cai/cai.xlsx
-    notes: 日本銀行「消費活動指数」の実質・旅行収支調整済指数(月次・季節調整済・2020年基準)。インバウンド/アウトバウンドの歪みを除いた国内消費トレンド。xlsx第1シートE列。研究データ扱いで遡及改定あり
+    notes: 日本銀行「消費活動指数」の実質・旅行収支調整済指数(月次・季節調整済・2020年基準)。インバウンド/アウトバウンドの歪みを除いた国内消費トレンド。xlsx第1シートE列・英語header・基準metadataを検証する。研究データ扱いで遡及改定あり
     aliases: [実質消費, 消費活動指数, real consumption, consumption activity index, CAI]
   - series_id: jp.cgpi
     name: 日本企業物価指数(国内・総平均)
@@ -346,6 +402,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: boj_timeseries
     provider_series_id: PR01:PRCG20_2200000000
     source_id: boj-cgpi
@@ -358,6 +416,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: boj_timeseries
     provider_series_id: PR01:PRCG20_2600000000
     source_id: boj-import-price
@@ -370,6 +430,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: boj_timeseries
     provider_series_id: PR01:PRCG20_2400000000
     source_id: boj-export-price
@@ -382,6 +444,8 @@ series:
     geography: japan
     frequency: monthly
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: estat
     provider_series_id: "0003446462?cdCat01=2010&cdTab=200"
     source_id: estat-iip-ci
@@ -394,6 +458,8 @@ series:
     geography: japan
     frequency: monthly
     unit: ratio
+    plausible_min: 0.02
+    plausible_max: 20
     provider: estat
     provider_series_id: "0003446462?cdCat01=2090&cdTab=200"
     source_id: estat-job-openings-ci
@@ -406,6 +472,8 @@ series:
     geography: japan
     frequency: quarterly
     unit: pt
+    plausible_min: -100
+    plausible_max: 100
     provider: boj_timeseries
     provider_series_id: CO:TK99F1000601GCQ01000
     source_id: boj-tankan-lmfg

@@ -19,6 +19,7 @@ vintage.
 from __future__ import annotations
 
 import argparse
+import math
 import sqlite3
 import sys
 from collections.abc import Mapping, Sequence
@@ -26,7 +27,11 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_engine.macro.indicators.db import SQLITE_SCHEMA_VERSION
+from baibai_engine.macro.indicators.db import (
+    SQLITE_SCHEMA_VERSION,
+    IndicatorsSchemaError,
+    validate_current_schema,
+)
 
 # The tables that accumulate facts, with the key that decides whether a row is the same row.
 FACT_KEYS: Mapping[str, tuple[str, ...]] = {
@@ -101,6 +106,8 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
+                _validate_target_registry_contracts(connection)
+                _validate_source_observations(connection)
                 retired = _retired_series(connection)
                 tables = tuple(_merge_table(connection, table) for table in FACT_KEYS)
                 violations = connection.execute("PRAGMA foreign_key_check").fetchall()
@@ -122,6 +129,70 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 raise
         finally:
             connection.execute("DETACH DATABASE source")
+
+
+def _validate_target_registry_contracts(connection: sqlite3.Connection) -> None:
+    """Require a complete finite band for every series authorized by the target."""
+
+    rows = connection.execute(
+        """
+        SELECT r.series_id, s.series_id, s.plausible_min, s.plausible_max
+        FROM main.registry_series r
+        LEFT JOIN main.series s ON s.series_id = r.series_id
+        ORDER BY r.series_id
+        """
+    )
+    for registry_id, stored_id, low, high in rows:
+        if stored_id is None:
+            raise MergeError(f"target registry series {registry_id} has no series metadata")
+        if low is None or high is None:
+            raise MergeError(
+                f"target registry series {registry_id} has an incomplete plausible range"
+            )
+        numeric_low = float(low)
+        numeric_high = float(high)
+        if (
+            not math.isfinite(numeric_low)
+            or not math.isfinite(numeric_high)
+            or numeric_low > numeric_high
+        ):
+            raise MergeError(
+                f"target registry series {registry_id} has invalid plausible range "
+                f"[{numeric_low!r}, {numeric_high!r}]"
+            )
+
+
+def _validate_source_observations(connection: sqlite3.Connection) -> None:
+    """Reject source facts that violate the target's active series contract."""
+
+    row = connection.execute(
+        """
+        SELECT o.series_id, o.observed_at, o.value, o.unit,
+               s.unit, s.plausible_min, s.plausible_max
+        FROM source.observations o
+        JOIN main.registry_series r ON r.series_id = o.series_id
+        JOIN main.series s ON s.series_id = o.series_id
+        WHERE o.unit != s.unit
+           OR (s.plausible_min IS NOT NULL AND o.value < s.plausible_min)
+           OR (s.plausible_max IS NOT NULL AND o.value > s.plausible_max)
+        ORDER BY o.series_id, o.observed_at, o.vintage_at
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return
+    series_id, observed_at, value, actual_unit, expected_unit, low, high = row
+    if str(actual_unit) != str(expected_unit):
+        raise MergeError(
+            f"source observation {series_id} {observed_at} has unit "
+            f"{actual_unit!r}; target registry expects {expected_unit!r}"
+        )
+    rendered_low = "-inf" if low is None else f"{float(low):g}"
+    rendered_high = "inf" if high is None else f"{float(high):g}"
+    raise MergeError(
+        f"source observation {series_id} {observed_at} value {float(value):g} "
+        f"is outside target plausible range [{rendered_low}, {rendered_high}]"
+    )
 
 
 def _merge_table(connection: sqlite3.Connection, table: str) -> TableMerge:
@@ -170,6 +241,10 @@ def _require_schema(connection: sqlite3.Connection, *, path: Path, schema: str =
             f"indicator store schema is {version} but this code expects "
             f"{SQLITE_SCHEMA_VERSION}: {path}"
         )
+    try:
+        validate_current_schema(connection, schema=schema)
+    except IndicatorsSchemaError as error:
+        raise MergeError(f"indicator store schema contract is invalid: {path}: {error}") from error
 
 
 def _require_identical_columns(connection: sqlite3.Connection) -> None:

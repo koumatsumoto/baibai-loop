@@ -5,6 +5,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: frb_h15
     provider_series_id: RIFLGFCY10_N.B
     source_id: fed-h15
@@ -17,6 +19,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: frb_h15
     provider_series_id: RIFLGFCY02_N.B
     source_id: fed-h15
@@ -29,6 +33,8 @@ series:
     geography: us
     frequency: daily
     unit: bp
+    plausible_min: -1000
+    plausible_max: 3000
     provider: frb_h15
     provider_series_id: RIFLGFCY10_N.B-RIFLGFCY02_N.B
     source_id: fed-h15
@@ -40,6 +46,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: DFEDTARU
     source_id: fred-dfedtaru
@@ -51,6 +59,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: DFEDTARL
     source_id: fred-dfedtarl
@@ -62,6 +72,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 5000
     provider: fred_csv
     provider_series_id: CPIAUCSL
     source_id: fred-cpiaucsl
@@ -73,6 +85,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 5000
     provider: fred_csv
     provider_series_id: CPILFESL
     source_id: fred-cpilfesl
@@ -84,6 +98,8 @@ series:
     geography: us
     frequency: monthly
     unit: percent
+    plausible_min: 0
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: UNRATE
     source_id: fred-unrate
@@ -95,6 +111,8 @@ series:
     geography: us
     frequency: monthly
     unit: thousand-persons
+    plausible_min: 2000
+    plausible_max: 2000000
     provider: fred_csv
     provider_series_id: PAYEMS
     source_id: fred-payems
@@ -106,6 +124,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 200
+    plausible_max: 100000
     provider: fred_csv
     provider_series_id: SP500
     source_id: fred-sp500
@@ -119,6 +139,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 5
+    plausible_max: 500000
     provider: fred_csv
     provider_series_id: NASDAQCOM
     source_id: fred-nasdaqcom
@@ -131,6 +153,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 1000
+    plausible_max: 1000000
     provider: fred_csv
     provider_series_id: DJIA
     source_id: fred-djia
@@ -143,6 +167,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: 0
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: BAMLH0A0HYM2
     source_id: fred-bamlh0a0hym2
@@ -154,6 +180,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: 0
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: BAMLC0A0CM
     source_id: fred-bamlc0a0cm
@@ -165,6 +193,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: 0
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: BAMLH0A3HYC
     source_id: fred-bamlh0a3hyc
@@ -177,6 +207,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: DTWEXBGS
     source_id: fred-dtwexbgs
@@ -188,6 +220,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: DFII10
     source_id: fred-dfii10
@@ -200,6 +234,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: T10YIE
     source_id: fred-t10yie
@@ -212,6 +248,8 @@ series:
     geography: us
     frequency: weekly
     unit: usd-million
+    plausible_min: 50000
+    plausible_max: 100000000
     provider: fred_csv
     provider_series_id: WALCL
     source_id: fred-walcl
@@ -224,6 +262,8 @@ series:
     geography: us
     frequency: daily
     unit: usd-billion
+    plausible_min: 0
+    plausible_max: 50000
     provider: fred_csv
     provider_series_id: RRPONTSYD
     source_id: fred-rrpontsyd
@@ -236,6 +276,8 @@ series:
     geography: us
     frequency: monthly
     unit: usd-billion
+    plausible_min: 20
+    plausible_max: 500000
     provider: fred_csv
     provider_series_id: M2SL
     source_id: fred-m2sl
@@ -248,6 +290,8 @@ series:
     geography: us
     frequency: weekly
     unit: index
+    plausible_min: -20
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: NFCI
     source_id: fred-nfci
@@ -260,6 +304,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 1
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: PCEPILFE
     source_id: fred-pcepilfe
@@ -272,6 +318,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: T5YIFR
     source_id: fred-t5yifr
@@ -284,6 +332,8 @@ series:
     geography: us
     frequency: weekly
     unit: count
+    plausible_min: 10000
+    plausible_max: 100000000
     provider: fred_csv
     provider_series_id: ICSA
     source_id: fred-icsa
@@ -296,6 +346,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 0.2
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: INDPRO
     source_id: fred-indpro
@@ -308,6 +360,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: T10Y3M
     source_id: fred-t10y3m
@@ -320,6 +374,8 @@ series:
     geography: us
     frequency: weekly
     unit: usd-million
+    plausible_min: 200
+    plausible_max: 20000000
     provider: fred_csv
     provider_series_id: WTREGEN
     source_id: fred-wtregen
@@ -332,6 +388,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 2
+    plausible_max: 5000
     provider: yahoo
     provider_series_id: ^MOVE
     source_id: yahoo-move
@@ -344,6 +402,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 10
+    plausible_max: 50000
     provider: yahoo
     provider_series_id: ^RUT
     source_id: yahoo-rut
@@ -357,6 +417,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 10
+    plausible_max: 200000
     provider: yahoo
     provider_series_id: ^SOX
     source_id: yahoo-sox
@@ -370,6 +432,8 @@ series:
     geography: us
     frequency: quarterly
     unit: percent
+    plausible_min: -100
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: A191RL1Q225SBEA
     source_id: fred-a191rl1q225sbea
@@ -382,6 +446,8 @@ series:
     geography: us
     frequency: daily
     unit: ratio
+    plausible_min: 0.2
+    plausible_max: 500
     provider: multpl
     provider_series_id: shiller-pe
     source_id: multpl-shiller-pe
@@ -394,6 +460,8 @@ series:
     geography: us
     frequency: daily
     unit: ratio
+    plausible_min: 0.5
+    plausible_max: 2000
     provider: multpl
     provider_series_id: s-p-500-pe-ratio
     source_id: multpl-sp500-pe
@@ -406,6 +474,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -100
+    plausible_max: 100
     provider: multpl
     provider_series_id: s-p-500-earnings-yield
     source_id: multpl-sp500-ey
@@ -418,6 +488,8 @@ series:
     geography: us
     frequency: monthly
     unit: usd-per-hour
+    plausible_min: 2
+    plausible_max: 500
     provider: fred_csv
     provider_series_id: CES0500000003
     source_id: fred-ces0500000003
@@ -430,6 +502,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 10
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: PPIFIS
     source_id: fred-ppifis
@@ -442,6 +516,8 @@ series:
     geography: us
     frequency: monthly
     unit: thousand
+    plausible_min: 200
+    plausible_max: 200000
     provider: fred_csv
     provider_series_id: JTSJOL
     source_id: fred-jtsjol
@@ -454,6 +530,8 @@ series:
     geography: us
     frequency: monthly
     unit: usd-million
+    plausible_min: 2000
+    plausible_max: 1000000
     provider: fred_csv
     provider_series_id: NEWORDER
     source_id: fred-neworder
@@ -466,6 +544,8 @@ series:
     geography: us
     frequency: monthly
     unit: thousand
+    plausible_min: 50
+    plausible_max: 50000
     provider: fred_csv
     provider_series_id: PERMIT
     source_id: fred-permit
@@ -478,6 +558,8 @@ series:
     geography: us
     frequency: monthly
     unit: thousand
+    plausible_min: 20
+    plausible_max: 50000
     provider: fred_csv
     provider_series_id: HOUST
     source_id: fred-houst
@@ -490,6 +572,8 @@ series:
     geography: us
     frequency: monthly
     unit: usd-million
+    plausible_min: 10000
+    plausible_max: 10000000
     provider: fred_csv
     provider_series_id: RSAFS
     source_id: fred-rsafs
@@ -502,6 +586,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 2000
     provider: umich_sca
     provider_series_id: ICS_ALL
     source_id: umich-sca-ics
@@ -514,6 +600,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 0
+    plausible_max: 100
     provider: spglobal_pmi
     provider_series_id: us_manufacturing
     source_id: spglobal-us-pmi-mfg
@@ -526,6 +614,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 0
+    plausible_max: 100
     provider: spglobal_pmi
     provider_series_id: us_services
     source_id: spglobal-us-pmi-svc
@@ -538,6 +628,8 @@ series:
     geography: us
     frequency: quarterly
     unit: percent
+    plausible_min: -100
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: DRTSCILM
     source_id: fred-drtscilm
@@ -550,6 +642,8 @@ series:
     geography: us
     frequency: monthly
     unit: usd-million
+    plausible_min: -10000000
+    plausible_max: 5000000
     provider: fred_csv
     provider_series_id: MTSDS133FMS
     source_id: fred-mtsds133fms
@@ -562,6 +656,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: frb_h15
     provider_series_id: RIFLGFCY30_N.B
     source_id: fed-h15
@@ -574,6 +670,8 @@ series:
     geography: us
     frequency: weekly
     unit: count
+    plausible_min: 10000
+    plausible_max: 100000000
     provider: fred_csv
     provider_series_id: IC4WSA
     source_id: fred-ic4wsa
