@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Literal
 
 from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
 from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
+from baibai_engine.macro.context.triggers import evaluate_triggers_from_stores
+from baibai_engine.macro.indicators.db import IndicatorsSchemaError
 from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.reading.compute import compute_reading
 from baibai_engine.macro.reading.models import snapshot_payload
@@ -197,6 +200,33 @@ def macro_context_payload(
     if not isinstance(payload, dict):
         raise ValueError("macro context payload must be an object")
     return payload
+
+
+def macro_context_triggers(
+    path: Path,
+    indicators_db_path: Path,
+    *,
+    context_id: str,
+    as_of: date,
+) -> dict[str, object] | None:
+    """Evaluate one report's invalidation conditions, or None when a store cannot answer.
+
+    A view must degrade rather than fail here: the report is readable on its own, and an
+    absent or unreadable indicator store means the conditions are simply unchecked.
+    """
+
+    if not path.is_file() or not indicators_db_path.is_file():
+        return None
+    try:
+        evaluation = evaluate_triggers_from_stores(
+            context_db=path,
+            indicators_db_path=indicators_db_path,
+            context_id=context_id,
+            asof=as_of,
+        )
+    except (OSError, ValueError, IndicatorsSchemaError, sqlite3.Error):
+        return None
+    return evaluation.payload()
 
 
 def macro_indicator_series(

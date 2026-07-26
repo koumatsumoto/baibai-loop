@@ -28,6 +28,10 @@ class MacroContext:
     context_id: str
     as_of: date
     payload: Mapping[str, Any]
+    # Invalidation conditions the report itself stated that the L1 history has since
+    # met. Filled by the loader, which is the layer that knows where the stores are;
+    # empty when nothing fired or when no indicator store was available to ask.
+    fired_triggers: tuple[str, ...] = ()
 
     def age_days(self, asof_date: date) -> int:
         return (asof_date - self.as_of).days
@@ -62,6 +66,10 @@ def macro_context_diagnostics(
         warnings.append("macro_context_future")
     if context.is_stale_for(asof_date):
         warnings.append("macro_context_stale")
+    # Age is a clock and cannot see a regime break. A report that named what would make
+    # it wrong, and has been proven right about that, is worth a warning at any age.
+    if context.fired_triggers:
+        warnings.append("macro_context_invalidated")
     # A report may declare an input it could not obtain. Declaring it honestly must not
     # make it invisible to the reader, or omitting it would be the easier path.
     failed_inputs = context_failed_inputs(context.payload)
@@ -78,6 +86,7 @@ def macro_context_diagnostics(
         "sizing_cautions": list(context_sizing_cautions(context.payload)),
         "research_questions": list(context_research_questions(context.payload)),
         "refresh_triggers": list(context_refresh_triggers(context.payload)),
+        "fired_triggers": list(context.fired_triggers),
         "warnings": warnings,
     }
 

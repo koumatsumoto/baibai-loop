@@ -187,7 +187,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 | core | 7 | 日本（`japan`） | BOJ政策、国内賃金物価、鉱工業生産、海外投資家フロー、日本の需要fact | 日本経済の需要・費用・為替感応度への接続を示す |
 | core | 8 | バリュエーション（`valuation`） | 米 ERP / CAPE、日本 ERP（市場全体PERまたは益回り − JGB 10y）、金、BTC | 各資産の相対的な位置を示す |
 | core | 9 | リスク選好環境の評価とシナリオ（`risk_environment`） | セクション2〜8を支持・反証する系列 | 攻め／守りどちらの環境かを `stance`・確度・**反証条件**付きで評価し、base / bear / bull を scorecard 条件付きで置く |
-| core | 10 | 監視ポイント（`monitoring`） | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを明記する |
+| core | 10 | 監視ポイント（`monitoring`） | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを明記し、機械で測れる条件は `machine_conditions` に置く |
 | connection | 11 | 日本株積立ループ接続（`japan_equity_loop`） | core が引用済みの series のみ | research 優先度ヒント（効く候補タイプを `applies_to` で判別可能に）、sector tilt、sizing caution、バーゲン地形 |
 
 共通 field：
@@ -230,11 +230,21 @@ publish 済み revision は immutable なので、検証は**参照先が動く�
 
 scorecard はレポート `as_of` の翌日から各条件の期限日までを評価する。期限内の最初の成立を `met`、期限後に公表待ちを含む保守的な settlement watermark を越えても不成立なら `not_met`、それまでは `pending` とし、`met` は最初の成立観測、`not_met` は期限内の最終観測を必ず出す。`met` は開始から成立観測まで、`not_met` は全評価窓を active provider が再取得した successful run（1 件以上）で裏付け、run は timezone-aware な完了時刻が採点 `asof` の JST 日末以前でなければならない。watermark は固定した reading rules revision の系列別 staleness 上限を期限へ加えた日であり、`not_met` の run は watermark 後の完了も要求する。未来 `asof`、必要な run の欠落、期限時点で staleness 上限を超える観測は、不成立と推測せず hard error にする。読み取りは通常の L1 reader と同じ latest eligible vintage を使い、観測日の上限は条件期限、publication-quality vintage の上限は採点 `asof` として分離する。JSON は実際に読んだ store path、rules revision、採用観測の unit / vintage / source、結果 digest を含み、後続 context の publish 時に read-only 再計算して digest を照合する。
 
+### 監視ポイントの機械照合：事実による陳腐化を日次で見る
+
+セクション10の各監視ポイントは、自由文の `condition` とは別に **機械照合可能な無効化条件（`machine_conditions`）** を任意で持つ。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値で書き、series はそのセクションが引用済みのものに限る。scorecard と違って**期限を持たない**：scorecard はシナリオを後から採点して終わるが、無効化条件は「次のレポートが書かれるまで見立てが立ち続けるか」を問うので、決済日という概念が無い。政治イベントのように機械で測れない事象は従来どおり prose だけで書く。
+
+評価は `baibai-engine macro context triggers --context-id <id> --asof <date> [--format json]`。レポート `as_of` の**翌日**から `asof` までを窓とし（レポートは自分の as_of までを読み終えているので、その日の観測は「変化」ではない）、窓内のどれか 1 つでも条件を満たせば `fired`、観測はあるが満たさなければ `quiet`、窓内に観測が無ければ `not_evaluable` とする。**一度でも閾値を割った事実**を拾うのが目的なので、瞬間的に触れて戻った水準も `fired` にする。scorecard のような provider run 証明・staleness 検査は課さない——trigger は書き直しの判断を促すだけで、何かを決済しないためである。欠測は block せず `not_evaluable` として見えるようにする。
+
+`screening select` は head レポートを読むときにこれを評価し、`fired` が 1 件以上なら `macro_context_invalidated` warning を出す。`macro_context_stale` と同じ扱いで、E[r]順位・候補抽出は変えない。indicator store が無い環境では評価を skip して warning を出さない。Baibai App のレポート詳細 view にも評価結果（条件ごとの `fired` / `quiet` / `not_evaluable` と採用観測）が載る。
+
+これで「日次で機械が測る（§② reading）⇄ 月次で人が判断する（§③ report）」のループが事実ベースで閉じる。時間だけを基準にした鮮度規則は、月中のレジーム断絶を見られないためである。
+
 ### 鮮度は読む側が判断する
 
 レポートは自分の賞味期限を宣言しない。鮮度の扱いは consumer が自分の規則として持つ。
 
-- **screening select**: head レポートの `as_of` が判断 asof から 45 日より古ければ `macro_context_stale` warning を出す。warning は context-level summary の材料であり、E[r]順位・candidateの事実層・候補抽出のいずれも変えない。`as_of` が判断 asof より未来のときだけ hard error にする
+- **screening select**: head レポートの `as_of` が判断 asof から 45 日より古ければ `macro_context_stale` warning を出す。レポート自身が書いた無効化条件が満たされていれば `macro_context_invalidated` warning を出す。warning は context-level summary の材料であり、E[r]順位・candidateの事実層・候補抽出のいずれも変えない。`as_of` が判断 asof より未来のときだけ hard error にする
 - **opportunity cycle（OP3）/ スポット判断**: head が古い、または深度契約を満たさないと判断したら、shortlist 作成の前に書き直す。判断の前提が古いままかは判断する人が決める
 - **Baibai App**: Macro タブが head の `as_of` を表示し、読む人が古さを目で確認できる
 

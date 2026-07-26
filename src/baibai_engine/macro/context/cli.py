@@ -33,6 +33,7 @@ from .service import (
     MacroContextNotFoundError,
     MacroContextService,
 )
+from .triggers import TriggerEvaluation, evaluate_triggers_from_stores
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,6 +59,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scorecard.add_argument("--rules", type=Path, default=DEFAULT_RULES_PATH)
     scorecard.add_argument("--format", choices=("table", "json"), default="table")
+    triggers = commands.add_parser(
+        "triggers",
+        help="check a report's machine-checkable invalidation conditions",
+    )
+    triggers.add_argument("--context-id", required=True)
+    triggers.add_argument("--asof", required=True, type=date.fromisoformat)
+    triggers.add_argument(
+        "--indicators-db",
+        type=Path,
+        default=DEFAULT_INDICATORS_DB_PATH,
+    )
+    triggers.add_argument("--format", choices=("table", "json"), default="table")
     return parser
 
 
@@ -90,6 +103,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 print(json.dumps(evaluation.payload(), ensure_ascii=False))
             else:
                 _print_scorecard(evaluation)
+        elif args.command == "triggers":
+            triggers = evaluate_triggers_from_stores(
+                context_db=args.db,
+                indicators_db_path=args.indicators_db,
+                context_id=args.context_id,
+                asof=args.asof,
+            )
+            if args.format == "json":
+                print(json.dumps(triggers.payload(), ensure_ascii=False))
+            else:
+                _print_triggers(triggers)
         else:  # pragma: no cover
             raise AssertionError(f"unreachable macro context command: {args.command}")
     except (
@@ -141,6 +165,34 @@ def _print_scorecard(evaluation: ScorecardEvaluation) -> None:
                 )
             )
         )
+
+
+def _print_triggers(evaluation: TriggerEvaluation) -> None:
+    print(
+        "# macro context triggers "
+        f"context={evaluation.context_id} asof={evaluation.asof.isoformat()}"
+    )
+    print(f"# window=({evaluation.context_as_of.isoformat()}, {evaluation.asof.isoformat()}]")
+    print("point\tcondition\tstatus\tseries_id\tcomparison\tthreshold\tobserved_at\tvalue\tevent")
+    for result in evaluation.results:
+        observation = result.observation
+        print(
+            "\t".join(
+                (
+                    str(result.point_index),
+                    str(result.condition_index),
+                    result.status,
+                    result.series_id,
+                    result.comparison,
+                    f"{result.threshold:g}",
+                    "-" if observation is None else observation.observed_at.isoformat(),
+                    "-" if observation is None else f"{observation.value:g}",
+                    result.event,
+                )
+            )
+        )
+    fired = evaluation.fired
+    print(f"# fired={len(fired)} of {len(evaluation.results)}")
 
 
 __all__ = ["build_parser", "main"]

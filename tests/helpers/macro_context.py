@@ -13,6 +13,7 @@ def macro_context_payload(
     as_of: str = "2026-07-19",
     published_at: str = "2026-07-19T12:00:00+09:00",
     scorecard_deadline: str = "2026-10-31",
+    machine_conditions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     source_ids = [_SERIES_INPUT_ID]
     core = [
@@ -66,6 +67,11 @@ def macro_context_payload(
                     "view_change": "discount rate判断を更新する",
                     "summary": "金利レンジの離脱を監視する。",
                     "source_ids": source_ids,
+                    **(
+                        {}
+                        if machine_conditions is None
+                        else {"machine_conditions": machine_conditions}
+                    ),
                 }
             ],
         ),
