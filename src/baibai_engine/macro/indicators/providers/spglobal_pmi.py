@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import cache
 from pathlib import Path
@@ -25,7 +26,7 @@ from .base import (
 from .pmi_extraction import PmiExtractionError, extract_pmi_value
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
-_RELEASE_URL_RE = re.compile(
+RELEASE_URL_RE = re.compile(
     r"https://www\.pmi\.spglobal\.com/Public/Home/PressRelease/[0-9a-f]{32}\Z"
 )
 MAX_PMI_PDF_BYTES = 5 * 1024 * 1024
@@ -68,9 +69,9 @@ class SpGlobalPmiProvider:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
-        releases = _manifest().get(series.provider_series_id)
+        releases = load_manifest(MANIFEST_PATH).get(series.provider_series_id)
         if releases is None:
-            supported = ", ".join(sorted(_manifest()))
+            supported = ", ".join(sorted(load_manifest(MANIFEST_PATH)))
             raise IndicatorsProviderError(
                 f"spglobal_pmi has no release manifest for {series.provider_series_id!r}; "
                 f"supported: {supported}"
@@ -90,7 +91,7 @@ class SpGlobalPmiProvider:
             if stored is not None and stored.source_url == entry.url:
                 continue
             refetched_months.add(entry.observed_at)
-            pdf_text = _release_text(entry.url, session=session, context=context)
+            pdf_text = release_text(entry.url, session=session, context=context)
             try:
                 value = extract_pmi_value(
                     pdf_text,
@@ -150,7 +151,7 @@ def _stored_observations(
 
 
 def _require_current_manifest(
-    series: SeriesDefinition, releases: tuple[_Release, ...], *, end: date
+    series: SeriesDefinition, releases: tuple[Release, ...], *, end: date
 ) -> None:
     """Fail when the manifest has fallen behind the release calendar.
 
@@ -180,16 +181,16 @@ def _expected_newest_month(end: date) -> date:
     return month
 
 
-class _Release:
-    __slots__ = ("observed_at", "release_observed_at", "url")
+@dataclass(frozen=True, slots=True)
+class Release:
+    """One month of a PMI stream and the release PDF it is read from."""
 
-    def __init__(self, observed_at: date, release_observed_at: date, url: str) -> None:
-        self.observed_at = observed_at
-        self.release_observed_at = release_observed_at
-        self.url = url
+    observed_at: date
+    release_observed_at: date
+    url: str
 
 
-def _release_text(url: str, *, session: HttpSession, context: FetchContext | None) -> str:
+def release_text(url: str, *, session: HttpSession, context: FetchContext | None) -> str:
     content = _fetch_pdf_bytes(url, session=session, context=context)
     return extract_pdf_text(content)
 
@@ -240,14 +241,20 @@ def extract_pdf_text(content: bytes) -> str:
 
 
 @cache
-def _manifest() -> dict[str, tuple[_Release, ...]]:
-    raw = strict_safe_load(MANIFEST_PATH.read_text(encoding="utf-8"))
+def load_manifest(path: Path) -> dict[str, tuple[Release, ...]]:
+    """The manifest at ``path``, parsed and validated.
+
+    The path is required rather than defaulted so one file cannot end up behind
+    two cache keys, which would let a caller read a copy the writer has replaced.
+    """
+
+    raw = strict_safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or raw.get("schema_version") != 2:
         raise IndicatorsProviderError("PMI release manifest must use schema_version 2")
     series_node = raw.get("series")
     if not isinstance(series_node, dict):
         raise IndicatorsProviderError("PMI release manifest 'series' must be a mapping")
-    result: dict[str, tuple[_Release, ...]] = {}
+    result: dict[str, tuple[Release, ...]] = {}
     for stream, entries in cast(Mapping[str, object], series_node).items():
         if not isinstance(entries, list):
             raise IndicatorsProviderError(f"PMI manifest stream {stream!r} must be a list")
@@ -255,8 +262,8 @@ def _manifest() -> dict[str, tuple[_Release, ...]]:
     return result
 
 
-def _parse_stream(stream: str, entries: list[object]) -> tuple[_Release, ...]:
-    releases: list[_Release] = []
+def _parse_stream(stream: str, entries: list[object]) -> tuple[Release, ...]:
+    releases: list[Release] = []
     seen: set[date] = set()
     for index, raw_entry in enumerate(entries):
         if not isinstance(raw_entry, dict):
@@ -277,11 +284,11 @@ def _parse_stream(stream: str, entries: list[object]) -> tuple[_Release, ...]:
             _entry_date(release_raw, stream=stream) if release_raw is not None else observed_at
         )
         url = entry.get("url")
-        if not isinstance(url, str) or _RELEASE_URL_RE.fullmatch(url) is None:
+        if not isinstance(url, str) or RELEASE_URL_RE.fullmatch(url) is None:
             raise IndicatorsProviderError(
                 f"PMI manifest {stream} {observed_at} has an invalid release URL: {url!r}"
             )
-        releases.append(_Release(observed_at, release_observed_at, url))
+        releases.append(Release(observed_at, release_observed_at, url))
     return tuple(sorted(releases, key=lambda item: item.observed_at))
 
 
