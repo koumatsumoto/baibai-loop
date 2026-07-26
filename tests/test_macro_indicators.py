@@ -61,6 +61,10 @@ from baibai_engine.macro.indicators.providers import (
 from baibai_engine.macro.indicators.providers.base import FetchContext, HttpSession
 from baibai_engine.macro.indicators.providers.cftc import parse_cftc_json
 from baibai_engine.macro.indicators.providers.derived import DerivedProvider
+from baibai_engine.macro.indicators.providers.estat_dashboard import (
+    EStatDashboardProvider,
+    parse_dashboard_json,
+)
 from baibai_engine.macro.indicators.providers.formulas import FORMULAS, DerivedComputationError
 from baibai_engine.macro.indicators.providers.frb_h15 import FrbH15Provider
 from baibai_engine.macro.indicators.providers.jquants_indices import parse_index_bars
@@ -707,9 +711,10 @@ class IndicatorsDBTests(unittest.TestCase):
                 ),
             ).close()
 
+            newer = definitions.generation + 1
             with self.assertRaisesRegex(
                 ValueError,
-                r"store=2, client=1.*refusing refresh",
+                rf"store={newer}, client={definitions.generation}.*refusing refresh",
             ):
                 IndicatorsService(database).refresh_series(
                     ["us.10y"],
@@ -721,7 +726,7 @@ class IndicatorsDBTests(unittest.TestCase):
                 generation = connection.execute(
                     "SELECT generation FROM registry_state WHERE singleton = 1"
                 ).fetchone()[0]
-            self.assertEqual(generation, 2)
+            self.assertEqual(generation, newer)
 
     def test_refresh_prune_log_failure_rolls_back_every_retired_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2610,6 +2615,147 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         with self.assertRaisesRegex(IndicatorsProviderError, "GET_STATS_DATA"):
             parse_estat_json(series, "{}", start=date(2026, 1, 1), end=date(2026, 12, 31))
 
+    def test_estat_dashboard_fetch_windows_the_request_on_monthly_time_codes(self) -> None:
+        series = _series(
+            "estat_dashboard",
+            _DASHBOARD_SELECTED_ID,
+            unit="percent",
+            frequency="monthly",
+        )
+        session = _RecordingSession(
+            _dashboard_payload(
+                [
+                    _dashboard_row("20260400", "2.5"),
+                    _dashboard_row("20260500", "2.4"),
+                ]
+            )
+        )
+
+        observations = EStatDashboardProvider().fetch(
+            series,
+            start=date(2026, 4, 1),
+            end=date(2026, 5, 31),
+            session=session,
+        )
+
+        self.assertEqual(
+            session.params,
+            {
+                "Lang": "JP",
+                "IndicatorCode": "0301010000020020010",
+                "Cycle": "1",
+                "IsSeasonalAdjustment": "2",
+                "RegionCode": "00000",
+                "TimeFrom": "20260400",
+                "TimeTo": "20260500",
+            },
+        )
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 4, 1), 2.5), (date(2026, 5, 1), 2.4)],
+        )
+
+    def test_parse_dashboard_json_filters_range_and_skips_null_markers(self) -> None:
+        observations = _parse_dashboard(
+            [
+                _dashboard_row("20260300", "2.6"),
+                _dashboard_row("20260400", "-"),
+                _dashboard_row("20260500", "2.4"),
+            ],
+            start=date(2026, 4, 1),
+            end=date(2026, 5, 31),
+        )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 5, 1), 2.4)],
+        )
+
+    def test_parse_dashboard_json_rejects_a_row_the_selectors_excluded(self) -> None:
+        """One IndicatorCode answers several cycles and adjustments at once.
+
+        A row from another one means the filter did not apply, and mixing a
+        month-on-month change into an index level would read as the series itself.
+        """
+
+        for attribute, value in (
+            ("@cycle", "3"),
+            ("@isSeasonal", "1"),
+            ("@indicator", "0302030202010090010"),
+            ("@regionCode", "13000"),
+        ):
+            with self.subTest(attribute=attribute):
+                row = _dashboard_row("20260500", "2.4")
+                row["VALUE"][attribute] = value
+
+                with self.assertRaisesRegex(IndicatorsProviderError, attribute):
+                    _parse_dashboard([row])
+
+    def test_parse_dashboard_json_rejects_a_page_shorter_than_its_declared_total(self) -> None:
+        text = _dashboard_payload([_dashboard_row("20260500", "2.4")], total=2)
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "1 rows for a declared total of 2"):
+            parse_dashboard_json(
+                _series("estat_dashboard", _DASHBOARD_SELECTED_ID, frequency="monthly"),
+                text,
+                start=date(2026, 1, 1),
+                end=date(2026, 12, 31),
+                indicator_code="0301010000020020010",
+                selectors=_DASHBOARD_SELECTORS,
+            )
+
+    def test_parse_dashboard_json_rejects_an_api_error_status(self) -> None:
+        text = json.dumps(
+            {"GET_STATS": {"RESULT": {"status": "1", "errorMsg": "該当データはありませんでした。"}}}
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "returned status 1"):
+            parse_dashboard_json(
+                _series("estat_dashboard", _DASHBOARD_SELECTED_ID, frequency="monthly"),
+                text,
+                start=date(2026, 1, 1),
+                end=date(2026, 12, 31),
+                indicator_code="0301010000020020010",
+                selectors=_DASHBOARD_SELECTORS,
+            )
+
+    def test_parse_dashboard_json_rejects_an_unreadable_time_code(self) -> None:
+        # A changed time axis must fail rather than pass as a shorter history.
+        for time_code in ("2026Q100", "202605", "20261300"):
+            with (
+                self.subTest(time_code=time_code),
+                self.assertRaisesRegex(IndicatorsProviderError, "time code is unreadable"),
+            ):
+                _parse_dashboard([_dashboard_row(time_code, "2.4")])
+
+    def test_parse_dashboard_json_rejects_two_units_in_one_series(self) -> None:
+        rows = [_dashboard_row("20260400", "2.5"), _dashboard_row("20260500", "2400")]
+        rows[1]["VALUE"]["@unit"] = "120"
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "mixed units"):
+            _parse_dashboard(rows)
+
+    def test_estat_dashboard_requires_the_selectors_that_pin_one_series(self) -> None:
+        for provider_series_id, message in (
+            ("0301010000020020010", "must pin selectors"),
+            ("0301010000020020010?Cycle=1&RegionCode=00000", "missing selector"),
+            ("0301010000020020010?" + _DASHBOARD_QUERY + "&Unit=001", "unsupported"),
+            (
+                "0301010000020020010?Cycle=3&IsSeasonalAdjustment=2&RegionCode=00000",
+                "monthly cycle only",
+            ),
+        ):
+            with self.subTest(provider_series_id=provider_series_id):
+                series = _series("estat_dashboard", provider_series_id, frequency="monthly")
+
+                with self.assertRaisesRegex(IndicatorsProviderError, message):
+                    EStatDashboardProvider().fetch(
+                        series,
+                        start=date(2026, 1, 1),
+                        end=date(2026, 5, 31),
+                        session=_RecordingSession(_dashboard_payload([])),
+                    )
+
     def test_parse_yahoo_chart_filters_range_and_skips_null_close(self) -> None:
         series = _series("yahoo", "GC=F", unit="usd-per-oz")
 
@@ -3208,7 +3354,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         )
 
     def test_canonical_registry_membership_has_a_known_generation(self) -> None:
-        self.assertEqual(load_definitions().generation, 1)
+        self.assertEqual(load_definitions().generation, 2)
         with (
             patch(
                 "baibai_engine.macro.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
@@ -3224,8 +3370,8 @@ class IndicatorsRegistryTests(unittest.TestCase):
             "jp.nikkei225": ("fred_csv", "equity-index"),
             "jp.policy_rate": ("boj_timeseries", "policy"),
             "jp.10y": ("mof_jgb", "rates"),
-            "jp.unemployment": ("fred_csv", "labor"),
-            "jp.hourly_earnings": ("fred_csv", "labor"),
+            "jp.unemployment": ("estat_dashboard", "labor"),
+            "jp.nominal_wage_index": ("estat_dashboard", "labor"),
             "jp.real_effective_exchange_rate": ("fred_csv", "fx"),
             "jp.cpi.services": ("estat", "inflation"),
             "credit.us_hy_oas": ("fred_csv", "credit"),
@@ -3239,8 +3385,12 @@ class IndicatorsRegistryTests(unittest.TestCase):
             self.assertEqual(by_id[series_id].category, category)
 
         self.assertEqual(
-            by_id["jp.hourly_earnings"].provider_series_id,
-            "LCEAMN01JPM661S",
+            by_id["jp.nominal_wage_index"].provider_series_id,
+            "0302030202010090010?Cycle=1&IsSeasonalAdjustment=1&RegionCode=00000",
+        )
+        self.assertEqual(
+            by_id["jp.unemployment"].provider_series_id,
+            "0301010000020020010?Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000",
         )
         self.assertEqual(
             by_id["jp.real_effective_exchange_rate"].provider_series_id,
@@ -5180,6 +5330,87 @@ def _write_observation(
         conn.commit()
     finally:
         conn.close()
+
+
+_DASHBOARD_QUERY = "Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000"
+_DASHBOARD_SELECTED_ID = f"0301010000020020010?{_DASHBOARD_QUERY}"
+_DASHBOARD_SELECTORS = {
+    "Cycle": "1",
+    "IsSeasonalAdjustment": "2",
+    "RegionCode": "00000",
+}
+
+
+def _dashboard_row(time_code: str, value: str) -> dict[str, dict[str, str]]:
+    return {
+        "VALUE": {
+            "@indicator": "0301010000020020010",
+            "@unit": "001",
+            "@stat": "00200531",
+            "@regionCode": "00000",
+            "@time": time_code,
+            "@cycle": "1",
+            "@regionRank": "2",
+            "@isSeasonal": "2",
+            "@isProvisional": "0",
+            "$": value,
+        }
+    }
+
+
+def _dashboard_payload(
+    rows: Sequence[Mapping[str, Mapping[str, str]]],
+    *,
+    total: int | None = None,
+) -> str:
+    return json.dumps(
+        {
+            "GET_STATS": {
+                "RESULT": {"status": "0", "errorMsg": "正常に終了しました。"},
+                "STATISTICAL_DATA": {
+                    "RESULT_INF": {"TOTAL_NUMBER": str(len(rows) if total is None else total)},
+                    "TABLE_INF": {},
+                    "DATA_INF": {"DATA_OBJ": list(rows)},
+                },
+            }
+        }
+    )
+
+
+def _parse_dashboard(
+    rows: Sequence[Mapping[str, Mapping[str, str]]],
+    *,
+    start: date = date(2026, 1, 1),
+    end: date = date(2026, 12, 31),
+) -> list[ObservationRecord]:
+    return parse_dashboard_json(
+        _series("estat_dashboard", _DASHBOARD_SELECTED_ID, frequency="monthly"),
+        _dashboard_payload(rows),
+        start=start,
+        end=end,
+        indicator_code="0301010000020020010",
+        selectors=_DASHBOARD_SELECTORS,
+    )
+
+
+class _RecordingSession:
+    """Captures the query a provider sends so the request contract is testable."""
+
+    def __init__(self, body: str) -> None:
+        self.body = body
+        self.params: dict[str, str] | None = None
+
+    def get(
+        self,
+        url: str,
+        *,
+        params: dict[str, str] | None = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: int,
+        stream: bool = False,
+    ) -> _FakeResponse:
+        self.params = params
+        return _FakeResponse(self.body.encode("utf-8"))
 
 
 class _RaisingSession:

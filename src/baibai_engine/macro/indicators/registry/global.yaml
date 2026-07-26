@@ -182,7 +182,7 @@ series:
     provider_series_id: IRLTLT01DEM156N
     source_id: fred-irltlt01dem156n
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IRLTLT01DEM156N
-    notes: ドイツ10年国債利回り(月次・OECD)。ユーロ圏の無リスク金利アンカー。米独金利差でドル・ユーロの綱引きを読む
+    notes: ドイツ10年国債利回り(月次・OECD)。ユーロ圏の無リスク金利アンカー。米独金利差でドル・ユーロの綱引きを読む。日次配信はBundesbank/ECBが持つが、日本株の判断で使うのは米独金利差の水準と向きであり、月内の日次変動は判断を変えない。provider追加に見合わないので月次を保つ
     aliases: [独10Y, ドイツ国債, bund 10y, German 10Y, IRLTLT01DEM156N, ブンズ]
   - series_id: usd_cny
     name: USD/CNY

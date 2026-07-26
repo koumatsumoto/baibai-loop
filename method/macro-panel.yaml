@@ -34,7 +34,7 @@ groups:
       - id: jp.cpi.core
       - id: jp.cpi.core_yoy
       - id: jp.cpi.services
-      - id: jp.hourly_earnings
+      - id: jp.nominal_wage_index
       - id: jp.cgpi
       - id: jp.import_price_index
       - id: jp.export_price_index
