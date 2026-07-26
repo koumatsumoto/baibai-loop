@@ -4306,7 +4306,8 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_get_latest_uses_fresh_cached_observation_before_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
-            observed_at = datetime.now(UTC).date()
+            today = date(2026, 7, 27)
+            observed_at = today
             _write_observation(
                 db,
                 "us.10y",
@@ -4314,9 +4315,15 @@ class IndicatorsServiceTests(unittest.TestCase):
                 value=4.45,
             )
 
-            with patch(
-                "baibai_engine.macro.indicators.service.fetch_observations",
-                side_effect=AssertionError("provider should not be called"),
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service._today_jst",
+                    return_value=today,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    side_effect=AssertionError("provider should not be called"),
+                ),
             ):
                 result = IndicatorsService(db).get_latest("us.10y")
 
@@ -4327,7 +4334,7 @@ class IndicatorsServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
             initialize_database(db).close()
-            today = datetime.now(UTC).date()
+            today = date(2026, 7, 27)
             observation = ObservationRecord(
                 series_id="jp.10y",
                 observed_at=today,
@@ -4336,10 +4343,20 @@ class IndicatorsServiceTests(unittest.TestCase):
                 source_url="https://example.com/data.csv",
                 vintage_at=datetime.now(UTC),
             )
-            with patch(
-                "baibai_engine.macro.indicators.service.fetch_observations",
-                return_value=[observation],
-            ) as fetch:
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[observation],
+                ) as fetch,
+                patch(
+                    "baibai_engine.macro.indicators.service.load_reading_rules",
+                    side_effect=AssertionError("explicit refresh does not need cache rules"),
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service._today_jst",
+                    return_value=today,
+                ),
+            ):
                 result = IndicatorsService(db).get_latest("jp.10y", refresh=True)
 
             self.assertFalse(result.cache_hit)
@@ -4348,11 +4365,11 @@ class IndicatorsServiceTests(unittest.TestCase):
     def test_get_latest_refreshes_stale_latest_even_when_range_has_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "macro.sqlite"
-            today = datetime.now(UTC).date()
+            today = date(2026, 7, 27)
             _write_observation_with_coverage(
                 db,
                 "jp.10y",
-                observed_at=today - timedelta(days=2),
+                observed_at=today - timedelta(days=8),
                 value=2.7,
                 coverage_start=today - timedelta(days=14),
                 coverage_end=today,
@@ -4365,10 +4382,16 @@ class IndicatorsServiceTests(unittest.TestCase):
                 source_url="https://example.com/data.csv",
                 vintage_at=datetime.now(UTC),
             )
-            with patch(
-                "baibai_engine.macro.indicators.service.fetch_observations",
-                return_value=[observation],
-            ) as fetch:
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service._today_jst",
+                    return_value=today,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[observation],
+                ) as fetch,
+            ):
                 result = IndicatorsService(db).get_latest("jp.10y")
 
             self.assertFalse(result.cache_hit)
@@ -4376,14 +4399,79 @@ class IndicatorsServiceTests(unittest.TestCase):
             self.assertEqual(result.observations[0].observed_at, today - timedelta(days=1))
             self.assertEqual(result.observations[0].value, 2.8)
 
-    def test_multpl_latest_keeps_daily_refresh_semantics(self) -> None:
+    def test_get_latest_uses_series_staleness_override_for_consumer_sentiment(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
-            today = datetime.now(UTC).date()
+            today = date(2026, 7, 27)
+            definition = load_definitions().by_id()["us.consumer_sentiment"]
+            _write_observation_with_coverage(
+                database,
+                definition.series_id,
+                observed_at=today - timedelta(days=66),
+                value=50.0,
+                coverage_start=today - timedelta(days=370),
+                coverage_end=today,
+            )
+            current = ObservationRecord(
+                series_id=definition.series_id,
+                observed_at=today - timedelta(days=28),
+                value=51.0,
+                unit=definition.unit,
+                source_url=definition.source_url,
+                vintage_at=datetime.now(UTC),
+            )
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service._today_jst",
+                    return_value=today,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[current],
+                ) as fetch,
+            ):
+                result = IndicatorsService(database).get_latest(definition.series_id)
+
+            self.assertFalse(result.cache_hit)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(result.observations[0].value, 51.0)
+
+    def test_get_latest_accepts_cache_at_series_staleness_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            today = date(2026, 7, 27)
+            _write_observation(
+                database,
+                "us.consumer_sentiment",
+                observed_at=today - timedelta(days=65),
+                value=50.0,
+            )
+
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service._today_jst",
+                    return_value=today,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    side_effect=AssertionError("provider should not be called"),
+                ),
+            ):
+                result = IndicatorsService(database).get_latest("us.consumer_sentiment")
+
+            self.assertTrue(result.cache_hit)
+
+    def test_multpl_latest_uses_reading_staleness_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            today = date(2026, 7, 27)
             _write_observation(
                 database,
                 "us.sp500_cape",
-                observed_at=today - timedelta(days=2),
+                observed_at=today - timedelta(days=8),
                 value=39.0,
             )
             definition = load_definitions().by_id()["us.sp500_cape"]
@@ -4396,10 +4484,16 @@ class IndicatorsServiceTests(unittest.TestCase):
                 vintage_at=datetime.now(UTC),
             )
 
-            with patch(
-                "baibai_engine.macro.indicators.service.fetch_observations",
-                return_value=[current],
-            ) as fetch:
+            with (
+                patch(
+                    "baibai_engine.macro.indicators.service._today_jst",
+                    return_value=today,
+                ),
+                patch(
+                    "baibai_engine.macro.indicators.service.fetch_observations",
+                    return_value=[current],
+                ) as fetch,
+            ):
                 result = IndicatorsService(database).get_latest("us.sp500_cape")
 
             self.assertEqual(definition.frequency, "daily")

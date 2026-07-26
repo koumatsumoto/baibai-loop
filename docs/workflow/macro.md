@@ -25,7 +25,7 @@ uv run baibai-engine macro refresh us.10y --start 2026-06-20 --end 2026-07-02   
 uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        # provider が提供する全履歴を同期
 ```
 
-`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` は frequency 別の鮮度窓（daily は 1 暦日、weekly は 14 日、monthly は 70 日）内の cache があればそれを返し、古い場合は最新確認用の短い窓（daily は 14 日、weekly は 60 日、monthly は 370 日）を provider で再取得する。この窓は **cache を引き直すかどうかの閾値**であり、観測が古いことの警告ではない（観測の齢は §② の staleness が持つ）。
+`get` は取得済み範囲のキャッシュを確認し、不足があるときだけ provider を呼ぶ。同じ入力には同じ出力を返す（決定論）。`get --latest` はJSTの運用日を `asof` とし、§② の reading rules が系列ごとに解決する `staleness_warn_days` 以下の observation を cache として返し、超えた場合は provider を再取得するため、公表ラグと鮮度判定の知識は reading rules が一元的に持つ。再取得する期間幅は鮮度閾値とは別の契約であり、service の `LATEST_FETCH_LOOKBACK_DAYS`（daily 14 日・weekly 60 日・monthly 以下 370 日）を `get --latest` と日次batchが共用する。
 
 `refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列の observation は registry の `source_url` と一致する cache だけを保持し、同内容の連続 vintage は provider run に取得記録を残して observation から除く。値・単位・期間・取得状態・source が変わる revision と、値が変化して同じ水準へ戻る revision は保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 

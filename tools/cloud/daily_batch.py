@@ -36,6 +36,10 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from baibai_engine.macro.indicators.service import (
+    DEFAULT_LATEST_LOOKBACK_DAYS,
+    LATEST_FETCH_LOOKBACK_DAYS,
+)
 from baibai_engine.read_api import market_calendar_business_day, previous_run_revision_id
 
 _JST = ZoneInfo("Asia/Tokyo")
@@ -43,11 +47,6 @@ _ENGINE = "baibai-engine"
 _MARKET_DB_RELPATH = Path("data/screening/market.sqlite")
 _RUNS_DB_RELPATH = Path("data/screening/runs.sqlite")
 _EXPORT_SCRIPT_RELPATH = Path("tools/cloud/export_read_models.py")
-# Refresh window per series frequency, mirroring the provider re-fetch windows
-# the macro `get --latest` freshness check uses (daily 14 / weekly 60 /
-# monthly and slower 370 calendar days).
-_MACRO_REFRESH_WINDOW_DAYS = {"daily": 14, "weekly": 60}
-_MACRO_REFRESH_WINDOW_DEFAULT_DAYS = 370
 _STDERR_SUMMARY_LINES = 20
 # `verify-cache-coverage` prints this marker on stdout for a genuine cache gap;
 # an exit 1 without it (broken rules, unreadable store) is a crash, not a gap.
@@ -228,7 +227,10 @@ def _macro_refresh_groups(series: Sequence[_MacroSeries]) -> list[tuple[int, lis
 
     groups: dict[tuple[int, int], list[str]] = {}
     for item in series:
-        window = _MACRO_REFRESH_WINDOW_DAYS.get(item.frequency, _MACRO_REFRESH_WINDOW_DEFAULT_DAYS)
+        window = LATEST_FETCH_LOOKBACK_DAYS.get(
+            item.frequency,
+            DEFAULT_LATEST_LOOKBACK_DAYS,
+        )
         kind_order = 1 if item.kind == "local" else 0
         groups.setdefault((kind_order, window), []).append(item.series_id)
     return [(window, series_ids) for (_kind_order, window), series_ids in sorted(groups.items())]

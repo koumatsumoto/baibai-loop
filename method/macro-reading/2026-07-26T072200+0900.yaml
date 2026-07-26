@@ -22,6 +22,8 @@
 #                            percentile が測る %変化と単位が違う。
 #   staleness_warn_days      最終観測がこの日数より古ければ stale と注記する。観測の
 #                            齢であり cache の齢ではないため、公表ラグと週末を含む。
+#                            `macro get --latest` もJST運用日から同じ閾値を計算し、
+#                            cache 再取得判定に使う。
 #                            閾値は **その source の公表ラグ + 1 公表間隔 + 数日の
 #                            余裕** で置く（1 回の公表落ちで注記が出て、平常の公表
 #                            待ちでは出ない水準）。ラグが frequency default と構造的
