@@ -27,7 +27,7 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
             ObservationRecord(
                 series_id="us.10y",
                 observed_at=current,
-                value=float(current.toordinal()),
+                value=(current - start).days / 1000.0,
                 unit="percent",
                 source_url="https://example.com/us10y.csv",
                 vintage_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -57,17 +57,17 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
     assert len(monthly) == 120
     assert len(yearly) == 10
     assert weekly == [
-        {"observed_at": day.isoformat(), "value": float(day.toordinal())}
+        {"observed_at": day.isoformat(), "value": (day - start).days / 1000.0}
         for day in expected_week_ends.values()
     ]
     assert monthly == [
-        {"observed_at": day.isoformat(), "value": float(day.toordinal())}
+        {"observed_at": day.isoformat(), "value": (day - start).days / 1000.0}
         for day in expected_month_ends.values()
     ]
     assert [point["observed_at"] for point in yearly] == [
         f"{year}-12-31" for year in range(2016, 2026)
     ]
-    assert yearly[-1]["value"] == float(end.toordinal())
+    assert yearly[-1]["value"] == (end - start).days / 1000.0
     series = macro_indicator_series(database, series_id="us.10y")
     assert series is not None
     assert series["tradingview_symbol"] == "TVC:US10Y"

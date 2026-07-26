@@ -5,6 +5,8 @@ series:
     geography: world
     frequency: daily
     unit: index
+    plausible_min: 0.5
+    plausible_max: 1000
     provider: fred_csv
     provider_series_id: VIXCLS
     source_id: fred-vixcls
@@ -17,6 +19,8 @@ series:
     geography: world
     frequency: daily
     unit: usd-per-barrel
+    plausible_min: -500
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: DCOILWTICO
     source_id: fred-dcoilwtico
@@ -29,6 +33,8 @@ series:
     geography: world
     frequency: daily
     unit: usd-per-barrel
+    plausible_min: 0.5
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: DCOILBRENTEU
     source_id: fred-dcoilbrenteu
@@ -41,6 +47,8 @@ series:
     geography: world
     frequency: daily
     unit: usd
+    plausible_min: 10
+    plausible_max: 2000000
     provider: fred_csv
     provider_series_id: CBBTCUSD
     source_id: fred-cbbtcusd
@@ -53,6 +61,8 @@ series:
     geography: world
     frequency: daily
     unit: usd-per-oz
+    plausible_min: 20
+    plausible_max: 100000
     provider: yahoo
     provider_series_id: GC=F
     source_id: yahoo-gc-f
@@ -66,6 +76,8 @@ series:
     geography: world
     frequency: daily
     unit: usd-per-lb
+    plausible_min: 0.05
+    plausible_max: 100
     provider: yahoo
     provider_series_id: HG=F
     source_id: yahoo-hg-f
@@ -79,6 +91,8 @@ series:
     geography: euro
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: ECBDFR
     source_id: fred-ecbdfr
@@ -91,6 +105,8 @@ series:
     geography: world
     frequency: daily
     unit: usd-per-oz
+    plausible_min: 0.2
+    plausible_max: 2000
     provider: yahoo
     provider_series_id: SI=F
     source_id: yahoo-si-f
@@ -104,6 +120,8 @@ series:
     geography: world
     frequency: weekly
     unit: contracts
+    plausible_min: -3000000
+    plausible_max: 3000000
     provider: cftc
     provider_series_id: "097741"
     source_id: cftc-cot-jpy
@@ -116,6 +134,8 @@ series:
     geography: us
     frequency: weekly
     unit: contracts
+    plausible_min: -3000000
+    plausible_max: 3000000
     provider: cftc
     provider_series_id: "043602"
     source_id: cftc-cot-ust10y
@@ -128,6 +148,8 @@ series:
     geography: us
     frequency: weekly
     unit: contracts
+    plausible_min: -3000000
+    plausible_max: 3000000
     provider: cftc
     provider_series_id: 13874A
     source_id: cftc-cot-sp500
@@ -140,6 +162,8 @@ series:
     geography: euro
     frequency: weekly
     unit: eur-million
+    plausible_min: 50000
+    plausible_max: 100000000
     provider: fred_csv
     provider_series_id: ECBASSETSW
     source_id: fred-ecbassetsw
@@ -152,6 +176,8 @@ series:
     geography: euro
     frequency: monthly
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: IRLTLT01DEM156N
     source_id: fred-irltlt01dem156n
@@ -164,6 +190,8 @@ series:
     geography: china
     frequency: daily
     unit: cny-per-usd
+    plausible_min: 0.1
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: DEXCHUS
     source_id: fred-dexchus
@@ -177,6 +205,8 @@ series:
     geography: world
     frequency: daily
     unit: usd-per-mmbtu
+    plausible_min: 0.1
+    plausible_max: 500
     provider: fred_csv
     provider_series_id: DHHNGSP
     source_id: fred-dhhngsp
@@ -190,6 +220,8 @@ series:
     geography: world
     frequency: daily
     unit: usd
+    plausible_min: 2
+    plausible_max: 1000
     provider: yahoo
     provider_series_id: ACWX
     source_id: yahoo-acwx
@@ -202,6 +234,8 @@ series:
     geography: euro
     frequency: daily
     unit: index
+    plausible_min: 10
+    plausible_max: 10000
     provider: yahoo
     provider_series_id: ^STOXX
     source_id: yahoo-stoxx600
@@ -215,6 +249,8 @@ series:
     geography: world
     frequency: daily
     unit: usd
+    plausible_min: 1
+    plausible_max: 1000
     provider: yahoo
     provider_series_id: EEM
     source_id: yahoo-eem

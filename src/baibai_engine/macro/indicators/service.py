@@ -319,7 +319,9 @@ class IndicatorsService:
                 raise IndicatorsProviderError(
                     f"all-history refresh returned no observations for {series.series_id}"
                 )
+            _reject_observation_identity(series, observations)
             _reject_non_finite(series, observations)
+            _reject_outside_plausible_range(series, observations)
             if range_replacement == "all_vintages":
                 _require_complete_replacement(
                     conn,
@@ -476,6 +478,45 @@ def _reject_non_finite(series: SeriesDefinition, observations: list[ObservationR
             raise IndicatorsProviderError(
                 f"{series.series_id} {observation.observed_at.isoformat()}: "
                 f"non-finite value {observation.value}"
+            )
+
+
+def _reject_observation_identity(
+    series: SeriesDefinition,
+    observations: list[ObservationRecord],
+) -> None:
+    """Bind every provider row to the requested series and its declared unit."""
+
+    for observation in observations:
+        if observation.series_id != series.series_id:
+            raise IndicatorsProviderError(
+                f"{series.series_id}: provider returned observation for {observation.series_id}"
+            )
+        if observation.unit != series.unit:
+            raise IndicatorsProviderError(
+                f"{series.series_id} {observation.observed_at.isoformat()}: "
+                f"provider returned unit {observation.unit!r}; expected {series.unit!r}"
+            )
+
+
+def _reject_outside_plausible_range(
+    series: SeriesDefinition,
+    observations: list[ObservationRecord],
+) -> None:
+    """Reject finite values that indicate a likely column, scale, or unit mismatch."""
+
+    low = series.plausible_min
+    high = series.plausible_max
+    for observation in observations:
+        if (low is not None and observation.value < low) or (
+            high is not None and observation.value > high
+        ):
+            rendered_low = "-inf" if low is None else f"{low:g}"
+            rendered_high = "inf" if high is None else f"{high:g}"
+            raise IndicatorsProviderError(
+                f"{series.series_id} {observation.observed_at.isoformat()}: "
+                f"value {observation.value:g} outside plausible range "
+                f"[{rendered_low}, {rendered_high}]"
             )
 
 
