@@ -11,7 +11,11 @@ from baibai_engine.macro.indicators.db import (
     initialize_database,
     insert_observations,
 )
-from baibai_engine.read_api.macro import MacroGranularity, macro_indicator_series
+from baibai_engine.read_api.macro import (
+    MacroGranularity,
+    macro_indicator_series,
+    macro_reading_snapshot,
+)
 
 
 def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
@@ -158,6 +162,55 @@ def test_macro_indicator_series_applies_jquants_publication_cutoff(tmp_path: Pat
     assert august["points"] == [{"observed_at": "2024-08-23", "value": -408854431.0}]
     assert september is not None
     assert september["points"] == [{"observed_at": "2024-08-23", "value": -400000000.0}]
+
+
+def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id="jp.foreign_flows",
+                    observed_at=date(2024, 8, 23),
+                    value=value,
+                    unit="jpy",
+                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
+                    period_start=date(2024, 8, 19),
+                    period_end=date(2024, 8, 23),
+                    vintage_at=vintage_at,
+                )
+                for value, vintage_at in (
+                    (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
+                    (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
+                )
+            ]
+            + [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=date(2024, 8, 23),
+                    value=4.25,
+                    unit="percent",
+                    source_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10",
+                    vintage_at=datetime(2024, 9, 10, tzinfo=UTC),
+                )
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    payload = macro_reading_snapshot(database, asof=date(2024, 8, 31))
+
+    assert payload is not None
+    readings = {str(item["series_id"]): item for item in payload["series"]}  # type: ignore[index]
+    assert readings["jp.foreign_flows"]["latest_value"] == -408854431.0
+    # FRED bulk-history vintage is acquisition time, not publication time, so it
+    # remains visible before the store happened to acquire it.
+    assert readings["us.10y"]["latest_value"] == 4.25
 
 
 def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> None:

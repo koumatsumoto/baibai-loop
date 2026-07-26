@@ -53,6 +53,8 @@ from baibai_engine.macro.indicators.providers import (
     parse_trades_spec,
     parse_tsr_bankruptcies_json,
     parse_yahoo_chart,
+    point_in_time_providers,
+    registered_specs,
     spglobal_pmi,
 )
 from baibai_engine.macro.indicators.providers.base import FetchContext, HttpSession
@@ -331,6 +333,55 @@ class IndicatorsDBTests(unittest.TestCase):
             self.assertEqual(reading_exit, 0)
             self.assertNotIn("jp.cpi.stale", stdout.getvalue())
             self.assertEqual(remaining, 1)
+
+    def test_reading_cli_replays_point_in_time_provider_vintage_at_asof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "macro.sqlite"
+            conn = initialize_database(database)
+            try:
+                insert_observations(
+                    conn,
+                    [
+                        ObservationRecord(
+                            series_id="jp.foreign_flows",
+                            observed_at=date(2024, 8, 23),
+                            value=value,
+                            unit="jpy",
+                            source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
+                            period_start=date(2024, 8, 19),
+                            period_end=date(2024, 8, 23),
+                            vintage_at=vintage_at,
+                        )
+                        for value, vintage_at in (
+                            (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
+                            (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
+                        )
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            stdout = io.StringIO()
+
+            with redirect_stdout(stdout):
+                exit_code = reading_main(
+                    [
+                        "--asof",
+                        "2024-08-31",
+                        "--db",
+                        str(database),
+                        "--format",
+                        "json",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            payload = json.loads(stdout.getvalue())
+            readings = {item["series_id"]: item for item in payload["series"]}
+            self.assertEqual(
+                readings["jp.foreign_flows"]["latest_value"],
+                -408854431.0,
+            )
 
     def test_refresh_prunes_retired_series_and_reports_deleted_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2910,6 +2961,12 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
 
 class IndicatorsRegistryTests(unittest.TestCase):
+    def test_point_in_time_read_contracts_match_registered_provider_specs(self) -> None:
+        self.assertEqual(
+            point_in_time_providers(),
+            frozenset(spec.name for spec in registered_specs() if spec.point_in_time_vintage),
+        )
+
     def test_canonical_registry_membership_has_a_known_generation(self) -> None:
         self.assertEqual(load_definitions().generation, 1)
         with (

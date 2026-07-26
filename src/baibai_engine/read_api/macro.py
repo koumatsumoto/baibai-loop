@@ -10,10 +10,10 @@ from typing import Literal
 
 from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
 from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
-from baibai_engine.macro.indicators import db as indicators_db
 from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.reading.compute import compute_reading
 from baibai_engine.macro.reading.models import snapshot_payload
+from baibai_engine.macro.reading.reader import build_store_observation_reader
 from baibai_engine.macro.reading.rules import (
     DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
 )
@@ -50,10 +50,12 @@ def macro_reading_snapshot(
         return None
     connection = connect_read_only(path)
     try:
+        definitions = load_definitions()
         snapshot = compute_reading(
-            series=load_definitions().series,
-            reader=lambda series_id, start, end: indicators_db.observations_in_range(
-                connection, series_id, start, end
+            series=definitions.series,
+            reader=build_store_observation_reader(
+                connection,
+                series=definitions.series,
             ),
             rules=rules,
             rules_revision=rules_revision(rules_path),
@@ -218,48 +220,34 @@ def macro_indicator_series(
         raise ValueError("macro indicator end must be on or after start")
     if not path.is_file():
         return None
-    if series_id not in _registry_by_id():
+    registry = _registry_by_id()
+    if series_id not in registry:
         return None
     connection = connect_read_only(path)
     try:
         series = connection.execute(
-            "SELECT name, unit, provider FROM series WHERE series_id = ?", (series_id,)
+            "SELECT name, unit FROM series WHERE series_id = ?", (series_id,)
         ).fetchone()
         if series is None:
             return None
-        start_text = start.isoformat() if start is not None else None
-        end_text = end.isoformat() if end is not None else None
-        rows = connection.execute(
-            """
-            SELECT observed_at, value, unit FROM (
-                SELECT observed_at, value, unit,
-                       row_number() OVER (
-                           PARTITION BY observed_at ORDER BY vintage_at DESC
-                       ) AS rank
-                FROM observations
-                WHERE series_id = ? AND fetch_status = 'ok'
-                  AND (? IS NULL OR observed_at >= ?)
-                  AND (? IS NULL OR observed_at <= ?)
-                  AND (? != 'jquants_flows' OR ? IS NULL
-                       OR substr(vintage_at, 1, 10) <= ?)
-            )
-            WHERE rank = 1
-            ORDER BY observed_at ASC
-            """,
-            (
-                series_id,
-                start_text,
-                start_text,
-                end_text,
-                end_text,
-                str(series[2]),
-                end_text,
-                end_text,
-            ),
-        ).fetchall()
+        reader = build_store_observation_reader(
+            connection,
+            series=tuple(registry.values()),
+        )
+        observations = reader(
+            series_id,
+            start or date.min,
+            end or date.max,
+        )
     finally:
         connection.close()
-    points = [{"observed_at": str(row[0]), "value": float(row[1])} for row in rows]
+    points = [
+        {
+            "observed_at": observation.observed_at.isoformat(),
+            "value": observation.value,
+        }
+        for observation in observations
+    ]
     points = _aggregate_period_end(points, granularity=granularity)
     if limit is not None:
         if limit < 1:

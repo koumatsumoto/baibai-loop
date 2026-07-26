@@ -3,13 +3,16 @@
 Pure with respect to its inputs: the same store contents, rules and as-of date
 always produce the same snapshot. Nothing here fetches from a provider or writes
 to a store, so a reading can be recomputed for any past date without touching the
-outside world.
+outside world. Store readers clamp vintages only for providers whose spec
+declares publication-quality point-in-time timestamps. Bulk backfills usually
+carry acquisition timestamps, so clamping every provider would erase facts that
+were public before the store first acquired them.
 """
 
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from statistics import fmean, stdev
@@ -18,11 +21,8 @@ from baibai_engine.macro.indicators.db import ObservationRecord
 from baibai_engine.macro.indicators.definitions import SeriesDefinition
 
 from .models import ReadingSnapshot, SeriesReading, SeriesTrend, TrendDirection
+from .reader import ObservationReader
 from .rules import ReadingRules, ReadingStatistic, ResolvedRule, SamplingCadence, window_start
-
-# Reads one series' observations in ``[start, end]`` (ascending). The caller binds
-# it to the L1 store, so compute never opens a connection of its own.
-type ObservationReader = Callable[[str, date, date], Sequence[ObservationRecord]]
 
 # A percentile / z-score needs enough points that it describes a distribution
 # rather than a handful of readings.
