@@ -15,11 +15,14 @@ what the skill's adversarial self-check is for.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from calendar import monthrange
 from collections.abc import Mapping
 from datetime import date, datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -185,11 +188,79 @@ class MachineSnapshotInput(_TimestampedInput):
     used_for: str = Field(min_length=1)
 
 
+def scorecard_snapshot_input_id(
+    *,
+    context_id: str,
+    snapshot_asof: date,
+    rules_revision: str,
+    context_db: str,
+    indicators_db: str,
+    result_digest: str,
+) -> str:
+    identity_digest = hashlib.sha256(
+        json.dumps(
+            {
+                "context_id": context_id,
+                "snapshot_asof": snapshot_asof.isoformat(),
+                "rules_revision": rules_revision,
+                "context_db": context_db,
+                "indicators_db": indicators_db,
+                "result_digest": result_digest,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    return f"scorecard-{context_id}-{snapshot_asof.isoformat()}-{identity_digest[:12]}"
+
+
+class ScorecardSnapshotInput(_TimestampedInput):
+    """A citable scorecard result with its complete structured identity."""
+
+    kind: Literal["macro-scorecard-evaluation"]
+    input_id: str = Field(min_length=1)
+    context_id: str = Field(min_length=1)
+    rules_revision: str = Field(min_length=1)
+    context_db: str = Field(min_length=1)
+    indicators_db: str = Field(min_length=1)
+    result_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    command: str = Field(min_length=1)
+    snapshot_asof: date
+    observation_as_of: date | None
+    accessed_at: datetime
+    status: Literal["ok", "failed"]
+    used_for: str = Field(min_length=1)
+
+    @field_validator("context_db", "indicators_db")
+    @classmethod
+    def require_canonical_absolute_store_path(cls, value: str) -> str:
+        path = Path(value)
+        canonical = str(path.resolve())
+        if not path.is_absolute() or value != canonical:
+            raise ValueError(f"scorecard store path must be canonical and absolute: {canonical}")
+        return value
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> Self:
+        expected = scorecard_snapshot_input_id(
+            context_id=self.context_id,
+            snapshot_asof=self.snapshot_asof,
+            rules_revision=self.rules_revision,
+            context_db=self.context_db,
+            indicators_db=self.indicators_db,
+            result_digest=self.result_digest,
+        )
+        if self.input_id != expected:
+            raise ValueError(f"scorecard input_id must be {expected}")
+        return self
+
+
 class MacroInputs(_StrictModel):
     articles: tuple[ArticleInput, ...]
     indicator_series: tuple[IndicatorSeriesInput, ...]
     reading_snapshots: tuple[ReadingSnapshotInput, ...]
-    machine_snapshots: tuple[MachineSnapshotInput, ...] = ()
+    machine_snapshots: tuple[MachineSnapshotInput | ScorecardSnapshotInput, ...] = ()
 
 
 class FactSummary(_SourcedStatement):
@@ -297,6 +368,7 @@ class MacroCoreSection(_StrictModel):
     economic_connection: EconomicConnection
     change_since_previous: str | None = None
     previous_scorecard_review: str | None = None
+    previous_scorecard_snapshot_id: str | None = None
     material_deltas: tuple[MaterialDelta, ...] = ()
     risk_environment: RiskEnvironmentAssessment | None = None
     scenarios: tuple[MacroScenario, ...] = ()
@@ -325,11 +397,18 @@ class MacroCoreSection(_StrictModel):
             ):
                 if value is None or not value.strip():
                     raise ValueError(f"regime summary requires the {name}")
+            if (
+                self.previous_scorecard_snapshot_id is not None
+                and not self.previous_scorecard_snapshot_id.strip()
+            ):
+                raise ValueError("previous scorecard snapshot id must be non-blank")
             return
         if self.change_since_previous is not None:
             raise ValueError("change from the previous context belongs in the regime summary")
         if self.previous_scorecard_review is not None:
             raise ValueError("the previous scorecard review belongs in the regime summary")
+        if self.previous_scorecard_snapshot_id is not None:
+            raise ValueError("the previous scorecard snapshot belongs in the regime summary")
 
     def _validate_risk_environment_section(self) -> None:
         if self.section_id == "risk_environment":
@@ -493,7 +572,10 @@ class MacroContextDocument(_StrictModel):
             register(snapshot.input_id, snapshot.status)
             if snapshot.snapshot_asof > self.as_of:
                 raise ValueError("a machine snapshot must not be taken past the report as_of")
-            if snapshot.observation_as_of > snapshot.snapshot_asof:
+            if (
+                snapshot.observation_as_of is not None
+                and snapshot.observation_as_of > snapshot.snapshot_asof
+            ):
                 raise ValueError("a machine snapshot must not observe past its own as_of")
         if not statuses:
             raise ValueError("at least one macro input is required")
@@ -648,4 +730,6 @@ __all__ = [
     "MATERIAL_DELTA_SECTION_IDS",
     "MacroContextDocument",
     "MacroCoreSectionId",
+    "ScorecardSnapshotInput",
+    "scorecard_snapshot_input_id",
 ]

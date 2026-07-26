@@ -3,16 +3,31 @@
 from __future__ import annotations
 
 import argparse
+import json
+import sqlite3
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.macro.indicators.db import (
+    DEFAULT_DB_PATH as DEFAULT_INDICATORS_DB_PATH,
+)
+from baibai_engine.macro.indicators.db import (
+    IndicatorsSchemaError,
+)
+from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
 
 from .models import MacroContextDocument
+from .scorecard import (
+    ScorecardEvaluation,
+    ScorecardEvaluationError,
+    evaluate_scorecard_from_stores,
+)
 from .service import (
     MacroContextConflictError,
     MacroContextNotFoundError,
@@ -33,10 +48,20 @@ def build_parser() -> argparse.ArgumentParser:
     selection.add_argument("--context-id")
     show.add_argument("--asof", required=True, type=date.fromisoformat)
     commands.add_parser("head")
+    scorecard = commands.add_parser("scorecard")
+    scorecard.add_argument("--context-id", required=True)
+    scorecard.add_argument("--asof", required=True, type=date.fromisoformat)
+    scorecard.add_argument(
+        "--indicators-db",
+        type=Path,
+        default=DEFAULT_INDICATORS_DB_PATH,
+    )
+    scorecard.add_argument("--rules", type=Path, default=DEFAULT_RULES_PATH)
+    scorecard.add_argument("--format", choices=("table", "json"), default="table")
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     service = MacroContextService(args.db)
     try:
@@ -52,14 +77,30 @@ def main(argv: list[str] | None = None) -> int:
                 _emit(service.get_for(args.context_id, as_of=args.asof).payload())
         elif args.command == "head":
             _emit({"context_id": service.head_id()})
+        elif args.command == "scorecard":
+            evaluation = evaluate_scorecard_from_stores(
+                context_db=args.db,
+                indicators_db_path=args.indicators_db,
+                context_id=args.context_id,
+                asof=args.asof,
+                accessed_at=now or datetime.now(JST),
+                rules_path=args.rules,
+            )
+            if args.format == "json":
+                print(json.dumps(evaluation.payload(), ensure_ascii=False))
+            else:
+                _print_scorecard(evaluation)
         else:  # pragma: no cover
             raise AssertionError(f"unreachable macro context command: {args.command}")
     except (
         OSError,
         ValueError,
         ValidationError,
+        IndicatorsSchemaError,
         MacroContextConflictError,
         MacroContextNotFoundError,
+        ScorecardEvaluationError,
+        sqlite3.Error,
     ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
@@ -70,4 +111,36 @@ def _emit(payload: object) -> None:
     yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
 
 
-__all__ = ["main"]
+def _print_scorecard(evaluation: ScorecardEvaluation) -> None:
+    print(
+        "# macro scorecard "
+        f"context={evaluation.context_id} asof={evaluation.snapshot_asof.isoformat()}"
+    )
+    print(f"# vintage_policy={evaluation.vintage_policy}")
+    print(f"# rules_revision={evaluation.rules_revision}")
+    print(
+        "case\tcondition\tstatus\tseries_id\tcomparison\tthreshold\tdeadline\t"
+        "settlement_ready_on\tevaluated_through\tobserved_at\tvalue"
+    )
+    for result in evaluation.results:
+        observation = result.observation
+        print(
+            "\t".join(
+                (
+                    result.case,
+                    str(result.condition_index),
+                    result.status,
+                    result.series_id,
+                    result.comparison,
+                    f"{result.threshold:g}",
+                    result.deadline.isoformat(),
+                    result.settlement_ready_on.isoformat(),
+                    result.evaluated_through.isoformat(),
+                    "-" if observation is None else observation.observed_at.isoformat(),
+                    "-" if observation is None else f"{observation.value:g}",
+                )
+            )
+        )
+
+
+__all__ = ["build_parser", "main"]

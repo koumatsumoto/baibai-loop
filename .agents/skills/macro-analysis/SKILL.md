@@ -24,7 +24,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
 2. `baibai-engine macro refresh`で判断に使う主要seriesを直近窓ごと再取得し、`baibai-engine macro reading --asof <営業日>`を**全系列読む**。`stale`・`insufficient_history`・`flags`・極端な`z_score`を先に把握する（ここで見えるdata healthの異常は、以降の解釈より先に扱う）。
 3. readingで見えた論点と8分析レンズから、確認すべき一次sourceを決めて取得する。series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。
 4. core 10セクションをworkflowの固定順で書く。各セクションでseries・fact・judgment・経済経路への接続を分け、セクション9でリスク選好環境の評価（stance・確度・**反証条件**）とbase/bear/bullを置く。各シナリオには機械照合可能な観測条件（series_id・比較演算・閾値・期限日）を2件以上付ける。深度契約（8象限被覆・Tier-1 15本以上・日本需要fact・円両側リスク・バリュエーションアンカー・energy/通商/地政学）を全項目満たす。
-5. **前回scorecardの採点を接続する**: 今回の評価をゼロベースで確定した**後に**、前回条件をL1履歴で照合し、結果をレジーム要約の`previous_scorecard_review`へ書く（当たり外れの事実だけを書き、今回の解釈の前提にしない）。前回レポートがなければその旨を書く。
+5. **前回scorecardの採点を接続する**: 今回の評価をゼロベースで確定した**後に**、`baibai-engine macro context scorecard --context-id <前回id> --asof <今回asof> --format json`で前回条件をL1履歴と照合する。settlement watermark / provider run / staleness error があれば採点不能を解消してから進む。出力の`machine_snapshot`をinputsへ引用し、その`input_id`をレジーム要約の`previous_scorecard_snapshot_id`へ置き、結果を`previous_scorecard_review`へ書く（当たり外れの事実だけを書き、今回の解釈の前提にしない）。前回レポートがなければその旨を書く。
 6. connectionセクションをcoreから導出する: research優先度ヒント（どの候補タイプ・sectorに効くかを`applies_to`で判別可能に）、sector tilt、sizing caution。引用できるseriesはcoreが引用済みのものだけで、依拠するcoreセクションを明示する。市場内部（`screening market-snapshot`）を引用してバーゲン地形を書く。
 7. 個別thesisのどのscenario/claimを変えるかを1〜3行で示す。
 8. publish前に敵対的self-checkを通す:
