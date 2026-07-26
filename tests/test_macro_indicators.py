@@ -77,11 +77,11 @@ from baibai_engine.macro.indicators.providers.pmi_extraction import (
     extract_pmi_value,
 )
 from baibai_engine.macro.indicators.providers.spglobal_pmi import (
+    Release,
     SpGlobalPmiProvider,
-    _manifest,
     _parse_stream,
-    _Release,
     extract_pdf_text,
+    load_manifest,
 )
 from baibai_engine.macro.indicators.providers.umich_sca import parse_umich_table
 from baibai_engine.macro.indicators.service import (
@@ -1929,7 +1929,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             extract_pdf_text(b"<html>blocked</html>")
 
     def test_spglobal_pmi_manifest_parses_jp_manufacturing_stream(self) -> None:
-        streams = _manifest()
+        streams = load_manifest()
 
         self.assertIn("jp_manufacturing", streams)
         entries = streams["jp_manufacturing"]
@@ -1946,7 +1946,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_spglobal_pmi_all_history_start_reaches_the_oldest_manifest_month(self) -> None:
         # `--all-history` clips to the provider's declared start, so a manifest month
         # older than that start would be unfetchable by the standard rebuild path.
-        oldest = min(entry.observed_at for entries in _manifest().values() for entry in entries)
+        oldest = min(entry.observed_at for entries in load_manifest().values() for entry in entries)
 
         self.assertLessEqual(SpGlobalPmiProvider.spec.all_history_start, oldest)
 
@@ -1971,7 +1971,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         # newly registered PMI series can never ship without its release URLs.
         from baibai_engine.macro.indicators.definitions import load_definitions
 
-        streams = set(_manifest())
+        streams = set(load_manifest())
         pmi_series = [s for s in load_definitions().series if s.provider == "spglobal_pmi"]
         self.assertTrue(pmi_series)
         for series in pmi_series:
@@ -2075,7 +2075,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         stream = _pmi_stream(["2026-05-01", "2026-06-01"])
 
         with (
-            patch.object(spglobal_pmi, "_manifest", return_value={"jp_manufacturing": stream}),
+            patch.object(spglobal_pmi, "load_manifest", return_value={"jp_manufacturing": stream}),
             self.assertRaisesRegex(
                 IndicatorsProviderError,
                 r"manifest for jp_manufacturing ends at 2026-06-01 .*expects 2026-07-01",
@@ -5418,7 +5418,7 @@ def _registry_yaml(*, plausible_min: str, plausible_max: str) -> str:
     )
 
 
-def _pmi_stream(months: list[str]) -> tuple[_Release, ...]:
+def _pmi_stream(months: list[str]) -> tuple[Release, ...]:
     return _parse_stream(
         "jp_manufacturing",
         [
@@ -5432,7 +5432,7 @@ def _pmi_stream(months: list[str]) -> tuple[_Release, ...]:
 
 
 def _pmi_stored(
-    series_id: str, releases: Sequence[_Release], values: Sequence[float]
+    series_id: str, releases: Sequence[Release], values: Sequence[float]
 ) -> tuple[ObservationRecord, ...]:
     """Stored observations carrying the release URL their month names in the manifest."""
     return tuple(
@@ -5450,7 +5450,7 @@ def _pmi_stored(
 
 def _fetch_pmi_stream(
     series: SeriesDefinition,
-    stream: tuple[_Release, ...],
+    stream: tuple[Release, ...],
     *,
     start: date,
     end: date,
@@ -5465,13 +5465,13 @@ def _fetch_pmi_stream(
     month_by_url = {release.url: release.observed_at for release in stream}
     fetched: list[str] = []
 
-    def _release_text(url: str, *, session: object, context: object) -> str:
+    def release_text(url: str, *, session: object, context: object) -> str:
         fetched.append(url)
         return f"the headline PMI posted 50.4 in {month_by_url[url].strftime('%B')}."
 
     with (
-        patch.object(spglobal_pmi, "_manifest", return_value={"jp_manufacturing": stream}),
-        patch.object(spglobal_pmi, "_release_text", side_effect=_release_text),
+        patch.object(spglobal_pmi, "load_manifest", return_value={"jp_manufacturing": stream}),
+        patch.object(spglobal_pmi, "release_text", side_effect=release_text),
     ):
         observations = SpGlobalPmiProvider().fetch(
             series,
