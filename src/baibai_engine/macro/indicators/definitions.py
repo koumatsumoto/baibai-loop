@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
 from collections.abc import Mapping
@@ -13,6 +14,12 @@ from baibai_engine.foundation.yaml_io import strict_safe_load
 # unmanageable as the registry scales; the loader globs and merges them.
 DEFAULT_REGISTRY_DIR = Path(__file__).with_name("registry")
 _TRADINGVIEW_SYMBOL_RE = re.compile(r"[A-Za-z0-9._-]+:[A-Za-z0-9._!/-]+\Z")
+# Append one higher generation and its membership digest whenever canonical
+# series IDs change. Keeping prior entries lets stale branches identify
+# themselves without consulting git history or a network service.
+_REGISTRY_MEMBERSHIP_GENERATIONS = {
+    "216243143e489d470030896183313ff0ceedffcbc6f476ad1cd2a2f849e6687c": 1,
+}
 
 
 @dataclass(frozen=True)
@@ -36,6 +43,7 @@ class SeriesDefinition:
 @dataclass(frozen=True)
 class IndicatorDefinitions:
     series: tuple[SeriesDefinition, ...]
+    generation: int = 1
 
     def by_id(self) -> dict[str, SeriesDefinition]:
         return {item.series_id: item for item in self.series}
@@ -73,7 +81,19 @@ def load_definitions(path: Path = DEFAULT_REGISTRY_DIR) -> IndicatorDefinitions:
         series.extend(_parse_series(item) for item in _list(raw.get("series")))
     _lint_unique_series_ids(series)
     _lint_alias_identity_collisions(series)
-    return IndicatorDefinitions(series=tuple(series))
+    generation = _canonical_registry_generation(series) if path == DEFAULT_REGISTRY_DIR else 1
+    return IndicatorDefinitions(series=tuple(series), generation=generation)
+
+
+def _canonical_registry_generation(series: list[SeriesDefinition]) -> int:
+    membership = "\n".join(sorted(item.series_id for item in series)) + "\n"
+    digest = hashlib.sha256(membership.encode()).hexdigest()
+    generation = _REGISTRY_MEMBERSHIP_GENERATIONS.get(digest)
+    if generation is None:
+        raise ValueError(
+            f"indicator registry membership changed without a new generation digest: {digest}"
+        )
+    return generation
 
 
 def _lint_unique_series_ids(series: list[SeriesDefinition]) -> None:

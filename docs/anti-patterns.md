@@ -252,6 +252,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       取得側だけを失敗させるか（読み取りは既存rowを返す）
 - [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
+- [ ] macro registry の series ID 集合を変更する場合は membership generation digest を追記し、
+      stale generation の refresh / merge 拒否、無許可 series DELETE trigger、件数集計から削除までの
+      writer lock、pending / committed audit の各 negative testを通すか
 - [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
       履歴で percentile / z-score を黙って計算しないか（開始が遅い・件数不足・**窓の期数に対する
       欠落が多い**の3条件を `insufficient_history` で null にする）

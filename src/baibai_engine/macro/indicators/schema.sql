@@ -13,6 +13,26 @@ CREATE TABLE IF NOT EXISTS series(
   notes TEXT
 );
 
+CREATE TABLE IF NOT EXISTS registry_state(
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  generation INTEGER NOT NULL CHECK(generation >= 0)
+);
+
+INSERT OR IGNORE INTO registry_state(singleton, generation) VALUES (1, 0);
+
+CREATE TABLE IF NOT EXISTS registry_prune_authorizations(
+  series_id TEXT PRIMARY KEY REFERENCES series(series_id) ON DELETE CASCADE
+);
+
+CREATE TRIGGER IF NOT EXISTS protect_series_from_implicit_prune
+BEFORE DELETE ON series
+WHEN NOT EXISTS(
+  SELECT 1 FROM registry_prune_authorizations WHERE series_id = OLD.series_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'explicit registry prune authorization required');
+END;
+
 CREATE TABLE IF NOT EXISTS aliases(
   alias TEXT NOT NULL,
   series_id TEXT NOT NULL REFERENCES series(series_id),
@@ -21,10 +41,6 @@ CREATE TABLE IF NOT EXISTS aliases(
 
 CREATE INDEX IF NOT EXISTS idx_aliases_alias
   ON aliases(alias);
-
-CREATE TABLE IF NOT EXISTS registry_series(
-  series_id TEXT PRIMARY KEY REFERENCES series(series_id)
-);
 
 CREATE TABLE IF NOT EXISTS observations(
   series_id TEXT NOT NULL REFERENCES series(series_id),

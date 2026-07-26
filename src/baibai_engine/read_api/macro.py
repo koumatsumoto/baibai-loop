@@ -218,11 +218,15 @@ def macro_indicator_series(
         raise ValueError("macro indicator end must be on or after start")
     if not path.is_file():
         return None
-    definition = _registry_by_id().get(series_id)
-    if definition is None:
+    if series_id not in _registry_by_id():
         return None
     connection = connect_read_only(path)
     try:
+        series = connection.execute(
+            "SELECT name, unit, provider FROM series WHERE series_id = ?", (series_id,)
+        ).fetchone()
+        if series is None:
+            return None
         start_text = start.isoformat() if start is not None else None
         end_text = end.isoformat() if end is not None else None
         rows = connection.execute(
@@ -248,7 +252,7 @@ def macro_indicator_series(
                 start_text,
                 end_text,
                 end_text,
-                definition.provider,
+                str(series[2]),
                 end_text,
                 end_text,
             ),
@@ -263,8 +267,8 @@ def macro_indicator_series(
         points = points[-limit:]
     return {
         "series_id": series_id,
-        "name": definition.name,
-        "unit": definition.unit,
+        "name": str(series[0]),
+        "unit": str(series[1]),
         "tradingview_symbol": _tradingview_symbols().get(series_id),
         "points": points,
     }

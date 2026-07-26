@@ -388,7 +388,7 @@ def run_daily_batch(
                 ),
                 cwd=root,
                 echo_stdout=False,
-                echo_stdout_prefixes=("registry-prune\t",),
+                echo_stdout_prefixes=("registry-prune-pending\t", "registry-prune\t"),
             )
         except BatchStepError as exc:
             _record_deferred(exc)
