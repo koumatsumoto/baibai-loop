@@ -34,6 +34,12 @@
 #                            とする。business / weekly / monthly / quarterly の推定日が
 #                            土日なら翌平日へ送る。手維持の event calendar ではなく、
 #                            系列の公表 cadence から機械導出する。
+#                            公表日の実測がある系列は、その**上端**（いちばん遅い月）を
+#                            置く。next_print_estimate は「最も早い公表日」ではなく
+#                            「これ以降なら公表済みのはず」の線であり、上端を置くことで
+#                            平常の公表待ちに print_due の負値と stale が出ない。実測が
+#                            まだ無い系列は公表暦の中央推定のままにし、実測した時点で
+#                            上端へ寄せる（この違いは override のコメントに書く）。
 #   staleness_margin_days   次回公表目安を過ぎてから stale とするまでの猶予。
 #                            staleness_warn_days は観測日から
 #                            `next_print_estimate + margin` までの日数として導出する。
@@ -239,9 +245,13 @@ overrides:
   # 持つのは前年比（＝インフレ率）であり、水準の percentile は物価の存在を測る。
   jp.cgpi:
     statistic: yoy
-  # 全国 CPI の e-Stat 掲載は観測月 + 53〜61 日（2025-01〜2026-07 の掲載日実測）。
-  # 月次 default（45）のままだと、次の公表を待つ平常時に stale が立ち、公表前に
-  # print_due が負になり、期限が公表日と重なる scorecard 条件が採点不能になる。
+  # 全国 CPI の e-Stat 掲載は観測月 + 53〜61 日（2025-01〜2026-07 の掲載日実測。
+  # 測定表は issue #594）。この系列は press release ではなく e-Stat DB 掲載を読むので、
+  # 上端は掲載日で測る。月次 default（45）のままだと、次の公表を待つ平常時に stale が
+  # 立ち、公表前に print_due が負になり、期限が公表日と重なる scorecard 条件が採点
+  # 不能になる。lag は staleness だけでなく scorecard の settlement 待ち
+  # （deadline + 1 公表間隔 + lag + margin）も同じだけ後ろへ動かすので、短くすると
+  # 採点不能が戻り、長くすると採点が遅れる。
   jp.cpi.core:
     statistic: yoy
     publication_lag_days: 61

@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 from datetime import date
 from typing import cast
+from urllib.parse import parse_qsl, urlsplit
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
@@ -19,18 +20,34 @@ from .base import (
 )
 
 # The dashboard marks a cell with no usable number using these tokens; each is skipped.
+# Anything else that is not one of these strings is a change in the response shape.
 _DASHBOARD_NULL_MARKERS = frozenset({"", "-", "***", "X", "…", "..."})
 
 # Selectors a registry entry must pin, because one IndicatorCode serves several
-# series at once: monthly / quarterly / annual cycles crossed with raw,
-# seasonally adjusted, and month-on-month forms. A request without them returns
-# all of those in one list, so the selectors are required rather than defaulted.
-_REQUIRED_SELECTORS = frozenset({"Cycle", "IsSeasonalAdjustment", "RegionCode"})
+# series at once: monthly / quarterly / annual cycles crossed with raw and
+# seasonally adjusted forms. A request without them returns all of those in one
+# list, so the selectors are required rather than defaulted.
+_REQUIRED_SELECTORS = ("Cycle", "IsSeasonalAdjustment", "RegionCode")
+_SOURCE_URL_KEYS = frozenset({"Lang", "IndicatorCode", *_REQUIRED_SELECTORS})
 
 # Only the monthly cycle is read. Quarterly and annual codes exist in the same
 # API, but nothing is registered against them and their time codes need their own
 # parsing, so an unregistered cycle fails instead of being guessed at.
 _MONTHLY_CYCLE = "1"
+
+# The dashboard marks a preliminary print with "1". Registered series declare a
+# publication lag that belongs to the final print, so a preliminary row would make
+# an observation appear weeks early and keep the series looking fresh after the
+# final print stopped. Reading one is a contract change, not a data update.
+_FINAL_PRINT = "0"
+
+# Every request opens at this floor even when a narrower window is asked for. The
+# API answers "no data" with the same status and message it uses for an unknown
+# IndicatorCode or an invalid selector, so a request that can legitimately come back
+# empty would make a mis-pinned series indistinguishable from a quiet one. A
+# registered series always has observations from the floor, which keeps that status a
+# real failure. The published history of one indicator is a few hundred KB.
+_HISTORY_FLOOR = date(1948, 1, 1)
 
 
 class EStatDashboardProvider:
@@ -38,13 +55,20 @@ class EStatDashboardProvider:
 
     The dashboard is operated by 総務省統計局 and mirrors ministry statistics with a
     stable IndicatorCode, which makes it readable where the publishing ministry
-    offers only per-release files. ``provider_series_id`` carries the IndicatorCode
-    plus the selectors that pin one series out of the code's cycle / seasonal-
-    adjustment family; every returned row is checked against them so a filter the
-    API ignores fails the fetch instead of mixing two series into one.
+    offers only per-release files. ``source_url`` carries the IndicatorCode plus the
+    selectors that pin one series out of the code's cycle / seasonal-adjustment
+    family, so a stored observation names the upstream series it came from and a
+    corrected selector rewrites the series instead of layering onto it. Every
+    returned row is checked against those selectors, so a filter the API ignores
+    fails the fetch instead of mixing two series into one.
+
+    An index the publisher rebases keeps its selectors, so a windowed refresh would
+    write recent months on the new base while older months stay on the old one. A
+    rebase is therefore refreshed with ``--all-history``, which rewrites the whole
+    series on one base.
     """
 
-    spec = ProviderSpec(name="estat_dashboard", all_history_start=date(1948, 1, 1))
+    spec = ProviderSpec(name="estat_dashboard", all_history_start=_HISTORY_FLOOR)
     name = spec.name
 
     def fetch(
@@ -56,20 +80,16 @@ class EStatDashboardProvider:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> list[ObservationRecord]:
-        indicator_code, selectors = _split_indicator_code(series.provider_series_id)
-        params = {
-            "Lang": "JP",
-            "IndicatorCode": indicator_code,
-            **selectors,
-            # The API windows on monthly time codes, so a refresh asks only for the
-            # window it stores.
-            "TimeFrom": _monthly_time_code(start),
-            "TimeTo": _monthly_time_code(end),
-        }
+        selectors = source_url_selectors(series)
         text = fetch_text(
             session,
             series.source_url,
-            params=params,
+            # The source URL already carries the series identity; only the window
+            # rides on the request, and it always opens at the history floor.
+            params={
+                "TimeFrom": _monthly_time_code(_HISTORY_FLOOR),
+                "TimeTo": _monthly_time_code(end),
+            },
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
         )
@@ -78,35 +98,53 @@ class EStatDashboardProvider:
             text,
             start=start,
             end=end,
-            indicator_code=indicator_code,
             selectors=selectors,
         )
 
 
-def _split_indicator_code(provider_series_id: str) -> tuple[str, dict[str, str]]:
-    # provider_series_id is "<IndicatorCode>?Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000".
-    indicator_code, separator, query = provider_series_id.partition("?")
-    if not indicator_code or not separator:
+def source_url_selectors(series: SeriesDefinition) -> Mapping[str, str]:
+    """Read the series identity out of the source URL, or fail.
+
+    The URL is the provenance recorded on every observation, so it has to be the
+    one place the identity lives: a selector kept anywhere else would let the
+    recorded provenance and the fetched series drift apart.
+    """
+
+    if series.frequency != "monthly":
         raise IndicatorsProviderError(
-            f"e-Stat dashboard series must pin selectors: {provider_series_id!r}"
+            f"e-Stat dashboard serves monthly series only: {series.series_id} is {series.frequency}"
         )
+    query = urlsplit(series.source_url).query
+    try:
+        pairs = parse_qsl(query, strict_parsing=True, keep_blank_values=True)
+    except ValueError as exc:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard source URL has an unreadable query: {series.source_url}"
+        ) from exc
     selectors: dict[str, str] = {}
-    for pair in query.split("&"):
-        key, _, value = pair.partition("=")
-        if not key or not value:
-            continue
-        if key not in _REQUIRED_SELECTORS:
+    for key, value in pairs:
+        if key not in _SOURCE_URL_KEYS:
             raise IndicatorsProviderError(f"unsupported e-Stat dashboard selector: {key}")
+        if key in selectors:
+            raise IndicatorsProviderError(f"e-Stat dashboard selector is repeated: {key}")
+        if not value:
+            raise IndicatorsProviderError(f"e-Stat dashboard selector is empty: {key}")
         selectors[key] = value
-    missing = _REQUIRED_SELECTORS - selectors.keys()
+    missing = [key for key in sorted(_SOURCE_URL_KEYS) if key not in selectors]
     if missing:
-        listed = ", ".join(sorted(missing))
-        raise IndicatorsProviderError(f"e-Stat dashboard series is missing selector(s): {listed}")
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard source URL is missing selector(s): {', '.join(missing)}"
+        )
+    if selectors["IndicatorCode"] != series.provider_series_id:
+        raise IndicatorsProviderError(
+            f"e-Stat dashboard source URL requests {selectors['IndicatorCode']} "
+            f"for series {series.provider_series_id}"
+        )
     if selectors["Cycle"] != _MONTHLY_CYCLE:
         raise IndicatorsProviderError(
             f"e-Stat dashboard reads the monthly cycle only: Cycle={selectors['Cycle']}"
         )
-    return indicator_code, selectors
+    return selectors
 
 
 def parse_dashboard_json(
@@ -115,14 +153,13 @@ def parse_dashboard_json(
     *,
     start: date,
     end: date,
-    indicator_code: str,
     selectors: Mapping[str, str],
 ) -> list[ObservationRecord]:
     entries = _extract_value_entries(text)
     observations: list[ObservationRecord] = []
     units: set[str] = set()
     for entry in entries:
-        _require_requested_series(entry, indicator_code=indicator_code, selectors=selectors)
+        _require_requested_series(entry, selectors=selectors)
         units.add(str(entry.get("@unit")))
         observed_at = _parse_dashboard_month(entry.get("@time"))
         value = _parse_dashboard_value(entry.get("$"))
@@ -188,21 +225,22 @@ def _require_complete_result(statistical_data: Mapping[str, object], *, returned
 def _require_requested_series(
     entry: Mapping[str, object],
     *,
-    indicator_code: str,
     selectors: Mapping[str, str],
 ) -> None:
     """Reject a row the request did not ask for.
 
     The selectors carry the series identity, so a row that answers a different
     cycle, adjustment, indicator, or region means the filter did not apply. Mixing
-    those into one series is worse than failing the refresh.
+    those into one series is worse than failing the refresh. A preliminary row is
+    rejected on the same ground: it is a different print of the same month.
     """
 
     expected = (
-        ("@indicator", indicator_code),
+        ("@indicator", selectors["IndicatorCode"]),
         ("@cycle", selectors["Cycle"]),
         ("@isSeasonal", selectors["IsSeasonalAdjustment"]),
         ("@regionCode", selectors["RegionCode"]),
+        ("@isProvisional", _FINAL_PRINT),
     )
     for attribute, wanted in expected:
         actual = entry.get(attribute)
@@ -235,8 +273,11 @@ def _parse_dashboard_month(raw: object) -> date:
 
 
 def _parse_dashboard_value(raw: object) -> float | None:
+    # Only the documented markers stand for "no number". A value that is not a
+    # string at all is a changed response shape, and skipping those rows would
+    # turn it into a short history instead of a failure.
     if not isinstance(raw, str):
-        return None
+        raise IndicatorsProviderError(f"e-Stat dashboard value is not a string: {raw!r}")
     text = raw.strip()
     if text in _DASHBOARD_NULL_MARKERS:
         return None

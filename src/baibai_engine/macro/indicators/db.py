@@ -512,18 +512,27 @@ def _validate_foreign_key_integrity(conn: sqlite3.Connection) -> None:
         )
 
 
+def unregistered_series_ids(
+    conn: sqlite3.Connection,
+    definitions: IndicatorDefinitions,
+) -> tuple[str, ...]:
+    """Series the store carries that the given registry snapshot does not name."""
+
+    registered = {series.series_id for series in definitions.series}
+    stored = {
+        str(row["series_id"]) for row in conn.execute("SELECT series_id FROM series").fetchall()
+    }
+    return tuple(sorted(stored - registered))
+
+
 def prune_definitions(
     conn: sqlite3.Connection,
     definitions: IndicatorDefinitions,
 ) -> tuple[RegistryPruneResult, ...]:
     """Delete facts for series absent from an explicitly trusted registry snapshot."""
 
-    registered = {series.series_id for series in definitions.series}
-    stored = {
-        str(row["series_id"]) for row in conn.execute("SELECT series_id FROM series").fetchall()
-    }
     results: list[RegistryPruneResult] = []
-    for series_id in sorted(stored - registered):
+    for series_id in unregistered_series_ids(conn, definitions):
         observation_rows = int(
             conn.execute(
                 "SELECT COUNT(*) FROM observations WHERE series_id = ?",
