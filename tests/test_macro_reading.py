@@ -78,7 +78,9 @@ def _expects_growth_statistic(definition: SeriesDefinition) -> bool:
     if definition.category == "inflation" and definition.unit == "index":
         return True
     if definition.category == "monetary":
-        return True
+        # A monetary aggregate is a stock whose level only sets records, but a
+        # series the publisher already states as a change carries its own scale.
+        return definition.unit != "percent"
     if definition.category == "labor":
         return definition.unit == "index" or definition.unit.endswith(("persons", "-per-hour"))
     if definition.category == "activity":

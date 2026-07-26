@@ -678,3 +678,31 @@ series:
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IC4WSA
     notes: 新規失業保険申請件数の4週移動平均(週次・季節調整済)。週次のノイズを平滑した雇用悪化シグナル。FRED配信の移動平均系列を使う
     aliases: [新規失業保険4週平均, initial claims 4wk ma, IC4WSA, 失業保険申請移動平均]
+  - series_id: us.empire_manufacturing
+    name: 米ニューヨーク連銀製造業景況指数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: pt
+    plausible_min: -100
+    plausible_max: 100
+    provider: fred_csv
+    provider_series_id: GACDISA066MSFRBNY
+    source_id: fred-gacdisa066msfrbny
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=GACDISA066MSFRBNY
+    notes: ニューヨーク連銀 Empire State製造業サーベイの総合景況指数(月次・季節調整済・DI)。0が横ばいの分岐点。当月中旬に当月分が出る最速級の米サーベイで、有償のISMを載せられない中でS&P Global PMIを別sourceから相互検証する
+    aliases: [Empire State, エンパイアステート, NY連銀製造業, Empire manufacturing, GACDISA066MSFRBNY]
+  - series_id: us.philly_fed_manufacturing
+    name: 米フィラデルフィア連銀製造業景況指数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: pt
+    plausible_min: -100
+    plausible_max: 100
+    provider: fred_csv
+    provider_series_id: GACDFSA066MSFRBPHI
+    source_id: fred-gacdfsa066msfrbphi
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=GACDFSA066MSFRBPHI
+    notes: フィラデルフィア連銀 製造業ビジネス見通しサーベイの総合景況指数(月次・季節調整済・DI)。0が横ばいの分岐点。Empire Stateと地域が異なるので、2地区の同月DIが揃って振れたかで単一地区の特殊要因と全米の変化を分ける
+    aliases: [Philly Fed, フィラデルフィア連銀, Philadelphia Fed, GACDFSA066MSFRBPHI]

@@ -481,3 +481,87 @@ series:
     source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
     notes: 日銀短観 大企業・製造業の業況判断DI 実績(四半期・「良い」-「悪い」の%ポイント)。日本企業サーベイの定番。survey dateはYYYY0Q(四半期末月に正規化)
     aliases: [短観, 業況判断DI, tankan, tankan DI, 大企業製造業DI]
+  - series_id: jp.tankan_large_nonmfg_di
+    name: 日銀短観 大企業非製造業 業況判断DI(実績)
+    category: activity
+    geography: japan
+    frequency: quarterly
+    unit: pt
+    plausible_min: -100
+    plausible_max: 100
+    provider: boj_timeseries
+    provider_series_id: CO:TK99F2000601GCQ01000
+    source_id: boj-tankan-lnonmfg
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日銀短観 大企業・非製造業の業況判断DI 実績(四半期・「良い」-「悪い」の%ポイント)。内需とサービス業の業況を製造業DIと対で読み、PMI servicesとは別sourceの相互検証にする
+    aliases: [短観非製造業, 非製造業DI, tankan nonmanufacturing, 大企業非製造業DI]
+  - series_id: jp.machinery_orders
+    name: 日本機械受注(民需・船舶電力を除く)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: jpy-million
+    plausible_min: 100000
+    plausible_max: 5000000
+    provider: estat
+    provider_series_id: "0003355222?cdCat01=160&cdCat02=100&cdTab=100"
+    source_id: estat-machinery-orders-core
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 内閣府 機械受注統計の民間需要(船舶・電力を除く)季調系列(月次・百万円)。設備投資の古典的な先行指標で、us.core_capex_ordersの日本版。船舶と電力は単発の大型案件で振れるため除いた系列が基調を示す
+    aliases: [機械受注, コア機械受注, machinery orders, 民需機械受注, 設備投資先行]
+  - series_id: jp.watcher_current_di
+    name: 景気ウォッチャー 現状判断DI(季節調整値)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: pt
+    plausible_min: 0
+    plausible_max: 100
+    provider: estat
+    provider_series_id: "0003348423?cdCat01=100&cdCat02=100&cdTab=140"
+    source_id: estat-watcher-current-di
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 内閣府 景気ウォッチャー調査の景気の現状判断DI(方向性・全国合計・季節調整値)。街角の景況感を月次で最速級に拾う。50が横ばいの分岐点で、内需と小売の変化を他の月次統計より早く示す
+    aliases: [景気ウォッチャー, 街角景気, watcher survey, 現状判断DI, ウォッチャー調査]
+  - series_id: jp.consumer_confidence
+    name: 日本消費者態度指数
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: pt
+    plausible_min: 0
+    plausible_max: 100
+    provider: estat
+    provider_series_id: "0003446462?cdCat01=1060&cdTab=200"
+    source_id: estat-consumer-confidence-ci
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 景気動向指数「個別系列の数値」表(0003446462)の先行系列L6=消費者態度指数(内閣府 消費動向調査・季節調整済)。us.consumer_sentimentの日本版で、消費の需要先行を読む。消費動向調査はe-StatのDB配信を持たないため、同じ内閣府が組む景気動向指数の構成系列として取る(そのぶん公表は調査本体より約1か月遅い)
+    aliases: [消費者態度指数, 消費者マインド, consumer confidence, 消費動向調査, JP consumer sentiment]
+  - series_id: jp.bank_lending_yoy
+    name: 銀行貸出平均残高 前年比(銀行計)
+    category: monetary
+    geography: japan
+    frequency: monthly
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: boj_timeseries
+    provider_series_id: MD13:FAAPOBAL1@
+    source_id: boj-bank-lending-yoy
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 貸出・預金動向の貸出平均残高(都銀・地銀等 合計)前年比(月次・%)。企業金融の緩急を示す信用サイクルで、jp.bankruptciesと対にして与信の出し手と借り手の両側を読む。公表元が前年比を計算済みなので水準ではなく変化率をそのまま持つ
+    aliases: [銀行貸出, 貸出残高前年比, bank lending, 貸出動向, 信用サイクル]
+  - series_id: jp.real_wage_index
+    name: 日本実質賃金指数(現金給与総額)
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 20
+    plausible_max: 500
+    provider: estat_dashboard
+    provider_series_id: "0302030201010090010"
+    source_id: estat-dashboard-real-wage-index
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030201010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
+    notes: 厚労省 毎月勤労統計の実質賃金指数(現金給与総額・事業所規模5人以上・調査産業計・季節調整値)。名目賃金を消費者物価で割った家計の購買力で、日銀が賃金と物価の好循環を判断する中心。jp.nominal_wage_indexと対で名目と実質の乖離=物価による目減りを読む。デフレーターは消費者物価指数の「持家の帰属家賃を除く総合」であってjp.cpi.headline(総合)ではないため、名目÷jp.cpi.headlineでは再現しない(2026-05の含意デフレーターは115.8、総合は113.5)。selectorを訂正したときと基準改定のときは`refresh --all-history`を1回通す。事業所入替えとベンチマーク更新により2024年1月以降と2023年12月以前には段差がある
+    aliases: [実質賃金, 実質賃金指数, real wage index, 実質賃金前年比]
