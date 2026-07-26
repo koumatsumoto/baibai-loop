@@ -193,6 +193,8 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 
 各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
 
+publish 済み revision は immutable なので、検証は**参照先が動くかどうか**で 2 層に分かれる。文書が自分自身について述べること（セクション構成・引用の連結・failed input・期限窓・context_id と as_of の一致）は読むたびに検証する。**registry membership と系列の公表頻度は publish 時だけ検証する**：系列の退役・改名・再分類は正常な運用であり、読み取りでも照合すると後からの registry 変更が過去のレポートを遡って invalid にし、発行済み履歴を読む下流（`screening select` を含む）ごと止まる。退役系列を引用するレポートは読み続けられるが、その系列を条件に持つ scorecard は採点できず、系列名を明示したエラーになる（採点には active provider の run 証明が要る）。
+
 <a id="depth-contract"></a>
 
 ### 深度契約（全レポート共通）

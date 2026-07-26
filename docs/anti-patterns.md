@@ -289,6 +289,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       monitoring condition、core セクション2〜8内のmaterial delta、connectionのseries参照が
       coreの引用範囲内かつ core_section_ids に裏付けられていること、context_id の日付とas_ofの一致を
       negative fixtureで検証するか
+- [ ] **immutable な発行済み文書の検証は、参照先が動くかどうかで層を分ける**。registry membership や
+      系列の公表頻度のように後から変わる環境状態は publish 時だけ検証し、read / load 時は文書内の
+      整合だけを検証する。read でも環境と照合すると、系列の退役・改名という正常な運用が過去の
+      全レポートを遡って invalid にし、それを読む下流（daily batch の `screening select`）ごと
+      止まる。publish が拒否する negative test と、環境が動いても read が通る positive test を
+      対で持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。

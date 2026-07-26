@@ -122,6 +122,22 @@ def evaluate_scorecard(
         raise ScorecardEvaluationError(
             f"scorecard asof {asof} is in the future at access date {access_date}"
         )
+    # A report stays readable after one of its series is retired, but it cannot be
+    # settled: there is no provider to prove a match against. Say which series, so the
+    # answer is "this scenario is unsettleable" rather than an unexplained lookup failure.
+    retired = sorted(
+        {
+            condition.series_id
+            for scenario in document.scenarios
+            for condition in scenario.scorecard
+            if condition.series_id not in providers
+        }
+    )
+    if retired:
+        raise ScorecardEvaluationError(
+            "cannot settle a scorecard on series the registry no longer defines: "
+            + ", ".join(retired)
+        )
 
     start = document.as_of + timedelta(days=1)
     results: list[ScorecardResult] = []
