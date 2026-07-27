@@ -102,10 +102,16 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# Cloudflare in front of discord.com rejects urllib's default "Python-urllib/x.y"
+# User-Agent with 403 (bot filtering), so the adapter identifies itself explicitly.
+_REQUEST_HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "baibai-loop-notify/1.0",
+}
+
+
 def _urllib_transport(url: str, body: bytes, timeout: float) -> int:
-    request = urllib.request.Request(
-        url, data=body, headers={"Content-Type": "application/json"}, method="POST"
-    )
+    request = urllib.request.Request(url, data=body, headers=_REQUEST_HEADERS, method="POST")
     opener = urllib.request.build_opener(_NoRedirect)
     with opener.open(request, timeout=timeout) as response:  # nosec B310
         return response.status

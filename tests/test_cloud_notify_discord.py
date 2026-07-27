@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from tools.cloud import notify_discord
 from tools.cloud.batch_summary import (
     DELIVERY_DELIVERED,
     DELIVERY_FAILED,
@@ -492,6 +494,34 @@ def test_deliver_returns_failed_on_non_2xx_without_body() -> None:
     result = deliver(VALID_URL, "hello", transport=transport)
     assert result.status == DELIVERY_FAILED
     assert "http 500" in result.detail
+
+
+def test_urllib_transport_identifies_itself_instead_of_the_default_urllib_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Cloudflare in front of discord.com answers 403 to "Python-urllib/x.y";
+    # delivery only works while the request carries an explicit User-Agent.
+    captured: dict[str, str | None] = {}
+
+    class _Response:
+        status = 204
+
+        def __enter__(self) -> _Response:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    class _Opener:
+        def open(self, request: urllib.request.Request, timeout: float) -> _Response:
+            captured["user_agent"] = request.get_header("User-agent")
+            return _Response()
+
+    monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: _Opener())
+    status = notify_discord._urllib_transport("https://discord.com/api/webhooks/1/x", b"{}", 1.0)
+
+    assert status == 204
+    assert captured["user_agent"] == "baibai-loop-notify/1.0"
 
 
 def test_deliver_reports_the_status_code_of_an_http_error_without_the_url() -> None:
