@@ -5,6 +5,7 @@ from typing import Any
 
 _READING_INPUT_ID = "reading-2026-07-19"
 _SERIES_INPUT_ID = "us-10y"
+_FX_INPUT_ID = "usd-jpy"
 _SNAPSHOT_INPUT_ID = "snapshot-market-2026-07-19"
 _DEFAULT_MACHINE_CONDITIONS: list[dict[str, Any]] = [
     {"series_id": "us.10y", "comparison": "at_or_above", "threshold": 5.0}
@@ -54,8 +55,10 @@ def macro_context_payload(
         _core_section("growth_demand", source_ids),
         _core_section("inflation_costs", source_ids),
         _core_section("liquidity_credit", source_ids),
-        _core_section("fx", source_ids),
-        _core_section("japan", source_ids),
+        # fx and japan also examine the currency, so a dominant force that names either
+        # of them can be backed by a series distinct from the shared us.10y.
+        _core_section("fx", [*source_ids, _FX_INPUT_ID], series_ids=["us.10y", "usd_jpy"]),
+        _core_section("japan", [*source_ids, _FX_INPUT_ID], series_ids=["us.10y", "usd_jpy"]),
         _core_section("valuation", source_ids),
         _core_section(
             "risk_environment",
@@ -106,7 +109,18 @@ def macro_context_payload(
                     "accessed_at": published_at,
                     "status": "ok",
                     "used_for": "長期金利と割引率経路の確認",
-                }
+                },
+                {
+                    "input_id": _FX_INPUT_ID,
+                    "provider": "fred",
+                    "series_id": "usd_jpy",
+                    "window": "2026-07-01/2026-07-17",
+                    "observation_as_of": "2026-07-17",
+                    "published_at": "2026-07-17T16:00:00-04:00",
+                    "accessed_at": published_at,
+                    "status": "ok",
+                    "used_for": "円水準と輸入コスト経路の確認",
+                },
             ],
             "reading_snapshots": [
                 {
@@ -173,7 +187,7 @@ def macro_context_payload(
         },
     }
     if strategy_layer:
-        payload["synthesis"] = macro_synthesis_payload(source_ids)
+        payload["synthesis"] = macro_synthesis_payload([*source_ids, _FX_INPUT_ID])
         payload["connection"]["bargain_topography"] = {
             "summary": "割安は全面安ではなく金利敏感セクターの取り残しに出やすい。",
             "source_ids": [_SNAPSHOT_INPUT_ID],
@@ -191,7 +205,10 @@ def macro_context_payload(
 
 
 def macro_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, Any]:
-    sources = source_ids or [_SERIES_INPUT_ID]
+    # Each force assigns a distinct series to each named section (rates_policy /
+    # valuation lend us.10y, japan / fx lend usd_jpy), which the document validator
+    # requires of a cross-channel claim.
+    sources = source_ids or [_SERIES_INPUT_ID, _FX_INPUT_ID]
     return {
         "dominant_forces": [
             {
@@ -200,7 +217,7 @@ def macro_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, An
                 "summary": "政策よりも長期側の金利が上がり、割引率が全資産に効いている。",
                 "transmission": "米長期金利の上昇が日本の金利と割引率へ波及する。",
                 "core_section_ids": ["rates_policy", "japan"],
-                "series_ids": ["us.10y"],
+                "series_ids": ["us.10y", "usd_jpy"],
                 "counter_evidence": "実質金利が反転低下すれば力は減衰する。",
                 "direction": "adverse",
                 "confidence": "medium",
@@ -212,7 +229,7 @@ def macro_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, An
                 "summary": "円の水準が分布の端にあり、反転時の速度が非対称になっている。",
                 "transmission": "為替が輸出採算とバリュエーションの緩衝へ同時に効く。",
                 "core_section_ids": ["fx", "valuation"],
-                "series_ids": ["us.10y"],
+                "series_ids": ["usd_jpy", "us.10y"],
                 "counter_evidence": "投機ポジションが中立へ戻れば非対称性は解ける。",
                 "direction": "mixed",
                 "confidence": "medium",
@@ -296,6 +313,7 @@ def _core_section(
     section_id: str,
     source_ids: list[str],
     *,
+    series_ids: list[str] | None = None,
     change_since_previous: str | None = None,
     previous_scorecard_review: str | None = None,
     previous_scorecard_snapshot_id: str | None = None,
@@ -306,7 +324,7 @@ def _core_section(
 ) -> dict[str, Any]:
     return {
         "section_id": section_id,
-        "series_ids": ["us.10y"],
+        "series_ids": series_ids or ["us.10y"],
         "fact_summary": [{"summary": "米国10年金利を確認した。", "source_ids": source_ids}],
         "judgment": {
             "summary": "割引率環境は中立から逆風寄りである。",

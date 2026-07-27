@@ -185,7 +185,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 synthesis は「今の市場を動かしているのは何か」を 2〜5 件の **dominant force** として名指しし、力ごとに機序（`summary`）・伝達経路（`transmission`）・**反証（`counter_evidence`）**・方向・確度を書く。力は定義により経路横断である——1 つのチャネルに閉じる話はそのセクションの judgment であって力ではない。これも参照方向の機械契約で守る：
 
 - 各 force は伝達チャネル 7 セクション（`rates_policy` / `growth_demand` / `inflation_costs` / `liquidity_credit` / `fx` / `japan` / `valuation`）のうち **2 つ以上**を `core_section_ids` で名指しする（regime_summary・risk_environment・monitoring は統合・決定の層でありチャネルではないので名指せない）
-- force が引用できる series は、**名指ししたセクションが引用済みのものだけ**で、**名指しした各セクションから最低 1 系列**を引用する（evidence を貸さないチャネルの名指しは経路横断の主張を名目化する）。series ごとに正常取得した input の引用も要る（セクションと同じ規律）
+- force が引用できる series は、**名指ししたセクションが引用済みのものだけ**で、**名指しした各セクションへ相異なる系列を 1 つずつ割り当てられる**引用を持つ（evidence を貸さないチャネルの名指しも、複数セクションが共有する 1 系列だけで「経路横断」を名乗ることも、主張を名目化する）。series ごとに正常取得した input の引用も要る（セクションと同じ規律）
 - `interactions` は力同士が compound / offset する関係を最低 1 件書く。宣言済みの force を 2 件以上 `force_ids` で名指しする（金利と円が同時に極値なら、反転局面で同時に痛む——単独の力の読みでは見えない joint risk がここに載る）
 
 force の候補は §② reading の flags・|z| 極値・percentile 端・トレンド反転を束ね、§④ の 8 分析レンズと突き合わせて立てる。1 つの力を支持する事実と反証する事実の両方を一次情報で集めてから書く。
@@ -194,7 +194,7 @@ force の候補は §② reading の flags・|z| 極値・percentile 端・ト�
 
 | 部 | 順 | セクション（`section_id`） | 確認するfact | judgmentと接続 |
 | --- | --- | --- | --- | --- |
-| synthesis | — | 統合評価（`synthesis`） | core が引用済みの series のみ | 支配的な力 2〜5 件（機序・伝達経路・反証・方向・確度）と力同士の相互作用。各力は伝達チャネル 2 つ以上を名指しする |
+| synthesis | — | 統合評価（`synthesis`） | 名指ししたセクションが引用済みの series のみ（各セクションへ相異なる系列を割当） | 支配的な力 2〜5 件（機序・伝達経路・反証・方向・確度）と力同士の相互作用。各力は伝達チャネル 2 つ以上を名指しする |
 | core | 1 | レジーム要約（`regime_summary`） | 成長・インフレ・金融条件の水準と方向、比較可能な時点からの変化 | 成長×インフレ×金融条件の共通座標で現局面を定め、以降の読み順を示す。前回 scorecard の採点結果を接続する |
 | core | 2 | 金利・金融政策（`rates_policy`） | 政策金利、イールドカーブ、実質金利、主要中銀の方向 | discount rate経路とmaterial deltaを示す |
 | core | 3 | 景気・需要（`growth_demand`） | PMI、雇用、消費、生産、景気breadth | 需要経路への接続を示す |
@@ -219,7 +219,7 @@ force の候補は §② reading の flags・|z| 極値・percentile 端・ト�
 - `synthesis`：dominant_forces 2〜5 件 + interactions 1 件以上。§synthesis の参照方向契約に従う。**publish の要件**
 - `probability`：セクション9の base / bear / bull に 1 つずつ置く主観ウェイト。0.05 刻み・各 [0.05, 0.90]・3 件合計 1.00（検証は整数化算術で決定論）。**publish の要件**。確率は「見立ての強さの明示」であり、優位性の数値・統計的有意性・sizing 入力のいずれでもない（§誠実性）。次回以降のレポートが settled scorecard と突き合わせることで、読みの較正データが蓄積される
 - `sizing_cautions` / `sector_tilts` / `research_priority_hints`：connection セクションだけに置く。research 優先度ヒントは 1 件以上必須（着手順位を渡すことがこのセクションの存在理由）、sector tilt と sizing caution は該当が無ければ空でよい（core が支持しない tilt を埋めるために書かせない）
-- `bargain_topography`：connection に必須。「この局面でミスプライスがどこに・なぜ出やすいか」を、`screening market-snapshot` 由来の machine snapshot input（`ScorecardSnapshotInput` ではない `MachineSnapshotInput`）を source に含めて書く。**外部記事の相場観の転写では publish されない**——自前の breadth / regime / 業種騰落の計測に接地させるためである（2 件目以降のレポートは前回 scorecard の snapshot 引用を義務として持つため、型と command を絞らない gate は常時充足になってしまう）
+- `bargain_topography`：connection に必須。「この局面でミスプライスがどこに・なぜ出やすいか」を、`screening market-snapshot` 由来の machine snapshot input（`ScorecardSnapshotInput` ではない `MachineSnapshotInput`、`snapshot_asof` は as_of の 7 日以内）を source に含めて書く。**外部記事の相場観の転写では publish されない**——自前の breadth / regime / 業種騰落の計測に接地させるためである（2 件目以降のレポートは前回 scorecard の snapshot 引用を義務として持つため、型と command を絞らない gate は常時充足になり、鮮度を絞らない gate は前回 draft の snapshot 持ち越しで充足になってしまう）
 - `estimate_caveats`：connection に 1 件以上必須。今の環境が機械見積りをどの向きに歪めるかを、`affected_component`（`fv_anchor` / `reversion` / `carry` / `resilience` — E[r] 実装の成分語彙）と `applies_to`（効く候補タイプの判別）付きで書く。歪みが小さいならその旨を materiality: low で正直に書く（「歪みゼロ」の主張のほうが立証が重い）。research はこの caveat を機械値の消化時に参照する
 
 各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。

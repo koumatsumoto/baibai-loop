@@ -96,31 +96,24 @@ def test_model_rejects_a_force_citing_series_outside_its_named_sections() -> Non
 
 def test_model_rejects_a_force_whose_named_section_contributes_no_series() -> None:
     # Naming a channel that lends none of the force's series would make the
-    # cross-channel claim nominal: the force would "cross" into fx on paper only.
+    # cross-channel claim nominal: the force would "cross" into valuation on paper only.
     payload = _payload()
-    payload["inputs"]["indicator_series"].append(
-        {
-            "input_id": "jp-10y",
-            "provider": "mof_jgb",
-            "series_id": "jp.10y",
-            "window": "2026-07-01/2026-07-17",
-            "observation_as_of": "2026-07-17",
-            "published_at": "2026-07-17T16:00:00+09:00",
-            "accessed_at": "2026-07-19T12:00:00+09:00",
-            "status": "ok",
-            "used_for": "日本金利の確認",
-        }
-    )
-    fx_section = payload["core"][5]
-    assert fx_section["section_id"] == "fx"
-    fx_section["series_ids"] = ["jp.10y"]
-    for item in (
-        *fx_section["fact_summary"],
-        fx_section["judgment"],
-        fx_section["economic_connection"],
-    ):
-        item["source_ids"] = ["jp-10y"]
+    force = payload["synthesis"]["dominant_forces"][1]
+    assert force["core_section_ids"] == ["fx", "valuation"]
+    force["series_ids"] = ["usd_jpy"]
     with pytest.raises(ValidationError, match="from each named section"):
+        _validated(payload)
+
+
+def test_model_rejects_a_force_backed_only_by_a_series_its_sections_share() -> None:
+    # Both named sections cite us.10y, so a single shared series satisfies the
+    # per-section intersection for both at once; the crossing must be provable by a
+    # distinct series per named section.
+    payload = _payload()
+    force = payload["synthesis"]["dominant_forces"][1]
+    assert force["core_section_ids"] == ["fx", "valuation"]
+    force["series_ids"] = ["us.10y"]
+    with pytest.raises(ValidationError, match="distinct cited series"):
         _validated(payload)
 
 
@@ -169,8 +162,7 @@ def test_model_rejects_a_force_citing_an_unknown_input_id() -> None:
         _validated(payload)
 
 
-def test_model_rejects_a_force_citing_a_failed_input() -> None:
-    payload = _payload()
+def _append_failed_article(payload: dict[str, Any]) -> str:
     payload["inputs"]["articles"].append(
         {
             "input_id": "article-broken",
@@ -183,7 +175,28 @@ def test_model_rejects_a_force_citing_a_failed_input() -> None:
             "used_for": "取得失敗の記録",
         }
     )
-    payload["synthesis"]["dominant_forces"][0]["source_ids"] = ["us-10y", "article-broken"]
+    return "article-broken"
+
+
+def test_model_rejects_a_force_citing_a_failed_input() -> None:
+    payload = _payload()
+    failed_id = _append_failed_article(payload)
+    payload["synthesis"]["dominant_forces"][0]["source_ids"] = ["us-10y", failed_id]
+    with pytest.raises(ValidationError, match="cannot cite failed inputs"):
+        _validated(payload)
+
+
+def test_model_rejects_an_interaction_citing_an_unknown_input_id() -> None:
+    payload = _payload()
+    payload["synthesis"]["interactions"][0]["source_ids"] = ["no-such-input"]
+    with pytest.raises(ValidationError, match="unknown input IDs"):
+        _validated(payload)
+
+
+def test_model_rejects_an_interaction_citing_a_failed_input() -> None:
+    payload = _payload()
+    failed_id = _append_failed_article(payload)
+    payload["synthesis"]["interactions"][0]["source_ids"] = ["us-10y", failed_id]
     with pytest.raises(ValidationError, match="cannot cite failed inputs"):
         _validated(payload)
 
@@ -192,6 +205,29 @@ def test_model_rejects_a_topography_citing_an_unknown_input_id() -> None:
     payload = _payload()
     payload["connection"]["bargain_topography"]["source_ids"] = ["no-such-input"]
     with pytest.raises(ValidationError, match="unknown input IDs"):
+        _validated(payload)
+
+
+def test_model_rejects_a_topography_citing_a_failed_input() -> None:
+    payload = _payload()
+    failed_id = _append_failed_article(payload)
+    payload["connection"]["bargain_topography"]["source_ids"] = [failed_id]
+    with pytest.raises(ValidationError, match="cannot cite failed inputs"):
+        _validated(payload)
+
+
+def test_model_rejects_an_estimate_caveat_citing_an_unknown_input_id() -> None:
+    payload = _payload()
+    payload["connection"]["estimate_caveats"][0]["source_ids"] = ["no-such-input"]
+    with pytest.raises(ValidationError, match="unknown input IDs"):
+        _validated(payload)
+
+
+def test_model_rejects_an_estimate_caveat_citing_a_failed_input() -> None:
+    payload = _payload()
+    failed_id = _append_failed_article(payload)
+    payload["connection"]["estimate_caveats"][0]["source_ids"] = ["us-10y", failed_id]
+    with pytest.raises(ValidationError, match="cannot cite failed inputs"):
         _validated(payload)
 
 
@@ -239,6 +275,15 @@ def test_model_accepts_probabilities_with_binary_representation_error() -> None:
     assert sum(s.probability or 0.0 for s in document.scenarios) == pytest.approx(1.0)
 
 
+def test_model_accepts_probabilities_at_the_grid_boundaries() -> None:
+    # 0.90 and 0.05 are the widest and narrowest weights the grid allows; the bounds
+    # must accept them exactly, or the honest extreme becomes unwritable.
+    payload = _payload()
+    _set_probabilities(payload, (0.90, 0.05, 0.05))
+    document = _validated(payload)
+    assert [s.probability for s in document.scenarios] == [0.90, 0.05, 0.05]
+
+
 # --- publication gate: presence is required for new reports only ---
 
 
@@ -283,11 +328,43 @@ def test_gate_rejects_a_topography_grounded_only_in_a_non_market_snapshot_comman
         require_integrated_strategy(_validated(payload))
 
 
+def test_gate_rejects_a_topography_grounded_only_in_a_variant_snapshot_command() -> None:
+    # The command anchor is token-bounded: a different subcommand that merely starts
+    # with the same words must not satisfy the grounding requirement.
+    payload = _payload()
+    payload["inputs"]["machine_snapshots"][0]["command"] = (
+        "baibai-engine screening market-snapshot-experimental"
+    )
+    with pytest.raises(ValueError, match="market-snapshot machine input"):
+        require_integrated_strategy(_validated(payload))
+
+
+def test_gate_rejects_a_topography_grounded_only_in_a_stale_market_snapshot() -> None:
+    # Carrying the previous draft's snapshot forward satisfies the citation while
+    # grounding the topography in a market that no longer exists.
+    payload = _payload()
+    snapshot = payload["inputs"]["machine_snapshots"][0]
+    snapshot["snapshot_asof"] = "2026-07-01"
+    snapshot["observation_as_of"] = "2026-07-01"
+    with pytest.raises(ValueError, match="within 7 days"):
+        require_integrated_strategy(_validated(payload))
+
+
+def test_gate_accepts_a_market_snapshot_at_the_lag_boundary() -> None:
+    payload = _payload()
+    snapshot = payload["inputs"]["machine_snapshots"][0]
+    snapshot["snapshot_asof"] = "2026-07-12"
+    snapshot["observation_as_of"] = "2026-07-10"
+    require_integrated_strategy(_validated(payload))
+
+
 def test_gate_rejects_a_topography_grounded_only_in_the_scorecard_snapshot(
     tmp_path: Path,
 ) -> None:
     # Every revision after the first is forced to carry its predecessor's scorecard
     # snapshot, so that mandatory citation must not satisfy the grounding requirement.
+    # The scorecard's command below claims the market-snapshot subcommand outright, so
+    # the rejection has to come from the input's type, not from the command anchor.
     payload = _payload()
     context_db = str((tmp_path / "app.sqlite").resolve())
     indicators_db = str((tmp_path / "macro.sqlite").resolve())
@@ -309,7 +386,7 @@ def test_gate_rejects_a_topography_grounded_only_in_the_scorecard_snapshot(
             "context_db": context_db,
             "indicators_db": indicators_db,
             "result_digest": digest,
-            "command": "baibai-engine macro context scorecard --format json",
+            "command": "baibai-engine screening market-snapshot --format json",
             "snapshot_asof": "2026-07-19",
             "observation_as_of": None,
             "accessed_at": "2026-07-19T12:00:00+09:00",

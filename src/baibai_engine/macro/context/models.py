@@ -1,16 +1,17 @@
 """Canonical macro-context contract owned by the engine.
 
-The report is two parts. ``core`` is a use-case agnostic assessment of the market
+The report is three layers. ``core`` is a use-case agnostic assessment of the market
 environment: it reads on its own and carries no vocabulary of the Japanese equity
-accumulation loop. ``connection`` is the only place that translates the assessment
-into that loop (research priority, sector tilt, sizing caution).
+accumulation loop. ``synthesis`` sits above core and names the dominant cross-channel
+forces and their interactions. ``connection`` is the only place that translates the
+assessment into that loop (research priority, sector tilt, sizing caution).
 
 The separation is enforced by reference direction rather than by the author's care:
-connection may only cite series that core already cites, and names the core sections it
-builds on. The loop-specific *fields* (sector tilt, research priority, sizing caution)
-exist only on the connection section, so they cannot be placed in core at all. Prose is
-not policed — a judgment written in core can still smuggle in an instruction, which is
-what the skill's adversarial self-check is for.
+synthesis and connection may only cite series that core already cites, and each names
+the core sections it builds on. The loop-specific *fields* (sector tilt, research
+priority, sizing caution) exist only on the connection section, so they cannot be
+placed in core at all. Prose is not policed — a judgment written in core can still
+smuggle in an instruction, which is what the skill's adversarial self-check is for.
 
 Validation is split by what it consults. The model itself checks only what the document
 says about itself — section order, citation trails, deadline windows — so a published
@@ -25,7 +26,7 @@ import hashlib
 import json
 import re
 from calendar import monthrange
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -61,10 +62,11 @@ CORE_SECTION_ORDER: tuple[MacroCoreSectionId, ...] = (
     "monitoring",
 )
 
-# The transmission-channel sections. A material delta is a change in an economic
-# path, so it belongs where that path is examined — not in the summary that opens
-# the report, the scenario section, or the monitoring list.
-MATERIAL_DELTA_SECTION_IDS: frozenset[MacroCoreSectionId] = frozenset(
+# The transmission-channel sections: where an economic path is examined. Both a
+# material delta (a change in a path) and a dominant force's named channels belong
+# here — not in the summary that opens the report, the scenario section, or the
+# monitoring list, which integrate and decide rather than examine a channel.
+TRANSMISSION_CHANNEL_SECTION_IDS: frozenset[MacroCoreSectionId] = frozenset(
     {
         "rates_policy",
         "growth_demand",
@@ -100,6 +102,15 @@ MIN_SCORECARD_DAYS_BY_FREQUENCY: Mapping[str, int] = {
 # The reading is recomputable for any as-of, so a report cites the reading of its own
 # as-of. This allowance covers writing across a weekend, not reading an old snapshot.
 MAX_READING_LAG_DAYS = 7
+
+# The bargain topography reads the current tape; a market snapshot older than this
+# describes a different market. Same allowance philosophy as the reading lag: it
+# covers writing across a weekend, not reusing the previous report's snapshot.
+MAX_MARKET_SNAPSHOT_LAG_DAYS = 7
+
+# Anchored on token boundaries so a command merely mentioning the subcommand inside
+# another word (or a future variant subcommand) does not satisfy the topography gate.
+_MARKET_SNAPSHOT_COMMAND = re.compile(r"(?:^|\s)screening market-snapshot(?:\s|$)")
 
 # A dominant force is by definition cross-channel: a story confined to one section is
 # that section's judgment, not a force. Five is the ceiling because a moment with six
@@ -420,10 +431,12 @@ class DominantForce(_SourcedStatement):
 
     ``summary`` carries the mechanism — what is happening and why. The cross-channel
     claim is structural, not prose: the force names at least two transmission-channel
-    sections and may only cite series those sections examine, so a story confined to
-    one channel cannot be dressed up as a force. ``counter_evidence`` is required for
-    the same reason falsifiers are: a force that nothing could argue against is a
-    narrative, not an assessment.
+    sections, may only cite series those sections examine, and must be able to assign
+    each named section its own distinct cited series — otherwise one series shared by
+    two sections would prove the crossing on paper, and a story confined to one channel
+    could be dressed up as a force. ``counter_evidence`` is required for the same
+    reason falsifiers are: a force that nothing could argue against is a narrative,
+    not an assessment.
     """
 
     force_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
@@ -446,7 +459,7 @@ class DominantForce(_SourcedStatement):
     def validate_channel_references(self) -> Self:
         if len(self.core_section_ids) != len(set(self.core_section_ids)):
             raise ValueError("a dominant force must name distinct sections")
-        outside = sorted(set(self.core_section_ids) - MATERIAL_DELTA_SECTION_IDS)
+        outside = sorted(set(self.core_section_ids) - TRANSMISSION_CHANNEL_SECTION_IDS)
         if outside:
             raise ValueError(
                 "a dominant force may only name transmission-channel sections: "
@@ -525,7 +538,7 @@ class MacroCoreSection(_StrictModel):
         if len(self.series_ids) != len(set(self.series_ids)):
             raise ValueError("section series_ids must be unique")
         self._validate_regime_summary_fields()
-        if self.material_deltas and self.section_id not in MATERIAL_DELTA_SECTION_IDS:
+        if self.material_deltas and self.section_id not in TRANSMISSION_CHANNEL_SECTION_IDS:
             raise ValueError("material deltas belong in the transmission-channel sections")
         self._validate_risk_environment_section()
         if self.section_id == "monitoring":
@@ -824,19 +837,16 @@ class MacroContextDocument(_StrictModel):
         for series_id in section.series_ids:
             if series_id not in series_input_ids:
                 raise ValueError(f"section series_id has no indicator input: {series_id}")
-            ok_input_ids = {
-                input_id for input_id in series_input_ids[series_id] if statuses[input_id] == "ok"
-            }
-            if not ok_input_ids & section_source_ids:
+            if not _cites_successful_input(
+                series_id,
+                cited=section_source_ids,
+                statuses=statuses,
+                series_input_ids=series_input_ids,
+            ):
                 raise ValueError(
                     f"section series_id has no cited successful indicator input: {series_id}"
                 )
-        for item in items:
-            missing = sorted(set(item.source_ids) - statuses.keys())
-            if missing:
-                raise ValueError(f"references unknown input IDs: {', '.join(missing)}")
-            if any(statuses[source_id] == "failed" for source_id in item.source_ids):
-                raise ValueError("an assessment cannot cite failed inputs")
+        _require_resolvable_sources(items, statuses)
 
     def _validate_reading_citation(self, reading_input_ids: set[str]) -> None:
         # The regime summary sets the common coordinate for the whole report, so it is
@@ -858,23 +868,18 @@ class MacroContextDocument(_StrictModel):
         A force may only cite series its named channel sections already examine, and
         each named section must contribute at least one of the force's series — naming
         a channel that lends no evidence would make the cross-channel claim nominal.
-        Every claim resolves to known, successful inputs: the synthesis reads on top
-        of the evidence layer, never around it.
+        Contribution is counted by distinct assignment: one series shared by every
+        named section would otherwise prove the crossing on paper by itself. Every
+        claim resolves to known, successful inputs: the synthesis reads on top of the
+        evidence layer, never around it.
         """
 
         if self.synthesis is None:
             return
         sections_by_id = {section.section_id: section for section in self.core}
-        items: list[_SourcedStatement] = [
-            *self.synthesis.dominant_forces,
-            *self.synthesis.interactions,
-        ]
-        for item in items:
-            missing = sorted(set(item.source_ids) - statuses.keys())
-            if missing:
-                raise ValueError(f"references unknown input IDs: {', '.join(missing)}")
-            if any(statuses[source_id] == "failed" for source_id in item.source_ids):
-                raise ValueError("an assessment cannot cite failed inputs")
+        _require_resolvable_sources(
+            (*self.synthesis.dominant_forces, *self.synthesis.interactions), statuses
+        )
         for force in self.synthesis.dominant_forces:
             named_series = {
                 series_id
@@ -887,24 +892,35 @@ class MacroContextDocument(_StrictModel):
                     "a dominant force may only cite series its named sections cite: "
                     + ", ".join(outside)
                 )
+            contributions = [
+                set(sections_by_id[section_id].series_ids) & set(force.series_ids)
+                for section_id in force.core_section_ids
+            ]
             uncovered = sorted(
                 section_id
-                for section_id in force.core_section_ids
-                if not set(sections_by_id[section_id].series_ids) & set(force.series_ids)
+                for section_id, contributed in zip(
+                    force.core_section_ids, contributions, strict=True
+                )
+                if not contributed
             )
             if uncovered:
                 raise ValueError(
                     "a dominant force must cite at least one series from each named section: "
                     + ", ".join(uncovered)
                 )
+            if not _distinct_assignment_exists(contributions):
+                raise ValueError(
+                    "a dominant force must be backed by a distinct cited series for each "
+                    f"named section: {force.force_id}"
+                )
             cited = set(force.source_ids)
             for series_id in force.series_ids:
-                ok_input_ids = {
-                    input_id
-                    for input_id in series_input_ids.get(series_id, set())
-                    if statuses[input_id] == "ok"
-                }
-                if not ok_input_ids & cited:
+                if not _cites_successful_input(
+                    series_id,
+                    cited=cited,
+                    statuses=statuses,
+                    series_input_ids=series_input_ids,
+                ):
                     raise ValueError(
                         "a dominant force series has no cited successful indicator input: "
                         f"{series_id}"
@@ -1039,7 +1055,9 @@ def require_integrated_strategy(document: MacroContextDocument) -> None:
     The type check matters: every revision after the first is forced to carry its
     predecessor's scorecard snapshot, so a gate satisfied by any machine input would
     be satisfied by that mandatory citation without a single market-internals fact
-    behind it.
+    behind it. The freshness bound matters for the same reason: a stale snapshot
+    carried over from the previous draft would satisfy the citation while grounding
+    the topography in a market that no longer exists.
     """
 
     if document.synthesis is None:
@@ -1056,11 +1074,13 @@ def require_integrated_strategy(document: MacroContextDocument) -> None:
         for snapshot in document.inputs.machine_snapshots
         if isinstance(snapshot, MachineSnapshotInput)
         and snapshot.status == "ok"
-        and "screening market-snapshot" in snapshot.command
+        and _MARKET_SNAPSHOT_COMMAND.search(snapshot.command)
+        and (document.as_of - snapshot.snapshot_asof).days <= MAX_MARKET_SNAPSHOT_LAG_DAYS
     }
     if not market_snapshot_ids & set(topography.source_ids):
         raise ValueError(
-            "the bargain topography must cite a successful market-snapshot machine input"
+            "the bargain topography must cite a successful market-snapshot machine input "
+            f"taken within {MAX_MARKET_SNAPSHOT_LAG_DAYS} days of as_of"
         )
 
 
@@ -1095,6 +1115,53 @@ def require_registry_agreement(document: MacroContextDocument) -> None:
                     f"a scorecard deadline on {condition.series_id} must leave at least "
                     f"{minimum_days} days for the series to print again"
                 )
+
+
+def _require_resolvable_sources(
+    items: Iterable[_SourcedStatement], statuses: Mapping[str, str]
+) -> None:
+    for item in items:
+        missing = sorted(set(item.source_ids) - statuses.keys())
+        if missing:
+            raise ValueError(f"references unknown input IDs: {', '.join(missing)}")
+        if any(statuses[source_id] == "failed" for source_id in item.source_ids):
+            raise ValueError("an assessment cannot cite failed inputs")
+
+
+def _cites_successful_input(
+    series_id: str,
+    *,
+    cited: set[str],
+    statuses: Mapping[str, str],
+    series_input_ids: Mapping[str, set[str]],
+) -> bool:
+    ok_input_ids = {
+        input_id
+        for input_id in series_input_ids.get(series_id, set())
+        if statuses[input_id] == "ok"
+    }
+    return bool(ok_input_ids & cited)
+
+
+def _distinct_assignment_exists(candidates: Sequence[set[str]]) -> bool:
+    """Whether each candidate set can be assigned its own distinct element.
+
+    Bipartite matching, exact: a force names at most five sections, so a backtracking
+    search ordered smallest-set-first is cheap. A per-set non-emptiness check alone
+    would let one series shared by every named section stand in for all of them.
+    """
+
+    ordered = sorted(candidates, key=len)
+
+    def assign(index: int, used: frozenset[str]) -> bool:
+        if index == len(ordered):
+            return True
+        return any(
+            series not in used and assign(index + 1, used | {series})
+            for series in sorted(ordered[index])
+        )
+
+    return assign(0, frozenset())
 
 
 def _sourced_items(
@@ -1141,7 +1208,7 @@ __all__ = [
     "CONNECTION_SECTION_ID",
     "CORE_SECTION_ORDER",
     "MACRO_CONTEXT_SCHEMA_VERSION",
-    "MATERIAL_DELTA_SECTION_IDS",
+    "TRANSMISSION_CHANNEL_SECTION_IDS",
     "MacroContextDocument",
     "MacroCoreSectionId",
     "MacroSynthesis",

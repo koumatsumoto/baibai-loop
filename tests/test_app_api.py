@@ -252,7 +252,10 @@ def test_macro_context_detail_renders_core_ten_plus_connection_and_series_names(
     assert body["connection"]["research_priority_hints"][0]["applies_to"]
     forces = body["synthesis"]["dominant_forces"]
     assert [force["force_id"] for force in forces] == ["rates-repricing", "fx-extreme"]
-    assert forces[0]["series"] == [{"series_id": "us.10y", "name": "米10Y利回り"}]
+    assert forces[0]["series"] == [
+        {"series_id": "us.10y", "name": "米10Y利回り"},
+        {"series_id": "usd_jpy", "name": "USD/JPY"},
+    ]
     assert body["synthesis"]["interactions"][0]["force_ids"] == ["rates-repricing", "fx-extreme"]
     assert body["connection"]["bargain_topography"]["source_ids"]
     assert body["connection"]["estimate_caveats"][0]["affected_component"] == "fv_anchor"
