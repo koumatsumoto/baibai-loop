@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -50,20 +50,38 @@ function linearToSrgb(channel: number): number {
   return Math.round(encoded * 255)
 }
 
-// CSS Color 4 oklch() -> sRGB. Status colors are stated perceptually, so the checks below
-// have to reach the same pixels the browser paints.
-function oklchToRgb(lightness: number, chroma: number, hue: number): Rgb {
+// CSS Color 4 oklch() -> linear-light sRGB, before clamping. A channel outside [0, 1] means
+// sRGB cannot hold the color, so the browser gamut-maps it to something other than the pixels
+// measured here.
+function oklchToLinear(lightness: number, chroma: number, hue: number): readonly number[] {
   const radians = (hue * Math.PI) / 180
   const a = chroma * Math.cos(radians)
   const b = chroma * Math.sin(radians)
   const long = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3
   const medium = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3
   const short = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3
-  return {
-    red: linearToSrgb(4.0767416621 * long - 3.3077115913 * medium + 0.2309699292 * short),
-    green: linearToSrgb(-1.2684380046 * long + 2.6097574011 * medium - 0.3413193965 * short),
-    blue: linearToSrgb(-0.0041960863 * long - 0.7034186147 * medium + 1.707614701 * short),
-  }
+  return [
+    4.0767416621 * long - 3.3077115913 * medium + 0.2309699292 * short,
+    -1.2684380046 * long + 2.6097574011 * medium - 0.3413193965 * short,
+    -0.0041960863 * long - 0.7034186147 * medium + 1.707614701 * short,
+  ]
+}
+
+// Status colors are stated perceptually, so the checks below have to reach the same pixels the
+// browser paints.
+function oklchToRgb(lightness: number, chroma: number, hue: number): Rgb {
+  const [red, green, blue] = oklchToLinear(lightness, chroma, hue)
+  return { red: linearToSrgb(red), green: linearToSrgb(green), blue: linearToSrgb(blue) }
+}
+
+const OKLCH = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)$/i
+
+function fitsInSrgb(value: string): boolean {
+  const oklch = value.match(OKLCH)
+  if (oklch === null) return true
+  return oklchToLinear(Number(oklch[1]), Number(oklch[2]), Number(oklch[3])).every(
+    (channel) => channel >= -0.0005 && channel <= 1.0005,
+  )
 }
 
 function parseColor(value: string): Rgb {
@@ -72,7 +90,7 @@ function parseColor(value: string): Rgb {
     const channels = Number.parseInt(hex[1], 16)
     return { red: (channels >> 16) & 0xff, green: (channels >> 8) & 0xff, blue: channels & 0xff }
   }
-  const oklch = value.match(/^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)$/i)
+  const oklch = value.match(OKLCH)
   if (oklch === null) throw new Error(`cannot read a color from "${value}"`)
   return oklchToRgb(Number(oklch[1]), Number(oklch[2]), Number(oklch[3]))
 }
@@ -115,11 +133,27 @@ function perceptualDistance(first: string, second: string): number {
   return Math.hypot(one.lightness - two.lightness, one.a - two.a, one.b - two.b) * 100
 }
 
-function contrastRatio(foreground: string, background: string): number {
-  const first = relativeLuminance(parseColor(foreground))
-  const second = relativeLuminance(parseColor(background))
+function contrastOf(foreground: Rgb, background: Rgb): number {
+  const first = relativeLuminance(foreground)
+  const second = relativeLuminance(background)
   const [lighter, darker] = first > second ? [first, second] : [second, first]
   return (lighter + 0.05) / (darker + 0.05)
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  return contrastOf(parseColor(foreground), parseColor(background))
+}
+
+// What a partly transparent text color actually becomes once it is drawn over its background.
+function flatten(foreground: string, background: string, alpha: number): Rgb {
+  const front = parseColor(foreground)
+  const back = parseColor(background)
+  const blend = (over: number, under: number): number => Math.round(over * alpha + under * (1 - alpha))
+  return {
+    red: blend(front.red, back.red),
+    green: blend(front.green, back.green),
+    blue: blend(front.blue, back.blue),
+  }
 }
 
 describe('brand assets', () => {
@@ -228,6 +262,101 @@ describe('brand palette', () => {
       const isNeutral = chroma < 0.03
       const isGreen = hue >= 100 && hue <= 190
       expect(isNeutral || isGreen).toBe(true)
+    }
+  })
+})
+
+// The three families that fill a badge or a banner. Each owns an opaque `-surface` to paint
+// with and an opaque `-ink` to write on it, because a translucent fill has no fixed contrast:
+// the ratio depends on whatever is behind it, and it changes when a page moves the badge from
+// a white card to a tinted one.
+const STATUS_FAMILIES = ['--positive', '--warning', '--destructive'] as const
+const STATUS_NAMES = 'positive|warning|destructive'
+
+function componentSources(): readonly string[] {
+  const root = resolve(uiRoot, 'src')
+  return readdirSync(root, { encoding: 'utf8', recursive: true })
+    .filter((entry) => /\.(?:tsx?|css)$/.test(entry))
+    .map((entry) => readFileSync(resolve(root, entry), 'utf8'))
+}
+
+describe('status surfaces', () => {
+  it.each(STATUS_FAMILIES)('keeps the ink on %s-surface at AA', (family) => {
+    const ratio = contrastRatio(tokenValue(`${family}-ink`), tokenValue(`${family}-surface`))
+    expect(ratio).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // A measured ratio is only the rendered one while both colors fit in sRGB. Raising chroma to
+  // force a pair apart would pass the check above and leave the browser painting a color this
+  // file never measured. The mark colors above sit a hair outside sRGB — a channel at -0.009 —
+  // and there Chrome's gamut mapping lands on the same bytes this file clamps to, so their
+  // ratios are the rendered ones. That agreement is not owed for a larger overshoot, which is
+  // what this keeps the fill and its ink away from.
+  it.each(STATUS_FAMILIES)('states %s-surface and its ink inside sRGB', (family) => {
+    expect(fitsInSrgb(tokenValue(`${family}-surface`))).toBe(true)
+    expect(fitsInSrgb(tokenValue(`${family}-ink`))).toBe(true)
+  })
+
+  // Three pale fills are scanned in one list, and near white sRGB leaves so little chroma that
+  // neighbouring hues collapse into the same tint. The bar is what the translucent fills these
+  // replaced left between their closest pair (3.37, green against amber), rounded down: the
+  // opaque set may not read as flatter than what it replaced. Distance is measured between the
+  // fills, since that is what a reader compares before reading either badge.
+  it.each(pairs(STATUS_FAMILIES))('separates the %s fill from the %s fill', (first, second) => {
+    const apart = perceptualDistance(tokenValue(`${first}-surface`), tokenValue(`${second}-surface`))
+    expect(apart).toBeGreaterThanOrEqual(3)
+  })
+
+  it.each(STATUS_FAMILIES)('exposes %s-surface and its ink as utilities', (family) => {
+    expect(themeMappings.get(`--color${family.slice(1)}-surface`)).toBe(`var(${family}-surface)`)
+    expect(themeMappings.get(`--color${family.slice(1)}-ink`)).toBe(`var(${family}-ink)`)
+  })
+
+  // Every shape Tailwind accepts for "this status color, but see-through": the plain alpha,
+  // the arbitrary alpha, the variable shorthand, and an arbitrary value that names the token.
+  // The opaque hover mixes are deliberately not matched — they name `-surface` and `-ink`.
+  it('paints no status color as a translucent fill', () => {
+    const patterns = [
+      new RegExp(`\\bbg-(?:${STATUS_NAMES}|profit|loss)(?:-surface|-ink)?/(?:\\d+|\\[[^\\]]*\\])`, 'g'),
+      new RegExp(`\\bbg-\\(--(?:${STATUS_NAMES}|profit|loss)\\)`, 'g'),
+      new RegExp(`\\bbg-\\[[^\\]]*var\\(--(?:${STATUS_NAMES}|profit|loss)\\)[^\\]]*\\]`, 'g'),
+    ]
+    const found = componentSources().flatMap((text) =>
+      patterns.flatMap((pattern) => [...text.matchAll(pattern)].map(([used]) => used)),
+    )
+    expect(found).toEqual([])
+  })
+
+  // The family color is a mark color, not a text color for its own surface: --warning on
+  // --warning-surface is 4.4 and --destructive on its own 4.1. This catches the pair written
+  // into one class string; a fill on a parent and the text on a child are not visible to a
+  // regex, which is why the palette states the rule as well.
+  it('writes on a status surface with that family ink', () => {
+    const pattern = new RegExp(
+      `\\bbg-(${STATUS_NAMES})-surface\\b[^"'\`]*\\btext-\\1\\b(?!-)|\\btext-(${STATUS_NAMES})\\b(?!-)[^"'\`]*\\bbg-\\2-surface\\b`,
+      'g',
+    )
+    const found = componentSources().flatMap((text) =>
+      [...text.matchAll(pattern)].map(([used]) => used),
+    )
+    expect(found).toEqual([])
+  })
+
+  // A dimmed status text keeps its own family's surface underneath, so the alpha it is written
+  // at is measurable — and has to clear AA at that alpha, not at full strength.
+  it('keeps a dimmed status ink legible on its own surface', () => {
+    const dimmed = new RegExp(`\\btext-(${STATUS_NAMES})-ink/(\\d+)`, 'g')
+    const uses = componentSources().flatMap((text) => [...text.matchAll(dimmed)])
+    for (const [, family, alpha] of uses) {
+      const drawn = flatten(
+        tokenValue(`--${family}-ink`),
+        tokenValue(`--${family}-surface`),
+        Number(alpha) / 100,
+      )
+      expect(
+        contrastOf(drawn, parseColor(tokenValue(`--${family}-surface`))),
+        `text-${family}-ink/${alpha}`,
+      ).toBeGreaterThanOrEqual(4.5)
     }
   })
 })

@@ -45,11 +45,11 @@ type NarrativeText = {
 }
 
 const PLOSS_TONE: Record<string, string> = {
-  低: 'bg-positive/15 text-positive',
-  中低: 'bg-positive/15 text-positive',
-  中: 'bg-warning/15 text-warning',
-  要精査: 'bg-destructive/15 text-destructive',
-  高: 'bg-destructive/15 text-destructive',
+  低: 'bg-positive-surface text-positive-ink',
+  中低: 'bg-positive-surface text-positive-ink',
+  中: 'bg-warning-surface text-warning-ink',
+  要精査: 'bg-destructive-surface text-destructive-ink',
+  高: 'bg-destructive-surface text-destructive-ink',
 }
 
 // longlist entry は型無し dict で届くので、機械値は明示的に coerce する。
@@ -170,7 +170,7 @@ function SelectedCard({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {narrative && <Badge className={cn('font-semibold', PLOSS_TONE[narrative.ploss] ?? 'bg-warning/15 text-warning')}>永久損失(暫定): {narrative.ploss}</Badge>}
+          {narrative && <Badge className={cn('font-semibold', PLOSS_TONE[narrative.ploss] ?? 'bg-warning-surface text-warning-ink')}>永久損失(暫定): {narrative.ploss}</Badge>}
           <TradingViewButton ticker={entry.ticker} />
         </div>
       </CardHeader>
