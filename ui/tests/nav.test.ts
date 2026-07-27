@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { NAV_TABS } from '../src/lib/nav'
+import { ACTIONS_URL, NAV_TABS } from '../src/lib/nav'
 
 function activeLabels(pathname: string): string[] {
   return NAV_TABS.filter((tab) => tab.match(pathname)).map((tab) => tab.label)
@@ -25,5 +25,18 @@ describe('NAV_TABS active matching', () => {
   it('keeps Stocks active on shortlist and security detail routes', () => {
     expect(activeLabels('/stocks/shortlist')).toEqual(['Stocks'])
     expect(activeLabels('/securities/2331')).toEqual(['Stocks'])
+  })
+
+  it('leaves every tab inactive on /system', () => {
+    // /system is operational state reached from the gear menu, not a judgment
+    // tab: lighting one of the three would misplace it in the reading order.
+    expect(activeLabels('/system')).toEqual([])
+  })
+})
+
+describe('ACTIONS_URL', () => {
+  it('points at the daily batch workflow over https', () => {
+    expect(ACTIONS_URL.startsWith('https://github.com/')).toBe(true)
+    expect(ACTIONS_URL).toContain('cloud-daily-batch.yml')
   })
 })

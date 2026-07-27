@@ -103,7 +103,7 @@ class CandidatesSourceContract:
         assert run is not None
         assert run.run_id == "screening-20260708"
         assert len(run.rows) == 3
-        assert run.source_path.startswith("run-revision-")
+        assert run.run_revision_id.startswith("run-revision-")
 
 
 class TestDbCandidatesSource(CandidatesSourceContract):

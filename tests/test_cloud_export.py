@@ -21,6 +21,7 @@ from baibai_app.readmodel.models import (
     OperationsView,
     ScreeningView,
     SecurityDetailView,
+    SystemView,
 )
 from baibai_app.sources.db_sources import DbMetaSource
 from baibai_engine.appdb import LATEST_VERSION
@@ -231,6 +232,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         "macro-reading.json",
         "screening_latest.json",
         "operations.json",
+        "system.json",
         "meta.json",
         "security--0001.json",
         "security--0002.json",
@@ -250,6 +252,9 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert screening.run.candidate_count == 3
     assert len(screening.selections) == 1
     OperationsView.model_validate_json((views / "operations.json").read_text(encoding="utf-8"))
+    system = SystemView.model_validate_json((views / "system.json").read_text(encoding="utf-8"))
+    assert system.batch == "daily"
+    assert [store.store for store in system.stores] == ["market", "runs", "macro", "baibai"]
     meta = MetaView.model_validate_json((views / "meta.json").read_text(encoding="utf-8"))
     assert meta.batch == "daily"
     assert meta.screening_asof == date(2026, 7, 8)
@@ -278,7 +283,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert [candidate["ticker"] for candidate in pool["rows"]] == ["2331", "0001", "0002"]
     assert pool["run"]["asof_date"] == "2026-07-01"
     latest_pool = json.loads(pool_files[1].read_text(encoding="utf-8"))
-    assert latest_pool["run"]["source_path"] == run.run_revision_id
+    assert latest_pool["run"]["run_revision_id"] == run.run_revision_id
 
 
 def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_path: Path) -> None:

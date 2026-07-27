@@ -18,6 +18,7 @@ from baibai_app.sources.db_sources import (
     DbMetaSource,
     DbOperationsSource,
     DbResearchSource,
+    DbSystemSource,
     DbTaskSource,
     load_macro_panel_config,
 )
@@ -43,6 +44,7 @@ class Sources:
     operations: DbOperationsSource
     market: DbMarketPriceSource
     meta: DbMetaSource
+    system: DbSystemSource
     app_db_path: Path
     runs_db_path: Path
 
@@ -81,6 +83,7 @@ def build_sources(
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(root / _MARKET_DB),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
+        system=DbSystemSource(resolved_db, resolved_runs, indicators_db, root / _MARKET_DB),
         app_db_path=resolved_db,
         runs_db_path=resolved_runs,
     )

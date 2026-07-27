@@ -22,6 +22,9 @@ jobs:
   daily:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Job-level env carries only the data-pipeline credentials. The Discord
+    # webhook secret is intentionally NOT here: it is passed to the single
+    # notification step alone (see "Notify Discord #batch-runs").
     env:
       R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -40,15 +43,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Dependency-free notification scripts must import on the runner's system
+      # python3 (before setup-python), so the final notification step can run
+      # them without uv. The import (not just py_compile) is what guarantees the
+      # stdlib-only / no-3.13-syntax contract. Also captures the run start time.
+      - name: Smoke-check notification scripts
+        id: smoke
+        run: |
+          python3 -m py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py
+          python3 -c "import tools.cloud.batch_summary; import tools.cloud.notify_discord"
+          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-python@v7
+        id: setup
         with:
           python-version-file: .python-version
 
       - uses: astral-sh/setup-uv@v9.0.0
+        id: setup-uv
         with:
           enable-cache: true
 
       - name: Sync Python environment
+        id: sync
         run: uv sync --locked
 
       # The spglobal_pmi / nikkei providers fall back to a headless Chromium for
@@ -74,38 +91,97 @@ jobs:
         run: uv run playwright install --with-deps chromium
 
       - name: Pull stores
+        id: pull
         run: tools/cloud/r2_transfer.sh pull-all
 
       - name: Run daily batch
         id: batch
         shell: bash
         run: |
-          args=(--output-dir "$RUNNER_TEMP/serving")
+          args=(--output-dir "$RUNNER_TEMP/serving" --summary-output "$RUNNER_TEMP/batch-summary.json")
           if [[ -n "$MANUAL_ASOF" ]]; then
             args+=(--asof "$MANUAL_ASOF")
           fi
           set +e
-          uv run python tools/cloud/daily_batch.py "${args[@]}"
+          # -m 起動が必須: スクリプトパス起動は sys.path[0] が tools/cloud になり
+          # リポジトリルートが載らないため、tools.cloud.batch_summary の import で落ちる。
+          uv run python -m tools.cloud.daily_batch "${args[@]}"
           code=$?
           set -e
+          # Finalize the outputs BEFORE any fatal exit so the notification step
+          # can still see the batch exit code and the local export state.
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "local_export=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "local_export=false" >> "$GITHUB_OUTPUT"
+          fi
           if [[ $code -ne 0 && $code -ne 3 ]]; then
             exit "$code"
           fi
-          if [[ -f "$RUNNER_TEMP/serving/views/meta.json" ]]; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
 
       - name: Upload updated machine stores
+        id: upload-machine
         if: steps.batch.outputs.published == 'true'
         run: tools/cloud/r2_transfer.sh push-machine
 
       - name: Upload serving objects
+        id: upload-serving
         if: steps.batch.outputs.published == 'true'
         run: tools/cloud/r2_transfer.sh upload-serving "$RUNNER_TEMP/serving"
 
       - name: Report deferred batch failure
+        id: deferred-report
         if: steps.batch.outputs.exit_code == '3'
         run: exit 3
+
+      # `cancelled()` is a status-check function: it is only evaluated in an `if`
+      # conditional, and interpolating it into a `run:` block makes the whole
+      # workflow file invalid. Capture the state as a step output instead.
+      - name: Record cancellation
+        id: cancellation
+        if: ${{ cancelled() }}
+        run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
+
+      # Single notification point. Runs once for every terminal state after all
+      # prior step outcomes are known. `always()` rather than `!cancelled()`:
+      # GitHub reports a `timeout-minutes` expiry as a *cancellation*, and a hung
+      # batch is exactly the silent failure this notification exists to catch —
+      # `!cancelled()` would skip it. A manual cancel costs one extra
+      # `[CANCELLED]` message, which is far cheaper than losing every timeout.
+      # The webhook secret is scoped to this step only; a delivery failure fails
+      # the run so a successful data run with a broken notification is visible.
+      - name: "Notify Discord #batch-runs"
+        id: notify
+        if: ${{ always() }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          # $MANUAL_ASOF (job env) carries the dispatch input safely as a variable;
+          # never interpolate inputs.* into this run block (script injection).
+          python3 -m tools.cloud.notify_discord \
+            --summary-path "$RUNNER_TEMP/batch-summary.json" \
+            --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
+            --local-export "${{ steps.batch.outputs.local_export }}" \
+            --smoke-outcome "${{ steps.smoke.outcome }}" \
+            --setup-outcome "${{ steps.setup.outcome }}" \
+            --sync-outcome "${{ steps.sync.outcome }}" \
+            --pull-outcome "${{ steps.pull.outcome }}" \
+            --upload-machine-outcome "${{ steps.upload-machine.outcome }}" \
+            --upload-serving-outcome "${{ steps.upload-serving.outcome }}" \
+            --asof "$MANUAL_ASOF" \
+            --run-started-at "${{ steps.smoke.outputs.started_at }}" \
+            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}" \
+            --output "$RUNNER_TEMP/workflow-run-summary.json"
+
+      # Publish the same summary the notification carries so the System page can
+      # show a run that failed before the export produced anything. Best-effort:
+      # this must not change the run's outcome, which the notification step and
+      # the failure policy above already decided.
+      - name: Upload run summary
+        id: upload-run-summary
+        if: ${{ always() }}
+        continue-on-error: true
+        run: tools/cloud/r2_transfer.sh upload-run-summary "$RUNNER_TEMP/workflow-run-summary.json"

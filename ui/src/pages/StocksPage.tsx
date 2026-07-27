@@ -24,7 +24,7 @@ import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
+import { EMPTY, formatNumber } from '../lib/format'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
 
@@ -254,10 +254,9 @@ export function StocksPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Stocks</h1>
           <div className="flex flex-col items-start gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm lg:items-end">
             {data.run.stale && <StaleBadge detail={`${LABEL.asOf} ${data.run.asof_date}（7 日超）`} />}
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
+            <dl className="grid grid-cols-3 gap-x-6 gap-y-2">
               {[
                 [LABEL.asOf, data.run.asof_date],
-                [LABEL.run, formatJstDateTime(data.run.run_at)],
                 ['対象銘柄', data.run.universe_size.toLocaleString('ja-JP')],
                 ['Candidates', data.run.candidate_count.toLocaleString('ja-JP')],
               ].map(([label, value]) => (
@@ -330,11 +329,9 @@ export function StocksPage() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <strong className="text-sm text-foreground">{rows.length.toLocaleString('ja-JP')} 件</strong>
           <span>{LABEL.asOf} {activeRun.asof_date}</span>
-          <span>{LABEL.run} {formatJstDateTime(activeRun.run_at)}</span>
           {activeRun.stale && <StaleBadge detail={`${LABEL.asOf} ${activeRun.asof_date}（7 日超）`} />}
           <span>E[r] 降順</span>
           {!showAll && rows.length > 500 && <span>先頭 500 件を表示</span>}
-          <code className="ml-auto hidden max-w-md truncate font-mono lg:block" title={activeRun.source_path}>{activeRun.source_path}</code>
         </div>
 
         <Card className="overflow-hidden py-0 shadow-sm">

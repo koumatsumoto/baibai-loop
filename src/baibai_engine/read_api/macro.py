@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from baibai_engine.foundation.redaction import redact_credentials
 from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
 from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
 from baibai_engine.macro.context.triggers import evaluate_triggers_if_readable
@@ -95,7 +96,9 @@ def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
             "status": str(row[1]),
             "finished_at": str(row[2]),
             "record_count": int(row[3]),
-            "error_message": None if row[4] is None else str(row[4]),
+            # Masked on read as well as on write: rows recorded before the write
+            # side masked them are still in the store and still get published.
+            "error_message": None if row[4] is None else redact_credentials(str(row[4])),
         }
         for row in rows
         if str(row[0]) in registered

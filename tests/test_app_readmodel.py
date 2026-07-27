@@ -177,8 +177,7 @@ def _run(*, metrics: object = None) -> CandidatesRun:
         asof_date=date(2026, 7, 8),
         run_at=datetime(2026, 7, 8, 12, 0, tzinfo=JST),
         universe_size=3744,
-        source_path="run-revision-20260708",
-        application_git_commit=None,
+        run_revision_id="run-revision-20260708",
         rows=(row,),
     )
 

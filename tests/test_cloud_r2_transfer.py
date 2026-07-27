@@ -156,6 +156,46 @@ def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
     assert not log.exists()
 
 
+def test_run_summary_upload_writes_one_object_outside_the_views_prefix(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    summary = tmp_path / "workflow-run-summary.json"
+    summary.write_text('{"schema_version": 1}', encoding="utf-8")
+
+    subprocess.run(
+        [TRANSFER_SCRIPT, "upload-run-summary", summary],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=True,
+    )
+
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert len(commands) == 1
+    assert commands[0].startswith("s3 cp ")
+    # Not under views/, which `upload-serving` mirrors with --delete.
+    assert "s3://baibai-serving/system/latest-run.json" in commands[0]
+
+
+def test_run_summary_upload_reports_a_missing_summary_without_uploading(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "upload-run-summary", tmp_path / "absent.json"],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "no workflow run summary to upload" in completed.stderr
+    assert not log.exists()
+
+
 def test_initial_seed_refuses_to_overwrite_an_existing_store(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)

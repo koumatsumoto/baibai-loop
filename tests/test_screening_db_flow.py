@@ -251,7 +251,7 @@ def test_screening_api_falls_back_to_selection_bound_run(app_method_root: Path) 
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
         payload = client.get("/api/screening/latest").json()
-    assert payload["run"]["source_path"] == run.run_revision_id
+    assert payload["run"]["run_revision_id"] == run.run_revision_id
     assert payload["selections"]
     assert all(item["run_revision_id"] == run.run_revision_id for item in payload["selections"])
 
@@ -463,7 +463,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
         }
     assert all(response.status_code == 200 for response in responses.values())
     screening = responses["/api/screening/latest"].json()
-    assert screening["run"]["source_path"] == "run-newer"
+    assert screening["run"]["run_revision_id"] == "run-newer"
     assert "runs" not in screening
     assert screening["shortlists"][0]["shortlist_id"] == ("shortlist-20260708-weak-ref")
     assert responses["/api/operations"].json()["proposals"][0]["proposal_id"] == (

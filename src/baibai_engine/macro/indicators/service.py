@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import assert_never
 from zoneinfo import ZoneInfo
 
+from baibai_engine.foundation.redaction import redact_credentials
+
 from ..reading.rules import load_reading_rules
 from . import db
 from .db import IndicatorsSchemaError, ObservationRecord
@@ -450,7 +452,7 @@ class IndicatorsService:
                 started_at=started_at,
                 status="failed",
                 record_count=0,
-                error_message=str(exc),
+                error_message=redact_credentials(str(exc)),
             )
             conn.commit()
             raise

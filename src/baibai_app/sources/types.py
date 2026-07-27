@@ -76,8 +76,9 @@ class CandidatesRun:
     asof_date: date
     run_at: datetime
     universe_size: int
-    source_path: str
-    application_git_commit: str | None
+    # The revision the judgment publications (selection / shortlist) bind to;
+    # ``run_id`` is the public identifier shown to a reader.
+    run_revision_id: str
     rows: tuple[dict[str, object], ...]
 
 

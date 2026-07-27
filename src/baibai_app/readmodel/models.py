@@ -21,6 +21,52 @@ class MetaView(BaseModel):
     batch: MetaBatch | None
 
 
+type SystemStoreName = Literal["market", "runs", "macro", "baibai"]
+
+
+class SystemStoreView(BaseModel):
+    """One machine store's depth and freshness.
+
+    ``row_count`` and ``latest_date`` come from the store's representative table,
+    so a retention accident or a feed that stopped landing shows up as a number
+    that moved even when the view it feeds still renders.
+    """
+
+    store: SystemStoreName
+    exists: bool
+    size_bytes: int | None
+    row_count: int | None
+    latest_date: date | None
+    updated_at: datetime | None
+
+
+class SystemProviderView(BaseModel):
+    """A series whose most recent acquisition attempt failed, and for how long."""
+
+    series_id: str
+    name: str
+    consecutive_failures: int
+    failing_since: str
+    last_error: str | None
+
+
+class SystemView(BaseModel):
+    """Operational state of the pipeline, exported as views/system.json.
+
+    Deliberately carries no judgment input: everything here is about whether the
+    machinery ran, never about what a number means for a holding or a candidate.
+    """
+
+    generated_at: datetime
+    batch: MetaBatch | None
+    stores: list[SystemStoreView]
+    failing_providers: list[SystemProviderView]
+    # Registered series with no acquisition attempt on record. A streak needs
+    # rows to count, so without this a never-tried series reads as healthy.
+    never_attempted_series: list[str]
+    provider_series_total: int
+
+
 class HoldingView(BaseModel):
     ticker: str
     company_name: str | None
@@ -151,8 +197,9 @@ class ScreeningRunView(BaseModel):
     run_at: datetime
     universe_size: int
     candidate_count: int
-    source_path: str
-    application_git_commit: str | None
+    # The revision the selections in the same payload bind to; ``run_id`` is the
+    # public identifier a reader sees.
+    run_revision_id: str
     stale: bool
 
 
