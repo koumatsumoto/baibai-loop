@@ -94,6 +94,36 @@ def test_model_rejects_a_force_citing_series_outside_its_named_sections() -> Non
         _validated(payload)
 
 
+def test_model_rejects_a_force_whose_named_section_contributes_no_series() -> None:
+    # Naming a channel that lends none of the force's series would make the
+    # cross-channel claim nominal: the force would "cross" into fx on paper only.
+    payload = _payload()
+    payload["inputs"]["indicator_series"].append(
+        {
+            "input_id": "jp-10y",
+            "provider": "mof_jgb",
+            "series_id": "jp.10y",
+            "window": "2026-07-01/2026-07-17",
+            "observation_as_of": "2026-07-17",
+            "published_at": "2026-07-17T16:00:00+09:00",
+            "accessed_at": "2026-07-19T12:00:00+09:00",
+            "status": "ok",
+            "used_for": "日本金利の確認",
+        }
+    )
+    fx_section = payload["core"][5]
+    assert fx_section["section_id"] == "fx"
+    fx_section["series_ids"] = ["jp.10y"]
+    for item in (
+        *fx_section["fact_summary"],
+        fx_section["judgment"],
+        fx_section["economic_connection"],
+    ):
+        item["source_ids"] = ["jp-10y"]
+    with pytest.raises(ValidationError, match="from each named section"):
+        _validated(payload)
+
+
 def test_model_rejects_a_force_series_without_a_cited_successful_input() -> None:
     payload = _payload()
     # The named sections cite the series, but the force itself does not carry the

@@ -185,7 +185,7 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 synthesis は「今の市場を動かしているのは何か」を 2〜5 件の **dominant force** として名指しし、力ごとに機序（`summary`）・伝達経路（`transmission`）・**反証（`counter_evidence`）**・方向・確度を書く。力は定義により経路横断である——1 つのチャネルに閉じる話はそのセクションの judgment であって力ではない。これも参照方向の機械契約で守る：
 
 - 各 force は伝達チャネル 7 セクション（`rates_policy` / `growth_demand` / `inflation_costs` / `liquidity_credit` / `fx` / `japan` / `valuation`）のうち **2 つ以上**を `core_section_ids` で名指しする（regime_summary・risk_environment・monitoring は統合・決定の層でありチャネルではないので名指せない）
-- force が引用できる series は、**名指ししたセクションが引用済みのものだけ**。series ごとに正常取得した input の引用も要る（セクションと同じ規律）
+- force が引用できる series は、**名指ししたセクションが引用済みのものだけ**で、**名指しした各セクションから最低 1 系列**を引用する（evidence を貸さないチャネルの名指しは経路横断の主張を名目化する）。series ごとに正常取得した input の引用も要る（セクションと同じ規律）
 - `interactions` は力同士が compound / offset する関係を最低 1 件書く。宣言済みの force を 2 件以上 `force_ids` で名指しする（金利と円が同時に極値なら、反転局面で同時に痛む——単独の力の読みでは見えない joint risk がここに載る）
 
 force の候補は §② reading の flags・|z| 極値・percentile 端・トレンド反転を束ね、§④ の 8 分析レンズと突き合わせて立てる。1 つの力を支持する事実と反証する事実の両方を一次情報で集めてから書く。

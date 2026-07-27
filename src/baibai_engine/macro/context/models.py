@@ -856,7 +856,9 @@ class MacroContextDocument(_StrictModel):
         """Hold the synthesis to the same reference direction as the connection.
 
         A force may only cite series its named channel sections already examine, and
-        every claim resolves to known, successful inputs — the synthesis reads on top
+        each named section must contribute at least one of the force's series — naming
+        a channel that lends no evidence would make the cross-channel claim nominal.
+        Every claim resolves to known, successful inputs: the synthesis reads on top
         of the evidence layer, never around it.
         """
 
@@ -884,6 +886,16 @@ class MacroContextDocument(_StrictModel):
                 raise ValueError(
                     "a dominant force may only cite series its named sections cite: "
                     + ", ".join(outside)
+                )
+            uncovered = sorted(
+                section_id
+                for section_id in force.core_section_ids
+                if not set(sections_by_id[section_id].series_ids) & set(force.series_ids)
+            )
+            if uncovered:
+                raise ValueError(
+                    "a dominant force must cite at least one series from each named section: "
+                    + ", ".join(uncovered)
                 )
             cited = set(force.source_ids)
             for series_id in force.series_ids:
