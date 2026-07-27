@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import sqlite3
 from datetime import datetime
@@ -8,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
-from baibai_app.api.server import create_app
+from baibai_app.api.server import PUBLIC_ASSETS, create_app
 from baibai_app.cli import main
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.macro.context.models import MacroContextDocument
@@ -69,44 +70,37 @@ def test_api_exposes_read_views_and_spa_fallback(app_method_root: Path) -> None:
         assert "ui/ を build" in fallback.text
 
 
-def test_app_serves_built_brand_assets(app_method_root: Path) -> None:
+def test_app_serves_every_built_public_asset(app_method_root: Path) -> None:
     dist = app_method_root / "ui/dist"
     dist.mkdir(parents=True)
-    (dist / "favicon.ico").write_bytes(b"favicon")
-    (dist / "logo.png").write_bytes(b"logo")
-    (dist / "manifest.webmanifest").write_text("{}", encoding="utf-8")
-    (dist / "icon-192.png").write_bytes(b"icon-192")
-    (dist / "icon-512.png").write_bytes(b"icon-512")
+    (dist / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    for filename in PUBLIC_ASSETS:
+        (dist / filename).write_bytes(filename.encode())
 
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        favicon = client.get("/favicon.ico")
-        logo = client.get("/logo.png")
-        manifest = client.get("/manifest.webmanifest")
-        icon_192 = client.get("/icon-192.png")
-        icon_512 = client.get("/icon-512.png")
+        responses = {name: client.get(f"/{name}") for name in PUBLIC_ASSETS}
 
-    assert favicon.status_code == 200
-    assert favicon.content == b"favicon"
-    assert favicon.headers["content-type"].startswith("image/")
-    assert logo.status_code == 200
-    assert logo.content == b"logo"
-    assert logo.headers["content-type"] == "image/png"
-    assert manifest.status_code == 200
-    assert manifest.json() == {}
-    assert manifest.headers["content-type"].startswith("application/manifest+json")
-    assert icon_192.content == b"icon-192"
-    assert icon_192.headers["content-type"] == "image/png"
-    assert icon_512.content == b"icon-512"
-    assert icon_512.headers["content-type"] == "image/png"
+    for filename, response in responses.items():
+        assert response.status_code == 200, filename
+        # An asset missing from the route list falls through to the SPA route, which answers
+        # every path with index.html and a 200 — so the body is what tells them apart.
+        assert response.content == filename.encode(), filename
 
 
-def test_app_returns_404_for_unbuilt_brand_assets(app_method_root: Path) -> None:
+def test_app_returns_404_for_unbuilt_public_assets(app_method_root: Path) -> None:
     with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
-        assert client.get("/favicon.ico").status_code == 404
-        assert client.get("/logo.png").status_code == 404
-        assert client.get("/manifest.webmanifest").status_code == 404
-        assert client.get("/icon-192.png").status_code == 404
-        assert client.get("/icon-512.png").status_code == 404
+        for filename in PUBLIC_ASSETS:
+            assert client.get(f"/{filename}").status_code == 404, filename
+
+
+def test_app_serves_every_public_asset_the_ui_links(app_method_root: Path) -> None:
+    """The UI asks for these by URL, so a link the app cannot answer is a broken asset."""
+
+    index = (Path(__file__).resolve().parents[1] / "ui/index.html").read_text(encoding="utf-8")
+    linked = set(re.findall(r'href="/([\w.-]+\.(?:ico|png|webmanifest))"', index))
+
+    assert linked, "ui/index.html links no public assets — the pattern stopped matching"
+    assert linked <= set(PUBLIC_ASSETS)
 
 
 def test_api_meta_reports_store_freshness(app_method_root: Path) -> None:

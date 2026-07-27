@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { HoldingView } from '../src/api/types'
-import { totalUnrealizedPnl } from '../src/lib/portfolio'
+import { pnlTone, totalUnrealizedPnl } from '../src/lib/portfolio'
 
 function holding(overrides: Partial<HoldingView>): HoldingView {
   return {
@@ -36,5 +36,18 @@ describe('totalUnrealizedPnl', () => {
     expect(totalUnrealizedPnl([
       holding({ deployed_cost_yen: 0, unrealized_pnl_yen: 0 }),
     ])).toEqual({ yen: 0, pct: null })
+  })
+})
+
+describe('pnlTone', () => {
+  // Money outcomes wear gold and blue so they never read as the green/red every other
+  // number uses for direction. Nothing else in the suite checks which token gets picked.
+  it.each([
+    [12_000, 'text-profit'],
+    [-12_000, 'text-loss'],
+    [0, 'text-muted-foreground'],
+    [null, 'text-muted-foreground'],
+  ])('paints %s as %s', (value, expected) => {
+    expect(pnlTone(value)).toBe(expected)
   })
 })

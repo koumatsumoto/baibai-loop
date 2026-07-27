@@ -1,21 +1,20 @@
-import type { HTMLAttributes } from 'react'
+import type { ImgHTMLAttributes } from 'react'
 
 import { cn } from '../lib/utils'
 
-export function BrandMark({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
+// The mark is drawn as-is: a centered square image with nothing shaped around one
+// particular logo, so replacing ui/brand/logo.png and regenerating the assets is the
+// whole of a rebrand here.
+export function BrandMark({ className, ...props }: ImgHTMLAttributes<HTMLImageElement>) {
   return (
-    <span
+    <img
+      alt=""
       aria-hidden="true"
-      className={cn('relative block size-8 shrink-0 overflow-hidden rounded-[0.625rem] bg-white ring-1 ring-border/80', className)}
+      className={cn('block size-8 shrink-0', className)}
+      height="32"
+      src="/logo.png"
+      width="32"
       {...props}
-    >
-      <img
-        alt=""
-        className="absolute size-11 max-w-none -translate-x-1.5 -translate-y-1.5"
-        height="44"
-        src="/logo.png"
-        width="44"
-      />
-    </span>
+    />
   )
 }

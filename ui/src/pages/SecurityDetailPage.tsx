@@ -118,8 +118,8 @@ export function SecurityDetailPage() {
                 </Field>
                 <Field label="評価額"><YenAmount value={data.holding.market_value_yen} /></Field>
                 <Field label="含み損益">
-                  <span className={cn(data.holding.unrealized_pnl_yen > 0 && 'text-positive', data.holding.unrealized_pnl_yen < 0 && 'text-destructive')}>
-                    <YenAmount sign value={data.holding.unrealized_pnl_yen} /> <PctBadge value={data.holding.unrealized_pnl_pct} />
+                  <span>
+                    <YenAmount sign tone="pnl" value={data.holding.unrealized_pnl_yen} /> <PctBadge tone="pnl" value={data.holding.unrealized_pnl_pct} />
                   </span>
                 </Field>
                 <Field label="FV"><YenAmount value={data.holding.fair_value_yen} /></Field>

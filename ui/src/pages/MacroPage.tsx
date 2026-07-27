@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'lucide-react'
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 import { fetchJson } from '../api/client'
 import type { MacroPointView, MacroReadingSeriesView, MacroReadingTrendView, MacroReadingView, MacroSeriesView, MacroView } from '../api/types'
@@ -116,14 +116,39 @@ function StatusBadges({ row, className }: { row: MacroIndicatorRow; className?: 
 }
 
 function Sparkline({ points }: { points: readonly MacroPointView[] }) {
+  // The gradient belongs to this chart's own SVG under an id React guarantees is unique,
+  // so a sparkline placed anywhere carries its fill with it.
+  const fillId = useId()
   // A fixed size instead of a responsive container: the column is a fixed width and the
   // table draws a hundred of these, so measuring each one buys nothing.
   if (points.length === 0) return <div aria-hidden="true" className="h-8 w-24" />
   return (
-    <LineChart data={points as MacroPointView[]} height={32} margin={{ top: 2, right: 2, bottom: 2, left: 2 }} width={96}>
+    <AreaChart data={points as MacroPointView[]} height={32} margin={{ top: 2, right: 2, bottom: 2, left: 2 }} width={96}>
+      <defs>
+        <linearGradient id={fillId} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="var(--brand-lime)" stopOpacity={0.45} />
+          <stop offset="100%" stopColor="var(--brand-lime)" stopOpacity={0.04} />
+        </linearGradient>
+      </defs>
       <YAxis domain={['auto', 'auto']} hide />
-      <Line dataKey="value" dot={false} isAnimationActive={false} stroke="var(--chart-1)" strokeWidth={1.5} type="monotone" />
-    </LineChart>
+      <Area
+        // Without a base, recharts anchors the fill at zero — or at the top of the plot for
+        // an all-negative series, which paints the band above the line. Macro carries
+        // spreads and z-scores that sit below zero, so the base is pinned to the plot floor
+        // and every series reads the same way.
+        baseValue="dataMin"
+        dataKey="value"
+        dot={false}
+        fill={`url(#${fillId})`}
+        // recharts fills an area at 0.6 by default, which would multiply the gradient's
+        // own stops; the gradient alone decides how the band fades.
+        fillOpacity={1}
+        isAnimationActive={false}
+        stroke="var(--chart-1)"
+        strokeWidth={1.5}
+        type="monotone"
+      />
+    </AreaChart>
   )
 }
 
