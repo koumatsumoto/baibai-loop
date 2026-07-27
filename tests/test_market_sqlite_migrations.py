@@ -193,9 +193,11 @@ def test_rebuild_table_reshapes_and_preserves_carried_columns(tmp_path: Path) ->
             conn,
             table="jquants_daily_bars",
             create_statements=(
-                "CREATE TABLE jquants_daily_bars("
-                "ticker TEXT NOT NULL, traded_at TEXT NOT NULL, close REAL, "
-                "PRIMARY KEY (ticker, traded_at))",
+                (
+                    "CREATE TABLE jquants_daily_bars("
+                    "ticker TEXT NOT NULL, traded_at TEXT NOT NULL, close REAL, "
+                    "PRIMARY KEY (ticker, traded_at))"
+                ),
             ),
             columns=("ticker", "traded_at", "close"),
         )

@@ -116,10 +116,12 @@ def test_reevaluation_suggestion_emits_runnable_task_add_for_rejected_with_earni
     )
 
     assert suggestions == [
-        "baibai-engine task add --kind follow-up --ticker 0001 "
-        '--title "0001 決算で見送り判断を再評価" '
-        "--due 2026-08-06 --event-date 2026-08-06 "
-        '--event-label "0001 決算"'
+        (
+            "baibai-engine task add --kind follow-up --ticker 0001 "
+            '--title "0001 決算で見送り判断を再評価" '
+            "--due 2026-08-06 --event-date 2026-08-06 "
+            '--event-label "0001 決算"'
+        )
     ]
 
 

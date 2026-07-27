@@ -3072,18 +3072,24 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             (f"{_DASHBOARD_SOURCE_URL}&Unit=001", "unsupported"),
             (f"{_DASHBOARD_SOURCE_URL}&Cycle=1", "repeated"),
             (
-                f"{base}?Lang=JP&IndicatorCode={_DASHBOARD_INDICATOR}"
-                "&Cycle=1&IsSeasonalAdjustment=2&RegionCode=",
+                (
+                    f"{base}?Lang=JP&IndicatorCode={_DASHBOARD_INDICATOR}"
+                    "&Cycle=1&IsSeasonalAdjustment=2&RegionCode="
+                ),
                 "empty",
             ),
             (
-                f"{base}?Lang=JP&IndicatorCode={_DASHBOARD_INDICATOR}"
-                "&Cycle=3&IsSeasonalAdjustment=2&RegionCode=00000",
+                (
+                    f"{base}?Lang=JP&IndicatorCode={_DASHBOARD_INDICATOR}"
+                    "&Cycle=3&IsSeasonalAdjustment=2&RegionCode=00000"
+                ),
                 "monthly cycle only",
             ),
             (
-                f"{base}?Lang=JP&IndicatorCode=0302030202010090010"
-                "&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000",
+                (
+                    f"{base}?Lang=JP&IndicatorCode=0302030202010090010"
+                    "&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000"
+                ),
                 "for series",
             ),
         ):
