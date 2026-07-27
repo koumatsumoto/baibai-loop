@@ -27,13 +27,10 @@
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
     --font-mono: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
-    --color-brand-green: var(--brand-green);
-    --color-brand-lime: var(--brand-lime);
     --color-primary-display: var(--primary-display);
     --color-primary-action: var(--primary-action);
     --color-primary-hover: var(--primary-hover-color);
     --color-primary-soft: var(--primary-soft);
-    --color-accent-display: var(--accent-display);
     --color-surface: var(--surface);
     --color-surface-subtle: var(--surface-subtle);
     --color-border-strong: var(--border-strong);
@@ -134,7 +131,9 @@
        things to a decision, so they must not look alike.
 
        Those four are the colors a bare number can wear, and they are kept far apart from
-       each other in perceptual distance. Warning is not one of them: it never dresses a
+       each other in perceptual distance. Note that --loss means "this money is down", not
+       the permanent-loss risk a thesis rates — that is a judgment about a business and
+       stays on the metric side, in red. Warning is not one of them: it never dresses a
        value, only a badge or a banner that already says "stale" or names the rule it
        broke, so it can stay the amber a caution is expected to be even though gold is
        nearby. Pulling it away from amber would only make a caution look like an error. */

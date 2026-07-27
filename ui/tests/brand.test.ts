@@ -26,6 +26,7 @@ function declarations(css: string): ReadonlyMap<string, string> {
 }
 
 const tokens = declarations(rootBlock)
+const themeMappings = declarations(styles.match(/@theme inline\s*\{(?<body>[\s\S]*?)\n\}/)?.groups?.body ?? '')
 
 // A token's value only means something once its var() chain is followed: --chart-1 reads
 // `var(--primary-action)`, and it is the green at the end of that chain a viewer sees.
@@ -148,28 +149,38 @@ describe('light-only appearance', () => {
   })
 })
 
+// The colors a bare number can wear, and the colors a chart series can. Every check below
+// derives its cases from these two lists, so a color added to the palette cannot be added
+// to some checks and forgotten by the rest.
+const VALUE_COLORS = ['--positive', '--destructive', '--profit', '--loss'] as const
+const SERIES_COLORS = ['--chart-1', '--chart-2', '--chart-3'] as const
+
+function pairs<T>(items: readonly T[]): [T, T][] {
+  return items.flatMap((first, index) => items.slice(index + 1).map((second): [T, T] => [first, second]))
+}
+
 describe('brand palette', () => {
-  // The two colors the mark itself owns. `tools/generate_brand_assets.py` measures them
-  // from ui/brand/logo.png, so a logo whose lime or gold has moved fails here until the
-  // palette follows the image it claims to come from.
+  // The two colors the mark itself owns, checked against what was measured from
+  // ui/brand/logo.png rather than against a value typed in twice. Regenerating the brand
+  // assets rewrites that measurement, so a logo whose lime or gold has moved fails here
+  // until the palette follows the image it claims to come from.
   it.each([
-    ['--brand-lime', '#d9ef37'],
-    ['--accent-display', '#feae00'],
-  ])('takes %s from the source logo', (token, value) => {
-    expect(tokenValue(token)).toBe(value)
+    ['--brand-lime', 'lime'],
+    ['--accent-display', 'gold'],
+  ])('takes %s from the source logo', (token, measurement) => {
+    const measured = JSON.parse(source('brand/measured-colors.json')) as Record<string, string>
+    expect(measured[measurement]).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(tokenValue(token)).toBe(measured[measurement].toLowerCase())
   })
 
   // What the palette has to hold whatever the hex values become. Each color is measured
   // against the surface it actually sits on, at the AA threshold for text (4.5) and the
   // non-text threshold for focus outlines and chart marks (3.0).
   it.each([
+    ...VALUE_COLORS.map((token): [string, string, number] => [token, '--surface', 4.5]),
     ['--primary-action', '--surface', 4.5],
     ['--primary-hover', '--surface', 4.5],
     ['--warning', '--surface', 4.5],
-    ['--positive', '--surface', 4.5],
-    ['--destructive', '--surface', 4.5],
-    ['--profit', '--surface', 4.5],
-    ['--loss', '--surface', 4.5],
     ['--text-secondary', '--canvas', 4.5],
     ['--ring', '--canvas', 3],
     ['--chart-1', '--surface', 3],
@@ -178,8 +189,24 @@ describe('brand palette', () => {
     expect(contrastRatio(tokenValue(token), tokenValue(background))).toBeGreaterThanOrEqual(minimum)
   })
 
+  // Tailwind only emits `text-profit` / `bg-chart-2` for tokens re-exported through
+  // `@theme inline`. A missing line there costs no error — the class is simply never
+  // generated and the element keeps whatever color it inherited.
+  it.each([...VALUE_COLORS, ...SERIES_COLORS])('exposes %s as a utility', (token) => {
+    expect(themeMappings.get(`--color${token.slice(1)}`)).toBe(`var(${token})`)
+  })
+
+  it('maps no utility onto a token that no longer exists', () => {
+    for (const [name, value] of themeMappings) {
+      const reference = value.match(/^var\((--[\w-]+)\)$/)
+      if (reference === null) continue
+      const declared = tokens.has(reference[1]) || themeMappings.has(reference[1])
+      expect(declared, `${name} points at a missing token`).toBe(true)
+    }
+  })
+
   it('keeps status colors independent from brand and accent tokens', () => {
-    for (const token of ['--positive', '--warning', '--destructive', '--profit', '--loss']) {
+    for (const token of [...VALUE_COLORS, '--warning']) {
       const declaration = tokens.get(token)
       expect(declaration).toBeDefined()
       expect(declaration).not.toMatch(/var\(--(?:brand|accent)/)
@@ -190,20 +217,13 @@ describe('brand palette', () => {
   // and two answer "did it make money", and a reader tells which question a number is
   // answering from its color alone — so every pair has to be far apart. Warning is absent
   // on purpose: it only ever dresses a badge or a banner that states its own meaning.
-  it.each([
-    ['--positive', '--destructive'],
-    ['--positive', '--profit'],
-    ['--positive', '--loss'],
-    ['--destructive', '--profit'],
-    ['--destructive', '--loss'],
-    ['--profit', '--loss'],
-  ])('separates %s from %s', (first, second) => {
+  it.each(pairs(VALUE_COLORS))('separates %s from %s', (first, second) => {
     expect(perceptualDistance(tokenValue(first), tokenValue(second))).toBeGreaterThanOrEqual(12)
   })
 
   // Charts stay in the green family so gold keeps meaning profit wherever it shows up.
   it('leaves gold and blue out of the chart series', () => {
-    for (const token of ['--chart-1', '--chart-2', '--chart-3']) {
+    for (const token of SERIES_COLORS) {
       const { hue, chroma } = oklab(parseColor(tokenValue(token)))
       const isNeutral = chroma < 0.03
       const isGreen = hue >= 100 && hue <= 190

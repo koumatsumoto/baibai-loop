@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -39,6 +40,17 @@ from baibai_app.readmodel.models import (
 )
 from baibai_app.sources.factory import Sources, build_sources, load_macro_groups
 from baibai_engine.read_api import screening_run_asof_dates
+
+# Vite copies `ui/public/` into the build as-is, but this app answers only the files named
+# here — one list so a route, its test and the UI's own <link> cannot drift apart.
+PUBLIC_ASSETS = (
+    "favicon.ico",
+    "apple-touch-icon.png",
+    "logo.png",
+    "manifest.webmanifest",
+    "icon-192.png",
+    "icon-512.png",
+)
 
 _JST = ZoneInfo("Asia/Tokyo")
 
@@ -183,25 +195,13 @@ def create_app(
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
-    @app.get("/favicon.ico", include_in_schema=False, response_model=None)
-    def favicon() -> FileResponse:
-        return _public_asset(dist, "favicon.ico")
-
-    @app.get("/logo.png", include_in_schema=False, response_model=None)
-    def logo() -> FileResponse:
-        return _public_asset(dist, "logo.png")
-
-    @app.get("/manifest.webmanifest", include_in_schema=False, response_model=None)
-    def manifest() -> FileResponse:
-        return _public_asset(dist, "manifest.webmanifest")
-
-    @app.get("/icon-192.png", include_in_schema=False, response_model=None)
-    def icon_192() -> FileResponse:
-        return _public_asset(dist, "icon-192.png")
-
-    @app.get("/icon-512.png", include_in_schema=False, response_model=None)
-    def icon_512() -> FileResponse:
-        return _public_asset(dist, "icon-512.png")
+    for filename in PUBLIC_ASSETS:
+        app.add_api_route(
+            f"/{filename}",
+            _public_asset_route(dist, filename),
+            include_in_schema=False,
+            response_model=None,
+        )
 
     @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
     def spa_fallback(full_path: str) -> FileResponse | PlainTextResponse:
@@ -215,13 +215,21 @@ def create_app(
     return app
 
 
-def _public_asset(dist: Path, filename: str) -> FileResponse:
-    """Serve an explicitly supported Vite public asset without widening the app surface."""
+def _public_asset_route(dist: Path, filename: str) -> Callable[[], FileResponse]:
+    """Serve an explicitly supported Vite public asset without widening the app surface.
 
-    path = dist / filename
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="UI asset is not built")
-    return FileResponse(path)
+    Anything not named in `PUBLIC_ASSETS` falls through to the SPA route and comes back as
+    `index.html` with a 200, so an asset the UI links but this list omits is answered with
+    a page instead of an image — and nothing reports an error.
+    """
+
+    def route() -> FileResponse:
+        path = dist / filename
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="UI asset is not built")
+        return FileResponse(path)
+
+    return route
 
 
 def _build_sources(request: Request) -> Sources:

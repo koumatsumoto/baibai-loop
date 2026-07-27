@@ -35,14 +35,10 @@ baibai-app = "baibai_app.cli:main"
 
 [dependency-groups]
 dev = [
-  { include-group = "brand" },
   { include-group = "test" },
   { include-group = "typing" },
   { include-group = "quality" },
   { include-group = "security" },
-]
-brand = [
-  "pillow>=12.0.0",
 ]
 test = [
   "coverage[toml]>=7.15.2",

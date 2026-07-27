@@ -15,7 +15,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Separator } from '../components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { LABEL } from '../lib/labels'
-import { pnlTone } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
 function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
@@ -119,8 +118,8 @@ export function SecurityDetailPage() {
                 </Field>
                 <Field label="評価額"><YenAmount value={data.holding.market_value_yen} /></Field>
                 <Field label="含み損益">
-                  <span className={pnlTone(data.holding.unrealized_pnl_yen)}>
-                    <YenAmount sign value={data.holding.unrealized_pnl_yen} /> <PctBadge tone="pnl" value={data.holding.unrealized_pnl_pct} />
+                  <span>
+                    <YenAmount sign tone="pnl" value={data.holding.unrealized_pnl_yen} /> <PctBadge tone="pnl" value={data.holding.unrealized_pnl_pct} />
                   </span>
                 </Field>
                 <Field label="FV"><YenAmount value={data.holding.fair_value_yen} /></Field>

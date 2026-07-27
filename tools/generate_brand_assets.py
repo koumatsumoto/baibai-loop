@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.14"
+# dependencies = ["pillow>=12.0.0"]
+# ///
 """Generate every Baibai App brand asset from the single source logo.
 
 The web UI needs the same mark in five shapes — a header image, a favicon, two
@@ -8,21 +12,31 @@ and transparency rules. Deriving them here keeps the logo a one-file change: swa
 The run also reports the source's own lime and gold, so the palette tokens that
 name those colors (`--brand-lime`, `--accent-display`) can be checked against the
 image they claim to come from rather than against memory.
+
+Run it with `uv run --script tools/generate_brand_assets.py`. Pillow is declared
+above rather than in the project's dependency groups: this runs a few times a year
+when the logo changes, and putting a native image library in the shared lock would
+install it in every daily workflow and keep it in the audit surface for good.
 """
 
 from __future__ import annotations
 
 import argparse
 import colorsys
+import json
 import sys
 from collections import Counter
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
+from PIL.Image import DecompressionBombError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = REPO_ROOT / "ui" / "brand" / "logo.png"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "ui" / "public"
+# Written next to the source so the palette can be checked against the image it claims to
+# come from: `ui/tests/brand.test.ts` reads this, not the developer's memory.
+MEASUREMENT_FILENAME = "measured-colors.json"
 
 WHITE = (255, 255, 255)
 # A maskable icon may be cropped to any shape inscribed in the canvas, so the mark
@@ -102,34 +116,61 @@ def write_favicon(image: Image.Image, path: Path) -> None:
     )
 
 
+def display(path: Path) -> str:
+    """Repo-relative where that reads better, absolute where it would not."""
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path.resolve())
+
+
 def generate(source_path: Path, output_dir: Path) -> list[Path]:
     source = load_source(source_path)
+    outputs = {
+        "logo.png": lambda: source.resize((HEADER_SIZE, HEADER_SIZE), Image.LANCZOS),
+        **{
+            f"icon-{size}.png": (lambda size=size: on_white(source, size, MASKABLE_SCALE))
+            for size in MASKABLE_SIZES
+        },
+        "apple-touch-icon.png": lambda: on_white(source, APPLE_TOUCH_SIZE, APPLE_TOUCH_SCALE),
+    }
+    paths = [output_dir / name for name in (*outputs, "favicon.ico")]
+
+    # The source is read from disk and the outputs are written to it, so an output dir
+    # holding the source would replace the original with a 192px derivative — and every
+    # later run would then shrink it again. Refuse before anything is written.
+    resolved_source = source_path.resolve()
+    collision = next((path for path in paths if path.resolve() == resolved_source), None)
+    if collision is not None:
+        message = f"output would overwrite the source logo: {display(collision)}"
+        raise BrandAssetError(message)
+
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    header = output_dir / "logo.png"
-    write_png(source.resize((HEADER_SIZE, HEADER_SIZE), Image.LANCZOS), header)
-
-    favicon = output_dir / "favicon.ico"
-    write_favicon(source, favicon)
-
-    written = [header, favicon]
-    for size in MASKABLE_SIZES:
-        icon = output_dir / f"icon-{size}.png"
-        write_png(on_white(source, size, MASKABLE_SCALE), icon)
-        written.append(icon)
-
-    apple = output_dir / "apple-touch-icon.png"
-    write_png(on_white(source, APPLE_TOUCH_SIZE, APPLE_TOUCH_SCALE), apple)
-    written.append(apple)
+    for name, render in outputs.items():
+        write_png(render(), output_dir / name)
+    write_favicon(source, output_dir / "favicon.ico")
 
     lime = dominant_hex(source, LIME_HUE_RANGE)
     gold = dominant_hex(source, GOLD_HUE_RANGE)
-    print(f"source: {source_path} ({source.width}x{source.height})")
-    print(f"measured lime (--brand-lime):    {lime or 'not found'}")
-    print(f"measured gold (--accent-display): {gold or 'not found'}")
-    for path in written:
-        print(f"wrote {path.relative_to(REPO_ROOT)} ({path.stat().st_size} bytes)")
-    return written
+    # The palette names these two as coming from the logo, so a source without them cannot
+    # answer what the tokens should be. Say so instead of writing nulls the checks skip.
+    missing = [name for name, value in (("lime", lime), ("gold", gold)) if value is None]
+    if missing:
+        message = (
+            f"source logo has no {' and no '.join(missing)} to measure: {display(source_path)}"
+        )
+        raise BrandAssetError(message)
+    measured = {"lime": lime, "gold": gold}
+    measurement_path = source_path.parent / MEASUREMENT_FILENAME
+    measurement_path.write_text(json.dumps(measured, indent=2) + "\n", encoding="utf-8")
+
+    print(f"source: {display(source_path)} ({source.width}x{source.height})")
+    print(f"measured lime (--brand-lime):     {lime}")
+    print(f"measured gold (--accent-display): {gold}")
+    for path in paths:
+        print(f"wrote {display(path)} ({path.stat().st_size} bytes)")
+    print(f"wrote {display(measurement_path)}")
+    return paths
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         generate(args.source, args.output_dir)
-    except BrandAssetError as error:
+    except (BrandAssetError, OSError, UnidentifiedImageError, DecompressionBombError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
