@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import { LoadingPage } from './components/LoadingIndicator'
 import { PasswordGate } from './components/PasswordGate'
+import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import { TooltipProvider } from './components/ui/tooltip'
 import './styles.css'
 
@@ -23,17 +24,19 @@ function App() {
     <TooltipProvider>
       <BrowserRouter>
         <PasswordGate>
-          <Suspense fallback={<RouteLoading />}>
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/macro" element={<MacroPage />} />
-              <Route path="/macro/reports/:contextId" element={<MacroReportPage />} />
-              <Route path="/stocks" element={<StocksPage />} />
-              <Route path="/stocks/shortlist" element={<ShortlistPage />} />
-              <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
-              <Route path="/system" element={<SystemPage />} />
-            </Routes>
-          </Suspense>
+          <RouteErrorBoundary>
+            <Suspense fallback={<RouteLoading />}>
+              <Routes>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/macro" element={<MacroPage />} />
+                <Route path="/macro/reports/:contextId" element={<MacroReportPage />} />
+                <Route path="/stocks" element={<StocksPage />} />
+                <Route path="/stocks/shortlist" element={<ShortlistPage />} />
+                <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
+                <Route path="/system" element={<SystemPage />} />
+              </Routes>
+            </Suspense>
+          </RouteErrorBoundary>
         </PasswordGate>
       </BrowserRouter>
     </TooltipProvider>

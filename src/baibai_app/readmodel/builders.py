@@ -163,13 +163,18 @@ def build_system_view(
         if row.get("error_message") is not None
     }
     application_updated_at = source.application_updated_at()
+    # The macro store's own max(observed_at) counts retracted and retired-series
+    # rows, which the judgment views deliberately exclude. Taking the freshness
+    # rule here keeps the operations view from reporting a newer "latest data"
+    # than the header every page shows.
+    macro_asof = source.macro_asof()
     stores = [
         SystemStoreView(
             store=stats.store,
             exists=stats.exists,
             size_bytes=stats.size_bytes,
             row_count=stats.row_count,
-            latest_date=stats.latest_date,
+            latest_date=macro_asof if stats.store == "macro" else stats.latest_date,
             # Only the judgment store records its own write instants; the machine
             # stores are dated by the data they hold.
             updated_at=application_updated_at if stats.store == "baibai" else None,
@@ -190,6 +195,7 @@ def build_system_view(
             )
             for streak in source.failing_providers()
         ],
+        never_attempted_series=source.never_attempted(),
         provider_series_total=len(names),
     )
 

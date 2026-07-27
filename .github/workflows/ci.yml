@@ -64,6 +64,23 @@ jobs:
       - name: Build package
         run: uv build --wheel
 
+  # The notification scripts run on the runner's system python3, before
+  # setup-python and uv sync — that is the only way a run that fails during setup
+  # can still report itself. If a change breaks the stdlib-only contract, the
+  # daily batch's own smoke step catches it, but by then the notifier is broken
+  # too and the failure arrives silently. Check it before merge instead.
+  notifier-stdlib-only:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Import notification scripts on the system python3
+        run: |
+          python3 --version
+          python3 -m py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py
+          python3 -c "import tools.cloud.batch_summary; import tools.cloud.notify_discord"
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

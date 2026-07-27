@@ -42,6 +42,7 @@ from baibai_engine.read_api import (
     macro_latest_observed_at,
     macro_reading_snapshot,
     macro_series_fetch_health,
+    never_attempted_series,
     next_earnings_dates,
     portfolio_ledger_document,
     provider_failure_streaks,
@@ -347,8 +348,21 @@ class DbSystemSource:
     def application_updated_at(self) -> datetime | None:
         return application_db_updated_at(self._app_db_path)
 
+    def macro_asof(self) -> date | None:
+        """Date the macro store the same way the judgment views do.
+
+        Reuses the freshness rule (ok status only, retractions hide the date,
+        registered series only) so the operations view cannot report a newer
+        "latest data" than the header the reader sees on every page.
+        """
+
+        return macro_latest_observed_at(self._indicators_db_path)
+
     def failing_providers(self) -> list[ProviderFailureStreak]:
         return provider_failure_streaks(self._indicators_db_path)
+
+    def never_attempted(self) -> list[str]:
+        return never_attempted_series(self._indicators_db_path)
 
     def fetch_health(self) -> list[dict[str, object]]:
         return macro_series_fetch_health(self._indicators_db_path)

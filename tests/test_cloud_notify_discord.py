@@ -12,8 +12,10 @@ from tools.cloud.batch_summary import (
     EXECUTION_AVAILABLE,
     EXECUTION_NOT_STARTED,
     EXECUTION_UNAVAILABLE,
+    OUTCOME_CANCELLED,
     OUTCOME_DEGRADED,
     OUTCOME_FAILED,
+    OUTCOME_LABELS,
     OUTCOME_SKIPPED,
     OUTCOME_SUCCEEDED,
     PUBLISH_NOT_GENERATED,
@@ -130,6 +132,44 @@ def test_prepare_webhook_url_error_never_leaks_the_url() -> None:
     assert secret_url not in str(excinfo.value)
 
 
+@pytest.mark.parametrize("suffix", [" ", "\t", "\n", "\x7f"])
+def test_prepare_webhook_url_rejects_a_secret_pasted_with_stray_whitespace(
+    suffix: str,
+) -> None:
+    # A URL that keeps a control character reaches http.client, whose InvalidURL
+    # quotes the path — token included — as an uncaught traceback.
+    with pytest.raises(DeliveryError, match="control character or space"):
+        prepare_webhook_url(f"https://discord.com/api/webhooks/111/super-secret-token{suffix}x")
+
+
+def test_delivery_of_a_url_with_stray_whitespace_never_reveals_the_token(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    token = "super-secret-token"
+    delivery = deliver(f"https://discord.com/api/webhooks/111/{token} ", "hello")
+
+    assert delivery.status == DELIVERY_FAILED
+    assert token not in delivery.detail
+    captured = capsys.readouterr()
+    assert token not in captured.out
+    assert token not in captured.err
+
+
+def test_delivery_reports_only_the_type_of_an_unlisted_transport_exception() -> None:
+    token = "super-secret-token"
+
+    def _raise(url: str, body: bytes, timeout: float) -> int:
+        # Not an OSError: an allowlist of exception types would let this escape
+        # as a traceback carrying the URL.
+        raise RuntimeError(f"boom {url}")
+
+    delivery = deliver(f"https://discord.com/api/webhooks/111/{token}", "hello", transport=_raise)
+
+    assert delivery.status == DELIVERY_FAILED
+    assert delivery.detail == "delivery failed: RuntimeError"
+    assert token not in delivery.detail
+
+
 # --- decision table -------------------------------------------------------
 
 
@@ -144,6 +184,7 @@ def _build(
     local_export: bool = False,
     step_outcomes: dict[str, str] | None = None,
     asof: str = "2026-07-21",
+    cancelled: bool = False,
 ) -> WorkflowRunSummary:
     return build_workflow_summary(
         summary_path=summary_path,
@@ -153,6 +194,7 @@ def _build(
         asof=asof,
         run_started_at=_now_iso(),
         env=ENV,
+        cancelled=cancelled,
     )
 
 
@@ -578,3 +620,102 @@ def test_main_fails_closed_when_webhook_unset(tmp_path: Path, monkeypatch) -> No
     assert transport.calls == []
     written = WorkflowRunSummary.from_json(json.loads(output.read_text(encoding="utf-8")))
     assert written.delivery.status == DELIVERY_FAILED
+
+
+# --- cancellation / timeout ------------------------------------------------
+
+
+def test_a_cancelled_run_reports_cancelled_rather_than_a_partial_outcome(
+    tmp_path: Path,
+) -> None:
+    # GitHub reports a `timeout-minutes` expiry as a cancellation, so this is the
+    # shape a hung batch arrives in: some steps green, no terminal state of its own.
+    summary = _build(
+        tmp_path,
+        batch_exit_code="",
+        step_outcomes={"smoke": "success", "setup": "success", "sync": "success"},
+        cancelled=True,
+    )
+
+    assert summary.overall_outcome == OUTCOME_CANCELLED
+    assert OUTCOME_LABELS[summary.overall_outcome] == "[CANCELLED]"
+    assert "[CANCELLED]" in render_message(summary)
+
+
+def test_a_cancelled_run_keeps_the_publish_state_it_reached(tmp_path: Path) -> None:
+    summary_path = tmp_path / "batch-summary.json"
+    _write_batch_summary(summary_path)
+    summary = _build(
+        tmp_path,
+        summary_path=summary_path,
+        batch_exit_code="0",
+        local_export=True,
+        step_outcomes=UPLOADS_OK,
+        cancelled=True,
+    )
+
+    assert summary.overall_outcome == OUTCOME_CANCELLED
+    assert summary.publish_state == PUBLISH_PUBLISHED
+
+
+# --- stale-summary defence -------------------------------------------------
+
+
+def test_the_summary_records_when_the_run_reached_its_terminal_state(
+    tmp_path: Path,
+) -> None:
+    # Without this the System page cannot separate a fresh run from the last one
+    # whose upload succeeded.
+    before = datetime.now(UTC)
+    summary = _build(tmp_path, batch_exit_code="")
+    after = datetime.now(UTC)
+
+    finished = datetime.fromisoformat(summary.finished_at)
+    assert before <= finished <= after
+
+
+# --- pre-batch attribution -------------------------------------------------
+
+
+def test_a_failure_in_an_untracked_step_is_not_blamed_on_setup(tmp_path: Path) -> None:
+    # checkout / setup-uv / the Playwright steps are not passed to the notifier.
+    # Naming "setup" would send the reader to a step that in fact succeeded.
+    summary = _build(
+        tmp_path,
+        batch_exit_code="",
+        step_outcomes={"smoke": "success", "setup": "success", "sync": "success"},
+    )
+
+    assert summary.execution.stage == "pre-batch"
+    assert [error.stage for error in summary.workflow_errors] == ["pre-batch"]
+    assert "pre-batch" in render_message(summary)
+
+
+def test_an_unavailable_summary_is_not_reported_twice(tmp_path: Path) -> None:
+    # The contract error lives on both `execution` and `workflow_errors`; only
+    # three errors are shown, so a duplicate would evict a real one.
+    summary_path = tmp_path / "batch-summary.json"
+    summary_path.write_text("{ not json", encoding="utf-8")
+    summary = _build(
+        tmp_path, summary_path=summary_path, batch_exit_code="0", step_outcomes=UPLOADS_OK
+    )
+
+    message = render_message(summary)
+    assert message.count("batch summary is invalid") == 1
+
+
+def test_a_schema_bump_is_reported_as_a_version_problem_not_a_broken_file(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "batch-summary.json"
+    _write_batch_summary(summary_path)
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 99
+    write_json_atomic(summary_path, payload)
+
+    summary = _build(
+        tmp_path, summary_path=summary_path, batch_exit_code="0", step_outcomes=UPLOADS_OK
+    )
+
+    assert summary.execution.error is not None
+    assert "schema_version" in summary.execution.error.message

@@ -31,6 +31,7 @@ export interface SystemView {
   batch: 'daily' | 'manual' | null
   stores: SystemStoreView[]
   failing_providers: SystemProviderView[]
+  never_attempted_series: string[]
   provider_series_total: number
 }
 
@@ -41,6 +42,8 @@ export type RunOutcome =
   | 'skipped_non_business_day'
   | 'published_with_deferred_failure'
   | 'failed'
+  // GitHub reports a job that hit `timeout-minutes` as cancelled, not failed.
+  | 'cancelled'
 
 export type RunPublishState = 'not_generated' | 'generated' | 'upload_failed' | 'published'
 
@@ -71,13 +74,12 @@ export interface RunExecutionSummaryView {
   local_export: boolean
 }
 
-// Only the member matching `kind` is present; the other keys are absent, not null.
-export interface RunExecutionView {
-  kind: 'available' | 'not_started' | 'unavailable'
-  stage?: string
-  summary?: RunExecutionSummaryView
-  error?: RunErrorView
-}
+// Discriminated by `kind`; only the member for that kind is serialized, so the
+// other keys are absent rather than null.
+export type RunExecutionView =
+  | { kind: 'available'; summary?: RunExecutionSummaryView }
+  | { kind: 'not_started'; stage?: string }
+  | { kind: 'unavailable'; error?: RunErrorView }
 
 export interface WorkflowRunSummaryView {
   schema_version: number
@@ -87,6 +89,9 @@ export interface WorkflowRunSummaryView {
   run_attempt: string
   run_url: string
   asof: string | null
+  // When the run reached its terminal state. Without it a stale object (the
+  // upload is best-effort) is indistinguishable from a fresh run.
+  finished_at: string
   duration_seconds: number
   overall_outcome: RunOutcome
   publish_state: RunPublishState

@@ -131,6 +131,7 @@ def _workflow_summary_payload(**overrides) -> dict:
         "run_attempt": "1",
         "run_url": "https://github.com/koumatsumoto/baibai-loop/actions/runs/1",
         "asof": "2026-07-21",
+        "finished_at": "2026-07-21T09:41:12+00:00",
         "duration_seconds": 320.0,
         "overall_outcome": OUTCOME_SUCCEEDED,
         "publish_state": PUBLISH_PUBLISHED,
@@ -504,3 +505,77 @@ def test_load_batch_execution_summary_handles_missing_and_malformed(tmp_path: Pa
     valid.write_text(json.dumps(_batch_summary_payload()), encoding="utf-8")
     summary = load_batch_execution_summary(valid)
     assert summary.outcome == OUTCOME_SUCCEEDED
+
+
+# --- serving contract -----------------------------------------------------
+
+
+def test_workflow_summary_json_keys_match_the_ui_interface() -> None:
+    """Pin the key set the UI's WorkflowRunSummaryView declares.
+
+    The published object is consumed only by TypeScript that casts rather than
+    parses it, and no generator ties the two sides together, so a field added or
+    renamed here would otherwise surface as a blank panel in production.
+    """
+
+    payload = WorkflowRunSummary.from_json(_workflow_summary_payload()).to_json()
+
+    assert set(payload) == {
+        "schema_version",
+        "workflow",
+        "repository",
+        "trigger",
+        "run_attempt",
+        "run_url",
+        "asof",
+        "finished_at",
+        "duration_seconds",
+        "overall_outcome",
+        "publish_state",
+        "execution",
+        "delivery",
+        "workflow_errors",
+    }
+    assert set(payload["execution"]) == {"kind", "summary"}
+    assert set(payload["execution"]["summary"]) == {
+        "schema_version",
+        "asof",
+        "outcome",
+        "started_at",
+        "finished_at",
+        "duration_seconds",
+        "batches",
+        "local_export",
+    }
+    assert set(payload["execution"]["summary"]["batches"][0]) == {
+        "batch_name",
+        "datasets",
+        "status",
+        "duration_seconds",
+        "metrics",
+        "errors",
+    }
+    assert set(payload["delivery"]) == {"status", "detail"}
+
+
+def test_workflow_summary_rejects_a_non_https_run_url() -> None:
+    # The UI renders run_url as an anchor href.
+    with pytest.raises(SummaryValidationError, match="https"):
+        WorkflowRunSummary.from_json(_workflow_summary_payload(run_url="javascript:alert(1)"))
+
+
+def test_batch_summary_rejects_an_outcome_its_own_batches_contradict() -> None:
+    payload = _batch_summary_payload()
+    payload["outcome"] = OUTCOME_SUCCEEDED
+    # A failed batch carries no metrics (existing rule), so build it that way.
+    payload["batches"] = [_screening_result(status="failed", metrics={})]
+
+    with pytest.raises(SummaryValidationError) as excinfo:
+        BatchExecutionSummary.from_json(payload)
+    assert excinfo.value.reason == "inconsistent_outcome"
+
+
+def test_batch_summary_reports_a_schema_bump_as_a_version_problem() -> None:
+    with pytest.raises(SummaryValidationError) as excinfo:
+        BatchExecutionSummary.from_json(_batch_summary_payload(schema_version=99))
+    assert excinfo.value.reason == "schema_version"

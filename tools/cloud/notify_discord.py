@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -38,6 +39,7 @@ from tools.cloud.batch_summary import (
     EXECUTION_AVAILABLE,
     EXECUTION_NOT_STARTED,
     EXECUTION_UNAVAILABLE,
+    OUTCOME_CANCELLED,
     OUTCOME_DEGRADED,
     OUTCOME_FAILED,
     OUTCOME_LABELS,
@@ -47,7 +49,6 @@ from tools.cloud.batch_summary import (
     PUBLISH_NOT_GENERATED,
     PUBLISH_PUBLISHED,
     PUBLISH_UPLOAD_FAILED,
-    SUMMARY_INVALID_REASONS,
     WORKFLOW_SUMMARY_SCHEMA_VERSION,
     BatchError,
     Delivery,
@@ -66,6 +67,10 @@ MESSAGE_MAX_CHARS = 2000
 ERRORS_SHOWN = 3
 _DISCORD_HOSTS = ("discord.com", "discordapp.com")
 _WEBHOOK_PATH_PREFIX = "/api/webhooks/"
+# C0 controls, space, and DEL. A URL carrying any of these reaches http.client,
+# which raises InvalidURL with the offending path (and therefore the token) in
+# its message.
+_FORBIDDEN_URL_CHARS = re.compile(r"[\x00-\x20\x7f]")
 
 
 class DeliveryError(RuntimeError):
@@ -109,13 +114,22 @@ def _urllib_transport(url: str, body: bytes, timeout: float) -> int:
 def prepare_webhook_url(raw_url: str) -> str:
     """Validate the webhook URL and return it with ``wait=true`` for delivery.
 
-    Rejects an unset URL, a non-HTTPS scheme, a non-Discord host, and a
-    non-webhook path. The error never includes the URL or its token.
+    Rejects an unset URL, a non-HTTPS scheme, a non-Discord host, a non-webhook
+    path, and any control character or space. The error never includes the URL or
+    its token.
+
+    The whitespace check is what keeps the token out of the Actions log: a secret
+    pasted with a stray space survives ``urlsplit`` (which only strips leading C0
+    bytes and ``\\t\\r\\n``) and reaches ``http.client``, whose ``InvalidURL``
+    quotes the offending path — token included.
     """
 
-    if not raw_url.strip():
+    url = raw_url.strip()
+    if not url:
         raise DeliveryError("webhook URL is not configured")
-    parsed = urllib.parse.urlparse(raw_url)
+    if _FORBIDDEN_URL_CHARS.search(url):
+        raise DeliveryError("webhook URL contains a control character or space")
+    parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https":
         raise DeliveryError("webhook URL must use https")
     if parsed.hostname not in _DISCORD_HOSTS:
@@ -152,17 +166,18 @@ def _load_execution(
     """
 
     if batch_exit_code == "":
-        # The batch was never reached, so a pre-batch phase (setup/sync/pull) did
-        # not complete; fall back to "setup" when no specific step reports failure.
-        return Execution.not_started(failed_step or "setup"), None
+        # The batch was never reached. Only the tracked steps can be named; a
+        # failure in an untracked one (checkout, setup-uv, the Playwright steps)
+        # must not be attributed to "setup", which sends the reader to a step
+        # that in fact succeeded.
+        return Execution.not_started(failed_step or "pre-batch"), None
     if summary_path is None:
         error = BatchError.summary_invalid(reason="summary_missing")
         return Execution.unavailable(error), error
     try:
         summary = load_batch_execution_summary(summary_path)
     except SummaryValidationError as exc:
-        reason = str(exc) if str(exc) in SUMMARY_INVALID_REASONS else "malformed_json"
-        error = BatchError.summary_invalid(reason=reason)
+        error = BatchError.summary_invalid(reason=exc.reason)
         return Execution.unavailable(error), error
     return Execution.available(summary), None
 
@@ -269,6 +284,7 @@ def build_workflow_summary(
     asof: str,
     run_started_at: str,
     env: Mapping[str, str],
+    cancelled: bool = False,
 ) -> WorkflowRunSummary:
     failed_step = derive_failed_step(step_outcomes)
     publish_state = derive_publish_state(local_export=local_export, step_outcomes=step_outcomes)
@@ -279,10 +295,23 @@ def build_workflow_summary(
         publish_state=publish_state,
         failed_step=failed_step,
     )
+    if cancelled:
+        # An interrupted run never reached a terminal state of its own, so the
+        # step outcomes below describe a partial run. Publish state stays as
+        # observed: the cut can land before or after either upload.
+        overall_outcome = OUTCOME_CANCELLED
     workflow_errors: list[BatchError] = []
     if failed_step:
         workflow_errors.append(
             BatchError.build(code="step_failed", stage=failed_step, impact="failed")
+        )
+    elif execution.kind == EXECUTION_NOT_STARTED:
+        # No tracked step reports the failure, so without this the report names a
+        # stage and then shows no error at all.
+        workflow_errors.append(
+            BatchError.build(
+                code="step_failed", stage=execution.stage or "pre-batch", impact="failed"
+            )
         )
     if contract_error is not None:
         workflow_errors.append(contract_error)
@@ -306,6 +335,7 @@ def build_workflow_summary(
         run_attempt=env.get("GITHUB_RUN_ATTEMPT", "1"),
         run_url=_github_metadata(env)["run_url"],
         asof=summary_asof,
+        finished_at=datetime.now(UTC).isoformat(),
         duration_seconds=_total_duration_seconds(run_started_at),
         overall_outcome=overall_outcome,
         publish_state=final_publish_state,
@@ -322,7 +352,16 @@ def _collect_errors(summary: WorkflowRunSummary) -> list[BatchError]:
             errors.extend(batch.errors)
     elif summary.execution.kind == EXECUTION_UNAVAILABLE and summary.execution.error is not None:
         errors.append(summary.execution.error)
-    return order_errors_for_display(errors)
+    # The contract error is held by both `execution` and `workflow_errors`, and
+    # only three errors are shown: a duplicate would push a real one out of view.
+    unique: list[BatchError] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for error in errors:
+        key = (error.code, error.stage, error.impact, error.message)
+        if key not in seen:
+            seen.add(key)
+            unique.append(error)
+    return order_errors_for_display(unique)
 
 
 def _format_metrics(metrics: Mapping[str, object]) -> str:
@@ -391,7 +430,11 @@ def deliver(
     ).encode("utf-8")
     try:
         status = transport(url, body, timeout)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except Exception as exc:
+        # Deliberately broad: only the exception's *type name* is ever reported, so
+        # widening costs no information and closes the redaction boundary. An
+        # allowlist of exception types is fail-open here — anything not listed
+        # escapes as a traceback carrying the URL (and its token) into the log.
         reason = type(exc).__name__
         return Delivery(status=DELIVERY_FAILED, detail=f"delivery failed: {reason}")
     if 200 <= status < 300:
@@ -415,6 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--upload-serving-outcome", type=str, default="skipped")
     parser.add_argument("--asof", type=str, default="")
     parser.add_argument("--run-started-at", type=str, default="")
+    parser.add_argument("--cancelled", type=str, default="false")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     return parser
@@ -440,6 +484,7 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
             asof=args.asof,
             run_started_at=args.run_started_at,
             env=env,
+            cancelled=args.cancelled == "true",
         )
     except SummaryValidationError as exc:
         print(f"error: cannot compose workflow summary: {exc}", file=sys.stderr)
@@ -449,7 +494,11 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         env.get(WEBHOOK_ENV_VAR, ""), message, timeout=args.timeout, transport=transport
     )
     final_summary = replace(summary, delivery=delivery)
-    write_json_atomic(args.output, final_summary.to_json())
+    # Validate what is about to be published, the same way the batch validates the
+    # summary it writes. This is also the only production caller of the reader, so
+    # the schema rules it encodes stay exercised rather than test-only.
+    payload = WorkflowRunSummary.from_json(final_summary.to_json()).to_json()
+    write_json_atomic(args.output, payload)
     if delivery.status != DELIVERY_DELIVERED:
         print(f"error: discord notification failed: {delivery.detail}", file=sys.stderr)
         return 1

@@ -61,6 +61,7 @@ from .system import (
     ProviderFailureStreak,
     StoreStats,
     application_store_stats,
+    never_attempted_series,
     provider_failure_streaks,
     store_stats,
 )
@@ -103,6 +104,7 @@ __all__ = [
     "macro_series_fetch_health",
     "macro_series_names",
     "market_calendar_business_day",
+    "never_attempted_series",
     "next_earnings_dates",
     "operation_session",
     "portfolio_ledger_document",

@@ -546,13 +546,21 @@ def run_daily_batch(
         outcome = OUTCOME_DEGRADED
     else:
         outcome = OUTCOME_SUCCEEDED
-    _finalize_summary(
-        summary_output,
-        recorder=recorder,
-        outcome=outcome,
-        started_at=started_at,
-        started_mono=started_mono,
-    )
+    # Writing the observability summary must not undo a completed publish: the
+    # data work is already done and the export already wrote views/. A schema
+    # drift here would otherwise exit non-zero, which skips both upload steps and
+    # discards the day's screening result. The notifier reports the missing
+    # summary as [FAILED], so the failure stays visible.
+    try:
+        _finalize_summary(
+            summary_output,
+            recorder=recorder,
+            outcome=outcome,
+            started_at=started_at,
+            started_mono=started_mono,
+        )
+    except SummaryValidationError as exc:
+        print(f"error: batch summary could not be written: {exc}", file=sys.stderr)
     return exit_code
 
 

@@ -13,6 +13,7 @@ when, and for how many attempts" needs the run history behind it.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -47,6 +48,11 @@ def store_stats(store: str, path: Path) -> StoreStats:
     A store the checkout does not carry is a normal state (the application DB is
     the only one tracked in git), so absence reports as ``exists=False`` rather
     than raising.
+
+    Depth is best-effort. This is an observability read on the publish path, and
+    the whole export is fatal, so a renamed table or an unreadable store must
+    degrade to "unknown depth" instead of withholding the dashboard, screening,
+    and macro views that carry the actual judgment inputs.
     """
 
     if store not in _STORE_TABLES:
@@ -57,15 +63,22 @@ def store_stats(store: str, path: Path) -> StoreStats:
         )
     table, date_column = _STORE_TABLES[store]
     size_bytes = path.stat().st_size
-    connection = connect_read_only(path)
     try:
-        # Table and column come from the fixed mapping above, never from a caller.
-        row = connection.execute(  # nosec B608
-            f"SELECT count(*), max({date_column}) FROM {table}"
-        ).fetchone()
-    finally:
-        connection.close()
-    latest = None if row[1] is None else date.fromisoformat(str(row[1])[:10])
+        connection = connect_read_only(path)
+        try:
+            # Table and column come from the fixed mapping above, never from a caller.
+            row = connection.execute(  # nosec B608
+                f"SELECT count(*), max({date_column}) FROM {table}"
+            ).fetchone()
+        finally:
+            connection.close()
+        latest = None if row[1] is None else date.fromisoformat(str(row[1])[:10])
+    except (sqlite3.Error, ValueError):
+        # sqlite3.Error: renamed table, unreadable or non-SQLite file.
+        # ValueError: a date column holding something that is not a date.
+        return StoreStats(
+            store=store, exists=True, size_bytes=size_bytes, row_count=None, latest_date=None
+        )
     return StoreStats(
         store=store,
         exists=True,
@@ -116,6 +129,9 @@ def provider_failure_streaks(path: Path) -> list[ProviderFailureStreak]:
 
     Retired series are filtered out: the registry decides what is currently
     fetched, and history for a removed series is not an open problem.
+
+    Like :func:`store_stats` this is best-effort: an unreadable store reports no
+    outage rather than failing the export that publishes the judgment views.
     """
 
     if not path.is_file():
@@ -123,16 +139,22 @@ def provider_failure_streaks(path: Path) -> list[ProviderFailureStreak]:
     registered = {series.series_id for series in load_definitions().series}
     if not registered:
         return []
-    connection = connect_read_only(path)
     try:
-        rows = connection.execute(
-            """
-            SELECT series_id, status, finished_at FROM provider_runs
-            ORDER BY series_id, finished_at DESC, run_id DESC
-            """
-        ).fetchall()
-    finally:
-        connection.close()
+        connection = connect_read_only(path)
+        try:
+            rows = connection.execute(
+                # rowid, not run_id, breaks a finished_at tie: run ids are random
+                # uuids, so ordering by them would pick a "newest" run by
+                # lexicographic accident. rowid is insertion order.
+                """
+                SELECT series_id, status, finished_at FROM provider_runs
+                ORDER BY series_id, finished_at DESC, rowid DESC
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return []
 
     streaks: list[ProviderFailureStreak] = []
     current_series: str | None = None
@@ -175,10 +197,34 @@ def _append_streak(
         )
 
 
+def never_attempted_series(path: Path) -> list[str]:
+    """Return registered series with no acquisition attempt on record at all.
+
+    A streak needs rows to count; a series that was never tried has none, so it
+    would otherwise be indistinguishable from a healthy one. The daily batch
+    refreshes series in groups through one CLI call, so a call that dies partway
+    leaves every remaining series in that group without a run record.
+    """
+
+    registered = {series.series_id for series in load_definitions().series}
+    if not registered or not path.is_file():
+        return sorted(registered)
+    try:
+        connection = connect_read_only(path)
+        try:
+            rows = connection.execute("SELECT DISTINCT series_id FROM provider_runs").fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return []
+    return sorted(registered - {str(row[0]) for row in rows})
+
+
 __all__ = [
     "ProviderFailureStreak",
     "StoreStats",
     "application_store_stats",
+    "never_attempted_series",
     "provider_failure_streaks",
     "store_stats",
 ]

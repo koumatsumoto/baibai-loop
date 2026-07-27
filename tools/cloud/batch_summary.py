@@ -48,12 +48,24 @@ OUTCOME_SUCCEEDED = "succeeded"
 OUTCOME_SKIPPED = "skipped_non_business_day"
 OUTCOME_DEGRADED = "published_with_deferred_failure"
 OUTCOME_FAILED = "failed"
-OUTCOMES = (OUTCOME_SUCCEEDED, OUTCOME_SKIPPED, OUTCOME_DEGRADED, OUTCOME_FAILED)
+# A job that hit `timeout-minutes` is reported by GitHub as *cancelled*, not
+# failed, so an interrupted run needs its own outcome: a hung batch is the most
+# likely silent failure here, and folding it into `failed` would make a routine
+# manual cancel look identical to it.
+OUTCOME_CANCELLED = "cancelled"
+OUTCOMES = (
+    OUTCOME_SUCCEEDED,
+    OUTCOME_SKIPPED,
+    OUTCOME_DEGRADED,
+    OUTCOME_FAILED,
+    OUTCOME_CANCELLED,
+)
 OUTCOME_LABELS = {
     OUTCOME_SUCCEEDED: "[OK]",
     OUTCOME_SKIPPED: "[SKIPPED]",
     OUTCOME_DEGRADED: "[DEGRADED]",
     OUTCOME_FAILED: "[FAILED]",
+    OUTCOME_CANCELLED: "[CANCELLED]",
 }
 
 PUBLISH_NOT_GENERATED = "not_generated"
@@ -75,6 +87,8 @@ _ALLOWED_PUBLISH_BY_OUTCOME = {
     OUTCOME_SKIPPED: frozenset({PUBLISH_NOT_GENERATED}),
     OUTCOME_DEGRADED: frozenset({PUBLISH_PUBLISHED}),
     OUTCOME_FAILED: frozenset(PUBLISH_STATES),
+    # An interrupted run can be cut at any point, before or after either upload.
+    OUTCOME_CANCELLED: frozenset(PUBLISH_STATES),
 }
 
 BATCH_STATUS_OK = "ok"
@@ -116,6 +130,10 @@ ERROR_STAGES = (
     "upload-machine",
     "upload-serving",
     "batch",
+    # A step before the batch that the notification does not track by id
+    # (checkout, setup-uv, the Playwright steps). Naming it "pre-batch" keeps the
+    # report from pointing at a step that actually succeeded.
+    "pre-batch",
     "summary",
     "notification",
     "calendar",
@@ -181,7 +199,17 @@ BATCH_NAMES = tuple(_BATCH_METRIC_SCHEMA)
 
 
 class SummaryValidationError(ValueError):
-    """A summary payload failed schema, vocabulary, or consistency validation."""
+    """A summary payload failed schema, vocabulary, or consistency validation.
+
+    ``reason`` carries the machine vocabulary the notification reports; the
+    message stays human-facing. Without it every structural failure collapses to
+    ``malformed_json``, which sends an operator looking for a truncated write
+    when the real cause is a schema bump or a drifted metric key.
+    """
+
+    def __init__(self, message: str, *, reason: str = "invalid_field") -> None:
+        super().__init__(message)
+        self.reason = reason if reason in SUMMARY_INVALID_REASONS else "invalid_field"
 
 
 def sanitize_one_line(value: object, max_chars: int = _SCALAR_MAX_CHARS) -> str:
@@ -223,7 +251,8 @@ def _validate_metric_value(batch_name: str, key: str, value: object) -> None:
         for item in value:
             if not _is_json_scalar(item):
                 raise SummaryValidationError(
-                    f"batch {batch_name!r} metric {key!r} list has a non-scalar or non-finite item"
+                    f"batch {batch_name!r} metric {key!r} list has a non-scalar or non-finite item",
+                    reason="non_finite_metric",
                 )
         return
     if not _is_json_scalar(value):
@@ -239,7 +268,10 @@ def _check_metric_type(batch_name: str, key: str, value: object, expected: type)
     if expected is int and (isinstance(value, bool) or not isinstance(value, int)):
         raise SummaryValidationError(f"batch {batch_name!r} metric {key!r} must be int")
     if expected is float and (isinstance(value, bool) or not _is_finite_number(value)):
-        raise SummaryValidationError(f"batch {batch_name!r} metric {key!r} must be finite number")
+        raise SummaryValidationError(
+            f"batch {batch_name!r} metric {key!r} must be finite number",
+            reason="non_finite_metric",
+        )
     if expected is str and not isinstance(value, str):
         raise SummaryValidationError(f"batch {batch_name!r} metric {key!r} must be str")
 
@@ -247,7 +279,7 @@ def _check_metric_type(batch_name: str, key: str, value: object, expected: type)
 def _validate_metric_schema(batch_name: str, metrics: dict[str, object], status: str) -> None:
     schema = _BATCH_METRIC_SCHEMA.get(batch_name)
     if schema is None:
-        raise SummaryValidationError(f"unknown batch_name {batch_name!r}")
+        raise SummaryValidationError(f"unknown batch_name {batch_name!r}", reason="unknown_batch")
     if status in (BATCH_STATUS_FAILED, BATCH_STATUS_SKIPPED):
         # A failed or skipped batch carries no metrics; its errors tell the story.
         if metrics:
@@ -399,7 +431,9 @@ class BatchResult:
             raise SummaryValidationError("batch result batch_name must be a non-empty string")
         status = payload.get("status")
         if status not in BATCH_STATUSES:
-            raise SummaryValidationError(f"batch {batch_name!r} has unknown status {status!r}")
+            raise SummaryValidationError(
+                f"batch {batch_name!r} has unknown status {status!r}", reason="unknown_status"
+            )
         datasets_raw = payload.get("datasets")
         if not isinstance(datasets_raw, list) or not all(
             isinstance(item, str) and item for item in datasets_raw
@@ -462,10 +496,14 @@ class BatchExecutionSummary:
         if not isinstance(payload, dict):
             raise SummaryValidationError("batch execution summary must be an object")
         if "delivery" in payload:
-            raise SummaryValidationError("batch execution summary must not carry delivery state")
+            raise SummaryValidationError(
+                "batch execution summary must not carry delivery state",
+                reason="delivery_in_batch_summary",
+            )
         if payload.get("schema_version") != BATCH_SUMMARY_SCHEMA_VERSION:
             raise SummaryValidationError(
-                f"unsupported batch summary schema_version {payload.get('schema_version')!r}"
+                f"unsupported batch summary schema_version {payload.get('schema_version')!r}",
+                reason="schema_version",
             )
         for key in ("asof", "outcome", "started_at", "finished_at"):
             if not isinstance(payload.get(key), str) or not payload.get(key):
@@ -489,8 +527,11 @@ class BatchExecutionSummary:
         seen: set[str] = set()
         for batch in batches:
             if batch.batch_name in seen:
-                raise SummaryValidationError(f"duplicate batch_name {batch.batch_name!r}")
+                raise SummaryValidationError(
+                    f"duplicate batch_name {batch.batch_name!r}", reason="duplicate_batch"
+                )
             seen.add(batch.batch_name)
+        _require_outcome_matches_batches(outcome, batches)
         return cls(
             schema_version=BATCH_SUMMARY_SCHEMA_VERSION,
             asof=payload["asof"],
@@ -500,6 +541,29 @@ class BatchExecutionSummary:
             duration_seconds=float(duration),
             batches=batches,
             local_export=payload["local_export"],
+        )
+
+
+def _require_outcome_matches_batches(outcome: str, batches: Sequence[BatchResult]) -> None:
+    """Reject a summary whose headline outcome contradicts its own batches.
+
+    The outcome is decided once at the end of the run while each status is
+    decided inside its section, so the two can drift apart — and a drift that
+    puts ``[OK]`` above a failed batch hides exactly the degradation the
+    notification exists to surface. Splitting the batch (#529) loosens that
+    coupling further, which is why the check lives in the schema.
+    """
+
+    statuses = {batch.status for batch in batches}
+    if outcome == OUTCOME_SUCCEEDED and not statuses <= {BATCH_STATUS_OK, BATCH_STATUS_SKIPPED}:
+        raise SummaryValidationError(
+            f"outcome {outcome!r} contradicts batch statuses {sorted(statuses)}",
+            reason="inconsistent_outcome",
+        )
+    if outcome == OUTCOME_DEGRADED and BATCH_STATUS_FAILED in statuses:
+        raise SummaryValidationError(
+            f"outcome {outcome!r} cannot carry a failed batch",
+            reason="inconsistent_outcome",
         )
 
 
@@ -595,6 +659,11 @@ class WorkflowRunSummary:
     run_attempt: str
     run_url: str
     asof: str | None
+    # When this summary was composed, i.e. when the run reached its terminal
+    # state. Without it a reader cannot tell a fresh run from the last one that
+    # managed to publish a summary — and the object is a single overwritten key
+    # whose writer is a best-effort step, so it does go stale silently.
+    finished_at: str
     duration_seconds: float
     overall_outcome: str
     publish_state: str
@@ -611,6 +680,7 @@ class WorkflowRunSummary:
             "run_attempt": self.run_attempt,
             "run_url": self.run_url,
             "asof": self.asof,
+            "finished_at": self.finished_at,
             "duration_seconds": self.duration_seconds,
             "overall_outcome": self.overall_outcome,
             "publish_state": self.publish_state,
@@ -627,9 +697,13 @@ class WorkflowRunSummary:
             raise SummaryValidationError(
                 f"unsupported workflow summary schema_version {payload.get('schema_version')!r}"
             )
-        for key in ("workflow", "repository", "trigger", "run_attempt", "run_url"):
+        for key in ("workflow", "repository", "trigger", "run_attempt", "run_url", "finished_at"):
             if not isinstance(payload.get(key), str) or not payload.get(key):
                 raise SummaryValidationError(f"workflow summary {key} must be a non-empty string")
+        run_url = payload["run_url"]
+        # The UI renders this as an anchor href, so nothing but https may reach it.
+        if not run_url.startswith("https://"):
+            raise SummaryValidationError("workflow summary run_url must be an https URL")
         asof = payload.get("asof")
         if asof is not None and not isinstance(asof, str):
             raise SummaryValidationError("workflow summary asof must be a string or null")
@@ -666,8 +740,9 @@ class WorkflowRunSummary:
             repository=payload["repository"],
             trigger=payload["trigger"],
             run_attempt=payload["run_attempt"],
-            run_url=payload["run_url"],
+            run_url=run_url,
             asof=asof,
+            finished_at=payload["finished_at"],
             duration_seconds=float(duration),
             overall_outcome=overall_outcome,
             publish_state=publish_state,
@@ -688,11 +763,11 @@ def load_batch_execution_summary(path: Path) -> BatchExecutionSummary:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise SummaryValidationError("summary_missing") from exc
+        raise SummaryValidationError("summary_missing", reason="summary_missing") from exc
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise SummaryValidationError("malformed_json") from exc
+        raise SummaryValidationError("malformed_json", reason="malformed_json") from exc
     return BatchExecutionSummary.from_json(payload)
 
 

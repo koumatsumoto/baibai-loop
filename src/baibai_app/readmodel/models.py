@@ -61,6 +61,9 @@ class SystemView(BaseModel):
     batch: MetaBatch | None
     stores: list[SystemStoreView]
     failing_providers: list[SystemProviderView]
+    # Registered series with no acquisition attempt on record. A streak needs
+    # rows to count, so without this a never-tried series reads as healthy.
+    never_attempted_series: list[str]
     provider_series_total: int
 
 

@@ -10,6 +10,7 @@ from baibai_engine.macro.indicators.db import initialize_database, record_provid
 from baibai_engine.macro.indicators.definitions import load_definitions
 from baibai_engine.read_api.system import (
     application_store_stats,
+    never_attempted_series,
     provider_failure_streaks,
     store_stats,
 )
@@ -180,3 +181,101 @@ def test_provider_failure_streaks_orders_the_longest_outage_first(tmp_path: Path
 
 def test_provider_failure_streaks_reports_nothing_without_a_store(tmp_path: Path) -> None:
     assert provider_failure_streaks(tmp_path / "missing.sqlite") == []
+
+
+def test_store_stats_reports_unknown_depth_when_the_table_is_gone(tmp_path: Path) -> None:
+    # An observability read must not fail the export that publishes the judgment
+    # views, so a renamed or missing table degrades instead of raising.
+    path = tmp_path / "runs.sqlite"
+    sqlite3.connect(path).close()
+
+    stats = store_stats("runs", path)
+
+    assert stats.exists is True
+    assert stats.row_count is None
+    assert stats.latest_date is None
+    assert stats.size_bytes is not None
+
+
+def test_store_stats_reports_unknown_depth_for_a_non_sqlite_file(tmp_path: Path) -> None:
+    path = tmp_path / "runs.sqlite"
+    path.write_bytes(b"not a database at all")
+
+    stats = store_stats("runs", path)
+
+    assert stats.exists is True
+    assert stats.row_count is None
+
+
+def test_store_stats_reports_unknown_depth_when_the_date_column_is_not_a_date(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "runs.sqlite"
+    connection = sqlite3.connect(path)
+    with connection:
+        connection.execute("CREATE TABLE screening_run(run_id TEXT, asof_date TEXT)")
+        connection.execute("INSERT INTO screening_run VALUES ('run-1', 'not-a-date')")
+    connection.close()
+
+    stats = store_stats("runs", path)
+
+    assert stats.row_count is None
+    assert stats.latest_date is None
+
+
+def test_provider_failure_streaks_reports_nothing_for_an_unreadable_store(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "macro.sqlite"
+    path.write_bytes(b"not a database at all")
+
+    assert provider_failure_streaks(path) == []
+
+
+def test_never_attempted_series_lists_registered_series_without_any_run(
+    tmp_path: Path,
+) -> None:
+    attempted, *_ = _registered_series(2)
+    path = tmp_path / "macro.sqlite"
+    connection = initialize_database(path)
+    _record(connection, attempted, "ok", datetime(2026, 7, 20, tzinfo=UTC))
+    connection.commit()
+    connection.close()
+
+    never = never_attempted_series(path)
+
+    assert attempted not in never
+    # Every other registered series has no run record at all.
+    assert len(never) == len(load_definitions().series) - 1
+
+
+def test_never_attempted_series_is_every_series_without_a_store(tmp_path: Path) -> None:
+    assert never_attempted_series(tmp_path / "missing.sqlite") == sorted(
+        series.series_id for series in load_definitions().series
+    )
+
+
+def test_every_store_table_exists_in_the_schema_that_owns_it(tmp_path: Path) -> None:
+    """Bind the hard-coded table/column map to the real store schemas.
+
+    ``store_stats`` degrades on a renamed table, so a rename would otherwise show
+    up only as depth silently going blank in production. Building each store
+    through its own schema keeps the map honest at merge time instead.
+    """
+
+    from baibai_engine.market.sqlite.schema import open_connection as open_market_store
+    from baibai_engine.screening.run_store.store import initialize_run_store
+
+    market_path = tmp_path / "market.sqlite"
+    open_market_store(market_path).close()
+    assert store_stats("market", market_path).row_count == 0
+
+    runs_path = tmp_path / "runs.sqlite"
+    initialize_run_store(runs_path)
+    assert store_stats("runs", runs_path).row_count == 0
+
+    macro_path = tmp_path / "macro.sqlite"
+    initialize_database(macro_path).close()
+    assert store_stats("macro", macro_path).row_count == 0
+    # provider_failure_streaks reads a fourth table in the same store.
+    assert provider_failure_streaks(macro_path) == []

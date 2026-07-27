@@ -135,13 +135,17 @@ jobs:
         if: steps.batch.outputs.exit_code == '3'
         run: exit 3
 
-      # Single notification point. Runs once on success or failure (not on
-      # cancel), after every prior step outcome is known. The webhook secret is
-      # scoped to this step only; a delivery failure fails the run so a successful
-      # data run with a broken notification is still visible.
-      - name: Notify Discord #batch-runs
+      # Single notification point. Runs once for every terminal state after all
+      # prior step outcomes are known. `always()` rather than `!cancelled()`:
+      # GitHub reports a `timeout-minutes` expiry as a *cancellation*, and a hung
+      # batch is exactly the silent failure this notification exists to catch —
+      # `!cancelled()` would skip it. A manual cancel costs one extra
+      # `[CANCELLED]` message, which is far cheaper than losing every timeout.
+      # The webhook secret is scoped to this step only; a delivery failure fails
+      # the run so a successful data run with a broken notification is visible.
+      - name: "Notify Discord #batch-runs"
         id: notify
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
@@ -159,6 +163,7 @@ jobs:
             --upload-serving-outcome "${{ steps.upload-serving.outcome }}" \
             --asof "$MANUAL_ASOF" \
             --run-started-at "${{ steps.smoke.outputs.started_at }}" \
+            --cancelled "${{ cancelled() }}" \
             --output "$RUNNER_TEMP/workflow-run-summary.json"
 
       # Publish the same summary the notification carries so the System page can
@@ -167,6 +172,6 @@ jobs:
       # the failure policy above already decided.
       - name: Upload run summary
         id: upload-run-summary
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         continue-on-error: true
         run: tools/cloud/r2_transfer.sh upload-run-summary "$RUNNER_TEMP/workflow-run-summary.json"

@@ -118,14 +118,26 @@ def test_uploads_precede_deferred_report_which_fires_on_exit_3(
     assert steps_by_id["deferred-report"]["if"] == "steps.batch.outputs.exit_code == '3'"
 
 
-def test_notify_is_the_single_notification_point_running_unless_cancelled(
+def test_notify_is_the_single_notification_point_running_on_every_terminal_state(
     steps: list[dict], steps_by_id: dict[str, dict]
 ) -> None:
     ids = [step.get("id") for step in steps]
     # Notification stays the last step that decides the run outcome; only the
     # best-effort summary upload may follow it.
     assert ids[-2:] == ["notify", "upload-run-summary"]
-    assert "!cancelled()" in steps_by_id["notify"]["if"]
+    # `always()`, never `!cancelled()`: GitHub reports a `timeout-minutes` expiry
+    # as a cancellation, so `!cancelled()` silently skips the notification for a
+    # hung batch — the failure this workflow most needs to report.
+    assert steps_by_id["notify"]["if"] == "${{ always() }}"
+    assert "cancelled()" in steps_by_id["notify"]["run"]
+
+
+def test_notify_step_name_keeps_the_channel_out_of_a_yaml_comment(
+    steps_by_id: dict[str, dict],
+) -> None:
+    # An unquoted ` #` starts a YAML comment, which would truncate the name to
+    # "Notify Discord" in the Actions UI.
+    assert steps_by_id["notify"]["name"] == "Notify Discord #batch-runs"
 
 
 def test_run_summary_upload_publishes_the_file_notify_wrote_without_changing_the_outcome(
@@ -134,7 +146,8 @@ def test_run_summary_upload_publishes_the_file_notify_wrote_without_changing_the
     ids = [step.get("id") for step in steps]
     assert ids.index("notify") < ids.index("upload-run-summary")
     upload = steps_by_id["upload-run-summary"]
-    assert "!cancelled()" in upload["if"]
+    # Same reason as notify: a timed-out run must still publish its record.
+    assert upload["if"] == "${{ always() }}"
     # Best-effort: publishing the record must not turn a delivered notification
     # or a successful publish into a failed run.
     assert upload["continue-on-error"] is True

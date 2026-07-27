@@ -19,7 +19,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 | `baibai-serving` | `system/latest-run.json` | 日次batch、毎runで上書き（`views/`外なのでexportの再生成で消えない） |
 
-R2 lifecycle rule（31日削除）は`history/candidate-views/`へ追加する。旧形式の`history/candidates/` ruleは既存objectが31日で自然失効するまで残し、その後に削除する。Workerは旧prefixへ到達しない。
+R2 lifecycle rule（31日削除）は`history/candidate-views/`へ**prefix指定で**追加する。旧形式の`history/candidates/` ruleは既存objectが31日で自然失効するまで残し、その後に削除する。Workerは旧prefixへ到達しない。**prefixを持たないbucket全体のruleを作らない** — `system/latest-run.json`が静かに失効し、`/system`のrunカードが恒久的に「記録なし」表示へ落ちる（消えたことに気づけない）。
 
 資格情報はprincipalごとに分ける。
 
@@ -234,7 +234,7 @@ summary には redaction 済みの typed errors だけを渡す。
 secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾の単一 step
 （`if: !cancelled()`）が、success / failure のどちらでも cancel 以外で1回だけ行う。
 
-通知する結果は4種。
+通知する結果は5種。
 
 | label | overall outcome | 意味 | publish state |
 | --- | --- | --- | --- |
@@ -242,11 +242,18 @@ secret `DISCORD_WEBHOOK_URL` が指す webhook で固定する。workflow 末尾
 | `[SKIPPED]` | skipped_non_business_day | 非営業日 gate で skip（export なし） | not_generated |
 | `[DEGRADED]` | published_with_deferred_failure | batch exit 3。screening は publish 済み、繰延べ step（macro / prune）が失敗 | published |
 | `[FAILED]` | failed | 致命的失敗、batch 以外 step の失敗、summary 欠落・invalid・矛盾、upload 失敗 | upload step の status に従う |
+| `[CANCELLED]` | cancelled | job が中断された（`timeout-minutes` 超過・手動 cancel） | 中断時点の観測値 |
+
+GitHub は `timeout-minutes` 超過を **cancel として扱う**。hang は日次 batch が最も踏みやすい
+静かな失敗なので、notify step は `!cancelled()` ではなく `always()` で走らせ、`cancelled()` の値を
+`--cancelled` で受けて `[CANCELLED]` を出し分ける。手動 cancel で 1 件多く届く代わりに、timeout を
+取りこぼさない。
 
 判定の優先順は「batch 以外の step 失敗 → upload 失敗（`upload_failed`）→ batch summary の
 outcome」。upload 失敗は batch が成功していても `[FAILED]` を優先する。setup/sync/pull/smoke の失敗は
 batch 未到達（`not_started`）の `[FAILED]`、batch 実行後の summary 欠落・invalid は
-`unavailable` の `[FAILED]`。summary が succeeded / degraded を主張しても observable な publish 状態
+`unavailable` の `[FAILED]`。checkout / setup-uv / Playwright のように notify が step outcome を
+受け取らない step の失敗は、成功している `setup` を名指ししないよう stage `pre-batch` として報告する。summary が succeeded / degraded を主張しても observable な publish 状態
 （local export / 両 upload 成功）が一致しない「矛盾」は、`summary_conflict` error を付けて
 `[FAILED]` になる（静かな publish 劣化を `[OK]` として隠蔽しない）。exit 3 は publish 済みの
 `[DEGRADED]`、upload 失敗は `[FAILED]`（`upload_failed`）という契約を README と test で固定する。
@@ -289,6 +296,10 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 
 各 message の batch 名 / datasets / 件数 / 所要時間 / publish 状態 / run URL が正しいことを照合する。
 
+**無通知は「配送失敗」だけを意味しない。** notify step 自体が動かない障害（checkout 失敗、
+runner 未割当、job の強制終了）は通知経路の外側にある。`#batch-runs` が静かなときは、まず
+`gh run list --workflow cloud-daily-batch.yml` で run 自体の有無と結論を見る。
+
 ## システム状態の配信 — `views/system.json` と `system/latest-run.json`
 
 Baibai App の `/system`（ヘッダ歯車メニュー → システム状態）は、判断用 3 タブから運用状態を
@@ -311,3 +322,12 @@ provider の取得健全性は両方に出るが役割が違う: `/macro` は「
 
 run 履歴は 1 件だけ持つ。時系列は Discord `#batch-runs` と GitHub Actions の run 履歴が保持し、
 provider の「いつから失敗しているか」は indicator store の `provider_runs` から導出する。
+
+`system/latest-run.json` は最後に summary を書けた run で止まる。upload は best-effort で、
+notify が summary を書く前に落ちれば更新されない。run カードが `finished_at` と経過日数を出すのは
+このためで、止まった object を最新の run と読み違えないようにしている。
+
+`provider_runs` は cloud の日次 batch とローカル実行の両方が書く。ローカルで API key 未設定のまま
+叩けばその失敗が最新行になり、cloud が健全でも `/system` に失敗として出る。逆に cloud で落ちた系列を
+ローカルで手動 refresh すると streak が消える。実行環境を区別する列は持たないので、系列ごとの
+判断は Discord の run 結果と併せて行う。
