@@ -39,21 +39,17 @@ jobs:
       - name: Type check
         run: uv run mypy
 
-      # The operator tool that rewrites the PMI manifest sits outside the
-      # packages, and it fetches the network and edits a canonical file.
-      - name: Type check operator tools
-        run: uv run mypy tools/append_pmi_manifest.py
-
       - name: Import contracts
         run: uv run lint-imports
 
       - name: Drift gates
+        # Every check under tools/drift/ runs: a gate is wired in by living there, not by
+        # being remembered here.
         run: |
-          uv run python tools/drift/check_markdown_links.py
-          uv run python tools/drift/check_cli_doc.py
-          uv run python tools/drift/check_legacy_semantics.py
-          uv run python tools/drift/check_duplicate_constants.py
-          uv run python tools/drift/check_skill_inventory.py
+          for gate in tools/drift/check_*.py; do
+            echo "== $gate"
+            uv run python "$gate"
+          done
 
       - name: Tests with coverage
         run: |
@@ -75,6 +71,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Named files, unlike the gates above: the contract holds for the notification path
+      # only, and the rest of tools/cloud/ is free to import the project's dependencies.
+      # A third notification script has to be added here.
       - name: Import notification scripts on the system python3
         run: |
           python3 --version
