@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'lucide-react'
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 
 import { fetchJson } from '../api/client'
 import type { MacroPointView, MacroReadingSeriesView, MacroReadingTrendView, MacroReadingView, MacroSeriesView, MacroView } from '../api/types'
@@ -115,15 +115,40 @@ function StatusBadges({ row, className }: { row: MacroIndicatorRow; className?: 
   )
 }
 
+const SPARKLINE_FILL_ID = 'macro-sparkline-fill'
+
+// One definition for the whole page. Every sparkline references it, and a gradient in
+// object-bounding-box units still fades across each chart's own height.
+function SparklineGradient() {
+  return (
+    <svg aria-hidden="true" className="absolute size-0" focusable="false">
+      <defs>
+        <linearGradient id={SPARKLINE_FILL_ID} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="var(--brand-lime)" stopOpacity={0.45} />
+          <stop offset="100%" stopColor="var(--brand-lime)" stopOpacity={0.04} />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
+
 function Sparkline({ points }: { points: readonly MacroPointView[] }) {
   // A fixed size instead of a responsive container: the column is a fixed width and the
   // table draws a hundred of these, so measuring each one buys nothing.
   if (points.length === 0) return <div aria-hidden="true" className="h-8 w-24" />
   return (
-    <LineChart data={points as MacroPointView[]} height={32} margin={{ top: 2, right: 2, bottom: 2, left: 2 }} width={96}>
+    <AreaChart data={points as MacroPointView[]} height={32} margin={{ top: 2, right: 2, bottom: 2, left: 2 }} width={96}>
       <YAxis domain={['auto', 'auto']} hide />
-      <Line dataKey="value" dot={false} isAnimationActive={false} stroke="var(--chart-1)" strokeWidth={1.5} type="monotone" />
-    </LineChart>
+      <Area
+        dataKey="value"
+        dot={false}
+        fill={`url(#${SPARKLINE_FILL_ID})`}
+        isAnimationActive={false}
+        stroke="var(--chart-1)"
+        strokeWidth={1.5}
+        type="monotone"
+      />
+    </AreaChart>
   )
 }
 
@@ -395,6 +420,8 @@ export function MacroPage() {
             </Button>
           ))}
         </div>
+
+        <SparklineGradient />
 
         {visibleGroups.length === 0
           ? <p className="text-sm text-muted-foreground">条件に合う系列はありません。</p>
