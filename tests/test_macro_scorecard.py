@@ -85,6 +85,8 @@ def _result(
 def _foreign_flow_document() -> MacroContextDocument:
     payload = macro_context_payload(scorecard_deadline="2026-08-23")
     payload["inputs"]["indicator_series"][0]["series_id"] = "jp.foreign_flows"
+    for force in payload["synthesis"]["dominant_forces"]:
+        force["series_ids"] = ["jp.foreign_flows"]
     for section in payload["core"]:
         section["series_ids"] = ["jp.foreign_flows"]
         for scenario in section["scenarios"]:

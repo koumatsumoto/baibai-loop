@@ -296,6 +296,8 @@ def _payload_citing(series_id: str) -> dict[str, Any]:
     payload["inputs"]["indicator_series"][0]["series_id"] = series_id
     for section in (*payload["core"], payload["connection"]):
         section["series_ids"] = [series_id]
+    for force in payload["synthesis"]["dominant_forces"]:
+        force["series_ids"] = [series_id]
     for scenario in _risk(payload)["scenarios"]:
         for condition in scenario["scorecard"]:
             condition["series_id"] = series_id

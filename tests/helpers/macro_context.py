@@ -18,9 +18,12 @@ def macro_context_payload(
     published_at: str = "2026-07-19T12:00:00+09:00",
     scorecard_deadline: str = "2026-10-31",
     machine_conditions: list[dict[str, Any]] | None = None,
+    strategy_layer: bool = True,
 ) -> dict[str, Any]:
     # Publication requires at least one machine-checkable condition, so the shared
     # fixture carries one. Pass an empty list to model a report written before the field.
+    # ``strategy_layer=False`` models a report written before the integrated layer
+    # (synthesis / scenario probabilities / bargain topography / estimate caveats).
     conditions = deepcopy(
         _DEFAULT_MACHINE_CONDITIONS if machine_conditions is None else machine_conditions
     )
@@ -64,7 +67,9 @@ def macro_context_payload(
                 "falsifiers": ["10年金利が明確に低下し実質金利も緩む"],
                 "source_ids": source_ids,
             },
-            scenarios=_scenarios(source_ids, deadline=scorecard_deadline),
+            scenarios=_scenarios(
+                source_ids, deadline=scorecard_deadline, with_probabilities=strategy_layer
+            ),
         ),
         _core_section(
             "monitoring",
@@ -81,7 +86,7 @@ def macro_context_payload(
             ],
         ),
     ]
-    return {
+    payload: dict[str, Any] = {
         "schema_version": 4,
         "kind": "macro-context",
         "context_id": context_id,
@@ -167,13 +172,71 @@ def macro_context_payload(
             ],
         },
     }
+    if strategy_layer:
+        payload["synthesis"] = macro_synthesis_payload(source_ids)
+        payload["connection"]["bargain_topography"] = {
+            "summary": "割安は全面安ではなく金利敏感セクターの取り残しに出やすい。",
+            "source_ids": [_SNAPSHOT_INPUT_ID],
+        }
+        payload["connection"]["estimate_caveats"] = [
+            {
+                "summary": "金利上昇局面ではFVアンカーの割引率前提が甘くなりやすい。",
+                "applies_to": "有利子負債が大きく金利感応度の高い候補",
+                "affected_component": "fv_anchor",
+                "materiality": "medium",
+                "source_ids": source_ids,
+            }
+        ]
+    return payload
 
 
-def _scenarios(source_ids: list[str], *, deadline: str) -> list[dict[str, Any]]:
+def macro_synthesis_payload(source_ids: list[str] | None = None) -> dict[str, Any]:
+    sources = source_ids or [_SERIES_INPUT_ID]
+    return {
+        "dominant_forces": [
+            {
+                "force_id": "rates-repricing",
+                "title": "長期金利の切り上がり",
+                "summary": "政策よりも長期側の金利が上がり、割引率が全資産に効いている。",
+                "transmission": "米長期金利の上昇が日本の金利と割引率へ波及する。",
+                "core_section_ids": ["rates_policy", "japan"],
+                "series_ids": ["us.10y"],
+                "counter_evidence": "実質金利が反転低下すれば力は減衰する。",
+                "direction": "adverse",
+                "confidence": "medium",
+                "source_ids": sources,
+            },
+            {
+                "force_id": "fx-extreme",
+                "title": "為替の極値",
+                "summary": "円の水準が分布の端にあり、反転時の速度が非対称になっている。",
+                "transmission": "為替が輸出採算とバリュエーションの緩衝へ同時に効く。",
+                "core_section_ids": ["fx", "valuation"],
+                "series_ids": ["us.10y"],
+                "counter_evidence": "投機ポジションが中立へ戻れば非対称性は解ける。",
+                "direction": "mixed",
+                "confidence": "medium",
+                "source_ids": sources,
+            },
+        ],
+        "interactions": [
+            {
+                "summary": "金利と為替が同時に極値にあるため、反転局面では同時に痛む。",
+                "force_ids": ["rates-repricing", "fx-extreme"],
+                "source_ids": sources,
+            }
+        ],
+    }
+
+
+def _scenarios(
+    source_ids: list[str], *, deadline: str, with_probabilities: bool = True
+) -> list[dict[str, Any]]:
     cases = (
         (
             "base",
             "mixed",
+            0.5,
             "金利は高止まりする。",
             "10年金利が現行レンジで推移する",
             "企業別の金利耐性が問われ続ける",
@@ -182,6 +245,7 @@ def _scenarios(source_ids: list[str], *, deadline: str) -> list[dict[str, Any]]:
         (
             "bear",
             "adverse",
+            0.3,
             "金利が一段上昇する。",
             "10年金利がレンジ上限を超える",
             "借換負担の大きい企業の資金調達が細る",
@@ -190,6 +254,7 @@ def _scenarios(source_ids: list[str], *, deadline: str) -> list[dict[str, Any]]:
         (
             "bull",
             "supportive",
+            0.2,
             "金利が低下する。",
             "10年金利がレンジ下限を割る",
             "需要改善とvaluation余地が戻る",
@@ -200,6 +265,7 @@ def _scenarios(source_ids: list[str], *, deadline: str) -> list[dict[str, Any]]:
         {
             "case": case,
             "direction": direction,
+            **({"probability": probability} if with_probabilities else {}),
             "summary": summary,
             "conditions": [condition],
             "scorecard": [
@@ -219,7 +285,10 @@ def _scenarios(source_ids: list[str], *, deadline: str) -> list[dict[str, Any]]:
             "economic_implications": [implication],
             "source_ids": source_ids,
         }
-        for case, direction, summary, condition, implication, (comparison, threshold) in cases
+        for case, direction, probability, summary, condition, implication, (
+            comparison,
+            threshold,
+        ) in cases
     ]
 
 

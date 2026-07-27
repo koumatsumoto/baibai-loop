@@ -101,6 +101,21 @@ MIN_SCORECARD_DAYS_BY_FREQUENCY: Mapping[str, int] = {
 # as-of. This allowance covers writing across a weekend, not reading an old snapshot.
 MAX_READING_LAG_DAYS = 7
 
+# A dominant force is by definition cross-channel: a story confined to one section is
+# that section's judgment, not a force. Five is the ceiling because a moment with six
+# dominant forces has none.
+MIN_DOMINANT_FORCES = 2
+MAX_DOMINANT_FORCES = 5
+
+# Scenario probabilities live on a 0.05 grid: the grid states the weights honestly at
+# the resolution a sample-of-one judgment can carry, and the integer arithmetic below
+# keeps the validator deterministic for every future load (a float-equality check on
+# the sum would reject valid documents over binary representation error).
+SCENARIO_PROBABILITY_STEPS = 20
+_PROBABILITY_STEP_TOLERANCE = 1e-9
+_MIN_PROBABILITY_STEPS = 1  # 0.05 — a scenario kept below this is not a scenario
+_MAX_PROBABILITY_STEPS = 18  # 0.90 — above this the other two cases are decoration
+
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -327,6 +342,12 @@ class ScorecardCondition(_StrictModel):
 class MacroScenario(_SourcedStatement):
     case: Literal["base", "bear", "bull"]
     direction: Literal["supportive", "adverse", "mixed"]
+    # The author's subjective weight on this case, for reading the three scenarios as a
+    # risk-reward distribution. It is an estimate to be scored against the settled
+    # scorecard later — never a statistical claim or a sizing input. Optional at the
+    # document level because published revisions predate the field; the risk-environment
+    # section validates the three weights as a set, and publication requires them.
+    probability: float | None = Field(default=None, allow_inf_nan=False)
     conditions: tuple[str, ...] = Field(min_length=1)
     # Two machine-checkable conditions per scenario: a single observation can be met
     # by accident, and a scenario that cannot state two of them is not yet a scenario.
@@ -392,6 +413,97 @@ class MonitoringPoint(_SourcedStatement):
         if len(keys) != len(set(keys)):
             raise ValueError("monitoring conditions must differ from each other")
         return values
+
+
+class DominantForce(_SourcedStatement):
+    """A named force driving the current environment across transmission channels.
+
+    ``summary`` carries the mechanism — what is happening and why. The cross-channel
+    claim is structural, not prose: the force names at least two transmission-channel
+    sections and may only cite series those sections examine, so a story confined to
+    one channel cannot be dressed up as a force. ``counter_evidence`` is required for
+    the same reason falsifiers are: a force that nothing could argue against is a
+    narrative, not an assessment.
+    """
+
+    force_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
+    title: str = Field(min_length=1)
+    transmission: str = Field(min_length=1)
+    core_section_ids: tuple[MacroCoreSectionId, ...] = Field(min_length=2)
+    series_ids: tuple[str, ...] = Field(min_length=1)
+    counter_evidence: str = Field(min_length=1)
+    direction: Literal["supportive", "adverse", "mixed"]
+    confidence: Literal["low", "medium", "high"]
+
+    @field_validator("title", "transmission", "counter_evidence")
+    @classmethod
+    def require_non_blank_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("dominant force fields must be non-blank")
+        return value
+
+    @model_validator(mode="after")
+    def validate_channel_references(self) -> Self:
+        if len(self.core_section_ids) != len(set(self.core_section_ids)):
+            raise ValueError("a dominant force must name distinct sections")
+        outside = sorted(set(self.core_section_ids) - MATERIAL_DELTA_SECTION_IDS)
+        if outside:
+            raise ValueError(
+                "a dominant force may only name transmission-channel sections: "
+                + ", ".join(outside)
+            )
+        if len(self.series_ids) != len(set(self.series_ids)):
+            raise ValueError("dominant force series_ids must be unique")
+        return self
+
+
+class ForceInteraction(_SourcedStatement):
+    """How declared forces compound or offset each other.
+
+    The forces are read one at a time; the risk that matters is often the joint state
+    (two extremes at once unwind together). An interaction must name at least two
+    declared forces so the statement stays anchored to the synthesis instead of
+    becoming a free-floating remark.
+    """
+
+    force_ids: tuple[str, ...] = Field(min_length=2)
+
+    @field_validator("force_ids")
+    @classmethod
+    def require_distinct_forces(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values):
+            raise ValueError("interaction force_ids must be non-blank")
+        if len(values) != len(set(values)):
+            raise ValueError("interaction force_ids must be distinct")
+        return values
+
+
+class MacroSynthesis(_StrictModel):
+    """The integrated layer: what dominates the moment, and how the forces combine.
+
+    Sits above the ten channel sections the way the connection sits below them, and is
+    bound by the same reference direction: a force may only cite series its named
+    channel sections already examine, so the synthesis is provably grounded in the
+    evidence layer rather than written over it.
+    """
+
+    dominant_forces: tuple[DominantForce, ...] = Field(
+        min_length=MIN_DOMINANT_FORCES, max_length=MAX_DOMINANT_FORCES
+    )
+    interactions: tuple[ForceInteraction, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_force_references(self) -> Self:
+        declared = [force.force_id for force in self.dominant_forces]
+        if len(declared) != len(set(declared)):
+            raise ValueError("force_id must be unique")
+        unknown = sorted(
+            {force_id for interaction in self.interactions for force_id in interaction.force_ids}
+            - set(declared)
+        )
+        if unknown:
+            raise ValueError("an interaction must name declared forces: " + ", ".join(unknown))
+        return self
 
 
 class MacroCoreSection(_StrictModel):
@@ -468,6 +580,7 @@ class MacroCoreSection(_StrictModel):
                 raise ValueError("risk environment section requires the risk appetite assessment")
             if tuple(item.case for item in self.scenarios) != ("base", "bear", "bull"):
                 raise ValueError("risk environment section must contain base, bear, bull in order")
+            self._validate_scenario_probabilities()
             cited = set(self.series_ids)
             unknown = sorted(
                 {
@@ -486,6 +599,29 @@ class MacroCoreSection(_StrictModel):
             raise ValueError("the risk appetite assessment belongs in the risk environment section")
         if self.scenarios:
             raise ValueError("scenarios belong in the risk environment section")
+
+    def _validate_scenario_probabilities(self) -> None:
+        # All-or-none as a set: revisions published before the field carry none, and a
+        # partial set would read as weights while summing to nothing. The arithmetic is
+        # integer steps on the 0.05 grid so the check is deterministic on every load.
+        present = [
+            scenario.probability for scenario in self.scenarios if scenario.probability is not None
+        ]
+        if not present:
+            return
+        if len(present) != len(self.scenarios):
+            raise ValueError("scenario probabilities must be present on all scenarios or none")
+        steps: list[int] = []
+        for probability in present:
+            scaled = probability * SCENARIO_PROBABILITY_STEPS
+            nearest = round(scaled)
+            if abs(scaled - nearest) > _PROBABILITY_STEP_TOLERANCE:
+                raise ValueError("a scenario probability must sit on the 0.05 grid")
+            if not _MIN_PROBABILITY_STEPS <= nearest <= _MAX_PROBABILITY_STEPS:
+                raise ValueError("a scenario probability must lie between 0.05 and 0.90")
+            steps.append(nearest)
+        if sum(steps) != SCENARIO_PROBABILITY_STEPS:
+            raise ValueError("scenario probabilities must sum to 1.0")
 
 
 class ResearchPriorityHint(_SourcedStatement):
@@ -514,6 +650,38 @@ class SizingCaution(_SourcedStatement):
     severity: Literal["low", "medium", "high"]
 
 
+class BargainTopography(_SourcedStatement):
+    """Where mispricing concentrates in the current tape, and why.
+
+    Publication requires this statement to cite the repository's own market-internals
+    snapshot, so the claim is anchored to measured breadth/regime/sector moves rather
+    than to a market narrative transcribed from an article.
+    """
+
+
+class EstimateCaveat(_SourcedStatement):
+    """How the current environment biases the loop's own machine estimates.
+
+    The screening machinery prices candidates from trailing fundamentals; a regime can
+    bend those inputs in a known direction (translation-inflated earnings, cost shocks
+    not yet in margins). Naming the bent component in the estimate vocabulary keeps the
+    caveat consumable where the number is used, and ``applies_to`` carries the same
+    discrimination contract as a research hint: advice that fits every candidate
+    equally is not a caveat.
+    """
+
+    applies_to: str = Field(min_length=1)
+    affected_component: Literal["fv_anchor", "reversion", "carry", "resilience"]
+    materiality: Literal["low", "medium", "high"]
+
+    @field_validator("applies_to")
+    @classmethod
+    def require_non_blank_target(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("applies_to must be non-blank")
+        return value
+
+
 class MacroConnectionSection(_StrictModel):
     """The single place where the assessment meets the Japanese equity loop."""
 
@@ -528,6 +696,11 @@ class MacroConnectionSection(_StrictModel):
     # The research priority is required because ordering the work is why this section exists.
     sector_tilts: tuple[SectorTilt, ...] = ()
     sizing_cautions: tuple[SizingCaution, ...] = ()
+    # Optional at the document level because published revisions predate the fields;
+    # publication requires both (unlike a tilt, a claim of zero estimate distortion is
+    # the extraordinary one, and low materiality states an honest small one).
+    bargain_topography: BargainTopography | None = None
+    estimate_caveats: tuple[EstimateCaveat, ...] = ()
 
     @model_validator(mode="after")
     def validate_section_contract(self) -> Self:
@@ -546,6 +719,9 @@ class MacroContextDocument(_StrictModel):
     published_at: datetime
     summary: str = Field(min_length=1)
     inputs: MacroInputs
+    # Optional at the document level because published revisions predate the field;
+    # publication requires it (the integrated layer is why the report is worth reading).
+    synthesis: MacroSynthesis | None = None
     core: tuple[MacroCoreSection, ...] = Field(min_length=10, max_length=10)
     connection: MacroConnectionSection
 
@@ -580,6 +756,7 @@ class MacroContextDocument(_StrictModel):
             )
         self._validate_reading_citation(reading_input_ids)
         self._validate_connection_references()
+        self._validate_synthesis_references(statuses=statuses, series_input_ids=series_input_ids)
         self._validate_scorecard_deadlines()
         if not any(section.material_deltas for section in self.core):
             raise ValueError("a material delta is required")
@@ -669,6 +846,57 @@ class MacroContextDocument(_StrictModel):
         }
         if not cited & reading_input_ids:
             raise ValueError("the regime summary must cite a macro reading snapshot input")
+
+    def _validate_synthesis_references(
+        self,
+        *,
+        statuses: dict[str, str],
+        series_input_ids: dict[str, set[str]],
+    ) -> None:
+        """Hold the synthesis to the same reference direction as the connection.
+
+        A force may only cite series its named channel sections already examine, and
+        every claim resolves to known, successful inputs — the synthesis reads on top
+        of the evidence layer, never around it.
+        """
+
+        if self.synthesis is None:
+            return
+        sections_by_id = {section.section_id: section for section in self.core}
+        items: list[_SourcedStatement] = [
+            *self.synthesis.dominant_forces,
+            *self.synthesis.interactions,
+        ]
+        for item in items:
+            missing = sorted(set(item.source_ids) - statuses.keys())
+            if missing:
+                raise ValueError(f"references unknown input IDs: {', '.join(missing)}")
+            if any(statuses[source_id] == "failed" for source_id in item.source_ids):
+                raise ValueError("an assessment cannot cite failed inputs")
+        for force in self.synthesis.dominant_forces:
+            named_series = {
+                series_id
+                for section_id in force.core_section_ids
+                for series_id in sections_by_id[section_id].series_ids
+            }
+            outside = sorted(set(force.series_ids) - named_series)
+            if outside:
+                raise ValueError(
+                    "a dominant force may only cite series its named sections cite: "
+                    + ", ".join(outside)
+                )
+            cited = set(force.source_ids)
+            for series_id in force.series_ids:
+                ok_input_ids = {
+                    input_id
+                    for input_id in series_input_ids.get(series_id, set())
+                    if statuses[input_id] == "ok"
+                }
+                if not ok_input_ids & cited:
+                    raise ValueError(
+                        "a dominant force series has no cited successful indicator input: "
+                        f"{series_id}"
+                    )
 
     def _validate_connection_references(self) -> None:
         core_series = {series_id for section in self.core for series_id in section.series_ids}
@@ -787,6 +1015,43 @@ def monitoring_condition_series_ids(document: MacroContextDocument) -> frozenset
     )
 
 
+def require_integrated_strategy(document: MacroContextDocument) -> None:
+    """Require the layers that turn channel evidence into a strategy-grade report.
+
+    Each is optional on the document so that every revision published before the
+    fields existed keeps loading, and required at publication because leaving any of
+    them optional makes "write none" the cheapest way to satisfy the contract — the
+    exact dynamic that left monitoring conditions unwritten until they were gated.
+
+    The bargain topography must cite the repository's own market-internals snapshot.
+    The type check matters: every revision after the first is forced to carry its
+    predecessor's scorecard snapshot, so a gate satisfied by any machine input would
+    be satisfied by that mandatory citation without a single market-internals fact
+    behind it.
+    """
+
+    if document.synthesis is None:
+        raise ValueError("the report must carry a synthesis of dominant forces")
+    if any(scenario.probability is None for scenario in document.scenarios):
+        raise ValueError("every scenario must carry a probability")
+    if not document.connection.estimate_caveats:
+        raise ValueError("the report must carry at least one estimate caveat")
+    topography = document.connection.bargain_topography
+    if topography is None:
+        raise ValueError("the report must carry the bargain topography")
+    market_snapshot_ids = {
+        snapshot.input_id
+        for snapshot in document.inputs.machine_snapshots
+        if isinstance(snapshot, MachineSnapshotInput)
+        and snapshot.status == "ok"
+        and "screening market-snapshot" in snapshot.command
+    }
+    if not market_snapshot_ids & set(topography.source_ids):
+        raise ValueError(
+            "the bargain topography must cite a successful market-snapshot machine input"
+        )
+
+
 def document_unregistered_series_ids(document: MacroContextDocument) -> tuple[str, ...]:
     """Cited series — from the inputs and from the sections — that the registry lacks."""
 
@@ -830,6 +1095,8 @@ def _sourced_items(
             *section.research_priority_hints,
             *section.sector_tilts,
             *section.sizing_cautions,
+            *(() if section.bargain_topography is None else (section.bargain_topography,)),
+            *section.estimate_caveats,
         )
     return (
         *section.fact_summary,
@@ -865,10 +1132,12 @@ __all__ = [
     "MATERIAL_DELTA_SECTION_IDS",
     "MacroContextDocument",
     "MacroCoreSectionId",
+    "MacroSynthesis",
     "ScorecardSnapshotInput",
     "cited_series_ids",
     "document_unregistered_series_ids",
     "monitoring_condition_series_ids",
+    "require_integrated_strategy",
     "require_machine_checkable_monitoring",
     "require_registry_agreement",
     "scorecard_series_ids",
