@@ -8,7 +8,13 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tools.cloud.merge_indicator_store import MergeError, main, merge_stores
+from tools.cloud.merge_indicator_store import (
+    MergeError,
+    _internal_name,
+    _schema_name,
+    main,
+    merge_stores,
+)
 
 from baibai_engine.macro.indicators.db import (
     SCHEMA_PATH,
@@ -598,6 +604,40 @@ def test_merge_rejects_an_unexpected_target_trigger_before_it_can_delete_history
         merge_stores(cloud, local)
 
     assert _observations(local) == {("us.10y", "2016-07-20", 1.55)}
+
+
+def test_merge_rejects_a_store_column_name_that_is_not_an_identifier(tmp_path: Path) -> None:
+    """Column names reach the statements as text, so a store may only carry plain ones."""
+
+    cloud = tmp_path / "cloud.sqlite"
+    local = tmp_path / "local.sqlite"
+    _build_store(
+        cloud,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2026, 7, 23), 4.31),),
+    )
+    _build_store(
+        local,
+        series_ids=("us.10y",),
+        observations=(_observation("us.10y", date(2016, 7, 20), 1.55),),
+    )
+    with sqlite3.connect(local) as connection:
+        connection.execute('ALTER TABLE observations ADD COLUMN "value"" , 1 AS x" TEXT')
+
+    with pytest.raises(MergeError, match=r"column name is not a plain identifier"):
+        merge_stores(cloud, local)
+
+    assert _observations(local) == {("us.10y", "2016-07-20", 1.55)}
+
+
+def test_merge_refuses_a_schema_it_does_not_attach() -> None:
+    with pytest.raises(ValueError, match=r"unsupported SQLite schema name"):
+        _schema_name("main; DROP TABLE observations")
+
+
+def test_merge_refuses_a_table_name_that_is_not_an_identifier() -> None:
+    with pytest.raises(ValueError, match=r"invalid SQL identifier"):
+        _internal_name('observations" --')
 
 
 def test_main_reports_a_missing_store(tmp_path: Path, capsys) -> None:
