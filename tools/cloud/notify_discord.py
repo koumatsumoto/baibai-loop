@@ -114,7 +114,7 @@ def _urllib_transport(url: str, body: bytes, timeout: float) -> int:
     request = urllib.request.Request(url, data=body, headers=_REQUEST_HEADERS, method="POST")
     opener = urllib.request.build_opener(_NoRedirect)
     with opener.open(request, timeout=timeout) as response:  # nosec B310
-        return response.status
+        return int(response.status)
 
 
 def prepare_webhook_url(raw_url: str) -> str:

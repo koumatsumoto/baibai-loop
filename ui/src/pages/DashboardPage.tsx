@@ -185,14 +185,14 @@ function PortfolioWarnings({ warnings }: { warnings: WarningView[] }) {
         {warnings.map((warning) => {
           const copy = warningCopy(warning)
           return (
-            <div className="flex gap-3 text-sm text-warning-foreground" key={`${warning.code}-${warning.scope}-${warning.key}`}>
+            <div className="flex gap-3 text-sm text-warning-ink" key={`${warning.code}-${warning.scope}-${warning.key}`}>
               <CircleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <strong className="font-medium">{copy.title}</strong>
-                  {warning.overridden && <Badge className="border-warning/40 bg-transparent text-warning" variant="outline">確認済み</Badge>}
+                  {warning.overridden && <Badge className="border-warning-ink/40 bg-transparent text-warning-ink" variant="outline">確認済み</Badge>}
                 </div>
-                <p className="mt-0.5 text-xs leading-relaxed text-warning-foreground/80">{copy.description}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-warning-ink/80">{copy.description}</p>
               </div>
             </div>
           )

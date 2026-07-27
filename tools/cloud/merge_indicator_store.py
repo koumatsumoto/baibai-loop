@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import sqlite3
 import sys
 from collections.abc import Mapping, Sequence
@@ -52,9 +53,40 @@ REGISTRY_TABLES: tuple[str, ...] = (
 # an explicit refresh may remove that metadata and make the series ineligible.
 _REGISTERED = 'series_id IN (SELECT series_id FROM main."series")'
 
+# SQLite cannot bind a table, column or schema name, so every statement below interpolates
+# the ones it needs. Two guards keep that interpolation from carrying anything but a plain
+# identifier: names this module chooses go through `_internal_name`, and names read out of a
+# store's own schema go through `_store_column`.
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SCHEMAS = frozenset({"main", "source"})
+
 
 class MergeError(RuntimeError):
     """The stores cannot be merged, so the target is left untouched."""
+
+
+def _internal_name(name: str) -> str:
+    """Check a name this module supplies itself; a rejection here is a bug, not bad data."""
+
+    if _IDENTIFIER.match(name) is None:
+        raise ValueError(f"invalid SQL identifier: {name!r}")
+    return name
+
+
+def _schema_name(schema: str) -> str:
+    """Only the two schemas this merge attaches may name a statement's tables."""
+
+    if schema not in _SCHEMAS:
+        raise ValueError(f"unsupported SQLite schema name: {schema!r}")
+    return schema
+
+
+def _store_column(name: str) -> str:
+    """Check a column name read from a store's schema; a strange one means a broken store."""
+
+    if _IDENTIFIER.match(name) is None:
+        raise MergeError(f"indicator store column name is not a plain identifier: {name!r}")
+    return name
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,18 +226,19 @@ def _validate_observations(
 ) -> None:
     """Reject either store's facts when they violate the target contract."""
 
-    if schema not in {"main", "source"}:
-        raise ValueError(f"unsupported SQLite schema name: {schema!r}")
+    # The statement below reads `attached`, never the argument, so deleting this line breaks
+    # the query rather than quietly letting an unchecked name through.
+    attached = _schema_name(schema)
     # A withdrawn row carries the value it withdrew, not a claim about one, so the
     # registry band does not apply to it on either side of the merge.
     registered = (
-        'o.series_id IN (SELECT series_id FROM main."series")' if schema == "source" else "1"
+        'o.series_id IN (SELECT series_id FROM main."series")' if attached == "source" else "1"
     ) + " AND o.fetch_status != 'retracted'"
     row = connection.execute(
         f"""
         SELECT o.series_id, o.observed_at, o.value, o.unit,
                s.unit, s.plausible_min, s.plausible_max
-        FROM {schema}.observations o
+        FROM {attached}.observations o
         JOIN main.series s ON s.series_id = o.series_id
         WHERE {registered}
           AND (o.unit != s.unit
@@ -213,7 +246,7 @@ def _validate_observations(
            OR (s.plausible_max IS NOT NULL AND o.value > s.plausible_max))
         ORDER BY o.series_id, o.observed_at, o.vintage_at
         LIMIT 1
-        """
+        """  # nosec B608
     ).fetchone()
     if row is None:
         return
@@ -232,17 +265,21 @@ def _validate_observations(
 
 
 def _merge_table(connection: sqlite3.Connection, table: str) -> TableMerge:
-    source_rows = _count(connection, f'SELECT count(*) FROM source."{table}"')
-    before = _count(connection, f'SELECT count(*) FROM main."{table}"')
-    skipped = _count(connection, f'SELECT count(*) FROM source."{table}" WHERE NOT {_REGISTERED}')
+    name = _internal_name(table)
+    source_rows = _count(connection, f'SELECT count(*) FROM source."{name}"')  # nosec B608
+    before = _count(connection, f'SELECT count(*) FROM main."{name}"')  # nosec B608
+    skipped = _count(
+        connection,
+        f'SELECT count(*) FROM source."{name}" WHERE NOT {_REGISTERED}',  # nosec B608
+    )
     columns = _columns(connection, table, schema="main")
     target_columns = ", ".join(f'"{column}"' for column in columns)
-    source_columns = ", ".join(f'source."{table}"."{column}"' for column in columns)
+    source_columns = ", ".join(f'source."{name}"."{column}"' for column in columns)
     connection.execute(
-        f'INSERT OR IGNORE INTO main."{table}" ({target_columns}) '
-        f'SELECT {source_columns} FROM source."{table}" WHERE {_REGISTERED}'
+        f'INSERT OR IGNORE INTO main."{name}" ({target_columns}) '  # nosec B608
+        f'SELECT {source_columns} FROM source."{name}" WHERE {_REGISTERED}'
     )
-    after = _count(connection, f'SELECT count(*) FROM main."{table}"')
+    after = _count(connection, f'SELECT count(*) FROM main."{name}"')  # nosec B608
     return TableMerge(
         table=table,
         source_rows=source_rows,
@@ -254,15 +291,16 @@ def _merge_table(connection: sqlite3.Connection, table: str) -> TableMerge:
 
 
 def _require_matching_payloads(connection: sqlite3.Connection, table: str) -> None:
+    name = _internal_name(table)
     columns = _columns(connection, table, schema="main")
-    keys = FACT_KEYS[table]
+    keys = tuple(_internal_name(key) for key in FACT_KEYS[table])
     payload = tuple(column for column in columns if column not in keys)
     key_match = " AND ".join(f't."{key}" = s."{key}"' for key in keys)
     payload_differs = " OR ".join(f't."{column}" IS NOT s."{column}"' for column in payload)
     row = connection.execute(
-        f"SELECT {', '.join(f's.{key}' for key in keys)} "
-        f'FROM source."{table}" s '
-        f'JOIN main."{table}" t ON {key_match} '
+        f"SELECT {', '.join(f's.{key}' for key in keys)} "  # nosec B608
+        f'FROM source."{name}" s '
+        f'JOIN main."{name}" t ON {key_match} '
         "WHERE s.series_id IN (SELECT series_id FROM main.series) "
         f"AND ({payload_differs}) "
         f"ORDER BY {', '.join(f's.{key}' for key in keys)} LIMIT 1"
@@ -274,13 +312,15 @@ def _require_matching_payloads(connection: sqlite3.Connection, table: str) -> No
 
 
 def _source_only_rows(connection: sqlite3.Connection, table: str) -> int:
+    name = _internal_name(table)
     match = " AND ".join(
-        f'main."{table}".{key} = source."{table}".{key}' for key in FACT_KEYS[table]
+        f'main."{name}".{key} = source."{name}".{key}'
+        for key in map(_internal_name, FACT_KEYS[table])
     )
     return _count(
         connection,
-        f'SELECT count(*) FROM source."{table}" WHERE {_REGISTERED} AND NOT EXISTS ('
-        f'SELECT 1 FROM main."{table}" WHERE {match})',
+        f'SELECT count(*) FROM source."{name}" WHERE {_REGISTERED} AND NOT EXISTS ('  # nosec B608
+        f'SELECT 1 FROM main."{name}" WHERE {match})',
     )
 
 
@@ -288,8 +328,8 @@ def _retired_series(connection: sqlite3.Connection) -> tuple[str, ...]:
     """Series the source carries facts for that the target's registry does not define."""
 
     union = " UNION ".join(
-        f'SELECT DISTINCT series_id FROM source."{table}" WHERE NOT {_REGISTERED}'
-        for table in FACT_KEYS
+        f'SELECT DISTINCT series_id FROM source."{table}" WHERE NOT {_REGISTERED}'  # nosec B608
+        for table in map(_internal_name, FACT_KEYS)
     )
     return tuple(str(row[0]) for row in connection.execute(f"{union} ORDER BY series_id"))
 
@@ -319,7 +359,7 @@ def _require_schema(
     schema: str = "main",
     allow_previous_read_only: bool = False,
 ) -> int:
-    version = _count(connection, f"PRAGMA {schema}.user_version")
+    version = _count(connection, f"PRAGMA {_schema_name(schema)}.user_version")
     compatible_previous = allow_previous_read_only and version == SQLITE_SCHEMA_VERSION - 1
     if version != SQLITE_SCHEMA_VERSION and not compatible_previous:
         raise MergeError(
@@ -354,12 +394,14 @@ def _require_identical_columns(connection: sqlite3.Connection) -> None:
 def _registry_generation(connection: sqlite3.Connection, *, schema: str) -> int:
     return _count(
         connection,
-        f'SELECT generation FROM {schema}."registry_state" WHERE singleton = 1',
+        f'SELECT generation FROM {_schema_name(schema)}."registry_state" '  # nosec B608
+        "WHERE singleton = 1",
     )
 
 
 def _columns(connection: sqlite3.Connection, table: str, *, schema: str) -> Sequence[str]:
-    return [str(row[1]) for row in connection.execute(f'PRAGMA {schema}.table_info("{table}")')]
+    statement = f'PRAGMA {_schema_name(schema)}.table_info("{_internal_name(table)}")'
+    return [_store_column(str(row[1])) for row in connection.execute(statement)]
 
 
 def _count(connection: sqlite3.Connection, sql: str) -> int:

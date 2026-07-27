@@ -85,6 +85,8 @@ mypy strict を CI の主 type gate とする。Pyright の設定ファイルは
 - `warn_unreachable = true`: CLI 分岐や Protocol 変更で dead path を見つける。
 - `disallow_any_unimported = true`: stub 不足による stealth Any を検出する。
 - `plugins = ["pydantic.mypy"]`: Pydantic model の constructor と field 定義を mypy に理解させる。
+- `packages = ["baibai_engine", "baibai_app", "tools"]`: `tools/` の script も同じ strict gate に置く。file 名の列挙にすると、追加した script が誰かに思い出されるまで無検査で残る。
+- `exclude`: `tools/generate_brand_assets.py` だけを外す。この script は Pillow を PEP 723 の inline metadata で宣言して `uv run --script` で動くため、native image library を shared lock と全 workflow の install から外している。その代償として import が解決できない。
 - `py.typed`: package consumer に型付き package として公開する。
 
 外部 SDK は完全な型を持たないことがある。`jquantsapi.*` などは override で missing import を許容するが、その Any は provider module の中で止める。application 層へは `Protocol` と domain model を通して渡す。
@@ -177,16 +179,11 @@ uv sync --frozen --all-groups
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
-uv run mypy tools/append_pmi_manifest.py
 uv run lint-imports
-uv run python tools/drift/check_markdown_links.py
-uv run python tools/drift/check_cli_doc.py
-uv run python tools/drift/check_legacy_semantics.py
-uv run python tools/drift/check_duplicate_constants.py
-uv run python tools/drift/check_skill_inventory.py
+for gate in tools/drift/check_*.py; do uv run python "$gate"; done
 uv run coverage run -m pytest
 uv run coverage report -m
-uv run bandit -c pyproject.toml -q -r src/baibai_engine src/baibai_app tools/append_pmi_manifest.py
+uv run bandit -c pyproject.toml -q -r src/baibai_engine src/baibai_app tools
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel

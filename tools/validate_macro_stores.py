@@ -107,20 +107,20 @@ def validate_store(
         ):
             observations += 1
             series_id = str(row["series_id"])
-            series = registry.get(series_id)
+            definition = registry.get(series_id)
             identity = f"{series_id} {row['observed_at']} vintage {row['vintage_at']}"
-            if series is None:
+            if definition is None:
                 record(f"{identity}: series is absent from the current registry")
                 continue
-            if str(row["unit"]) != series.unit:
-                record(f"{identity}: unit {row['unit']!r}; expected {series.unit!r}")
+            if str(row["unit"]) != definition.unit:
+                record(f"{identity}: unit {row['unit']!r}; expected {definition.unit!r}")
                 continue
             value = float(row["value"])
             if not math.isfinite(value):
                 record(f"{identity}: value {value!r} is not finite")
                 continue
-            low = series.plausible_min
-            high = series.plausible_max
+            low = definition.plausible_min
+            high = definition.plausible_max
             if (low is not None and value < low) or (high is not None and value > high):
                 rendered_low = "-inf" if low is None else f"{low:g}"
                 rendered_high = "inf" if high is None else f"{high:g}"

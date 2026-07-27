@@ -196,6 +196,9 @@ def test_error_subprocess_failure_helper_validates_stage_and_returncode() -> Non
         BatchError.subprocess_failure(stage="not-a-stage", returncode=1)
     with pytest.raises(SummaryValidationError, match="returncode"):
         BatchError.subprocess_failure(stage="batch", returncode="1")  # type: ignore[arg-type]
+    # bool is an int subclass, so True would otherwise be rendered as exit code 1.
+    with pytest.raises(SummaryValidationError, match="returncode"):
+        BatchError.subprocess_failure(stage="batch", returncode=True)
 
 
 def test_error_summary_invalid_helper_rejects_unknown_reason() -> None:

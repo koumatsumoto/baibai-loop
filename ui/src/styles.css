@@ -52,11 +52,15 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-ink: var(--destructive-ink);
+    --color-destructive-surface: var(--destructive-surface);
     --color-positive: var(--positive);
+    --color-positive-ink: var(--positive-ink);
+    --color-positive-surface: var(--positive-surface);
     --color-profit: var(--profit);
     --color-loss: var(--loss);
     --color-warning: var(--warning);
-    --color-warning-foreground: var(--warning-foreground);
+    --color-warning-ink: var(--warning-ink);
     --color-warning-surface: var(--warning-surface);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
@@ -142,8 +146,36 @@
     --profit: oklch(0.56 0.115 80);
     --loss: oklch(0.52 0.14 250);
     --warning: oklch(0.55 0.135 58);
-    --warning-foreground: oklch(0.279 0.077 45.635);
-    --warning-surface: oklch(0.987 0.022 95.277);
+    /* A status color painted as a translucent fill under its own full-strength text does not
+       reach 4.5:1 — a green badge lands at 4.0, a red one at 3.6 — and the alpha also makes
+       the real contrast depend on whatever the badge happens to sit on. So a fill and the
+       text on it are two opaque tokens instead: `bg-<status>-surface text-<status>-ink` is
+       one pair whose ratio can be measured, and `ui/tests/brand.test.ts` measures it.
+
+       The text token is `-ink`, not `-foreground`, because `-foreground` already means the
+       opposite thing here and everywhere shadcn is copied from: `--primary-foreground` is what
+       goes on a *filled* primary. Writing --destructive's own text color on filled --destructive
+       would render at 2.1:1, so the name that invites it is not used. An unknown utility drops
+       to inherited text, which stays readable; a known-but-wrong one does not.
+
+       A surface takes ink, not the family color: --warning on --warning-surface is 4.4 and
+       --destructive on its own is 4.1. A mark may keep the family color there — an icon needs
+       3:1, not 4.5 — but text on a status surface is always its ink.
+
+       The three families share one lightness on each side (surface 0.95, ink 0.4) so no risk
+       level reads as heavier than another. Chroma is set per hue instead, because sRGB holds
+       far less of a pale red than of a pale green and far less of a dark green than of a dark
+       red: matching the numbers would leave one family washed out and another out of gamut.
+       The caution surface keeps its cream hue rather than following its own amber — an amber
+       fill sits 2.6 from the red one at this lightness and a caution would read as an error;
+       cream puts them 4.2 apart. The closest pair is then green and cream at 3.8, which is
+       still wider than the 3.4 the translucent fills left between those two. */
+    --positive-surface: oklch(0.95 0.03 150.069);
+    --positive-ink: oklch(0.4 0.1 150.069);
+    --warning-surface: oklch(0.95 0.045 95.277);
+    --warning-ink: oklch(0.4 0.09 58);
+    --destructive-surface: oklch(0.95 0.022 27.325);
+    --destructive-ink: oklch(0.4 0.14 27.325);
     --input: var(--border-strong);
     /* Focus is drawn as an opaque border plus a translucent halo; the border carries
        the contrast, so the ring uses the action green rather than the lighter display. */
