@@ -386,7 +386,9 @@ class BatchError:
     ) -> BatchError:
         if stage not in ERROR_STAGES:
             raise SummaryValidationError(f"unknown error stage {stage!r}")
-        if not isinstance(returncode, int) or isinstance(returncode, bool):
+        # `type(...) is not int` rather than isinstance: bool is an int subclass, and a
+        # True that reached here would be rendered as exit code 1.
+        if type(returncode) is not int:
             raise SummaryValidationError("returncode must be an int")
         return cls.build(
             code="subprocess_failed", stage=stage, impact=impact, returncode=returncode

@@ -16,11 +16,13 @@ import sys
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from typing import get_args
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
 from baibai_app.readmodel.builders import (
+    MacroPeriod,
     build_dashboard,
     build_macro,
     build_macro_context_detail,
@@ -43,11 +45,13 @@ from baibai_engine.macro.reading.rules import (
     DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
 )
 from baibai_engine.macro.reading.rules import ReadingRulesError, load_reading_rules
-from baibai_engine.read_api import screening_run_asof_dates
+from baibai_engine.read_api import MacroGranularity, screening_run_asof_dates
 
 _JST = ZoneInfo("Asia/Tokyo")
-_MACRO_PERIODS = ("1y", "5y", "10y", "max")
-_MACRO_GRANULARITIES = ("daily", "weekly", "monthly", "yearly")
+# Read off the builder's own literals rather than restated here: a window added there is
+# exported by the same edit, instead of becoming a view file the UI asks for and never finds.
+_MACRO_PERIODS: tuple[MacroPeriod, ...] = get_args(MacroPeriod.__value__)
+_MACRO_GRANULARITIES: tuple[MacroGranularity, ...] = get_args(MacroGranularity.__value__)
 # Same shape the ledger and run store enforce at write time; re-checked here so a
 # store-derived string never reaches filename composition unvalidated.
 _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
@@ -136,17 +140,17 @@ def export_read_models(
         if _TICKER_FORMAT.fullmatch(ticker) is None:
             _warn(f"ticker has an unexpected format: {ticker!r}; security view skipped")
             continue
-        detail = build_security_detail(
+        security = build_security_detail(
             ticker,
             stores.ledger,
             stores.research,
             cached_candidates,
             stores.market,
         )
-        if detail is None:
+        if security is None:
             _warn(f"security view is unavailable for ticker {ticker}; skipped")
             continue
-        written.append(_write_model(views_dir / f"security--{ticker}.json", detail))
+        written.append(_write_model(views_dir / f"security--{ticker}.json", security))
 
     written.extend(
         _write_history(
