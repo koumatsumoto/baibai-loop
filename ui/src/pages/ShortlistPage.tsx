@@ -9,6 +9,7 @@ import type {
   ScreeningView,
 } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { StaleBadge } from '../components/StaleBadge'
@@ -229,7 +230,7 @@ export function ShortlistPage() {
   }, [data])
 
   if (error) return <PageState message={error} title="Shortlist read error" />
-  if (!data) return <PageState message="Shortlist を読み込んでいます…" title="Shortlist" />
+  if (!data) return <LoadingPage label="Shortlist を読み込んでいます" />
   if (!shortlist) return <PageState message="shortlist はまだ publish されていません" title="Shortlist" />
 
   const selected = shortlist.entries.filter((entry) => entry.decision === 'selected')

@@ -1,17 +1,35 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextlib import suppress
 from datetime import UTC, date, datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 import requests
 
 from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
+from ..provider_specs import ProviderSpec as ProviderSpec
+from ..provider_specs import RangeReplacementPolicy as RangeReplacementPolicy
+
+if TYPE_CHECKING:
+    from .browser import BrowserFetcher
 
 HTTP_TIMEOUT_SECONDS = 30
 MAX_CSV_RESPONSE_BYTES = 8_000_000
 MAX_ZIP_RESPONSE_BYTES = 16_000_000
+
+# Reads a stored series' observations (latest ok vintage per observed_at) for a
+# derived provider that computes from other series. Bound to the live connection
+# by the service so a derived fetch sees inputs already committed this run.
+type StoreReader = Callable[[str, date, date], tuple[ObservationRecord, ...]]
+
+# What a fetch pass is for. ``read`` serves a query whose window the store cannot
+# answer yet, ``refresh`` keeps a series current, ``rebuild`` re-derives a series
+# from source. Providers whose cost or strictness depends on this read it from the
+# fetch context: a rebuild re-reads observations the store already holds, and a
+# source-currency guard fails a refresh or rebuild but never blocks a read.
+type FetchPurpose = Literal["read", "refresh", "rebuild"]
 
 
 class IndicatorsProviderError(RuntimeError):
@@ -19,18 +37,64 @@ class IndicatorsProviderError(RuntimeError):
 
 
 class FetchContext:
-    """Shared HTTP session plus a per-run bytes cache.
+    """Shared HTTP session, a per-run bytes cache, and a lazy headless browser.
 
-    The bytes cache lets bulk-file providers (FRB H.15, ECB FX) download one
-    shared file once and reuse it across every series that maps to it.
+    One context serves a whole refresh pass. The bytes cache lets bulk-file
+    providers (FRB H.15, ECB FX) download one shared file once and reuse it
+    across every series that maps to it. The browser is launched only when a
+    WAF-gated provider first asks for it and is reused for the rest of the pass,
+    so a pass pays at most one browser launch.
+
+    ``purpose`` carries what the pass is for to the providers that need it (see
+    :data:`FetchPurpose`).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        store_reader: StoreReader | None = None,
+        purpose: FetchPurpose = "read",
+    ) -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[tuple[str, tuple[tuple[str, str], ...]], bytes] = {}
+        self.store_reader = store_reader
+        self.purpose = purpose
+        self._browser: BrowserFetcher | None = None
+
+    def discard_cached_bytes(self) -> None:
+        """Drop every cached response before a retry.
+
+        A source can answer HTTP 200 with a block page (FRB's edge does this for
+        datacenter IPs), which caches as if it were data. Keeping it would make the
+        retry re-read the same bad bytes and would fail every later series that
+        shares the URL, so a failed fetch invalidates the cache instead.
+        """
+
+        self.bytes_cache.clear()
+
+    def browser_fetcher(self) -> BrowserFetcher:
+        # Lazy import breaks the base <-> browser module cycle and keeps
+        # Playwright off the import path until a browser-backed series runs.
+        if self._browser is None:
+            from .browser import BrowserFetcher
+
+            self._browser = BrowserFetcher()
+        return self._browser
 
     def close(self) -> None:
-        self.session.close()
+        # Releasing resources must never mask the pass's own result, so a failure
+        # to close is swallowed here rather than propagating out of the `with`.
+        with suppress(OSError):
+            self.session.close()
+        if self._browser is not None:
+            with suppress(OSError):
+                self._browser.close()
+
+    def __enter__(self) -> FetchContext:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
 
 
 class HttpSession(Protocol):
@@ -51,6 +115,7 @@ class MacroDataProvider(Protocol):
     """A macro data source. Each provider isolates its own auth/parse/quirks."""
 
     name: str
+    spec: ProviderSpec
 
     def fetch(
         self,

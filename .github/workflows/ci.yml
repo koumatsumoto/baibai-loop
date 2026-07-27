@@ -19,11 +19,11 @@ jobs:
         with:
           fetch-depth: 2
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
 
-      - uses: astral-sh/setup-uv@v8.3.2
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
 
@@ -38,6 +38,11 @@ jobs:
 
       - name: Type check
         run: uv run mypy
+
+      # The operator tool that rewrites the PMI manifest sits outside the
+      # packages, and it fetches the network and edits a canonical file.
+      - name: Type check operator tools
+        run: uv run mypy tools/append_pmi_manifest.py
 
       - name: Import contracts
         run: uv run lint-imports

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
@@ -12,16 +11,8 @@ from pathlib import Path
 from baibai_engine.foundation.time import JST
 
 from .migrations import MIGRATIONS, Migration
-
-DEFAULT_DB_PATH = Path("data/app/baibai.sqlite")
-
-
-def database_path(path: Path | None = None) -> Path:
-    """Resolve the canonical application DB path without hard-coding a host path."""
-    if path is not None:
-        return path.expanduser()
-    configured = os.environ.get("BAIBAI_DB")
-    return Path(configured).expanduser() if configured else DEFAULT_DB_PATH
+from .paths import DEFAULT_DB_PATH as DEFAULT_DB_PATH
+from .paths import database_path as database_path
 
 
 def connect_rw(path: Path | None = None) -> sqlite3.Connection:

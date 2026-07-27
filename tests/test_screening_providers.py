@@ -1229,10 +1229,14 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(
             provider._resolve_earnings_calendar_urls(),
             (
-                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
-                "files/kessan-1.xlsx",
-                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
-                "files/kessan-2.xls",
+                (
+                    "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
+                    "files/kessan-1.xlsx"
+                ),
+                (
+                    "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
+                    "files/kessan-2.xls"
+                ),
             ),
         )
 
@@ -1419,8 +1423,10 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(
             provider.downloaded_urls,
             [
-                "https://www.jpx.co.jp/markets/statistics-equities/margin/"
-                "tvdivq0000001r92-att/mtdailyk2026042300.xls",
+                (
+                    "https://www.jpx.co.jp/markets/statistics-equities/margin/"
+                    "tvdivq0000001r92-att/mtdailyk2026042300.xls"
+                ),
             ],
         )
 

@@ -3,8 +3,9 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, CircleAlert } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
-import type { MacroContextSectionView, MacroContextView } from '../api/types'
+import type { MacroConnectionSectionView, MacroContextView, MacroCoreSectionView, MacroScenarioView, MacroSeriesReferenceView } from '../api/types'
 import { AppShell } from '../components/AppShell'
+import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { StaleBadge } from '../components/StaleBadge'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
@@ -14,15 +15,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { formatJstDateTime } from '../lib/format'
 import { LABEL } from '../lib/labels'
 
-const sectionTitles: Record<string, string> = {
-  regime_summary: '1. Regime summary',
+// The 10 core sections read the environment on its own terms; the numbering is the
+// contract's own order, and the connection section closes it as 11.
+const coreSectionTitles: Record<string, string> = {
+  regime_summary: '1. レジーム要約',
   rates_policy: '2. 金利・金融政策',
   growth_demand: '3. 景気・需要',
   inflation_costs: '4. インフレ・コスト',
-  fx_liquidity: '5. 為替・流動性',
-  japan_specific: '6. 日本固有',
-  scenarios_connections: '7. シナリオと接続',
-  monitoring_points: '8. 監視ポイント',
+  liquidity_credit: '5. 流動性・信用・リスク選好',
+  fx: '6. 為替',
+  japan: '7. 日本',
+  valuation: '8. バリュエーション',
+  risk_environment: '9. リスク選好環境の評価とシナリオ',
+  monitoring: '10. 監視ポイント',
+}
+
+const connectionSectionTitle = '11. 日本株積立ループ接続'
+
+const comparisonSymbols: Record<string, string> = {
+  below: '<',
+  at_or_below: '≤',
+  above: '>',
+  at_or_above: '≥',
 }
 
 function SourceIds({ ids }: { ids: readonly string[] }) {
@@ -30,39 +44,106 @@ function SourceIds({ ids }: { ids: readonly string[] }) {
   return <p className="mt-1 font-mono text-[10px] leading-relaxed text-muted-foreground/75">出典: {ids.join(', ')}</p>
 }
 
-function ReportSection({ section }: { section: MacroContextSectionView }) {
+function SectionShell({ title, seriesBadges, children }: { title: string; seriesBadges: readonly MacroSeriesReferenceView[]; children: React.ReactNode }) {
   return (
     <Card className="gap-4 py-5 shadow-sm">
       <CardHeader className="gap-3 px-5">
-        <CardTitle aria-level={2} className="text-lg" role="heading">{sectionTitles[section.section_id] ?? section.section_id}</CardTitle>
+        <CardTitle aria-level={2} className="text-lg" role="heading">{title}</CardTitle>
         <div className="flex flex-wrap gap-2">
-          {section.series.map((series) => <Badge key={series.series_id} variant="outline">{series.name} · {series.series_id}</Badge>)}
+          {seriesBadges.map((series) => <Badge key={series.series_id} variant="outline">{series.name} · {series.series_id}</Badge>)}
         </div>
       </CardHeader>
-      <CardContent className="grid gap-5 px-5 lg:grid-cols-3">
-        <div className="grid content-start gap-2 rounded-lg bg-muted/45 p-4">
-          <h3 className="text-sm font-semibold">Fact 要約</h3>
-          {section.fact_summary.map((fact, index) => <div key={index}><p className="text-sm">{fact.summary}</p><SourceIds ids={fact.source_ids} /></div>)}
-          {section.change_since_previous && <p className="border-t pt-2 text-sm"><span className="font-medium">比較:</span> {section.change_since_previous}</p>}
-        </div>
-        <div className="grid content-start gap-2 rounded-lg border p-4">
-          <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">Judgment</h3><Badge variant="secondary">{section.judgment.direction} / {section.judgment.confidence}</Badge></div>
-          <p className="text-sm">{section.judgment.summary}</p>
-          <SourceIds ids={section.judgment.source_ids} />
-          {section.material_deltas.map((delta, index) => <div className="mt-2 border-t pt-3" key={`${delta.channel}-${index}`}><div className="mb-1 flex flex-wrap gap-2"><Badge variant="outline">{delta.channel}</Badge><Badge variant="secondary">{delta.direction} / {delta.materiality}</Badge></div><p className="text-sm">{delta.summary}</p><p className="mt-1 text-xs text-muted-foreground">{delta.used_for}</p><SourceIds ids={delta.source_ids} /></div>)}
-          {section.sizing_cautions.map((caution, index) => <Alert className="mt-2" key={index} role="note"><CircleAlert /><AlertTitle>Sizing caution · {caution.severity}</AlertTitle><AlertDescription>{caution.summary}<SourceIds ids={caution.source_ids} /></AlertDescription></Alert>)}
-        </div>
-        <div className="grid content-start gap-2 rounded-lg border p-4">
-          <h3 className="text-sm font-semibold">投資判断への接続</h3>
-          <p className="text-sm">{section.investment_connection.summary}</p>
-          {section.investment_connection.sector_tilts.map((item, index) => <p className="text-sm" key={`tilt-${index}`}><span className="font-medium">Sector tilt:</span> {item}</p>)}
-          {section.investment_connection.research_priority_hints.map((item, index) => <p className="text-sm" key={`priority-${index}`}><span className="font-medium">Research priority:</span> {item}</p>)}
-          <SourceIds ids={section.investment_connection.source_ids} />
-        </div>
-        {section.scenarios.length > 0 && <div className="grid gap-3 lg:col-span-3 lg:grid-cols-3">{section.scenarios.map((scenario) => <div className="rounded-lg border p-4" key={scenario.case}><div className="mb-2 flex items-center gap-2"><h3 className="font-semibold uppercase">{scenario.case}</h3><Badge variant="secondary">{scenario.direction}</Badge></div><p className="text-sm">{scenario.summary}</p><p className="mt-2 text-xs text-muted-foreground">条件: {scenario.conditions.join(' / ')}</p><p className="mt-1 text-xs text-muted-foreground">接続: {scenario.investment_implications.join(' / ')}</p><SourceIds ids={scenario.source_ids} /></div>)}</div>}
-        {section.monitoring_points.length > 0 && <div className="grid gap-3 lg:col-span-3">{section.monitoring_points.map((point, index) => <Alert key={index} role="note"><CircleAlert /><AlertTitle>{point.event}</AlertTitle><AlertDescription>{point.summary}<br />条件: {point.condition}<br />見方の変更: {point.view_change}<SourceIds ids={point.source_ids} /></AlertDescription></Alert>)}</div>}
-      </CardContent>
+      <CardContent className="grid gap-5 px-5 lg:grid-cols-3">{children}</CardContent>
     </Card>
+  )
+}
+
+function ScenarioCard({ scenario }: { scenario: MacroScenarioView }) {
+  return (
+    <div className="grid content-start gap-2 rounded-lg border p-4">
+      <div className="flex items-center gap-2"><h4 className="font-semibold uppercase">{scenario.case}</h4><Badge variant="secondary">{scenario.direction}</Badge></div>
+      <p className="text-sm">{scenario.summary}</p>
+      {scenario.conditions.length > 0 && <div><p className="text-xs font-medium">成立条件</p>{scenario.conditions.map((condition, index) => <p className="text-xs text-muted-foreground" key={`condition-${index}`}>{condition}</p>)}</div>}
+      {scenario.scorecard.length > 0 && (
+        <div>
+          <p className="text-xs font-medium">機械照合条件（scorecard）</p>
+          {scenario.scorecard.map((condition, index) => (
+            <p className="font-mono text-[11px] text-muted-foreground tabular-nums" key={`${condition.series_id}-${index}`}>
+              {condition.series_id} {comparisonSymbols[condition.comparison] ?? condition.comparison} {condition.threshold} · 期限 {condition.deadline}
+            </p>
+          ))}
+        </div>
+      )}
+      {scenario.economic_implications.length > 0 && <div><p className="text-xs font-medium">経済経路への含意</p>{scenario.economic_implications.map((item, index) => <p className="text-xs text-muted-foreground" key={`implication-${index}`}>{item}</p>)}</div>}
+      <SourceIds ids={scenario.source_ids} />
+    </div>
+  )
+}
+
+function CoreSection({ section }: { section: MacroCoreSectionView }) {
+  const riskEnvironment = section.risk_environment
+  return (
+    <SectionShell seriesBadges={section.series} title={coreSectionTitles[section.section_id] ?? section.section_id}>
+      <div className="grid content-start gap-2 rounded-lg bg-muted/45 p-4">
+        <h3 className="text-sm font-semibold">Fact 要約</h3>
+        {section.fact_summary.map((fact, index) => <div key={index}><p className="text-sm">{fact.summary}</p><SourceIds ids={fact.source_ids} /></div>)}
+        {section.change_since_previous && <p className="border-t pt-2 text-sm"><span className="font-medium">前回からの変化:</span> {section.change_since_previous}</p>}
+        {section.previous_scorecard_review && <p className="border-t pt-2 text-sm"><span className="font-medium">前回 scorecard の採点:</span> {section.previous_scorecard_review}</p>}
+      </div>
+      <div className="grid content-start gap-2 rounded-lg border p-4">
+        <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">Judgment</h3><Badge variant="secondary">{section.judgment.direction} / {section.judgment.confidence}</Badge></div>
+        <p className="text-sm">{section.judgment.summary}</p>
+        <SourceIds ids={section.judgment.source_ids} />
+        {section.material_deltas.map((delta, index) => <div className="mt-2 border-t pt-3" key={`${delta.channel}-${index}`}><div className="mb-1 flex flex-wrap gap-2"><Badge variant="outline">{delta.channel}</Badge><Badge variant="secondary">{delta.direction} / {delta.materiality}</Badge></div><p className="text-sm">{delta.summary}</p><p className="mt-1 text-xs text-muted-foreground">{delta.used_for}</p><SourceIds ids={delta.source_ids} /></div>)}
+      </div>
+      <div className="grid content-start gap-2 rounded-lg border p-4">
+        <h3 className="text-sm font-semibold">経済経路への接続</h3>
+        <p className="text-sm">{section.economic_connection.summary}</p>
+        <SourceIds ids={section.economic_connection.source_ids} />
+      </div>
+      {riskEnvironment && (
+        <div className="grid content-start gap-2 rounded-lg border p-4 lg:col-span-3">
+          <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">リスク選好環境</h3><Badge variant="secondary">{riskEnvironment.stance} / {riskEnvironment.confidence}</Badge></div>
+          <p className="text-sm">{riskEnvironment.summary}</p>
+          <div><p className="text-xs font-medium">反証条件</p>{riskEnvironment.falsifiers.map((falsifier, index) => <p className="text-xs text-muted-foreground" key={`falsifier-${index}`}>{falsifier}</p>)}</div>
+          <SourceIds ids={riskEnvironment.source_ids} />
+        </div>
+      )}
+      {section.scenarios.length > 0 && <div className="grid gap-3 lg:col-span-3 lg:grid-cols-3">{section.scenarios.map((scenario) => <ScenarioCard key={scenario.case} scenario={scenario} />)}</div>}
+      {section.monitoring_points.length > 0 && <div className="grid gap-3 lg:col-span-3">{section.monitoring_points.map((point, index) => <Alert key={index} role="note"><CircleAlert /><AlertTitle>{point.event}</AlertTitle><AlertDescription>{point.summary}<br />条件: {point.condition}<br />見方の変更: {point.view_change}<SourceIds ids={point.source_ids} /></AlertDescription></Alert>)}</div>}
+    </SectionShell>
+  )
+}
+
+function ConnectionSection({ section }: { section: MacroConnectionSectionView }) {
+  return (
+    <SectionShell seriesBadges={section.series} title={connectionSectionTitle}>
+      <div className="grid content-start gap-2 rounded-lg bg-muted/45 p-4">
+        <h3 className="text-sm font-semibold">Fact 要約</h3>
+        {section.fact_summary.map((fact, index) => <div key={index}><p className="text-sm">{fact.summary}</p><SourceIds ids={fact.source_ids} /></div>)}
+        <p className="border-t pt-2 text-sm"><span className="font-medium">依拠する core セクション:</span> {section.core_section_ids.map((id) => coreSectionTitles[id] ?? id).join(' / ')}</p>
+      </div>
+      <div className="grid content-start gap-2 rounded-lg border p-4">
+        <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">Judgment</h3><Badge variant="secondary">{section.judgment.direction} / {section.judgment.confidence}</Badge></div>
+        <p className="text-sm">{section.judgment.summary}</p>
+        <SourceIds ids={section.judgment.source_ids} />
+      </div>
+      <div className="grid content-start gap-3 rounded-lg border p-4">
+        <h3 className="text-sm font-semibold">Research 優先度ヒント</h3>
+        {/* applies_to is what gives a hint its discriminating power, so it is shown with every
+            hint rather than folded into the summary. */}
+        {section.research_priority_hints.map((hint, index) => <div key={`hint-${index}`}><Badge variant="outline">効く候補: {hint.applies_to}</Badge><p className="mt-1 text-sm">{hint.summary}</p><SourceIds ids={hint.source_ids} /></div>)}
+      </div>
+      {section.sector_tilts.length > 0 && (
+        <div className="grid content-start gap-3 rounded-lg border p-4 lg:col-span-3">
+          <h3 className="text-sm font-semibold">Sector tilt</h3>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {section.sector_tilts.map((tilt, index) => <div key={`tilt-${index}`}><div className="flex flex-wrap gap-2"><Badge variant="outline">{tilt.sector}</Badge><Badge variant="secondary">{tilt.direction}</Badge></div><p className="mt-1 text-sm">{tilt.summary}</p><SourceIds ids={tilt.source_ids} /></div>)}
+          </div>
+        </div>
+      )}
+      {section.sizing_cautions.length > 0 && <div className="grid gap-3 lg:col-span-3">{section.sizing_cautions.map((caution, index) => <Alert key={`caution-${index}`} role="note"><CircleAlert /><AlertTitle>Sizing caution · {caution.severity}</AlertTitle><AlertDescription>{caution.summary}<SourceIds ids={caution.source_ids} /></AlertDescription></Alert>)}</div>}
+    </SectionShell>
   )
 }
 
@@ -82,7 +163,12 @@ export function MacroReportPage() {
   }, [contextId])
 
   if (error) return <PageState message={error} title="Macro report" />
-  if (!data) return <PageState message="レポートを読み込んでいます…" title="Macro report" />
+  if (!data) return <LoadingPage label="レポートを読み込んでいます" />
+
+  // Degrade gracefully rather than white-screen if a served view is ever missing a
+  // section (e.g. a stale view during a deploy that precedes its re-materialization).
+  const core = data.core ?? []
+  const connection = data.connection
 
   return (
     <><AppShell /><main className="mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -92,12 +178,12 @@ export function MacroReportPage() {
       <Card className="shadow-sm">
         <CardHeader className="border-b">
           <div className="flex flex-wrap items-center gap-2"><CardTitle>{data.summary}</CardTitle>{data.stale && <StaleBadge />}</div>
-          <CardDescription>{data.context_id} · {LABEL.asOf} {data.as_of} · {LABEL.published} {formatJstDateTime(data.published_at)} · valid until {data.valid_until}</CardDescription>
+          <CardDescription>{data.context_id} · {LABEL.asOf} {data.as_of}（{data.age_days} 日前） · {LABEL.published} {formatJstDateTime(data.published_at)}</CardDescription>
         </CardHeader>
       </Card>
-      {data.sections.length === 0
-        ? <Alert><CircleAlert /><AlertTitle>Summary 表示</AlertTitle><AlertDescription>この revision は共通 field のみを持ちます。</AlertDescription></Alert>
-        : data.sections.map((section) => <ReportSection key={section.section_id} section={section} />)}
+      {core.length === 0 && <Alert><CircleAlert /><AlertTitle>セクションを表示できません</AlertTitle><AlertDescription>この revision の core セクションが served view に含まれていません。view の再生成待ちの可能性があります。</AlertDescription></Alert>}
+      {core.map((section) => <CoreSection key={section.section_id} section={section} />)}
+      {connection && <ConnectionSection section={connection} />}
     </main></>
   )
 }

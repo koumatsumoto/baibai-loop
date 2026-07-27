@@ -88,7 +88,7 @@ AI judgment、割安の原因、将来予測、採用結論をcandidateへ書か
 | liquidity/durability rule | rulesが定義する範囲 | 詳細reasonを出す |
 | held/reserved | no | portfolio annotation |
 | monthly budget/cash/concentration | no | proposal warning |
-| macro material delta | no | research context |
+| macro material delta、macro contextの`as_of`の古さ | no | research context、context-level warning |
 | corporate action unresolved | rankを都合よく変更しない | research/limitをblock |
 
 上位候補をheld/reserved/予算だけで削除しない。一時的なFV乖離が大きく永久損失が低いなら買増し候補としてresearchへ残す。

@@ -111,7 +111,6 @@ ERROR_STAGES = (
     "screening-select",
     "macro-list",
     "macro-refresh",
-    "macro-import-manual",
     "export-read-models",
     "screening-prune",
     "upload-machine",

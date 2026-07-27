@@ -19,11 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
 
-      - uses: astral-sh/setup-uv@v8.3.2
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
 
@@ -31,7 +31,9 @@ jobs:
         run: uv sync --frozen --all-groups
 
       - name: Bandit
-        run: uv run bandit -c pyproject.toml -r src/baibai_engine src/baibai_app tools/macro -q
+        run: >-
+          uv run bandit -c pyproject.toml -q -r
+          src/baibai_engine src/baibai_app tools/append_pmi_manifest.py
 
       - name: Dependency audit
         # CVE-2026-3219: pip 26.0.1 treats archives that identify as both tar
@@ -51,10 +53,3 @@ jobs:
             --output-file /tmp/baibai-loop-requirements.txt
           uv run pip-audit \
             -r /tmp/baibai-loop-requirements.txt
-          uv export \
-            --script tools/macro/backfill_pmi_history.py \
-            --locked \
-            --no-hashes \
-            --output-file /tmp/baibai-loop-pmi-requirements.txt
-          uv run pip-audit \
-            -r /tmp/baibai-loop-pmi-requirements.txt

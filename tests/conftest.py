@@ -8,6 +8,7 @@ import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators.db import initialize_database as initialize_indicators_db
+from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
 from baibai_engine.position.ledger import load_portfolio_ledger
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.screening.run_store import ScreeningRunStore
@@ -75,6 +76,9 @@ def app_method_root(tmp_path: Path) -> Path:
         Path("method/macro-panel.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    reading_rules = root / MACRO_READING_RULES_PATH
+    reading_rules.parent.mkdir(parents=True, exist_ok=True)
+    reading_rules.write_text(MACRO_READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     indicators_dir = root / "data/indicators"
     indicators_dir.mkdir(parents=True, exist_ok=True)
     initialize_indicators_db(indicators_dir / "macro.sqlite").close()

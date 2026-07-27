@@ -1,0 +1,567 @@
+series:
+  - series_id: usd_jpy
+    name: USD/JPY
+    category: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-usd
+    plausible_min: 5
+    plausible_max: 2000
+    provider: ecb_fx
+    provider_series_id: USDJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    tradingview_symbol: FX:USDJPY
+    aliases: [USD/JPY, ドル円]
+  - series_id: eur_jpy
+    name: EUR/JPY
+    category: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-eur
+    plausible_min: 5
+    plausible_max: 2000
+    provider: ecb_fx
+    provider_series_id: EURJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    tradingview_symbol: FX:EURJPY
+    aliases: [EUR/JPY, ユーロ円]
+  - series_id: aud_jpy
+    name: AUD/JPY
+    category: fx
+    geography: japan
+    frequency: daily
+    unit: jpy-per-aud
+    plausible_min: 5
+    plausible_max: 2000
+    provider: ecb_fx
+    provider_series_id: AUDJPY
+    source_id: ecb-fx
+    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+    tradingview_symbol: FX:AUDJPY
+    aliases: [AUD/JPY, 豪ドル円]
+  - series_id: jp.10y
+    name: 日本10Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: mof_jgb
+    provider_series_id: 10年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP10Y
+    notes: 財務省「国債金利情報」の全履歴CSV。流通市場の固定利付国債実勢価格から算出した主要年限別の半年複利最終利回り。
+    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
+  - series_id: jp.2y
+    name: 日本2Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: mof_jgb
+    provider_series_id: 2年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP02Y
+    notes: 財務省「国債金利情報」全履歴CSVの2年物最終利回り。JGBカーブ短中期。
+    aliases: [日本2Y, JP 2Y, JGB 2Y]
+  - series_id: jp.5y
+    name: 日本5Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: mof_jgb
+    provider_series_id: 5年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP05Y
+    notes: 財務省「国債金利情報」全履歴CSVの5年物最終利回り。JGBカーブ中期。
+    aliases: [日本5Y, JP 5Y, JGB 5Y]
+  - series_id: jp.20y
+    name: 日本20Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: mof_jgb
+    provider_series_id: 20年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP20Y
+    notes: 財務省「国債金利情報」全履歴CSVの20年物最終利回り。超長期。財政・保険需給の観測点。
+    aliases: [日本20Y, JP 20Y, JGB 20Y]
+  - series_id: jp.30y
+    name: 日本30Y国債利回り
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: mof_jgb
+    provider_series_id: 30年
+    source_id: mof-jgbcm-all
+    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
+    tradingview_symbol: TVC:JP30Y
+    notes: 財務省「国債金利情報」全履歴CSVの30年物最終利回り。超長期。財政・保険需給の観測点。
+    aliases: [日本30Y, JP 30Y, JGB 30Y]
+  - series_id: jp.policy_rate
+    name: 日本政策金利(無担保コールON)
+    category: policy
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: boj_timeseries
+    provider_series_id: FM01:STRDCLUCON
+    source_id: boj-timeseries-strdclucon
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行時系列統計データ検索APIの無担保コールO/N物レート平均(日次)。金融政策の実効短期金利として読む。
+    aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール, boj_policy_rate]
+  - series_id: jp.unemployment
+    name: 日本失業率
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: percent
+    plausible_min: 0.3
+    plausible_max: 15
+    provider: estat_dashboard
+    provider_series_id: "0301010000020020010"
+    source_id: estat-dashboard-unemployment-sa
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0301010000020020010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
+    notes: 総務省統計局 労働力調査の完全失業率(男女計・季節調整値)を統計ダッシュボードから読む。IndicatorCodeは月次/四半期/年 × 原数値/季節調整値を同時に返すので、source_urlのselectorで1本に固定する。selectorを訂正したときは`refresh --all-history`を1回通す(旧selectorの観測をsource違いとして掃除するのはこの経路だけで、窓付きrefreshは掃除しない)。公表は対象月の翌月末。1953-01起点
+    aliases: [日本失業率, JP unemployment, 失業率, 完全失業率]
+  - series_id: jp.nominal_wage_index
+    name: 日本名目賃金指数(現金給与総額)
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 20
+    plausible_max: 500
+    provider: estat_dashboard
+    provider_series_id: "0302030202010090010"
+    source_id: estat-dashboard-nominal-wage-index
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030202010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
+    notes: 厚労省 毎月勤労統計の名目賃金指数(現金給与総額・事業所規模5人以上・調査産業計・季節調整値)。月額の給与水準であり時間当たり賃金ではない。原数値は賞与月に指数が倍近くまで跳ねるため、月次の水準比較を賞与の有無で支配させない季節調整値を読む(前年比は原数値とほぼ一致する)。賃金は日銀の反応関数の中心で、前年比を読む。毎月勤労統計はe-StatのDB配信が2021年で止まり月次結果はrelease毎のファイルのみなので、統計ダッシュボードのIndicatorCodeを機械可読な経路とする。確報のみを載せる(速報は入らない)ため公表は対象月+約85日。2012-01起点。selectorを訂正したときと基準改定(現行2020年=100)のときは`refresh --all-history`を1回通す(窓付きrefreshは旧selector・旧基準の観測を残す)。事業所入替えとベンチマーク更新により2024年1月以降と2023年12月以前には段差があり、10年窓の前年比percentileはその水準シフトを含む
+    aliases: [日本名目賃金, 名目賃金指数, 現金給与総額, JP nominal wage index, 日本賃金指数]
+  - series_id: jp.real_effective_exchange_rate
+    name: 日本実質実効為替レート
+    category: fx
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 5
+    plausible_max: 2000
+    provider: fred_csv
+    provider_series_id: RBJPBIS
+    source_id: fred-rbjpbis
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RBJPBIS
+    notes: BIS broad real effective exchange rate index(2020=100)。貿易相手国との相対物価を含む円の実質的な購買力と競争力を読む。BISは機械可読な直配信を持つが、公表ラグはmonthlyの鮮度契約に収まり、中継が止まれば1回の公表落ちでstaleが立って検出できる。直読で増えるのは停止原因の切り分けの速さだけなのでprovider追加に見合わず、FRED経由を保つ
+    aliases: [日本実質実効為替, 円実質実効為替, JP REER, RBJPBIS]
+  - series_id: jp.nikkei225
+    name: 日経225
+    category: equity-index
+    geography: japan
+    frequency: daily
+    unit: index
+    plausible_min: 5
+    plausible_max: 1000000
+    provider: fred_csv
+    provider_series_id: NIKKEI225
+    source_id: fred-nikkei225
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
+    tradingview_symbol: TVC:NI225
+    aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225, nikkei_225]
+  - series_id: jp.bankruptcies
+    name: 日本企業倒産件数
+    category: credit
+    geography: japan
+    frequency: monthly
+    unit: count
+    plausible_min: 20
+    plausible_max: 20000
+    provider: tsr_bankruptcies
+    provider_series_id: jp_bankruptcies_tsr
+    source_id: tsr-bankruptcies
+    source_url: https://www.tsr-net.co.jp/news/status/json/search.json
+    notes: 東京商工リサーチ 全国企業倒産状況(負債1000万円以上)。公式掲載ページが参照するJSON APIから月次全履歴を取得
+    aliases: [倒産件数, 企業倒産, 東商リサーチ倒産, bankruptcies]
+  - series_id: jp.pmi_manufacturing
+    name: 日本製造業PMI
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 0
+    plausible_max: 100
+    provider: spglobal_pmi
+    provider_series_id: jp_manufacturing
+    source_id: spglobal-jp-pmi-mfg
+    source_url: https://www.pmi.spglobal.com/
+    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する
+    aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
+  - series_id: jp.pmi_services
+    name: 日本サービス業PMI
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 0
+    plausible_max: 100
+    provider: spglobal_pmi
+    provider_series_id: jp_services
+    source_id: spglobal-jp-pmi-svc
+    source_url: https://www.pmi.spglobal.com/
+    notes: au Jibun Bank / S&P Global 日本サービス業PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。製造業PMIと対で内需サイクルを読む
+    aliases: [サービス業PMI, 日本サービスPMI, JP services PMI, au Jibun services PMI]
+  - series_id: jp.monetary_base
+    name: 日本マネタリーベース
+    category: monetary
+    geography: japan
+    frequency: monthly
+    unit: jpy-100m
+    plausible_min: 2000
+    plausible_max: 100000000
+    provider: boj
+    provider_series_id: "3|Monetary Base|8|Unit: 100 million yen"
+    source_id: boj-mblong
+    source_url: https://www.boj.or.jp/statistics/boj/other/mb/mblong.xlsx
+    notes: BOJ長期時系列xlsx(平残シート)のC列=マネタリーベース(月次・億円)。provider_series_idは値列番号・英語header・metadata列番号・単位metadataを結び、列位置とscale identityを検証する
+    aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
+  - series_id: jp.cpi.headline
+    name: 日本CPI総合
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 2
+    plausible_max: 2000
+    provider: estat
+    provider_series_id: "0003427113?cdCat01=0001&cdArea=00000&cdTab=1"
+    source_id: estat-cpi
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
+    aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
+  - series_id: jp.cpi.core
+    name: 日本CPIコア(生鮮食品を除く総合)
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 2
+    plausible_max: 2000
+    provider: estat
+    provider_series_id: "0003427113?cdCat01=0161&cdArea=00000&cdTab=1"
+    source_id: estat-cpi-core
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: e-Stat CPI表 0003427113 を cdCat01=0161(生鮮食品を除く総合)・cdArea=00000(全国)・cdTab=1(指数)に絞る。日銀の物価目標の本体コアCPI。headlineとservicesの間を埋める
+    aliases: [コアCPI, 生鮮除くCPI, JP core CPI, 全国コアCPI, 日銀コア]
+  - series_id: jp.cpi.core_yoy
+    name: 日本コアCPI前年比
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: estat
+    provider_series_id: "0003427113?cdCat01=0161&cdArea=00000&cdTab=3"
+    source_id: estat-cpi-core-yoy
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: e-Stat CPI表 0003427113 の生鮮食品を除く総合を cdTab=3(前年同月比)で取得。市場が「コアCPI ○%」と呼ぶ日銀コアインフレ率そのもの。指数(jp.cpi.core)と対で持つ
+    aliases: [コアCPI前年比, コアインフレ率, JP core CPI YoY, 日本インフレ率]
+  - series_id: jp.cpi.services
+    name: 日本CPIサービス
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 2
+    plausible_max: 2000
+    provider: estat
+    provider_series_id: "0003427113?cdCat01=0220&cdArea=00000&cdTab=1"
+    source_id: estat-cpi-services
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: e-Stat CPI表 0003427113 を cdCat01=0220(サービス)・cdArea=00000(全国)・cdTab=1(指数)に絞る。国内サービス価格の粘着性を読む。
+    aliases: [日本サービスCPI, サービス物価, JP services CPI, 全国サービスCPI]
+  - series_id: jp.foreign_flows
+    name: 海外投資家ネット買い越し額(週次)
+    category: flows
+    geography: japan
+    frequency: weekly
+    unit: jpy-thousand
+    plausible_min: -20000000000
+    plausible_max: 20000000000
+    provider: jquants_flows
+    provider_series_id: foreigners_net_value
+    source_id: jquants-trades-spec
+    source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
+    notes: 東証プライムの投資部門別売買状況。API/JPX公表値の単位は千円。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
+    aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
+  - series_id: jp.growth250
+    name: 東証グロース市場250指数(2516連動ETF proxy)
+    category: equity-index
+    geography: japan
+    frequency: daily
+    unit: jpy
+    plausible_min: 100
+    plausible_max: 20000
+    provider: yahoo
+    provider_series_id: 2516.T
+    source_id: yahoo-2516t
+    source_url: https://query1.finance.yahoo.com/v8/finance/chart/2516.T
+    notes: NEXT FUNDS東証グロース市場250指数連動型ETF(2516)の日次終値(円)。国内新興・グロースのリスク選好を読むproxy。指数レベルではなくETF価格で、方向・変化率が指数に連動する。J-Quants Lightがグロース指数を配信しないためETFで代替
+    aliases: [グロース250, 東証グロース250, growth250, マザーズ後継, 2516]
+  - series_id: jp.topix
+    name: TOPIX(東証株価指数)
+    category: equity-index
+    geography: japan
+    frequency: daily
+    unit: index
+    plausible_min: 100
+    plausible_max: 20000
+    provider: jquants_indices
+    provider_series_id: topix
+    source_id: jquants-indices-topix
+    source_url: https://jpx-jquants.com/
+    tradingview_symbol: TVC:TOPIX
+    notes: J-Quants専用endpointから取得するTOPIX日次終値。時価総額加重で市場全体を代表し、値がさ株偏重の日経225より広い代表性を持つ。日本株の基準ベンチマーク
+    aliases: [TOPIX, 東証株価指数, トピックス, topix]
+  - series_id: jp.nikkei_per
+    name: 日経平均PER(加重平均)
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: ratio
+    plausible_min: 5
+    plausible_max: 40
+    provider: nikkei_indexes
+    provider_series_id: per
+    source_id: nikkei-per
+    source_url: https://indexes.nikkei.co.jp/nkave/statistics/dataload
+    notes: 日経平均採用銘柄の加重平均PER(日次)。日経公式の指数統計から取得。日本株のバリュエーションアンカー。益回り(1/PER)とjp.10yの差がjp.erp
+    aliases: [日経PER, Nikkei PER, 日経平均PER, 日経225 PER]
+  - series_id: jp.nikkei_pbr
+    name: 日経平均PBR(加重平均)
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: ratio
+    plausible_min: 0.5
+    plausible_max: 4
+    provider: nikkei_indexes
+    provider_series_id: pbr
+    source_id: nikkei-pbr
+    source_url: https://indexes.nikkei.co.jp/nkave/statistics/dataload
+    notes: 日経平均採用銘柄の加重平均PBR(日次)。日経公式の指数統計から取得。1倍割れは簿価割れの目安。日本株の資産面のバリュエーション
+    aliases: [日経PBR, Nikkei PBR, 日経平均PBR, 日経225 PBR]
+  - series_id: jp.real_exports
+    name: 日本実質輸出
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 1
+    plausible_max: 2000
+    provider: boj
+    provider_series_id: "2|Real exports|2|s.a., CY 2020=100, 2020 prices"
+    source_id: boj-reri
+    source_url: https://www.boj.or.jp/research/research_data/reri/rs_reri.xlsx
+    notes: 日本銀行「実質輸出入の動向」の実質輸出指数(月次・季節調整済・2020年基準)。外需依存の日本で輸出モメンタムを測る。xlsx第1シートB列・英語header・基準metadataを検証する。研究データ扱いで遡及改定あり
+    aliases: [実質輸出, real exports, 日本輸出, 輸出数量]
+  - series_id: jp.real_consumption
+    name: 日本実質消費活動指数(旅行収支調整済)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 5
+    plausible_max: 2000
+    provider: boj
+    provider_series_id: "5|Real Consumption Activity Index (travel balance adjusted)|5|s.a., CY 2020=100"
+    source_id: boj-cai
+    source_url: https://www.boj.or.jp/research/research_data/cai/cai.xlsx
+    notes: 日本銀行「消費活動指数」の実質・旅行収支調整済指数(月次・季節調整済・2020年基準)。インバウンド/アウトバウンドの歪みを除いた国内消費トレンド。xlsx第1シートE列・英語header・基準metadataを検証する。研究データ扱いで遡及改定あり
+    aliases: [実質消費, 消費活動指数, real consumption, consumption activity index, CAI]
+  - series_id: jp.cgpi
+    name: 日本企業物価指数(国内・総平均)
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 5
+    plausible_max: 2000
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2200000000
+    source_id: boj-cgpi
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 国内企業物価指数(CGPI)総平均(月次・2020年基準)。CPIより川上の売価。企業間の価格転嫁圧力とマージン経路を読む
+    aliases: [企業物価, CGPI, 国内企業物価指数, 卸売物価, PPI日本]
+  - series_id: jp.import_price_index
+    name: 日本輸入物価指数(円ベース・総平均)
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 5
+    plausible_max: 2000
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2600000000
+    source_id: boj-import-price
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 輸入物価指数 総平均 円ベース(月次・2020年基準)。円安・資源高の輸入コスト経路。交易条件の分母
+    aliases: [輸入物価, import price index, 輸入物価指数, 輸入コスト]
+  - series_id: jp.export_price_index
+    name: 日本輸出物価指数(円ベース・総平均)
+    category: inflation
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 5
+    plausible_max: 2000
+    provider: boj_timeseries
+    provider_series_id: PR01:PRCG20_2400000000
+    source_id: boj-export-price
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 輸出物価指数 総平均 円ベース(月次・2020年基準)。輸出企業の受取価格。交易条件の分子で円安の恩恵度を測る
+    aliases: [輸出物価, export price index, 輸出物価指数]
+  - series_id: jp.industrial_production
+    name: 日本鉱工業生産指数
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 5
+    plausible_max: 2000
+    provider: estat
+    provider_series_id: "0003446462?cdCat01=2010&cdTab=200"
+    source_id: estat-iip-ci
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 景気動向指数「個別系列の数値」表(0003446462)の一致系列C1=生産指数(鉱工業)。2020年基準・季節調整済のIIP。METI直接表は@timeが内部コードでestat parser非互換のため標準時間軸を持つ本表を使う
+    aliases: [鉱工業生産, 生産指数, industrial production, IIP, 日本生産]
+  - series_id: jp.job_openings_ratio
+    name: 日本有効求人倍率
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: ratio
+    plausible_min: 0.02
+    plausible_max: 20
+    provider: estat
+    provider_series_id: "0003446462?cdCat01=2090&cdTab=200"
+    source_id: estat-job-openings-ci
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 景気動向指数「個別系列の数値」表(0003446462)の一致系列C9=有効求人倍率(除学卒・季節調整済)。厚労省「一般職業紹介状況」と同一系列で、市場が見る労働需給の定番
+    aliases: [有効求人倍率, job openings ratio, 求人倍率, 労働需給]
+  - series_id: jp.tankan_large_mfg_di
+    name: 日銀短観 大企業製造業 業況判断DI(実績)
+    category: activity
+    geography: japan
+    frequency: quarterly
+    unit: pt
+    plausible_min: -100
+    plausible_max: 100
+    provider: boj_timeseries
+    provider_series_id: CO:TK99F1000601GCQ01000
+    source_id: boj-tankan-lmfg
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日銀短観 大企業・製造業の業況判断DI 実績(四半期・「良い」-「悪い」の%ポイント)。日本企業サーベイの定番。survey dateはYYYY0Q(四半期末月に正規化)
+    aliases: [短観, 業況判断DI, tankan, tankan DI, 大企業製造業DI]
+  - series_id: jp.tankan_large_nonmfg_di
+    name: 日銀短観 大企業非製造業 業況判断DI(実績)
+    category: activity
+    geography: japan
+    frequency: quarterly
+    unit: pt
+    plausible_min: -100
+    plausible_max: 100
+    provider: boj_timeseries
+    provider_series_id: CO:TK99F2000601GCQ01000
+    source_id: boj-tankan-lnonmfg
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日銀短観 大企業・非製造業の業況判断DI 実績(四半期・「良い」-「悪い」の%ポイント)。内需とサービス業の業況を製造業DIと対で読み、PMI servicesとは別sourceの相互検証にする
+    aliases: [短観非製造業, 非製造業DI, tankan nonmanufacturing, 大企業非製造業DI]
+  - series_id: jp.machinery_orders
+    name: 日本機械受注(民需・船舶電力を除く)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: jpy-million
+    plausible_min: 100000
+    plausible_max: 5000000
+    provider: estat
+    provider_series_id: "0003355222?cdCat01=160&cdCat02=100&cdTab=100"
+    source_id: estat-machinery-orders-core
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 内閣府 機械受注統計の民間需要(船舶・電力を除く)季調系列(月次・百万円)。設備投資の古典的な先行指標で、us.core_capex_ordersの日本版。船舶と電力は単発の大型案件で振れるため除いた系列が基調を示す
+    aliases: [機械受注, コア機械受注, machinery orders, 民需機械受注, 設備投資先行]
+  - series_id: jp.watcher_current_di
+    name: 景気ウォッチャー 現状判断DI(季節調整値)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: pt
+    plausible_min: 0
+    plausible_max: 100
+    provider: estat
+    provider_series_id: "0003348423?cdCat01=100&cdCat02=100&cdTab=140"
+    source_id: estat-watcher-current-di
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 内閣府 景気ウォッチャー調査の景気の現状判断DI(方向性・全国合計・季節調整値)。街角の景況感を月次で最速級に拾う。50が横ばいの分岐点で、内需と小売の変化を他の月次統計より早く示す
+    aliases: [景気ウォッチャー, 街角景気, watcher survey, 現状判断DI, ウォッチャー調査]
+  - series_id: jp.consumer_confidence
+    name: 日本消費者態度指数
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: pt
+    plausible_min: 0
+    plausible_max: 100
+    provider: estat
+    provider_series_id: "0003446462?cdCat01=1060&cdTab=200"
+    source_id: estat-consumer-confidence-ci
+    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
+    notes: 景気動向指数「個別系列の数値」表(0003446462)の先行系列L6=消費者態度指数(内閣府 消費動向調査・季節調整済)。us.consumer_sentimentの日本版で、消費の需要先行を読む。消費動向調査はe-StatのDB配信を持たないため、同じ内閣府が組む景気動向指数の構成系列として取る(そのぶん公表は調査本体より約1か月遅い)
+    aliases: [消費者態度指数, 消費者マインド, consumer confidence, 消費動向調査, JP consumer sentiment]
+  - series_id: jp.bank_lending_yoy
+    name: 銀行貸出平均残高 前年比(銀行計)
+    category: monetary
+    geography: japan
+    frequency: monthly
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: boj_timeseries
+    provider_series_id: MD13:FAAPOBAL1@
+    source_id: boj-bank-lending-yoy
+    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
+    notes: 日本銀行 貸出・預金動向の貸出平均残高(都銀・地銀等 合計)前年比(月次・%)。企業金融の緩急を示す信用サイクルで、jp.bankruptciesと対にして与信の出し手と借り手の両側を読む。公表元が前年比を計算済みなので水準ではなく変化率をそのまま持つ
+    aliases: [銀行貸出, 貸出残高前年比, bank lending, 貸出動向, 信用サイクル]
+  - series_id: jp.real_wage_index
+    name: 日本実質賃金指数(現金給与総額)
+    category: labor
+    geography: japan
+    frequency: monthly
+    unit: index
+    plausible_min: 20
+    plausible_max: 500
+    provider: estat_dashboard
+    provider_series_id: "0302030201010090010"
+    source_id: estat-dashboard-real-wage-index
+    source_url: https://dashboard.e-stat.go.jp/api/1.0/Json/getData?Lang=JP&IndicatorCode=0302030201010090010&Cycle=1&IsSeasonalAdjustment=2&RegionCode=00000
+    notes: 厚労省 毎月勤労統計の実質賃金指数(現金給与総額・事業所規模5人以上・調査産業計・季節調整値)。名目賃金を消費者物価で割った家計の購買力で、日銀が賃金と物価の好循環を判断する中心。jp.nominal_wage_indexと対で名目と実質の乖離=物価による目減りを読む。デフレーターは消費者物価指数の「持家の帰属家賃を除く総合」であってjp.cpi.headline(総合)ではないため、名目÷jp.cpi.headlineでは再現しない(2026-05の含意デフレーターは115.8、総合は113.5)。selectorを訂正したときと基準改定のときは`refresh --all-history`を1回通す。事業所入替えとベンチマーク更新により2024年1月以降と2023年12月以前には段差がある
+    aliases: [実質賃金, 実質賃金指数, real wage index, 実質賃金前年比]

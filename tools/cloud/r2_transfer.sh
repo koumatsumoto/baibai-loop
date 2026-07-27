@@ -40,6 +40,17 @@ aws_s3() {
   aws s3 "$@" --endpoint-url "${endpoint}" --only-show-errors --no-progress
 }
 
+remote_object_exists() {
+  # Exact-key existence, so a sibling object (a `.bak`) never reads as the key
+  # itself the way a prefix listing would. `aws s3 ls` is not usable here: it
+  # rejects the transfer flags `aws_s3` passes and would fail for every key.
+  aws s3api head-object \
+    --bucket "${stores_bucket}" \
+    --key "$1" \
+    --endpoint-url "${endpoint}" \
+    >/dev/null 2>&1
+}
+
 store_path() {
   case "$1" in
     market.sqlite) printf '%s/data/screening/market.sqlite\n' "${repo_root}" ;;
@@ -61,6 +72,12 @@ snapshot_sqlite() {
       --source "$1" --output "$2"
 }
 
+merge_indicator_store() {
+  UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+    uv run python "${repo_root}/tools/cloud/merge_indicator_store.py" \
+      --source "$1" --target "$2"
+}
+
 pull_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key target
@@ -77,6 +94,28 @@ pull_keys() {
   transfer_staging=""
 }
 
+backup_remote_key() {
+  # Keep one generation of the object being replaced. A store is rebuildable from
+  # its sources in principle, but some of it is not re-fetchable in practice (the
+  # PMI history depends on release URLs the publisher eventually drops), so an
+  # overwrite by a damaged or wrongly pruned snapshot must stay recoverable. R2
+  # copies server-side, so this costs a request and no transfer.
+  # The copy goes through CopyObject directly because `aws s3 cp` switches implementation
+  # by object size and R2 rejects both branches: a multipart copy asks for the source tags
+  # through GetObjectTagging, and a single-part one sends x-amz-tagging-directive, neither
+  # of which R2 implements. CopyObject sends no directive, is one server-side request with
+  # no transfer, and covers objects up to 5GB (the largest store here is well inside that).
+  local key="$1"
+  if remote_object_exists "${key}"; then
+    aws s3api copy-object \
+      --bucket "${stores_bucket}" \
+      --key "${key}.bak" \
+      --copy-source "${stores_bucket}/${key}" \
+      --endpoint-url "${endpoint}" \
+      >/dev/null
+  fi
+}
+
 push_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key source
@@ -85,6 +124,7 @@ push_keys() {
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
   done
   for key in "$@"; do
+    backup_remote_key "${key}"
     aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
   done
   cleanup_staging
@@ -92,10 +132,9 @@ push_keys() {
 }
 
 seed_keys() {
-  local key listing
+  local key
   for key in "$@"; do
-    listing="$(aws_s3 ls "s3://${stores_bucket}/${key}")"
-    if [[ -n "${listing}" ]]; then
+    if remote_object_exists "${key}"; then
       printf 'refusing initial seed: s3://%s/%s already exists\n' \
         "${stores_bucket}" "${key}" >&2
       return 2
@@ -124,7 +163,7 @@ upload_serving() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-app|upload-serving DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-macro|push-app|upload-serving DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -144,6 +183,20 @@ case "${1:-}" in
       exit 2
     fi
     push_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  push-macro)
+    # Deep history is fetched locally with `macro refresh --all-history`, which the
+    # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
+    # recent observations the local store has never seen. So the local store is only
+    # publishable once it contains the cloud copy: pull it, merge it in, and let the
+    # merge refuse the upload if any cloud row would be left behind.
+    transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+    aws_s3 cp "s3://${stores_bucket}/macro.sqlite" "${transfer_staging}/macro.sqlite"
+    check_sqlite "${transfer_staging}/macro.sqlite"
+    merge_indicator_store "${transfer_staging}/macro.sqlite" "$(store_path macro.sqlite)"
+    cleanup_staging
+    transfer_staging=""
+    push_keys macro.sqlite
     ;;
   push-app)
     push_keys baibai.sqlite

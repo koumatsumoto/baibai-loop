@@ -55,7 +55,7 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である。�
 | task | skill |
 | --- | --- |
 | 候補抽出、IR、購入・指値提案、人間からの注文結果、保有review、年次outcome | [`.agents/skills/decision-cycle/SKILL.md`](./.agents/skills/decision-cycle/SKILL.md) |
-| 個別5年評価を変えるmaterial macro delta | [`.agents/skills/macro-analysis/SKILL.md`](./.agents/skills/macro-analysis/SKILL.md) |
+| 判断のための市場環境評価レポート（macro context）を書く。指標の変化を確認したいだけなら`macro reading`を読み、レポートは作らない | [`.agents/skills/macro-analysis/SKILL.md`](./.agents/skills/macro-analysis/SKILL.md) |
 | screening/FV/E[r]等の方法改善 | [`.agents/skills/improvement-loop/SKILL.md`](./.agents/skills/improvement-loop/SKILL.md) |
 
 ## 言語運用
@@ -108,6 +108,14 @@ uv run ruff check .
 uv run mypy
 uv run pytest
 uv run lint-imports
+```
+
+macro subsystem（`src/baibai_engine/macro/`・`method/macro-*`・indicator registry）に触れた変更では、
+加えて次を通す。git 管理外の 2 store を突き合わせる検査であり、CI には application store が無いので
+機械化できるのはここだけである。
+
+```bash
+uv run python tools/validate_macro_stores.py
 ```
 
 これはローカル用の subset。drift gate・bandit・pip-audit・UI build を含む完全な CI gate は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とする。

@@ -54,12 +54,12 @@ jobs:
           python3 -c "import tools.cloud.batch_summary; import tools.cloud.notify_discord"
           echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         id: setup
         with:
           python-version-file: .python-version
 
-      - uses: astral-sh/setup-uv@v8.3.2
+      - uses: astral-sh/setup-uv@v9.0.0
         id: setup-uv
         with:
           enable-cache: true
@@ -67,6 +67,28 @@ jobs:
       - name: Sync Python environment
         id: sync
         run: uv sync --locked
+
+      # The spglobal_pmi / nikkei providers fall back to a headless Chromium for
+      # WAF-gated fetches. Cache the browser keyed on the pinned Playwright
+      # version so the ~114MB binary is downloaded only when that version
+      # changes, not on every run.
+      - name: Resolve Playwright version
+        id: playwright-version
+        run: |
+          version=$(uv run python -c \
+            "import importlib.metadata as m; print(m.version('playwright'))")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: uv run playwright install --with-deps chromium
 
       - name: Pull stores
         id: pull

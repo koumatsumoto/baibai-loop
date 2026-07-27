@@ -36,5 +36,8 @@ data/app/
 # Local Codex workspace files
 /.codex
 
+# Local Qwen Code workspace files (worktrees, local state)
+/.qwen/
+
 # local design-review HTML deliverables (kept locally, not committed)
 /baibai-loop-*.html

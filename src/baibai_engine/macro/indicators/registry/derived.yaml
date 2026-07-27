@@ -1,0 +1,144 @@
+# Derived series: computed deterministically from other registered series by the
+# `derived` provider (kind=local). provider_series_id names the formula in
+# providers/formulas.py. No network; the batch refreshes these after base series.
+series:
+  - series_id: us.net_liquidity
+    name: 米ネット流動性
+    category: financial-conditions
+    geography: us
+    frequency: weekly
+    unit: usd-billion
+    plausible_min: 50
+    plausible_max: 100000
+    provider: derived
+    provider_series_id: us.net_liquidity
+    source_id: derived-net-liquidity
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: FRB総資産 − RRP − TGA を10億USD単位で算出（fed_assets/reverse_repo/tgaはFRED百万USD）
+    aliases: [ネット流動性, net liquidity, US net liquidity]
+  - series_id: us.erp
+    name: 米株式リスクプレミアム
+    category: valuation
+    geography: us
+    frequency: monthly
+    unit: percent
+    plausible_min: -10
+    plausible_max: 15
+    provider: derived
+    provider_series_id: us.erp
+    source_id: derived-us-erp
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: S&P500益回り − 米10Y。ERP≤0は割高警戒域
+    aliases: [米ERP, US ERP, equity risk premium]
+  - series_id: rate_diff.us_jp_10y
+    name: 日米10Y金利差
+    category: rates
+    geography: world
+    frequency: daily
+    unit: percent
+    plausible_min: -5
+    plausible_max: 10
+    provider: derived
+    provider_series_id: rate_diff.us_jp_10y
+    source_id: derived-us-jp-10y
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 米10Y − 日10Y。円 carry の基本観測点
+    aliases: [日米金利差, US-JP 10Y differential, rate differential]
+  - series_id: us.policy_path_gap
+    name: 米政策経路ギャップ(2Y−FF中点)
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    plausible_min: -8
+    plausible_max: 8
+    provider: derived
+    provider_series_id: us.policy_path_gap
+    source_id: derived-us-policy-path-gap
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 米2Y − FF目標レンジ中点。負は市場が利下げを織り込む幅、深い負は景気懸念の織り込み。日本側は実効コールレート基準なので、どちらも「実際に効いている政策金利」との差になる
+    aliases: [米政策経路ギャップ, US policy path gap, 2Y-FF spread]
+  - series_id: jp.policy_path_gap
+    name: 日本政策経路ギャップ(2Y−政策金利)
+    category: rates
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -8
+    plausible_max: 8
+    provider: derived
+    provider_series_id: jp.policy_path_gap
+    source_id: derived-jp-policy-path-gap
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 日本2Y − 無担保コールO/N。正は市場が利上げ継続を織り込む幅（BOJ正常化の織り込み度）
+    aliases: [日本政策経路ギャップ, JP policy path gap]
+  - series_id: credit.hy_ig_spread
+    name: 米HY-IGスプレッド
+    category: credit
+    geography: us
+    frequency: daily
+    unit: bp
+    plausible_min: 0
+    plausible_max: 2500
+    provider: derived
+    provider_series_id: credit.hy_ig_spread
+    source_id: derived-hy-ig
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: HY OAS − IG OAS を bp 換算。信用の質の劣化
+    aliases: [HY-IGスプレッド, credit quality spread]
+  - series_id: gold_copper_ratio
+    name: 金銅比価
+    category: commodity
+    geography: world
+    frequency: daily
+    unit: ratio
+    plausible_min: 0
+    plausible_max: 2000
+    provider: derived
+    provider_series_id: gold_copper_ratio
+    source_id: derived-gold-copper
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 金先物 / 銅先物。risk-off・景気減速で上昇
+    aliases: [金銅比, gold copper ratio]
+  - series_id: jp.erp
+    name: 日本株式リスクプレミアム
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -10
+    plausible_max: 15
+    provider: derived
+    provider_series_id: jp.erp
+    source_id: derived-jp-erp
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 日経平均益回り(100/PER) − 日本10Y。日本株のバリュエーションアンカーの機械化。ERP≤0は割高警戒域
+    aliases: [日本ERP, JP ERP, 日本株リスクプレミアム]
+  - series_id: jp.terms_of_trade
+    name: 日本交易条件(輸出物価/輸入物価)
+    category: activity
+    geography: japan
+    frequency: monthly
+    unit: ratio
+    plausible_min: 0.2
+    plausible_max: 5
+    provider: derived
+    provider_series_id: jp.terms_of_trade
+    source_id: derived-jp-terms-of-trade
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 輸出物価指数 / 輸入物価指数。1未満=輸入価格が輸出価格より上昇（円安の負の側）。交易条件の悪化で実質所得が海外へ流出
+    aliases: [交易条件, terms of trade, ToT]
+  - series_id: jp.real_10y_proxy
+    name: 日本実質10Y金利(近似)
+    category: rates
+    geography: japan
+    frequency: monthly
+    unit: percent
+    plausible_min: -8
+    plausible_max: 8
+    provider: derived
+    provider_series_id: jp.real_10y_proxy
+    source_id: derived-jp-real-10y-proxy
+    source_url: https://github.com/koumatsumoto/baibai-loop/blob/main/src/baibai_engine/macro/indicators/providers/formulas.py
+    notes: 月末10Y JGB利回り − コアCPI前年比。日本に自由に使える日次linkerが無いため月次で実質金利を近似。マイナス=名目が物価上昇に追いつかず実質金利がマイナス
+    aliases: [日本実質金利, JP real 10Y, 実質長期金利, real yield proxy]

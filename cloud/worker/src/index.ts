@@ -100,6 +100,8 @@ function resolveRoute(url: URL): RouteResult {
       return view('meta.json')
     case '/api/macro':
       return resolveMacro(url.searchParams)
+    case '/api/macro/reading':
+      return view('macro-reading.json')
     default:
       return (
         resolveScreeningHistory(url.pathname) ??

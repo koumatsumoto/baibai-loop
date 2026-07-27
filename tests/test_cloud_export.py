@@ -23,14 +23,16 @@ from baibai_app.readmodel.models import (
     SecurityDetailView,
 )
 from baibai_app.sources.db_sources import DbMetaSource
+from baibai_engine.appdb import LATEST_VERSION
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.macro.context.models import MacroContextDocument
+from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.db import (
     ObservationRecord,
     insert_observations,
     open_connection,
 )
-from baibai_engine.macro.models import MacroContextDocument
-from baibai_engine.macro.service import MacroContextService
+from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from tests.helpers.macro_context import macro_context_payload
 
@@ -58,21 +60,21 @@ def _seed_macro_observations(root: Path) -> None:
                     series_id="us.10y",
                     observed_at=date(2026, 7, 15),
                     value=4.3,
-                    unit="%",
+                    unit="percent",
                     source_url="https://example.com/us10y",
                 ),
                 ObservationRecord(
                     series_id="jp.10y",
                     observed_at=date(2026, 7, 17),
                     value=1.1,
-                    unit="%",
+                    unit="percent",
                     source_url="https://example.com/jp10y",
                 ),
                 ObservationRecord(
                     series_id="jp.10y",
                     observed_at=date(2026, 7, 20),
                     value=1.2,
-                    unit="%",
+                    unit="percent",
                     source_url="https://example.com/jp10y",
                     fetch_status="failed",
                 ),
@@ -97,6 +99,53 @@ def test_build_meta_derives_store_asof_from_fixture_stores(app_method_root: Path
     assert view.data_updated_at == datetime(2026, 7, 19, 12, 0, tzinfo=JST)
     assert view.batch == "daily"
     assert view.generated_at.tzinfo is not None
+
+
+def test_build_meta_freshness_ignores_retained_unregistered_series(
+    app_method_root: Path,
+) -> None:
+    _seed_macro_observations(app_method_root)
+    database = app_method_root / "data/indicators/macro.sqlite"
+    connection = open_connection(database)
+    try:
+        connection.execute(
+            "INSERT INTO series("
+            "series_id, name, category, geography, frequency, unit, provider, "
+            "provider_series_id, source_id, source_url"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "retired.series",
+                "Retired",
+                "test",
+                "world",
+                "daily",
+                "index",
+                "fred_csv",
+                "RETIRED",
+                "retired",
+                "https://example.com/retired",
+            ),
+        )
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id="retired.series",
+                    observed_at=date(2026, 8, 1),
+                    value=100.0,
+                    unit="index",
+                    source_url="https://example.com/retired",
+                )
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    view = build_meta(_meta_source(app_method_root))
+
+    assert view.macro_asof == date(2026, 7, 17)
+    assert view.data_updated_at == datetime(2026, 7, 18, 0, 0, tzinfo=JST)
 
 
 def test_build_meta_takes_the_latest_judgment_write_across_stores(
@@ -179,6 +228,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     views = output_dir / "views"
     expected = {
         "dashboard.json",
+        "macro-reading.json",
         "screening_latest.json",
         "operations.json",
         "meta.json",
@@ -244,12 +294,47 @@ def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_pat
     assert detail_path.is_file()
     detail = MacroContextView.model_validate_json(detail_path.read_text(encoding="utf-8"))
     assert detail.context_id == document.context_id
-    assert len(detail.sections) == 8
+    assert len(detail.core) == 10
+    assert detail.connection.section_id == "japan_equity_loop"
     # The overview view indexes the same report (summary only, no full sections).
     overview = MacroView.model_validate_json(
         (output_dir / "views/macro--1y-daily.json").read_text(encoding="utf-8")
     )
     assert [report.context_id for report in overview.reports] == [document.context_id]
+
+
+def test_export_fails_before_writing_when_reading_rules_are_absent(
+    app_method_root: Path, tmp_path: Path, capsys
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / MACRO_READING_RULES_PATH).unlink()
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
+    assert "failed to read macro reading rules" in capsys.readouterr().err
+    assert not output_dir.exists()
+
+
+def test_export_fails_before_writing_when_rules_do_not_cover_the_registry(
+    app_method_root: Path, tmp_path: Path, capsys
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / MACRO_READING_RULES_PATH).write_text(
+        "schema_version: 2\n"
+        "defaults:\n"
+        "  monthly:\n"
+        "    percentile_window_years: 10\n"
+        "    short_trend_months: 3\n"
+        "    long_trend_months: 12\n"
+        "    publication_lag_days: 45\n"
+        "    staleness_margin_days: 7\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
+    assert "macro reading rules have no defaults for frequency" in capsys.readouterr().err
+    assert not output_dir.exists()
 
 
 def test_exported_views_match_api_responses(app_method_root: Path, tmp_path: Path) -> None:
@@ -366,3 +451,35 @@ def test_export_writes_meta_after_every_other_file(
 def test_main_rejects_a_root_without_project_markers(tmp_path: Path) -> None:
     assert main(["--output-dir", str(tmp_path / "out"), "--repo-root", str(tmp_path)]) == 1
     assert not (tmp_path / "out").exists()
+
+
+def test_export_refuses_an_app_store_on_a_different_schema(
+    app_method_root: Path, tmp_path: Path, capsys
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    with sqlite3.connect(app_method_root / "data/app/baibai.sqlite") as connection:
+        connection.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 1
+
+    # The mismatch is named before any view exists, so a partially written export never
+    # reaches the serving upload.
+    assert not output_dir.exists()
+    message = capsys.readouterr().err
+    assert f"schema is {LATEST_VERSION - 1}" in message
+    assert f"expects {LATEST_VERSION}" in message
+    assert "tools/cloud/publish.sh" in message
+
+
+def test_export_treats_an_absent_app_store_as_empty_judgment(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (app_method_root / "data/app/baibai.sqlite").unlink()
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+
+    assert (output_dir / "views/meta.json").exists()
+    assert json.loads((output_dir / "views/dashboard.json").read_text(encoding="utf-8"))

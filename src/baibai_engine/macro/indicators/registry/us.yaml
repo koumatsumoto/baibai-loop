@@ -5,6 +5,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: frb_h15
     provider_series_id: RIFLGFCY10_N.B
     source_id: fed-h15
@@ -17,6 +19,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: frb_h15
     provider_series_id: RIFLGFCY02_N.B
     source_id: fed-h15
@@ -29,6 +33,8 @@ series:
     geography: us
     frequency: daily
     unit: bp
+    plausible_min: -1000
+    plausible_max: 3000
     provider: frb_h15
     provider_series_id: RIFLGFCY10_N.B-RIFLGFCY02_N.B
     source_id: fed-h15
@@ -40,6 +46,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: DFEDTARU
     source_id: fred-dfedtaru
@@ -51,6 +59,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: DFEDTARL
     source_id: fred-dfedtarl
@@ -62,6 +72,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 5000
     provider: fred_csv
     provider_series_id: CPIAUCSL
     source_id: fred-cpiaucsl
@@ -73,6 +85,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 2
+    plausible_max: 5000
     provider: fred_csv
     provider_series_id: CPILFESL
     source_id: fred-cpilfesl
@@ -84,6 +98,8 @@ series:
     geography: us
     frequency: monthly
     unit: percent
+    plausible_min: 0
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: UNRATE
     source_id: fred-unrate
@@ -95,161 +111,21 @@ series:
     geography: us
     frequency: monthly
     unit: thousand-persons
+    plausible_min: 2000
+    plausible_max: 2000000
     provider: fred_csv
     provider_series_id: PAYEMS
     source_id: fred-payems
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PAYEMS
     aliases: [米雇用統計, NFP, nonfarm payrolls, PAYEMS]
-  - series_id: vix
-    name: VIX
-    category: volatility
-    geography: world
-    frequency: daily
-    unit: index
-    provider: fred_csv
-    provider_series_id: VIXCLS
-    source_id: fred-vixcls
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=VIXCLS
-    tradingview_symbol: CBOE:VIX
-    aliases: [VIX, volatility]
-  - series_id: wti
-    name: WTI原油
-    category: energy
-    geography: world
-    frequency: daily
-    unit: usd-per-barrel
-    provider: fred_csv
-    provider_series_id: DCOILWTICO
-    source_id: fred-dcoilwtico
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILWTICO
-    tradingview_symbol: NYMEX:CL1!
-    aliases: [WTI, WTI原油]
-  - series_id: brent
-    name: Brent原油
-    category: energy
-    geography: world
-    frequency: daily
-    unit: usd-per-barrel
-    provider: fred_csv
-    provider_series_id: DCOILBRENTEU
-    source_id: fred-dcoilbrenteu
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DCOILBRENTEU
-    tradingview_symbol: TVC:UKOIL
-    aliases: [Brent, Brent原油, brent_oil]
-  - series_id: usd_jpy
-    name: USD/JPY
-    category: fx
-    geography: japan
-    frequency: daily
-    unit: jpy-per-usd
-    provider: ecb_fx
-    provider_series_id: USDJPY
-    source_id: ecb-fx
-    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
-    tradingview_symbol: FX:USDJPY
-    aliases: [USD/JPY, ドル円]
-  - series_id: eur_jpy
-    name: EUR/JPY
-    category: fx
-    geography: japan
-    frequency: daily
-    unit: jpy-per-eur
-    provider: ecb_fx
-    provider_series_id: EURJPY
-    source_id: ecb-fx
-    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
-    tradingview_symbol: FX:EURJPY
-    aliases: [EUR/JPY, ユーロ円]
-  - series_id: aud_jpy
-    name: AUD/JPY
-    category: fx
-    geography: japan
-    frequency: daily
-    unit: jpy-per-aud
-    provider: ecb_fx
-    provider_series_id: AUDJPY
-    source_id: ecb-fx
-    source_url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
-    tradingview_symbol: FX:AUDJPY
-    aliases: [AUD/JPY, 豪ドル円]
-  - series_id: jp.10y
-    name: 日本10Y国債利回り
-    category: rates
-    geography: japan
-    frequency: daily
-    unit: percent
-    provider: mof_jgb
-    provider_series_id: 10年
-    source_id: mof-jgbcm-all
-    source_url: https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv
-    tradingview_symbol: TVC:JP10Y
-    notes: 財務省「国債金利情報」の全履歴CSV。流通市場の固定利付国債実勢価格から算出した主要年限別の半年複利最終利回り。
-    aliases: [日本10Y, JGB10Y, JGB 10Y, 日本国債10年, jgb_10y]
-  - series_id: jp.policy_rate
-    name: 日本政策金利(無担保コールON)
-    category: policy
-    geography: japan
-    frequency: daily
-    unit: percent
-    provider: boj_timeseries
-    provider_series_id: FM01:STRDCLUCON
-    source_id: boj-timeseries-strdclucon
-    source_url: https://www.stat-search.boj.or.jp/api/v1/getDataCode
-    notes: 日本銀行時系列統計データ検索APIの無担保コールO/N物レート平均(日次)。金融政策の実効短期金利として読む。
-    aliases: [日銀政策金利, BOJ policy rate, コールレート, 無担保コール, boj_policy_rate]
-  - series_id: jp.unemployment
-    name: 日本失業率
-    category: labor
-    geography: japan
-    frequency: monthly
-    unit: percent
-    provider: fred_csv
-    provider_series_id: LRUNTTTTJPM156S
-    source_id: fred-lrunttttjpm156s
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LRUNTTTTJPM156S
-    aliases: [日本失業率, JP unemployment, 失業率]
-  - series_id: jp.hourly_earnings
-    name: 日本製造業時間当たり賃金
-    category: labor
-    geography: japan
-    frequency: monthly
-    unit: index
-    provider: fred_csv
-    provider_series_id: LCEAMN01JPM661S
-    source_id: fred-lceamn01jpm661s
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=LCEAMN01JPM661S
-    notes: OECD Main Economic Indicators の製造業時間当たり賃金指数(2015=100、季節調整済)。家計所得と企業の人件費圧力を同じ系列で継続監視する。
-    aliases: [日本時間当たり賃金, 日本賃金指数, JP hourly earnings, LCEAMN01JPM661S]
-  - series_id: jp.real_effective_exchange_rate
-    name: 日本実質実効為替レート
-    category: fx
-    geography: japan
-    frequency: monthly
-    unit: index
-    provider: fred_csv
-    provider_series_id: RBJPBIS
-    source_id: fred-rbjpbis
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RBJPBIS
-    notes: BIS broad real effective exchange rate index(2020=100)。貿易相手国との相対物価を含む円の実質的な購買力と競争力を読む。
-    aliases: [日本実質実効為替, 円実質実効為替, JP REER, RBJPBIS]
-  - series_id: jp.nikkei225
-    name: 日経225
-    category: equity-index
-    geography: japan
-    frequency: daily
-    unit: index
-    provider: fred_csv
-    provider_series_id: NIKKEI225
-    source_id: fred-nikkei225
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NIKKEI225
-    tradingview_symbol: TVC:NI225
-    aliases: [日経225, 日経平均, Nikkei 225, NIKKEI225, nikkei_225]
   - series_id: us.sp500
     name: S&P500
     category: equity-index
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 200
+    plausible_max: 100000
     provider: fred_csv
     provider_series_id: SP500
     source_id: fred-sp500
@@ -263,6 +139,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 5
+    plausible_max: 500000
     provider: fred_csv
     provider_series_id: NASDAQCOM
     source_id: fred-nasdaqcom
@@ -275,6 +153,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 1000
+    plausible_max: 1000000
     provider: fred_csv
     provider_series_id: DJIA
     source_id: fred-djia
@@ -287,6 +167,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: 0
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: BAMLH0A0HYM2
     source_id: fred-bamlh0a0hym2
@@ -298,6 +180,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: 0
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: BAMLC0A0CM
     source_id: fred-bamlc0a0cm
@@ -309,113 +193,35 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: 0
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: BAMLH0A3HYC
     source_id: fred-bamlh0a3hyc
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=BAMLH0A3HYC
     notes: HY内最低格付(CCC以下)のOAS。プライベートクレジット/SaaS借り手の信用ストレスが公開市場へ伝播する早期警戒。HY全体OASとのデコンプレッションを監視
     aliases: [CCC OAS, CCCスプレッド, ハイイールドCCC, distressed credit]
-  - series_id: btc_usd
-    name: ビットコイン価格USD
-    category: crypto
-    geography: world
-    frequency: daily
-    unit: usd
-    provider: fred_csv
-    provider_series_id: CBBTCUSD
-    source_id: fred-cbbtcusd
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CBBTCUSD
-    tradingview_symbol: COINBASE:BTCUSD
-    aliases: [BTC, Bitcoin, ビットコイン, BTCUSD]
   - series_id: usd_index.broad
     name: 米ドル指数broad
     category: fx
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 5
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: DTWEXBGS
     source_id: fred-dtwexbgs
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTWEXBGS
     aliases: [DXY, ドル指数, dollar index, broad dollar]
-  - series_id: jp.bankruptcies
-    name: 日本企業倒産件数
-    category: credit
-    geography: japan
-    frequency: monthly
-    unit: count
-    provider: tsr_bankruptcies
-    provider_series_id: jp_bankruptcies_tsr
-    source_id: tsr-bankruptcies
-    source_url: https://www.tsr-net.co.jp/news/status/json/search.json
-    notes: 東京商工リサーチ 全国企業倒産状況(負債1000万円以上)。公式掲載ページが参照するJSON APIから月次全履歴を取得
-    aliases: [倒産件数, 企業倒産, 東商リサーチ倒産, bankruptcies]
-  - series_id: jp.pmi_manufacturing
-    name: 日本製造業PMI
-    category: activity
-    geography: japan
-    frequency: monthly
-    unit: index
-    provider: manual
-    provider_series_id: jp_pmi_manufacturing
-    source_id: spglobal-jp-pmi-mfg
-    source_url: https://www.pmi.spglobal.com/
-    notes: au Jibun Bank / S&P Global 日本製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出した値をmanual seedで管理
-    aliases: [製造業PMI, 日本PMI, JP manufacturing PMI, au Jibun PMI]
-  - series_id: jp.monetary_base
-    name: 日本マネタリーベース
-    category: monetary
-    geography: japan
-    frequency: monthly
-    unit: jpy-100m
-    provider: boj
-    provider_series_id: "3"
-    source_id: boj-mblong
-    source_url: https://www.boj.or.jp/statistics/boj/other/mb/mblong.xlsx
-    notes: BOJ長期時系列xlsx(平残シート)のC列=マネタリーベース(月次・億円)。provider_series_idは1始まりの値列番号。live確認済
-    aliases: [マネタリーベース, monetary base, BOJ monetary base, マネタリーベース平均残高]
-  - series_id: jp.cpi.headline
-    name: 日本CPI総合
-    category: inflation
-    geography: japan
-    frequency: monthly
-    unit: index
-    provider: estat
-    provider_series_id: "0003427113?cdCat01=0001&cdArea=00000&cdTab=1"
-    source_id: estat-cpi
-    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: e-Stat CPI表 0003427113 を cdCat01=0001(総合)・cdArea=00000(全国) で総合・全国に絞る。FRED日本CPI系列が廃止のためe-Statを使用。live確認済
-    aliases: [日本CPI, JP CPI, CPI総合, 全国CPI]
-  - series_id: jp.cpi.services
-    name: 日本CPIサービス
-    category: inflation
-    geography: japan
-    frequency: monthly
-    unit: index
-    provider: estat
-    provider_series_id: "0003427113?cdCat01=0220&cdArea=00000&cdTab=1"
-    source_id: estat-cpi-services
-    source_url: https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData
-    notes: e-Stat CPI表 0003427113 を cdCat01=0220(サービス)・cdArea=00000(全国)・cdTab=1(指数)に絞る。国内サービス価格の粘着性を読む。
-    aliases: [日本サービスCPI, サービス物価, JP services CPI, 全国サービスCPI]
-  - series_id: jp.foreign_flows
-    name: 海外投資家ネット買い越し額(週次)
-    category: flows
-    geography: japan
-    frequency: weekly
-    unit: jpy
-    provider: jquants_flows
-    provider_series_id: foreigners_net_value
-    source_id: jquants-trades-spec
-    source_url: https://jpx-jquants.com/ja/spec/eq-investor-types
-    notes: 東証プライムの投資部門別売買状況。海外勢の週次ネット(買い−売り)は集計週末をobserved_at、公表日をvintage_atとして記録する。
-    aliases: [海外投資家フロー, 海外勢売買, foreign flows, trades spec, 投資部門別]
   - series_id: us.real_10y
     name: 米10Y実質金利(TIPS)
     category: rates
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: DFII10
     source_id: fred-dfii10
@@ -428,6 +234,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: T10YIE
     source_id: fred-t10yie
@@ -440,6 +248,8 @@ series:
     geography: us
     frequency: weekly
     unit: usd-million
+    plausible_min: 50000
+    plausible_max: 100000000
     provider: fred_csv
     provider_series_id: WALCL
     source_id: fred-walcl
@@ -452,6 +262,8 @@ series:
     geography: us
     frequency: daily
     unit: usd-billion
+    plausible_min: 0
+    plausible_max: 50000
     provider: fred_csv
     provider_series_id: RRPONTSYD
     source_id: fred-rrpontsyd
@@ -464,6 +276,8 @@ series:
     geography: us
     frequency: monthly
     unit: usd-billion
+    plausible_min: 20
+    plausible_max: 500000
     provider: fred_csv
     provider_series_id: M2SL
     source_id: fred-m2sl
@@ -476,6 +290,8 @@ series:
     geography: us
     frequency: weekly
     unit: index
+    plausible_min: -20
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: NFCI
     source_id: fred-nfci
@@ -488,6 +304,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 1
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: PCEPILFE
     source_id: fred-pcepilfe
@@ -500,6 +318,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: T5YIFR
     source_id: fred-t5yifr
@@ -512,6 +332,8 @@ series:
     geography: us
     frequency: weekly
     unit: count
+    plausible_min: 10000
+    plausible_max: 100000000
     provider: fred_csv
     provider_series_id: ICSA
     source_id: fred-icsa
@@ -524,6 +346,8 @@ series:
     geography: us
     frequency: monthly
     unit: index
+    plausible_min: 0.2
+    plausible_max: 2000
     provider: fred_csv
     provider_series_id: INDPRO
     source_id: fred-indpro
@@ -536,6 +360,8 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -20
+    plausible_max: 30
     provider: fred_csv
     provider_series_id: T10Y3M
     source_id: fred-t10y3m
@@ -548,44 +374,22 @@ series:
     geography: us
     frequency: weekly
     unit: usd-million
+    plausible_min: 200
+    plausible_max: 20000000
     provider: fred_csv
     provider_series_id: WTREGEN
     source_id: fred-wtregen
     source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=WTREGEN
     notes: 財務省一般勘定残高(週次・百万ドル)。net liquidity = FRB総資産 − RRP − TGA の控除項。TGA積み上げは市場から流動性を吸収する
     aliases: [TGA, 財務省一般勘定, Treasury General Account, WTREGEN]
-  - series_id: gold
-    name: 金先物(COMEX, USD/oz)
-    category: commodity
-    geography: world
-    frequency: daily
-    unit: usd-per-oz
-    provider: yahoo
-    provider_series_id: GC=F
-    source_id: yahoo-gc-f
-    source_url: https://query1.finance.yahoo.com/v8/finance/chart/GC=F
-    tradingview_symbol: COMEX:GC1!
-    notes: COMEX金先物フロント限月(日次終値)。実質金利・ドル・債務貨幣化のstore-of-value温度計。BTCと並べてデジタルゴールド命題を読む。FRED LBMA系列廃止のためYahooで取得
-    aliases: [金, ゴールド, gold, XAU, 金価格, gold_futures]
-  - series_id: copper
-    name: 銅先物(COMEX, USD/lb)
-    category: commodity
-    geography: world
-    frequency: daily
-    unit: usd-per-lb
-    provider: yahoo
-    provider_series_id: HG=F
-    source_id: yahoo-hg-f
-    source_url: https://query1.finance.yahoo.com/v8/finance/chart/HG=F
-    tradingview_symbol: COMEX:HG1!
-    notes: COMEX銅先物フロント限月(日次終値)。世界景気の先行ゲージ(Dr.Copper)。銅/金レシオでリスク選好・成長期待を読む
-    aliases: [銅, copper, HG, Dr Copper, 銅価格]
   - series_id: us.move
     name: MOVE指数(米国債ボラティリティ)
     category: volatility
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 2
+    plausible_max: 5000
     provider: yahoo
     provider_series_id: ^MOVE
     source_id: yahoo-move
@@ -598,6 +402,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 10
+    plausible_max: 50000
     provider: yahoo
     provider_series_id: ^RUT
     source_id: yahoo-rut
@@ -611,6 +417,8 @@ series:
     geography: us
     frequency: daily
     unit: index
+    plausible_min: 10
+    plausible_max: 200000
     provider: yahoo
     provider_series_id: ^SOX
     source_id: yahoo-sox
@@ -618,37 +426,14 @@ series:
     tradingview_symbol: NASDAQ:SOX
     notes: PHLX半導体指数(日次)。AI/半導体サイクルの先行ゲージで、日本の半導体株は本指数に高感応。proprietary指数でFRED非対応のためYahooで取得
     aliases: [SOX, 半導体指数, sox_semiconductor, フィラデルフィア半導体, PHLX Semiconductor]
-  - series_id: ecb.policy_rate
-    name: ECB預金ファシリティ金利
-    category: policy
-    geography: euro
-    frequency: daily
-    unit: percent
-    provider: fred_csv
-    provider_series_id: ECBDFR
-    source_id: fred-ecbdfr
-    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=ECBDFR
-    notes: ECB預金ファシリティ金利(現行ECBの主要政策金利)。Fed・BOJと並べてグローバル中銀の同期スタンス(同時引き締め/緩和)を読む。FRED系列は廃止がありlive確認必須
-    aliases: [ECB金利, ECB政策金利, ECB deposit rate, ECBDFR, 欧州中銀金利, ユーロ圏金利]
-  - series_id: silver
-    name: 銀先物(COMEX, USD/oz)
-    category: commodity
-    geography: world
-    frequency: daily
-    unit: usd-per-oz
-    provider: yahoo
-    provider_series_id: SI=F
-    source_id: yahoo-si-f
-    source_url: https://query1.finance.yahoo.com/v8/finance/chart/SI=F
-    tradingview_symbol: COMEX:SI1!
-    notes: COMEX銀先物フロント限月(日次終値)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
-    aliases: [銀, シルバー, silver, XAG, 銀価格, silver_futures]
   - series_id: us.gdp_growth
     name: 米実質GDP成長率(前期比年率)
     category: activity
     geography: us
     frequency: quarterly
     unit: percent
+    plausible_min: -100
+    plausible_max: 100
     provider: fred_csv
     provider_series_id: A191RL1Q225SBEA
     source_id: fred-a191rl1q225sbea
@@ -661,6 +446,8 @@ series:
     geography: us
     frequency: daily
     unit: ratio
+    plausible_min: 0.2
+    plausible_max: 500
     provider: multpl
     provider_series_id: shiller-pe
     source_id: multpl-shiller-pe
@@ -673,6 +460,8 @@ series:
     geography: us
     frequency: daily
     unit: ratio
+    plausible_min: 0.5
+    plausible_max: 2000
     provider: multpl
     provider_series_id: s-p-500-pe-ratio
     source_id: multpl-sp500-pe
@@ -685,9 +474,235 @@ series:
     geography: us
     frequency: daily
     unit: percent
+    plausible_min: -100
+    plausible_max: 100
     provider: multpl
     provider_series_id: s-p-500-earnings-yield
     source_id: multpl-sp500-ey
     source_url: https://www.multpl.com/s-p-500-earnings-yield
     notes: S&P500益回り(1/PER, GAAP実績)。us.10yとの差がERP。益回り<名目金利=株が債券に対しクッション消滅の警戒域。multplの現在値と月次履歴を取得
     aliases: [益回り, earnings yield, S&P500益回り, アーニングスイールド]
+  - series_id: us.average_hourly_earnings
+    name: 米平均時給(民間全体)
+    category: labor
+    geography: us
+    frequency: monthly
+    unit: usd-per-hour
+    plausible_min: 2
+    plausible_max: 500
+    provider: fred_csv
+    provider_series_id: CES0500000003
+    source_id: fred-ces0500000003
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=CES0500000003
+    notes: 民間非農業部門の平均時給(月次・季節調整済)。賃金インフレ=サービス物価の第二次波及の要。前年比の減速/再加速でBOJ・FRBのラストマイルを読む
+    aliases: [米平均時給, 平均時給, average hourly earnings, AHE, CES0500000003, 米賃金]
+  - series_id: us.ppi
+    name: 米生産者物価(最終需要)
+    category: inflation
+    geography: us
+    frequency: monthly
+    unit: index
+    plausible_min: 10
+    plausible_max: 2000
+    provider: fred_csv
+    provider_series_id: PPIFIS
+    source_id: fred-ppifis
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PPIFIS
+    notes: 最終需要の生産者物価指数(月次)。CPIより川上のパイプラインインフレ。売価転嫁圧力の先行観測点
+    aliases: [米PPI, 生産者物価, producer price index, PPIFIS, パイプラインインフレ]
+  - series_id: us.jolts_openings
+    name: 米求人数(JOLTS)
+    category: labor
+    geography: us
+    frequency: monthly
+    unit: thousand
+    plausible_min: 200
+    plausible_max: 200000
+    provider: fred_csv
+    provider_series_id: JTSJOL
+    source_id: fred-jtsjol
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=JTSJOL
+    notes: 非農業部門の求人総数(月次・千件・季節調整済)。労働需要の先行。求人/失業者比とともに賃金圧力の緩急を読む
+    aliases: [米求人数, JOLTS, job openings, JTSJOL, 求人件数]
+  - series_id: us.core_capex_orders
+    name: 米コア資本財新規受注
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: usd-million
+    plausible_min: 2000
+    plausible_max: 1000000
+    provider: fred_csv
+    provider_series_id: NEWORDER
+    source_id: fred-neworder
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=NEWORDER
+    notes: 非国防資本財(航空機除く)の新規受注(月次・百万ドル・季節調整済)。企業設備投資サイクルの先行ゲージ
+    aliases: [コア資本財受注, capex orders, core capital goods orders, NEWORDER, 設備投資先行]
+  - series_id: us.building_permits
+    name: 米住宅建設許可件数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: thousand
+    plausible_min: 50
+    plausible_max: 50000
+    provider: fred_csv
+    provider_series_id: PERMIT
+    source_id: fred-permit
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=PERMIT
+    notes: 建設許可の民間住宅戸数(月次・千戸・季節調整済年率)。住宅=金利感応の古典的景気先行。着工に先行する
+    aliases: [住宅建設許可, building permits, PERMIT, 建設許可件数]
+  - series_id: us.housing_starts
+    name: 米住宅着工件数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: thousand
+    plausible_min: 20
+    plausible_max: 50000
+    provider: fred_csv
+    provider_series_id: HOUST
+    source_id: fred-houst
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=HOUST
+    notes: 民間住宅着工戸数(月次・千戸・季節調整済年率)。許可に続く実際の建設活動。金利サイクルの実体側の反応
+    aliases: [住宅着工, housing starts, HOUST, 着工件数]
+  - series_id: us.retail_sales
+    name: 米小売売上高
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: usd-million
+    plausible_min: 10000
+    plausible_max: 10000000
+    provider: fred_csv
+    provider_series_id: RSAFS
+    source_id: fred-rsafs
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=RSAFS
+    notes: 小売・飲食サービス売上高(月次・百万ドル・季節調整済)。米消費モメンタムの月次観測点
+    aliases: [米小売売上, retail sales, RSAFS, 小売売上高]
+  - series_id: us.consumer_sentiment
+    name: 米消費者信頼感(ミシガン大)
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: index
+    plausible_min: 2
+    plausible_max: 2000
+    provider: umich_sca
+    provider_series_id: ICS_ALL
+    source_id: umich-sca-ics
+    source_url: https://www.sca.isr.umich.edu/files/tbmics.csv
+    notes: ミシガン大消費者態度指数(月次・1966Q1=100)。消費者マインドの温度計。公表元の月次表を直読し、当月分は月末の確報で確定する
+    aliases: [消費者信頼感, ミシガン, consumer sentiment, UMCSENT, 消費者マインド]
+  - series_id: us.pmi_manufacturing
+    name: 米製造業PMI
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: index
+    plausible_min: 0
+    plausible_max: 100
+    provider: spglobal_pmi
+    provider_series_id: us_manufacturing
+    source_id: spglobal-us-pmi-mfg
+    source_url: https://www.pmi.spglobal.com/
+    notes: S&P Global 米製造業PMI(50=拡大縮小の境界)。公式リリースPDFから機械抽出する。ISM製造業と対で米製造業サイクルを読む
+    aliases: [米製造業PMI, US manufacturing PMI, S&P US manufacturing PMI]
+  - series_id: us.pmi_services
+    name: 米サービス業PMI
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: index
+    plausible_min: 0
+    plausible_max: 100
+    provider: spglobal_pmi
+    provider_series_id: us_services
+    source_id: spglobal-us-pmi-svc
+    source_url: https://www.pmi.spglobal.com/
+    notes: S&P Global 米サービス業PMI(Business Activity Index、50=拡大縮小の境界)。公式リリースPDFから機械抽出する。米経済の約7割を占めるサービス需要の先行観測
+    aliases: [米サービスPMI, US services PMI, S&P US services PMI]
+  - series_id: us.sloos_ci_tightening
+    name: 米銀行貸出態度(SLOOS・C&I大企業)
+    category: credit
+    geography: us
+    frequency: quarterly
+    unit: percent
+    plausible_min: -100
+    plausible_max: 100
+    provider: fred_csv
+    provider_series_id: DRTSCILM
+    source_id: fred-drtscilm
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=DRTSCILM
+    notes: SLOOS大・中堅企業向けC&Iローンの貸出基準を厳格化した銀行の純割合(四半期・%)。正=引き締め。信用サイクルの先行
+    aliases: [SLOOS, 貸出態度, bank lending standards, DRTSCILM, 信用サイクル]
+  - series_id: us.federal_deficit
+    name: 米連邦財政収支
+    category: fiscal
+    geography: us
+    frequency: monthly
+    unit: usd-million
+    plausible_min: -10000000
+    plausible_max: 5000000
+    provider: fred_csv
+    provider_series_id: MTSDS133FMS
+    source_id: fred-mtsds133fms
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=MTSDS133FMS
+    notes: 月次財政収支(百万ドル・負=赤字)。国債発行=Treasury供給圧力の源。TGA・純流動性と接続して読む。月次で振れが大きい
+    aliases: [米財政収支, 連邦赤字, federal deficit, MTSDS133FMS, 財政赤字]
+  - series_id: us.30y
+    name: 米30Y国債利回り
+    category: rates
+    geography: us
+    frequency: daily
+    unit: percent
+    plausible_min: -20
+    plausible_max: 30
+    provider: frb_h15
+    provider_series_id: RIFLGFCY30_N.B
+    source_id: fed-h15
+    source_url: https://www.federalreserve.gov/datadownload/Output.aspx
+    notes: FRB H.15の30年物Treasury定数満期利回り(日次)。財政・term premiumのストレスは超長期に最も出る
+    aliases: [米30Y, US 30Y, 30年債, DGS30, 米長期金利30年]
+  - series_id: us.claims_4wk_ma
+    name: 米新規失業保険申請(4週移動平均)
+    category: labor
+    geography: us
+    frequency: weekly
+    unit: count
+    plausible_min: 10000
+    plausible_max: 100000000
+    provider: fred_csv
+    provider_series_id: IC4WSA
+    source_id: fred-ic4wsa
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=IC4WSA
+    notes: 新規失業保険申請件数の4週移動平均(週次・季節調整済)。週次のノイズを平滑した雇用悪化シグナル。FRED配信の移動平均系列を使う
+    aliases: [新規失業保険4週平均, initial claims 4wk ma, IC4WSA, 失業保険申請移動平均]
+  - series_id: us.empire_manufacturing
+    name: 米ニューヨーク連銀製造業景況指数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: pt
+    plausible_min: -100
+    plausible_max: 100
+    provider: fred_csv
+    provider_series_id: GACDISA066MSFRBNY
+    source_id: fred-gacdisa066msfrbny
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=GACDISA066MSFRBNY
+    notes: ニューヨーク連銀 Empire State製造業サーベイの総合景況指数(月次・季節調整済・DI)。0が横ばいの分岐点。当月中旬に当月分が出る最速級の米サーベイで、有償のISMを載せられない中でS&P Global PMIを別sourceから相互検証する
+    aliases: [Empire State, エンパイアステート, NY連銀製造業, Empire manufacturing, GACDISA066MSFRBNY]
+  - series_id: us.philly_fed_manufacturing
+    name: 米フィラデルフィア連銀製造業景況指数
+    category: activity
+    geography: us
+    frequency: monthly
+    unit: pt
+    plausible_min: -100
+    plausible_max: 100
+    provider: fred_csv
+    provider_series_id: GACDFSA066MSFRBPHI
+    source_id: fred-gacdfsa066msfrbphi
+    source_url: https://fred.stlouisfed.org/graph/fredgraph.csv?id=GACDFSA066MSFRBPHI
+    notes: フィラデルフィア連銀 製造業ビジネス見通しサーベイの総合景況指数(月次・季節調整済・DI)。0が横ばいの分岐点。Empire Stateと地域が異なるので、2地区の同月DIが揃って振れたかで単一地区の特殊要因と全米の変化を分ける
+    aliases: [Philly Fed, フィラデルフィア連銀, Philadelphia Fed, GACDFSA066MSFRBPHI]

@@ -22,6 +22,7 @@ from baibai_app.sources.db_sources import (
     load_macro_panel_config,
 )
 from baibai_app.sources.types import MacroGroupConfig
+from baibai_engine.read_api import MACRO_READING_RULES_PATH
 
 _APP_DB = "data/app/baibai.sqlite"
 _RUNS_DB = "data/screening/runs.sqlite"
@@ -42,6 +43,7 @@ class Sources:
     operations: DbOperationsSource
     market: DbMarketPriceSource
     meta: DbMetaSource
+    app_db_path: Path
     runs_db_path: Path
 
 
@@ -75,9 +77,10 @@ def build_sources(
         research=DbResearchSource(resolved_db),
         tasks=DbTaskSource(resolved_db),
         candidates=DbCandidatesSource(resolved_runs, resolved_db),
-        macro=DbMacroSource(resolved_db, indicators_db, groups),
+        macro=DbMacroSource(resolved_db, indicators_db, groups, root / MACRO_READING_RULES_PATH),
         operations=DbOperationsSource(resolved_db),
         market=DbMarketPriceSource(root / _MARKET_DB),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
+        app_db_path=resolved_db,
         runs_db_path=resolved_runs,
     )

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
+import { LoadingPage } from './components/LoadingIndicator'
 import { PasswordGate } from './components/PasswordGate'
 import { TooltipProvider } from './components/ui/tooltip'
 import './styles.css'
@@ -13,11 +14,7 @@ const MacroReportPage = lazy(() => import('./pages/MacroReportPage').then((modul
 const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
 
 function RouteLoading() {
-  return (
-    <main className="grid min-h-screen place-items-center bg-background px-6 text-center">
-      <p className="text-sm font-medium text-muted-foreground">Baibai App を読み込んでいます…</p>
-    </main>
-  )
+  return <LoadingPage label="Baibai App を読み込んでいます" shell={false} />
 }
 
 function App() {

@@ -8,16 +8,122 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.macro.indicators.definitions import load_definitions
+from baibai_engine.macro.context.diagnostics import MACRO_CONTEXT_STALE_DAYS
+from baibai_engine.macro.context.models import MACRO_CONTEXT_SCHEMA_VERSION
+from baibai_engine.macro.context.triggers import evaluate_triggers_if_readable
+from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
+from baibai_engine.macro.reading.compute import compute_reading
+from baibai_engine.macro.reading.models import snapshot_payload
+from baibai_engine.macro.reading.reader import build_store_observation_reader
+from baibai_engine.macro.reading.rules import (
+    DEFAULT_RULES_PATH as MACRO_READING_RULES_PATH,
+)
+from baibai_engine.macro.reading.rules import load_reading_rules, rules_revision
 
 from .sqlite import connect_read_only
 
 type MacroGranularity = Literal["daily", "weekly", "monthly", "yearly"]
 
 
+def macro_reading_snapshot(
+    path: Path,
+    *,
+    asof: date,
+    rules_path: Path = MACRO_READING_RULES_PATH,
+) -> dict[str, object] | None:
+    """Compute the L2 reading from the indicator store, or None when it is unavailable.
+
+    The reading is a pure function of the store, the rules revision and the as-of date,
+    so a read-only consumer recomputes it instead of depending on a stored snapshot. A
+    missing store yields None so a consumer can hide the panel. Rules are trusted
+    configuration: read or validation failures propagate and stop materialization,
+    because publishing a fresh generation with the reading silently absent is unsafe.
+    """
+
+    if not path.is_file():
+        return None
+    rules = load_reading_rules(rules_path)
+    connection = connect_read_only(path)
+    try:
+        definitions = load_definitions()
+        snapshot = compute_reading(
+            series=definitions.series,
+            reader=build_store_observation_reader(
+                connection,
+                series=definitions.series,
+            ),
+            rules=rules,
+            rules_revision=rules_revision(rules_path),
+            asof=asof,
+        )
+    finally:
+        connection.close()
+    return snapshot_payload(snapshot)
+
+
+def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
+    """The latest provider run per series: did the last acquisition attempt succeed?
+
+    Staleness alone cannot see a provider that just went silent: a monthly series stays
+    inside its staleness threshold for weeks after its source stops answering. The run
+    record knows immediately, so the health panel reads both.
+    """
+
+    if not path.is_file():
+        return []
+    connection = connect_read_only(path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT series_id, status, finished_at, record_count, error_message FROM (
+                SELECT series_id, status, finished_at, record_count, error_message,
+                       row_number() OVER (
+                           PARTITION BY series_id ORDER BY finished_at DESC, run_id DESC
+                       ) AS rank
+                FROM provider_runs
+            )
+            WHERE rank = 1
+            ORDER BY series_id
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    registered = _registry_by_id()
+    return [
+        {
+            "series_id": str(row[0]),
+            "status": str(row[1]),
+            "finished_at": str(row[2]),
+            "record_count": int(row[3]),
+            "error_message": None if row[4] is None else str(row[4]),
+        }
+        for row in rows
+        if str(row[0]) in registered
+    ]
+
+
 def macro_series_names() -> dict[str, str]:
     """Return canonical macro series display names for read-only consumers."""
     return {item.series_id: item.name for item in load_definitions().series}
+
+
+def macro_registered_series(series_id: str) -> dict[str, str | None] | None:
+    """Registry display fields for one series, or None when no registry defines it.
+
+    The registry defines a series before any store carries an observation of it, so a
+    consumer configured from the registry can meet a series its store has never seen and
+    still name it correctly. An id the registry does not define is a configuration error
+    the consumer decides how to treat.
+    """
+
+    definition = _registry_by_id().get(series_id)
+    if definition is None:
+        return None
+    return {
+        "name": definition.name,
+        "unit": definition.unit,
+        "tradingview_symbol": definition.tradingview_symbol,
+    }
 
 
 def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object] | None:
@@ -28,11 +134,11 @@ def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object
         row = connection.execute(
             """
             SELECT payload FROM macro_context
-            WHERE as_of <= ?
+            WHERE as_of <= ? AND schema_version = ?
             ORDER BY published_at DESC, as_of DESC, context_id DESC
             LIMIT 1
             """,
-            (as_of.isoformat(),),
+            (as_of.isoformat(), MACRO_CONTEXT_SCHEMA_VERSION),
         ).fetchone()
     finally:
         connection.close()
@@ -50,8 +156,9 @@ def list_macro_context_payloads(path: Path) -> list[dict[str, object]]:
     connection = connect_read_only(path)
     try:
         rows = connection.execute(
-            "SELECT payload FROM macro_context "
-            "ORDER BY published_at DESC, as_of DESC, context_id DESC"
+            "SELECT payload FROM macro_context WHERE schema_version = ? "
+            "ORDER BY published_at DESC, as_of DESC, context_id DESC",
+            (MACRO_CONTEXT_SCHEMA_VERSION,),
         ).fetchall()
     finally:
         connection.close()
@@ -75,7 +182,8 @@ def macro_context_payload(
     connection = connect_read_only(path)
     try:
         row = connection.execute(
-            "SELECT as_of, payload FROM macro_context WHERE context_id = ?", (context_id,)
+            "SELECT as_of, payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
+            (context_id, MACRO_CONTEXT_SCHEMA_VERSION),
         ).fetchone()
     finally:
         connection.close()
@@ -90,6 +198,30 @@ def macro_context_payload(
     if not isinstance(payload, dict):
         raise ValueError("macro context payload must be an object")
     return payload
+
+
+def macro_context_triggers(
+    path: Path,
+    indicators_db_path: Path,
+    *,
+    context_id: str,
+    as_of: date,
+) -> dict[str, object] | None:
+    """Evaluate one report's invalidation conditions, or None when a store cannot answer.
+
+    A view must degrade rather than fail here: the report is readable on its own, and an
+    absent or unreadable indicator store means the conditions are simply unchecked.
+    """
+
+    if not path.is_file():
+        return None
+    evaluation = evaluate_triggers_if_readable(
+        context_db=path,
+        indicators_db_path=indicators_db_path,
+        context_id=context_id,
+        asof=as_of,
+    )
+    return None if evaluation is None else evaluation.payload()
 
 
 def macro_indicator_series(
@@ -107,46 +239,34 @@ def macro_indicator_series(
         raise ValueError("macro indicator end must be on or after start")
     if not path.is_file():
         return None
+    registry = _registry_by_id()
+    if series_id not in registry:
+        return None
     connection = connect_read_only(path)
     try:
         series = connection.execute(
-            "SELECT name, unit, provider FROM series WHERE series_id = ?", (series_id,)
+            "SELECT name, unit FROM series WHERE series_id = ?", (series_id,)
         ).fetchone()
         if series is None:
             return None
-        start_text = start.isoformat() if start is not None else None
-        end_text = end.isoformat() if end is not None else None
-        rows = connection.execute(
-            """
-            SELECT observed_at, value, unit FROM (
-                SELECT observed_at, value, unit,
-                       row_number() OVER (
-                           PARTITION BY observed_at ORDER BY vintage_at DESC
-                       ) AS rank
-                FROM observations
-                WHERE series_id = ? AND fetch_status = 'ok'
-                  AND (? IS NULL OR observed_at >= ?)
-                  AND (? IS NULL OR observed_at <= ?)
-                  AND (? != 'jquants_flows' OR ? IS NULL
-                       OR substr(vintage_at, 1, 10) <= ?)
-            )
-            WHERE rank = 1
-            ORDER BY observed_at ASC
-            """,
-            (
-                series_id,
-                start_text,
-                start_text,
-                end_text,
-                end_text,
-                str(series[2]),
-                end_text,
-                end_text,
-            ),
-        ).fetchall()
+        reader = build_store_observation_reader(
+            connection,
+            series=tuple(registry.values()),
+        )
+        observations = reader(
+            series_id,
+            start or date.min,
+            end or date.max,
+        )
     finally:
         connection.close()
-    points = [{"observed_at": str(row[0]), "value": float(row[1])} for row in rows]
+    points = [
+        {
+            "observed_at": observation.observed_at.isoformat(),
+            "value": observation.value,
+        }
+        for observation in observations
+    ]
     points = _aggregate_period_end(points, granularity=granularity)
     if limit is not None:
         if limit < 1:
@@ -159,6 +279,11 @@ def macro_indicator_series(
         "tradingview_symbol": _tradingview_symbols().get(series_id),
         "points": points,
     }
+
+
+@lru_cache(maxsize=1)
+def _registry_by_id() -> dict[str, SeriesDefinition]:
+    return load_definitions().by_id()
 
 
 @lru_cache(maxsize=1)
@@ -196,10 +321,17 @@ def _aggregate_period_end(
 
 
 __all__ = [
+    # Re-exported so read-only consumers judge report freshness by the same policy the
+    # engine's own consumers use, rather than keeping a second copy of the threshold.
+    "MACRO_CONTEXT_STALE_DAYS",
+    "MACRO_READING_RULES_PATH",
     "MacroGranularity",
     "latest_macro_context_payload",
     "list_macro_context_payloads",
     "macro_context_payload",
     "macro_indicator_series",
+    "macro_reading_snapshot",
+    "macro_registered_series",
+    "macro_series_fetch_health",
     "macro_series_names",
 ]

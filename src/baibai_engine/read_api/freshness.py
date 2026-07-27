@@ -11,6 +11,8 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from baibai_engine.macro.indicators.definitions import load_definitions
+
 from .sqlite import connect_read_only
 
 # Judgment-layer stores are all JST-domain records. Date-only columns
@@ -33,18 +35,34 @@ def screening_latest_asof(path: Path) -> date | None:
 
 
 def macro_latest_observed_at(path: Path) -> date | None:
-    """Return the newest successfully fetched macro observation date across all series."""
+    """Return the newest successful observation among currently registered series."""
 
     if not path.is_file():
         return None
+    registered = {series.series_id for series in load_definitions().series}
+    if not registered:
+        return None
     connection = connect_read_only(path)
     try:
-        row = connection.execute(
-            "SELECT max(observed_at) FROM observations WHERE fetch_status = 'ok'"
-        ).fetchone()
+        rows = connection.execute(
+            # A retracted date is not an observation any consumer reads, so it must not
+            # be what the freshness badge dates the store by. Asking whether a newer
+            # retraction exists costs a third of resolving the newest vintage outright,
+            # and retractions are rare enough that the check almost always short-circuits.
+            "SELECT o.series_id, max(o.observed_at) FROM observations o "
+            "WHERE o.fetch_status = 'ok' AND NOT EXISTS ("
+            "SELECT 1 FROM observations r "
+            "WHERE r.series_id = o.series_id AND r.observed_at = o.observed_at "
+            "AND r.fetch_status = 'retracted' AND r.vintage_at > o.vintage_at"
+            ") GROUP BY o.series_id"
+        ).fetchall()
     finally:
         connection.close()
-    return None if row[0] is None else date.fromisoformat(str(row[0]))
+    latest = max(
+        (str(row[1]) for row in rows if str(row[0]) in registered and row[1] is not None),
+        default=None,
+    )
+    return None if latest is None else date.fromisoformat(latest)
 
 
 def application_db_updated_at(path: Path) -> datetime | None:

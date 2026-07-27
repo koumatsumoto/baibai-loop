@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -14,15 +15,19 @@ from tools.cloud.batch_summary import (
     load_batch_execution_summary,
 )
 from tools.cloud.daily_batch import (
-    _MACRO_REFRESH_WINDOW_DAYS,
-    _MACRO_REFRESH_WINDOW_DEFAULT_DAYS,
     BatchStepError,
     CalendarCoverageError,
     CommandResult,
+    _macro_refresh_groups,
+    _parse_macro_series,
     main,
     run_daily_batch,
 )
 
+from baibai_engine.macro.indicators.service import (
+    DEFAULT_LATEST_LOOKBACK_DAYS,
+    LATEST_FETCH_LOOKBACK_DAYS,
+)
 from baibai_engine.market.sqlite import store_jquants_market_calendar
 from baibai_engine.screening.run_store import ScreeningRunStore
 
@@ -46,13 +51,42 @@ SELECT_OK = CommandResult(
     "  profile: value_default\n",
     "",
 )
+
+
+def _macro_list_row(
+    series_id: str,
+    category: str,
+    geography: str,
+    frequency: str,
+    provider: str,
+    *,
+    kind: str = "http",
+) -> dict[str, object]:
+    """One `macro list --format json` row as the CLI emits it."""
+
+    return {
+        "series_id": series_id,
+        "name": series_id,
+        "category": category,
+        "geography": geography,
+        "frequency": frequency,
+        "unit": "unit",
+        "provider": provider,
+        "kind": kind,
+    }
+
+
 MACRO_LIST_OK = CommandResult(
     0,
-    "us.10y\tUS 10Y Treasury\trates\tus\tdaily\t%\tfred_csv\n"
-    "jp.foreign_flows\tForeign flows\tflows\tjp\tweekly\tJPY\tjquants_flows\n"
-    "jp.cpi_all\tJP CPI\tprices\tjp\tmonthly\tindex\testat\n"
-    "jp.gdp\tJP GDP\tgrowth\tjp\tquarterly\tJPY\testat\n"
-    "jp.bankruptcies\tBankruptcies\tcredit\tjp\tmonthly\tcount\ttsr_bankruptcies\n",
+    json.dumps(
+        [
+            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+            _macro_list_row("jp.foreign_flows", "flows", "jp", "weekly", "jquants_flows"),
+            _macro_list_row("jp.cpi_all", "prices", "jp", "monthly", "estat"),
+            _macro_list_row("jp.gdp", "growth", "jp", "quarterly", "estat"),
+            _macro_list_row("jp.bankruptcies", "credit", "jp", "monthly", "tsr_bankruptcies"),
+        ]
+    ),
     "",
 )
 
@@ -109,7 +143,6 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening select": [SELECT_OK],
         "macro list": [MACRO_LIST_OK],
         "macro refresh": [OK, OK, OK],
-        "macro import-manual": [OK],
         "export": [OK],
         "screening prune": [OK],
     }
@@ -168,7 +201,6 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "macro refresh",
         "macro refresh",
         "macro refresh",
-        "macro import-manual",
         "export",
         "screening prune",
     ]
@@ -181,7 +213,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     select_argv = runner.calls[2]
     assert select_argv[3:] == ["--asof", "2026-07-21", "--run-revision-id", "rev-1"]
 
-    export_argv = runner.calls[8]
+    export_argv = runner.calls[7]
     assert export_argv[1].endswith("tools/cloud/export_read_models.py")
     assert export_argv[2:] == [
         "--output-dir",
@@ -218,20 +250,6 @@ def test_daily_batch_refreshes_registered_series_by_frequency_window(tmp_path: P
             "2026-07-21",
         ],
     ]
-    # PMI remains a manual series and only syncs through import-manual.
-    assert ["baibai-engine", "macro", "import-manual"] in runner.calls
-
-
-def test_macro_refresh_windows_match_engine_latest_fetch_lookback() -> None:
-    from baibai_engine.macro.indicators.service import (
-        DEFAULT_LATEST_LOOKBACK_DAYS,
-        LATEST_FETCH_LOOKBACK_DAYS,
-    )
-
-    assert _MACRO_REFRESH_WINDOW_DEFAULT_DAYS == DEFAULT_LATEST_LOOKBACK_DAYS
-    for frequency, expected in LATEST_FETCH_LOOKBACK_DAYS.items():
-        resolved = _MACRO_REFRESH_WINDOW_DAYS.get(frequency, _MACRO_REFRESH_WINDOW_DEFAULT_DAYS)
-        assert resolved == expected
 
 
 def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path) -> None:
@@ -344,10 +362,39 @@ def test_daily_batch_defers_macro_refresh_failure_until_after_export(
     assert exit_code == 3
     keys = runner.call_keys()
     assert keys.count("macro refresh") == 3
-    assert "macro import-manual" in keys
     assert "export" in keys
     # The deferred detail is surfaced immediately, not only in the final summary.
     assert "deferred failure" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_daily_batch_always_echoes_registry_prune_audit_lines(
+    tmp_path: Path, capsys, returncode: int
+) -> None:
+    script = _success_script()
+    script["macro refresh"] = [
+        CommandResult(
+            returncode,
+            "us.10y\t2026-07-21\t4.2\n"
+            "registry-prune-pending\tretired.series\t"
+            "observations=42\tprovider_runs=3\ttransaction=abc\n"
+            "registry-prune\tretired.series\tobservations=42\tprovider_runs=3\n",
+            "provider down\n" if returncode else "",
+        ),
+        OK,
+        OK,
+    ]
+    runner = _runner(script)
+
+    exit_code = run_daily_batch(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+
+    output = capsys.readouterr().out
+    assert "registry-prune-pending\tretired.series" in output
+    assert "registry-prune\tretired.series\tobservations=42\tprovider_runs=3" in output
+    assert "us.10y\t2026-07-21\t4.2" not in output
+    assert exit_code == (3 if returncode else 0)
 
 
 def test_daily_batch_passes_previous_run_revision_when_resolvable(tmp_path: Path) -> None:
@@ -391,7 +438,6 @@ def test_daily_batch_defers_macro_list_failure_and_still_exports(tmp_path: Path)
     assert exit_code == 3
     keys = runner.call_keys()
     assert "macro refresh" not in keys
-    assert "macro import-manual" in keys
     assert "export" in keys
 
 
@@ -660,3 +706,64 @@ def test_main_writes_invalid_asof_summary(tmp_path: Path, capsys) -> None:
     summary = load_batch_execution_summary(summary_path)
     assert summary.outcome == OUTCOME_FAILED
     assert summary.batches[0].errors[0].code == "invalid_asof"
+
+
+def test_parse_macro_series_reads_json_list() -> None:
+    stdout = json.dumps(
+        [
+            _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+            _macro_list_row("jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"),
+        ]
+    )
+
+    parsed = _parse_macro_series(stdout)
+
+    assert [item.series_id for item in parsed] == ["us.10y", "jp.pmi_manufacturing"]
+
+
+def test_parse_macro_series_rejects_non_json() -> None:
+    with pytest.raises(BatchStepError, match="not parseable JSON"):
+        _parse_macro_series("us.10y\tdaily\tfred_csv")
+
+
+def test_macro_refresh_groups_buckets_every_series_by_frequency_window() -> None:
+    parsed = _parse_macro_series(
+        json.dumps(
+            [
+                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+                _macro_list_row(
+                    "jp.pmi_manufacturing", "activity", "jp", "monthly", "spglobal_pmi"
+                ),
+                _macro_list_row("jp.cpi", "prices", "jp", "monthly", "estat"),
+            ]
+        )
+    )
+
+    groups = _macro_refresh_groups(parsed)
+
+    assert groups == [
+        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y"]),
+        (DEFAULT_LATEST_LOOKBACK_DAYS, ["jp.pmi_manufacturing", "jp.cpi"]),
+    ]
+
+
+def test_macro_refresh_groups_orders_derived_after_base() -> None:
+    parsed = _parse_macro_series(
+        json.dumps(
+            [
+                _macro_list_row(
+                    "gold_copper_ratio", "commodity", "world", "daily", "derived", kind="local"
+                ),
+                _macro_list_row("us.10y", "rates", "us", "daily", "fred_csv"),
+                _macro_list_row("gold", "commodity", "world", "daily", "yahoo"),
+            ]
+        )
+    )
+
+    groups = _macro_refresh_groups(parsed)
+
+    # Same daily window, but base (http) is refreshed before the derived (local) series.
+    assert groups == [
+        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y", "gold"]),
+        (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["gold_copper_ratio"]),
+    ]

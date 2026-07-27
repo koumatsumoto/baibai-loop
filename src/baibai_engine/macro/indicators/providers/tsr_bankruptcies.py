@@ -13,6 +13,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_text,
     record_observation,
 )
@@ -33,7 +34,8 @@ _TABLE_VALUE_RE = re.compile(
 class TsrBankruptciesProvider:
     """東京商工リサーチの公式 JSON から月次の全国企業倒産件数を読む。"""
 
-    name = "tsr_bankruptcies"
+    spec = ProviderSpec(name="tsr_bankruptcies", all_history_start=date(2003, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

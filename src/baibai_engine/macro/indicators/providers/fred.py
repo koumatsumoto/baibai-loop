@@ -11,6 +11,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_text,
     parse_float,
     record_observation,
@@ -20,7 +21,12 @@ from .base import (
 class FredProvider:
     """FRED CSV download (no auth). One column CSV keyed by provider_series_id."""
 
-    name = "fred_csv"
+    spec = ProviderSpec(
+        name="fred_csv",
+        all_history_start=date(1900, 1, 1),
+        trim_before_first=True,
+    )
+    name = spec.name
 
     def fetch(
         self,

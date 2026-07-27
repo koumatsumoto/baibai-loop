@@ -174,11 +174,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ### 再発防止チェックリスト
 
-- [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、staleはwarning）
-- [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / investment connection / material delta / sizing cautionのsource_ids、statusを照合したか
+- [ ] macro contextを使う場合、`as_of`が判断時点より未来ではないか（futureは停止、古さはwarning）
+- [ ] `inputs`のinput_id、各sectionのseries参照、fact / judgment / economic connection / material deltaのsource_ids、statusを照合したか
+- [ ] core セクションに日本株ループ固有の指示（sector tilt・research優先度ヒント・sizing caution）を書いていないか。connectionのseries引用がcoreの引用範囲内か
 - [ ] macro summaryをcandidateのfact、E[r]順位、機械sizingへ混入していないか
 - [ ] material deltaが個別仮説に影響する場合だけ、thesisの判断と反証にsource付きで接続したか
-- [ ] **機械化チェック**: macro context publishのmodel / source / future / stale negative testを実行したか
+- [ ] **機械化チェック**: macro context publishのmodel / source / future / as_of鮮度warningのnegative testを実行したか
 
 ## 7. AP-07: 公表日 / 期間 / source の最新性確認を skip する
 
@@ -245,18 +246,67 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
-- [ ] manual indicator seed importは重複YAML key、未知・非manual series、manual系列欠落、
-      field / unit / source不一致、naive datetime、同一instant重複、非有限値をDB書き込み前に
-      拒否し、個別release URLを許可する場合もscheme / host / path全体をallowlistして
-      lookalike host・query・fragmentを拒否するか。月次manual履歴は月初日・値域・
-      観測月とrelease URLの完全一致・必要期間の連続性を検証し、manual read / refreshが
-      seed外のrowを書き込まないか
+- [ ] provider が個別 release URL の manifest を持つ場合、scheme / host / path全体をallowlistして
+      lookalike host・query・fragmentを拒否し、抽出値を妥当域で検証し、矛盾する複数候補を
+      hard errorにするか。manifest が公表カレンダーに追いつかない状態を無音にせず
+      取得側だけを失敗させるか（読み取りは既存rowを返す）
+- [ ] indicator の取得値は store 書き込み前に非有限値（NaN / ±inf）を拒否し、1 series の失敗が
+      同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
+- [ ] indicator registry の `plausible_min` / `plausible_max` は有限かつ順序が正しく、標準の全系列で
+      両端を宣言しているか。境界値は許可し、band 外が 1 点でもあれば部分 insert せず failed
+      provider run を残すか。band 変更前後に `tools/validate_macro_stores.py` で live store の
+      全履歴・全 vintage が通ることを機械確認したか。複数行の途中違反を caller が catch 後に
+      commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
+      schema version 一致だけで通さないか。`foreign_keys=OFF` の直接writerでもunknown seriesを
+      拒否し、storeは空か現行schemaだけを受けて他は明確なエラーで拒否するか（過去のschemaへ戻る
+      通路は持たない。schemaを進めるときはその1段だけを書く）。cloud mergeは直前schemaのread-only
+      sourceをrollout可能にし（schema変更後の最初のpushは必ず1世代前のcloud copyに当たる。
+      ただし列集合が一致する変更に限る）、同一fact keyの全payload不一致・source/target域外値を
+      transaction前後で拒否するか。撤回済みrowは値についての主張ではないのでband検査の対象外か。
+      registry generation / prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
+- [ ] 破壊的な運用コマンドは冪等か compare-and-swap で守られているか。2 回流して結果が変わる
+      コマンドは、再実行という最も起きやすい操作で正本データを黙って壊す
+- [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
+      no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」
+      無音の失敗になる。retraction を入れたら、store 書き換え（`trim_before_first` /
+      `remove_other_sources` / `range_replacement` の全 DELETE）が retraction を残すこと、
+      provider の再配信で復活すること、`delete_unchanged_vintages` が消さないこと、
+      merge round-trip で両 store に伝播すること、PIT replay では retraction 前の vintage が
+      見え続けることを、それぞれ test で固定したか。**撤回した値から計算済みの derived 系列**が
+      残らないこと（入力が消えるので再計算では直らない）も確認したか
+- [ ] macro registry の series ID 集合を変更する場合は membership generation digest を追記し、
+      stale generation の refresh / merge 拒否、無許可 series DELETE trigger、件数集計から削除までの
+      writer lock、pending / committed audit の各 negative testを通すか
+- [ ] macro reading の計算規則は全登録系列で解決が成立し（解決不能なら fail）、実効窓を満たさない
+      履歴で percentile / z-score を黙って計算しないか（開始が遅い・件数不足・**窓の期数に対する
+      欠落が多い**の3条件を `insufficient_history` で null にする）。公表lagを変更するときは全系列の
+      `next_print_estimate` が解決し、registry frequency と実更新 cadence が異なる系列・週次batchの
+      phase・速い source 固有lag・正常な公表待ち / 1回の公表落ちの `stale` 判定が意図せず変わらず、
+      月末の calendar arithmetic・calendar/business daily の土日境界・期限超過の負の
+      `print_due_in_days`・margin境界・schema v1 の既発行revision・v1/v2 shape混在の拒否を
+      fixtureで検証するか
+- [ ] macro scorecard は未来 asof、`met` までの full-window run / `not_met` の active provider
+      post-watermark run 不足、期限時点の stale 観測を hard error にし、run 完了時刻を JST の score
+      asof 以前に制約するか。`met` 観測の vintage 欠落を拒否するか。観測期限と vintage cutoff を
+      分離し、rules revision と両 store を identity に固定しているか。後続 context は前回 context の
+      structured scorecard snapshot を exactly one で持ち、regime summary の専用 field がその
+      input ID を参照し、publish が digest を再計算するか
 - [ ] macro series config の `tradingview_symbol` は `EXCHANGE:SYMBOL` 形式を拒否側 fixture で検証し、
       macro read API の未知 period / granularity は 422、期間集約は各 bucket の最終観測値と件数を
       fixture で検証し、月次全履歴を返すproviderは既知の最古月・公表lagを含む最新端・
       途中月の欠落をhard errorにするか
-- [ ] macro context は固定順8セクション、series定義とinputへの参照、source ID、base / bear / bull、
-      monitoring condition、section 2〜7内のmaterial delta / sizing cautionをnegative fixtureで検証するか
+- [ ] macro context は core 固定順10セクション + connection 1、series定義とinputへの参照、source ID、
+      reading input の必須（レジーム要約からの引用・実在する rules revision・as_of との日数差）、
+      base / bear / bull と各シナリオ2件以上の相異なる scorecard条件（期限は公表間隔以上18か月以内）、
+      monitoring condition、core セクション2〜8内のmaterial delta、connectionのseries参照が
+      coreの引用範囲内かつ core_section_ids に裏付けられていること、context_id の日付とas_ofの一致を
+      negative fixtureで検証するか
+- [ ] **immutable な発行済み文書の検証は、参照先が動くかどうかで層を分ける**。registry membership や
+      系列の公表頻度のように後から変わる環境状態は publish 時だけ検証し、read / load 時は文書内の
+      整合だけを検証する。read でも環境と照合すると、系列の退役・改名という正常な運用が過去の
+      全レポートを遡って invalid にし、それを読む下流（daily batch の `screening select`）ごと
+      止まる。publish が拒否する negative test と、環境が動いても read が通る positive test を
+      対で持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。

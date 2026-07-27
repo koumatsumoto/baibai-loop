@@ -349,8 +349,10 @@ def render_message(summary: WorkflowRunSummary) -> str:
     lines = [
         f"{label} {summary.overall_outcome} — {summary.workflow}",
         f"repo: {summary.repository} | trigger: {summary.trigger} | attempt: {summary.run_attempt}",
-        f"as-of: {summary.asof or '-'} | duration: {summary.duration_seconds:.1f}s "
-        f"| publish: {summary.publish_state}",
+        (
+            f"as-of: {summary.asof or '-'} | duration: {summary.duration_seconds:.1f}s "
+            f"| publish: {summary.publish_state}"
+        ),
     ]
     if summary.execution.kind == EXECUTION_AVAILABLE and summary.execution.summary is not None:
         lines.append("batches:")

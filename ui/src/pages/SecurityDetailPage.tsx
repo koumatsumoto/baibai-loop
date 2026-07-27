@@ -5,6 +5,7 @@ import { ApiError, fetchJson } from '../api/client'
 import type { CandidateRowView, SecurityDetailView } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
+import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
@@ -72,7 +73,7 @@ export function SecurityDetailPage() {
 
   if (notFound) return <PageState back message="この銘柄の記録はありません" mono title={`404 / ${ticker}`} />
   if (error) return <PageState message={error} mono title={ticker} />
-  if (!data) return <PageState message="銘柄情報を読み込んでいます…" mono title={ticker} />
+  if (!data) return <LoadingPage label={`${ticker} の銘柄情報を読み込んでいます`} />
 
   const thesis = data.latest_thesis
   const averageCostYen = data.holding && data.holding.quantity !== 0

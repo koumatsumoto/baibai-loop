@@ -27,6 +27,7 @@ baibai-loop
 └── method
     ├── screening-rules
     ├── macro-panel.yaml
+    ├── macro-reading
     └── playbooks
 ```
 
@@ -38,7 +39,7 @@ baibai-loop
 | --- | --- | --- |
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
 | `market` | market price / calendar の取得と L1 SQLite | engine 内部 |
-| `macro` | indicator series と published macro context | `baibai-engine macro` |
+| `macro` | indicator series（L1）、macro reading（L2）、published macro context（L3） | `baibai-engine macro` |
 | `screening` | screening run、machine selection、shortlist、calibration | `baibai-engine screening` |
 | `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
 | `position` | event replay、draft / apply、holding review、outcome | `baibai-engine position` |
@@ -62,7 +63,7 @@ engine 内の domain は app に依存しない。app は `read_api` と query s
 
 application DB の default path は `data/app/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
 
-Git に残す `method/` は screening rules と Macro panel の method/config、`method/playbooks/` は research checklist である。application data を GitHub Issue や YAML file に複製しない。
+Git に残す `method/` は screening rules・Macro panel・macro reading rules の method/config、`method/playbooks/` は research checklist である。application data を GitHub Issue や YAML file に複製しない。
 
 ## Stable CLI
 
@@ -84,7 +85,7 @@ public entry point は次の2本だけである。
 
 ## Read-only app invariants
 
-`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIは3タブ（Dashboard、Macro、Stocks）とタブなし詳細（Macro report、shortlist、Security detail）を提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Macroは経済分析レポートとマクロ経済指標、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
+`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIは3タブ（Dashboard、Macro、Stocks）とタブなし詳細（Macro report、shortlist、Security detail）を提供し、proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Macroは経済分析レポートと、全登録系列を`method/macro-panel.yaml`の7 groupへ配した1つのマクロ経済指標一覧（`/api/macro`のチャートと`/api/macro/reading`の記述統計を`series_id`でjoinし、取得失敗・stale・履歴不足・分布の端の件数を上部の要約カードへ畳む）、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
 
 ## Cloud serving layer
 
@@ -115,7 +116,7 @@ views + machine history         Bearer認証 + static UI
 | layer | examples | rule |
 | --- | --- | --- |
 | L1 fact | market price、calendar、macro series | provider由来を保持し、再取得可能なstoreへ置く |
-| L2 machine analysis | screening run、E[r]、FV anchor、machine selection | observed / derived / estimateを区別し、judgmentと呼ばない |
+| L2 machine analysis | screening run、E[r]、FV anchor、machine selection、macro reading | observed / derived / estimateを区別し、judgmentと呼ばない |
 | L3 judgment / operation | macro context、shortlist、research、proposal、ledger、task、operation | application DBを正本にし、人間境界をwrite-timeに検証する |
 
 fact / estimate / judgment の語彙と禁止事項は [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation) を正本とする。

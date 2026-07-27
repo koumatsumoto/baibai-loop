@@ -12,6 +12,7 @@ from .base import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderSpec,
     fetch_text,
     record_observation,
 )
@@ -42,7 +43,8 @@ class MultplProvider:
     monthly history table, which also carries the current observation.
     """
 
-    name = "multpl"
+    spec = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
+    name = spec.name
 
     def fetch(
         self,

@@ -11,7 +11,8 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite` / `runs.sqlite` / `macro.sqlite` | `cloud-daily-batch` |
+| `baibai-stores` | `market.sqlite` / `runs.sqlite` | `cloud-daily-batch` |
+| `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/select/<asof>.json` | 日次batch、削除しない |
@@ -63,7 +64,7 @@ gh workflow run cloud-materialize.yml --ref main
 gh run list --workflow cloud-materialize.yml --limit 3
 ```
 
-materialize完了後、passwordを画面表示・shell引数化せず、全API routeを未認証・誤認証・正認証で検査する。`VERIFY_TICKER`はservingに存在する4文字tickerへ必要に応じて変更する。
+materialize完了後、passwordを画面表示・shell引数化せず、全API routeを未認証・誤認証・正認証で検査する。`VERIFY_TICKER`はservingに存在する4文字tickerへ必要に応じて変更する。keyを取るroute（screening history / macro context / ticker）はservingに無いkeyでも検査し、正認証が200ではなく404へ解決することを確かめる。どのkeyがservingに存在するかへ依存せず、Workerが答える全routeのauth境界を検査するためである。passwordはprompt入力のみを受けるので、TTYの無い経路（agent やpipe経由の実行）ではrequestを1本も送らずexit 2で止まる。
 
 ```bash
 tools/cloud/verify_worker.sh
@@ -78,6 +79,32 @@ tools/cloud/publish.sh
 ```
 
 このscriptは`baibai.sqlite`のconsistent snapshotだけをstoresへ送り、`cloud-materialize`をdispatchする。servingへの直接writeは行わない。
+
+application DBのschemaはローカルのCLI実行でmigrateされ、クラウドはこのstoreをread-onlyで読む。schema migrationを含むcodeがmainへ入ったら、次の`cloud-daily-batch`より前に`publish.sh`を実行する。exportはstoreのschemaがcodeと一致しない間viewを1件も書かずexit 1で停止するため、未publishのままではscreening結果も含めて何も更新されない。
+
+indicator storeの履歴を深くしてクラウドへ載せる。日次batchはfrequency別のrolling窓しか引き直さないため、cloud正本の履歴は前へ伸びるだけで過去へ伸びない。系列を追加した後や窓を超える取得断の後は、ローカルで全履歴を取得してから`push-macro`する。
+
+```bash
+uv run baibai-engine macro refresh <series_id> ... --all-history --end YYYY-MM-DD
+uv run baibai-engine macro reading --asof YYYY-MM-DD   # 履歴不足・異常値を確認
+tools/cloud/r2_transfer.sh push-macro
+gh workflow run cloud-materialize.yml --ref main
+```
+
+`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeの対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。schema v5 rollout中はread-only source v4も同じ構造契約を検査して受理し、`jp.foreign_flows`のlegacy unit `jpy`を値非rescaleで`jpy-thousand`へ正規化して挿入する。targetは必ず現行schemaでなければならない。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`はcloudが唯一のwriterなので`push-macro`は触らない。
+
+### indicator storeのschemaがcloudとcodeでずれているとき
+
+**cloud copyのschemaはcloud側でstoreを開くことによって上がる。** `macro refresh`が`open_connection`を通り、そこでmigrationが走ってから書き込み、`push-machine`が現行schemaのsnapshotをuploadする。したがって「cloud copyがcodeより1つ以上古い」のはschema bumpから次の日次batchまでの**正常な過渡状態**であって、不正なpushの痕跡ではない。cronは平日だけなので、週末にschemaを上げると月曜の実行までこのラグが残る。
+
+この状態では`push-macro`が停止する。mergeはtargetに現行schemaを要求し、sourceは1 version前までしか受理しないため、2 version以上離れると`check_sqlite`を通ってもmergeで止まる。**復旧はcloud側でstoreを開かせることであって、cloud copyを手でmigrateすることではない。**
+
+```bash
+gh workflow run cloud-daily-batch.yml --ref main   # cloud copyがopenでmigrateされ現行schemaでpushされる
+tools/cloud/r2_transfer.sh push-macro              # その後で通る
+```
+
+**pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する唯一の経路（日次batchのpull → open → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。schemaがずれている間に妥当域外の値が入る心配も要らない — 書き込み経路は全て`open_connection`を通り、そこで必ずmigrationが先に走る。
 
 decision-cycleやmacro分析を始める前に、クラウド正本のmachine storeをローカルへ取得する。
 
@@ -115,7 +142,9 @@ npx wrangler secret put VIEW_PASSWORD
 ## R2 transferの安全境界
 
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。machine storeのpushはGitHub Actionsからだけ許可する。
+- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（cloudが唯一のwriterである`market.sqlite` / `runs.sqlite`を古いローカルcopyで巻き戻さないため）。`macro.sqlite`はローカルからも`push-macro`でuploadできるが、cloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
+- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。
+- `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
 - servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
@@ -135,10 +164,14 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> [--batch dail
 
 - `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
 - `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）
+- `views/macro-reading.json`（全登録系列の機械読み値。indicator store か reading rules が
+  無ければ警告のうえ書かず、Macro タブは該当パネルだけを非表示にする）
 - `views/security--<ticker>.json`（保有 + 最新 run 掲載 + shortlist の ticker）
 - `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
 - `history/select/<asof>.json`（machine selection のサマリ。無期限保持する軽量履歴）
 - `history/candidate-views/<asof>.json`（run とCandidates全件を型付きUI read modelへ変換した履歴。31 日で削除）
+
+書き出しの前に application store の `user_version` が code の schema version と一致することを確認し、不一致なら view を 1 件も作らず exit 1 で停止する（読み取り経路は read-only で migrate しないため、不一致は build の途中で素の SQL error になる）。store が無い root は judgment 空の正常状態として export する。
 
 `views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の「無期限保持 / 31 日で削除」は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
 
@@ -149,7 +182,7 @@ views の JSON は `baibai-app` の対応 API response と同形（pydantic `mod
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
 営業日判定 → screening cache coverage（不足時のみ bootstrap）→ run → select →
-macro series refresh + import-manual → export → run store prune を順に実行する。
+macro series refresh → export → run store prune を順に実行する。
 全 step は public CLI の subprocess で、step ごとにコマンドライン・exit code・所要秒を
 stdout へ出す（scheduled workflow のログをそのまま読む前提）。
 
@@ -176,7 +209,7 @@ summary には redaction 済みの typed errors だけを渡す。
 | --- | --- |
 | 0 | 完走。または非営業日（当日 gate で `skip` を出して即終了） |
 | 1 | 致命的失敗で停止（screening chain・営業日判定・calendar 不備。publish に至らない） |
-| 3 | export まで publish 済みだが、繰延べステップ（macro refresh / import-manual / prune）が失敗 |
+| 3 | export まで publish 済みだが、繰延べステップ（macro refresh / prune）が失敗 |
 
 失敗ポリシー:
 

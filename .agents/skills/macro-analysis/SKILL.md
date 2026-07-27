@@ -1,34 +1,50 @@
 ---
 name: macro-analysis
-description: 金利・為替・流動性・需要・資金調達・共通tail riskのmaterial changeが個別企業の5年評価を変え得るとき、macro contextを確認・更新するために使う。
+description: 市場環境の評価（macro context report）を人間の判断のために書くときに使う。毎営業日の機械読み値（macro reading）は自動更新されるので、変化を確認したいだけならレポートは作らない。
 ---
 
 # Macro Analysis
 
 ## 正本
 
-最初に[`docs/workflow/macro.md`](../../../docs/workflow/macro.md)を読む。series、provider、8分析レンズ、source tier、record schemaをskillへ再転記しない。
+最初に[`docs/workflow/macro.md`](../../../docs/workflow/macro.md)を読む。series、provider、readingの読み方、8分析レンズ、source tier、深度契約、record schemaをskillへ再転記しない。
 
 ## Trigger
 
-- discount rate、需要、資金調達、common tailにmaterial changeがある。
-- 主要event後、またはpublished contextのmonitoring conditionが発火した。
-- 個別thesisのscenario/claimを変える外部経路を確認する。
-- **opportunity cycleのshortlist作成前**: published contextがworkflowのDecision-grade深度契約を満たさない、またはas_of以降にmonitoring pointのdated eventを跨いだ場合はdecision-grade refreshを行う。
+レポートは**1種類・常にfull深度・人間の判断が起点**である。定例義務も更新義務もない。
 
-定期だからという理由だけでrecordを作らない。delta更新はmaterialでなければ根拠を短く返して終了する。decision-grade refreshは深度契約が基準であり、「変化が小さい」ことを浅い分析の理由にしない。
+- スポットの資産運用判断、またはopportunity cycle（OP3）の前に、head レポートが古い / 深度契約を満たさないと人間が判断したとき
+- 米雇用統計の翌週など、環境認識を作り直す価値があると人間が判断したとき
+
+「変化を確認したいだけ」ならレポートを作らない: `baibai-engine macro reading --asof <営業日>`が毎営業日の機械読み値を出す。「変化が小さい」ことを浅い分析の理由にもしない（書くなら深度契約を全項目満たす）。
 
 ## 手順
 
-1. `baibai-engine macro context head`で現行 context ID を、`context show --latest --asof <date>`で`as_of / valid_until / monitoring_points`を確認する。
-2. 変化channelを`discount rate / demand / funding / common tail`から選ぶ。
-3. 判断に必要なseriesと一次sourceだけ取得する。
-4. series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。
-5. workflowの固定順に沿ってRegime summaryから監視ポイントまで8セクションを作る。各セクションでseries、fact、judgment、投資接続を分け、セクション7にbase / bear / bull・バーゲン地形・sector tilt・research優先度ヒント・sizing caution、セクション8に見方を変える条件を置く。decision-grade refreshではworkflowの深度契約（日本需要fact、円両側リスク、market-snapshot、日本株バリュエーションアンカー、hint識別力）を全項目満たす。
-6. 個別thesisのどのscenario/claimを変えるかを1〜3行で示す。
-7. publish前に敵対的self-checkを通す: (a) 各judgmentが引用factの数値と整合するか（数値⇄結論を突合）、(b) 結論を反証する系列を実際に読んだか、(c) 為替・金利の判断が両側リスクを持つか、(d) 各hintが候補タイプを判別できる識別力を持つか、(e) 各factの公表日が当該統計の最新公表か。fail項目は修正してから進む。
-8. materialならstrict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。初回publishだけはexpected headを省略する。
+1. `baibai-engine macro context head`で現行 head を確認し、あれば`context show --latest --asof <date>`で`as_of`・監視ポイント・**前回のscorecard条件**を読み、`context triggers --context-id <head> --asof <date>`で**前回の無効化条件が満たされているか**を機械照合する（`fired`は書き直しの根拠であって、今回の結論の前提ではない）。head が無ければ最初のrevisionとして書く。
+2. `baibai-engine macro refresh`で判断に使う主要seriesを直近窓ごと再取得し、`baibai-engine macro reading --asof <営業日>`を**全系列読む**。`stale`・`insufficient_history`・`flags`・極端な`z_score`を先に把握し、`next_print_estimate` / `print_due_in_days` で判断・保有窓内に近い公表を確認する（ここで見えるdata healthの異常は、以降の解釈より先に扱う。公表目安は event calendar ではない）。
+3. readingで見えた論点と8分析レンズから、確認すべき一次sourceを決めて取得する。series range、単位、公表日、取得日を確認し、結論を反証する系列も読む。
+4. core 10セクションをworkflowの固定順で書く。各セクションでseries・fact・judgment・経済経路への接続を分け、セクション9でリスク選好環境の評価（stance・確度・**反証条件**）とbase/bear/bullを置く。各シナリオには機械照合可能な観測条件（series_id・比較演算・閾値・期限日）を2件以上付ける。セクション10の監視ポイントは、**機械で測れる無効化条件を`machine_conditions`（series_id・比較演算・閾値。期限は持たない）に書く**。セクション全体で最低1件はpublishの要件であり、書かないと誰も日次で照合しない。政治イベントのように測れない事象はproseだけでよい。平均・持続を含む条件（「3か月平均」「N週間定着」）は単発クロスの proxy 閾値で書く（trigger は瞬間タッチも`fired`にする敏感側の設計で、持続性は人が判断する）。深度契約（8象限被覆・Tier-1 15本以上・日本需要fact・円両側リスク・バリュエーションアンカー・energy/通商/地政学）を全項目満たす。
+5. **前回scorecardの採点を接続する**: 今回の評価をゼロベースで確定した**後に**、`baibai-engine macro context scorecard --context-id <前回id> --asof <今回asof> --format json`で前回条件をL1履歴と照合する。settlement watermark / provider run / staleness error があれば採点不能を解消してから進む（run 証明のエラーは評価窓を覆う `macro refresh <series...> --start <前回as_of翌日>` で引き直すのが通常の解消。証明が要るのは成立・期限切れの条件だけで、`pending` だけなら refresh 不要）。出力の`machine_snapshot`をinputsへ引用し、その`input_id`をレジーム要約の`previous_scorecard_snapshot_id`へ置き、結果を`previous_scorecard_review`へ書く（当たり外れの事実だけを書き、今回の解釈の前提にしない）。前回レポートがなければその旨を書く。
+6. connectionセクションをcoreから導出する: research優先度ヒント（どの候補タイプ・sectorに効くかを`applies_to`で判別可能に）、sector tilt、sizing caution。引用できるseriesはcoreが引用済みのものだけで、依拠するcoreセクションを明示する。市場内部（`screening market-snapshot`）を引用してバーゲン地形を書く。
+7. 個別thesisのどのscenario/claimを変えるかを1〜3行で示す。
+8. publish前に敵対的self-checkを通す:
+   - (a) 各judgmentが引用factの数値と整合するか（数値⇄結論を突合）
+   - (b) **readingの機械的事実と自分の結論が矛盾していないか**。矛盾する場合はどちらも盲信せず、矛盾自体をjudgmentとして書く（機械読み値を無言で無視しない）
+   - (c) 結論を反証する系列を実際に読んだか
+   - (d) 為替・金利の判断が両側リスクを持つか
+   - (e) 各research優先度ヒントが候補タイプを判別できる識別力を持つか
+   - (f) 各factの公表日が当該統計の最新公表か
+   - (g) scorecard条件が機械照合可能で、期限日が「その系列がもう一度公表される」以降18か月以内か。同じ条件を2回書いていないか
+   - (h) 各監視ポイントの`condition`が機械で測れる形なら`machine_conditions`にも書いてあるか（セクション全体で最低1件は必須）。条件のseriesをそのセクションが引用しているか
+   - (i) coreのjudgment・fact要約に日本株ループへの行動指示（買え・売れ・sizeを落とせ）を書いていないか。schemaはprose を止めないので、ここが最後の関門になる
+
+   fail項目は修正してから進む。
+9. strict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。head が無いときだけ`--expected-head`を省略する。
 
 ## 禁止
 
-market timing、cash比率、candidate hard gate、sector自動tilt、統計的edge、個別sizingを出さない。HTMLを必須成果物にしない。screeningの機械rankingをmacroで変更しない。
+行動指示（売買タイミング・現金比率・配分指示）、candidate hard gate、sector自動tilt、統計的edge、個別sizingを出さない。coreセクションに日本株ループ固有の指示（sector tilt・research優先度・sizing caution）を書かない。screeningの機械rankingをmacroで変更しない。HTMLを必須成果物にしない。過去revisionの分析・結論・tiltを前提にしない（過去の客観的事実は前提にしてよい）。
+
+## 手順自体の改善
+
+使うたびにこの手順のテストになる。reading の閾値・実効窓（`method/macro-reading/`）が実データと噛み合わない、深度契約が実際の判断に対して不足している、self-checkが素通りする穴がある——を1件でも見つけたら、レポートを書き終えた後に[`improvement-loop`](../improvement-loop/SKILL.md)でissue化する。この節に作業メモを溜めない。

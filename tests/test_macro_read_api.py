@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -7,10 +8,18 @@ import pytest
 
 from baibai_engine.macro.indicators.db import (
     ObservationRecord,
+    get_series,
     initialize_database,
     insert_observations,
+    retract_observations,
 )
-from baibai_engine.read_api.macro import MacroGranularity, macro_indicator_series
+from baibai_engine.macro.reading.rules import ReadingRulesError
+from baibai_engine.read_api.freshness import macro_latest_observed_at
+from baibai_engine.read_api.macro import (
+    MacroGranularity,
+    macro_indicator_series,
+    macro_reading_snapshot,
+)
 
 
 def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
@@ -26,7 +35,7 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
             ObservationRecord(
                 series_id="us.10y",
                 observed_at=current,
-                value=float(current.toordinal()),
+                value=(current - start).days / 1000.0,
                 unit="percent",
                 source_url="https://example.com/us10y.csv",
                 vintage_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -56,17 +65,17 @@ def test_macro_indicator_series_aggregates_each_period_to_its_last_observation(
     assert len(monthly) == 120
     assert len(yearly) == 10
     assert weekly == [
-        {"observed_at": day.isoformat(), "value": float(day.toordinal())}
+        {"observed_at": day.isoformat(), "value": (day - start).days / 1000.0}
         for day in expected_week_ends.values()
     ]
     assert monthly == [
-        {"observed_at": day.isoformat(), "value": float(day.toordinal())}
+        {"observed_at": day.isoformat(), "value": (day - start).days / 1000.0}
         for day in expected_month_ends.values()
     ]
     assert [point["observed_at"] for point in yearly] == [
         f"{year}-12-31" for year in range(2016, 2026)
     ]
-    assert yearly[-1]["value"] == float(end.toordinal())
+    assert yearly[-1]["value"] == (end - start).days / 1000.0
     series = macro_indicator_series(database, series_id="us.10y")
     assert series is not None
     assert series["tradingview_symbol"] == "TVC:US10Y"
@@ -122,7 +131,7 @@ def test_macro_indicator_series_applies_jquants_publication_cutoff(tmp_path: Pat
                     series_id="jp.foreign_flows",
                     observed_at=date(2024, 8, 23),
                     value=value,
-                    unit="jpy",
+                    unit="jpy-thousand",
                     source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
                     period_start=date(2024, 8, 19),
                     period_end=date(2024, 8, 23),
@@ -159,6 +168,67 @@ def test_macro_indicator_series_applies_jquants_publication_cutoff(tmp_path: Pat
     assert september["points"] == [{"observed_at": "2024-08-23", "value": -400000000.0}]
 
 
+def test_macro_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id="jp.foreign_flows",
+                    observed_at=date(2024, 8, 23),
+                    value=value,
+                    unit="jpy-thousand",
+                    source_url="https://jpx-jquants.com/ja/spec/eq-investor-types",
+                    period_start=date(2024, 8, 19),
+                    period_end=date(2024, 8, 23),
+                    vintage_at=vintage_at,
+                )
+                for value, vintage_at in (
+                    (-408854431.0, datetime(2024, 8, 29, tzinfo=UTC)),
+                    (-400000000.0, datetime(2024, 9, 10, tzinfo=UTC)),
+                )
+            ]
+            + [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=date(2024, 8, 23),
+                    value=4.25,
+                    unit="percent",
+                    source_url="https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS10",
+                    vintage_at=datetime(2024, 9, 10, tzinfo=UTC),
+                )
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    payload = macro_reading_snapshot(database, asof=date(2024, 8, 31))
+
+    assert payload is not None
+    readings = {str(item["series_id"]): item for item in payload["series"]}  # type: ignore[index]
+    assert readings["jp.foreign_flows"]["latest_value"] == -408854431.0
+    # FRED bulk-history vintage is acquisition time, not publication time, so it
+    # remains visible before the store happened to acquire it.
+    assert readings["us.10y"]["latest_value"] == 4.25
+
+
+def test_macro_reading_snapshot_fails_closed_when_rules_are_missing(tmp_path: Path) -> None:
+    database = tmp_path / "macro.sqlite"
+    initialize_database(database).close()
+
+    with pytest.raises(ReadingRulesError, match="failed to read macro reading rules"):
+        macro_reading_snapshot(
+            database,
+            asof=date(2026, 7, 26),
+            rules_path=tmp_path / "missing-rules.yaml",
+        )
+
+
 def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) -> None:
     database = tmp_path / "macro.sqlite"
     initialize_database(database).close()
@@ -172,6 +242,88 @@ def test_macro_indicator_series_rejects_invalid_range_and_limit(tmp_path: Path) 
         )
     with pytest.raises(ValueError, match="limit must be positive"):
         macro_indicator_series(database, series_id="us.10y", limit=0)
+
+
+def test_macro_indicator_series_hides_retained_unregistered_metadata(tmp_path: Path) -> None:
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        connection.execute(
+            "INSERT INTO series("
+            "series_id, name, category, geography, frequency, unit, provider, "
+            "provider_series_id, source_id, source_url"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "retired.series",
+                "Retired",
+                "test",
+                "world",
+                "monthly",
+                "index",
+                "fred_csv",
+                "RETIRED",
+                "retired",
+                "https://example.com/retired.csv",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert macro_indicator_series(database, series_id="retired.series") is None
+    with sqlite3.connect(database) as check:
+        assert (
+            check.execute(
+                "SELECT COUNT(*) FROM series WHERE series_id = 'retired.series'"
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_retracted_observations_leave_the_chart_and_the_freshness_date(tmp_path: Path) -> None:
+    """A withdrawn observation is not a point on the chart, nor the date the store is fresh to."""
+
+    database = tmp_path / "macro.sqlite"
+    connection = initialize_database(database)
+    try:
+        series = get_series(connection, "us.10y")
+        insert_observations(
+            connection,
+            [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=observed_at,
+                    value=value,
+                    unit=series.unit,
+                    source_url=series.source_url,
+                    vintage_at=datetime.combine(observed_at, datetime.min.time(), tzinfo=UTC),
+                )
+                for observed_at, value in (
+                    (date(2026, 5, 1), 4.39),
+                    (date(2026, 5, 4), 4.41),
+                )
+            ],
+        )
+        retract_observations(
+            connection,
+            "us.10y",
+            [
+                (
+                    date(2026, 5, 4),
+                    datetime.combine(date(2026, 5, 4), datetime.min.time(), tzinfo=UTC),
+                )
+            ],
+            vintage_at=datetime(2026, 5, 10, tzinfo=UTC),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    chart = macro_indicator_series(database, series_id="us.10y", granularity="daily")
+
+    assert chart is not None
+    assert chart["points"] == [{"observed_at": "2026-05-01", "value": 4.39}]
+    assert macro_latest_observed_at(database) == date(2026, 5, 1)
 
 
 def _points(

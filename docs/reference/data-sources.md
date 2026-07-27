@@ -44,7 +44,7 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 J-Quants Light の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストは [`./screening-runtime.md`](./screening-runtime.md) §12 にまとめる。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、data API が無い系列だけを機械的な scraper で取得して `data/indicators/macro.sqlite` に保存してよい。AI agent の WebFetch 出力を観測値として取り込まない。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。`refresh --all-history` は provider が現在提供する履歴範囲と registry の source identity を同期する。provider run は取得の成否と件数を記録し、observation vintage は内容が変わる revision だけを保持する。manual 観測は git 管理 seed から `import-manual` で復元する。
+Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、data API が無い系列だけを機械的な scraper で取得して `data/indicators/macro.sqlite` に保存してよい。AI agent の WebFetch 出力を観測値として取り込まない。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。`refresh --all-history` は provider が現在提供する履歴範囲と registry の source identity を同期する。provider run は取得の成否と件数を記録し、observation vintage は内容が変わる revision だけを保持する。各 series の `plausible_min` / `plausible_max` は経済予測や異常値判定ではなく、明白な列・桁・単位の取り違えを insert 前に止める広い静的 band である。band 内に収まる scale 変更は値だけでは識別できないため、source の系列 ID・header・metadata 検証を provider 側で併用する。取得結果に契約違反が 1 点でもあればその series の全結果を rollback し、provider run を failed にする。J-Quants/JPXの投資部門別売買状況は公表単位の千円を`jpy-thousand`として保持する。data API が無い PMI は `spglobal_pmi` provider が git 管理の release-URL manifest から公式 PDF を live 取得し、headline 値を公式定義域0〜100で検証したうえで store へ入れる。
 
 ## スコアリング軸
 
@@ -100,7 +100,9 @@ FRED は多くの一次統計の集約先として機能する。Tier 1 の適�
 ### 日本の省庁（総務省・財務省・日銀に準ずる）
 
 - [厚生労働省](https://www.mhlw.go.jp/) — 有効求人倍率 / 毎月勤労統計
+- [総務省統計局 統計ダッシュボード API](https://dashboard.e-stat.go.jp/static/api) — 各省の月次統計を安定した IndicatorCode で機械可読に配信する。認証不要。完全失業率（季節調整値）と名目賃金指数（現金給与総額）の取得経路。e-Stat の DB API が掲載を止めた統計（毎月勤労統計は 2021-10 で更新停止し、月次結果は release 毎のファイル資源のみ）を機械可読に読むために使う。数値は publisher の確報と一致することを release CSV で照合する
 - [経済産業省](https://www.meti.go.jp/) — 鉱工業生産指数 / 商業動態統計
+- [内閣府](https://www.cao.go.jp/) — 機械受注統計（民需・船舶電力を除く）/ 景気ウォッチャー調査（現状判断 DI）/ 景気動向指数。いずれも e-Stat の DB API で取得する。消費動向調査の消費者態度指数は DB 配信が無いため、同じ内閣府が組む景気動向指数の構成系列（先行 L6）として取り、そのぶん公表は調査本体より約 1 か月遅い
 - [財務省 国債金利情報](https://www.mof.go.jp/jgbs/reference/interest_rate/index.htm) — 日本国債の主要年限別利回り。全履歴 CSV と当月 CSV を併用し、日次の 10 年国債利回りを取得する
 - [日本銀行 コール市場関連統計](https://www.boj.or.jp/statistics/market/short/mutan/index.htm) — 無担保コール O/N 物レートの速報・確報。日次の確報 xlsx から平均レートを取得する
 
@@ -137,8 +139,9 @@ Tier 1 / Tier 1 準拠 ソースが作業環境からアクセスできない場
 | USD/JPY | Federal Reserve H.10 weekly historical | ECB euro reference rates から `JPY/EUR ÷ USD/EUR` で算出 | Web Archive snapshot of FRED DEXJPUS |
 | EUR/JPY | ECB euro reference rates (JPY 列) | — | — |
 | AUD/JPY | ECB euro reference rates から `JPY/EUR ÷ AUD/EUR` で算出 | — | — |
-| 日経平均 | （Nikkei 公式 indexes.nikkei.co.jp は 403） | （JPX 日次 PDF: テキスト抽出ツール必要） | Web Archive snapshot of FRED NIKKEI225 |
-| TOPIX / 東証プライム売買代金 | JPX 日次レポート（PDF）。 PDF テキスト抽出ツール（poppler-utils / pdftotext / Python pdfminer / pypdf 等）が必要 | — | — |
+| 日経平均 | Web Archive snapshot of FRED NIKKEI225（`fred_csv` NIKKEI225） | — | — |
+| 日経平均 PER / PBR | Nikkei 公式 indexes.nikkei.co.jp の `statistics/dataload` endpoint（`nikkei_indexes` provider。月次 HTML テーブルをブラウザ無しで取得） | — | — |
+| TOPIX | J-Quants 専用 index bars endpoint（`jquants_indices` provider。Light プランで取得可） | — | — |
 | FedWatch (利下げ確率) | CME FedWatch Tool（HTTP 403 で取得不可） | — | — |
 
 **Web Archive の使い方**: `https://web.archive.org/web/{TIMESTAMP}/{元 URL}` で snapshot を直接取得できる。`TIMESTAMP` は `YYYYMMDD` 8 桁または `YYYYMMDDHHMMSS` 14 桁。最新値が欲しい場合は観測日寄りのタイムスタンプを指定し、それでも snapshot が古い場合は別シリーズで複数 timestamp を試す。Wayback の snapshot は元ソースのキャッシュであり、引用は元ソース URL（FRED 等）として扱い、Wayback URL を併記する。

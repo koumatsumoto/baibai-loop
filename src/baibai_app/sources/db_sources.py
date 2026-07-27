@@ -23,7 +23,6 @@ from baibai_engine.read_api import (
     MacroGranularity,
     PortfolioSnapshot,
     application_db_updated_at,
-    latest_macro_context_payload,
     latest_shortlist_payload,
     latest_unadjusted_closes,
     list_holding_review_publications,
@@ -35,8 +34,11 @@ from baibai_engine.read_api import (
     list_thesis_publications,
     list_thesis_review_publications,
     macro_context_payload,
+    macro_context_triggers,
     macro_indicator_series,
     macro_latest_observed_at,
+    macro_reading_snapshot,
+    macro_series_fetch_health,
     next_earnings_dates,
     portfolio_ledger_document,
     reconcile_portfolio,
@@ -261,19 +263,34 @@ class DbMacroSource:
         app_db_path: Path,
         indicators_db_path: Path,
         groups: tuple[MacroGroupConfig, ...],
+        reading_rules_path: Path,
     ) -> None:
         self._app_db_path = app_db_path.resolve()
         self._indicators_db_path = indicators_db_path.resolve()
+        self._reading_rules_path = reading_rules_path
         self.groups = groups
 
-    def context(self, *, as_of: date) -> dict[str, object] | None:
-        return latest_macro_context_payload(self._app_db_path, as_of=as_of)
+    def reading(self, *, asof: date) -> dict[str, object] | None:
+        return macro_reading_snapshot(
+            self._indicators_db_path, asof=asof, rules_path=self._reading_rules_path
+        )
+
+    def fetch_health(self) -> list[dict[str, object]]:
+        return macro_series_fetch_health(self._indicators_db_path)
 
     def context_by_id(self, *, context_id: str, as_of: date) -> dict[str, object]:
         return macro_context_payload(self._app_db_path, context_id=context_id, as_of=as_of)
 
     def contexts(self) -> list[dict[str, object]]:
         return list_macro_context_payloads(self._app_db_path)
+
+    def context_triggers(self, *, context_id: str, as_of: date) -> dict[str, object] | None:
+        return macro_context_triggers(
+            self._app_db_path,
+            self._indicators_db_path,
+            context_id=context_id,
+            as_of=as_of,
+        )
 
     def series(
         self,
