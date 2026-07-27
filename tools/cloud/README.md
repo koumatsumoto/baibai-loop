@@ -189,13 +189,13 @@ stdout へ出す（scheduled workflow のログをそのまま読む前提）。
 
 ```bash
 # 通常（当日 JST。market calendar で非営業日なら exit 0 で skip）
-uv run python tools/cloud/daily_batch.py --output-dir <dir>
+uv run python -m tools.cloud.daily_batch --output-dir <dir>
 
 # 手動再実行・過去日（営業日 gate を skip）
-uv run python tools/cloud/daily_batch.py --asof YYYY-MM-DD --output-dir <dir>
+uv run python -m tools.cloud.daily_batch --asof YYYY-MM-DD --output-dir <dir>
 
 # structured summary を書き出す（workflow の Discord 通知が読む）
-uv run python tools/cloud/daily_batch.py --output-dir <dir> --summary-output <summary.json>
+uv run python -m tools.cloud.daily_batch --output-dir <dir> --summary-output <summary.json>
 ```
 
 `--summary-output` を指定すると、success / skip / deferred / fatal の全終端パスで

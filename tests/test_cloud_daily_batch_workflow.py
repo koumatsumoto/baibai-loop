@@ -94,6 +94,15 @@ def test_smoke_check_runs_before_setup_python_on_system_python(
     assert "started_at=" in smoke_run
 
 
+def test_batch_step_invokes_daily_batch_as_a_module(steps_by_id: dict[str, dict]) -> None:
+    # Script-path invocation puts tools/cloud (not the repo root) on sys.path, so
+    # `from tools.cloud...` inside daily_batch raises ModuleNotFoundError before
+    # the batch starts; only `-m` puts the working directory on sys.path.
+    batch_run = steps_by_id["batch"]["run"]
+    assert "python -m tools.cloud.daily_batch" in batch_run
+    assert "tools/cloud/daily_batch.py" not in batch_run
+
+
 def test_batch_step_writes_summary_and_finalizes_outputs_before_fatal_exit(
     steps_by_id: dict[str, dict],
 ) -> None:

@@ -103,7 +103,9 @@ jobs:
             args+=(--asof "$MANUAL_ASOF")
           fi
           set +e
-          uv run python tools/cloud/daily_batch.py "${args[@]}"
+          # -m 起動が必須: スクリプトパス起動は sys.path[0] が tools/cloud になり
+          # リポジトリルートが載らないため、tools.cloud.batch_summary の import で落ちる。
+          uv run python -m tools.cloud.daily_batch "${args[@]}"
           code=$?
           set -e
           # Finalize the outputs BEFORE any fatal exit so the notification step
