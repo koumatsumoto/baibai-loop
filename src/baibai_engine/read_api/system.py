@@ -67,9 +67,8 @@ def store_stats(store: str, path: Path) -> StoreStats:
         connection = connect_read_only(path)
         try:
             # Table and column come from the fixed mapping above, never from a caller.
-            row = connection.execute(  # nosec B608
-                f"SELECT count(*), max({date_column}) FROM {table}"
-            ).fetchone()
+            query = f"SELECT count(*), max({date_column}) FROM {table}"  # nosec B608
+            row = connection.execute(query).fetchone()
         finally:
             connection.close()
         latest = None if row[1] is None else date.fromisoformat(str(row[1])[:10])
