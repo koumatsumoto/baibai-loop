@@ -430,6 +430,11 @@ def deliver(
     ).encode("utf-8")
     try:
         status = transport(url, body, timeout)
+    except urllib.error.HTTPError as exc:
+        # The HTTP status code is a safe scalar and the one fact that separates a
+        # revoked webhook (401/404) from rate limiting (429); nothing else from
+        # the response crosses the redaction boundary.
+        return Delivery(status=DELIVERY_FAILED, detail=f"delivery failed: http {exc.code}")
     except Exception as exc:
         # Deliberately broad: only the exception's *type name* is ever reported, so
         # widening costs no information and closes the redaction boundary. An

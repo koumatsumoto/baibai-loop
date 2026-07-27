@@ -494,6 +494,20 @@ def test_deliver_returns_failed_on_non_2xx_without_body() -> None:
     assert "http 500" in result.detail
 
 
+def test_deliver_reports_the_status_code_of_an_http_error_without_the_url() -> None:
+    token = "super-secret-token"
+    error = urllib.error.HTTPError(
+        f"https://discord.com/api/webhooks/111/{token}", 404, "Not Found", None, None
+    )
+    transport = FakeTransport(error=error)
+    result = deliver(f"https://discord.com/api/webhooks/111/{token}", "hello", transport=transport)
+    # The status code is what separates a revoked webhook (401/404) from rate
+    # limiting (429); folding HTTPError into the type-name branch hides it.
+    assert result.status == DELIVERY_FAILED
+    assert result.detail == "delivery failed: http 404"
+    assert token not in result.detail
+
+
 def test_deliver_sanitizes_transport_errors() -> None:
     transport = FakeTransport(error=urllib.error.URLError("connection refused to 1.2.3.4"))
     result = deliver(VALID_URL, "hello", transport=transport)
