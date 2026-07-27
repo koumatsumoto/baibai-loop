@@ -45,10 +45,6 @@ const PUBLISH_LABEL: Record<RunPublishState, string> = {
 
 const BATCH_KIND_LABEL = { daily: '日次バッチ', manual: '手動 materialize' } as const
 
-// A run this old means the schedule itself stopped: the batch is weekday-daily,
-// so nothing newer than this is a state worth reading as "current".
-const RUN_STALE_AFTER_HOURS = 30
-
 function storeLabel(store: SystemStoreName) {
   // An exporter that learns a fifth store must not blank the page on a UI that
   // predates it.
@@ -62,9 +58,17 @@ function outcomeTone(outcome: RunOutcome): string {
   return 'border-destructive/50 text-destructive'
 }
 
-function hoursSince(iso: string): number | null {
+// Elapsed time is shown, not judged. The batch runs on TSE business days, so any
+// fixed threshold cries every Monday and through every holiday week; the reader
+// applies their own, the way every other freshness value here is read.
+export function elapsedLabel(iso: string, now: number = Date.now()): string {
   const parsed = Date.parse(iso)
-  return Number.isNaN(parsed) ? null : (Date.now() - parsed) / 3_600_000
+  if (Number.isNaN(parsed)) return ''
+  const hours = (now - parsed) / 3_600_000
+  if (hours < 0) return ''
+  if (hours < 1) return '1 時間以内'
+  if (hours < 24) return `${Math.floor(hours)} 時間前`
+  return `${Math.floor(hours / 24)} 日前`
 }
 
 function formatBytes(value: number | null): string {
@@ -165,8 +169,7 @@ function LatestRunCard({ run }: { run: WorkflowRunSummaryView | null }) {
 
   const execution = run.execution
   const batches = execution.kind === 'available' ? (execution.summary?.batches ?? []) : []
-  const ageHours = hoursSince(run.finished_at)
-  const stale = ageHours !== null && ageHours > RUN_STALE_AFTER_HOURS
+  const elapsed = elapsedLabel(run.finished_at)
 
   return (
     <Card className="gap-3 py-5 shadow-sm">
@@ -175,16 +178,16 @@ function LatestRunCard({ run }: { run: WorkflowRunSummaryView | null }) {
           <CardTitle className="text-base">直近の日次バッチ</CardTitle>
           <CardDescription className="mt-1">{run.workflow} · {run.trigger} · attempt {run.run_attempt}</CardDescription>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {stale && <Badge className="border-warning/50 text-warning" variant="outline">{Math.floor(ageHours / 24)} 日以上更新なし</Badge>}
-          <Badge className={cn('text-xs', outcomeTone(run.overall_outcome))} variant="outline">
-            {OUTCOME_LABEL[run.overall_outcome] ?? run.overall_outcome}
-          </Badge>
-        </div>
+        <Badge className={cn('text-xs', outcomeTone(run.overall_outcome))} variant="outline">
+          {OUTCOME_LABEL[run.overall_outcome] ?? run.overall_outcome}
+        </Badge>
       </CardHeader>
       <CardContent className="grid gap-4 px-5">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">
-          <DetailRow label="run 終了">{formatJstDateTime(run.finished_at)}</DetailRow>
+          <DetailRow label="run 終了">
+            {formatJstDateTime(run.finished_at)}
+            {elapsed !== '' && <span className="ml-2 text-xs text-muted-foreground">{elapsed}</span>}
+          </DetailRow>
           <DetailRow label="対象日">{run.asof ?? EMPTY}</DetailRow>
           <DetailRow label="所要">{run.duration_seconds.toFixed(0)}s</DetailRow>
           <DetailRow label="公開状態">{PUBLISH_LABEL[run.publish_state] ?? run.publish_state}</DetailRow>

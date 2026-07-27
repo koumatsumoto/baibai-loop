@@ -249,10 +249,10 @@ def test_never_attempted_series_lists_registered_series_without_any_run(
     assert len(never) == len(load_definitions().series) - 1
 
 
-def test_never_attempted_series_is_every_series_without_a_store(tmp_path: Path) -> None:
-    assert never_attempted_series(tmp_path / "missing.sqlite") == sorted(
-        series.series_id for series in load_definitions().series
-    )
+def test_never_attempted_series_stays_quiet_without_a_store(tmp_path: Path) -> None:
+    # The store's own row already reports its absence; listing every registered
+    # series as an outage on top would bury that.
+    assert never_attempted_series(tmp_path / "missing.sqlite") == []
 
 
 def test_every_store_table_exists_in_the_schema_that_owns_it(tmp_path: Path) -> None:

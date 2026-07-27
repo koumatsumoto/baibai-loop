@@ -204,11 +204,14 @@ def never_attempted_series(path: Path) -> list[str]:
     would otherwise be indistinguishable from a healthy one. The daily batch
     refreshes series in groups through one CLI call, so a call that dies partway
     leaves every remaining series in that group without a run record.
+
+    An absent store reports nothing rather than every series: its own row already
+    says the store is missing, and listing 119 "outages" on top would bury that.
     """
 
     registered = {series.series_id for series in load_definitions().series}
     if not registered or not path.is_file():
-        return sorted(registered)
+        return []
     try:
         connection = connect_read_only(path)
         try:
