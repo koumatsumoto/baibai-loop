@@ -49,8 +49,11 @@ from .models import (
     MacroContextRevisionView,
     MacroContextView,
     MacroCoreSectionView,
+    MacroDominantForceView,
     MacroEconomicConnectionView,
+    MacroEstimateCaveatView,
     MacroFactSummaryView,
+    MacroForceInteractionView,
     MacroGroupView,
     MacroMaterialDeltaView,
     MacroMonitoringPointView,
@@ -64,6 +67,7 @@ from .models import (
     MacroSeriesReferenceView,
     MacroSeriesView,
     MacroSizingCautionView,
+    MacroSynthesisView,
     MacroTriggerEvaluationView,
     MacroTriggerResultView,
     MacroView,
@@ -627,12 +631,42 @@ def _build_macro_context_view(
         summary=str(raw_context["summary"]),
         age_days=age_days,
         stale=age_days > MACRO_CONTEXT_STALE_DAYS,
+        synthesis=_macro_synthesis_view(raw_context.get("synthesis"), series_names=series_names),
         core=[
             _macro_core_section_view(item, series_names=series_names)
             for item in _mapping_items(raw_context["core"])
         ],
         connection=_macro_connection_section_view(connection, series_names=series_names),
         triggers=_macro_trigger_evaluation_view(raw_triggers),
+    )
+
+
+def _macro_synthesis_view(
+    raw: object, *, series_names: Mapping[str, str]
+) -> MacroSynthesisView | None:
+    # Revisions published before the integrated layer carry no synthesis key.
+    if not isinstance(raw, Mapping):
+        return None
+    return MacroSynthesisView(
+        dominant_forces=[
+            MacroDominantForceView(
+                force_id=str(item["force_id"]),
+                title=str(item["title"]),
+                summary=str(item["summary"]),
+                transmission=str(item["transmission"]),
+                core_section_ids=_string_items(item.get("core_section_ids")),
+                series=_macro_series_references(item, series_names=series_names),
+                counter_evidence=str(item["counter_evidence"]),
+                direction=str(item["direction"]),
+                confidence=str(item["confidence"]),
+                source_ids=_string_items(item.get("source_ids")),
+            )
+            for item in _mapping_items(raw.get("dominant_forces"))
+        ],
+        interactions=[
+            MacroForceInteractionView.model_validate(item)
+            for item in _mapping_items(raw.get("interactions"))
+        ],
     )
 
 
@@ -817,6 +851,16 @@ def _macro_connection_section_view(
         sizing_cautions=[
             MacroSizingCautionView.model_validate(item)
             for item in _mapping_items(raw.get("sizing_cautions"))
+        ],
+        bargain_topography=(
+            MacroFactSummaryView.model_validate(raw["bargain_topography"])
+            if isinstance(raw.get("bargain_topography"), Mapping)
+            else None
+        ),
+        estimate_caveats=[
+            MacroEstimateCaveatView.model_validate(item)
+            # Revisions published before the integrated layer carry no caveats key.
+            for item in _mapping_items(raw.get("estimate_caveats") or [])
         ],
     )
 

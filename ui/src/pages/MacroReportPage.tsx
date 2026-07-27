@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, CircleAlert } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
-import type { MacroConnectionSectionView, MacroContextView, MacroCoreSectionView, MacroScenarioView, MacroSeriesReferenceView } from '../api/types'
+import type { MacroConnectionSectionView, MacroContextView, MacroCoreSectionView, MacroScenarioView, MacroSeriesReferenceView, MacroSynthesisView } from '../api/types'
 import { AppShell } from '../components/AppShell'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
@@ -58,10 +58,72 @@ function SectionShell({ title, seriesBadges, children }: { title: string; series
   )
 }
 
+// The channel titles without their reading-order numbers, for naming which channels a
+// dominant force crosses.
+const channelShortTitles: Record<string, string> = {
+  rates_policy: '金利・金融政策',
+  growth_demand: '景気・需要',
+  inflation_costs: 'インフレ・コスト',
+  liquidity_credit: '流動性・信用',
+  fx: '為替',
+  japan: '日本',
+  valuation: 'バリュエーション',
+}
+
+function SynthesisSection({ synthesis }: { synthesis: MacroSynthesisView }) {
+  const forces = synthesis.dominant_forces ?? []
+  const interactions = synthesis.interactions ?? []
+  return (
+    <Card className="gap-4 py-5 shadow-sm">
+      <CardHeader className="gap-1 px-5">
+        <CardTitle aria-level={2} className="text-lg" role="heading">統合評価 — 支配的な力</CardTitle>
+        <CardDescription>複数の伝達チャネルを横断して現局面を動かしている力と、その相互作用。</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 px-5">
+        <div className="grid gap-4 lg:grid-cols-2">
+          {forces.map((force) => (
+            <div className="grid content-start gap-2 rounded-lg border p-4" key={force.force_id}>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-semibold">{force.title}</h3>
+                <Badge variant="secondary">{force.direction} / {force.confidence}</Badge>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {force.core_section_ids.map((id) => <Badge key={id} variant="outline">{channelShortTitles[id] ?? id}</Badge>)}
+              </div>
+              <p className="text-sm">{force.summary}</p>
+              <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">伝達経路:</span> {force.transmission}</p>
+              <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">反証:</span> {force.counter_evidence}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {force.series.map((series) => <Badge key={series.series_id} variant="outline">{series.name} · {series.series_id}</Badge>)}
+              </div>
+              <SourceIds ids={force.source_ids} />
+            </div>
+          ))}
+        </div>
+        {interactions.length > 0 && (
+          <div className="grid gap-3">
+            {interactions.map((interaction, index) => (
+              <Alert key={`interaction-${index}`} role="note">
+                <CircleAlert />
+                <AlertTitle>相互作用 · {interaction.force_ids.join(' × ')}</AlertTitle>
+                <AlertDescription>{interaction.summary}<SourceIds ids={interaction.source_ids} /></AlertDescription>
+              </Alert>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function ScenarioCard({ scenario }: { scenario: MacroScenarioView }) {
   return (
     <div className="grid content-start gap-2 rounded-lg border p-4">
-      <div className="flex items-center gap-2"><h4 className="font-semibold uppercase">{scenario.case}</h4><Badge variant="secondary">{scenario.direction}</Badge></div>
+      <div className="flex items-center gap-2">
+        <h4 className="font-semibold uppercase">{scenario.case}</h4>
+        {scenario.probability != null && <Badge>{Math.round(scenario.probability * 100)}%</Badge>}
+        <Badge variant="secondary">{scenario.direction}</Badge>
+      </div>
       <p className="text-sm">{scenario.summary}</p>
       {scenario.conditions.length > 0 && <div><p className="text-xs font-medium">成立条件</p>{scenario.conditions.map((condition, index) => <p className="text-xs text-muted-foreground" key={`condition-${index}`}>{condition}</p>)}</div>}
       {scenario.scorecard.length > 0 && (
@@ -134,6 +196,31 @@ function ConnectionSection({ section }: { section: MacroConnectionSectionView })
             hint rather than folded into the summary. */}
         {section.research_priority_hints.map((hint, index) => <div key={`hint-${index}`}><Badge variant="outline">効く候補: {hint.applies_to}</Badge><p className="mt-1 text-sm">{hint.summary}</p><SourceIds ids={hint.source_ids} /></div>)}
       </div>
+      {section.bargain_topography && (
+        <div className="grid content-start gap-2 rounded-lg border p-4 lg:col-span-3">
+          <h3 className="text-sm font-semibold">バーゲン地形</h3>
+          <p className="text-sm">{section.bargain_topography.summary}</p>
+          <SourceIds ids={section.bargain_topography.source_ids} />
+        </div>
+      )}
+      {(section.estimate_caveats ?? []).length > 0 && (
+        <div className="grid content-start gap-3 rounded-lg border p-4 lg:col-span-3">
+          <h3 className="text-sm font-semibold">機械見積りへの注意</h3>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {(section.estimate_caveats ?? []).map((caveat, index) => (
+              <div key={`caveat-${index}`}>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{caveat.affected_component}</Badge>
+                  <Badge variant="secondary">{caveat.materiality}</Badge>
+                  <Badge variant="outline">効く候補: {caveat.applies_to}</Badge>
+                </div>
+                <p className="mt-1 text-sm">{caveat.summary}</p>
+                <SourceIds ids={caveat.source_ids} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {section.sector_tilts.length > 0 && (
         <div className="grid content-start gap-3 rounded-lg border p-4 lg:col-span-3">
           <h3 className="text-sm font-semibold">Sector tilt</h3>
@@ -182,6 +269,7 @@ export function MacroReportPage() {
         </CardHeader>
       </Card>
       {core.length === 0 && <Alert><CircleAlert /><AlertTitle>セクションを表示できません</AlertTitle><AlertDescription>この revision の core セクションが served view に含まれていません。view の再生成待ちの可能性があります。</AlertDescription></Alert>}
+      {data.synthesis && <SynthesisSection synthesis={data.synthesis} />}
       {core.map((section) => <CoreSection key={section.section_id} section={section} />)}
       {connection && <ConnectionSection section={connection} />}
     </main></>

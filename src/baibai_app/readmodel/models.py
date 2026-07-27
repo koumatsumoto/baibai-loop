@@ -398,10 +398,46 @@ class MacroScorecardConditionView(BaseModel):
 class MacroScenarioView(BaseModel):
     case: str
     direction: str
+    # Subjective weight on this case; None on revisions published before the field.
+    probability: float | None = None
     summary: str
     conditions: list[str]
     scorecard: list[MacroScorecardConditionView]
     economic_implications: list[str]
+    source_ids: list[str]
+
+
+class MacroDominantForceView(BaseModel):
+    force_id: str
+    title: str
+    summary: str
+    transmission: str
+    core_section_ids: list[str]
+    series: list[MacroSeriesReferenceView]
+    counter_evidence: str
+    direction: str
+    confidence: str
+    source_ids: list[str]
+
+
+class MacroForceInteractionView(BaseModel):
+    summary: str
+    force_ids: list[str]
+    source_ids: list[str]
+
+
+class MacroSynthesisView(BaseModel):
+    """The integrated layer: named cross-channel forces and how they combine."""
+
+    dominant_forces: list[MacroDominantForceView]
+    interactions: list[MacroForceInteractionView]
+
+
+class MacroEstimateCaveatView(BaseModel):
+    summary: str
+    applies_to: str
+    affected_component: str
+    materiality: str
     source_ids: list[str]
 
 
@@ -449,6 +485,9 @@ class MacroConnectionSectionView(BaseModel):
     research_priority_hints: list[MacroResearchPriorityHintView]
     sector_tilts: list[MacroSectorTiltView]
     sizing_cautions: list[MacroSizingCautionView]
+    # Absent on revisions published before the integrated layer.
+    bargain_topography: MacroFactSummaryView | None = None
+    estimate_caveats: list[MacroEstimateCaveatView] = []
 
 
 class MacroTriggerResultView(BaseModel):
@@ -480,6 +519,8 @@ class MacroContextView(BaseModel):
     summary: str
     age_days: int
     stale: bool
+    # Absent on revisions published before the integrated layer.
+    synthesis: MacroSynthesisView | None = None
     core: list[MacroCoreSectionView]
     connection: MacroConnectionSectionView
     # Absent when no indicator store could answer, which is a normal state for a
