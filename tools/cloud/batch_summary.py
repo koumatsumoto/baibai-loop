@@ -178,10 +178,10 @@ SUMMARY_INVALID_REASONS = (
     "delivery_in_batch_summary",
 )
 
-# Per-batch metric schema for the current monolithic batch: each batch_name maps
-# to its required metric keys and their exact scalar types. Splitting the batch
-# (#529) adds new batch_name entries here; the renderer and workflow summary are
-# unchanged.
+# Per-batch metric schema: each batch_name maps to its required metric keys and
+# their exact scalar types. A new logical batch is added as an entry here; the
+# renderer and the workflow summary stay unchanged, so the envelope does not
+# depend on how many processes produce the results.
 _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
     "screening": {
         "asof": str,
@@ -550,8 +550,8 @@ def _require_outcome_matches_batches(outcome: str, batches: Sequence[BatchResult
     The outcome is decided once at the end of the run while each status is
     decided inside its section, so the two can drift apart — and a drift that
     puts ``[OK]`` above a failed batch hides exactly the degradation the
-    notification exists to surface. Splitting the batch (#529) loosens that
-    coupling further, which is why the check lives in the schema.
+    notification exists to surface. The check lives in the schema so it holds for
+    any producer, however loosely the two decisions are coupled.
     """
 
     statuses = {batch.status for batch in batches}
