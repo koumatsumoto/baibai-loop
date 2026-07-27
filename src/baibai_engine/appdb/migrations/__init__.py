@@ -100,8 +100,10 @@ MIGRATIONS: tuple[Migration, ...] = (
                 CHECK (supersedes_id IS NULL OR supersedes_id <> packet_id)
             ) STRICT
             """,
-            "CREATE INDEX research_packet_ticker_idx "
-            "ON research_packet(ticker, as_of, published_at, packet_id)",
+            (
+                "CREATE INDEX research_packet_ticker_idx "
+                "ON research_packet(ticker, as_of, published_at, packet_id)"
+            ),
             """
             CREATE TABLE research_review (
                 review_id TEXT PRIMARY KEY,
@@ -110,8 +112,10 @@ MIGRATIONS: tuple[Migration, ...] = (
                 payload TEXT NOT NULL CHECK (json_valid(payload))
             ) STRICT
             """,
-            "CREATE INDEX research_review_packet_idx "
-            "ON research_review(packet_id, reviewed_at, review_id)",
+            (
+                "CREATE INDEX research_review_packet_idx "
+                "ON research_review(packet_id, reviewed_at, review_id)"
+            ),
             """
             CREATE TABLE holding_review (
                 holding_review_id TEXT PRIMARY KEY,
@@ -123,8 +127,10 @@ MIGRATIONS: tuple[Migration, ...] = (
                 CHECK (candidate_packet_id IS NULL OR candidate_packet_id <> packet_id)
             ) STRICT
             """,
-            "CREATE INDEX holding_review_ticker_idx "
-            "ON holding_review(ticker, as_of, holding_review_id)",
+            (
+                "CREATE INDEX holding_review_ticker_idx "
+                "ON holding_review(ticker, as_of, holding_review_id)"
+            ),
             "CREATE INDEX holding_review_packet_idx ON holding_review(packet_id)",
         ),
     ),
@@ -156,10 +162,14 @@ MIGRATIONS: tuple[Migration, ...] = (
                 )
             ) STRICT
             """,
-            "CREATE UNIQUE INDEX operation_session_one_active_idx "
-            "ON operation_session(status) WHERE status = 'active'",
-            "CREATE INDEX operation_session_kind_completed_idx "
-            "ON operation_session(session_kind, completed_at, operation_id)",
+            (
+                "CREATE UNIQUE INDEX operation_session_one_active_idx "
+                "ON operation_session(status) WHERE status = 'active'"
+            ),
+            (
+                "CREATE INDEX operation_session_kind_completed_idx "
+                "ON operation_session(session_kind, completed_at, operation_id)"
+            ),
             """
             CREATE TRIGGER operation_session_completed_no_update
             BEFORE UPDATE ON operation_session
@@ -225,10 +235,14 @@ MIGRATIONS: tuple[Migration, ...] = (
                 UNIQUE (occurred_at, same_instant_order)
             ) STRICT
             """,
-            "CREATE INDEX ledger_event_replay_idx "
-            "ON ledger_event(occurred_at, same_instant_order, append_seq)",
-            "CREATE INDEX ledger_event_proposal_idx "
-            "ON ledger_event(proposal_id) WHERE proposal_id IS NOT NULL",
+            (
+                "CREATE INDEX ledger_event_replay_idx "
+                "ON ledger_event(occurred_at, same_instant_order, append_seq)"
+            ),
+            (
+                "CREATE INDEX ledger_event_proposal_idx "
+                "ON ledger_event(proposal_id) WHERE proposal_id IS NOT NULL"
+            ),
             """
             CREATE TABLE ledger_market_price (
                 ticker TEXT PRIMARY KEY,
@@ -271,8 +285,10 @@ MIGRATIONS: tuple[Migration, ...] = (
                 CHECK (period_end_date >= period_start_date)
             ) STRICT
             """,
-            "CREATE INDEX portfolio_outcome_period_idx "
-            "ON portfolio_outcome(period_end_date, horizon, outcome_id)",
+            (
+                "CREATE INDEX portfolio_outcome_period_idx "
+                "ON portfolio_outcome(period_end_date, horizon, outcome_id)"
+            ),
         ),
     ),
     # Domain vocabulary: the per-security judgment artifact is the thesis, the OP3
@@ -299,8 +315,10 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE research_review RENAME TO thesis_review",
             "ALTER TABLE thesis_review RENAME COLUMN packet_id TO thesis_id",
             "DROP INDEX research_review_packet_idx",
-            "CREATE INDEX thesis_review_thesis_idx "
-            "ON thesis_review(thesis_id, reviewed_at, review_id)",
+            (
+                "CREATE INDEX thesis_review_thesis_idx "
+                "ON thesis_review(thesis_id, reviewed_at, review_id)"
+            ),
             """
             UPDATE thesis_review SET payload = json_remove(
                 json_insert(

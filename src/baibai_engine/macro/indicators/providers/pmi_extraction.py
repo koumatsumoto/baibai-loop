@@ -190,10 +190,14 @@ def _month_anchored(window: str, *, month: str) -> set[float]:
     patterns = (
         rf"(?P<value>{_VALUE})\s+(?:(?:in|for|during)\s+)?{month}\b",
         rf"\b{month}(?:['’]s)?\s+(?P<value>{_VALUE})\b",
-        rf"\b(?:{_MOVEMENT_VERBS})\b[^.\d]{{0,60}}?"
-        rf"\bin\s+{month}\s+to\s+{_RECORD_LEVEL}(?P<value>{_VALUE})\b",
-        rf"\b(?:{_STATING_VERBS}|came in|was)\s+in\s+line\s+with\s+the\s+"
-        rf"(?P<value>{_VALUE})\s+no[-\s]change\s+mark\s+(?:in|for|during)\s+{month}\b",
+        (
+            rf"\b(?:{_MOVEMENT_VERBS})\b[^.\d]{{0,60}}?"
+            rf"\bin\s+{month}\s+to\s+{_RECORD_LEVEL}(?P<value>{_VALUE})\b"
+        ),
+        (
+            rf"\b(?:{_STATING_VERBS}|came in|was)\s+in\s+line\s+with\s+the\s+"
+            rf"(?P<value>{_VALUE})\s+no[-\s]change\s+mark\s+(?:in|for|during)\s+{month}\b"
+        ),
     )
     return _matched_values(patterns, window)
 

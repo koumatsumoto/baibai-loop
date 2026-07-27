@@ -128,9 +128,11 @@ def test_migration_v10_rewrites_legacy_vocabulary_rows(tmp_path: Path) -> None:
                 "2026-07-02",
                 "packet-20260701-9999",
                 None,
-                '{"sources": {"ledger": {"entity_id": "portfolio-ledger"},'
-                ' "holding_packet": {"entity_id": "packet-20260701-9999"},'
-                ' "candidate_packet": null}}',
+                (
+                    '{"sources": {"ledger": {"entity_id": "portfolio-ledger"},'
+                    ' "holding_packet": {"entity_id": "packet-20260701-9999"},'
+                    ' "candidate_packet": null}}'
+                ),
             ),
         )
         connection.execute(

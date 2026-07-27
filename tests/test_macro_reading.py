@@ -311,9 +311,11 @@ def test_reading_rules_reject_a_series_overridden_twice(tmp_path: Path) -> None:
     [
         (
             1,
-            "    staleness_warn_days: 100\n"
-            "    publication_lag_days: 45\n"
-            "    staleness_margin_days: 7\n",
+            (
+                "    staleness_warn_days: 100\n"
+                "    publication_lag_days: 45\n"
+                "    staleness_margin_days: 7\n"
+            ),
             "",
             "schema_version 1 defaults.*cannot declare",
         ),
