@@ -7,6 +7,94 @@ export interface MetaView {
   batch: 'daily' | 'manual' | null
 }
 
+export type SystemStoreName = 'market' | 'runs' | 'macro' | 'baibai'
+
+export interface SystemStoreView {
+  store: SystemStoreName
+  exists: boolean
+  size_bytes: number | null
+  row_count: number | null
+  latest_date: string | null
+  updated_at: string | null
+}
+
+export interface SystemProviderView {
+  series_id: string
+  name: string
+  consecutive_failures: number
+  failing_since: string
+  last_error: string | null
+}
+
+export interface SystemView {
+  generated_at: string
+  batch: 'daily' | 'manual' | null
+  stores: SystemStoreView[]
+  failing_providers: SystemProviderView[]
+  provider_series_total: number
+}
+
+// The workflow's terminal summary, published to R2 by the daily batch. Absent
+// until the first run publishes one, and absent from the local API entirely.
+export type RunOutcome =
+  | 'succeeded'
+  | 'skipped_non_business_day'
+  | 'published_with_deferred_failure'
+  | 'failed'
+
+export type RunPublishState = 'not_generated' | 'generated' | 'upload_failed' | 'published'
+
+export interface RunErrorView {
+  code: string
+  stage: string
+  impact: 'failed' | 'degraded'
+  message: string
+}
+
+export interface RunBatchView {
+  batch_name: string
+  datasets: string[]
+  status: 'ok' | 'degraded' | 'failed' | 'skipped'
+  duration_seconds: number
+  metrics: Record<string, unknown>
+  errors: RunErrorView[]
+}
+
+export interface RunExecutionSummaryView {
+  schema_version: number
+  asof: string
+  outcome: RunOutcome
+  started_at: string
+  finished_at: string
+  duration_seconds: number
+  batches: RunBatchView[]
+  local_export: boolean
+}
+
+// Only the member matching `kind` is present; the other keys are absent, not null.
+export interface RunExecutionView {
+  kind: 'available' | 'not_started' | 'unavailable'
+  stage?: string
+  summary?: RunExecutionSummaryView
+  error?: RunErrorView
+}
+
+export interface WorkflowRunSummaryView {
+  schema_version: number
+  workflow: string
+  repository: string
+  trigger: string
+  run_attempt: string
+  run_url: string
+  asof: string | null
+  duration_seconds: number
+  overall_outcome: RunOutcome
+  publish_state: RunPublishState
+  execution: RunExecutionView
+  delivery: { status: string; detail: string | null }
+  workflow_errors: RunErrorView[]
+}
+
 export interface HoldingView {
   ticker: string
   company_name: string | null
@@ -137,8 +225,7 @@ export interface ScreeningRunView {
   run_at: string
   universe_size: number
   candidate_count: number
-  source_path: string
-  application_git_commit: string | null
+  run_revision_id: string
   stale: boolean
 }
 

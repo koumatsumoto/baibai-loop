@@ -75,6 +75,7 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "upload-serving",
         "deferred-report",
         "notify",
+        "upload-run-summary",
     ):
         assert step_id in steps_by_id, f"missing stable step id: {step_id}"
 
@@ -117,12 +118,32 @@ def test_uploads_precede_deferred_report_which_fires_on_exit_3(
     assert steps_by_id["deferred-report"]["if"] == "steps.batch.outputs.exit_code == '3'"
 
 
-def test_notify_is_the_single_final_point_running_unless_cancelled(
+def test_notify_is_the_single_notification_point_running_unless_cancelled(
     steps: list[dict], steps_by_id: dict[str, dict]
 ) -> None:
     ids = [step.get("id") for step in steps]
-    assert ids[-1] == "notify"
+    # Notification stays the last step that decides the run outcome; only the
+    # best-effort summary upload may follow it.
+    assert ids[-2:] == ["notify", "upload-run-summary"]
     assert "!cancelled()" in steps_by_id["notify"]["if"]
+
+
+def test_run_summary_upload_publishes_the_file_notify_wrote_without_changing_the_outcome(
+    steps: list[dict], steps_by_id: dict[str, dict]
+) -> None:
+    ids = [step.get("id") for step in steps]
+    assert ids.index("notify") < ids.index("upload-run-summary")
+    upload = steps_by_id["upload-run-summary"]
+    assert "!cancelled()" in upload["if"]
+    # Best-effort: publishing the record must not turn a delivered notification
+    # or a successful publish into a failed run.
+    assert upload["continue-on-error"] is True
+    assert "upload-run-summary" in upload["run"]
+
+    # The two steps must name the same file, or the upload silently publishes nothing.
+    notify_run = steps_by_id["notify"]["run"]
+    summary_path = notify_run.split("--output")[1].split()[0].strip('"')
+    assert summary_path in upload["run"]
 
 
 def test_webhook_secret_is_scoped_to_the_notify_step_alone(

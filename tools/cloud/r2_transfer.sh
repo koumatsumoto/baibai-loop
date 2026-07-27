@@ -162,8 +162,21 @@ upload_serving() {
   aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
 }
 
+upload_run_summary() {
+  # The workflow run summary lives outside `views/`, which `upload_serving`
+  # mirrors with `--delete`: a failed run publishes no export, so its record has
+  # to survive the next successful one. One object, always overwritten — the run
+  # timeline stays in Discord and the Actions history.
+  local summary_path="$1"
+  if [[ ! -f "${summary_path}" ]]; then
+    printf 'no workflow run summary to upload: %s\n' "${summary_path}" >&2
+    return 2
+  fi
+  aws_s3 cp "${summary_path}" "s3://${serving_bucket}/system/latest-run.json"
+}
+
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-macro|push-app|upload-serving DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -204,6 +217,10 @@ case "${1:-}" in
   upload-serving)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     upload_serving "$2"
+    ;;
+  upload-run-summary)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    upload_run_summary "$2"
     ;;
   *)
     usage

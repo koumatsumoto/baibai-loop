@@ -12,6 +12,7 @@ const ShortlistPage = lazy(() => import('./pages/ShortlistPage').then((module) =
 const MacroPage = lazy(() => import('./pages/MacroPage').then((module) => ({ default: module.MacroPage })))
 const MacroReportPage = lazy(() => import('./pages/MacroReportPage').then((module) => ({ default: module.MacroReportPage })))
 const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
+const SystemPage = lazy(() => import('./pages/SystemPage').then((module) => ({ default: module.SystemPage })))
 
 function RouteLoading() {
   return <LoadingPage label="Baibai App を読み込んでいます" shell={false} />
@@ -30,6 +31,7 @@ function App() {
               <Route path="/stocks" element={<StocksPage />} />
               <Route path="/stocks/shortlist" element={<ShortlistPage />} />
               <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
+              <Route path="/system" element={<SystemPage />} />
             </Routes>
           </Suspense>
         </PasswordGate>

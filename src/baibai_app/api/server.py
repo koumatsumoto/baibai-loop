@@ -22,6 +22,7 @@ from baibai_app.readmodel.builders import (
     build_screening,
     build_screening_history_run,
     build_security_detail,
+    build_system_view,
 )
 from baibai_app.readmodel.models import (
     DashboardView,
@@ -34,6 +35,7 @@ from baibai_app.readmodel.models import (
     ScreeningHistoryView,
     ScreeningView,
     SecurityDetailView,
+    SystemView,
 )
 from baibai_app.sources.factory import Sources, build_sources, load_macro_groups
 from baibai_engine.read_api import screening_run_asof_dates
@@ -155,6 +157,10 @@ def create_app(
     @app.get("/api/meta", response_model=MetaView)
     def meta(sources: _SourceDependency) -> MetaView:
         return build_meta(sources.meta)
+
+    @app.get("/api/system", response_model=SystemView)
+    def system(sources: _SourceDependency) -> SystemView:
+        return build_system_view(sources.system)
 
     @app.get("/api/securities/{ticker}", response_model=SecurityDetailView)
     def security_detail(

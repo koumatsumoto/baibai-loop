@@ -1,13 +1,49 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { Activity, ExternalLink, Settings } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type { MetaView } from '../api/types'
 import { BrandMark } from './BrandMark'
 import { FreshnessMeta } from './FreshnessMeta'
 import { Badge } from './ui/badge'
-import { NAV_TABS } from '../lib/nav'
+import { Button } from './ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu'
+import { ACTIONS_URL, NAV_TABS } from '../lib/nav'
 import { cn } from '../lib/utils'
+
+// Operational surfaces live behind the gear, apart from the judgment tabs: the
+// three tabs answer "what should I do", this menu answers "is the machinery ok".
+function DevMenu() {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button aria-label="開発メニュー" size="icon-sm" variant="ghost">
+          <Settings aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>開発</DropdownMenuLabel>
+        <DropdownMenuItem asChild>
+          <Link to="/system"><Activity aria-hidden="true" />システム状態</Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <a href={ACTIONS_URL} rel="noreferrer noopener" target="_blank">
+            <ExternalLink aria-hidden="true" />GitHub Actions
+          </a>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 export function AppShell() {
   const [meta, setMeta] = useState<MetaView | null>(null)
@@ -47,6 +83,7 @@ export function AppShell() {
         <div className="flex shrink-0 items-center gap-3">
           {meta !== null && <FreshnessMeta className="hidden border-r border-border/60 pr-3 lg:flex" deployedAt={import.meta.env.VITE_DEPLOYED_AT} meta={meta} />}
           <Badge className="hidden font-mono text-[10px] tracking-wider sm:inline-flex" variant="secondary">READ ONLY</Badge>
+          <DevMenu />
         </div>
       </div>
       {meta !== null && (

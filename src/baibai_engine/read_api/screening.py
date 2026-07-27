@@ -128,7 +128,6 @@ def _run_payload(run: object) -> dict[str, object]:
         "run_at": run.run_at,
         "universe_size": run.universe_size,
         "rules_ref": run.rules_ref,
-        "application_git_commit": run.application_git_commit,
         "payload": run.payload,
         "candidates": list(run.candidates),
     }

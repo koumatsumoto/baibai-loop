@@ -17,6 +17,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/select/<asof>.json` | 日次batch、削除しない |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
+| `baibai-serving` | `system/latest-run.json` | 日次batch、毎runで上書き（`views/`外なのでexportの再生成で消えない） |
 
 R2 lifecycle rule（31日削除）は`history/candidate-views/`へ追加する。旧形式の`history/candidates/` ruleは既存objectが31日で自然失効するまで残し、その後に削除する。Workerは旧prefixへ到達しない。
 
@@ -287,3 +288,26 @@ CLI 引数・log には出ない）。secret の実値を Git・issue・log へ�
 - 非営業日が先に来た場合 → reason 付き `[SKIPPED]`（no-publish）が届く。
 
 各 message の batch 名 / datasets / 件数 / 所要時間 / publish 状態 / run URL が正しいことを照合する。
+
+## システム状態の配信 — `views/system.json` と `system/latest-run.json`
+
+Baibai App の `/system`（ヘッダ歯車メニュー → システム状態）は、判断用 3 タブから運用状態を
+切り離して置く画面である。材料は 2 つで、更新される時点が違う。
+
+| object | 書く側 | 内容 | 失敗 run での更新 |
+| --- | --- | --- | --- |
+| `views/system.json` | `export_read_models.py` | 4 store の as-of / 行数 / サイズ、直近取得が失敗したままの系列と連続失敗数・失敗開始時刻 | されない（exportに到達しないため、最後にpublishされた時点のまま） |
+| `system/latest-run.json` | `cloud-daily-batch` の upload step | 通知と同じ `WorkflowRunSummary`（outcome / batch別結果 / error / run URL） | される |
+
+失敗した run は export を出さないので、`views/` の中だけでは batch の失敗が UI に届かない。
+`system/latest-run.json` は `views/` の外に置き、`upload-serving` の `--delete` 同期と
+lifecycle の対象外にして、次の成功 publish でも消えないようにする。upload は best-effort で、
+失敗しても run の outcome・通知の配送結果・publish 状態を変えない（GitHub Actions の log には残る）。
+
+`views/system.json` に載せるのは「今の読みを変えない運用状態」だけで、判断に影響する staleness
+（macro reading の stale、screening run の stale、store 読み取りエラー）は判断画面に残す。
+provider の取得健全性は両方に出るが役割が違う: `/macro` は「この読みは信用できるか」、`/system` は
+「どの provider をいつから直すべきか」を見る。
+
+run 履歴は 1 件だけ持つ。時系列は Discord `#batch-runs` と GitHub Actions の run 履歴が保持し、
+provider の「いつから失敗しているか」は indicator store の `provider_runs` から導出する。

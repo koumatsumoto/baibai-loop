@@ -160,3 +160,13 @@ jobs:
             --asof "$MANUAL_ASOF" \
             --run-started-at "${{ steps.smoke.outputs.started_at }}" \
             --output "$RUNNER_TEMP/workflow-run-summary.json"
+
+      # Publish the same summary the notification carries so the System page can
+      # show a run that failed before the export produced anything. Best-effort:
+      # this must not change the run's outcome, which the notification step and
+      # the failure policy above already decided.
+      - name: Upload run summary
+        id: upload-run-summary
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: tools/cloud/r2_transfer.sh upload-run-summary "$RUNNER_TEMP/workflow-run-summary.json"

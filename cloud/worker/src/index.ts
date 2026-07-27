@@ -98,6 +98,13 @@ function resolveRoute(url: URL): RouteResult {
       return view('operations.json')
     case '/api/meta':
       return view('meta.json')
+    case '/api/system':
+      return view('system.json')
+    case '/api/system/latest-run':
+      // Outside views/, which the daily export recreates from scratch: the run
+      // summary must survive a later successful publish, and it is the only
+      // record of a run that failed before the export produced anything.
+      return { kind: 'view', key: 'system/latest-run.json' }
     case '/api/macro':
       return resolveMacro(url.searchParams)
     case '/api/macro/reading':

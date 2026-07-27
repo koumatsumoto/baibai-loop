@@ -13,6 +13,7 @@ from baibai_app.sources.db_sources import (
     DbMacroSource,
     DbMetaSource,
     DbOperationsSource,
+    DbSystemSource,
 )
 from baibai_app.sources.protocols import (
     CandidatesSource,
@@ -82,6 +83,9 @@ from .models import (
     SecurityDetailView,
     ShortlistEntryView,
     ShortlistView,
+    SystemProviderView,
+    SystemStoreView,
+    SystemView,
     TaskView,
     ThesisDetailView,
     UpcomingEventView,
@@ -138,6 +142,60 @@ def build_meta(source: DbMetaSource, *, batch: MetaBatch | None = None) -> MetaV
         app_db_updated_at=source.app_db_updated_at(),
         batch=batch,
     )
+
+
+def build_system_view(
+    source: DbSystemSource,
+    *,
+    batch: MetaBatch | None = None,
+) -> SystemView:
+    """Report pipeline state: store depth, and which providers stopped answering.
+
+    A failing provider is reported with the run history behind it because the
+    latest-attempt status the macro reading already carries cannot say when the
+    silence started — and for a monthly series that gap is weeks wide.
+    """
+
+    names = macro_series_names()
+    last_errors = {
+        str(row["series_id"]): row["error_message"]
+        for row in source.fetch_health()
+        if row.get("error_message") is not None
+    }
+    application_updated_at = source.application_updated_at()
+    stores = [
+        SystemStoreView(
+            store=stats.store,
+            exists=stats.exists,
+            size_bytes=stats.size_bytes,
+            row_count=stats.row_count,
+            latest_date=stats.latest_date,
+            # Only the judgment store records its own write instants; the machine
+            # stores are dated by the data they hold.
+            updated_at=application_updated_at if stats.store == "baibai" else None,
+        )
+        for stats in source.stores()
+    ]
+    return SystemView(
+        generated_at=datetime.now(_JST),
+        batch=batch,
+        stores=stores,
+        failing_providers=[
+            SystemProviderView(
+                series_id=streak.series_id,
+                name=names.get(streak.series_id, streak.series_id),
+                consecutive_failures=streak.consecutive_failures,
+                failing_since=streak.failing_since,
+                last_error=_optional_str(last_errors.get(streak.series_id)),
+            )
+            for streak in source.failing_providers()
+        ],
+        provider_series_total=len(names),
+    )
+
+
+def _optional_str(value: object) -> str | None:
+    return None if value is None else str(value)
 
 
 def build_operations_view(source: DbOperationsSource) -> OperationsView:
@@ -294,7 +352,7 @@ def build_screening(
         # and keep the candidates table, selections, and shortlist join coherent.
         all_selections = candidates.selections()
         run_selections = (
-            [item for item in all_selections if str(item["run_revision_id"]) == run.source_path]
+            [item for item in all_selections if str(item["run_revision_id"]) == run.run_revision_id]
             if run is not None
             else []
         )
@@ -306,7 +364,7 @@ def build_screening(
                 run_selections = [
                     item
                     for item in all_selections
-                    if str(item["run_revision_id"]) == run.source_path
+                    if str(item["run_revision_id"]) == run.run_revision_id
                 ]
         selections = [_machine_selection_view(item) for item in run_selections]
         shortlists = [_shortlist_view(item) for item in candidates.shortlists()]
@@ -1031,8 +1089,7 @@ def _screening_run_view(run: CandidatesRun, *, today: date) -> ScreeningRunView:
         run_at=run.run_at,
         universe_size=run.universe_size,
         candidate_count=len(run.rows),
-        source_path=run.source_path,
-        application_git_commit=run.application_git_commit,
+        run_revision_id=run.run_revision_id,
         stale=run.asof_date <= today - _STALE_RUN_AGE,
     )
 
