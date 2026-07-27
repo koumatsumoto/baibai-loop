@@ -140,6 +140,9 @@ function Sparkline({ points }: { points: readonly MacroPointView[] }) {
         dataKey="value"
         dot={false}
         fill={`url(#${fillId})`}
+        // recharts fills an area at 0.6 by default, which would multiply the gradient's
+        // own stops; the gradient alone decides how the band fades.
+        fillOpacity={1}
         isAnimationActive={false}
         stroke="var(--chart-1)"
         strokeWidth={1.5}

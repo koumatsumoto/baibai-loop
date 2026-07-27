@@ -77,7 +77,6 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   // because a total says nothing about whether holding it has been worth anything.
   const pnl = totalUnrealizedPnl(data.holdings)
   const hasPnl = data.holdings.length > 0
-  const pnlChip = pnl.yen > 0 ? 'bg-profit' : pnl.yen < 0 ? 'bg-loss' : 'bg-muted-foreground'
 
   return (
     <Card className="overflow-hidden py-0 shadow-sm">
@@ -124,11 +123,13 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
             { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1', tone: 'plain' as const, sign: false },
             { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${formatPct(data.cash_pct)}`, color: 'bg-chart-2', tone: 'plain' as const, sign: false },
             { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3', tone: 'plain' as const, sign: false },
-            { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: pnlChip, tone: 'pnl' as const, sign: true },
+            { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: null, tone: 'pnl' as const, sign: true },
           ].map((metric) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-5 py-5 sm:px-6" key={metric.label}>
               <div className="flex min-w-0 items-center gap-3">
-                <span className={cn('size-2.5 rounded-sm', metric.color)} aria-hidden="true" />
+                {/* Only the ring's own slices get a swatch. P&L is not one of them, so it
+                    keeps the column's alignment without claiming a fourth segment. */}
+                <span className={cn('size-2.5 shrink-0 rounded-sm', metric.color)} aria-hidden="true" />
                 <div>
                   <p className="text-sm font-medium">{metric.label}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{metric.detail}</p>
@@ -429,6 +430,9 @@ function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
               <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {/* The benchmark is a market index, but here it exists only to be read against
+                  the portfolio's own return — the pair is one comparison, so both wear the
+                  money colors rather than splitting across two systems. */}
               <span>ポート TWR <PctBadge className="text-xs" tone="pnl" value={item.portfolio_twr_pct} /></span>
               <span>ベンチマーク <PctBadge className="text-xs" tone="pnl" value={item.benchmark_cumulative_return_pct} /></span>
             </div>

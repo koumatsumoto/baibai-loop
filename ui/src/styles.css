@@ -139,7 +139,7 @@
        nearby. Pulling it away from amber would only make a caution look like an error. */
     --positive: oklch(0.527 0.154 150.069);
     --destructive: oklch(0.577 0.245 27.325);
-    --profit: oklch(0.56 0.14 80);
+    --profit: oklch(0.56 0.115 80);
     --loss: oklch(0.52 0.14 250);
     --warning: oklch(0.55 0.135 58);
     --warning-foreground: oklch(0.279 0.077 45.635);
