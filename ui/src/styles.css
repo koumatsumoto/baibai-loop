@@ -27,7 +27,6 @@
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
     --font-mono: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
-    --color-brand-teal: var(--brand-teal);
     --color-brand-green: var(--brand-green);
     --color-brand-lime: var(--brand-lime);
     --color-primary-display: var(--primary-display);
@@ -35,9 +34,6 @@
     --color-primary-hover: var(--primary-hover-color);
     --color-primary-soft: var(--primary-soft);
     --color-accent-display: var(--accent-display);
-    --color-accent-action: var(--accent-action);
-    --color-accent-hover: var(--accent-hover);
-    --color-accent-soft: var(--accent-soft);
     --color-surface: var(--surface);
     --color-surface-subtle: var(--surface-subtle);
     --color-border-strong: var(--border-strong);
@@ -89,19 +85,19 @@
 }
 
 :root {
-    /* Raw brand palette: keep vivid colors small and intentional in the UI. */
-    --brand-teal: #0db79a;
+    /* The mark's three colors, each with one job: green carries interaction, lime is
+       the brand's face, gold marks outcomes. Both lime and gold are measured from
+       ui/brand/logo.png, so `tools/generate_brand_assets.py` reports the values that
+       belong here. Lime is too light to read as text or a control surface — it stays
+       display-only, and anything set over it uses --text-primary. */
     --brand-green: #12b76a;
-    --brand-lime: #95d814;
+    --brand-lime: #d9ef37;
     --primary-display: var(--brand-green);
     --primary-action: #008755;
     --primary-hover: #006b43;
     --primary-hover-color: var(--primary-hover);
     --primary-soft: #e8faf0;
-    --accent-display: #fb5429;
-    --accent-action: #db3b14;
-    --accent-hover: #b62d0c;
-    --accent-soft: #fff0eb;
+    --accent-display: #feae00;
 
     /* Neutral palette carries the layout; brand color carries interaction. */
     --canvas: #f8faf9;
@@ -127,18 +123,22 @@
     --muted-foreground: var(--text-secondary);
     --accent: var(--primary-soft);
     --accent-foreground: var(--text-primary);
-    /* Market direction and status stay independent from brand/accent colors. */
+    /* Market direction and status stay independent from brand/accent colors. Status is
+       always paired with an icon or a label, which is what keeps warning readable next
+       to the gold accent: no token carries a state on color alone. */
     --destructive: oklch(0.577 0.245 27.325);
     --positive: oklch(0.527 0.154 150.069);
-    --warning: oklch(0.666 0.179 58.318);
+    --warning: oklch(0.55 0.135 58);
     --warning-foreground: oklch(0.279 0.077 45.635);
     --warning-surface: oklch(0.987 0.022 95.277);
     --input: var(--border-strong);
-    --ring: var(--primary-display);
-    --chart-1: var(--brand-teal);
-    --chart-2: var(--brand-lime);
+    /* Focus is drawn as an opaque border plus a translucent halo; the border carries
+       the contrast, so the ring uses the action green rather than the lighter display. */
+    --ring: var(--primary-action);
+    --chart-1: var(--primary-action);
+    --chart-2: #e89a00;
     --chart-3: var(--text-tertiary);
-    --chart-4: var(--accent-display);
+    --chart-4: #84ac1e;
     --chart-5: var(--brand-green);
     --radius: 0.625rem;
     --sidebar: var(--surface-subtle);
