@@ -135,6 +135,14 @@ jobs:
         if: steps.batch.outputs.exit_code == '3'
         run: exit 3
 
+      # `cancelled()` is a status-check function: it is only evaluated in an `if`
+      # conditional, and interpolating it into a `run:` block makes the whole
+      # workflow file invalid. Capture the state as a step output instead.
+      - name: Record cancellation
+        id: cancellation
+        if: ${{ cancelled() }}
+        run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
+
       # Single notification point. Runs once for every terminal state after all
       # prior step outcomes are known. `always()` rather than `!cancelled()`:
       # GitHub reports a `timeout-minutes` expiry as a *cancellation*, and a hung
@@ -163,7 +171,7 @@ jobs:
             --upload-serving-outcome "${{ steps.upload-serving.outcome }}" \
             --asof "$MANUAL_ASOF" \
             --run-started-at "${{ steps.smoke.outputs.started_at }}" \
-            --cancelled "${{ cancelled() }}" \
+            --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}" \
             --output "$RUNNER_TEMP/workflow-run-summary.json"
 
       # Publish the same summary the notification carries so the System page can

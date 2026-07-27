@@ -43,10 +43,10 @@ class CloudDailyBatchWorkflowTests(unittest.TestCase):
 # --- notification wiring contract -----------------------------------------
 #
 # These pin the workflow *wiring* that makes the Discord notification correct:
-# stable step ids, the single ``!cancelled()`` notification point, the webhook
-# secret scoped to that step alone, batch outputs finalized before a fatal exit,
-# and the step ordering the decision table relies on. The decision semantics
-# themselves live in notify_discord and are unit-tested there.
+# stable step ids, the single ``always()`` notification point, the webhook secret
+# scoped to that step alone, batch outputs finalized before a fatal exit, and the
+# step ordering the decision table relies on. The decision semantics themselves
+# live in notify_discord and are unit-tested there.
 
 
 @pytest.fixture(scope="module")
@@ -74,6 +74,7 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "upload-machine",
         "upload-serving",
         "deferred-report",
+        "cancellation",
         "notify",
         "upload-run-summary",
     ):
@@ -129,7 +130,20 @@ def test_notify_is_the_single_notification_point_running_on_every_terminal_state
     # as a cancellation, so `!cancelled()` silently skips the notification for a
     # hung batch — the failure this workflow most needs to report.
     assert steps_by_id["notify"]["if"] == "${{ always() }}"
-    assert "cancelled()" in steps_by_id["notify"]["run"]
+    # The cancellation state still reaches the notifier, via the step output.
+    assert "steps.cancellation.outputs.cancelled" in steps_by_id["notify"]["run"]
+    assert steps_by_id["cancellation"]["if"] == "${{ cancelled() }}"
+
+
+def test_no_run_block_calls_a_status_check_function(steps: list[dict]) -> None:
+    # success() / failure() / cancelled() / always() are only evaluated in an `if`
+    # conditional. Interpolating one into `run:` makes the whole workflow file
+    # invalid, which GitHub reports as a failed run with no step output at all —
+    # a shape that YAML parsing alone cannot catch.
+    for step in steps:
+        run = step.get("run", "")
+        for function in ("success()", "failure()", "cancelled()", "always()"):
+            assert function not in run, f"{step.get('name')}: {function} in run:"
 
 
 def test_notify_step_name_keeps_the_channel_out_of_a_yaml_comment(
