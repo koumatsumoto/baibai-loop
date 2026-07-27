@@ -80,6 +80,40 @@ function relativeLuminance({ red, green, blue }: Rgb): number {
   return 0.2126 * srgbToLinear(red) + 0.7152 * srgbToLinear(green) + 0.0722 * srgbToLinear(blue)
 }
 
+interface Oklab {
+  readonly lightness: number
+  readonly a: number
+  readonly b: number
+  readonly chroma: number
+  readonly hue: number
+}
+
+// Perceptual coordinates, where equal distances look equally different. Hex arithmetic
+// does not: #9f6800 and #b64e10 differ by little in RGB and are plainly two colors.
+function oklab({ red, green, blue }: Rgb): Oklab {
+  const r = srgbToLinear(red)
+  const g = srgbToLinear(green)
+  const bl = srgbToLinear(blue)
+  const long = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl)
+  const medium = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl)
+  const short = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl)
+  const a = 1.9779984951 * long - 2.428592205 * medium + 0.4505937099 * short
+  const b = 0.0259040371 * long + 0.7827717662 * medium - 0.808675766 * short
+  return {
+    lightness: 0.2104542553 * long + 0.793617785 * medium - 0.0040720468 * short,
+    a,
+    b,
+    chroma: Math.hypot(a, b),
+    hue: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360,
+  }
+}
+
+function perceptualDistance(first: string, second: string): number {
+  const one = oklab(parseColor(first))
+  const two = oklab(parseColor(second))
+  return Math.hypot(one.lightness - two.lightness, one.a - two.a, one.b - two.b) * 100
+}
+
 function contrastRatio(foreground: string, background: string): number {
   const first = relativeLuminance(parseColor(foreground))
   const second = relativeLuminance(parseColor(background))
@@ -134,6 +168,8 @@ describe('brand palette', () => {
     ['--warning', '--surface', 4.5],
     ['--positive', '--surface', 4.5],
     ['--destructive', '--surface', 4.5],
+    ['--profit', '--surface', 4.5],
+    ['--loss', '--surface', 4.5],
     ['--text-secondary', '--canvas', 4.5],
     ['--ring', '--canvas', 3],
     ['--chart-1', '--surface', 3],
@@ -143,10 +179,35 @@ describe('brand palette', () => {
   })
 
   it('keeps status colors independent from brand and accent tokens', () => {
-    for (const token of ['--positive', '--warning', '--destructive']) {
+    for (const token of ['--positive', '--warning', '--destructive', '--profit', '--loss']) {
       const declaration = tokens.get(token)
       expect(declaration).toBeDefined()
       expect(declaration).not.toMatch(/var\(--(?:brand|accent)/)
+    }
+  })
+
+  // The four colors a bare number can wear. Two of them answer "which way did it move"
+  // and two answer "did it make money", and a reader tells which question a number is
+  // answering from its color alone — so every pair has to be far apart. Warning is absent
+  // on purpose: it only ever dresses a badge or a banner that states its own meaning.
+  it.each([
+    ['--positive', '--destructive'],
+    ['--positive', '--profit'],
+    ['--positive', '--loss'],
+    ['--destructive', '--profit'],
+    ['--destructive', '--loss'],
+    ['--profit', '--loss'],
+  ])('separates %s from %s', (first, second) => {
+    expect(perceptualDistance(tokenValue(first), tokenValue(second))).toBeGreaterThanOrEqual(12)
+  })
+
+  // Charts stay in the green family so gold keeps meaning profit wherever it shows up.
+  it('leaves gold and blue out of the chart series', () => {
+    for (const token of ['--chart-1', '--chart-2', '--chart-3']) {
+      const { hue, chroma } = oklab(parseColor(tokenValue(token)))
+      const isNeutral = chroma < 0.03
+      const isGreen = hue >= 100 && hue <= 190
+      expect(isNeutral || isGreen).toBe(true)
     }
   })
 })

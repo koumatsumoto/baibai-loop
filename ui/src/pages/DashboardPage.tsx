@@ -29,7 +29,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDate, formatPct, formatYen } from '../lib/format'
-import { totalUnrealizedPnl } from '../lib/portfolio'
+import { pnlTone, totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
 const allocationConfig = {
@@ -73,14 +73,20 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
     { key: 'reserved', name: '予約', value: Math.max(data.reserved_cash_yen ?? 0, 0), fill: 'var(--color-reserved)' },
   ]
   const hasAllocation = allocation.some((item) => item.value > 0)
+  // What the capital is split into, and what it has earned so far: the card answers both,
+  // because a total says nothing about whether holding it has been worth anything.
+  const pnl = totalUnrealizedPnl(data.holdings)
+  const hasPnl = data.holdings.length > 0
+  const pnlText = pnlTone(pnl.yen)
+  const pnlChip = pnl.yen > 0 ? 'bg-profit' : pnl.yen < 0 ? 'bg-loss' : 'bg-muted-foreground'
 
   return (
     <Card className="overflow-hidden py-0 shadow-sm">
       <div className="grid min-w-0 lg:grid-cols-[minmax(320px,0.8fr)_1.2fr]">
         <div className="min-w-0 border-b p-5 lg:border-r lg:border-b-0 sm:p-6">
           <CardHeader className="px-0 pb-2">
-            <CardTitle className="text-base">資産配分</CardTitle>
-            <CardDescription>現在の保有株式・購入余力・予約</CardDescription>
+            <CardTitle className="text-base">資産と損益</CardTitle>
+            <CardDescription>保有株式・購入余力・予約の内訳と評価損益</CardDescription>
           </CardHeader>
           <div className="relative mx-auto h-[230px] w-full max-w-[360px]">
             {hasAllocation ? (
@@ -104,6 +110,12 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
               <div className="pointer-events-none absolute inset-0 grid place-content-center text-center">
                 <span className="text-xs text-muted-foreground">総資産</span>
                 <YenAmount className="mt-1 text-lg font-semibold tracking-tight" value={data.total_capital_yen} />
+                {hasPnl && (
+                  <span className={cn('mt-1.5 flex items-baseline justify-center gap-1.5 text-xs font-medium', pnlText)}>
+                    <YenAmount sign value={pnl.yen} />
+                    <PctBadge className="text-[11px]" tone="pnl" value={pnl.pct} />
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -111,10 +123,11 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
 
         <div className="grid min-w-0 content-center divide-y">
           {[
-            { label: '総資産', value: data.total_capital_yen, detail: `${data.holdings.length} 銘柄を保有`, color: 'bg-foreground' },
-            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1' },
-            { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${formatPct(data.cash_pct)}`, color: 'bg-chart-2' },
-            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3' },
+            { label: '総資産', value: data.total_capital_yen, detail: `${data.holdings.length} 銘柄を保有`, color: 'bg-foreground', tone: '', sign: false },
+            { label: '保有株式', value: data.holdings_market_value_yen, detail: data.deployed_pct === null ? '評価額' : `総資産の ${formatPct(data.deployed_pct)}`, color: 'bg-chart-1', tone: '', sign: false },
+            { label: '購入余力', value: data.available_cash_yen, detail: data.cash_pct === null ? '利用可能な現金' : `総資産の ${formatPct(data.cash_pct)}`, color: 'bg-chart-2', tone: '', sign: false },
+            { label: '予約', value: data.reserved_cash_yen, detail: data.reserved_pct === null ? '確保済みの現金' : `総資産の ${formatPct(data.reserved_pct)}`, color: 'bg-chart-3', tone: '', sign: false },
+            { label: '評価損益', value: hasPnl ? pnl.yen : null, detail: pnl.pct === null ? '取得原価に対する損益' : `取得原価比 ${formatPct(pnl.pct, { sign: true })}`, color: pnlChip, tone: pnlText, sign: true },
           ].map((metric) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-5 py-5 sm:px-6" key={metric.label}>
               <div className="flex min-w-0 items-center gap-3">
@@ -124,7 +137,7 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
                   <p className="mt-0.5 text-xs text-muted-foreground">{metric.detail}</p>
                 </div>
               </div>
-              <YenAmount className="shrink-0 text-sm font-semibold tracking-tight sm:text-base" value={metric.value} />
+              <YenAmount className={cn('shrink-0 text-sm font-semibold tracking-tight sm:text-base', metric.tone)} sign={metric.sign} value={metric.value} />
             </div>
           ))}
         </div>
@@ -197,7 +210,6 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
     return values.length === 1 ? values[0] : null
   }, [holdings])
   const unrealizedPnl = useMemo(() => totalUnrealizedPnl(holdings), [holdings])
-  const pnlTone = unrealizedPnl.yen > 0 ? 'text-positive' : unrealizedPnl.yen < 0 ? 'text-destructive' : 'text-muted-foreground'
 
   return (
     <Card className="gap-0 overflow-hidden py-0 shadow-sm">
@@ -215,10 +227,10 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
           ) : (
             <span className="text-right text-xs text-muted-foreground">価格基準は銘柄ごとに異なります</span>
           )}
-          <div className={cn('flex flex-wrap items-baseline justify-end gap-x-2 text-xs', pnlTone)}>
+          <div className={cn('flex flex-wrap items-baseline justify-end gap-x-2 text-xs', pnlTone(unrealizedPnl.yen))}>
             <span className="text-muted-foreground">評価損益 合計</span>
             <YenAmount className="font-semibold" sign value={unrealizedPnl.yen} />
-            <PctBadge className="text-xs" value={unrealizedPnl.pct} />
+            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
           </div>
         </div>
       </CardHeader>
@@ -238,7 +250,6 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
         <TableBody>
           {holdings.map((holding) => {
             const averageCostYen = holding.quantity === 0 ? null : holding.deployed_cost_yen / holding.quantity
-            const pnlTone = holding.unrealized_pnl_yen > 0 ? 'text-positive' : holding.unrealized_pnl_yen < 0 ? 'text-destructive' : 'text-muted-foreground'
             return (
               <TableRow key={holding.ticker}>
                 <TableCell className="pl-5 sm:pl-6">
@@ -254,9 +265,9 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
                 </TableCell>
                 <TableCell className="text-right">
                   <YenAmount className="text-sm font-medium" value={holding.market_value_yen} />
-                  <span className={cn('mt-1 flex items-center justify-end gap-2 text-xs', pnlTone)}>
+                  <span className={cn('mt-1 flex items-center justify-end gap-2 text-xs', pnlTone(holding.unrealized_pnl_yen))}>
                     <YenAmount sign value={holding.unrealized_pnl_yen} />
-                    <PctBadge className="text-xs" value={holding.unrealized_pnl_pct} />
+                    <PctBadge className="text-xs" tone="pnl" value={holding.unrealized_pnl_pct} />
                   </span>
                 </TableCell>
                 <TableCell className="text-right">
@@ -421,8 +432,8 @@ function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
               <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-              <span>ポート TWR <PctBadge className="text-xs" value={item.portfolio_twr_pct} /></span>
-              <span>ベンチマーク <PctBadge className="text-xs" value={item.benchmark_cumulative_return_pct} /></span>
+              <span>ポート TWR <PctBadge className="text-xs" tone="pnl" value={item.portfolio_twr_pct} /></span>
+              <span>ベンチマーク <PctBadge className="text-xs" tone="pnl" value={item.benchmark_cumulative_return_pct} /></span>
             </div>
             {item.reason && <p className="text-xs text-muted-foreground">{item.reason}</p>}
           </div>
