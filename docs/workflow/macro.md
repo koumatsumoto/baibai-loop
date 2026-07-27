@@ -1,6 +1,6 @@
 ---
 title: "Workflow — macro analysis"
-summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + connection 積立ループ接続 1）を書く。"
+summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + synthesis 統合評価 + connection 積立ループ接続）を書く。"
 doc_type: workflow
 status: active
 last_reviewed: 2026-07-25
@@ -170,18 +170,31 @@ uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
 uv run baibai-engine macro context show --latest --asof 2026-07-19
 ```
 
-レポートは **1 種類だけ**で、常に下記の深度契約を満たす full 深度で書く。軽い事実確認のための軽量版は持たない（その用途は §② が毎営業日 機械で果たす）。
+レポートは **1 種類だけ**で、常に下記の深度契約を満たす full 深度で書く。軽い事実確認のための軽量版は持たない（その用途は §② が毎営業日 機械で果たす）。レポートの中心的な価値は **統合**にある: チャネル別の評価を並べるだけでは投資戦略の土台にならないため、複数チャネルを横断する支配的な力（synthesis）・確率付きシナリオ・機械見積りの歪み補正（estimate caveats）・バーゲン地形を、後述の機械契約と publish gate で必須にしている。
 
 **作成のきっかけは人間の判断だけ**である。定例義務・monitoring 発火時の更新義務・賞味期限の宣言は持たない。推奨リズムは (a) 米雇用統計の翌週、(b) スポットの資産運用判断の前、(c) opportunity cycle（OP3）の前で head が古いとき、の 3 つで、書かない月があっても壊れるものは無い。鮮度の判断は読む側が持つ（後述の consumer 側鮮度規則）。
 
-### 2 部構造：core（環境評価）と connection（積立ループ接続）
+### 3 層構成：core（環境評価）・synthesis（統合評価）・connection（積立ループ接続）
 
-レポートは **core 10 セクション + connection 1 セクション** で構成する。core は use-case agnostic な環境評価であり、日本株積立ループ固有の語彙（sector tilt・research 優先度・sizing caution）を持たない。connection はそれらを 1 か所へ隔離する。
+レポートは **core 10 セクション + synthesis + connection 1 セクション** で構成する。core は use-case agnostic な環境評価（チャネル別の evidence 層）であり、日本株積立ループ固有の語彙（sector tilt・research 優先度・sizing caution）を持たない。synthesis は core の上に載る統合層で、やはり use-case agnostic である。connection はループ固有の語彙を 1 か所へ隔離する。読み手の順は summary → synthesis → core → connection であり、executive な統合が evidence より先に来る。
 
 この分離は書き手の注意ではなく **参照方向の機械契約** で守る：connection が引用できる series は core が引用済みのものだけで、connection は依拠する core セクション（その series を実際に引用しているセクション）を `core_section_ids` で明示する。core 側へ sector tilt / research 優先度ヒント / sizing caution を書いた draft は schema が拒否する。series 以外の input（`screening market-snapshot` の市場内部やループ固有の記事）は connection が自分の入力として持ってよい——バーゲン地形は connection の担当であり、core を日本株ループの語彙で汚さないためである。ただし **prose は機械では縛れない**（core の judgment に行動指示を書き込むことは schema では止まらない）ので、そこは skill の敵対的 self-check が受け持つ。core が単体で完結していることの構造的な証明になり、リポジトリ外のスポット資産運用判断の材料としてもそのまま読める。
 
+### synthesis：支配的な力と相互作用
+
+synthesis は「今の市場を動かしているのは何か」を 2〜5 件の **dominant force** として名指しし、力ごとに機序（`summary`）・伝達経路（`transmission`）・**反証（`counter_evidence`）**・方向・確度を書く。力は定義により経路横断である——1 つのチャネルに閉じる話はそのセクションの judgment であって力ではない。これも参照方向の機械契約で守る：
+
+- 各 force は伝達チャネル 7 セクション（`rates_policy` / `growth_demand` / `inflation_costs` / `liquidity_credit` / `fx` / `japan` / `valuation`）のうち **2 つ以上**を `core_section_ids` で名指しする（regime_summary・risk_environment・monitoring は統合・決定の層でありチャネルではないので名指せない）
+- force が引用できる series は、**名指ししたセクションが引用済みのものだけ**。series ごとに正常取得した input の引用も要る（セクションと同じ規律）
+- `interactions` は力同士が compound / offset する関係を最低 1 件書く。宣言済みの force を 2 件以上 `force_ids` で名指しする（金利と円が同時に極値なら、反転局面で同時に痛む——単独の力の読みでは見えない joint risk がここに載る）
+
+force の候補は §② reading の flags・|z| 極値・percentile 端・トレンド反転を束ね、§④ の 8 分析レンズと突き合わせて立てる。1 つの力を支持する事実と反証する事実の両方を一次情報で集めてから書く。
+
+### セクション表と共通 field
+
 | 部 | 順 | セクション（`section_id`） | 確認するfact | judgmentと接続 |
 | --- | --- | --- | --- | --- |
+| synthesis | — | 統合評価（`synthesis`） | core が引用済みの series のみ | 支配的な力 2〜5 件（機序・伝達経路・反証・方向・確度）と力同士の相互作用。各力は伝達チャネル 2 つ以上を名指しする |
 | core | 1 | レジーム要約（`regime_summary`） | 成長・インフレ・金融条件の水準と方向、比較可能な時点からの変化 | 成長×インフレ×金融条件の共通座標で現局面を定め、以降の読み順を示す。前回 scorecard の採点結果を接続する |
 | core | 2 | 金利・金融政策（`rates_policy`） | 政策金利、イールドカーブ、実質金利、主要中銀の方向 | discount rate経路とmaterial deltaを示す |
 | core | 3 | 景気・需要（`growth_demand`） | PMI、雇用、消費、生産、景気breadth | 需要経路への接続を示す |
@@ -190,9 +203,9 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 | core | 6 | 為替（`fx`） | USD/JPY、金利差、実質実効為替 | 円水準の両側リスクを非対称ごと示す |
 | core | 7 | 日本（`japan`） | BOJ政策、国内賃金物価、鉱工業生産、海外投資家フロー、日本の需要fact | 日本経済の需要・費用・為替感応度への接続を示す |
 | core | 8 | バリュエーション（`valuation`） | 米 ERP / CAPE、日本 ERP（市場全体PERまたは益回り − JGB 10y）、金、BTC | 各資産の相対的な位置を示す |
-| core | 9 | リスク選好環境の評価とシナリオ（`risk_environment`） | セクション2〜8を支持・反証する系列 | 攻め／守りどちらの環境かを `stance`・確度・**反証条件**付きで評価し、base / bear / bull を scorecard 条件付きで置く |
+| core | 9 | リスク選好環境の評価とシナリオ（`risk_environment`） | セクション2〜8を支持・反証する系列 | 攻め／守りどちらの環境かを `stance`・確度・**反証条件**付きで評価し、base / bear / bull を **確率**と scorecard 条件付きで置く |
 | core | 10 | 監視ポイント（`monitoring`） | 次の公表・会合と観測条件 | 何が出たらどの見方を変えるかを明記し、機械で測れる条件は `machine_conditions` に置く |
-| connection | 11 | 日本株積立ループ接続（`japan_equity_loop`） | core が引用済みの series のみ | research 優先度ヒント（効く候補タイプを `applies_to` で判別可能に）、sector tilt、sizing caution、バーゲン地形 |
+| connection | 11 | 日本株積立ループ接続（`japan_equity_loop`） | core が引用済みの series のみ | research 優先度ヒント（効く候補タイプを `applies_to` で判別可能に）、sector tilt、sizing caution、**バーゲン地形（`bargain_topography`）**、**機械見積りの歪み補正（`estimate_caveats`）** |
 
 共通 field：
 
@@ -203,7 +216,11 @@ uv run baibai-engine macro context show --latest --asof 2026-07-19
 - `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する。`reading_asof` は as_of より未来でも 7 日より古くてもならず（reading は任意の as_of で再計算できるので、レポートは自分の as_of の reading を引く）、`rules_revision` は `method/macro-reading/` に実在する revision でなければ publish されない
 - core の各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ。connection セクションは`economic_connection`を持たず、代わりに`core_section_ids`とループ固有の項目を持つ
 - `material_deltas`：core セクション2〜8の判断として置く。channel / direction / materiality / used_forを持ち、レポート全体で最低1つ必要
+- `synthesis`：dominant_forces 2〜5 件 + interactions 1 件以上。§synthesis の参照方向契約に従う。**publish の要件**
+- `probability`：セクション9の base / bear / bull に 1 つずつ置く主観ウェイト。0.05 刻み・各 [0.05, 0.90]・3 件合計 1.00（検証は整数化算術で決定論）。**publish の要件**。確率は「見立ての強さの明示」であり、優位性の数値・統計的有意性・sizing 入力のいずれでもない（§誠実性）。次回以降のレポートが settled scorecard と突き合わせることで、読みの較正データが蓄積される
 - `sizing_cautions` / `sector_tilts` / `research_priority_hints`：connection セクションだけに置く。research 優先度ヒントは 1 件以上必須（着手順位を渡すことがこのセクションの存在理由）、sector tilt と sizing caution は該当が無ければ空でよい（core が支持しない tilt を埋めるために書かせない）
+- `bargain_topography`：connection に必須。「この局面でミスプライスがどこに・なぜ出やすいか」を、`screening market-snapshot` 由来の machine snapshot input（`ScorecardSnapshotInput` ではない `MachineSnapshotInput`）を source に含めて書く。**外部記事の相場観の転写では publish されない**——自前の breadth / regime / 業種騰落の計測に接地させるためである（2 件目以降のレポートは前回 scorecard の snapshot 引用を義務として持つため、型と command を絞らない gate は常時充足になってしまう）
+- `estimate_caveats`：connection に 1 件以上必須。今の環境が機械見積りをどの向きに歪めるかを、`affected_component`（`fv_anchor` / `reversion` / `carry` / `resilience` — E[r] 実装の成分語彙）と `applies_to`（効く候補タイプの判別）付きで書く。歪みが小さいならその旨を materiality: low で正直に書く（「歪みゼロ」の主張のほうが立証が重い）。research はこの caveat を機械値の消化時に参照する
 
 各`series_id`はaliasではなくseries定義のcanonical IDを使って`inputs.indicator_series`にも置き、各要約・判断・接続の`source_ids`をinputへ結ぶ。series定義にないID、inputにないseries参照、正常取得した同系列inputを引用しないセクション、failed inputを引用する判断はpublishされない。変化がmaterialでないセクションも省略せず、確認したfactと「見方を維持する条件」を記す。
 
@@ -215,10 +232,12 @@ publish 済み revision は immutable なので、検証は**参照先が動く�
 
 レポートは銘柄選定とスポット判断のリスクリワード判断の土台になるため、次の深度契約を常に満たす。
 
+- **統合が最上位の契約**: 支配的な力（synthesis）は、reading の極値・flags・トレンド反転を束ねて名指しした 2〜5 件で、各力が伝達チャネル 2 つ以上に実際に波及していること。力ごとに支持する一次情報と**反証する一次情報の両方**を読んでから書く。相互作用（力の同時成立が生む joint risk）を最低 1 件書く。
+- **焦点 fact 規律**: 各セクションの fact_summary は「判断を駆動する焦点 fact」（1 fact = 1 つの経済的観察）を先頭に置き、セクション全 series の座標（値・percentile・Δ）の網羅転記は**末尾の座標 fact 1 件に隔離**する。焦点が数値の壁に埋もれたレポートは統合の失敗であり、網羅性は reading snapshot の引用と UI の一覧が担う。
 - **テーマ被覆**: 金利・政策 / インフレ・コスト / 需要・雇用 / 為替・流動性・credit / 日本の政策・金利 / 日本の需要 / energy・地政学・通商 / 市場内部・バリュエーション の8象限すべてにfactを置く。`inputs.articles`はTier-1中心に15本以上で、**数えるのは外部記事だけ**（`inputs.machine_snapshots` の自前出力と `inputs.reading_snapshots` は本数に数えない。自前出力を数えると外部の一次情報を集めた量を自分の計算で嵩上げできてしまう）。
 - **日本の需要fact最低ライン**: セクション3または7に、実質賃金（毎月勤労統計）または実質消費、鉱工業生産を必ず含める。取得可能ならインバウンド（訪日外客数）・機械受注も置く。米国factだけで需要判断を組み立てない。
 - **円水準の両側リスク**: セクション6に、円安継続と円反転（介入・利上げ）の両経路が輸出企業（為替換算益の剥落）と輸入コスト企業（margin回復）へ与える非対称を1つのjudgmentとして書く。片側の監視条件だけで済ませない。
-- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeを`inputs.machine_snapshots`の input としてfact引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」をjudgmentとして書く。
+- **バーゲン地形**: connection に`screening market-snapshot`のbenchmark 20d/60d・breadth・regimeを`inputs.machine_snapshots`の input としてfact引用し、「この局面でミスプライスがどこに出やすいか（全面安で広く出る / 回転相場で取り残しに出る / 全面高でプールが縮む）」を`bargain_topography`として書く（この field は market-snapshot input の引用が publish の要件）。
 - **日本株バリュエーションアンカー**: セクション8に市場全体のPERまたは益回り（日経・JPX公表の一次値、または全universeのin-house中央値）とJGB 10yの対比を置き、個別FVアンカーの妥当性を外側から検算できるようにする。
 - **hintの識別力**: 全候補に等しく当てはまる助言（「net cash重視」等）はhintではない。各 research 優先度ヒントと sector tilt は、どの候補タイプ・sectorに効くかを`applies_to`で判別できる形で書く。
 - **energy・通商・地政学**: セクション4または5に、原油と通商政策（関税）・地政学tailのfactを最低1つずつ置く。
@@ -226,7 +245,7 @@ publish 済み revision は immutable なので、検証は**参照先が動く�
 
 ### scenario scorecard：見立てを後から採点できる形で書く
 
-セクション9の base / bear / bull は、自由文の成立条件とは別に **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。期限日は **as_of から「その系列がもう一度公表されるだけの日数」以上、かつ as_of から 18 か月以内**（四半期系列が 2 回公表される幅）で、近すぎる期限も遠すぎる期限も採点できないため publish されない。同じ条件を 2 回書いて 2 件にすることもできない（`series_id` + 比較演算 + 閾値の重複を拒否する）。
+セクション9の base / bear / bull は、主観確率（`probability`）と、自由文の成立条件とは別の **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。確率と scorecard は組で意味を持つ：確率は見立ての強さを反証可能な数値にし、scorecard はその見立てが当たったかを後から機械で決める。次のレポートは `previous_scorecard_review` で「どの条件が成立し、置いた確率とどう噛み合ったか」を書き、当たり外れの**度合い**を記録する（成立/不成立の二値だけでは読みの較正にならない）。蓄積した確率×成立実績の横断集計は improvement-loop の将来の計測経路であり、レポート単体では統計的な主張をしない。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。期限日は **as_of から「その系列がもう一度公表されるだけの日数」以上、かつ as_of から 18 か月以内**（四半期系列が 2 回公表される幅）で、近すぎる期限も遠すぎる期限も採点できないため publish されない。同じ条件を 2 回書いて 2 件にすることもできない（`series_id` + 比較演算 + 閾値の重複を拒否する）。
 
 狙いは予測精度の測定ではなく、**機械照合できる条件でしか書けなくすることでシナリオの記述品質を事前に縛る**ことである。「金融環境が引き締まれば」のような採点不能な条件は書けなくなる。定例が無くても、次のレポートがいつになっても L1 履歴から遡って採点できる。
 
@@ -314,7 +333,7 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 
 ## 誠実性（honesty firewall）
 
-マクロは標本数がほぼ 1 であり、screening のように多数の銘柄を横断する統計検証ができない。この工程は優位性の数値・統計的有意性・自動売買スコアを出さない。ここで得られるのは再現性と、判断を事実に根付かせる基盤であって、統計的な厳密さではない。§② の reading も記述統計であり、regime の機械分類・合成 score・統計的 signal は作らない。
+マクロは標本数がほぼ 1 であり、screening のように多数の銘柄を横断する統計検証ができない。この工程は優位性の数値・統計的有意性・自動売買スコアを出さない。ここで得られるのは再現性と、判断を事実に根付かせる基盤であって、統計的な厳密さではない。§② の reading も記述統計であり、regime の機械分類・合成 score・統計的 signal は作らない。シナリオ確率もこの枠内にある：0.05 刻みの主観ウェイトは「見立ての強さの明示と後からの採点可能性」のためであり、edge の主張・有意性・自動 sizing の入力にはしない。
 
 ## 参考
 
