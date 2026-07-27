@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { MacroReadingSeriesView } from '../src/api/types'
-import { EXTREME_LIST_LIMIT, readingCategories, readingExtremes, readingHealth, readingStatistics, seriesWindowSummary, statisticName } from '../src/lib/macro'
+import type { MacroGroupView, MacroReadingSeriesView, MacroReadingView, MacroSeriesFetchHealthView, MacroSeriesView } from '../src/api/types'
+import { buildIndicatorGroups, filterIndicatorGroups, readingStatistics, seriesWindowSummary, statisticName, summarizeIndicators } from '../src/lib/macro'
 
 function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroReadingSeriesView {
   return {
@@ -32,6 +32,42 @@ function readingSeries(overrides: Partial<MacroReadingSeriesView> = {}): MacroRe
     flags: [],
     ...overrides,
   }
+}
+
+function panelSeries(overrides: Partial<MacroSeriesView> = {}): MacroSeriesView {
+  return {
+    series_id: 'us.cpi_yoy',
+    label: 'US CPI YoY',
+    name: 'US CPI YoY',
+    unit: 'percent',
+    tradingview_symbol: null,
+    points: [],
+    ...overrides,
+  }
+}
+
+function fetchRun(series_id: string, status: string): MacroSeriesFetchHealthView {
+  return {
+    series_id,
+    status,
+    finished_at: '2026-07-25T02:38:50+00:00',
+    record_count: status === 'ok' ? 12 : 0,
+    error_message: status === 'ok' ? null : 'navigation timed out',
+  }
+}
+
+function readingView(overrides: Partial<MacroReadingView> = {}): MacroReadingView {
+  return {
+    asof: '2026-07-27',
+    rules_revision: 'v6',
+    series: [],
+    fetch_health: [],
+    ...overrides,
+  }
+}
+
+function panelGroup(title: string, series: readonly MacroSeriesView[]): MacroGroupView {
+  return { title, series: [...series] }
 }
 
 describe('seriesWindowSummary', () => {
@@ -101,91 +137,144 @@ describe('statisticName', () => {
   })
 })
 
-describe('readingHealth', () => {
-  const run = (series_id: string, status: string) => ({
-    series_id,
-    status,
-    finished_at: '2026-07-25T02:38:50+00:00',
-    record_count: status === 'ok' ? 12 : 0,
-    error_message: status === 'ok' ? null : 'navigation timed out',
+describe('buildIndicatorGroups', () => {
+  it('keeps the panel groups and their order, joining each series to its reading', () => {
+    const groups = buildIndicatorGroups(
+      [
+        panelGroup('金利・金融政策', [panelSeries({ series_id: 'us.10y' }), panelSeries({ series_id: 'jp.2y' })]),
+        panelGroup('インフレ・賃金', [panelSeries({ series_id: 'us.cpi.core' })]),
+      ],
+      readingView({ series: [readingSeries({ series_id: 'jp.2y', latest_value: 1.1 })] }),
+    )
+
+    expect(groups.map((group) => group.title)).toEqual(['金利・金融政策', 'インフレ・賃金'])
+    expect(groups[0].rows.map((row) => row.series.series_id)).toEqual(['us.10y', 'jp.2y'])
+    expect(groups[0].rows[1].reading?.latest_value).toBe(1.1)
   })
 
-  it('sorts each series into the acquisition classification it belongs to', () => {
-    const staleSeries = readingSeries({ series_id: 'a', stale: true })
-    const youngSeries = readingSeries({ series_id: 'b', insufficient_history: true })
-    const health = readingHealth([staleSeries, youngSeries, readingSeries({ series_id: 'd' })], [run('e', 'failed')])
-    expect(health.stale.map((item) => item.series_id)).toEqual(['a'])
-    expect(health.insufficientHistory.map((item) => item.series_id)).toEqual(['b'])
-    expect(health.failedFetches.map((item) => item.series_id)).toEqual(['e'])
-    expect(health.clear).toBe(false)
+  it('keeps a row whose series has no reading yet instead of dropping it', () => {
+    const groups = buildIndicatorGroups([panelGroup('金利', [panelSeries({ series_id: 'jp.30y' })])], readingView())
+
+    expect(groups[0].rows).toHaveLength(1)
+    expect(groups[0].rows[0].reading).toBeNull()
+    expect(groups[0].rows[0].statuses).toEqual([])
   })
 
-  it('keeps an extreme z-score out of health, which is about acquisition only', () => {
-    const health = readingHealth([readingSeries({ series_id: 'c', z_score: -3.4 })], [run('a', 'ok')])
-    expect(health.stale).toEqual([])
-    expect(health.insufficientHistory).toEqual([])
-    expect(health.failedFetches).toEqual([])
-    expect(health.clear).toBe(true)
+  it('renders every row with blank statistics when the reading is unavailable', () => {
+    const groups = buildIndicatorGroups([panelGroup('金利', [panelSeries({ series_id: 'us.10y' })])], null)
+
+    expect(groups[0].rows[0].reading).toBeNull()
+    expect(groups[0].rows[0].failedFetch).toBeNull()
   })
 
-  it('lists a series in every classification it satisfies at once', () => {
-    const health = readingHealth([readingSeries({ series_id: 'both', stale: true, insufficient_history: true })], [])
-    expect(health.stale.map((item) => item.series_id)).toEqual(['both'])
-    expect(health.insufficientHistory.map((item) => item.series_id)).toEqual(['both'])
+  it('marks a row with every state it satisfies at once', () => {
+    const groups = buildIndicatorGroups(
+      [panelGroup('金利', [panelSeries({ series_id: 'us.10y' })])],
+      readingView({
+        series: [readingSeries({ series_id: 'us.10y', stale: true, insufficient_history: true, z_score: 4 })],
+        fetch_health: [fetchRun('us.10y', 'failed')],
+      }),
+    )
+
+    // A withheld z-score cannot be an edge, so insufficient history keeps 'extreme' off.
+    expect(groups[0].rows[0].statuses).toEqual(['fetch-failed', 'stale', 'insufficient-history'])
   })
 
-  it('keeps only the series whose last acquisition attempt failed', () => {
-    const health = readingHealth([], [run('a', 'ok'), run('b', 'failed'), run('c', 'ok')])
-    expect(health.failedFetches.map((item) => item.series_id)).toEqual(['b'])
-  })
-})
+  it('attaches only a failed acquisition attempt to its row', () => {
+    const groups = buildIndicatorGroups(
+      [panelGroup('金利', [panelSeries({ series_id: 'us.10y' }), panelSeries({ series_id: 'jp.2y' })])],
+      readingView({ fetch_health: [fetchRun('us.10y', 'ok'), fetchRun('jp.2y', 'failed')] }),
+    )
 
-describe('readingExtremes', () => {
-  it('lists the series at the edge of their distribution, furthest first', () => {
-    const extremes = readingExtremes([
-      readingSeries({ series_id: 'mild', z_score: 3.1 }),
-      readingSeries({ series_id: 'normal', z_score: 1.2 }),
-      readingSeries({ series_id: 'furthest', z_score: -3.9 }),
-    ])
-    expect(extremes.map((item) => item.series.series_id)).toEqual(['furthest', 'mild'])
-    expect(extremes[0].zScore).toBe(-3.9)
+    expect(groups[0].rows[0].failedFetch).toBeNull()
+    expect(groups[0].rows[0].statuses).toEqual([])
+    expect(groups[0].rows[1].failedFetch?.error_message).toBe('navigation timed out')
   })
 
   it('counts a z-score at the threshold as an edge and one just inside it as normal', () => {
-    const extremes = readingExtremes([
-      readingSeries({ series_id: 'at', z_score: 3 }),
-      readingSeries({ series_id: 'at_negative', z_score: -3 }),
-      readingSeries({ series_id: 'inside', z_score: 2.99 }),
-      readingSeries({ series_id: 'inside_negative', z_score: -2.99 }),
-    ])
-    expect(extremes.map((item) => item.series.series_id)).toEqual(['at', 'at_negative'])
-  })
-
-  it('never calls a withheld z-score an edge', () => {
-    const extremes = readingExtremes([
-      readingSeries({ insufficient_history: true, z_score: 5 }),
-      readingSeries({ z_score: null }),
-      readingSeries({ statistic: 'yoy', statistic_value: null, z_score: 4 }),
-    ])
-    expect(extremes).toEqual([])
-  })
-
-  it('caps the list so the panel draws attention instead of repeating the table', () => {
-    const many = Array.from({ length: EXTREME_LIST_LIMIT + 3 }, (_, index) =>
-      readingSeries({ series_id: `s${index}`, z_score: 3 + index / 100 }),
+    const groups = buildIndicatorGroups(
+      [panelGroup('金利', [panelSeries({ series_id: 'at' }), panelSeries({ series_id: 'at_negative' }), panelSeries({ series_id: 'inside' })])],
+      readingView({
+        series: [
+          readingSeries({ series_id: 'at', z_score: 3 }),
+          readingSeries({ series_id: 'at_negative', z_score: -3 }),
+          readingSeries({ series_id: 'inside', z_score: 2.99 }),
+        ],
+      }),
     )
-    expect(readingExtremes(many)).toHaveLength(EXTREME_LIST_LIMIT)
+
+    expect(groups[0].rows.map((row) => row.statuses)).toEqual([['extreme'], ['extreme'], []])
   })
 })
 
-describe('readingCategories', () => {
-  it('orders categories by name and keeps the reading order inside each one', () => {
-    const groups = readingCategories([
-      readingSeries({ series_id: 'a', category: 'rates' }),
-      readingSeries({ series_id: 'b', category: 'inflation' }),
-      readingSeries({ series_id: 'c', category: 'rates' }),
-    ])
-    expect(groups.map((group) => group.category)).toEqual(['inflation', 'rates'])
-    expect(groups[1].series.map((item) => item.series_id)).toEqual(['a', 'c'])
+describe('summarizeIndicators', () => {
+  it('counts every series and every state, uncapped', () => {
+    const extremes = Array.from({ length: 12 }, (_, index) => `s${index}`)
+    const groups = buildIndicatorGroups(
+      [
+        panelGroup('金利', extremes.map((series_id) => panelSeries({ series_id }))),
+        panelGroup('為替', [panelSeries({ series_id: 'fx.usdjpy' })]),
+      ],
+      readingView({
+        series: [
+          ...extremes.map((series_id) => readingSeries({ series_id, z_score: 3.5 })),
+          readingSeries({ series_id: 'fx.usdjpy', stale: true }),
+        ],
+        fetch_health: [fetchRun('fx.usdjpy', 'failed')],
+      }),
+    )
+
+    expect(summarizeIndicators(groups)).toEqual({
+      seriesCount: 13,
+      counts: { 'fetch-failed': 1, stale: 1, 'insufficient-history': 0, extreme: 12 },
+    })
+  })
+
+  it('counts the panel rows even with no reading at all', () => {
+    const groups = buildIndicatorGroups([panelGroup('金利', [panelSeries({ series_id: 'us.10y' })])], null)
+
+    expect(summarizeIndicators(groups).seriesCount).toBe(1)
+  })
+})
+
+describe('filterIndicatorGroups', () => {
+  const groups = buildIndicatorGroups(
+    [
+      panelGroup('金利・金融政策', [panelSeries({ series_id: 'us.10y', name: '米10Y利回り', label: '米10Y利回り' }), panelSeries({ series_id: 'jp.policy_rate', name: '日本政策金利', label: '日本政策金利' })]),
+      panelGroup('為替', [panelSeries({ series_id: 'fx.usdjpy', name: 'ドル円', label: 'ドル円' })]),
+    ],
+    readingView({
+      series: [readingSeries({ series_id: 'us.10y' }), readingSeries({ series_id: 'jp.policy_rate', stale: true }), readingSeries({ series_id: 'fx.usdjpy', z_score: 3.4 })],
+    }),
+  )
+
+  it('returns the groups unchanged when nothing is asked for', () => {
+    expect(filterIndicatorGroups(groups, { query: '  ', statuses: new Set() })).toBe(groups)
+  })
+
+  it('matches a query against the series id', () => {
+    const result = filterIndicatorGroups(groups, { query: 'JP.POLICY', statuses: new Set() })
+    expect(result.map((group) => group.title)).toEqual(['金利・金融政策'])
+    expect(result[0].rows.map((row) => row.series.series_id)).toEqual(['jp.policy_rate'])
+  })
+
+  it('matches a query against the series name', () => {
+    const result = filterIndicatorGroups(groups, { query: 'ドル円', statuses: new Set() })
+    expect(result.map((group) => group.title)).toEqual(['為替'])
+  })
+
+  it('drops a group the filter empties instead of leaving a bare heading', () => {
+    const result = filterIndicatorGroups(groups, { query: '', statuses: new Set(['stale'] as const) })
+    expect(result).toHaveLength(1)
+    expect(result[0].rows.map((row) => row.series.series_id)).toEqual(['jp.policy_rate'])
+  })
+
+  it('reads several selected states as a union', () => {
+    const result = filterIndicatorGroups(groups, { query: '', statuses: new Set(['stale', 'extreme'] as const) })
+    expect(result.flatMap((group) => group.rows).map((row) => row.series.series_id)).toEqual(['jp.policy_rate', 'fx.usdjpy'])
+  })
+
+  it('applies the query and the states together', () => {
+    expect(filterIndicatorGroups(groups, { query: 'ドル円', statuses: new Set(['stale'] as const) })).toEqual([])
   })
 })

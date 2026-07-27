@@ -155,7 +155,9 @@ percentile の実効窓を短縮した系列は、provider の履歴が伸びて
 
 reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが Baibai App 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
 
-Baibai App の Macro タブは先頭にこの読み値をヒート面（系列ごとの方向・`statistic`・percentile・実効窓・flags）、data health（取得失敗・`stale`・`insufficient_history` の 3 分類。**3 つとも 0 件なら「問題なし」に畳む**）、分布の端（`|z_score|` ≥ 3 を強い順に列挙）として表示する。**極端な z は data health に混ぜない**：health の 3 分類は percentile の解釈可能性を壊すものだが、端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。view が未生成のときはその区画だけを出さない（指標パネルとレポート index は通常表示する）。
+Baibai App の Macro タブは、この読み値と指標チャートを **1 つの一覧**として表示する。読み値と `method/macro-panel.yaml` の panel は同じ登録系列を 2 通りに射影したものなので、行は panel の 7 group の順に並べ、`series_id` で読み値を join して 1 行に sparkline・最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開くと拡大チャートと全項目が出る。**sparkline の期間は画面の期間・粒度で、percentile の実効窓は系列ごと**という別物なので、列見出しの ⓘ でその不一致を明示する。
+
+行に出る状態は 4 つで、**取得失敗・`stale`・`insufficient_history` の 3 つは取得側の問題**（percentile の解釈可能性を壊す）、**`|z_score|` ≥ 3 の分布の端は読み値そのもの**である。極端な z を health に混ぜない：端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。ページ上部の要約カードは 4 分類の件数だけを持ち、同じ分類が一覧の絞り込みでもあるため、件数から該当行へ 1 クリックで辿れる。view が未生成のときは読み値の列だけが空欄になり、チャートとレポート index は通常表示する。
 
 ## ③ 環境認識：macro context report を publish する
 
