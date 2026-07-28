@@ -80,6 +80,7 @@ def _load_policy(root: Path) -> dict[str, dict[str, int | float | bool]]:
             isinstance(statement, ast.AnnAssign)
             and isinstance(statement.target, ast.Name)
             and statement.target.id == "PORTFOLIO_POLICY"
+            and statement.value is not None
         ):
             policy = ast.literal_eval(statement.value)
             if isinstance(policy, dict):

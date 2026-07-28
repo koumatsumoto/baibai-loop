@@ -133,9 +133,16 @@ show_error_codes = true
 pretty = true
 disallow_any_unimported = true
 no_implicit_optional = true
-packages = ["baibai_engine", "baibai_app"]
+packages = ["baibai_engine", "baibai_app", "tools"]
 plugins = ["pydantic.mypy"]
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+# generate_brand_assets.py declares Pillow in PEP 723 inline metadata and runs under
+# `uv run --script`, so the native image library stays out of the shared lock and out of
+# every workflow's install. It is therefore the one file whose imports this run cannot
+# resolve; everything else added under tools/ is checked without touching this list. A
+# second entry belongs here only for the same reason — a file whose dependencies this
+# environment deliberately does not have. Anything else is a type error to fix.
+exclude = ["^tools/generate_brand_assets\\.py$"]
 
 [[tool.mypy.overrides]]
 module = [
@@ -175,7 +182,10 @@ exclude_lines = [
 ]
 
 [tool.bandit]
-exclude_dirs = ["tests", ".venv"]
+# Bandit excludes any path that *contains* one of these strings, so a bare "tests" would also
+# drop tools/latests/ or a file named foo_tests.py without a word about it. The slashes keep
+# the match to a directory of that name, which is the only thing meant to be skipped.
+exclude_dirs = ["/tests/", "/.venv/"]
 skips = ["B101"]
 
 [tool.mutmut]
