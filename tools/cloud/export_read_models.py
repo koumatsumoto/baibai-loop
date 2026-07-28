@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from baibai_app.readmodel.builders import (
     MacroPeriod,
+    build_assessment_detail,
     build_dashboard,
     build_macro,
     build_macro_context_detail,
@@ -58,6 +59,7 @@ _TICKER_FORMAT = re.compile(r"[0-9A-Z]{4}")
 # macro context_id charset; excludes path separators so it is safe in a filename
 # and mirrors the Worker route validation for the same key.
 _MACRO_CONTEXT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
+_ASSESSMENT_ID_FORMAT = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
 class ExportPreconditionError(RuntimeError):
@@ -134,6 +136,17 @@ def export_read_models(
             _warn(f"macro report view skipped for {context_id!r}: {error}")
             continue
         written.append(_write_model(views_dir / f"macro-context--{context_id}.json", detail))
+
+    for summary in screening.assessments:
+        assessment_id = summary.assessment_id
+        if _ASSESSMENT_ID_FORMAT.fullmatch(assessment_id) is None:
+            _warn(f"assessment_id has an unexpected format: {assessment_id!r}; view skipped")
+            continue
+        assessment = build_assessment_detail(stores.candidates, assessment_id=assessment_id)
+        if assessment is None:  # pragma: no cover - the index comes from the same store
+            _warn(f"bargain assessment view is unavailable for {assessment_id!r}; skipped")
+            continue
+        written.append(_write_model(views_dir / f"assessment--{assessment_id}.json", assessment))
 
     cached_candidates = _CachedLatestRunCandidates(stores.candidates)
     for ticker in _security_tickers(dashboard, screening):

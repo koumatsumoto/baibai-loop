@@ -276,6 +276,99 @@ export interface ScreeningView {
   rows: CandidateRowView[]
   selections: MachineSelectionView[]
   shortlists: ShortlistView[]
+  assessments: BargainAssessmentSummaryView[]
+}
+
+export interface BargainAssessmentSummaryView {
+  assessment_id: string
+  as_of: string
+  published_at: string
+  result: string
+  headline: string
+  shortlist_id: string
+  lane_count: number
+  selected_ticker: string | null
+}
+
+export interface SourceCaveatView {
+  source_id: string
+  status: string
+  decision_impact: string
+}
+
+export interface ResearchQuestionView {
+  question: string
+  answer: string
+  status: string
+}
+
+export interface AssessmentLaneView {
+  ticker: string
+  name: string | null
+  disposition: string
+  disposition_reason: string
+  thesis_id: string
+  review_id: string | null
+  permanent_loss_conclusion: string | null
+  adverse_risk_axes: string[]
+  five_year_base_cagr_pct: number | null
+  required_return_pct: number | null
+  fair_value_yen: number | null
+  fv_gap_pct: number | null
+  base_terminal_multiple: number | null
+  break_even_terminal_multiple: number | null
+  terminal_multiple_buffer: number | null
+  break_even_earnings_growth_pct: number | null
+  earnings_growth_buffer_pp: number | null
+  observed_trailing_multiple: number | null
+  business_model: string
+  value_capture: string
+  growth_quality: string
+  financial_resilience: string
+  strongest_countercase: string
+  catalyst: string
+  research_questions: ResearchQuestionView[]
+  unknowns: string[]
+  source_caveats: SourceCaveatView[]
+}
+
+export interface AssessmentPurchaseView {
+  proposal_id: string
+  ticker: string
+  limit_price_yen: number
+  quantity: number
+  notional_yen: number
+  max_acceptable_price_yen: number
+  close_yen: number
+  price_as_of: string
+  expires_at: string
+  warnings: string[]
+  current_status: string | null
+  superseded: boolean
+}
+
+export interface AssessmentReviewView {
+  attempt: number
+  reviewer_identity: string
+  reviewed_at: string
+  conclusion: string
+  open_findings: string[]
+}
+
+export interface BargainAssessmentView {
+  assessment_id: string
+  as_of: string
+  published_at: string
+  result: string
+  headline: string
+  shortlist_id: string
+  macro_context_id: string | null
+  comparison: string
+  entry_timing: string | null
+  forgone: string
+  lanes: AssessmentLaneView[]
+  purchase: AssessmentPurchaseView | null
+  review: AssessmentReviewView
 }
 
 export interface ScreeningHistoryView {

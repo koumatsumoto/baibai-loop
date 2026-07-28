@@ -8,7 +8,7 @@ function activeLabels(pathname: string): string[] {
 
 describe('NAV_TABS active matching', () => {
   it('activates exactly one tab per route', () => {
-    for (const pathname of ['/', '/macro', '/macro/reports/x', '/stocks', '/stocks/shortlist', '/securities/2331']) {
+    for (const pathname of ['/', '/macro', '/macro/reports/x', '/stocks', '/stocks/shortlist', '/stocks/assessments/x', '/securities/2331']) {
       expect(activeLabels(pathname)).toHaveLength(1)
     }
   })
@@ -22,8 +22,9 @@ describe('NAV_TABS active matching', () => {
     expect(activeLabels('/macro/reports/macro-context-2026-07-01')).toEqual(['Macro'])
   })
 
-  it('keeps Stocks active on shortlist and security detail routes', () => {
+  it('keeps Stocks active on shortlist, assessment and security detail routes', () => {
     expect(activeLabels('/stocks/shortlist')).toEqual(['Stocks'])
+    expect(activeLabels('/stocks/assessments/bargain-assessment-20260728-cycle')).toEqual(['Stocks'])
     expect(activeLabels('/securities/2331')).toEqual(['Stocks'])
   })
 

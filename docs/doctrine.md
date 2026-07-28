@@ -94,7 +94,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 4: application DB 正本、Git は method / config
 
-- **(a)** task、macro context、shortlist、research、trade proposal、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
+- **(a)** task、macro context、shortlist、research、bargain assessment、trade proposal、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
 - **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行い、`baibai-app` は application DB と各 read store を読むだけの UI（Baibai App）とする。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
 - **(c)** GitHub Issue や Markdown / YAML を application data の正本にはしない。GitHub は開発作業に使い、運用 workspace は `operation_session`、確定した entity は各 DB table に置く。外部 SaaS を正本にすると local-first の運用と application service の境界が崩れるため採用しない。
 
@@ -116,7 +116,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 2. **判断文書**は内容・役割で命名し、形式（packet / record / report）で命名しない（macro context, thesis, thesis review, holding review）
 3. **機械成果物**は工程 + 出力で命名し、judgment と呼ばない（screening run, selection, machine recommendation, longlist）
 4. **活動・工程名**（screening, research, macro analysis）は workflow doc と CLI domain・package 名に使い、artifact 名には使わない
-5. **表示物（projection）**は canonical ではない（research-decision-report HTML、Baibai App の画面）
+5. **表示物（projection）**は canonical ではない（Baibai App の画面、cloud serving の view JSON）
 6. **UI タブは分析対象**で命名する（Macro = 市場環境の top-down 分析対象、Stocks = 個別銘柄の bottom-up 分析対象）。プロダクト名は Baibai App
 
 ### パイプライン状態機械
@@ -128,7 +128,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | universe → candidates | 機械（screening rules） | — | screening run |
 | candidates → longlist | 機械（E[r] ranking、cap 切断前上位 N） | — | selection（longlist + machine recommendations） |
 | longlist → shortlist | AI + 人間（OP3 gate） | shortlist record（selected narrative + rejected 理由） | — |
-| shortlist → proposal | AI research → 独立レビュー → 人間 | thesis（採否付き投資仮説）+ thesis review | evaluate 派生値 |
+| shortlist → proposal | AI research → 独立レビュー → 人間 | thesis（採否付き投資仮説）+ thesis review + bargain assessment（1サイクルの統合判断） | evaluate 派生値 |
 | proposal → position | 人間（broker 執行 → 報告） | ledger events | — |
 | position → hold / add / reduce / exit | AI draft + 人間確認 | holding review（thesis health 判定） | — |
 | position → outcome | 機械計測 + 年次評価 | outcome | calibration replay |
@@ -155,6 +155,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 独立反証レビュー | thesis review | 判断文書 | L3 | 別 agent による thesis の second-pass 反証。hash で対象 revision へ束縛する |
 | 戦略プレイブック | `playbook_id` | method | L2 設定 + research checklist | 割安型の label・閾値・除外条件を `screening-rules` から候補へ注記し、個別調査の確認項目を保持する |
 | 売買提案 | trade proposal | パイプライン状態 + 判断の入口 | L3 | 銘柄・価格・株数と人間のcurrent decisionをapplication DBに保持する |
+| 割安機会評価 | bargain assessment | 判断文書 | L3 | 深掘りしたlaneの横比較・研究要点digest・購入方法または見送り理由を固定する1サイクルの統合判断。購入提案の無いサイクルにも成立する |
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
 | 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → longlist → shortlist → thesis → proposal を 1 trigger で進める operation session の kind |
 

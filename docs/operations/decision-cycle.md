@@ -53,7 +53,8 @@ dirty worktreeの所有不明、public `--help`不明、入力矛盾では停止
 3. 人間がレビュー面からprimary-research setを選び、その銘柄のresearch workspaceを作って一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。
 4. thesisとindependent reviewを`research promote`し、返された`thesis_id` / `review_id`をsessionから参照する。
 5. planning-only limitの出力からproposalを作る。proposalは`pending`で始まり、人間の報告だけを`proposal decide`で記録する。
-6. shortlistは`baibai-app`の`/stocks/shortlist`レビュー面、research decision reportはephemeral HTML projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
+6. 全laneの結論を[`bargain-assessment`](../reference/bargain-assessment.md)へ統合する。`assessment-scaffold`で骨格を作り、散文を記入し、`assessment-publish --check`で束縛と期待hashを確認し、content review後に`assessment-publish`する。購入提案が無いサイクルも`no_actionable_bargain` / `defer`として同じ形でpublishする。
+7. shortlistは`baibai-app`の`/stocks/shortlist`、統合判断は`/stocks/assessments/{assessment_id}`で提示し、broker操作へ進まない。proposal IDまたはassessmentの結論をfinal resultにしてsessionをcompleteする。
 
 ```bash
 uv run baibai-engine screening run --asof YYYY-MM-DD
@@ -64,6 +65,9 @@ uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD 
 uv run baibai-engine research plan-limit --thesis .cache/opportunity/YYYY-MM-DD/XXXX/thesis-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite create --thesis-id THESIS_ID --input /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite decide PROPOSAL_ID --decision approve
+uv run baibai-engine research opportunity assessment-scaffold --db data/app/baibai.sqlite --assessment-id bargain-assessment-YYYYMMDD-SLUG --asof YYYY-MM-DD --shortlist-id SHORTLIST_ID --thesis-id THESIS_ID --proposal-id PROPOSAL_ID --out .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml
+uv run baibai-engine research opportunity assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite --check
+uv run baibai-engine research opportunity assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite
 ```
 
 `approve`時はcurrent DBのthesis、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。
@@ -75,7 +79,7 @@ uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/scree
 一次リサーチの前に、比較可能な候補群を人間へ渡すレビューgateを置く。1銘柄へ先に決め打ちしない。
 
 - **件数契約**: `longlist`上位20件から8〜10候補をshortlistへ入れる。longlistが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。`recommendations`のproduction capはこの件数を決めない。
-- **判断の記録**: selected銘柄は`ShortlistEntry.rank`（暫定順位。selected内で1..Nを欠番・重複なく）と`ShortlistEntry.narrative`（なぜ安いか / 一時的か / 構造的か / 5年耐性 / unlock / **上値根拠 / 下値目安 / RR成立理由** / **catalyst**（datedなら`catalyst_date`も。as_of以降・as_of + 550日以内）/ **macroヒントの消化** / 最強countercase / 深掘り論点 / 深掘り価値 / 暫定判断と暫定`ploss`）を必須にし、rejected銘柄はrank・narrativeを持たず「順位が低い」「予算外」だけでない具体的理由を必須にする。draftは[`tools/shortlist/draft-template.yaml`](../../tools/shortlist/draft-template.yaml)を写して記入し、`screening shortlist publish`でapplication DBへ一次記録する。narrativeをephemeral HTMLに残さない。
+- **判断の記録**: selected銘柄は`ShortlistEntry.rank`（暫定順位。selected内で1..Nを欠番・重複なく）と`ShortlistEntry.narrative`（なぜ安いか / 一時的か / 構造的か / 5年耐性 / unlock / **上値根拠 / 下値目安 / RR成立理由** / **catalyst**（datedなら`catalyst_date`も。as_of以降・as_of + 550日以内）/ **macroヒントの消化** / 最強countercase / 深掘り論点 / 深掘り価値 / 暫定判断と暫定`ploss`）を必須にし、rejected銘柄はrank・narrativeを持たず「順位が低い」「予算外」だけでない具体的理由を必須にする。draftは[`tools/shortlist/draft-template.yaml`](../../tools/shortlist/draft-template.yaml)を写して記入し、`screening shortlist publish`でapplication DBへ一次記録する。narrativeの正本はapplication DBであり、workspace上のdraftへ残さない。
 - **暫定順位の意味**: `rank`は「一次リサーチの枠をどの順で使うか」の判断であり、機械`E[r]`の順位そのものではない。機械順位と乖離させる場合はその理由をnarrativeへ書く（下記深度契約）。順位は深掘り着手順を決めるだけで、購入額・proposal順序を決めない。
 
 <a id="op3-depth-contract"></a>

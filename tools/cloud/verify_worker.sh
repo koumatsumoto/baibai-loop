@@ -101,6 +101,7 @@ done
 absent_key_paths=(
   /api/screening/history/2000-01-01
   /api/macro/context/no-such-context
+  /api/assessments/no-such-assessment
   /api/securities/ZZZZ
 )
 

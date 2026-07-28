@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type {
+  BargainAssessmentSummaryView,
   CandidateRowView,
   ScreeningHistoryRunView,
   ScreeningHistoryView,
@@ -24,7 +25,8 @@ import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatNumber } from '../lib/format'
+import { ASSESSMENT_RESULT, ASSESSMENT_TONE_CLASS } from '../lib/assessment'
+import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
 
@@ -130,6 +132,47 @@ function candidateDateLabel(value: string, latest: string) {
   if (days === 0) return `${value}（今日）`
   if (days === 1) return `${value}（昨日）`
   return value
+}
+
+// The cycle's answer, newest first. The head assessment is the current one; the rest are
+// the record of what earlier cycles concluded and why.
+function AssessmentIndex({ assessments }: { assessments: readonly BargainAssessmentSummaryView[] }) {
+  if (assessments.length === 0) {
+    return (
+      <Card className="py-5 shadow-sm">
+        <CardContent className="px-5 text-sm text-muted-foreground">
+          割安機会評価はまだ publish されていません。shortlist から個別リサーチを経て作成します。
+        </CardContent>
+      </Card>
+    )
+  }
+  return (
+    <div className="grid gap-3">
+      {assessments.map((assessment, index) => {
+        const result = ASSESSMENT_RESULT[assessment.result] ?? { label: assessment.result, tone: 'muted' as const }
+        return (
+          <Card className={cn('gap-2 py-4 shadow-sm', index === 0 && 'border-foreground/25')} key={assessment.assessment_id}>
+            <CardContent className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 px-5">
+              <div className="grid gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={cn('font-semibold', ASSESSMENT_TONE_CLASS[result.tone])}>{result.label}</Badge>
+                  {index === 0 && <Badge variant="outline">最新</Badge>}
+                  {assessment.selected_ticker !== null && <span className="font-mono text-sm font-semibold">{assessment.selected_ticker}</span>}
+                </div>
+                <p className="text-sm font-medium">{assessment.headline}</p>
+                <p className="text-xs text-muted-foreground">
+                  {LABEL.asOf} {assessment.as_of} · {LABEL.published} {formatJstDateTime(assessment.published_at)} · 深掘り {assessment.lane_count} 銘柄
+                </p>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <Link to={`/stocks/assessments/${assessment.assessment_id}`}>提案レポートを読む →</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )
+      })}
+    </div>
+  )
 }
 
 export function StocksPage() {
@@ -255,6 +298,11 @@ export function StocksPage() {
             </dl>
           </div>
         </header>
+
+        <section className="grid gap-3">
+          <h2 className="text-xl font-semibold tracking-tight">割安機会評価</h2>
+          <AssessmentIndex assessments={data.assessments} />
+        </section>
 
         <section className="grid gap-3">
           <h2 className="text-xl font-semibold tracking-tight">リサーチ候補選定</h2>

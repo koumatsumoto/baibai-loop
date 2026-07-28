@@ -247,6 +247,7 @@ class ScreeningView(BaseModel):
     rows: list[CandidateRowView]
     selections: list[MachineSelectionView]
     shortlists: list[ShortlistView]
+    assessments: list[BargainAssessmentSummaryView]
 
 
 class ScreeningHistoryView(BaseModel):
@@ -666,3 +667,97 @@ class MacroView(BaseModel):
     granularity: Literal["daily", "weekly", "monthly", "yearly"]
     reports: list[MacroContextRevisionView]
     groups: list[MacroGroupView]
+
+
+class SourceCaveatView(BaseModel):
+    source_id: str
+    status: str
+    decision_impact: str
+
+
+class ResearchQuestionView(BaseModel):
+    question: str
+    answer: str
+    status: str
+
+
+class AssessmentLaneView(BaseModel):
+    ticker: str
+    name: str | None
+    disposition: str
+    disposition_reason: str
+    thesis_id: str
+    review_id: str | None
+    permanent_loss_conclusion: str | None
+    adverse_risk_axes: list[str]
+    five_year_base_cagr_pct: float | None
+    required_return_pct: float | None
+    fair_value_yen: float | None
+    fv_gap_pct: float | None
+    base_terminal_multiple: float | None
+    break_even_terminal_multiple: float | None
+    terminal_multiple_buffer: float | None
+    break_even_earnings_growth_pct: float | None
+    earnings_growth_buffer_pp: float | None
+    observed_trailing_multiple: float | None
+    business_model: str
+    value_capture: str
+    growth_quality: str
+    financial_resilience: str
+    strongest_countercase: str
+    catalyst: str
+    research_questions: list[ResearchQuestionView]
+    unknowns: list[str]
+    source_caveats: list[SourceCaveatView]
+
+
+class AssessmentPurchaseView(BaseModel):
+    proposal_id: str
+    ticker: str
+    limit_price_yen: float
+    quantity: int
+    notional_yen: float
+    max_acceptable_price_yen: float
+    close_yen: float
+    price_as_of: date
+    expires_at: datetime
+    warnings: list[str]
+    # publish 時点の proposal に対する、現在の proposal の状態。immutable な判断文書と
+    # current state の差は読む側が解釈する。
+    current_status: str | None
+    superseded: bool
+
+
+class AssessmentReviewView(BaseModel):
+    attempt: int
+    reviewer_identity: str
+    reviewed_at: datetime
+    conclusion: str
+    open_findings: list[str]
+
+
+class BargainAssessmentSummaryView(BaseModel):
+    assessment_id: str
+    as_of: date
+    published_at: datetime
+    result: str
+    headline: str
+    shortlist_id: str
+    lane_count: int
+    selected_ticker: str | None
+
+
+class BargainAssessmentView(BaseModel):
+    assessment_id: str
+    as_of: date
+    published_at: datetime
+    result: str
+    headline: str
+    shortlist_id: str
+    macro_context_id: str | None
+    comparison: str
+    entry_timing: str | None
+    forgone: str
+    lanes: list[AssessmentLaneView]
+    purchase: AssessmentPurchaseView | None
+    review: AssessmentReviewView

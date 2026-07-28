@@ -15,6 +15,10 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.research.thesis import ThesisError, load_thesis
 
+from .assessment import (
+    bargain_assessment_payload,
+    list_bargain_assessment_payloads,
+)
 from .freshness import (
     application_db_updated_at,
     macro_latest_observed_at,
@@ -79,9 +83,11 @@ __all__ = [
     "ThesisError",
     "application_db_updated_at",
     "application_store_stats",
+    "bargain_assessment_payload",
     "latest_macro_context_payload",
     "latest_shortlist_payload",
     "latest_unadjusted_closes",
+    "list_bargain_assessment_payloads",
     "list_holding_review_payloads",
     "list_holding_review_publications",
     "list_macro_context_payloads",

@@ -6,7 +6,7 @@ status: active
 last_reviewed: 2026-07-15
 related_docs:
   - "../workflow/research.md"
-  - "./research-decision-report.md"
+  - "./bargain-assessment.md"
   - "../../method/playbooks/README.md"
 ---
 
