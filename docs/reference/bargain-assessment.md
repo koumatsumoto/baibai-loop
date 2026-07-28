@@ -103,7 +103,7 @@ reviewerはdraft、各lane thesis、proposalを読み、次を一つずつ確認
 
 ```bash
 # 1. 骨格を作る。数値はthesis/proposalから機械で埋まる
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research opportunity assessment-scaffold \
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research assessment-scaffold \
   --assessment-id bargain-assessment-YYYYMMDD-<slug> \
   --asof YYYY-MM-DD \
   --shortlist-id <shortlist_id> \
@@ -112,11 +112,11 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research opportunity assessment-
   --out .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml
 
 # 2. 散文を記入したあと、束縛を検証して期待hashを読む
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research opportunity assessment-publish \
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research assessment-publish \
   .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --check
 
 # 3. reviewerがreviewし、review欄とdraft_sha256を記入してからpublish
-UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research opportunity assessment-publish \
+UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research assessment-publish \
   .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml
 ```
 

@@ -65,9 +65,9 @@ uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD 
 uv run baibai-engine research plan-limit --thesis .cache/opportunity/YYYY-MM-DD/XXXX/thesis-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite create --thesis-id THESIS_ID --input /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite decide PROPOSAL_ID --decision approve
-uv run baibai-engine research opportunity assessment-scaffold --db data/app/baibai.sqlite --assessment-id bargain-assessment-YYYYMMDD-SLUG --asof YYYY-MM-DD --shortlist-id SHORTLIST_ID --thesis-id THESIS_ID --proposal-id PROPOSAL_ID --out .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml
-uv run baibai-engine research opportunity assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite --check
-uv run baibai-engine research opportunity assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite
+uv run baibai-engine research assessment-scaffold --db data/app/baibai.sqlite --assessment-id bargain-assessment-YYYYMMDD-SLUG --asof YYYY-MM-DD --shortlist-id SHORTLIST_ID --thesis-id THESIS_ID --proposal-id PROPOSAL_ID --out .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml
+uv run baibai-engine research assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite --check
+uv run baibai-engine research assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite
 ```
 
 `approve`時はcurrent DBのthesis、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。
@@ -84,7 +84,7 @@ uv run baibai-engine research opportunity assessment-publish .cache/opportunity/
 
 <a id="op3-depth-contract"></a>
 
-#### 選定の深度契約（RR 5テスト）
+#### 選定の深度契約（RR 6テスト）
 
 shortlistは「安く見える」候補ではなく「非対称が買いに値する」候補を選ぶ工程である。publish前に、selected各銘柄について次を1項目ずつ機械的に突合する（印象で「満たしているはず」としない）。schemaはfieldの存在しか測れないので、内容はここが受け持つ。
 
