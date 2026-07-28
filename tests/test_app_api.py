@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import sqlite3
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from baibai_app.api.server import PUBLIC_ASSETS, create_app
 from baibai_app.cli import main
 from baibai_engine.appdb.json import canonical_json
+from baibai_engine.appdb.write import initialize_database
 from baibai_engine.macro.context.models import MacroContextDocument
 from baibai_engine.macro.context.service import MacroContextService
 from baibai_engine.macro.indicators.definitions import load_definitions
@@ -244,9 +246,52 @@ def test_macro_context_detail_renders_core_ten_plus_connection_and_series_names(
     risk_environment = body["core"][8]
     assert risk_environment["risk_environment"]["stance"] == "neutral"
     assert risk_environment["scenarios"][0]["case"] == "base"
+    assert risk_environment["scenarios"][0]["probability"] == 0.5
     assert len(risk_environment["scenarios"][0]["scorecard"]) == 2
     assert body["connection"]["section_id"] == "japan_equity_loop"
     assert body["connection"]["research_priority_hints"][0]["applies_to"]
+    forces = body["synthesis"]["dominant_forces"]
+    assert [force["force_id"] for force in forces] == ["rates-repricing", "fx-extreme"]
+    assert forces[0]["series"] == [
+        {"series_id": "us.10y", "name": "米10Y利回り"},
+        {"series_id": "usd_jpy", "name": "USD/JPY"},
+    ]
+    assert body["synthesis"]["interactions"][0]["force_ids"] == ["rates-repricing", "fx-extreme"]
+    assert body["connection"]["bargain_topography"]["source_ids"]
+    assert body["connection"]["estimate_caveats"][0]["affected_component"] == "fv_anchor"
+
+
+def test_macro_context_detail_serves_a_revision_without_the_strategy_layer(
+    app_method_root: Path,
+) -> None:
+    """A report published before the integrated layer keeps its detail page."""
+
+    db_path = app_method_root / "data/app/baibai.sqlite"
+    initialize_database(db_path)
+    legacy = macro_context_payload(strategy_layer=False)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO macro_context (
+                context_id, schema_version, as_of, published_at, supersedes_id, payload
+            ) VALUES (?, 4, ?, ?, NULL, ?)
+            """,
+            (legacy["context_id"], legacy["as_of"], legacy["published_at"], json.dumps(legacy)),
+        )
+        connection.execute(
+            "INSERT INTO macro_context_head(singleton, context_id) VALUES (1, ?)",
+            (legacy["context_id"],),
+        )
+
+    with TestClient(create_app(app_method_root), base_url="http://127.0.0.1") as client:
+        response = client.get(f"/api/macro/context/{legacy['context_id']}?as_of=2026-07-19")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["synthesis"] is None
+    assert body["core"][8]["scenarios"][0]["probability"] is None
+    assert body["connection"]["bargain_topography"] is None
+    assert body["connection"]["estimate_caveats"] == []
 
 
 def test_macro_context_detail_404_for_unknown_and_future_context(

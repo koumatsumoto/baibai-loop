@@ -427,10 +427,47 @@ export interface MacroScorecardConditionView {
 export interface MacroScenarioView {
   case: string
   direction: string
+  /** Subjective weight on this case; null on revisions published before the field. */
+  probability: number | null
   summary: string
   conditions: string[]
   scorecard: MacroScorecardConditionView[]
   economic_implications: string[]
+  source_ids: string[]
+}
+
+/** A named force driving the environment across at least two transmission channels. */
+export interface MacroDominantForceView {
+  force_id: string
+  title: string
+  summary: string
+  transmission: string
+  core_section_ids: string[]
+  series: MacroSeriesReferenceView[]
+  counter_evidence: string
+  direction: string
+  confidence: string
+  source_ids: string[]
+}
+
+export interface MacroForceInteractionView {
+  summary: string
+  force_ids: string[]
+  source_ids: string[]
+}
+
+/** The integrated layer: dominant forces and how they compound or offset. */
+export interface MacroSynthesisView {
+  dominant_forces: MacroDominantForceView[]
+  interactions: MacroForceInteractionView[]
+}
+
+/** How the current regime bends the loop's own machine estimates. */
+export interface MacroEstimateCaveatView {
+  summary: string
+  applies_to: string
+  affected_component: string
+  materiality: string
   source_ids: string[]
 }
 
@@ -481,6 +518,9 @@ export interface MacroConnectionSectionView {
   research_priority_hints: MacroResearchPriorityHintView[]
   sector_tilts: MacroSectorTiltView[]
   sizing_cautions: MacroSizingCautionView[]
+  /** Absent (null) on revisions published before the integrated layer. */
+  bargain_topography: MacroFactSummaryView | null
+  estimate_caveats: MacroEstimateCaveatView[]
 }
 
 export interface MacroContextView {
@@ -490,6 +530,8 @@ export interface MacroContextView {
   summary: string
   age_days: number
   stale: boolean
+  /** Absent (null) on revisions published before the integrated layer. */
+  synthesis: MacroSynthesisView | null
   core: MacroCoreSectionView[]
   connection: MacroConnectionSectionView
 }

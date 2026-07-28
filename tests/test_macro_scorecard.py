@@ -85,8 +85,16 @@ def _result(
 def _foreign_flow_document() -> MacroContextDocument:
     payload = macro_context_payload(scorecard_deadline="2026-08-23")
     payload["inputs"]["indicator_series"][0]["series_id"] = "jp.foreign_flows"
+    # Substitute rather than collapse: the fixture's second series keeps each dominant
+    # force backed by a distinct series per named section.
+    for force in payload["synthesis"]["dominant_forces"]:
+        force["series_ids"] = [
+            "jp.foreign_flows" if listed == "us.10y" else listed for listed in force["series_ids"]
+        ]
     for section in payload["core"]:
-        section["series_ids"] = ["jp.foreign_flows"]
+        section["series_ids"] = [
+            "jp.foreign_flows" if listed == "us.10y" else listed for listed in section["series_ids"]
+        ]
         for scenario in section["scenarios"]:
             for condition in scenario["scorecard"]:
                 condition["series_id"] = "jp.foreign_flows"

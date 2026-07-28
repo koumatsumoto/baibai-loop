@@ -294,8 +294,16 @@ def _payload_citing(series_id: str) -> dict[str, Any]:
 
     payload = macro_context_payload()
     payload["inputs"]["indicator_series"][0]["series_id"] = series_id
+    # Substitute rather than collapse: the fixture's second series keeps each dominant
+    # force backed by a distinct series per named section.
     for section in (*payload["core"], payload["connection"]):
-        section["series_ids"] = [series_id]
+        section["series_ids"] = [
+            series_id if listed == "us.10y" else listed for listed in section["series_ids"]
+        ]
+    for force in payload["synthesis"]["dominant_forces"]:
+        force["series_ids"] = [
+            series_id if listed == "us.10y" else listed for listed in force["series_ids"]
+        ]
     for scenario in _risk(payload)["scenarios"]:
         for condition in scenario["scorecard"]:
             condition["series_id"] = series_id
