@@ -21,7 +21,11 @@ concurrency:
 jobs:
   daily:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A healthy run finishes in ~35min. The headroom covers the store-backup copy
+    # waiting out its own read timeout and retries, so a stuck copy fails as a step
+    # — with its error in the Discord notification — instead of expiring the job,
+    # which GitHub reports as a cancellation with no cause attached.
+    timeout-minutes: 60
     # Job-level env carries only the data-pipeline credentials. The Discord
     # webhook secret is intentionally NOT here: it is passed to the single
     # notification step alone (see "Notify Discord #batch-runs").

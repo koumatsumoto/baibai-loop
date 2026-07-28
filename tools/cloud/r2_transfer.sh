@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 serving_bucket="${R2_SERVING_BUCKET:-baibai-serving}"
+copy_read_timeout=300
 transfer_staging=""
 
 cleanup_staging() {
@@ -105,6 +106,11 @@ backup_remote_key() {
   # through GetObjectTagging, and a single-part one sends x-amz-tagging-directive, neither
   # of which R2 implements. CopyObject sends no directive, is one server-side request with
   # no transfer, and covers objects up to 5GB (the largest store here is well inside that).
+  # R2 answers CopyObject only once the copy is finished, and that wait grows with the
+  # object size: the several-hundred-MB stores do not fit the CLI's 60s default read
+  # timeout, which surfaces as `Read timeout on endpoint URL` and aborts the whole push.
+  # The wider limit below is a ceiling, not a delay — retries stay at the CLI default so a
+  # copy that is genuinely stuck still fails the step inside the job's time budget.
   local key="$1"
   if remote_object_exists "${key}"; then
     aws s3api copy-object \
@@ -112,6 +118,7 @@ backup_remote_key() {
       --key "${key}.bak" \
       --copy-source "${stores_bucket}/${key}" \
       --endpoint-url "${endpoint}" \
+      --cli-read-timeout "${copy_read_timeout}" \
       >/dev/null
   fi
 }
