@@ -656,14 +656,14 @@ def _research_lane_dir(workspace: Path, ticker: str) -> Path:
     return ticker_dir
 
 
-def _require_primary_research_ticker(workspace: Path, ticker: str) -> None:
+def _require_primary_research_ticker(workspace: Path, ticker: str, *, action: str) -> None:
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
     shortlist_tickers = {
         str(row.get("ticker") or "") for row in _dict_list(selection.get("shortlist"))
     }
     if ticker not in shortlist_tickers:
         raise OpportunityDataError(
-            f"cannot scaffold research lane for {ticker}: ticker is not in the primary-research set"
+            f"cannot {action} for {ticker}: ticker is not in the primary-research set"
         )
 
 
@@ -691,7 +691,7 @@ def scaffold_thesis(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
-    _require_primary_research_ticker(workspace, ticker)
+    _require_primary_research_ticker(workspace, ticker, action="scaffold research lane")
     asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     purpose = str(manifest.get("purpose") or "opportunity")
     screening_estimate: dict[str, object] | None
@@ -1025,7 +1025,7 @@ def scaffold_review(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
-    _require_primary_research_ticker(workspace, ticker)
+    _require_primary_research_ticker(workspace, ticker, action="scaffold review")
     ticker_dir = _research_lane_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
     if not thesis_path.exists():
@@ -1101,9 +1101,10 @@ def promote(
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
-    comparison = _load_mapping(workspace / "research-comparison.yaml", label="research comparison")
-    if _string_or_none(comparison.get("selected_ticker")) != ticker:
-        raise OpportunityDataError(f"cannot promote {ticker}: it is not the selected_ticker")
+    # Every researched lane earns a canonical thesis, not only the one being bought.
+    # A cycle that buys nothing still produced the judgment that says why, and the
+    # bargain assessment binds each lane's machine values to a stored thesis.
+    _require_primary_research_ticker(workspace, ticker, action="promote")
 
     ticker_dir = _research_lane_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"

@@ -1881,6 +1881,57 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
     assert evaluate_thesis(thesis, review=review, now=FIXED_NOW).errors == ()
 
 
+def test_promote_publishes_a_researched_lane_with_no_selected_ticker(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A cycle that buys nothing still produced the judgment that says why, and the
+    # bargain assessment binds every lane's machine values to a stored thesis.
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    _fill_ready_workspace(workspace)
+    comparison_path = workspace / "research-comparison.yaml"
+    comparison = safe_load(comparison_path.read_text(encoding="utf-8"))
+    comparison["selected_ticker"] = None
+    comparison_path.write_text(
+        yaml.safe_dump(comparison, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    db_path = tmp_path / "app.sqlite"
+
+    code, _ = _run(
+        ["promote", "--workspace", str(workspace), "--ticker", "2331", "--db", str(db_path)],
+        capsys,
+    )
+
+    assert code == 0
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 1
+
+
+def test_promote_refuses_a_ticker_outside_the_primary_research_set(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    _fill_ready_workspace(workspace)
+    selection_path = workspace / "selection.yaml"
+    selection = safe_load(selection_path.read_text(encoding="utf-8"))
+    selection["shortlist"] = []
+    selection_path.write_text(
+        yaml.safe_dump(selection, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    db_path = tmp_path / "app.sqlite"
+
+    code = opportunity_main(
+        ["promote", "--workspace", str(workspace), "--ticker", "2331", "--db", str(db_path)],
+        now=FIXED_NOW,
+    )
+
+    assert code == 3
+    _assert_no_theses(db_path)
+
+
 def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
