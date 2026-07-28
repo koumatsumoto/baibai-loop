@@ -22,7 +22,12 @@ from baibai_engine.macro.indicators.db import (
 )
 from baibai_engine.macro.reading.rules import DEFAULT_RULES_PATH
 
-from .models import MacroContextDocument
+from .models import (
+    MacroContextDocument,
+    require_integrated_strategy,
+    require_machine_checkable_monitoring,
+    require_registry_agreement,
+)
 from .scorecard import (
     ScorecardEvaluation,
     ScorecardEvaluationError,
@@ -43,6 +48,15 @@ def build_parser() -> argparse.ArgumentParser:
     publish = commands.add_parser("publish")
     publish.add_argument("draft", type=Path)
     publish.add_argument("--expected-head")
+    publish.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "validate the draft against the document contract and the publication "
+            "gates without touching the store (store-bound checks — compare-and-swap "
+            "and the predecessor scorecard digest — still run only on real publish)"
+        ),
+    )
     show = commands.add_parser("show")
     selection = show.add_mutually_exclusive_group(required=True)
     selection.add_argument("--latest", action="store_true")
@@ -81,7 +95,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         if args.command == "publish":
             raw = safe_load(args.draft.read_text(encoding="utf-8"))
             document = MacroContextDocument.model_validate(raw)
-            _emit(service.publish(document, expected_head=args.expected_head).payload())
+            if args.check:
+                if args.expected_head is not None:
+                    raise ValueError(
+                        "--check validates without touching the store; drop --expected-head"
+                    )
+                require_integrated_strategy(document)
+                require_machine_checkable_monitoring(document)
+                require_registry_agreement(document)
+                _emit({"check": "ok", "context_id": document.context_id})
+            else:
+                _emit(service.publish(document, expected_head=args.expected_head).payload())
         elif args.command == "show":
             if args.latest:
                 latest_document = service.latest_for(args.asof)
