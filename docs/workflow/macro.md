@@ -163,8 +163,12 @@ Baibai App の Macro タブは、この読み値と指標チャートを **1 つ
 
 市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.context.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。既存 head を読んで draft を作り、2件目以降は `--expected-head` にその ID を渡す。head が変わっていれば publish 全体が無変更で失敗する。
 
+draft の反復中は `publish --check` で store に触れずに文書契約と publish gate だけを検証する（compare-and-swap と前回 scorecard の digest 照合は store が要るため実 publish のみ）。`inputs.indicator_series` は手書きせず、セクション → series の対応を書いた spec から `tools/scaffold_macro_context_inputs.py` で生成する — provider・最新観測日・vintage・実効窓を L1 store と reading 計算から導出するので、引用の provenance が常に store と一致する。
+
 ```bash
 uv run baibai-engine macro context head
+uv run python tools/scaffold_macro_context_inputs.py /tmp/spec.yaml --output /tmp/inputs.yaml
+uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --check
 uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
   --expected-head macro-context-2026-07-01-example
 uv run baibai-engine macro context show --latest --asof 2026-07-19
