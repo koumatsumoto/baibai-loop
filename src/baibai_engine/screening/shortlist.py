@@ -21,6 +21,11 @@ class ShortlistNarrative(BaseModel):
     Screening は数値の由来を機械出力するが、なぜ深掘りに値するかという判断は
     ここへ人間/AI が固定する。selected 銘柄でだけ必須にし、shortlist を
     ephemeral な HTML narrative ではなく application DB の一次記録にする。
+
+    リスクリワードの判断 ``upside`` / ``downside`` / ``rr``、dated catalyst、
+    macro context ヒントの消化を必須にするのは、この段階で「割安に見える」だけの
+    候補と「非対称が買いに値する」候補を分けるためである。ここで書けない候補は
+    一次リサーチの枠を使う価値が確認できていない。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -34,6 +39,12 @@ class ShortlistNarrative(BaseModel):
     research: str = Field(min_length=1)
     value: str = Field(min_length=1)
     prov: str = Field(min_length=1)
+    upside: str = Field(min_length=1)
+    downside: str = Field(min_length=1)
+    rr: str = Field(min_length=1)
+    catalyst: str = Field(min_length=1)
+    catalyst_date: date | None = None
+    macro: str = Field(min_length=1)
     sector_label: str | None = None
 
 
@@ -42,6 +53,7 @@ class ShortlistEntry(BaseModel):
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
     decision: Literal["selected", "rejected"]
     reason: str = Field(min_length=1)
+    rank: int | None = Field(default=None, ge=1)
     narrative: ShortlistNarrative | None = None
 
     @model_validator(mode="after")
@@ -50,12 +62,24 @@ class ShortlistEntry(BaseModel):
             raise ValueError("selected shortlist entry must include an OP3 narrative")
         if self.decision == "rejected" and self.narrative is not None:
             raise ValueError("rejected shortlist entry must not include a narrative")
+        if self.decision == "selected" and self.rank is None:
+            raise ValueError("selected shortlist entry must carry a provisional rank")
+        if self.decision == "rejected" and self.rank is not None:
+            raise ValueError("rejected shortlist entry must not carry a provisional rank")
         return self
+
+
+CATALYST_HORIZON_DAYS = 550
+"""dated catalyst として書ける将来の幅。as_of から約 18 か月。
+
+これより先の日付は「いつか起きる」であって着手順位を決める catalyst にならず、
+as_of より前の日付は既に判明した事実なので、どちらも再評価 trigger にならない。
+"""
 
 
 class Shortlist(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     kind: Literal["shortlist"]
     shortlist_id: str
     selection_id: str = Field(min_length=1)
@@ -75,9 +99,28 @@ class Shortlist(BaseModel):
         tickers = [entry.ticker for entry in self.entries]
         if len(tickers) != len(set(tickers)):
             raise ValueError("shortlist ticker must be unique")
-        if not any(entry.decision == "selected" for entry in self.entries):
+        selected = [entry for entry in self.entries if entry.decision == "selected"]
+        if not selected:
             raise ValueError("shortlist must contain at least one selected entry")
+        ranks = sorted(entry.rank for entry in selected if entry.rank is not None)
+        if ranks != list(range(1, len(selected) + 1)):
+            raise ValueError("selected provisional ranks must be 1..N without gaps or duplicates")
+        for entry in selected:
+            narrative = entry.narrative
+            if narrative is None or narrative.catalyst_date is None:
+                continue
+            delta = (narrative.catalyst_date - self.as_of).days
+            if not 0 <= delta <= CATALYST_HORIZON_DAYS:
+                raise ValueError(
+                    f"{entry.ticker} catalyst_date must fall between as_of and "
+                    f"as_of + {CATALYST_HORIZON_DAYS} days"
+                )
         return self
+
+    def selected_by_rank(self) -> tuple[ShortlistEntry, ...]:
+        """暫定順位の昇順で selected を返す。順位は validator が 1..N を保証する。"""
+        selected = [entry for entry in self.entries if entry.decision == "selected"]
+        return tuple(sorted(selected, key=lambda entry: entry.rank or 0))
 
     def payload(self) -> dict[str, object]:
         return self.model_dump(mode="json")
@@ -169,6 +212,7 @@ class ShortlistService:
 
 
 __all__ = [
+    "CATALYST_HORIZON_DAYS",
     "SelectionBinding",
     "Shortlist",
     "ShortlistConflictError",

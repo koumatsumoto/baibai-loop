@@ -31,6 +31,11 @@ def _selected_narrative() -> dict[str, str]:
         "structural": "構造的な需要毀損はない",
         "survive": "net cashで5年耐える",
         "unlock": "還元強化の余地",
+        "upside": "受注が平年並みなら正常利益ベースでPER12倍相当",
+        "downside": "受注半減でも営業黒字を保ち簿価が床になる",
+        "rr": "下値が資産で支えられ上値は倍近い",
+        "catalyst": "2Q決算で受注残の回復を確認する",
+        "macro": "connectionのsizing cautionは該当なし",
         "counter": "受注が構造鈍化する可能性",
         "research": "受注残と粗利率を一次IRで確認",
         "value": "FV乖離が大きい",
@@ -80,7 +85,7 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-test",
                 "selection_id": outputs[0]["selection_id"],
@@ -93,6 +98,7 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
                     {
                         "ticker": "2331",
                         "decision": "selected",
+                        "rank": 1,
                         "reason": "一次IRへ進める",
                         "narrative": _selected_narrative(),
                     }
@@ -179,7 +185,7 @@ candidates:
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260715-trigger",
                 "selection_id": selection_id,
@@ -192,6 +198,7 @@ candidates:
                     {
                         "ticker": "2331",
                         "decision": "selected",
+                        "rank": 1,
                         "reason": "一次IRへ進める",
                         "narrative": _selected_narrative(),
                     },
@@ -340,7 +347,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-weak-ref",
                 "selection_id": selection_id,
@@ -353,6 +360,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
                     {
                         "ticker": "2331",
                         "decision": "selected",
+                        "rank": 1,
                         "reason": "一次IRへ進める",
                         "narrative": _selected_narrative(),
                     }
