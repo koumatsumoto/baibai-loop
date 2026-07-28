@@ -21,9 +21,10 @@
 3. `catalyst`が日付または特定可能なeventに結び付くか（datedなら`catalyst_date`が入っているか）
 4. 深掘り〜想定保有初期にかかるdated event（決算・guidance・規制・macro contextのdated monitoring point）を消化したか
 5. リスク調整後に現金保有へ勝るか。net cash・簿価を下値の床にしている銘柄で還元機構を確認したか
-6. `data_quality_flags`が立つ銘柄で、そのflagが数値をどちら向きに歪めるかを書いたか
-7. `rank`が機械E[r]降順から乖離する銘柄で、乖離の理由を書いたか
-8. `macro`がconnectionのresearch優先度ヒント / sizing caution / estimate caveats / バーゲン地形のうち当該銘柄に該当するものを消化しているか（該当なしの判断を含む）
+6. carry比率が高い銘柄で、予想DPSが前期実績を大きく上回っていないか・`forecast_special_gain_flag`が立っていないか・FCFが配当を賄えているかを確認したか
+7. `data_quality_flags`が立つ銘柄で、そのflagが数値をどちら向きに歪めるかを書いたか
+8. `rank`が機械E[r]降順から乖離する銘柄で、乖離の理由を書いたか
+9. `macro`がconnectionのresearch優先度ヒント / sizing caution / estimate caveats / バーゲン地形のうち当該銘柄に該当するものを消化しているか（該当なしの判断を含む）
 
 fail項目はdraftを直してから進む。突合を省いてpublishしない。
 
