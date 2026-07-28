@@ -45,6 +45,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
     - (m) **bargain_topographyがmarket-snapshotの数値（breadth・regime・業種騰落）に接地しているか**。外部記事の相場観の転写になっていないか
     - (n) **焦点 fact が各セクションの先頭にあり、数値の網羅転記が末尾の座標 fact 1 件に隔離されているか**（判断を駆動する数値が壁に埋もれていないか）
     - (o) 自前の機械出力（market-snapshot・scorecard）を`inputs.articles`に入れていないか（`machine_snapshots`が正しい枠）
+    - (p) **深度契約チェックリストを 1 項目ずつ突合したか**: 8 象限すべてに fact があるか、外部記事 15 本以上か、日本需要の必須系列（実質賃金または実質消費、**鉱工業生産**）が入っているか、**通商政策（関税）** と地政学 tail の fact がセクション 4/5 にあるか、日本株バリュエーションアンカー（益回りと JGB 10y の対比）が明示されているか。印象で「満たしているはず」とせず、[深度契約](../../../docs/workflow/macro.md#depth-contract)の箇条書きに対して機械的に照合する（publish gate は presence しか測れず、被覆の欠落は self-check でしか捕まらない）
 
     fail項目は修正してから進む。
 11. strict contractを満たすdraftを作り、確認したheadを`--expected-head`へ渡して`baibai-engine macro context publish`する。head が無いときだけ`--expected-head`を省略する。
