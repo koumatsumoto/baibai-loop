@@ -14,7 +14,6 @@ from baibai_app.api.server import create_app
 from baibai_app.readmodel.builders import build_meta
 from baibai_app.readmodel.models import (
     DashboardView,
-    MachineSelectionView,
     MacroContextView,
     MacroView,
     MetaView,
@@ -269,12 +268,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
         detail = SecurityDetailView.model_validate_json((views / name).read_text(encoding="utf-8"))
         assert detail.candidate_row is not None
 
-    select_files = sorted((output_dir / "history/select").iterdir())
-    assert [item.name for item in select_files] == ["2026-07-08.json"]
-    selection = MachineSelectionView.model_validate_json(
-        select_files[0].read_text(encoding="utf-8")
-    )
-    assert [entry.ticker for entry in selection.longlist] == ["0001"]
+    assert not (output_dir / "history/select").exists()
 
     pool_files = sorted((output_dir / "history/candidate-views").iterdir())
     assert [item.name for item in pool_files] == ["2026-07-01.json", "2026-07-08.json"]
@@ -409,7 +403,7 @@ def test_export_replaces_views_but_keeps_history(app_method_root: Path, tmp_path
     stale_view = output_dir / "views/security--0009.json"
     stale_view.parent.mkdir(parents=True)
     stale_view.write_text("{}", encoding="utf-8")
-    kept_history = output_dir / "history/select/2026-01-01.json"
+    kept_history = output_dir / "history/candidate-views/2026-01-01.json"
     kept_history.parent.mkdir(parents=True)
     kept_history.write_text("{}", encoding="utf-8")
 

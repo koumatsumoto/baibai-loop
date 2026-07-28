@@ -245,12 +245,6 @@ def _write_history(
     runs_db_path: Path,
 ) -> list[Path]:
     written: list[Path] = []
-    if screening.run is not None and screening.selections:
-        latest = max(screening.selections, key=lambda item: item.created_at)
-        asof = screening.run.asof_date.isoformat()
-        written.append(_write_model(output_dir / "history/select" / f"{asof}.json", latest))
-    else:
-        _warn("no machine selection is published; history/select skipped")
     history_dates = screening_run_asof_dates(runs_db_path)
     if not history_dates:
         _warn("no screening run is published; history/candidate-views skipped")

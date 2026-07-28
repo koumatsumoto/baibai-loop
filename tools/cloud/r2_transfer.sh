@@ -151,9 +151,6 @@ upload_serving() {
   fi
   aws_s3 sync "${output_dir}/views/" "s3://${serving_bucket}/views/" \
     --delete --exclude meta.json
-  if [[ -d "${output_dir}/history/select" ]]; then
-    aws_s3 sync "${output_dir}/history/select/" "s3://${serving_bucket}/history/select/"
-  fi
   if [[ -d "${output_dir}/history/candidate-views" ]]; then
     aws_s3 sync "${output_dir}/history/candidate-views/" \
       "s3://${serving_bucket}/history/candidate-views/"
