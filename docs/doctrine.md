@@ -82,7 +82,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ### 柱 2: マクロは機械読み値 + material delta、AIは企業別value captureとして扱う
 
-- **(a)** マクロは 2 層に分ける。**macro reading（L2）** は登録全系列の記述統計（水準・方向・percentile・閾値注記・観測の齢）を毎営業日 機械で出す共通の物差しで、regime分類・合成score・売買signalを出さない。**macro context（L3）** は人間が判断するときだけ書く環境認識レポートで、use-case agnosticな環境評価（core）と日本株積立ループへの接続（connection）に分ける。core はリスク選好環境の評価（攻め／守りどちらの環境か）を反証条件付きのjudgmentとして持ち、日本株ループ固有のsector tilt・research優先度ヒント・sizing cautionはconnectionへ隔離する（参照方向を機械契約で強制し、coreの単体完結性を保つ）。どちらも機械screening・ranking・sizingには混入させず、行動指示（売買タイミング・現金比率・配分指示）を出さない。macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、または古くても候補抽出は継続し、未来情報だけをhard errorにする。鮮度は書く側が賞味期限を宣言せず、読む側が`as_of`と自分の閾値で判断する。
+- **(a)** マクロは 2 層に分ける。**macro reading（L2）** は登録全系列の記述統計（水準・方向・percentile・閾値注記・観測の齢）を毎営業日 機械で出す共通の物差しで、regime分類・合成score・売買signalを出さない。**macro context（L3）** は人間が判断するときだけ書く環境認識レポートで、use-case agnosticな環境評価（core）、その上に立つ支配的な力の統合評価（synthesis）、日本株積立ループへの接続（connection）に分ける。synthesis も use-case agnostic であり、core が引用済みの証拠の範囲でのみ経路横断の力と相互作用を名指しする（connection と同じ参照方向の機械契約）。core はリスク選好環境の評価（攻め／守りどちらの環境か）を反証条件付きのjudgmentとして持ち、日本株ループ固有のsector tilt・research優先度ヒント・sizing cautionはconnectionへ隔離する（参照方向を機械契約で強制し、coreの単体完結性を保つ）。どちらも機械screening・ranking・sizingには混入させず、行動指示（売買タイミング・現金比率・配分指示）を出さない。macro contextは人間/AIがresearchの着手優先度を判断するjudgment入力であり、たとえば需要経路が弱いsectorの着手を後ろへ回すために使う。contextがない、または古くても候補抽出は継続し、未来情報だけをhard errorにする。鮮度は書く側が賞味期限を宣言せず、読む側が`as_of`と自分の閾値で判断する。
 - **(b)** AIはsectorではなく企業別の構造変化lensである。enabler、infrastructure、complement、adopter、disruptedのどこに位置するかと、競争優位・価格決定力・必要capex・顧客交渉力を通じて株主価値を獲得できるかをthesisで判断する。AI需要が増えてもvalue captureがなければ採用根拠にしない。
 - **(c)** 非AI企業も個別のE[r]と永久損失リスクで同じ土俵に置く。macro/AIの合成score、自動sizing、sector順位は作らない。
 
@@ -141,7 +141,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | --- | --- | --- | --- | --- |
 | 運用方針 | portfolio management | governance | — | 資本・許容リスク・ポジション管理・kill switch |
 | マクロ機械読み値 | macro reading | 機械成果物 | L2 出力 | 全登録系列の水準・方向・percentile・閾値注記・観測の齢を毎営業日 決定論で出す共通の物差し |
-| マクロ環境分析 | macro context | 判断文書 | L3 | use-case agnosticな環境評価（core）と日本株積立ループ接続（connection）を持つ補助context |
+| マクロ環境分析 | macro context | 判断文書 | L3 | use-case agnosticな環境評価（core）・支配的な力の統合評価（synthesis）・日本株積立ループ接続（connection）を持つ補助context |
 | 市場データ基盤 | market.sqlite | データ store | L1 | 全上場銘柄の実データの正本 |
 | 機械スクリーニング | screening | 機械処理 | L2 | valuation ranking で割安ゾーンを機械抽出 |
 | スクリーニング実行結果 | screening run | 機械成果物 | L2 出力 | run storeに保存する再生成可能なobserved / derived / estimateのsnapshot |
@@ -168,7 +168,7 @@ thesisで見積りの根拠を検証するときの分析レンズ / return源�
 
 - **運用方針 (portfolio management)**：目的・制約・資本・許容risk・position管理・投資対象・thesis healthと税引後代替で保有を見直す規律を扱う。個別銘柄のthesisやentry/exit設計は扱わない。
 - **マクロ機械読み値 (macro reading)**：L1 の指標 store だけを入力に、全登録系列の記述統計と観測の齢を決定論で計算する。解釈・因果・行動指示を持たない。
-- **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・機械照合可能なシナリオ条件・監視ポイント）と日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
+- **マクロ環境分析 (macro context)**：macro reading と外部記事・指標データを参照し、環境評価（core：レジーム・経路別のfactとjudgment・リスク選好環境の評価・確率と機械照合可能な条件を持つシナリオ・監視ポイント）、統合評価（synthesis：経路横断の支配的な力とその相互作用）、日本株積立ループ接続（connection：research優先度・sector tilt・sizing caution・バーゲン地形・機械見積りの歪み注意）を分析階層（§7）に沿った構造化レポートとして残す。記事本文や取得ログは保存しない。
 - **スクリーニング実行結果 (screening run)**：run storeに保存する再生成可能な機械出力。observed、derived、estimateを由来付きで残し、judgment・因果解釈・相場観を書かない。
 - **深掘り候補一覧 (shortlist)**：OP3 gateでlonglistから選んだ深掘り候補のcanonical snapshot。selected narrativeとrejected理由を持ち、application DBに置き、source run revisionへの束縛を保つ。
 - **個別銘柄research / thesis**：一次情報、FV、3年/5年scenario、risk/reward、期待return、永久損失、countercaseを検証し、採否をcanonical thesisへ固定する。

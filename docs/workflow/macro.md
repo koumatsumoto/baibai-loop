@@ -3,7 +3,7 @@ title: "Workflow — macro analysis"
 summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + synthesis 統合評価 + connection 積立ループ接続）を書く。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-25
+last_reviewed: 2026-07-28
 ---
 
 # Workflow — マクロ環境分析

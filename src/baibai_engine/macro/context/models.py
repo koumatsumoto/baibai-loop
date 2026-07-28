@@ -1146,8 +1146,8 @@ def _cites_successful_input(
 def _distinct_assignment_exists(candidates: Sequence[set[str]]) -> bool:
     """Whether each candidate set can be assigned its own distinct element.
 
-    Bipartite matching, exact: a force names at most five sections, so a backtracking
-    search ordered smallest-set-first is cheap. A per-set non-emptiness check alone
+    Bipartite matching, exact: a force names at most the seven channel sections, so a
+    backtracking search ordered smallest-set-first is cheap. A per-set non-emptiness check alone
     would let one series shared by every named section stand in for all of them.
     """
 
