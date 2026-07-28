@@ -266,6 +266,9 @@ export interface CandidateRowView {
   data_quality_flags: string[]
   portfolio_state: PortfolioState
   has_research: boolean
+  // FV アンカーは machine selection の longlist だけが持つので、longlist 外は null。
+  fair_value_anchor_yen: number | null
+  fair_value_gap_pct: number | null
 }
 
 export interface ScreeningView {
@@ -284,14 +287,28 @@ export interface ScreeningHistoryRunView {
   rows: CandidateRowView[]
 }
 
+export interface SelectionLonglistEntryView {
+  rank: number | null
+  ticker: string
+  name: string | null
+  market_price_yen: number | null
+  fair_value_anchor_yen: number | null
+  fair_value_gap_pct: number | null
+  expected_return_pct: number | null
+  screening_playbook: string | null
+  liquidity_status: string | null
+  selection_reasons: string[]
+  durability_warnings: string[]
+  event_warnings: string[]
+}
+
 export interface MachineSelectionView {
   selection_id: string
   run_revision_id: string
   profile: string
   macro_context_id: string | null
   created_at: string
-  recommendations: Record<string, unknown>[]
-  longlist: Record<string, unknown>[]
+  longlist: SelectionLonglistEntryView[]
 }
 
 export interface ShortlistNarrativeView {
@@ -305,6 +322,12 @@ export interface ShortlistNarrativeView {
   research: string
   value: string
   prov: string
+  upside: string | null
+  downside: string | null
+  rr: string | null
+  catalyst: string | null
+  catalyst_date: string | null
+  macro: string | null
   sector_label: string | null
 }
 
@@ -312,6 +335,7 @@ export interface ShortlistEntryView {
   ticker: string
   decision: string
   reason: string
+  rank: number | null
   narrative: ShortlistNarrativeView | null
 }
 
@@ -322,6 +346,7 @@ export interface ShortlistView {
   as_of: string
   published_at: string
   entries: ShortlistEntryView[]
+  unreadable_entries: number
 }
 
 export interface ResearchRevisionView {

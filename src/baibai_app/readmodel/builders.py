@@ -8,6 +8,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
+
 from baibai_app.sources.db_sources import (
     DbCandidatesSource,
     DbMacroSource,
@@ -85,6 +87,7 @@ from .models import (
     ScreeningRunView,
     ScreeningView,
     SecurityDetailView,
+    SelectionLonglistEntryView,
     ShortlistEntryView,
     ShortlistView,
     SystemProviderView,
@@ -391,12 +394,32 @@ def build_screening(
     return ScreeningView(
         run=_screening_run_view(run, today=today),
         rows=[
-            _candidate_row_view(row, held=held, reserved=reserved, researched=researched)
+            _candidate_row_view(
+                row,
+                held=held,
+                reserved=reserved,
+                researched=researched,
+                fair_value=_fair_value_by_ticker(selections),
+            )
             for row in run.rows
         ],
         selections=selections,
         shortlists=shortlists,
     )
+
+
+def _fair_value_by_ticker(
+    selections: list[MachineSelectionView],
+) -> Mapping[str, SelectionLonglistEntryView]:
+    """FV アンカーを持つのは longlist だけなので、その範囲を ticker で引けるようにする。
+
+    複数 selection が同じ run に束縛される場合は最新の selection を採る。longlist の
+    外にいる候補は FV を持たないまま残る。
+    """
+    if not selections:
+        return {}
+    newest = max(selections, key=lambda item: item.created_at)
+    return {entry.ticker: entry for entry in newest.longlist}
 
 
 def build_screening_history_run(
@@ -413,10 +436,22 @@ def build_screening_history_run(
         return None
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
+    fair_value = _fair_value_by_ticker(
+        [
+            _machine_selection_view(item)
+            for item in candidates.selections(run_revision_id=run.run_revision_id)
+        ]
+    )
     return ScreeningHistoryRunView(
         run=_screening_run_view(run, today=datetime.now(_JST).date()),
         rows=[
-            _candidate_row_view(row, held=held, reserved=reserved, researched=researched)
+            _candidate_row_view(
+                row,
+                held=held,
+                reserved=reserved,
+                researched=researched,
+                fair_value=fair_value,
+            )
             for row in run.rows
         ],
     )
@@ -432,21 +467,57 @@ def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
         profile=str(raw["profile"]),
         macro_context_id=_text(raw.get("macro_context_id")),
         created_at=datetime.fromisoformat(str(raw["created_at"])),
-        recommendations=[dict(item) for item in _mapping_items(payload.get("recommendations"))],
-        longlist=[dict(item) for item in _mapping_items_optional(payload.get("longlist"))],
+        longlist=[
+            _selection_longlist_entry_view(item)
+            for item in _mapping_items_optional(payload.get("longlist"))
+        ],
     )
 
 
+def _selection_longlist_entry_view(raw: Mapping[str, object]) -> SelectionLonglistEntryView:
+    price = _number(raw.get("market_price_yen"))
+    anchor = _number(raw.get("fair_value_anchor_yen"))
+    return SelectionLonglistEntryView(
+        rank=_integer(raw.get("rank")),
+        ticker=str(raw.get("ticker", "")),
+        name=_text(raw.get("name")),
+        market_price_yen=price,
+        fair_value_anchor_yen=anchor,
+        fair_value_gap_pct=_fair_value_gap_pct(anchor, price),
+        expected_return_pct=_number(raw.get("expected_return_pct")),
+        screening_playbook=_text(raw.get("screening_playbook")),
+        liquidity_status=_text(raw.get("liquidity_status")),
+        selection_reasons=_string_list(raw.get("selection_reasons")),
+        durability_warnings=_string_list(raw.get("durability_warnings")),
+        event_warnings=_string_list(raw.get("event_warnings")),
+    )
+
+
+def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | None:
+    """FV アンカーと screening 参考価格の乖離率。導出は read model 側で 1 回だけ行う。"""
+    if anchor is None or price is None or price == 0:
+        return None
+    return round((anchor / price - 1) * 100, 4)
+
+
 def _shortlist_view(raw: Mapping[str, object]) -> ShortlistView:
+    entries: list[ShortlistEntryView] = []
+    unreadable = 0
+    for item in _mapping_items(raw.get("entries")):
+        try:
+            entries.append(ShortlistEntryView.model_validate(item))
+        except ValidationError:
+            # 発行済み revision は immutable なので、read 経路が形の違いで落ちると
+            # export ごと止まる。読めない entry は数えて面へ出し、黙って消さない。
+            unreadable += 1
     return ShortlistView(
         shortlist_id=str(raw["shortlist_id"]),
         selection_id=str(raw["selection_id"]),
         run_revision_id=str(raw["run_revision_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
-        entries=[
-            ShortlistEntryView.model_validate(item) for item in _mapping_items(raw.get("entries"))
-        ],
+        entries=entries,
+        unreadable_entries=unreadable,
     )
 
 
@@ -1150,6 +1221,7 @@ def _candidate_row_view(
     held: set[str],
     reserved: set[str],
     researched: set[str],
+    fair_value: Mapping[str, SelectionLonglistEntryView] | None = None,
 ) -> CandidateRowView:
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
@@ -1157,6 +1229,7 @@ def _candidate_row_view(
     values = {name: _number(row.get(name)) for name in _NUMERIC_FIELDS}
     values.update({name: _number(metrics.get(name)) for name in _METRIC_FIELDS})
     flags = _data_quality_flags(row, metrics)
+    anchor = (fair_value or {}).get(ticker)
     return CandidateRowView(
         ticker=ticker,
         name=_text(row.get("name")),
@@ -1168,6 +1241,8 @@ def _candidate_row_view(
         ),
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
+        fair_value_anchor_yen=None if anchor is None else anchor.fair_value_anchor_yen,
+        fair_value_gap_pct=None if anchor is None else anchor.fair_value_gap_pct,
         **values,
     )
 
@@ -1229,3 +1304,13 @@ def _number(value: object) -> float | None:
 
 def _text(value: object) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _integer(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]

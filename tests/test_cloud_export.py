@@ -274,8 +274,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     selection = MachineSelectionView.model_validate_json(
         select_files[0].read_text(encoding="utf-8")
     )
-    assert [entry["ticker"] for entry in selection.recommendations] == ["2331"]
-    assert [entry["ticker"] for entry in selection.longlist] == ["0001"]
+    assert [entry.ticker for entry in selection.longlist] == ["0001"]
 
     pool_files = sorted((output_dir / "history/candidate-views").iterdir())
     assert [item.name for item in pool_files] == ["2026-07-01.json", "2026-07-08.json"]

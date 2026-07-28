@@ -236,6 +236,10 @@ class CandidateRowView(BaseModel):
     data_quality_flags: list[str]
     portfolio_state: PortfolioState
     has_research: bool
+    # FV アンカーは machine selection の longlist だけが持つので、longlist へ入らな
+    # かった候補では空になる。read-only app は FV を導出しない。
+    fair_value_anchor_yen: float | None = None
+    fair_value_gap_pct: float | None = None
 
 
 class ScreeningView(BaseModel):
@@ -256,17 +260,39 @@ class ScreeningHistoryRunView(BaseModel):
     rows: list[CandidateRowView]
 
 
+class SelectionLonglistEntryView(BaseModel):
+    """機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。"""
+
+    rank: int | None
+    ticker: str
+    name: str | None
+    market_price_yen: float | None
+    fair_value_anchor_yen: float | None
+    fair_value_gap_pct: float | None
+    expected_return_pct: float | None
+    screening_playbook: str | None
+    liquidity_status: str | None
+    selection_reasons: list[str]
+    durability_warnings: list[str]
+    event_warnings: list[str]
+
+
 class MachineSelectionView(BaseModel):
     selection_id: str
     run_revision_id: str
     profile: str
     macro_context_id: str | None
     created_at: datetime
-    recommendations: list[dict[str, object]]
-    longlist: list[dict[str, object]]
+    longlist: list[SelectionLonglistEntryView]
 
 
 class ShortlistNarrativeView(BaseModel):
+    """発行済み shortlist の判断。read 側は欠けた field を空欄として通す。
+
+    必須性を強制するのは publish の write path だけであり、read model が同じ必須を
+    課すと、schema を進めた瞬間に旧 revision を読む export と API が落ちる。
+    """
+
     ploss: str
     why: str
     temporary: str
@@ -277,6 +303,12 @@ class ShortlistNarrativeView(BaseModel):
     research: str
     value: str
     prov: str
+    upside: str | None = None
+    downside: str | None = None
+    rr: str | None = None
+    catalyst: str | None = None
+    catalyst_date: date | None = None
+    macro: str | None = None
     sector_label: str | None = None
 
 
@@ -284,6 +316,7 @@ class ShortlistEntryView(BaseModel):
     ticker: str
     decision: str
     reason: str
+    rank: int | None = None
     narrative: ShortlistNarrativeView | None = None
 
 
@@ -294,6 +327,8 @@ class ShortlistView(BaseModel):
     as_of: date
     published_at: datetime
     entries: list[ShortlistEntryView]
+    # 読めなかった entry の件数。0 でないレビュー面は不完全なので、そう表示する。
+    unreadable_entries: int = 0
 
 
 class ResearchRevisionView(BaseModel):

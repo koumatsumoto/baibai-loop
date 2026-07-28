@@ -5,7 +5,6 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 import { fetchJson } from '../api/client'
 import type {
   CandidateRowView,
-  PortfolioState,
   ScreeningHistoryRunView,
   ScreeningHistoryView,
   ScreeningRunView,
@@ -15,6 +14,7 @@ import { AppShell } from '../components/AppShell'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { PortfolioStateBadge } from '../components/PortfolioStateBadge'
 import { StaleBadge } from '../components/StaleBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { Badge } from '../components/ui/badge'
@@ -87,19 +87,6 @@ function Metric({ value, digits = 2 }: { value: number | null; digits?: number }
   return value === null
     ? <span className="text-muted-foreground">{EMPTY}</span>
     : <span className="font-mono tabular-nums">{formatNumber(value, digits)}</span>
-}
-
-const PORTFOLIO_STATE_LABEL: Record<PortfolioState, string | null> = {
-  unheld: null,
-  held: '保有',
-  reserved: '予約',
-  held_and_reserved: '保有+予約',
-}
-
-function PortfolioStateBadge({ state }: { state: PortfolioState }) {
-  const label = PORTFOLIO_STATE_LABEL[state]
-  if (label === null) return <span className="text-muted-foreground">—</span>
-  return <Badge variant={state === 'reserved' ? 'outline' : 'secondary'}>{label}</Badge>
 }
 
 function DataQualityCell({ flags }: { flags: string[] }) {
@@ -344,6 +331,7 @@ export function StocksPage() {
                 <SortHeader column="er_annual" direction={direction} label="E[r]" onSort={onSort} right sortKey={sortKey} />
                 <TableHead className="text-right">rev/carry</TableHead>
                 <SortHeader column="bargain_score" direction={direction} label="割安score" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="fair_value_gap_pct" direction={direction} label="FV乖離" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="per_forward" direction={direction} label="PER(F)" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="per_trailing" direction={direction} label="PER" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="pbr" direction={direction} label="PBR" onSort={onSort} right sortKey={sortKey} />
@@ -373,6 +361,7 @@ export function StocksPage() {
                   <TableCell className="text-right"><PctBadge fraction value={row.er_annual} /></TableCell>
                   <TableCell className="text-right"><ErSplitCell carry={row.er_carry_annual} reversion={row.er_reversion_annual} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.bargain_score} /></TableCell>
+                  <TableCell className="text-right" title={row.fair_value_anchor_yen === null ? 'longlist 外のため FV アンカーなし' : `FV アンカー ${formatNumber(row.fair_value_anchor_yen, 0)} 円`}><PctBadge value={row.fair_value_gap_pct} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_trailing} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.pbr} /></TableCell>
