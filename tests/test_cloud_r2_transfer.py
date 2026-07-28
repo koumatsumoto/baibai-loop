@@ -332,6 +332,31 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     assert backups[0] < uploads[0]
 
 
+def test_store_backup_waits_past_the_cli_default_read_timeout(tmp_path: Path) -> None:
+    # R2 answers CopyObject only once the copy is finished, and a several-hundred-MB store
+    # outlasts the CLI's 60s default read timeout. Without a wider ceiling the kept
+    # generation times out and takes the whole machine-store push down with it.
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["AWS_FAKE_EXISTING_KEY"] = "market.sqlite"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    backup = next(command for command in commands if command.startswith("s3api copy-object "))
+    arguments = backup.split()
+    assert int(arguments[arguments.index("--cli-read-timeout") + 1]) > 60
+
+
 def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
     # Runs outside GitHub Actions on purpose: the deep history this publishes is fetched
     # locally, and the merge — not the caller's environment — is what guarantees the cloud
