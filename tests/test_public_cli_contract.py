@@ -428,7 +428,7 @@ def test_decision_cli_emits_execution_proposal_shape(
     }
 
 
-def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
+def test_opportunity_cli_exposes_the_research_authoring_subcommands() -> None:
     parser = opportunity_parser()
     subactions = [
         action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
@@ -442,6 +442,8 @@ def test_opportunity_cli_exposes_milestone_a_subcommands() -> None:
         "review-scaffold",
         "promote",
         "plan-limit",
+        "assessment-scaffold",
+        "assessment-publish",
     }
 
 

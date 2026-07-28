@@ -427,6 +427,31 @@ MIGRATIONS: tuple[Migration, ...] = (
             "CREATE INDEX macro_context_asof_idx ON macro_context(as_of, published_at, context_id)",
         ),
     ),
+    Migration(
+        version=12,
+        statements=(
+            # 1 opportunity cycle の統合判断。proposal を作らないサイクルにも成立
+            # するので、per-ticker の proposal ではなく per-cycle の immutable
+            # revision として持つ。数値は thesis / proposal から再導出できるため、
+            # 索引に出すのは判断の所在 — 結果・基準日・source shortlist — だけにする。
+            """
+            CREATE TABLE bargain_assessment (
+                assessment_id TEXT PRIMARY KEY,
+                as_of TEXT NOT NULL,
+                published_at TEXT NOT NULL,
+                result TEXT NOT NULL CHECK (
+                    result IN ('proposal', 'no_actionable_bargain', 'defer')
+                ),
+                shortlist_id TEXT NOT NULL REFERENCES shortlist(shortlist_id),
+                payload TEXT NOT NULL CHECK (json_valid(payload))
+            ) STRICT
+            """,
+            """
+            CREATE INDEX bargain_assessment_asof_idx
+            ON bargain_assessment(as_of, published_at, assessment_id)
+            """,
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version

@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from baibai_app.readmodel.builders import (
+    build_assessment_detail,
     build_dashboard,
     build_macro,
     build_macro_context_detail,
@@ -26,6 +27,7 @@ from baibai_app.readmodel.builders import (
     build_system_view,
 )
 from baibai_app.readmodel.models import (
+    BargainAssessmentView,
     DashboardView,
     MacroContextView,
     MacroReadingView,
@@ -119,6 +121,13 @@ def create_app(
         )
         if view is None:
             raise HTTPException(status_code=404, detail="screening history not found")
+        return view
+
+    @app.get("/api/assessments/{assessment_id}", response_model=BargainAssessmentView)
+    def assessment(assessment_id: str, sources: _SourceDependency) -> BargainAssessmentView:
+        view = build_assessment_detail(sources.candidates, assessment_id=assessment_id)
+        if view is None:
+            raise HTTPException(status_code=404, detail="bargain assessment not found")
         return view
 
     @app.get("/api/macro", response_model=MacroView)

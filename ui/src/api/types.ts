@@ -266,6 +266,9 @@ export interface CandidateRowView {
   data_quality_flags: string[]
   portfolio_state: PortfolioState
   has_research: boolean
+  // FV アンカーは machine selection の longlist だけが持つので、longlist 外は null。
+  fair_value_anchor_yen: number | null
+  fair_value_gap_pct: number | null
 }
 
 export interface ScreeningView {
@@ -273,6 +276,99 @@ export interface ScreeningView {
   rows: CandidateRowView[]
   selections: MachineSelectionView[]
   shortlists: ShortlistView[]
+  assessments: BargainAssessmentSummaryView[]
+}
+
+export interface BargainAssessmentSummaryView {
+  assessment_id: string
+  as_of: string
+  published_at: string
+  result: string
+  headline: string
+  shortlist_id: string
+  lane_count: number
+  selected_ticker: string | null
+}
+
+export interface SourceCaveatView {
+  source_id: string
+  status: string
+  decision_impact: string
+}
+
+export interface ResearchQuestionView {
+  question: string
+  answer: string
+  status: string
+}
+
+export interface AssessmentLaneView {
+  ticker: string
+  name: string | null
+  disposition: string
+  disposition_reason: string
+  thesis_id: string
+  review_id: string | null
+  permanent_loss_conclusion: string | null
+  adverse_risk_axes: string[]
+  five_year_base_cagr_pct: number | null
+  required_return_pct: number | null
+  fair_value_yen: number | null
+  fv_gap_pct: number | null
+  base_terminal_multiple: number | null
+  break_even_terminal_multiple: number | null
+  terminal_multiple_buffer: number | null
+  break_even_earnings_growth_pct: number | null
+  earnings_growth_buffer_pp: number | null
+  observed_trailing_multiple: number | null
+  business_model: string
+  value_capture: string
+  growth_quality: string
+  financial_resilience: string
+  strongest_countercase: string
+  catalyst: string
+  research_questions: ResearchQuestionView[]
+  unknowns: string[]
+  source_caveats: SourceCaveatView[]
+}
+
+export interface AssessmentPurchaseView {
+  proposal_id: string
+  ticker: string
+  limit_price_yen: number
+  quantity: number
+  notional_yen: number
+  max_acceptable_price_yen: number
+  close_yen: number
+  price_as_of: string
+  expires_at: string
+  warnings: string[]
+  current_status: string | null
+  superseded: boolean
+}
+
+export interface AssessmentReviewView {
+  attempt: number
+  reviewer_identity: string
+  reviewed_at: string
+  conclusion: string
+  open_findings: string[]
+}
+
+export interface BargainAssessmentView {
+  assessment_id: string
+  as_of: string
+  published_at: string
+  result: string
+  headline: string
+  shortlist_id: string
+  macro_context_id: string | null
+  comparison: string
+  entry_timing: string | null
+  forgone: string
+  lanes: AssessmentLaneView[]
+  purchase: AssessmentPurchaseView | null
+  review: AssessmentReviewView
 }
 
 export interface ScreeningHistoryView {
@@ -284,14 +380,28 @@ export interface ScreeningHistoryRunView {
   rows: CandidateRowView[]
 }
 
+export interface SelectionLonglistEntryView {
+  rank: number | null
+  ticker: string
+  name: string | null
+  market_price_yen: number | null
+  fair_value_anchor_yen: number | null
+  fair_value_gap_pct: number | null
+  expected_return_pct: number | null
+  screening_playbook: string | null
+  liquidity_status: string | null
+  selection_reasons: string[]
+  durability_warnings: string[]
+  event_warnings: string[]
+}
+
 export interface MachineSelectionView {
   selection_id: string
   run_revision_id: string
   profile: string
   macro_context_id: string | null
   created_at: string
-  recommendations: Record<string, unknown>[]
-  longlist: Record<string, unknown>[]
+  longlist: SelectionLonglistEntryView[]
 }
 
 export interface ShortlistNarrativeView {
@@ -305,6 +415,12 @@ export interface ShortlistNarrativeView {
   research: string
   value: string
   prov: string
+  upside: string | null
+  downside: string | null
+  rr: string | null
+  catalyst: string | null
+  catalyst_date: string | null
+  macro: string | null
   sector_label: string | null
 }
 
@@ -312,6 +428,7 @@ export interface ShortlistEntryView {
   ticker: string
   decision: string
   reason: string
+  rank: number | null
   narrative: ShortlistNarrativeView | null
 }
 
@@ -322,6 +439,7 @@ export interface ShortlistView {
   as_of: string
   published_at: string
   entries: ShortlistEntryView[]
+  unreadable_entries: number
 }
 
 export interface ResearchRevisionView {

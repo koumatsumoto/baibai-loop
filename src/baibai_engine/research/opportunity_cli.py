@@ -1,5 +1,5 @@
 """CLI for opportunity authoring: prepare / status / thesis-scaffold /
-review-scaffold / promote / plan-limit.
+review-scaffold / promote / plan-limit / assessment-scaffold / assessment-publish.
 
 Machine output is YAML on stdout only; human explanation and errors go to stderr.
 Exit codes:
@@ -19,9 +19,18 @@ from pathlib import Path
 from typing import TextIO
 
 import yaml
+from pydantic import ValidationError
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.foundation.yaml_io import safe_load
 
+from .assessment import (
+    AssessmentError,
+    BargainAssessment,
+    BargainAssessmentService,
+    assessment_draft_sha256,
+)
+from .assessment_scaffold import scaffold_assessment
 from .opportunity import (
     OpportunityError,
     compute_status,
@@ -122,6 +131,35 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--budget-min-yen", type=int, default=200000)
     plan_parser.add_argument("--budget-max-yen", type=int, default=300000)
     plan_parser.add_argument("--output", type=Path)
+
+    assessment_scaffold_parser = subparsers.add_parser(
+        "assessment-scaffold",
+        help="scaffold a bargain-assessment draft from promoted theses and a proposal",
+    )
+    assessment_scaffold_parser.add_argument("--db", type=Path)
+    assessment_scaffold_parser.add_argument("--assessment-id", required=True)
+    assessment_scaffold_parser.add_argument("--asof", required=True)
+    assessment_scaffold_parser.add_argument("--shortlist-id", required=True)
+    assessment_scaffold_parser.add_argument(
+        "--thesis-id",
+        action="append",
+        required=True,
+        help="one promoted thesis per researched lane; repeat the flag",
+    )
+    assessment_scaffold_parser.add_argument("--proposal-id")
+    assessment_scaffold_parser.add_argument("--out", type=Path)
+
+    assessment_publish_parser = subparsers.add_parser(
+        "assessment-publish",
+        help="publish the bargain assessment to the application DB",
+    )
+    assessment_publish_parser.add_argument("draft", type=Path)
+    assessment_publish_parser.add_argument("--db", type=Path)
+    assessment_publish_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the contract and the machine-value bindings without writing",
+    )
 
     return parser
 
@@ -230,8 +268,52 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         ),
                     )
                 _emit(payload, out)
+            case "assessment-scaffold":
+                draft = scaffold_assessment(
+                    db_path=args.db,
+                    assessment_id=args.assessment_id,
+                    as_of=_parse_date(args.asof),
+                    shortlist_id=args.shortlist_id,
+                    thesis_ids=list(args.thesis_id),
+                    proposal_id=args.proposal_id,
+                    published_at=resolved_now,
+                )
+                if args.out is not None:
+                    from baibai_engine.foundation.filesystem import write_text_atomic
+
+                    write_text_atomic(
+                        args.out,
+                        yaml.safe_dump(
+                            draft, sort_keys=False, allow_unicode=True, default_flow_style=False
+                        ),
+                    )
+                _emit(draft, out)
+            case "assessment-publish":
+                assessment = BargainAssessment.model_validate(
+                    safe_load(args.draft.read_text(encoding="utf-8"))
+                )
+                service = BargainAssessmentService(args.db)
+                if args.check:
+                    service.check(assessment)
+                    expected = assessment_draft_sha256(assessment)
+                    _emit(
+                        {
+                            "assessment_id": assessment.assessment_id,
+                            "check": "pass",
+                            "draft_sha256": expected,
+                            "review_binding": (
+                                "match" if assessment.review.draft_sha256 == expected else "stale"
+                            ),
+                        },
+                        out,
+                    )
+                else:
+                    _emit(service.publish(assessment).payload(), out)
             case _:  # pragma: no cover - argparse enforces the command set
                 raise AssertionError(f"unreachable command: {args.command!r}")
+    except (AssessmentError, ValidationError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 3
     except OpportunityError as error:
         print(f"error: {error}", file=sys.stderr)
         return error.exit_code

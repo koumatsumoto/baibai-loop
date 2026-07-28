@@ -52,6 +52,8 @@ total_return_CAGR = ((terminal_price + cumulative_dividend_per_share) / entry_pr
 
 `annual_share_count_change_pct`が正なら希薄化、負ならbuybackによる株数減少である。terminal priceは配当を含めず、累積配当をCAGR計算で1回だけ加える。入力が主張するterminal earnings、shares、price、CAGRを式から再計算し、不一致を`incomplete`にする。
 
+`starting_share_count`は**自己株式を除いた期末実質発行済株式数**を使う。決算短信の「期末発行済株式数（自己株式を含む）」と screening の`shares_outstanding`はどちらも自己株式込みのグロス値で、自己株式が発行済の数%に達する銘柄ではそのまま使うと1株価値を同じ割合だけ過小評価する。会社自身の1株当たり当期純利益および予想EPSが含意する株数と突き合わせて確認する。
+
 ### 5-year base break-even
 
 `baibai-engine research evaluate`は5年base scenarioだけについて、thesis schemaへ値を複製せず`five_year_base_break_even`を派生出力する。要求CAGRを`r`、entry priceを`P`、累積配当を`D`、5年後利益と株数を`E5`、`S5`とすると、境界値は次の式で求める。

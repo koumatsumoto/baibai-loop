@@ -4,8 +4,8 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type {
+  BargainAssessmentSummaryView,
   CandidateRowView,
-  PortfolioState,
   ScreeningHistoryRunView,
   ScreeningHistoryView,
   ScreeningRunView,
@@ -15,6 +15,7 @@ import { AppShell } from '../components/AppShell'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { PortfolioStateBadge } from '../components/PortfolioStateBadge'
 import { StaleBadge } from '../components/StaleBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { Badge } from '../components/ui/badge'
@@ -24,7 +25,8 @@ import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatNumber } from '../lib/format'
+import { ASSESSMENT_RESULT, ASSESSMENT_TONE_CLASS } from '../lib/assessment'
+import { EMPTY, formatJstDateTime, formatNumber } from '../lib/format'
 import { LABEL } from '../lib/labels'
 import { cn } from '../lib/utils'
 
@@ -89,19 +91,6 @@ function Metric({ value, digits = 2 }: { value: number | null; digits?: number }
     : <span className="font-mono tabular-nums">{formatNumber(value, digits)}</span>
 }
 
-const PORTFOLIO_STATE_LABEL: Record<PortfolioState, string | null> = {
-  unheld: null,
-  held: '保有',
-  reserved: '予約',
-  held_and_reserved: '保有+予約',
-}
-
-function PortfolioStateBadge({ state }: { state: PortfolioState }) {
-  const label = PORTFOLIO_STATE_LABEL[state]
-  if (label === null) return <span className="text-muted-foreground">—</span>
-  return <Badge variant={state === 'reserved' ? 'outline' : 'secondary'}>{label}</Badge>
-}
-
 function DataQualityCell({ flags }: { flags: string[] }) {
   if (flags.length === 0) return <span className="text-muted-foreground">—</span>
   return (
@@ -143,6 +132,47 @@ function candidateDateLabel(value: string, latest: string) {
   if (days === 0) return `${value}（今日）`
   if (days === 1) return `${value}（昨日）`
   return value
+}
+
+// The cycle's answer, newest first. The head assessment is the current one; the rest are
+// the record of what earlier cycles concluded and why.
+function AssessmentIndex({ assessments }: { assessments: readonly BargainAssessmentSummaryView[] }) {
+  if (assessments.length === 0) {
+    return (
+      <Card className="py-5 shadow-sm">
+        <CardContent className="px-5 text-sm text-muted-foreground">
+          割安機会評価はまだ publish されていません。shortlist から個別リサーチを経て作成します。
+        </CardContent>
+      </Card>
+    )
+  }
+  return (
+    <div className="grid gap-3">
+      {assessments.map((assessment, index) => {
+        const result = ASSESSMENT_RESULT[assessment.result] ?? { label: assessment.result, tone: 'muted' as const }
+        return (
+          <Card className={cn('gap-2 py-4 shadow-sm', index === 0 && 'border-foreground/25')} key={assessment.assessment_id}>
+            <CardContent className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 px-5">
+              <div className="grid gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={cn('font-semibold', ASSESSMENT_TONE_CLASS[result.tone])}>{result.label}</Badge>
+                  {index === 0 && <Badge variant="outline">最新</Badge>}
+                  {assessment.selected_ticker !== null && <span className="font-mono text-sm font-semibold">{assessment.selected_ticker}</span>}
+                </div>
+                <p className="text-sm font-medium">{assessment.headline}</p>
+                <p className="text-xs text-muted-foreground">
+                  {LABEL.asOf} {assessment.as_of} · {LABEL.published} {formatJstDateTime(assessment.published_at)} · 深掘り {assessment.lane_count} 銘柄
+                </p>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <Link to={`/stocks/assessments/${assessment.assessment_id}`}>提案レポートを読む →</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )
+      })}
+    </div>
+  )
 }
 
 export function StocksPage() {
@@ -270,6 +300,11 @@ export function StocksPage() {
         </header>
 
         <section className="grid gap-3">
+          <h2 className="text-xl font-semibold tracking-tight">割安機会評価</h2>
+          <AssessmentIndex assessments={data.assessments} />
+        </section>
+
+        <section className="grid gap-3">
           <h2 className="text-xl font-semibold tracking-tight">リサーチ候補選定</h2>
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="gap-3 py-5 shadow-sm">
@@ -344,6 +379,7 @@ export function StocksPage() {
                 <SortHeader column="er_annual" direction={direction} label="E[r]" onSort={onSort} right sortKey={sortKey} />
                 <TableHead className="text-right">rev/carry</TableHead>
                 <SortHeader column="bargain_score" direction={direction} label="割安score" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="fair_value_gap_pct" direction={direction} label="FV乖離" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="per_forward" direction={direction} label="PER(F)" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="per_trailing" direction={direction} label="PER" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="pbr" direction={direction} label="PBR" onSort={onSort} right sortKey={sortKey} />
@@ -373,6 +409,7 @@ export function StocksPage() {
                   <TableCell className="text-right"><PctBadge fraction value={row.er_annual} /></TableCell>
                   <TableCell className="text-right"><ErSplitCell carry={row.er_carry_annual} reversion={row.er_reversion_annual} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.bargain_score} /></TableCell>
+                  <TableCell className="text-right" title={row.fair_value_anchor_yen === null ? 'longlist 外のため FV アンカーなし' : `FV アンカー ${formatNumber(row.fair_value_anchor_yen, 0)} 円`}><PctBadge value={row.fair_value_gap_pct} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_trailing} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.pbr} /></TableCell>

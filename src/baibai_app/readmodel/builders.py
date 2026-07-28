@@ -8,6 +8,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
+
 from baibai_app.sources.db_sources import (
     DbCandidatesSource,
     DbMacroSource,
@@ -40,6 +42,11 @@ from baibai_engine.read_api import (
 )
 
 from .models import (
+    AssessmentLaneView,
+    AssessmentPurchaseView,
+    AssessmentReviewView,
+    BargainAssessmentSummaryView,
+    BargainAssessmentView,
     CandidateRowView,
     DashboardView,
     HoldingReviewView,
@@ -78,6 +85,7 @@ from .models import (
     PortfolioOutcomeView,
     PortfolioState,
     ProposalView,
+    ResearchQuestionView,
     ResearchRevisionView,
     ReservationView,
     ScenarioView,
@@ -85,8 +93,10 @@ from .models import (
     ScreeningRunView,
     ScreeningView,
     SecurityDetailView,
+    SelectionLonglistEntryView,
     ShortlistEntryView,
     ShortlistView,
+    SourceCaveatView,
     SystemProviderView,
     SystemStoreView,
     SystemView,
@@ -354,6 +364,7 @@ def build_screening(
     run = candidates.latest_run()
     selections: list[MachineSelectionView] = []
     shortlists: list[ShortlistView] = []
+    assessments: list[BargainAssessmentSummaryView] = []
     if isinstance(candidates, DbCandidatesSource):
         # Operative run: judgment publications (selection / shortlist) bind to a
         # specific run revision. A newer revision of the same as-of (e.g. a determinism
@@ -378,12 +389,14 @@ def build_screening(
                 ]
         selections = [_machine_selection_view(item) for item in run_selections]
         shortlists = [_shortlist_view(item) for item in candidates.shortlists()]
+        assessments = [_assessment_summary_view(item) for item in candidates.assessments()]
     if run is None:
         return ScreeningView(
             run=None,
             rows=[],
             selections=selections,
             shortlists=shortlists,
+            assessments=assessments,
         )
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
@@ -391,12 +404,33 @@ def build_screening(
     return ScreeningView(
         run=_screening_run_view(run, today=today),
         rows=[
-            _candidate_row_view(row, held=held, reserved=reserved, researched=researched)
+            _candidate_row_view(
+                row,
+                held=held,
+                reserved=reserved,
+                researched=researched,
+                fair_value=_fair_value_by_ticker(selections),
+            )
             for row in run.rows
         ],
         selections=selections,
         shortlists=shortlists,
+        assessments=assessments,
     )
+
+
+def _fair_value_by_ticker(
+    selections: list[MachineSelectionView],
+) -> Mapping[str, SelectionLonglistEntryView]:
+    """FV アンカーを持つのは longlist だけなので、その範囲を ticker で引けるようにする。
+
+    複数 selection が同じ run に束縛される場合は最新の selection を採る。longlist の
+    外にいる候補は FV を持たないまま残る。
+    """
+    if not selections:
+        return {}
+    newest = max(selections, key=lambda item: item.created_at)
+    return {entry.ticker: entry for entry in newest.longlist}
 
 
 def build_screening_history_run(
@@ -413,12 +447,144 @@ def build_screening_history_run(
         return None
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
+    fair_value = _fair_value_by_ticker(
+        [
+            _machine_selection_view(item)
+            for item in candidates.selections(run_revision_id=run.run_revision_id)
+        ]
+    )
     return ScreeningHistoryRunView(
         run=_screening_run_view(run, today=datetime.now(_JST).date()),
         rows=[
-            _candidate_row_view(row, held=held, reserved=reserved, researched=researched)
+            _candidate_row_view(
+                row,
+                held=held,
+                reserved=reserved,
+                researched=researched,
+                fair_value=fair_value,
+            )
             for row in run.rows
         ],
+    )
+
+
+def build_assessment_detail(
+    candidates: DbCandidatesSource,
+    *,
+    assessment_id: str,
+) -> BargainAssessmentView | None:
+    """Build one published bargain assessment for the detail page."""
+
+    raw = candidates.assessment(assessment_id)
+    if raw is None:
+        return None
+    return _assessment_view(raw, proposal_states=candidates.proposal_states())
+
+
+def _assessment_summary_view(raw: Mapping[str, object]) -> BargainAssessmentSummaryView:
+    lanes = _mapping_items_optional(raw.get("lanes"))
+    selected = next(
+        (str(lane["ticker"]) for lane in lanes if lane.get("disposition") == "selected"),
+        None,
+    )
+    return BargainAssessmentSummaryView(
+        assessment_id=str(raw["assessment_id"]),
+        as_of=date.fromisoformat(str(raw["as_of"])),
+        published_at=datetime.fromisoformat(str(raw["published_at"])),
+        result=str(raw["result"]),
+        headline=str(raw["headline"]),
+        shortlist_id=str(raw["shortlist_id"]),
+        lane_count=len(lanes),
+        selected_ticker=selected,
+    )
+
+
+def _assessment_view(
+    raw: Mapping[str, object],
+    *,
+    proposal_states: Mapping[str, str],
+) -> BargainAssessmentView:
+    return BargainAssessmentView(
+        assessment_id=str(raw["assessment_id"]),
+        as_of=date.fromisoformat(str(raw["as_of"])),
+        published_at=datetime.fromisoformat(str(raw["published_at"])),
+        result=str(raw["result"]),
+        headline=str(raw["headline"]),
+        shortlist_id=str(raw["shortlist_id"]),
+        macro_context_id=_text(raw.get("macro_context_id")),
+        comparison=str(raw["comparison"]),
+        entry_timing=_text(raw.get("entry_timing")),
+        forgone=str(raw["forgone"]),
+        lanes=[_assessment_lane_view(item) for item in _mapping_items_optional(raw.get("lanes"))],
+        purchase=_assessment_purchase_view(raw.get("purchase"), proposal_states=proposal_states),
+        review=AssessmentReviewView.model_validate(raw["review"]),
+    )
+
+
+def _assessment_lane_view(raw: Mapping[str, object]) -> AssessmentLaneView:
+    machine = raw.get("machine")
+    machine_values = machine if isinstance(machine, Mapping) else {}
+    return AssessmentLaneView(
+        ticker=str(raw["ticker"]),
+        name=_text(raw.get("name")),
+        disposition=str(raw["disposition"]),
+        disposition_reason=str(raw["disposition_reason"]),
+        thesis_id=str(raw["thesis_id"]),
+        review_id=_text(raw.get("review_id")),
+        permanent_loss_conclusion=_text(machine_values.get("permanent_loss_conclusion")),
+        adverse_risk_axes=_string_list(machine_values.get("adverse_risk_axes")),
+        five_year_base_cagr_pct=_number(machine_values.get("five_year_base_cagr_pct")),
+        required_return_pct=_number(machine_values.get("required_return_pct")),
+        fair_value_yen=_number(machine_values.get("fair_value_yen")),
+        fv_gap_pct=_number(machine_values.get("fv_gap_pct")),
+        base_terminal_multiple=_number(machine_values.get("base_terminal_multiple")),
+        break_even_terminal_multiple=_number(machine_values.get("break_even_terminal_multiple")),
+        terminal_multiple_buffer=_number(machine_values.get("terminal_multiple_buffer")),
+        break_even_earnings_growth_pct=_number(
+            machine_values.get("break_even_earnings_growth_pct")
+        ),
+        earnings_growth_buffer_pp=_number(machine_values.get("earnings_growth_buffer_pp")),
+        observed_trailing_multiple=_number(machine_values.get("observed_trailing_multiple")),
+        business_model=str(raw["business_model"]),
+        value_capture=str(raw["value_capture"]),
+        growth_quality=str(raw["growth_quality"]),
+        financial_resilience=str(raw["financial_resilience"]),
+        strongest_countercase=str(raw["strongest_countercase"]),
+        catalyst=str(raw["catalyst"]),
+        research_questions=[
+            ResearchQuestionView.model_validate(item)
+            for item in _mapping_items_optional(raw.get("research_questions"))
+        ],
+        unknowns=_string_list(raw.get("unknowns")),
+        source_caveats=[
+            SourceCaveatView.model_validate(item)
+            for item in _mapping_items_optional(raw.get("source_caveats"))
+        ],
+    )
+
+
+def _assessment_purchase_view(
+    raw: object,
+    *,
+    proposal_states: Mapping[str, str],
+) -> AssessmentPurchaseView | None:
+    if not isinstance(raw, Mapping):
+        return None
+    proposal_id = str(raw["proposal_id"])
+    current = proposal_states.get(proposal_id)
+    return AssessmentPurchaseView(
+        proposal_id=proposal_id,
+        ticker=str(raw["ticker"]),
+        limit_price_yen=float(str(raw["limit_price_yen"])),
+        quantity=int(str(raw["quantity"])),
+        notional_yen=float(str(raw["notional_yen"])),
+        max_acceptable_price_yen=float(str(raw["max_acceptable_price_yen"])),
+        close_yen=float(str(raw["close_yen"])),
+        price_as_of=date.fromisoformat(str(raw["price_as_of"])),
+        expires_at=datetime.fromisoformat(str(raw["expires_at"])),
+        warnings=_string_list(raw.get("warnings")),
+        current_status=current,
+        superseded=current is None,
     )
 
 
@@ -432,21 +598,57 @@ def _machine_selection_view(raw: Mapping[str, object]) -> MachineSelectionView:
         profile=str(raw["profile"]),
         macro_context_id=_text(raw.get("macro_context_id")),
         created_at=datetime.fromisoformat(str(raw["created_at"])),
-        recommendations=[dict(item) for item in _mapping_items(payload.get("recommendations"))],
-        longlist=[dict(item) for item in _mapping_items_optional(payload.get("longlist"))],
+        longlist=[
+            _selection_longlist_entry_view(item)
+            for item in _mapping_items_optional(payload.get("longlist"))
+        ],
     )
 
 
+def _selection_longlist_entry_view(raw: Mapping[str, object]) -> SelectionLonglistEntryView:
+    price = _number(raw.get("market_price_yen"))
+    anchor = _number(raw.get("fair_value_anchor_yen"))
+    return SelectionLonglistEntryView(
+        rank=_integer(raw.get("rank")),
+        ticker=str(raw.get("ticker", "")),
+        name=_text(raw.get("name")),
+        market_price_yen=price,
+        fair_value_anchor_yen=anchor,
+        fair_value_gap_pct=_fair_value_gap_pct(anchor, price),
+        expected_return_pct=_number(raw.get("expected_return_pct")),
+        screening_playbook=_text(raw.get("screening_playbook")),
+        liquidity_status=_text(raw.get("liquidity_status")),
+        selection_reasons=_string_list(raw.get("selection_reasons")),
+        durability_warnings=_string_list(raw.get("durability_warnings")),
+        event_warnings=_string_list(raw.get("event_warnings")),
+    )
+
+
+def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | None:
+    """FV アンカーと screening 参考価格の乖離率。導出は read model 側で 1 回だけ行う。"""
+    if anchor is None or price is None or price == 0:
+        return None
+    return round((anchor / price - 1) * 100, 4)
+
+
 def _shortlist_view(raw: Mapping[str, object]) -> ShortlistView:
+    entries: list[ShortlistEntryView] = []
+    unreadable = 0
+    for item in _mapping_items(raw.get("entries")):
+        try:
+            entries.append(ShortlistEntryView.model_validate(item))
+        except ValidationError:
+            # 発行済み revision は immutable なので、read 経路が形の違いで落ちると
+            # export ごと止まる。読めない entry は数えて面へ出し、黙って消さない。
+            unreadable += 1
     return ShortlistView(
         shortlist_id=str(raw["shortlist_id"]),
         selection_id=str(raw["selection_id"]),
         run_revision_id=str(raw["run_revision_id"]),
         as_of=date.fromisoformat(str(raw["as_of"])),
         published_at=datetime.fromisoformat(str(raw["published_at"])),
-        entries=[
-            ShortlistEntryView.model_validate(item) for item in _mapping_items(raw.get("entries"))
-        ],
+        entries=entries,
+        unreadable_entries=unreadable,
     )
 
 
@@ -1150,6 +1352,7 @@ def _candidate_row_view(
     held: set[str],
     reserved: set[str],
     researched: set[str],
+    fair_value: Mapping[str, SelectionLonglistEntryView] | None = None,
 ) -> CandidateRowView:
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
@@ -1157,6 +1360,7 @@ def _candidate_row_view(
     values = {name: _number(row.get(name)) for name in _NUMERIC_FIELDS}
     values.update({name: _number(metrics.get(name)) for name in _METRIC_FIELDS})
     flags = _data_quality_flags(row, metrics)
+    anchor = (fair_value or {}).get(ticker)
     return CandidateRowView(
         ticker=ticker,
         name=_text(row.get("name")),
@@ -1168,6 +1372,8 @@ def _candidate_row_view(
         ),
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
+        fair_value_anchor_yen=None if anchor is None else anchor.fair_value_anchor_yen,
+        fair_value_gap_pct=None if anchor is None else anchor.fair_value_gap_pct,
         **values,
     )
 
@@ -1229,3 +1435,13 @@ def _number(value: object) -> float | None:
 
 def _text(value: object) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _integer(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]

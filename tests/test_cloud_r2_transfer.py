@@ -109,8 +109,6 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     (output / "views").mkdir(parents=True)
     (output / "views/dashboard.json").write_text("{}", encoding="utf-8")
     (output / "views/meta.json").write_text("{}", encoding="utf-8")
-    (output / "history/select").mkdir(parents=True)
-    (output / "history/select/2026-07-21.json").write_text("{}", encoding="utf-8")
     (output / "history/candidate-views").mkdir(parents=True)
     (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
 
@@ -122,16 +120,14 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     )
 
     commands = log.read_text(encoding="utf-8").splitlines()
-    assert len(commands) == 4
+    assert len(commands) == 3
     assert commands[0].startswith("s3 sync ")
     assert "s3://baibai-serving/views/" in commands[0]
     assert "--delete --exclude meta.json" in commands[0]
-    assert "s3://baibai-serving/history/select/" in commands[1]
-    assert "s3://baibai-serving/history/candidate-views/" in commands[2]
+    assert "s3://baibai-serving/history/candidate-views/" in commands[1]
     assert "--delete" not in commands[1]
-    assert "--delete" not in commands[2]
-    assert commands[3].startswith("s3 cp ")
-    assert commands[3].endswith(
+    assert commands[2].startswith("s3 cp ")
+    assert commands[2].endswith(
         "s3://baibai-serving/views/meta.json --endpoint-url "
         "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
     )

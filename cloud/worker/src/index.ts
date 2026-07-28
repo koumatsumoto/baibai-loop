@@ -12,6 +12,7 @@ const SCREENING_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 // Mirrors _MACRO_CONTEXT_ID_FORMAT in tools/cloud/export_read_models.py; excludes
 // path separators so the id maps to exactly one serving key.
 const MACRO_CONTEXT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+const ASSESSMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
 
 type RouteResult =
   | { kind: 'health' }
@@ -113,6 +114,7 @@ function resolveRoute(url: URL): RouteResult {
       return (
         resolveScreeningHistory(url.pathname) ??
         resolveMacroContext(url.pathname) ??
+        resolveAssessment(url.pathname) ??
         resolveSecurity(url.pathname)
       )
   }
@@ -150,6 +152,18 @@ function resolveMacroContext(pathname: string): RouteResult | null {
     return { kind: 'error', status: 404, detail: 'unknown macro context' }
   }
   return view(`macro-context--${contextId}.json`)
+}
+
+function resolveAssessment(pathname: string): RouteResult | null {
+  const prefix = '/api/assessments/'
+  if (!pathname.startsWith(prefix)) {
+    return null
+  }
+  const assessmentId = pathname.slice(prefix.length)
+  if (!ASSESSMENT_ID_PATTERN.test(assessmentId)) {
+    return { kind: 'error', status: 404, detail: 'unknown bargain assessment' }
+  }
+  return view(`assessment--${assessmentId}.json`)
 }
 
 function resolveMacro(params: URLSearchParams): RouteResult {

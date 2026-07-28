@@ -15,7 +15,7 @@ from baibai_engine.screening.shortlist import (
 from baibai_engine.screening.shortlist_cli import reevaluation_task_suggestions
 
 
-def _narrative() -> dict[str, str]:
+def _narrative() -> dict[str, object]:
     return {
         "ploss": "中低",
         "why": "一時的な受注端境で売られている",
@@ -23,6 +23,12 @@ def _narrative() -> dict[str, str]:
         "structural": "構造的な需要毀損の証拠はない",
         "survive": "net cashで5年の下振れに耐えられる",
         "unlock": "自己株買いと増配で還元余地がある",
+        "upside": "受注が平年並みに戻れば正常利益ベースでPER12倍相当まで",
+        "downside": "受注が半減しても営業黒字を保ち、簿価純資産が下値を支える",
+        "rr": "下値が資産で支えられる一方、正常化の上値が倍近い",
+        "catalyst": "2Q決算で受注残の回復が確認できるか",
+        "catalyst_date": "2026-08-06",
+        "macro": "connectionのsizing cautionに該当なし。research優先度ヒントの内需回復系に合致",
         "counter": "受注が構造的に鈍化している可能性",
         "research": "受注残と粗利率の推移を一次IRで確認",
         "value": "FV乖離が大きく深掘り価値が高い",
@@ -33,7 +39,7 @@ def _narrative() -> dict[str, str]:
 def _shortlist() -> Shortlist:
     return Shortlist.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "kind": "shortlist",
             "shortlist_id": "shortlist-20260719-base",
             "selection_id": "selection-test",
@@ -46,6 +52,7 @@ def _shortlist() -> Shortlist:
                 {
                     "ticker": "2331",
                     "decision": "selected",
+                    "rank": 1,
                     "reason": "一次IRへ進める",
                     "narrative": _narrative(),
                 },
@@ -95,7 +102,9 @@ def test_shortlist_rejects_duplicate_ticker_and_missing_selected() -> None:
 
 def test_shortlist_selected_entry_requires_narrative() -> None:
     payload = _shortlist().payload()
-    payload["entries"] = [{"ticker": "2331", "decision": "selected", "reason": "深掘りへ"}]
+    payload["entries"] = [
+        {"ticker": "2331", "decision": "selected", "rank": 1, "reason": "深掘りへ"}
+    ]
     with pytest.raises(ValidationError):
         Shortlist.model_validate(payload)
 
@@ -103,11 +112,136 @@ def test_shortlist_selected_entry_requires_narrative() -> None:
 def test_shortlist_rejected_entry_forbids_narrative() -> None:
     payload = _shortlist().payload()
     payload["entries"] = [
-        {"ticker": "2331", "decision": "selected", "reason": "深掘りへ", "narrative": _narrative()},
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "rank": 1,
+            "reason": "深掘りへ",
+            "narrative": _narrative(),
+        },
         {"ticker": "0001", "decision": "rejected", "reason": "弱い", "narrative": _narrative()},
     ]
     with pytest.raises(ValidationError):
         Shortlist.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["upside", "downside", "rr", "catalyst", "macro"],
+)
+def test_shortlist_selected_entry_requires_each_risk_reward_field(missing_field: str) -> None:
+    narrative = _narrative()
+    del narrative[missing_field]
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "rank": 1,
+            "reason": "深掘りへ",
+            "narrative": narrative,
+        }
+    ]
+    with pytest.raises(ValidationError):
+        Shortlist.model_validate(payload)
+
+
+def test_shortlist_selected_entry_requires_provisional_rank() -> None:
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "reason": "深掘りへ",
+            "narrative": _narrative(),
+        }
+    ]
+    with pytest.raises(ValidationError):
+        Shortlist.model_validate(payload)
+
+
+def test_shortlist_rejected_entry_forbids_provisional_rank() -> None:
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "rank": 1,
+            "reason": "深掘りへ",
+            "narrative": _narrative(),
+        },
+        {"ticker": "0001", "decision": "rejected", "rank": 2, "reason": "弱い"},
+    ]
+    with pytest.raises(ValidationError):
+        Shortlist.model_validate(payload)
+
+
+@pytest.mark.parametrize("ranks", [(1, 3), (1, 1), (2, 3)])
+def test_shortlist_rejects_non_contiguous_provisional_ranks(ranks: tuple[int, int]) -> None:
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "rank": ranks[0],
+            "reason": "深掘りへ",
+            "narrative": _narrative(),
+        },
+        {
+            "ticker": "0001",
+            "decision": "selected",
+            "rank": ranks[1],
+            "reason": "深掘りへ",
+            "narrative": _narrative(),
+        },
+    ]
+    with pytest.raises(ValidationError):
+        Shortlist.model_validate(payload)
+
+
+@pytest.mark.parametrize("catalyst_date", ["2026-07-18", "2028-07-19"])
+def test_shortlist_rejects_catalyst_date_outside_the_reevaluation_window(
+    catalyst_date: str,
+) -> None:
+    narrative = _narrative()
+    narrative["catalyst_date"] = catalyst_date
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "rank": 1,
+            "reason": "深掘りへ",
+            "narrative": narrative,
+        }
+    ]
+    with pytest.raises(ValidationError):
+        Shortlist.model_validate(payload)
+
+
+def test_shortlist_allows_undated_catalyst_and_orders_selected_by_rank() -> None:
+    narrative = _narrative()
+    narrative["catalyst_date"] = None
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {
+            "ticker": "2331",
+            "decision": "selected",
+            "rank": 2,
+            "reason": "深掘りへ",
+            "narrative": narrative,
+        },
+        {
+            "ticker": "0001",
+            "decision": "selected",
+            "rank": 1,
+            "reason": "深掘り最優先",
+            "narrative": _narrative(),
+        },
+    ]
+    shortlist = Shortlist.model_validate(payload)
+
+    assert [entry.ticker for entry in shortlist.selected_by_rank()] == ["0001", "2331"]
 
 
 def test_reevaluation_suggestion_emits_runnable_task_add_for_rejected_with_earnings_date() -> None:

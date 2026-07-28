@@ -75,7 +75,7 @@ AI judgment、割安の原因、将来予測、採用結論をcandidateへ書か
 | candidate pool | screen通過全件 | select/calibration | rebuildable |
 | `recommendations` | production rule/cap適用後の通常表示 | operator | rebuildable |
 | `longlist` | diversity/cap切断前のrank上位N件。OP3レビューの入力母集団 | AI/reviewer | rebuildable |
-| shortlist | longlistからOP3の件数契約でselected narrative / rejected理由を明示 | human review | application DB |
+| shortlist | longlistからOP3の件数契約でselected暫定順位 / narrative（RR判断・catalyst・macro消化を含む）/ rejected理由を明示 | human review | application DB |
 | primary-research set | shortlistのレビュー面から人間が選択 | research | workspace |
 
 `--longlist-top 20`は候補抜けを点検するviewで、20件すべてを深掘りする命令ではない。`recommendations`のproduction capはshortlistの件数を決めない。review後はsource `selection_id`とrun/profile/context metadataを含むstrict draftを`baibai-engine screening shortlist publish`で明示publishする。machine recommendationをreview済みとして代用しない。

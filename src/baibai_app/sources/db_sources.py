@@ -26,8 +26,10 @@ from baibai_engine.read_api import (
     StoreStats,
     application_db_updated_at,
     application_store_stats,
+    bargain_assessment_payload,
     latest_shortlist_payload,
     latest_unadjusted_closes,
+    list_bargain_assessment_payloads,
     list_holding_review_publications,
     list_macro_context_payloads,
     list_operation_sessions,
@@ -445,6 +447,19 @@ class DbCandidatesSource:
     def shortlists(self) -> list[dict[str, object]]:
         latest = latest_shortlist_payload(self._app_path)
         return [] if latest is None else [latest]
+
+    def assessments(self) -> list[dict[str, object]]:
+        return list_bargain_assessment_payloads(self._app_path)
+
+    def assessment(self, assessment_id: str) -> dict[str, object] | None:
+        return bargain_assessment_payload(self._app_path, assessment_id=assessment_id)
+
+    def proposal_states(self) -> dict[str, str]:
+        """Current proposal state by id, so a report can show what moved after publication."""
+        return {
+            str(item["proposal_id"]): str(item["status"])
+            for item in list_proposal_payloads(self._app_path)
+        }
 
     @staticmethod
     def _parse_run(raw: dict[str, object]) -> CandidatesRun:

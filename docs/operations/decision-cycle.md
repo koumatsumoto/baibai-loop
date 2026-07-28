@@ -53,7 +53,8 @@ dirty worktreeの所有不明、public `--help`不明、入力矛盾では停止
 3. 人間がレビュー面からprimary-research setを選び、その銘柄のresearch workspaceを作って一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。
 4. thesisとindependent reviewを`research promote`し、返された`thesis_id` / `review_id`をsessionから参照する。
 5. planning-only limitの出力からproposalを作る。proposalは`pending`で始まり、人間の報告だけを`proposal decide`で記録する。
-6. shortlistは`baibai-app`の`/stocks/shortlist`レビュー面、research decision reportはephemeral HTML projectionとして提示し、broker操作へ進まない。proposal IDまたは`no actionable bargain / defer`をfinal resultにしてsessionをcompleteする。
+6. 全laneの結論を[`bargain-assessment`](../reference/bargain-assessment.md)へ統合する。`assessment-scaffold`で骨格を作り、散文を記入し、`assessment-publish --check`で束縛と期待hashを確認し、content review後に`assessment-publish`する。購入提案が無いサイクルも`no_actionable_bargain` / `defer`として同じ形でpublishする。
+7. shortlistは`baibai-app`の`/stocks/shortlist`、統合判断は`/stocks/assessments/{assessment_id}`で提示し、broker操作へ進まない。proposal IDまたはassessmentの結論をfinal resultにしてsessionをcompleteする。
 
 ```bash
 uv run baibai-engine screening run --asof YYYY-MM-DD
@@ -64,6 +65,9 @@ uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD 
 uv run baibai-engine research plan-limit --thesis .cache/opportunity/YYYY-MM-DD/XXXX/thesis-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite create --thesis-id THESIS_ID --input /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite decide PROPOSAL_ID --decision approve
+uv run baibai-engine research assessment-scaffold --db data/app/baibai.sqlite --assessment-id bargain-assessment-YYYYMMDD-SLUG --asof YYYY-MM-DD --shortlist-id SHORTLIST_ID --thesis-id THESIS_ID --proposal-id PROPOSAL_ID --out .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml
+uv run baibai-engine research assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite --check
+uv run baibai-engine research assessment-publish .cache/opportunity/YYYY-MM-DD/bargain-assessment.yaml --db data/app/baibai.sqlite
 ```
 
 `approve`時はcurrent DBのthesis、price、quantity、expiry、portfolio constraintを再計算する。不一致ならno-writeで新しいproposalを作る。`defer / reject`も正常な結論である。
@@ -75,12 +79,31 @@ uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/scree
 一次リサーチの前に、比較可能な候補群を人間へ渡すレビューgateを置く。1銘柄へ先に決め打ちしない。
 
 - **件数契約**: `longlist`上位20件から8〜10候補をshortlistへ入れる。longlistが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。`recommendations`のproduction capはこの件数を決めない。
-- **判断の記録**: selected銘柄は`ShortlistEntry.narrative`（なぜ安いか / 一時的か / 構造的か / 5年耐性 / unlock / 最強countercase / 深掘り論点 / 深掘り価値 / 暫定判断と暫定`ploss`）を必須にし、rejected銘柄は「順位が低い」「予算外」だけでない具体的理由を必須にする。draftは[`tools/shortlist/draft-template.yaml`](../../tools/shortlist/draft-template.yaml)を写して記入し、`screening shortlist publish`でapplication DBへ一次記録する。narrativeをephemeral HTMLに残さない。
+- **判断の記録**: selected銘柄は`ShortlistEntry.rank`（暫定順位。selected内で1..Nを欠番・重複なく）と`ShortlistEntry.narrative`（なぜ安いか / 一時的か / 構造的か / 5年耐性 / unlock / **上値根拠 / 下値目安 / RR成立理由** / **catalyst**（datedなら`catalyst_date`も。as_of以降・as_of + 550日以内）/ **macroヒントの消化** / 最強countercase / 深掘り論点 / 深掘り価値 / 暫定判断と暫定`ploss`）を必須にし、rejected銘柄はrank・narrativeを持たず「順位が低い」「予算外」だけでない具体的理由を必須にする。draftは[`tools/shortlist/draft-template.yaml`](../../tools/shortlist/draft-template.yaml)を写して記入し、`screening shortlist publish`でapplication DBへ一次記録する。narrativeの正本はapplication DBであり、workspace上のdraftへ残さない。
+- **暫定順位の意味**: `rank`は「一次リサーチの枠をどの順で使うか」の判断であり、機械`E[r]`の順位そのものではない。機械順位と乖離させる場合はその理由をnarrativeへ書く（下記深度契約）。順位は深掘り着手順を決めるだけで、購入額・proposal順序を決めない。
+
+<a id="op3-depth-contract"></a>
+
+#### 選定の深度契約（RR 6テスト）
+
+shortlistは「安く見える」候補ではなく「非対称が買いに値する」候補を選ぶ工程である。publish前に、selected各銘柄について次を1項目ずつ機械的に突合する（印象で「満たしているはず」としない）。schemaはfieldの存在しか測れないので、内容はここが受け持つ。
+
+1. **希望的シナリオの除去**: `upside`から希望的な前提（新規事業の成功、シェア奪取、構造改革の完遂）を剥がしても、現行事業の正常化だけで期待値が正か。alphaを積んで初めて成立する候補はそう書く。
+2. **利益の正規化**: `upside`の利益水準がピーク利益の外挿でないか。直近期だけでなく複数期のレンジで正常利益を取り、循環のどこにいるかを書く。
+3. **catalystの実在**: `catalyst`が「いつか改善する」でなく、日付または特定可能なeventに結び付くか。datedなら`catalyst_date`へ入れる。datedでないなら、何を観測したら再評価するかを書く。
+4. **保有窓のevent risk**: 深掘り期間から想定保有初期にかかるdated event（決算、guidance更新、規制決定、macro contextの`monitoring_points`のdated event）を消化したか。eventが判断をload-bearingに変え得るならその非対称を書く。
+5. **現金との比較**: リスク調整後にこの候補が現金保有に勝るか。net cashや簿価を下値の床として使う場合、**還元機構（配当・自社株買い・M&A方針・親会社の資本政策）を確認せずに床としない**（還元されない現金は株主価値へ届かない）。
+6. **carryの原資**: 機械`E[r]`の`carry`成分は**予想DPS + 上限付き自社株買い利回り**で、原資の持続性を見ていない。carry比率が高い候補では、予想DPSが前期実績を大きく上回っていないか、`forecast_special_gain_flag`が立っていないか、FCFが配当を賄えているか、自社株買いが継続プログラムか単発の公開買付けかを確認する。一過性利益で嵩上げされたcarryを剥がしても期待値が要求利回りに届くかを書く。
+
+加えて次を消化する。
+
+- **データ品質flagの消化**: candidateの`data_quality_flags`が立つ銘柄は、そのflagが`upside` / `downside`の数値をどちら向きに歪めるかをnarrativeへ書く。flagを黙って無視しない。
+- **機械順位との乖離**: `rank`が機械`E[r]`降順から乖離する銘柄は、乖離の理由（永久損失、estimate caveats、開示スキャンで得たmaterial情報、流動性）を書く。乖離自体は正常だが、無言の乖離は選定を検証不能にする。
 - **再評価triggerの接続**: `screening shortlist publish`は成功時、selected以外（rejected）の各entryについて、束縛したrun candidatesの`next_earnings_date`から`baibai-engine task add --kind follow-up --event-date <決算日> ...`をそのまま実行できる形でstderrへ印字する（決算日が未公表なら手動でtrigger日を決める注記）。stdoutはmachine-readableな公開payloadのままにする。「今は買わない」割安候補のdated re-entry triggerは、この提案からfollow-up taskを起票してBaibai Appのnext_eventへ載せる。write境界は人間に残し、taskをtrigger発火の正本にする。
 - **開示スキャン**: narrativeを書く前に、新規候補（前回shortlistを確認できないfull reviewでは全候補）について会社IR・TDnetの直近開示をタイトルレベルで確認し、screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）をnarrativeの`why` / `counter`へ反映する。
-- **macro hintの消化**: shortlist作成の前提となるmacro contextは[深度契約](../workflow/macro.md#depth-contract)を満たすものを使う。head の`as_of`が古い、または深度契約を満たさないと判断したら、shortlist作成の前に書き直す。selected銘柄のnarrative `research` / `counter`は、published contextのconnectionセクションにあるresearch優先度ヒント / sizing caution / **estimate caveats（機械見積りの歪み注意。該当componentのFV・E[r]を無批判に使わず、caveatが指す検算を行う）**のうち当該銘柄に該当するものを明示的に消化する（該当なしならその判断を書く）。hintを黙って落とさない。
+- **macro hintの消化**: shortlist作成の前提となるmacro contextは[深度契約](../workflow/macro.md#depth-contract)を満たすものを使う。head の`as_of`が古い、または深度契約を満たさないと判断したら、shortlist作成の前に書き直す。selected銘柄のnarrative `macro`は、published contextのconnectionセクションにあるresearch優先度ヒント / sizing caution / **estimate caveats（機械見積りの歪み注意。該当componentのFV・E[r]を無批判に使わず、caveatが指す検算を行う）**のうち当該銘柄に該当するものを明示的に消化する（該当なしならその判断を書く）。バーゲン地形（`bargain_topography`）が指す局面と、この候補がその地形のどこに位置するかも同じfieldで扱う。hintを黙って落とさない。
 - **差分確認**: 直近の前回shortlist（application DB）がある週次runでは、今回とticker集合を`new / continued / exited`で比較する。`continued`は前回narrativeを自動継承せず、longlist順位差・価格・最新開示・最強countercaseを再確認したうえでmaterial changeがなければ再利用する。前回を確認できないrunは差分を推定せず全候補を確認する。
-- **primary-research set**: `/stocks/shortlist`レビュー面（narrativeとselection longlistのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。買う候補が無ければこの段階で`no actionable bargain`終了できる。
+- **primary-research set**: `/stocks/shortlist`レビュー面（暫定順位順の横比較表と、narrative・selection longlistのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。暫定順位は着手順の提案であって選択の代行ではない。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 <a id="human-result-path"></a>
 

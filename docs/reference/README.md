@@ -13,7 +13,7 @@ referenceは「artifact・式・error/warningは何を意味するか」を持�
 | 調べたいこと | reference |
 | --- | --- |
 | thesis、3年/5年算術、review hash、planning limit | [`thesis.md`](./thesis.md) |
-| 詳細リサーチ統合入力、content review、HTML projection | [`research-decision-report.md`](./research-decision-report.md) |
+| lane横比較、購入方法、content review束縛、統合判断の正本 | [`bargain-assessment.md`](./bargain-assessment.md) |
 | business model別の問いとclaim triangulation | [`business-model-research.md`](./business-model-research.md) |
 | cash、reservation、execution、release、snapshot | [`portfolio-ledger.md`](./portfolio-ledger.md) |
 | hold/add/reduce/exitと税引後代替 | [`holding-review.md`](./holding-review.md) |

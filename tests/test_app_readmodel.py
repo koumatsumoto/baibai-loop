@@ -7,6 +7,9 @@ from zoneinfo import ZoneInfo
 
 from baibai_app.readmodel.builders import (
     _candidate_row_view,
+    _fair_value_by_ticker,
+    _machine_selection_view,
+    _shortlist_view,
     build_dashboard,
     build_screening,
     build_security_detail,
@@ -495,3 +498,116 @@ def test_holding_keeps_ledger_price_when_market_close_is_not_newer() -> None:
     assert holding.market_value_yen == 1000
     assert view.holdings_market_value_yen == 1000
     assert view.total_capital_yen == 2000
+
+
+def _v2_narrative() -> dict[str, str]:
+    """RR block と rank を持たない、schema v3 以前の発行済み entry。"""
+    return {
+        "ploss": "中低",
+        "why": "受注端境",
+        "temporary": "翌期に戻る",
+        "structural": "毀損はない",
+        "survive": "net cashで耐える",
+        "unlock": "還元強化",
+        "counter": "構造鈍化",
+        "research": "受注残を確認",
+        "value": "FV乖離が大きい",
+        "prov": "深掘り",
+    }
+
+
+def test_shortlist_view_keeps_reading_entries_published_before_the_risk_reward_block() -> None:
+    view = _shortlist_view(
+        {
+            "shortlist_id": "shortlist-20260717-legacy",
+            "selection_id": "selection-legacy",
+            "run_revision_id": "runrev-legacy",
+            "as_of": "2026-07-17",
+            "published_at": "2026-07-17T15:00:00+09:00",
+            "entries": [
+                {
+                    "ticker": "2331",
+                    "decision": "selected",
+                    "reason": "深掘りへ",
+                    "narrative": _v2_narrative(),
+                }
+            ],
+        }
+    )
+
+    assert view.unreadable_entries == 0
+    entry = view.entries[0]
+    assert entry.rank is None
+    assert entry.narrative is not None
+    assert entry.narrative.why == "受注端境"
+    assert entry.narrative.upside is None
+    assert entry.narrative.catalyst_date is None
+
+
+def test_shortlist_view_counts_unreadable_entries_instead_of_dropping_the_surface() -> None:
+    view = _shortlist_view(
+        {
+            "shortlist_id": "shortlist-20260717-mixed",
+            "selection_id": "selection-mixed",
+            "run_revision_id": "runrev-mixed",
+            "as_of": "2026-07-17",
+            "published_at": "2026-07-17T15:00:00+09:00",
+            "entries": [
+                {"decision": "selected", "reason": "ticker が無い"},
+                {"ticker": "0001", "decision": "rejected", "reason": "根拠が弱い"},
+            ],
+        }
+    )
+
+    assert [entry.ticker for entry in view.entries] == ["0001"]
+    assert view.unreadable_entries == 1
+
+
+def test_fair_value_reaches_only_longlist_members_and_uses_the_newest_selection() -> None:
+    older = _machine_selection_view(
+        {
+            "selection_id": "selection-old",
+            "run_revision_id": "runrev-1",
+            "profile": "value",
+            "macro_context_id": None,
+            "created_at": "2026-07-21T02:00:00+09:00",
+            "payload": {"longlist": [{"ticker": "4432", "fair_value_anchor_yen": 5.0}]},
+        }
+    )
+    newer = _machine_selection_view(
+        {
+            "selection_id": "selection-new",
+            "run_revision_id": "runrev-1",
+            "profile": "value",
+            "macro_context_id": None,
+            "created_at": "2026-07-21T13:00:00+09:00",
+            "payload": {
+                "longlist": [
+                    {
+                        "ticker": "4432",
+                        "rank": 1,
+                        "market_price_yen": 10.0,
+                        "fair_value_anchor_yen": 12.5,
+                        "expected_return_pct": 10.82,
+                        "event_warnings": ["earnings_scheduled"],
+                    }
+                ]
+            },
+        }
+    )
+    fair_value = _fair_value_by_ticker([older, newer])
+
+    assert newer.longlist[0].fair_value_gap_pct == 25.0
+    assert newer.longlist[0].event_warnings == ["earnings_scheduled"]
+
+    member = _candidate_row_view(
+        {"ticker": "4432"}, held=set(), reserved=set(), researched=set(), fair_value=fair_value
+    )
+    outsider = _candidate_row_view(
+        {"ticker": "0001"}, held=set(), reserved=set(), researched=set(), fair_value=fair_value
+    )
+
+    assert member.fair_value_anchor_yen == 12.5
+    assert member.fair_value_gap_pct == 25.0
+    assert outsider.fair_value_anchor_yen is None
+    assert outsider.fair_value_gap_pct is None
