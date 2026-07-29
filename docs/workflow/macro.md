@@ -67,7 +67,7 @@ uv run python tools/validate_macro_stores.py \
 | `boj_timeseries` | 無認証 JSON API | BOJ 無担保コール O/N 平均 | `FM01:STRDCLUCON` の日次値を一括取得する。公表タイミングは BOJ 時系列統計データ検索の更新日に従う |
 | `mof_jgb` | 無認証 CSV | JP 国債金利（主要年限） | `jgbcm_all.csv` と当月 `jgbcm.csv` を CP932 で読み、和暦の基準日を ISO date に正規化する |
 | `tsr_bankruptcies` | 無認証 JSON API | JP 企業倒産件数 | 東京商工リサーチの掲載ページが参照する公式 JSON から月次全履歴を取得 |
-| `spglobal_pmi` | 無認証 PDF（requests→browser fallback） | S&P Global PMI（日本/米 製造業・サービス業） | free の data API が無い。`providers/pmi_release_urls.yaml` の月次 release URL から公式 PDF を取得し、headline 値を bounded context から抽出して diffusion index の定義域 0〜100 で検証する。WAF gated の月は headless browser（Playwright）で fetch する |
+| `spglobal_pmi` | 無認証 PDF（requests→browser fallback） | S&P Global PMI（日本/米 製造業・サービス業） | free の data API が無い。`providers/pmi_release_urls.yaml` の月次 release URL から公式 PDF を取得し、headline 値を bounded context から抽出して diffusion index の定義域 0〜100 で検証する。WAF gated の月は headless browser（Playwright）で fetch する。**遮断以外の失敗（サイズ上限・404・5xx・ネットワーク）は fallback しない**（frb_h15 と同じ契約） |
 | `umich_sca` | 無認証 CSV | 米消費者態度指数（ミシガン大） | 公表元 Surveys of Consumers の月次表（`files/tbmics.csv`）を直読する。`provider_series_id` は値の列名（`ICS_ALL`）、`source_url` が表なので同じ公表元の別表は registry entry だけで足りる。行が「月名 + 年」なので読めない行は skip せず失敗させる（表の形が変わったのを黙って短い履歴にしない） |
 | `yahoo` | 無認証 JSON | 金/銀/銅先物・MOVE・Russell2000・SOX 等 | **ブラウザ UA 必須**（default は 429）。`provider_series_id` は Yahoo シンボル |
 | `multpl` | 無認証 HTML | S&P500 バリュエーション（CAPE・GAAP PER・益回り） | current page と public monthly table を機械的に parse する。取得・鮮度の契約は daily を保ち、reading rules の `sampling_cadence: monthly` で統計標本だけを月次化する。HTML 構造変更で壊れるため `--latest` と `--all-history` を live 確認 |

@@ -228,7 +228,9 @@ def _fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | 
         raise IndicatorsProviderError(
             f"spglobal_pmi could not fetch a PDF from {url} and no browser is available"
         )
-    return context.browser_fetcher().fetch_pdf(url)
+    # A WAF-gated month always arrives this way, so the browser route is normal
+    # operation rather than an exceptional one and carries the same ceiling.
+    return context.browser_fetcher().fetch_pdf(url, max_bytes=MAX_PMI_PDF_BYTES)
 
 
 def extract_pdf_text(content: bytes) -> str:

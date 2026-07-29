@@ -77,7 +77,11 @@ class BrowserFetcher:
                 user_agent=_USER_AGENT,
                 args=["--disable-blink-features=AutomationControlled"],
             )
-        except PlaywrightError as exc:
+        except (PlaywrightError, OSError) as exc:
+            # The profile directory is written here too, so a full or read-only
+            # disk fails the launch as surely as Playwright does. Both are "no
+            # browser started", and leaving one of them as a bare OSError puts it
+            # outside every handler that knows what a provider failure means.
             self.close()
             raise BrowserUnavailableError(f"failed to launch headless browser: {exc}") from exc
         return self._context
@@ -101,7 +105,12 @@ class BrowserFetcher:
         try:
             return self._fetch_download(url, max_bytes=min(max_bytes, _MAX_DOWNLOAD_BYTES))
         except PlaywrightError as exc:
-            raise IndicatorsProviderError(f"browser failed downloading from {url}: {exc}") from exc
+            # A browser that died mid-navigation reports on itself, not on the
+            # source, so it is the same kind of failure as one that never started
+            # and must not be quoted as evidence of how a source behaved. The dead
+            # context goes with it; the next caller launches a fresh one.
+            self.close()
+            raise BrowserUnavailableError(f"browser failed downloading from {url}: {exc}") from exc
 
     def _fetch_download(self, url: str, *, max_bytes: int) -> bytes:
         context = self._ensure_context()
@@ -132,18 +141,22 @@ class BrowserFetcher:
         finally:
             page.close()
 
-    def fetch_pdf(self, url: str) -> bytes:
-        """Navigate to ``url`` and return the downloaded PDF bytes."""
+    def fetch_pdf(self, url: str, *, max_bytes: int = _MAX_DOWNLOAD_BYTES) -> bytes:
+        """Navigate to ``url`` and return the downloaded PDF bytes.
+
+        ``max_bytes`` is the caller's own ceiling so one resource does not have
+        two different limits depending on which route reached it.
+        """
 
         try:
-            return self._fetch_pdf(url)
+            return self._fetch_pdf(url, max_bytes=min(max_bytes, _MAX_DOWNLOAD_BYTES))
         except PlaywrightError as exc:
             # A crashed browser, a closed page or a failed download read surfaces
             # anywhere in the attempt loop; every one of them must reach the caller
             # as a provider failure so one dead browser cannot abort a refresh pass.
             raise IndicatorsProviderError(f"browser failed fetching PDF from {url}: {exc}") from exc
 
-    def _fetch_pdf(self, url: str) -> bytes:
+    def _fetch_pdf(self, url: str, *, max_bytes: int) -> bytes:
         context = self._ensure_context()
         last_error = "no download started"
         for _attempt in range(_NAV_ATTEMPTS):
@@ -161,11 +174,11 @@ class BrowserFetcher:
                     continue
                 path = download.path()
                 size = Path(path).stat().st_size
-                if size > _MAX_DOWNLOAD_BYTES:
+                if size > max_bytes:
                     with suppress(PlaywrightError):
                         download.delete()
                     raise IndicatorsProviderError(
-                        f"browser PDF download exceeds {_MAX_DOWNLOAD_BYTES} bytes: {size}"
+                        f"browser PDF download exceeds {max_bytes} bytes: {size}"
                     )
                 content = Path(path).read_bytes()
                 if not content.startswith(b"%PDF"):
