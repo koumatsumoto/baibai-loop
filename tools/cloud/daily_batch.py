@@ -37,6 +37,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from baibai_engine.macro.indicators.cli import parse_refresh_failure_count
 from baibai_engine.macro.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
@@ -80,6 +81,11 @@ class BatchStepError(RuntimeError):
     The free-text message stays human-facing (stderr / GitHub Actions log). The
     optional structured fields let the summary builder derive a redacted typed
     error without ever feeding the message text into the notification payload.
+
+    ``stderr`` carries the step's unredacted output for a handler that has to read
+    what the step reported. It is deliberately not one of the ``scalars``, which
+    cross into the notification contract: source output can name credentials and
+    paths, and nothing about it is validated for publication.
     """
 
     def __init__(
@@ -89,12 +95,14 @@ class BatchStepError(RuntimeError):
         stage: str | None = None,
         returncode: int | None = None,
         error_code: str | None = None,
+        stderr: str = "",
         **scalars: object,
     ) -> None:
         super().__init__(message)
         self.stage = stage
         self.returncode = returncode
         self.error_code = error_code
+        self.stderr = stderr
         self.scalars = scalars
 
 
@@ -245,10 +253,35 @@ def _run_step(
             f"stderr (last {_STDERR_SUMMARY_LINES} lines):\n{_stderr_summary(result.stderr)}",
             stage=_normalize_stage(name),
             returncode=result.returncode,
+            stderr=result.stderr,
         )
     if result.stderr:
         print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
     return result
+
+
+def _failed_series_count(exc: BatchStepError, *, requested: int) -> int:
+    """How many series of a refresh group actually failed.
+
+    One failing source must not be counted as the whole group failing: the group
+    is a batching decision, and reporting its size as the failure count inflates
+    what the run summary and its notification show. The refresh reports its own
+    count, so read that and only fall back to the group size when the step failed
+    before reporting one — over-counting is the safe direction for a health signal.
+
+    Nothing about reading a count is worth failing a run over. This runs inside
+    the handler that keeps a macro failure from blocking the publish, and an
+    exception escaping here would leave the day's screening result unexported,
+    so any trouble reading resolves to the same conservative fallback.
+    """
+
+    try:
+        reported = parse_refresh_failure_count(exc.stderr)
+    except Exception:
+        return requested
+    if reported is None or reported > requested:
+        return requested
+    return reported
 
 
 def _stderr_summary(stderr: str) -> str:
@@ -717,7 +750,7 @@ def _execute_daily_batch(
             )
         except BatchStepError as exc:
             _record_deferred(exc, macro_errors)
-            failed_series += len(series_ids)
+            failed_series += _failed_series_count(exc, requested=len(series_ids))
 
     target_series = sum(len(series_ids) for _, series_ids in refresh_groups)
     recorder.batches.append(

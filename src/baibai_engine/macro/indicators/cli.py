@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 from pathlib import Path
 from typing import assert_never
@@ -20,6 +21,40 @@ from .service import (
     RefreshFailure,
     RefreshSuccess,
 )
+
+
+def format_refresh_failure_rollup(failed_series_ids: Sequence[str], *, total: int) -> str:
+    """The single line that says how much of a multi-series refresh failed.
+
+    A caller that only keeps the tail of stderr reads its counts from here, so
+    the wording is a contract rather than free text. :func:`parse_refresh_failure_count`
+    is the reader; both live here so neither can move without the other.
+    """
+
+    return (
+        f"error: refresh failed for {len(failed_series_ids)} of {total} series: "
+        f"{', '.join(failed_series_ids)}"
+    )
+
+
+_REFRESH_FAILURE_ROLLUP_RE = re.compile(
+    r"^error: refresh failed for (?P<failed>\d+) of \d+ series: ", re.MULTILINE
+)
+
+
+def parse_refresh_failure_count(stderr: str) -> int | None:
+    """How many series a refresh reported as failed, or ``None`` if it did not say.
+
+    Lets a caller count the series that actually failed instead of assuming every
+    series it asked for did. ``None`` means the run failed some other way (a crash
+    before the roll-up, a bad argument), which is the caller's cue to fall back to
+    its own estimate rather than trust a count it does not have.
+    """
+
+    matches = list(_REFRESH_FAILURE_ROLLUP_RE.finditer(stderr))
+    if not matches:
+        return None
+    return int(matches[-1]["failed"])
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -156,8 +191,9 @@ def _run_refresh(service: IndicatorsService, args: argparse.Namespace) -> int:
     for failure in failures:
         print(f"- {failure.series_id}: {failure.message}", file=sys.stderr)
     print(
-        f"error: refresh failed for {len(failures)} of {len(outcomes)} series: "
-        f"{', '.join(failure.series_id for failure in failures)}",
+        format_refresh_failure_rollup(
+            [failure.series_id for failure in failures], total=len(outcomes)
+        ),
         file=sys.stderr,
     )
     return 1

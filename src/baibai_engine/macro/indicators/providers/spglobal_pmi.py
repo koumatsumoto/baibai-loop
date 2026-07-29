@@ -21,6 +21,7 @@ from .base import (
     HttpSession,
     IndicatorsProviderError,
     ProviderSpec,
+    SourceWithheldError,
     fetch_bytes,
 )
 from .pmi_extraction import PmiExtractionError, extract_pmi_value
@@ -197,7 +198,10 @@ def release_text(url: str, *, session: HttpSession, context: FetchContext | None
 
 def _fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | None) -> bytes:
     # Plain HTTP works for most months; a WAF-gated month returns non-PDF HTML,
-    # so fall back to a real browser navigation before giving up.
+    # so fall back to a real browser navigation before giving up. Only a source
+    # that withheld the file is worth asking again a costlier way: a size cap, a
+    # 404 or a 5xx would answer the same, and routing a capped response through
+    # the browser would have it written to disk with no cap ahead of it.
     try:
         content = fetch_bytes(
             session,
@@ -214,7 +218,7 @@ def _fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | 
             },
             context=context,
         )
-    except IndicatorsProviderError:
+    except SourceWithheldError:
         content = b""
     if content.startswith(b"%PDF"):
         if len(content) > MAX_PMI_PDF_BYTES:
@@ -224,7 +228,9 @@ def _fetch_pdf_bytes(url: str, *, session: HttpSession, context: FetchContext | 
         raise IndicatorsProviderError(
             f"spglobal_pmi could not fetch a PDF from {url} and no browser is available"
         )
-    return context.browser_fetcher().fetch_pdf(url)
+    # A WAF-gated month always arrives this way, so the browser route is normal
+    # operation rather than an exceptional one and carries the same ceiling.
+    return context.browser_fetcher().fetch_pdf(url, max_bytes=MAX_PMI_PDF_BYTES)
 
 
 def extract_pdf_text(content: bytes) -> str:

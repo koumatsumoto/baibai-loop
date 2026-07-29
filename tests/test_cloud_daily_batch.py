@@ -640,6 +640,62 @@ def test_daily_batch_writes_degraded_summary_on_deferred_macro_failure(tmp_path:
     assert macro.errors[0].impact == "degraded"
 
 
+def test_daily_batch_counts_only_the_series_the_refresh_reported_as_failed(
+    tmp_path: Path,
+) -> None:
+    script = _success_script()
+    # The last group holds three series; one of them fails.
+    script["macro refresh"] = [
+        OK,
+        OK,
+        CommandResult(
+            1,
+            "",
+            "error: 1 of 3 series failed to refresh:\n"
+            "- jp.gdp: source unavailable\n"
+            "error: refresh failed for 1 of 3 series: jp.gdp\n",
+        ),
+    ]
+    summary_path = tmp_path / "summary.json"
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=_summary_runner(script),
+        summary_output=summary_path,
+    )
+
+    assert exit_code == 3
+    summary = load_batch_execution_summary(summary_path)
+    macro = next(batch for batch in summary.batches if batch.batch_name == "macro")
+    # Counting the whole group would report 3 failures and 2 successes.
+    assert macro.metrics == {"target": 5, "success": 4, "failure": 1}
+
+
+def test_daily_batch_counts_the_whole_group_when_the_refresh_reports_no_count(
+    tmp_path: Path,
+) -> None:
+    script = _success_script()
+    script["macro refresh"] = [OK, OK, CommandResult(1, "", "Traceback: exploded\n")]
+    summary_path = tmp_path / "summary.json"
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=_summary_runner(script),
+        summary_output=summary_path,
+    )
+
+    assert exit_code == 3
+    summary = load_batch_execution_summary(summary_path)
+    macro = next(batch for batch in summary.batches if batch.batch_name == "macro")
+    # A step that died before reporting says nothing about which series survived,
+    # so the health signal errs high rather than claiming successes it cannot see.
+    assert macro.metrics == {"target": 5, "success": 2, "failure": 3}
+
+
 def test_daily_batch_writes_failed_summary_on_fatal_screening_failure(tmp_path: Path) -> None:
     script = _success_script()
     script["screening run"] = [CommandResult(1, "", "boom\n")]
