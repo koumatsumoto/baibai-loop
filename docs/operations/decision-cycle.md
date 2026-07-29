@@ -50,11 +50,11 @@ dirty worktreeの所有不明、public `--help`不明、入力矛盾では停止
 
 1. `screening run`が返す`run_revision_id`を明示して`select --longlist-top 20`する。
 2. longlistから[human-review gate](#opportunity-human-review-gate-op3)の件数契約で候補を選び、各selected銘柄へOP3 narrative、各rejected銘柄へ具体的な非選択理由を付けたshortlist draftを、source `selection_id`へ束縛して`screening shortlist publish`する。machine recommendationをshortlistと呼ばない。
-3. 人間がレビュー面からprimary-research setを選び、その銘柄のresearch workspaceを作って一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。
+3. 人間がレビュー面からprimary-research setを選び、その銘柄のresearch workspaceを作って一次IR、3年/5年scenario、永久損失、FV / E[r]、countercaseを調べる。selected 0件でpublishしたサイクルはここで終端であり、shortlistがそのサイクルの正本判断になる。手順4〜6へ進まず、7のfinal resultにshortlist IDを使う。
 4. thesisとindependent reviewを`research promote`し、返された`thesis_id` / `review_id`をsessionから参照する。
 5. planning-only limitの出力からproposalを作る。proposalは`pending`で始まり、人間の報告だけを`proposal decide`で記録する。
 6. 全laneの結論を[`bargain-assessment`](../reference/bargain-assessment.md)へ統合する。`assessment-scaffold`で骨格を作り、散文を記入し、`assessment-publish --check`で束縛と期待hashを確認し、content review後に`assessment-publish`する。購入提案が無いサイクルも`no_actionable_bargain` / `defer`として同じ形でpublishする。
-7. shortlistは`baibai-app`の`/stocks/shortlist`、統合判断は`/stocks/assessments/{assessment_id}`で提示し、broker操作へ進まない。proposal IDまたはassessmentの結論をfinal resultにしてsessionをcompleteする。
+7. shortlistは`baibai-app`の`/stocks/shortlist`、統合判断は`/stocks/assessments/{assessment_id}`で提示し、broker操作へ進まない。proposal IDまたはassessmentの結論をfinal resultにしてsessionをcompleteする。selected 0件のサイクルはshortlist IDと「深掘り候補なし」をfinal resultにする。
 
 ```bash
 uv run baibai-engine screening run --asof YYYY-MM-DD

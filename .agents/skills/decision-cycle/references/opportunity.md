@@ -31,3 +31,5 @@ fail項目はdraftを直してから進む。突合を省いてpublishしない�
 ## Output check
 
 source selectionへ束縛したshortlistがapplication DBにpublishされ、operation sessionのcurrent payload、一次source、thesis/review ID、review済みcompact bundle、統合content review、review済みHTML path、proposal IDまたは`no actionable bargain / defer`が揃っていれば完了。AIはbroker操作へ進まない。
+
+selected 0件でpublishしたサイクルは、shortlistが正本判断であり一次リサーチへ進まない。thesis/review ID、assessment、proposalは存在しないので要求しない。shortlist IDと「深掘り候補なし」をfinal resultにして完了とする。

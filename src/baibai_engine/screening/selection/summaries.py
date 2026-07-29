@@ -14,6 +14,7 @@ from baibai_engine.foundation.coerce import (
     string_sequence,
 )
 
+from ..metrics import PRICE_HISTORY_WINDOW_DAYS
 from .lenses import _durability_lens_of
 
 # longlist の event_warnings は、価格・EPS・配当の fact を歪め得る
@@ -37,7 +38,7 @@ BENCHMARK_LAGGARD_RELATIVE_20D_MAX = -0.03
 # 下回る銘柄は、自己レンジ / sigma gap が前提にする 3 年履歴に長期ギャップが
 # ある(新規上場は short_history_flag 側で扱う)。事前固定の annotation 閾値。
 PRICE_HISTORY_GAP_COVERAGE_MIN = 0.8
-_PRICE_HISTORY_GAP_MIN_LISTING_SPAN_DAYS = 750
+_PRICE_HISTORY_GAP_MIN_LISTING_SPAN_DAYS = PRICE_HISTORY_WINDOW_DAYS
 
 
 def _durability_counts(candidates: Sequence[Mapping[str, object]]) -> dict[str, int]:

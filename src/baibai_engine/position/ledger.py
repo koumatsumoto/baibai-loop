@@ -695,6 +695,12 @@ def reconcile_portfolio(
     the whole event tuple through ``as_of`` reaches the same terminal state.
     """
 
+    # The replay skips anything after as_of, so a document carrying such an event would
+    # be reconciled from a silently truncated history. The document validator rejects
+    # that shape, and stating it here keeps the delegation from depending on a guarantee
+    # made somewhere else.
+    if document.events and document.events[-1].occurred_at > document.as_of:
+        raise PortfolioLedgerError("events cannot occur after as_of")
     state = replay_events_through(document.events, document.as_of, policy=policy)
     require_resolved_expiries(state)
     valuation_policy = _policy_mapping(policy, "valuation")

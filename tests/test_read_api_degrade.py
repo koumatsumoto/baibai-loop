@@ -27,6 +27,18 @@ _RAISES_FOR_UNKNOWN_ID = frozenset({"macro_context_payload"})
 # write raise". These two gate the daily batch, which must stop and name the fault
 # rather than skip a run that looked like a holiday.
 _WRITE_GATES = frozenset({"market_calendar_business_day", "previous_run_revision_id"})
+# Public callables the sweep cannot drive: they read no store, or they take a value this
+# file would have to invent. Anything not listed here must be reachable by the sweep.
+_DECLARED_OUTSIDE_THE_SWEEP = frozenset(
+    {
+        *_NOT_STORE_READERS,
+        "macro_registered_series",  # reads the bundled definitions, not a store
+        "macro_series_names",  # reads the bundled definitions, not a store
+        "reconcile_portfolio",  # takes a document, not a path
+        "safe_load",  # a YAML helper re-exported for callers
+        "store_stats",  # takes a store name alongside its path
+    }
+)
 
 _ARGUMENTS: dict[str, object] = {
     "as_of": date(2026, 7, 29),
@@ -44,41 +56,62 @@ _ARGUMENTS: dict[str, object] = {
 }
 
 
-def _store_readers() -> list[tuple[str, object, dict[str, object]]]:
+_STORE_PARAMETERS = ("path", "db_path", "indicators_db_path")
+
+
+def _classify_readers() -> tuple[list[tuple[str, object, dict[str, object]]], set[str]]:
+    """Split read_api's public callables into "this sweep drives it" and "it does not".
+
+    The uncovered set is returned rather than dropped so a reader whose arguments this
+    file cannot build has to be declared, instead of leaving the policy quietly.
+    """
+
     readers: list[tuple[str, object, dict[str, object]]] = []
+    uncovered: set[str] = set()
     for name in sorted(read_api.__all__):
         function = getattr(read_api, name)
         if not callable(function) or inspect.isclass(function):
             continue
-        if name in _NOT_STORE_READERS or name in _WRITE_GATES:
+        if name in _NOT_STORE_READERS:
+            uncovered.add(name)
             continue
         try:
             signature = inspect.signature(function)
         except (TypeError, ValueError):  # pragma: no cover - builtins have no signature
+            uncovered.add(name)
             continue
         arguments: dict[str, object] = {}
         for parameter_name, parameter in signature.parameters.items():
             if parameter.default is not inspect.Parameter.empty:
                 continue
-            if parameter_name in ("path", "db_path"):
-                arguments[parameter_name] = None  # filled in per test
+            if parameter_name in _STORE_PARAMETERS:
+                arguments[parameter_name] = None  # a store path, filled in per test
             elif parameter_name in _ARGUMENTS:
                 arguments[parameter_name] = _ARGUMENTS[parameter_name]
-            else:  # a reader this sweep cannot call without inventing a value
+            else:
+                uncovered.add(name)
                 break
         else:
-            if any(key in arguments for key in ("path", "db_path")):
+            if any(key in arguments for key in _STORE_PARAMETERS):
                 readers.append((name, function, arguments))
-    return readers
+            else:
+                uncovered.add(name)
+    return readers, uncovered
 
 
-def test_the_sweep_covers_every_store_reader() -> None:
-    covered = {name for name, _, _ in _store_readers()}
+def _store_readers() -> list[tuple[str, object, dict[str, object]]]:
+    readers, _ = _classify_readers()
+    return [item for item in readers if item[0] not in _WRITE_GATES]
 
-    # A reader added without a store argument would silently escape the policy below.
-    assert len(covered) >= 30
-    assert "list_shortlist_payloads" in covered
-    assert "portfolio_ledger_document" in covered
+
+def test_every_public_reader_is_swept_or_declared() -> None:
+    """A reader the sweep cannot drive has to say so here, or the policy below stops
+    covering it without anyone noticing."""
+
+    _, uncovered = _classify_readers()
+
+    assert uncovered - _DECLARED_OUTSIDE_THE_SWEEP == set()
+    assert _DECLARED_OUTSIDE_THE_SWEEP - uncovered == set()
 
 
 @pytest.mark.parametrize("store", ["absent-file", "empty-file"])

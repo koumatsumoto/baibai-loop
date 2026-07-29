@@ -411,11 +411,11 @@ def _operative_run(
     run = candidates.latest_run()
     if run is None:
         return None, []
-    all_selections = candidates.selections()
-    run_selections = [
-        item for item in all_selections if str(item["run_revision_id"]) == run.run_revision_id
-    ]
-    if not run_selections and all_selections:
+    # Ask for this run's selections first: the whole published history is only needed to
+    # find a fallback, which is the uncommon case, and a security page reads this on
+    # every request.
+    run_selections = candidates.selections(run_revision_id=run.run_revision_id)
+    if not run_selections and (all_selections := candidates.selections()):
         newest = max(all_selections, key=lambda item: str(item["created_at"]))
         fallback_run = candidates.run(str(newest["run_revision_id"]))
         if fallback_run is not None:

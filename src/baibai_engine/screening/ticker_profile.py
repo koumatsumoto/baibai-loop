@@ -30,13 +30,16 @@ from baibai_engine.read_api.position import (
 )
 from baibai_engine.screening.run_store import ScreeningRunReader
 
+from .metrics import VALUATION_HISTORY_SESSIONS
+
 # The application DB ledger is the only portfolio source. This screened fact
 # thesis reads its reconciled holdings solely to expose concentration facts.
 from .regime import compute_market_regime
 from .sqlite_reader import read_jpx_earnings_calendar_snapshot
 
 _BENCHMARK_TICKER = "1321"
-_SELF_RANGE_WINDOW_BARS = 750
+# The same self-range window the metrics build uses, so the two cannot drift apart.
+_SELF_RANGE_WINDOW_BARS = VALUATION_HISTORY_SESSIONS
 _WEEK_52_WINDOW_BARS = 252
 _VOL_WINDOW_BARS = 20
 _TURNOVER_WINDOW_BARS = 20
