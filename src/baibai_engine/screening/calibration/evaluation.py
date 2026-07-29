@@ -352,22 +352,30 @@ def _evaluate_selection(
         key=lambda row: row.er_reversion_annual or 0.0,
         reverse=True,
     )
-    view_score_passers = sorted(
+    reversion_carry_passers = sorted(
         (row for row in population if row.pass_screen and row.er_reversion_annual is not None),
-        key=_view_score_key,
+        key=_reversion_plus_capped_carry,
         reverse=True,
     )
     for top_n in SELECTION_TOP_NS:
         result[f"reversion_ranked_top{top_n}"] = _group_stats(
             [excess[row.ticker] for row in reversion_passers[:top_n]]
         )
-        result[f"view_score_ranked_top{top_n}"] = _group_stats(
-            [excess[row.ticker] for row in view_score_passers[:top_n]]
+        result[f"reversion_carry_ranked_top{top_n}"] = _group_stats(
+            [excess[row.ticker] for row in reversion_carry_passers[:top_n]]
         )
     return result
 
 
-def _view_score_key(row: PanelRow) -> float:
+def _reversion_plus_capped_carry(row: PanelRow) -> float:
+    """Rank by reversion at full weight plus carry at half, capped at 15%/y.
+
+    A ranking hypothesis under calibration, not a score any surface displays: carry
+    is a holding-period return rather than a gap to close, and a carry beyond the cap
+    is a special dividend or a data anomaly that would otherwise dominate the order.
+    Its top-N excess return is compared against ranking by reversion alone.
+    """
+
     return (row.er_reversion_annual or 0.0) + 0.5 * min(row.er_carry_annual or 0.0, 0.15)
 
 

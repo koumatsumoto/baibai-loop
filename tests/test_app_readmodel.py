@@ -87,11 +87,48 @@ class StubTasks:
 
 
 class StubCandidates:
-    def __init__(self, run: CandidatesRun | None):
+    def __init__(
+        self, run: CandidatesRun | None, selections: list[dict[str, object]] | None = None
+    ):
         self._run = run
+        self._selections = selections or []
 
     def latest_run(self):
         return self._run
+
+    def run(self, run_revision_id: str):
+        if self._run is not None and self._run.run_revision_id == run_revision_id:
+            return self._run
+        return None
+
+    def selections(self, *, run_revision_id: str | None = None):
+        return list(self._selections)
+
+
+class StubFallbackCandidates:
+    """Latest run holds no selection, so both surfaces must resolve to `fallback`."""
+
+    def __init__(
+        self,
+        *,
+        latest: CandidatesRun,
+        fallback: CandidatesRun,
+        selections: list[dict[str, object]],
+    ):
+        self._latest = latest
+        self._fallback = fallback
+        self._selections = selections
+
+    def latest_run(self):
+        return self._latest
+
+    def run(self, run_revision_id: str):
+        return self._fallback if run_revision_id == self._fallback.run_revision_id else None
+
+    def selections(self, *, run_revision_id: str | None = None):
+        if run_revision_id is None:
+            return list(self._selections)
+        return [item for item in self._selections if item["run_revision_id"] == run_revision_id]
 
 
 class StubMarket:
@@ -333,37 +370,6 @@ def test_data_quality_flags_omit_forecast_special_gain_when_false() -> None:
     view = _candidate_row({"ticker": "4849", "metrics": {"forecast_special_gain_flag": False}})
 
     assert "一時益予想" not in view.data_quality_flags
-
-
-def test_bargain_score_is_none_when_both_er_components_missing() -> None:
-    view = _candidate_row({"ticker": "0000", "metrics": {}})
-
-    assert view.er_reversion_annual is None
-    assert view.er_carry_annual is None
-    assert view.bargain_score is None
-
-
-def test_bargain_score_full_reversion_half_carry_less_flag_discount() -> None:
-    with_flags = _candidate_row(
-        {
-            "ticker": "1234",
-            "metrics": {"er_reversion_annual": 0.10, "er_carry_annual": 0.04},
-            "split_adjustment_flag": True,
-            "freshness_warnings": ["stale"],
-        }
-    )
-    carry_only = _candidate_row({"ticker": "5678", "metrics": {"er_carry_annual": 0.06}})
-    anomalous_carry = _candidate_row(
-        {"ticker": "9012", "metrics": {"er_reversion_annual": -0.01, "er_carry_annual": 0.94}}
-    )
-
-    # 0.10 + 0.5*0.04 - 0.005*2 flags
-    assert len(with_flags.data_quality_flags) == 2
-    assert with_flags.bargain_score == 0.11
-    # reversion missing counts as 0.0; carry enters at half weight, no flags
-    assert carry_only.bargain_score == 0.03
-    # a special-dividend / anomalous carry is clipped at 15% so it cannot dominate the order
-    assert anomalous_carry.bargain_score == round(-0.01 + 0.5 * 0.15, 6)
 
 
 def test_holding_uses_market_close_when_strictly_newer_than_ledger() -> None:
@@ -615,3 +621,72 @@ def test_fair_value_reaches_only_longlist_members_and_uses_the_newest_selection(
     assert member.fair_value_gap_pct == 25.0
     assert outsider.fair_value_anchor_yen is None
     assert outsider.fair_value_gap_pct is None
+
+
+def test_security_detail_shows_the_same_fv_anchor_as_the_stocks_list() -> None:
+    selections: list[dict[str, object]] = [
+        {
+            "selection_id": "selection-1",
+            "run_revision_id": "run-revision-20260708",
+            "profile": "value",
+            "macro_context_id": None,
+            "created_at": "2026-07-21T13:00:00+09:00",
+            "payload": {
+                "longlist": [
+                    {"ticker": "4432", "market_price_yen": 10.0, "fair_value_anchor_yen": 12.5}
+                ]
+            },
+        }
+    ]
+    candidates = StubCandidates(_run(), selections)
+    detail = build_security_detail(
+        "4432", StubLedger(None), StubResearch([]), candidates, StubMarket()
+    )
+    # The list builds its row from the same run's selections, so pinning the shared
+    # helper here is what keeps the two surfaces from disagreeing about one ticker.
+    listed_row = _candidate_row_view(
+        _run().rows[0],
+        held=set(),
+        reserved=set(),
+        researched=set(),
+        fair_value=_fair_value_by_ticker([_machine_selection_view(selections[0])]),
+    )
+
+    assert detail is not None
+    assert detail.candidate_row is not None
+    assert detail.candidate_row.fair_value_anchor_yen == 12.5
+    assert detail.candidate_row.fair_value_gap_pct == listed_row.fair_value_gap_pct
+
+
+def test_both_screening_surfaces_fall_back_to_the_same_run() -> None:
+    """A determinism re-run carries no selection; both surfaces must follow the fallback."""
+
+    selections: list[dict[str, object]] = [
+        {
+            "selection_id": "selection-1",
+            "run_revision_id": "run-revision-with-selection",
+            "profile": "value",
+            "macro_context_id": None,
+            "created_at": "2026-07-21T13:00:00+09:00",
+            "payload": {
+                "longlist": [
+                    {"ticker": "4432", "market_price_yen": 10.0, "fair_value_anchor_yen": 12.5}
+                ]
+            },
+        }
+    ]
+    rerun = replace(_run(), run_revision_id="run-revision-rerun-without-selection")
+    selected_run = replace(_run(), run_revision_id="run-revision-with-selection")
+    candidates = StubFallbackCandidates(latest=rerun, fallback=selected_run, selections=selections)
+
+    listed = build_screening(candidates, StubLedger(None), StubResearch([]))
+    detail = build_security_detail(
+        "4432", StubLedger(None), StubResearch([]), candidates, StubMarket()
+    )
+
+    assert detail is not None
+    assert detail.candidate_row is not None
+    assert listed.run is not None
+    assert detail.candidate_run is not None
+    assert detail.candidate_run.run_revision_id == listed.run.run_revision_id
+    assert detail.candidate_row.fair_value_anchor_yen == 12.5

@@ -104,7 +104,6 @@ function candidateRow(overrides: Partial<CandidateRowView> = {}): CandidateRowVi
     er_annual: 0.108,
     er_reversion_annual: 0.011,
     er_carry_annual: 0.098,
-    bargain_score: null,
     net_cash_to_market_cap: null,
     fcf_yield: null,
     ocf_yield: null,

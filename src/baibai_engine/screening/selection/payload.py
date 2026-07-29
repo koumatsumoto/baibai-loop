@@ -26,7 +26,6 @@ from .profiles import resolve_selection_rules
 from .ranking import (
     _best_selection_evidence,
     _playbook_order_rank,
-    _primary_evidence_by_playbook_order,
     _sizing_eligible_evidence_hits,
 )
 from .records import (
@@ -140,7 +139,6 @@ def build_selection_payload(
     ranked_candidates = [candidate for _, candidate in ranked_entries]
     recommended = _recommended_research_candidates(
         ranked_candidates=ranked_candidates,
-        playbook_order=rules.output.research_selection_playbook_order,
         diversity_rules=selection_rules.diversity,
         limit=recommendation_limit,
     )
@@ -333,7 +331,6 @@ def _selection_candidate(
 def _recommended_research_candidates(
     *,
     ranked_candidates: Sequence[dict[str, object]],
-    playbook_order: Sequence[str],
     diversity_rules: SelectionDiversityRules,
     limit: int,
 ) -> list[dict[str, object]]:
@@ -345,25 +342,17 @@ def _recommended_research_candidates(
     playbook_counts: Counter[str] = Counter()
     previous_candidate_count = 0
 
-    def normalized_candidate(candidate: Mapping[str, object]) -> dict[str, object]:
-        selection_playbook, selection_metrics = _primary_evidence_by_playbook_order(
-            candidate.get("evidence_hits"), playbook_order
-        )
-        output = dict(candidate)
-        if selection_playbook is not None:
-            output["selection_playbook"] = selection_playbook
-            output["selection_metrics"] = selection_metrics
-        return output
-
     def can_add(candidate: Mapping[str, object], *, enforce_diversity: bool) -> bool:
         ticker = string_or_none(candidate.get("ticker"))
         if ticker is None or ticker in selected_tickers:
             return False
-        output = normalized_candidate(candidate)
         if not enforce_diversity:
             return True
         sector = string_or_none(candidate.get("sector_33")) or ""
-        playbook = string_or_none(output.get("selection_playbook"))
+        # The ranking pass already chose this candidate's playbook from the same
+        # order; re-deriving it here would let the two disagree on which screen a
+        # candidate counts against for the per-playbook diversity cap.
+        playbook = string_or_none(candidate.get("selection_playbook"))
         max_sector = diversity_rules.max_recommended_per_sector
         max_playbook = diversity_rules.max_recommended_per_playbook
         max_previous = diversity_rules.max_previous_candidates_in_recommended
@@ -382,11 +371,10 @@ def _recommended_research_candidates(
         ticker = string_or_none(candidate.get("ticker"))
         if ticker is None:
             return
-        output = normalized_candidate(candidate)
-        selected.append(output)
+        selected.append(dict(candidate))
         selected_tickers.add(ticker)
         sector_counts[string_or_none(candidate.get("sector_33")) or ""] += 1
-        if (playbook := string_or_none(output.get("selection_playbook"))) is not None:
+        if (playbook := string_or_none(candidate.get("selection_playbook"))) is not None:
             playbook_counts[playbook] += 1
         if candidate.get("previous_candidate") is True:
             previous_candidate_count += 1

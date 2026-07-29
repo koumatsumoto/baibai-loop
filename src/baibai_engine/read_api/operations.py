@@ -7,22 +7,16 @@ import sqlite3
 from pathlib import Path
 from typing import Literal
 
-from .sqlite import connect_read_only
+from .sqlite import read_rows
 
 OperationStatus = Literal["active", "completed"]
 
 
 def operation_session(path: Path, operation_id: str) -> dict[str, object] | None:
-    if not path.is_file():
-        return None
-    connection = connect_read_only(path)
-    try:
-        row = connection.execute(
-            "SELECT * FROM operation_session WHERE operation_id = ?", (operation_id,)
-        ).fetchone()
-    finally:
-        connection.close()
-    return None if row is None else _public(row)
+    rows = read_rows(
+        path, "SELECT * FROM operation_session WHERE operation_id = ?", (operation_id,)
+    )
+    return _public(rows[0]) if rows else None
 
 
 def list_operation_sessions(
@@ -30,20 +24,13 @@ def list_operation_sessions(
     *,
     status: OperationStatus | None = None,
 ) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
     sql = "SELECT * FROM operation_session"
     parameters: tuple[object, ...] = ()
     if status is not None:
         sql += " WHERE status = ?"
         parameters = (status,)
     sql += " ORDER BY started_at DESC, operation_id DESC"
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(sql, parameters).fetchall()
-    finally:
-        connection.close()
-    return [_public(row) for row in rows]
+    return [_public(row) for row in read_rows(path, sql, parameters)]
 
 
 def _public(row: sqlite3.Row) -> dict[str, object]:

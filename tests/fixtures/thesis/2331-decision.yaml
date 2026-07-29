@@ -72,7 +72,6 @@ estimates:
   current_fair_value_yen: 1300
   valuation_model_version: fv-v1
   fair_value_source_ids: [primary-results]
-  deep_discount_bps: 100
   scenarios:
     - &scenario_3_bear
       horizon_years: 3
@@ -205,9 +204,9 @@ human_evidence_override:
   override_id: evidence-override-2331
   reason: Customer concentration is unquantified, so proposal size is reduced to one lot.
   decision_reference: user-confirmed-evidence-override-2331
-  proposal_sha256: "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
+  proposal_sha256: "e3d49503aa054e7b012be18a26a5da32ceaa45ae8cba7666cf02de8848d71427"
   review_id: review-2331-20260703
-  review_sha256: "022e621a620a8af0812f543c2ac7f8d18861172f9b6e269e8847194a7d55b333"
+  review_sha256: "8a3a47ab787bfc0b2f396c911ad7e9e8932280b19dba9a4e22d8c0f39bfa3942"
   approved_by: human
   acknowledged_risk_axes: [customer_concentration]
   approved_at: "2026-07-03T10:30:00+09:00"

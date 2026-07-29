@@ -17,8 +17,8 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.screening.calibration.cli import calibration_evaluate_command
 from baibai_engine.screening.calibration.evaluation import (
+    _reversion_plus_capped_carry,
     _spearman,
-    _view_score_key,
     evaluate_cohorts,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
@@ -288,18 +288,18 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(er_median, float)
         # reversion top-5 は i=0..4 (return 最高群)、er top-5 は i=19..15 (最低群)。
         self.assertGreater(reversion_median, er_median)
-        view_top5 = selection["view_score_ranked_top5"]
+        view_top5 = selection["reversion_carry_ranked_top5"]
         assert isinstance(view_top5, dict)
         self.assertEqual(view_top5["n"], 5)
 
-    def test_view_score_key_caps_carry_contribution(self) -> None:
+    def test_reversion_carry_key_caps_carry_contribution(self) -> None:
         base = _panel_row("9999", per_trailing=10.0, rank=1)
         capped = replace(base, er_reversion_annual=0.01, er_carry_annual=0.94)
         uncapped = replace(base, er_reversion_annual=0.01, er_carry_annual=0.10)
         missing_carry = replace(base, er_reversion_annual=0.01, er_carry_annual=None)
-        self.assertAlmostEqual(_view_score_key(capped), 0.01 + 0.5 * 0.15)
-        self.assertAlmostEqual(_view_score_key(uncapped), 0.01 + 0.5 * 0.10)
-        self.assertAlmostEqual(_view_score_key(missing_carry), 0.01)
+        self.assertAlmostEqual(_reversion_plus_capped_carry(capped), 0.01 + 0.5 * 0.15)
+        self.assertAlmostEqual(_reversion_plus_capped_carry(uncapped), 0.01 + 0.5 * 0.10)
+        self.assertAlmostEqual(_reversion_plus_capped_carry(missing_carry), 0.01)
 
     def test_er_calibration_compares_centered_reversion_with_centered_price_return(self) -> None:
         panel: list[PanelRow] = []

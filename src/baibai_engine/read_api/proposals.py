@@ -3,25 +3,18 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 
-from .sqlite import connect_read_only
+from .sqlite import read_rows
 
 
 def list_proposal_payloads(path: Path) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
-    try:
-        with closing(connect_read_only(path)) as connection:
-            rows = connection.execute(
-                "SELECT proposal_id, ticker, thesis_id, review_id, created_at, "
-                "status, decided_at, payload FROM proposal "
-                "ORDER BY created_at DESC, proposal_id DESC"
-            ).fetchall()
-    except sqlite3.OperationalError:
-        return []
+    rows = read_rows(
+        path,
+        "SELECT proposal_id, ticker, thesis_id, review_id, created_at, "
+        "status, decided_at, payload FROM proposal "
+        "ORDER BY created_at DESC, proposal_id DESC",
+    )
     return [
         {
             "proposal_id": row["proposal_id"],

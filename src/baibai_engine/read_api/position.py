@@ -15,7 +15,7 @@ from baibai_engine.position.ledger import (
     PortfolioSnapshot,
     reconcile_portfolio,
 )
-from baibai_engine.read_api.sqlite import connect_read_only
+from baibai_engine.read_api.sqlite import connect_read_only, is_unwritten_store, read_rows
 
 __all__ = [
     "PortfolioLedgerError",
@@ -28,14 +28,11 @@ __all__ = [
 
 def list_portfolio_outcome_payloads(db_path: Path) -> list[dict[str, object]]:
     """Return immutable outcomes newest first; a missing store is empty."""
-    try:
-        with closing(connect_read_only(db_path)) as connection:
-            rows = connection.execute(
-                "SELECT outcome_id, payload FROM portfolio_outcome "
-                "ORDER BY period_end_date DESC, outcome_id DESC"
-            ).fetchall()
-    except sqlite3.OperationalError:
-        return []
+    rows = read_rows(
+        db_path,
+        "SELECT outcome_id, payload FROM portfolio_outcome "
+        "ORDER BY period_end_date DESC, outcome_id DESC",
+    )
     return [_publication(str(row["outcome_id"]), str(row["payload"])) for row in rows]
 
 
@@ -64,7 +61,9 @@ def portfolio_ledger_document(db_path: Path) -> PortfolioLedgerDocument | None:
                     "SELECT payload FROM ledger_market_price ORDER BY ticker"
                 )
             ]
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error):
+            raise
         return None
     return PortfolioLedgerDocument.model_validate(raw)
 

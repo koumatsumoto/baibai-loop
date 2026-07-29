@@ -34,7 +34,7 @@ function ScreeningMetrics({ row }: { row: CandidateRowView }) {
   return (
     <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
       <Field label="時価総額"><span className="font-mono tabular-nums">{row.market_cap_oku === null ? '—' : `${row.market_cap_oku.toLocaleString('ja-JP')} 億円`}</span></Field>
-      <Field label="割安スコア"><span className="font-mono tabular-nums">{row.bargain_score ?? '—'}</span></Field>
+      <Field label="FV アンカー / 乖離"><span className="font-mono tabular-nums">{row.fair_value_anchor_yen === null ? '—' : `${row.fair_value_anchor_yen.toLocaleString('ja-JP')} 円`} / <PctBadge value={row.fair_value_gap_pct} /></span></Field>
       <Field label="PER / forward"><span className="font-mono tabular-nums">{row.per_trailing ?? '—'} / {row.per_forward ?? '—'}</span></Field>
       <Field label="PBR"><span className="font-mono tabular-nums">{row.pbr ?? '—'}</span></Field>
       <Field label="EV/EBITDA"><span className="font-mono tabular-nums">{row.ev_ebitda ?? '—'}</span></Field>

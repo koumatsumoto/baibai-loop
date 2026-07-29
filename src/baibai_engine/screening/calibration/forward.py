@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from datetime import date
 from pathlib import Path
 
@@ -87,6 +87,7 @@ def _ticker_forward_rows(
     dates = [bar.traded_at for bar in bars]
     closes = asof_basis_closes(bars) if bars else []
     rows: list[ForwardReturnRow] = []
+    adjustment: AdjustmentCoverage
     if not bars or all(bar.adjustment_factor is None for bar in bars):
         adjustment = "unknown"
     elif all(bar.adjustment_factor is not None for bar in bars):
@@ -106,60 +107,42 @@ def _ticker_forward_rows(
         )
         for spec in specs:
             target = spec.target_date(asof)
-            base = {
-                "asof": asof.isoformat(),
-                "ticker": ticker,
-                "horizon": spec.name,
-                "target_date": target.isoformat(),
-                "entry_date": entry_date.isoformat() if entry_date else None,
-                "delisting_coverage_status": "not_assessed",
-                "corporate_action_event_coverage_status": "not_assessed",
-                "survivorship_coverage_status": "not_assessed",
-                "adjustment_factor_coverage": adjustment,
-            }
+            # One fully typed row per (asof, horizon), narrowed below. Spreading a dict
+            # of the shared fields would erase the literal types every status relies on.
+            base = ForwardReturnRow(
+                asof=asof.isoformat(),
+                ticker=ticker,
+                horizon=spec.name,
+                target_date=target.isoformat(),
+                entry_date=entry_date.isoformat() if entry_date else None,
+                resolved=False,
+                price_return=None,
+                stale_price=False,
+                exit_date=None,
+                status="unresolved_missing_entry",
+                adjustment_factor_coverage=adjustment,
+            )
             if not entry_valid:
-                rows.append(
-                    ForwardReturnRow(
-                        **base,  # type: ignore[arg-type]
-                        resolved=False,
-                        price_return=None,
-                        stale_price=False,
-                        exit_date=None,
-                        status="unresolved_missing_entry",
-                    )
-                )
+                rows.append(base)
             elif eval_cap is None or target > eval_cap:
-                rows.append(
-                    ForwardReturnRow(
-                        **base,  # type: ignore[arg-type]
-                        resolved=False,
-                        price_return=None,
-                        stale_price=False,
-                        exit_date=None,
-                        status="unresolved_future_horizon",
-                    )
-                )
+                rows.append(replace(base, status="unresolved_future_horizon"))
             else:
                 exit_index = _index_on_or_before(dates, target)
                 exit_date = dates[exit_index] if exit_index is not None else None
                 exit_close = closes[exit_index] if exit_index is not None else None
                 if exit_close is None or exit_date is None:
                     rows.append(
-                        ForwardReturnRow(
-                            **{**base, "delisting_coverage_status": "unknown"},  # type: ignore[arg-type]
-                            resolved=False,
-                            price_return=None,
-                            stale_price=False,
-                            exit_date=None,
+                        replace(
+                            base,
+                            delisting_coverage_status="unknown",
                             status="unresolved_missing_exit",
                         )
                     )
                 elif (target - exit_date).days > STALE_PRICE_MAX_LAG_DAYS:
                     rows.append(
-                        ForwardReturnRow(
-                            **{**base, "delisting_coverage_status": "unknown"},  # type: ignore[arg-type]
-                            resolved=False,
-                            price_return=None,
+                        replace(
+                            base,
+                            delisting_coverage_status="unknown",
                             stale_price=True,
                             exit_date=exit_date.isoformat(),
                             status="unresolved_stale_exit",
@@ -167,11 +150,10 @@ def _ticker_forward_rows(
                     )
                 else:
                     rows.append(
-                        ForwardReturnRow(
-                            **base,  # type: ignore[arg-type]
+                        replace(
+                            base,
                             resolved=True,
                             price_return=exit_close / float(entry_close or 0.0) - 1,
-                            stale_price=False,
                             exit_date=exit_date.isoformat(),
                             status="resolved",
                         )

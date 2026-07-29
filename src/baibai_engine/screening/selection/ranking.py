@@ -7,29 +7,6 @@ from collections.abc import Mapping, Sequence
 from baibai_engine.foundation.coerce import float_or, metric_map, string_or_none
 
 
-def _primary_evidence_by_playbook_order(
-    raw_evidence_hits: object,
-    playbook_order: Sequence[str],
-) -> tuple[str | None, dict[str, object]]:
-    if not isinstance(raw_evidence_hits, Sequence) or isinstance(raw_evidence_hits, str):
-        return None, {}
-    evidence_by_playbook: dict[str, Mapping[str, object]] = {}
-    for evidence_hit in raw_evidence_hits:
-        if not isinstance(evidence_hit, Mapping):
-            continue
-        if not _is_sizing_eligible_evidence(evidence_hit):
-            continue
-        name = string_or_none(evidence_hit.get("name"))
-        if name is None:
-            continue
-        evidence_by_playbook[name] = evidence_hit
-    for playbook in playbook_order:
-        evidence_hit = evidence_by_playbook.get(playbook)
-        if evidence_hit is not None:
-            return playbook, metric_map(evidence_hit.get("metrics"))
-    return None, {}
-
-
 def _best_selection_evidence(
     evidence_hits: Sequence[Mapping[str, object]],
     *,

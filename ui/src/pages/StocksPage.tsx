@@ -437,7 +437,6 @@ export function StocksPage() {
                 <SortHeader column="sector_33" direction={direction} label="sector" onSort={onSort} sortKey={sortKey} />
                 <SortHeader column="er_annual" direction={direction} label="E[r]" onSort={onSort} right sortKey={sortKey} />
                 <TableHead className="text-right">rev/carry</TableHead>
-                <SortHeader column="bargain_score" direction={direction} label="割安score" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="fair_value_gap_pct" direction={direction} label="FV乖離" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="per_forward" direction={direction} label="PER(F)" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="per_trailing" direction={direction} label="PER" onSort={onSort} right sortKey={sortKey} />
@@ -467,7 +466,6 @@ export function StocksPage() {
                   <TableCell className="max-w-40 truncate text-muted-foreground" title={row.sector_33 ?? undefined}>{row.sector_33 ?? '—'}</TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.er_annual} /></TableCell>
                   <TableCell className="text-right"><ErSplitCell carry={row.er_carry_annual} reversion={row.er_reversion_annual} /></TableCell>
-                  <TableCell className="text-right"><PctBadge fraction value={row.bargain_score} /></TableCell>
                   <TableCell className="text-right" title={row.fair_value_anchor_yen === null ? 'longlist 外のため FV アンカーなし' : `FV アンカー ${formatNumber(row.fair_value_anchor_yen, 0)} 円`}><PctBadge value={row.fair_value_gap_pct} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_forward} /></TableCell>
                   <TableCell className="text-right"><Metric value={row.per_trailing} /></TableCell>

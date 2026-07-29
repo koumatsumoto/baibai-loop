@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -24,7 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DECISION_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
 LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 BENCHMARK_FIXTURE = ROOT / "tests/fixtures/benchmark-observation/topix-1y.yaml"
-EXECUTION_INPUT_FIXTURE = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
 RULES_PATH = ROOT / "method/screening-rules/2026-07-06T000000+0900.yaml"
 
 
@@ -358,24 +357,10 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
     }
 
 
-def test_decision_cli_emits_execution_proposal_shape(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_decision_cli_emits_the_thesis_evaluation_shape(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    db_path = tmp_path / "app.sqlite"
-    _import_ledger(db_path)
-    assert (
-        decision_main(
-            [
-                str(DECISION_FIXTURE),
-                "--execution-input",
-                str(EXECUTION_INPUT_FIXTURE),
-                "--db",
-                str(db_path),
-            ],
-            now=datetime.fromisoformat("2026-07-11T10:01:00+09:00"),
-        )
-        == 0
-    )
+    assert decision_main([str(DECISION_FIXTURE)]) == 0
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {
@@ -387,7 +372,6 @@ def test_decision_cli_emits_execution_proposal_shape(
         "scenarios",
         "five_year_base_break_even",
         "screening_fv_revision_pct",
-        "execution_proposal",
     }
     break_even = payload["five_year_base_break_even"]
     assert isinstance(break_even, dict)
@@ -407,24 +391,6 @@ def test_decision_cli_emits_execution_proposal_shape(
         "observed_trailing_multiple",
         "base_terminal_multiple_minus_observed",
         "base_terminal_multiple_premium_pct",
-    }
-    proposal = payload["execution_proposal"]
-    assert isinstance(proposal, dict)
-    assert set(proposal) == {
-        "ticker",
-        "thesis_sha256",
-        "max_acceptable_price_yen",
-        "required_5y_base_cagr_pct",
-        "formula_version",
-        "evaluated_at",
-        "quote_observed_at",
-        "ledger_as_of",
-        "recommended_tactic",
-        "orders",
-        "cash_after_execution_yen",
-        "dry_powder_after_execution_yen",
-        "largest_warning",
-        "detail",
     }
 
 

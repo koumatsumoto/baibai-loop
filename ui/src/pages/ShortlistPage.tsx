@@ -291,7 +291,11 @@ export function ShortlistPage() {
 
   return (
     <PageShell
-      lead={<>longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。</>}
+      // The lead states what this cycle concluded. Promising "2〜4 銘柄を選んで進む" on a
+      // cycle that selected none would contradict the card directly below it.
+      lead={comparison.length === 0
+        ? <>longlist を人間が review した結果。<strong>最終 buy 提案ではありません。</strong>このサイクルは深掘り候補を選ばず、shortlist が判断の記録になります。</>
+        : <>longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。</>}
       meta={(
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground tabular-nums">
           <AsOfBadge value={shortlist.as_of} />
@@ -311,6 +315,20 @@ export function ShortlistPage() {
         )}
         {data.run?.stale && <StaleBadge className="text-[10px]" detail={data.run.asof_date} />}
       </div>
+
+      {/* Selecting nothing is a conclusion, not an empty page. Saying so keeps the
+          reader from reading the missing comparison table as a load failure — but only
+          when every entry was readable, since an unreadable selected entry empties the
+          same table without anyone having concluded anything. */}
+      {comparison.length === 0 && shortlist.unreadable_entries === 0 && (
+        <SectionCard
+          description="longlist を review したが、一次リサーチの枠を使う価値のある候補が無かったサイクル。銘柄ごとの見送り理由は下表に残る。"
+          padded
+          title="深掘り候補なし"
+        >
+          <p className="text-sm text-muted-foreground">次の longlist を待つか、条件を変えて再 screening する。</p>
+        </SectionCard>
+      )}
 
       {comparison.length > 0 && <ComparisonTable rows={comparison} />}
 

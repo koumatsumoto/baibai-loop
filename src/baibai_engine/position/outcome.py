@@ -144,10 +144,10 @@ def compute_portfolio_outcome(
             for event, effective_day in zip(ledger.events, effective_event_dates, strict=True)
             if effective_day is not None and effective_day <= valuation_day
         )
-        try:
-            state = replay_events_through(selected, _close_instant(valuation_day))
-        except PortfolioLedgerError:
-            raise
+        # No expiry check here: this prefix ends wherever the valuation day falls, so a
+        # reservation lapsing that session with its release reported that evening is the
+        # ordinary shape of the ledger at this instant, not a ledger awaiting a human.
+        state = replay_events_through(selected, _close_instant(valuation_day))
         prices: dict[str, MarketPrice] = {}
         for ticker, lots in state.lots.items():
             if not any(lot.quantity > 0 for lot in lots):
@@ -282,10 +282,6 @@ def _unresolved(benchmark: BenchmarkObservation, reason: str) -> PortfolioOutcom
         open_tickers=(),
         closed_tickers=(),
     )
-
-
-def _tokyo_date(instant: datetime) -> date:
-    return instant.astimezone(_TOKYO).date()
 
 
 def _effective_date(instant: datetime, business_days: tuple[date, ...]) -> date | None:

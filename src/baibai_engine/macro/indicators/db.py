@@ -455,19 +455,6 @@ def list_series(
     return tuple(_series_from_row(row, aliases=()) for row in conn.execute(sql, params).fetchall())
 
 
-def search_series(conn: sqlite3.Connection, query: str) -> tuple[SeriesDefinition, ...]:
-    needle = f"%{query.casefold()}%"
-    rows = conn.execute(
-        "SELECT DISTINCT s.* FROM series s "
-        "LEFT JOIN aliases a ON a.series_id = s.series_id "
-        "WHERE lower(s.series_id) LIKE ? OR lower(s.name) LIKE ? "
-        "OR lower(s.category) LIKE ? OR lower(s.geography) LIKE ? OR lower(a.alias) LIKE ? "
-        "ORDER BY s.priority, s.series_id",
-        (needle, needle, needle, needle, needle),
-    ).fetchall()
-    return tuple(_series_from_row(row, aliases=()) for row in rows)
-
-
 def insert_observations(
     conn: sqlite3.Connection,
     observations: list[ObservationRecord],

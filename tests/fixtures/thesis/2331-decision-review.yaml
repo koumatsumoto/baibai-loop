@@ -3,7 +3,7 @@ reviewer_role: independent_second_pass
 reviewer_identity: independent-review-agent
 reviewer_run_id: review-run-20260703-2331
 reviewed_at: "2026-07-03T10:00:00+09:00"
-reviewed_thesis_sha256: "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
+reviewed_thesis_sha256: "e3d49503aa054e7b012be18a26a5da32ceaa45ae8cba7666cf02de8848d71427"
 primary_source_check: verified
 checked_source_ids: [primary-results, internal-screen]
 recalculated_scenarios:
