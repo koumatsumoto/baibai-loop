@@ -662,6 +662,9 @@ def build_security_detail(
 ) -> SecurityDetailView | None:
     """Build one security page, returning None only when no source knows the ticker."""
 
+    # One "today" for the whole page: the earnings lookup and the run staleness badge
+    # would otherwise straddle midnight and contradict each other within one response.
+    today = datetime.now(_JST).date()
     revisions = [item for item in research.revisions() if item.ticker == ticker]
     latest_revision = revisions[0] if revisions else None
     run = candidates.latest_run()
@@ -690,9 +693,7 @@ def build_security_detail(
             revision=latest_revision,
             candidate_name=candidate_name,
             market_close=market.latest_closes([ticker]).get(ticker),
-            next_earnings_date=market.next_earnings_dates(
-                [ticker], asof=datetime.now(_JST).date()
-            ).get(ticker),
+            next_earnings_date=market.next_earnings_dates([ticker], asof=today).get(ticker),
         )
         if holding_snapshot is not None
         else None
@@ -714,8 +715,14 @@ def build_security_detail(
             held={ticker} if holding_snapshot is not None else set(),
             reserved=reserved_here,
             researched={ticker} if revisions else set(),
+            fair_value=_fair_value_by_ticker(
+                [
+                    _machine_selection_view(item)
+                    for item in candidates.selections(run_revision_id=run.run_revision_id)
+                ]
+            ),
         )
-        if raw_candidate is not None
+        if raw_candidate is not None and run is not None
         else None
     )
     return SecurityDetailView(
@@ -744,9 +751,7 @@ def build_security_detail(
             for item in research.holding_reviews(ticker=ticker)
         ],
         candidate_row=candidate_row,
-        candidate_run=(
-            _screening_run_view(run, today=datetime.now(_JST).date()) if run is not None else None
-        ),
+        candidate_run=(_screening_run_view(run, today=today) if run is not None else None),
     )
 
 
@@ -1356,28 +1361,12 @@ def _candidate_row_view(
         sector_33=_text(row.get("sector_33")),
         next_earnings_date=_text(row.get("next_earnings_date")),
         data_quality_flags=flags,
-        bargain_score=_bargain_score(
-            values["er_reversion_annual"], values["er_carry_annual"], len(flags)
-        ),
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,
         fair_value_anchor_yen=None if anchor is None else anchor.fair_value_anchor_yen,
         fair_value_gap_pct=None if anchor is None else anchor.fair_value_gap_pct,
         **values,
     )
-
-
-def _bargain_score(reversion: float | None, carry: float | None, flag_count: int) -> float | None:
-    # Display-only ordering that centers the evidence of cheapness. Reversion (the pull
-    # back to fair value) carries full weight; carry (dividend / buyback yield) is a
-    # holding-period return, so it enters at half weight and is clipped at 15%/y — a carry
-    # beyond that is a special dividend or a data anomaly, not a sustainable yield, and must
-    # not dominate the ordering. Each data-quality flag is a small confidence discount.
-    # This is a Baibai App view score, not a canonical ranking.
-    if reversion is None and carry is None:
-        return None
-    clipped_carry = min(carry or 0.0, 0.15)
-    return round((reversion or 0.0) + 0.5 * clipped_carry - 0.005 * flag_count, 6)
 
 
 def _research_revision_view(revision: ResearchRevision) -> ResearchRevisionView:

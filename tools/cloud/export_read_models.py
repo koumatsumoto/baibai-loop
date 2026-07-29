@@ -221,21 +221,29 @@ def _require_readable_macro_rules(path: Path) -> None:
 class _CachedLatestRunCandidates:
     """Serve one parsed latest run to every security-detail build.
 
-    ``build_security_detail`` reads the latest run on every call, and the export
-    loops over all candidates, so an uncached source would re-parse the run once
-    per ticker (quadratic in candidate count).
+    ``build_security_detail`` reads the latest run and its selections on every
+    call, and the export loops over all candidates, so an uncached source would
+    re-parse both once per ticker (quadratic in candidate count).
     """
 
     def __init__(self, inner: DbCandidatesSource) -> None:
         self._inner = inner
         self._loaded = False
         self._latest: CandidatesRun | None = None
+        self._selections: dict[str | None, list[dict[str, object]]] = {}
 
     def latest_run(self) -> CandidatesRun | None:
         if not self._loaded:
             self._latest = self._inner.latest_run()
             self._loaded = True
         return self._latest
+
+    def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
+        if run_revision_id not in self._selections:
+            self._selections[run_revision_id] = self._inner.selections(
+                run_revision_id=run_revision_id
+            )
+        return self._selections[run_revision_id]
 
 
 def _security_tickers(dashboard: DashboardView, screening: ScreeningView) -> list[str]:
