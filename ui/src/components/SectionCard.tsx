@@ -26,6 +26,11 @@ interface SectionCardProps {
 // One grammar for every section on the site: a ruled header carrying the title, why it
 // is here, and the numbers that summarise it, over the content it introduces. Sections
 // that share a shape are read as one system rather than as a pile of panels.
+//
+// A section is a top-level part of a page. The cards *inside* one — a lane, a candidate,
+// a scenario — are items, not sections: they carry their own emphasis (a tinted header,
+// a coloured border) and are not headings in the accessibility tree, so they stay
+// hand-written rather than being forced through here.
 export function SectionCard({ title, hint, description, meta, padded = false, children, headingLevel = 2 }: SectionCardProps) {
   return (
     <Card className="gap-0 overflow-hidden py-0 shadow-sm">
