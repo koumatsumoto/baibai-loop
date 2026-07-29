@@ -5,16 +5,18 @@ import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'r
 
 import { fetchJson } from '../api/client'
 import type { MacroPointView, MacroReadingSeriesView, MacroReadingTrendView, MacroReadingView, MacroSeriesView, MacroView } from '../api/types'
-import { AppShell } from '../components/AppShell'
+import { AsOfBadge } from '../components/AsOfBadge'
 import { InfoHint } from '../components/InfoHint'
 import { LoadingIndicator, LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
+import { SectionCard } from '../components/SectionCard'
 import { StaleBadge } from '../components/StaleBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { Card, CardHeader, CardTitle } from '../components/ui/card'
+import { Card } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Input } from '../components/ui/input'
@@ -268,18 +270,6 @@ function IndicatorDialog({ row, period, granularity, onClose }: { row: MacroIndi
   )
 }
 
-function SummaryField({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div>
-      <dt className="flex items-center gap-1 text-[10px] font-semibold tracking-wide text-muted-foreground">
-        {label}
-        {hint !== undefined && <InfoHint label={label}>{hint}</InfoHint>}
-      </dt>
-      <dd className="mt-1 font-mono text-sm font-medium tabular-nums">{children}</dd>
-    </div>
-  )
-}
-
 export function MacroPage() {
   const [data, setData] = useState<MacroView | null>(null)
   const [reading, setReading] = useState<MacroReadingView | null>(null)
@@ -343,27 +333,12 @@ export function MacroPage() {
   }
 
   return (
-    <><AppShell /><main className="mx-auto grid max-w-[1600px] gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <h1 className="shrink-0 text-3xl font-semibold tracking-tight">マクロ環境</h1>
-        <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
-          {/* Content-sized columns: equal ones would stretch every count to the width of
-              the rules revision and push the heading into a second line. */}
-          <dl className="grid grid-cols-3 gap-x-6 gap-y-3 sm:grid-cols-4 lg:grid-cols-[repeat(7,max-content)]">
-            <SummaryField label={LABEL.asOf}>{reading?.asof ?? data.as_of}</SummaryField>
-            <SummaryField label="系列数">{formatNumber(summary.seriesCount)}</SummaryField>
-            <SummaryField label="rules"><span className="text-xs">{reading?.rules_revision ?? EMPTY}</span></SummaryField>
-            {INDICATOR_STATUSES.map((status) => (
-              <SummaryField hint={STATUS_HINT[status]} key={status} label={INDICATOR_STATUS_LABEL[status]}>
-                {summary.counts[status]}
-              </SummaryField>
-            ))}
-          </dl>
-        </div>
-      </header>
-
+    // The counts this page's header used to carry are the same four the table filters
+    // by, so they live on those buttons alone. What is left is the date every number on
+    // the page is read against.
+    <PageShell meta={<AsOfBadge value={reading?.asof ?? data.as_of} />} title="マクロ環境">
       <section className="grid gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight">経済分析レポート</h2>
+        <h2 className="text-xl font-semibold tracking-tight">経済分析レポート</h2>
         {reports.length === 0
           ? <Alert><CircleAlert /><AlertTitle>経済分析レポートなし</AlertTitle><AlertDescription>マクロ経済指標は下段で確認できます。分析レポートは publish 後に表示されます。</AlertDescription></Alert>
           : (
@@ -387,48 +362,51 @@ export function MacroPage() {
 
       <section className="grid gap-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="flex items-center gap-1.5">
-            <h2 className="text-2xl font-semibold tracking-tight">マクロ経済指標</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold tracking-tight">マクロ経済指標</h2>
             <InfoHint label="マクロ経済指標">{HINT.panel}</InfoHint>
+            <Badge variant="secondary">{formatNumber(summary.seriesCount)} 系列</Badge>
           </div>
-          <div className="flex flex-wrap gap-3 rounded-xl border bg-card p-3 shadow-sm">
+          <div className="flex flex-wrap items-end gap-3">
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">期間</span><Select onValueChange={(value) => setPeriod(value as MacroPeriod)} value={period}><SelectTrigger aria-label="表示期間" className="w-24"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(PERIOD_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
             <label className="grid gap-1"><span className="text-xs font-medium text-muted-foreground">粒度</span><Select onValueChange={(value) => setGranularity(value as MacroGranularity)} value={granularity}><SelectTrigger aria-label="表示粒度" className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(GRANULARITY_LABEL).map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}</SelectContent></Select></label>
             {loading && <LoadingIndicator className="self-end pb-2" label="マクロ経済指標を更新しています" size={24} />}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Wider between the filters than inside one, so each ⓘ reads as belonging to the
+            button on its left. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="relative w-full sm:w-72">
             <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input aria-label="系列を検索" className="pl-8" onChange={(event) => setQuery(event.target.value)} placeholder="系列名 / series_id で検索" value={query} />
           </div>
-          {/* The same four classifications the summary counts, so a non-zero count above is
-              one click away from the rows that produced it. */}
+          {/* Count and filter in one control: the number says how many rows carry the
+              classification, and pressing it shows them. The hint sits beside the button
+              rather than inside it — an interactive element nested in another is invalid
+              and unreachable by keyboard. */}
           {INDICATOR_STATUSES.map((status) => (
-            <Button
-              aria-pressed={statuses.has(status)}
-              // A classification with no rows would filter the table down to nothing;
-              // a selected one stays clickable so it can always be turned off.
-              disabled={summary.counts[status] === 0 && !statuses.has(status)}
-              key={status}
-              onClick={() => toggleStatus(status)}
-              size="sm"
-              variant={statuses.has(status) ? 'default' : 'outline'}
-            >
-              {INDICATOR_STATUS_LABEL[status]} {summary.counts[status]}
-            </Button>
+            <div className="flex items-center gap-1" key={status}>
+              <Button
+                aria-pressed={statuses.has(status)}
+                // A classification with no rows would filter the table down to nothing;
+                // a selected one stays clickable so it can always be turned off.
+                disabled={summary.counts[status] === 0 && !statuses.has(status)}
+                onClick={() => toggleStatus(status)}
+                size="sm"
+                variant={statuses.has(status) ? 'default' : 'outline'}
+              >
+                {INDICATOR_STATUS_LABEL[status]} {summary.counts[status]}
+              </Button>
+              <InfoHint label={INDICATOR_STATUS_LABEL[status]}>{STATUS_HINT[status]}</InfoHint>
+            </div>
           ))}
         </div>
 
         {visibleGroups.length === 0
           ? <p className="text-sm text-muted-foreground">条件に合う系列はありません。</p>
           : visibleGroups.map((group) => (
-            <Card className="gap-0 overflow-hidden py-0 shadow-sm" key={group.title}>
-              <CardHeader className="flex flex-row items-center justify-between gap-4 border-b px-5 py-4">
-                <CardTitle aria-level={3} role="heading">{group.title}</CardTitle>
-                <Badge variant="secondary">{group.rows.length} 系列</Badge>
-              </CardHeader>
+            <SectionCard headingLevel={3} key={group.title} meta={<Badge variant="secondary">{group.rows.length} 系列</Badge>} title={group.title}>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -449,11 +427,11 @@ export function MacroPage() {
                   {group.rows.map((row) => <IndicatorRow key={row.series.series_id} onOpen={() => setOpenSeriesId(row.series.series_id)} row={row} />)}
                 </TableBody>
               </Table>
-            </Card>
+            </SectionCard>
           ))}
       </section>
 
       <IndicatorDialog granularity={granularity} onClose={() => setOpenSeriesId(null)} period={period} row={openRow} />
-    </main></>
+    </PageShell>
   )
 }
