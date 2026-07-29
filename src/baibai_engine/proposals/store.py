@@ -21,12 +21,11 @@ from baibai_engine.position.ledger import PortfolioSnapshot, reconcile_portfolio
 from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.close_source import resolve_previous_business_day_close
 from baibai_engine.research.execution_policy import ExecutionPolicyError, max_acceptable_price
-from baibai_engine.research.opportunity import (
-    BOARD_LOT,
-    PLANNING_TICK_SIZE_YEN,
-    _portfolio_annotations,
-    _portfolio_exposure,
-    _portfolio_warnings,
+from baibai_engine.research.opportunity import BOARD_LOT, PLANNING_TICK_SIZE_YEN
+from baibai_engine.research.portfolio_exposure import (
+    portfolio_annotations,
+    portfolio_exposure,
+    portfolio_warnings,
 )
 from baibai_engine.research.thesis import (
     IndependentReview,
@@ -509,7 +508,7 @@ def _validate_planned_limit(
     if expected_quantity != planned.quantity or int(expected_notional) != planned.notional_yen:
         raise ProposalConflictError("current planning quantity differs; create a new proposal")
 
-    expected_exposure, exposure_warnings, total_capital = _portfolio_exposure(
+    expected_exposure, exposure_warnings, total_capital = portfolio_exposure(
         snapshot,
         sqlite_path=market_path,
         price_as_of=price.price_as_of,
@@ -520,7 +519,7 @@ def _validate_planned_limit(
         market_connection=market_connection,
     )
     expected_warnings.extend(
-        _portfolio_warnings(
+        portfolio_warnings(
             snapshot,
             notional_yen=expected_notional,
             total_capital_yen=total_capital,
@@ -530,7 +529,7 @@ def _validate_planned_limit(
     if (
         PlannedPortfolioExposure.model_validate(expected_exposure) != planned.portfolio_exposure
         or tuple(expected_warnings) != planned.warnings
-        or tuple(_portfolio_annotations(snapshot, ticker=planned.ticker))
+        or tuple(portfolio_annotations(snapshot, ticker=planned.ticker))
         != planned.portfolio_annotations
     ):
         raise ProposalConflictError("current portfolio constraints differ; create a new proposal")
