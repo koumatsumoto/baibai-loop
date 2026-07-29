@@ -291,7 +291,11 @@ export function ShortlistPage() {
 
   return (
     <PageShell
-      lead={<>longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。</>}
+      // The lead states what this cycle concluded. Promising "2〜4 銘柄を選んで進む" on a
+      // cycle that selected none would contradict the card directly below it.
+      lead={comparison.length === 0
+        ? <>longlist を人間が review した結果。<strong>最終 buy 提案ではありません。</strong>このサイクルは深掘り候補を選ばず、shortlist が判断の記録になります。</>
+        : <>longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。</>}
       meta={(
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground tabular-nums">
           <AsOfBadge value={shortlist.as_of} />
