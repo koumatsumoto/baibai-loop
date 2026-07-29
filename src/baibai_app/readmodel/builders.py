@@ -358,33 +358,10 @@ def build_screening(
 ) -> ScreeningView:
     """Build the latest candidates table with portfolio/research annotations."""
 
-    run = candidates.latest_run()
-    selections: list[MachineSelectionView] = []
+    run, selections = _operative_run(candidates)
     shortlists: list[ShortlistView] = []
     assessments: list[BargainAssessmentSummaryView] = []
     if isinstance(candidates, DbCandidatesSource):
-        # Operative run: judgment publications (selection / shortlist) bind to a
-        # specific run revision. A newer revision of the same as-of (e.g. a determinism
-        # re-run) must not present the Baibai App with an empty machine-selection view, so
-        # when the latest run has no selection we fall back to the newest selection's run
-        # and keep the candidates table, selections, and shortlist join coherent.
-        all_selections = candidates.selections()
-        run_selections = (
-            [item for item in all_selections if str(item["run_revision_id"]) == run.run_revision_id]
-            if run is not None
-            else []
-        )
-        if run is not None and not run_selections and all_selections:
-            newest = max(all_selections, key=lambda item: str(item["created_at"]))
-            fallback_run = candidates.run(str(newest["run_revision_id"]))
-            if fallback_run is not None:
-                run = fallback_run
-                run_selections = [
-                    item
-                    for item in all_selections
-                    if str(item["run_revision_id"]) == run.run_revision_id
-                ]
-        selections = [_machine_selection_view(item) for item in run_selections]
         shortlists = [_shortlist_view(item) for item in candidates.shortlists()]
         assessments = [_assessment_summary_view(item) for item in candidates.assessments()]
     if run is None:
@@ -414,6 +391,41 @@ def build_screening(
         shortlists=shortlists,
         assessments=assessments,
     )
+
+
+def _operative_run(
+    candidates: CandidatesSource,
+) -> tuple[CandidatesRun | None, list[MachineSelectionView]]:
+    """Resolve the run every screening surface reads, with its own selections.
+
+    Judgment publications (selection / shortlist) bind to a specific run revision.
+    A newer revision of the same as-of — a determinism re-run, say — carries no
+    selection of its own, so presenting it would blank the machine-selection view
+    and the FV anchors that hang off it. Falling back to the newest selection's run
+    keeps the candidates table, its selections, and the shortlist join on one run.
+
+    Every surface that shows a candidate resolves the run here, so the list and the
+    security page cannot end up describing the same ticker from different runs.
+    """
+
+    run = candidates.latest_run()
+    if run is None:
+        return None, []
+    all_selections = candidates.selections()
+    run_selections = [
+        item for item in all_selections if str(item["run_revision_id"]) == run.run_revision_id
+    ]
+    if not run_selections and all_selections:
+        newest = max(all_selections, key=lambda item: str(item["created_at"]))
+        fallback_run = candidates.run(str(newest["run_revision_id"]))
+        if fallback_run is not None:
+            run = fallback_run
+            run_selections = [
+                item
+                for item in all_selections
+                if str(item["run_revision_id"]) == run.run_revision_id
+            ]
+    return run, [_machine_selection_view(item) for item in run_selections]
 
 
 def _fair_value_by_ticker(
@@ -667,7 +679,7 @@ def build_security_detail(
     today = datetime.now(_JST).date()
     revisions = [item for item in research.revisions() if item.ticker == ticker]
     latest_revision = revisions[0] if revisions else None
-    run = candidates.latest_run()
+    run, selections = _operative_run(candidates)
     raw_candidate = (
         next(
             (row for row in run.rows if str(row.get("ticker", "")) == ticker),
@@ -715,14 +727,9 @@ def build_security_detail(
             held={ticker} if holding_snapshot is not None else set(),
             reserved=reserved_here,
             researched={ticker} if revisions else set(),
-            fair_value=_fair_value_by_ticker(
-                [
-                    _machine_selection_view(item)
-                    for item in candidates.selections(run_revision_id=run.run_revision_id)
-                ]
-            ),
+            fair_value=_fair_value_by_ticker(selections),
         )
-        if raw_candidate is not None and run is not None
+        if raw_candidate is not None
         else None
     )
     return SecurityDetailView(

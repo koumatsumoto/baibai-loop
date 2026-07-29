@@ -230,6 +230,7 @@ class _CachedLatestRunCandidates:
         self._inner = inner
         self._loaded = False
         self._latest: CandidatesRun | None = None
+        self._runs: dict[str, CandidatesRun | None] = {}
         self._selections: dict[str | None, list[dict[str, object]]] = {}
 
     def latest_run(self) -> CandidatesRun | None:
@@ -237,6 +238,11 @@ class _CachedLatestRunCandidates:
             self._latest = self._inner.latest_run()
             self._loaded = True
         return self._latest
+
+    def run(self, run_revision_id: str) -> CandidatesRun | None:
+        if run_revision_id not in self._runs:
+            self._runs[run_revision_id] = self._inner.run(run_revision_id)
+        return self._runs[run_revision_id]
 
     def selections(self, *, run_revision_id: str | None = None) -> list[dict[str, object]]:
         if run_revision_id not in self._selections:
