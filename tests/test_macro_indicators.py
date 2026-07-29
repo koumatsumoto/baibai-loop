@@ -67,10 +67,12 @@ from baibai_engine.macro.indicators.providers import (
 )
 from baibai_engine.macro.indicators.providers.base import (
     MAX_CSV_RESPONSE_BYTES,
+    BrowserUnavailableError,
     FetchContext,
     HttpSession,
     SourceWithheldError,
     fetch_bytes,
+    fetch_text,
     store_fetched_bytes,
 )
 from baibai_engine.macro.indicators.providers.cftc import parse_cftc_json
@@ -1718,6 +1720,19 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             # without ever re-requesting it.
             self.assertEqual(context.bytes_cache, {})
 
+    def test_fetch_text_reports_a_non_utf8_response_as_a_provider_failure(self) -> None:
+        session = _StaticSession(_FakeResponse(b"\xff\xfe\x00garbage"))
+
+        # A raw UnicodeDecodeError escapes the refresh's retry, which only knows
+        # about provider errors, leaving the bytes cached for every later series.
+        with self.assertRaisesRegex(IndicatorsProviderError, r"is not UTF-8"):
+            fetch_text(
+                cast(HttpSession, session),
+                "https://example.test/data",
+                params=None,
+                max_bytes=1000,
+            )
+
     def test_store_fetched_bytes_applies_the_guards_the_plain_path_applies(self) -> None:
         with FetchContext() as context:
             # A cache entry is read without any guard in front of it, so bytes
@@ -1747,14 +1762,16 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_discard_cached_bytes_keeps_the_blocked_browser_record(self) -> None:
         with FetchContext() as context:
             store_fetched_bytes(context, "https://example.test/data", None, b"ok", max_bytes=1000)
-            context.blocked_browser_urls.add("https://example.test/data")
+            context.blocked_browser_urls["https://example.test/data"] = "turned away"
 
             context.discard_cached_bytes()
 
             # A retry is worth re-testing the plain request, not a navigation that
             # already spent a timeout failing against the same edge.
             self.assertEqual(context.bytes_cache, {})
-            self.assertEqual(context.blocked_browser_urls, {"https://example.test/data"})
+            self.assertEqual(
+                context.blocked_browser_urls, {"https://example.test/data": "turned away"}
+            )
 
     def test_h15_falls_back_to_a_browser_when_the_plain_response_is_empty(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
@@ -1918,6 +1935,31 @@ class IndicatorsProviderParserTests(unittest.TestCase):
     def test_h15_does_not_re_navigate_after_the_browser_was_blocked_in_this_pass(self) -> None:
         browser = _FakeBrowserFetcher(IndicatorsProviderError("navigation timed out"))
         session = cast(HttpSession, _StaticSession(_FakeResponse(b"")))
+        reported: list[str] = []
+
+        with _context_with_browser(browser) as context:
+            for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
+                with self.assertRaises(IndicatorsProviderError) as caught:
+                    FrbH15Provider().fetch(
+                        _series("frb_h15", provider_series_id),
+                        start=date(2026, 5, 1),
+                        end=date(2026, 5, 1),
+                        session=session,
+                        context=context,
+                    )
+                reported.append(str(caught.exception))
+
+        # Each navigation costs a timeout, so a blocked edge must be paid for once
+        # per pass rather than once per series and attempt.
+        self.assertEqual(len(browser.urls), 1)
+        # The series that skipped the navigation is the only one still reporting,
+        # so what the edge answered has to travel with the record of the block.
+        for message in reported:
+            self.assertIn("navigation timed out", message)
+
+    def test_h15_retries_the_browser_after_it_could_not_be_started(self) -> None:
+        browser = _FakeBrowserFetcher(BrowserUnavailableError("failed to launch"))
+        session = cast(HttpSession, _StaticSession(_FakeResponse(b"")))
 
         with _context_with_browser(browser) as context:
             for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
@@ -1930,9 +1972,10 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                         context=context,
                     )
 
-        # Each navigation costs a timeout, so a blocked edge must be paid for once
-        # per pass rather than once per series and attempt.
-        self.assertEqual(len(browser.urls), 1)
+        # A browser that never started says nothing about the source, costs no
+        # navigation timeout, and may well start for the next series.
+        self.assertEqual(context.blocked_browser_urls, {})
+        self.assertEqual(len(browser.urls), 2)
 
     def test_h15_does_not_fall_back_to_a_browser_for_a_failure_that_is_not_a_block(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
@@ -6216,7 +6259,7 @@ class _FakeBrowserFetcher:
     caller that skips validating the browser's answer is visible in a test.
     """
 
-    def __init__(self, result: bytes | IndicatorsProviderError) -> None:
+    def __init__(self, result: bytes | Exception) -> None:
         self.result = result
         self.urls: list[str] = []
         self.max_bytes: list[int] = []
@@ -6224,7 +6267,7 @@ class _FakeBrowserFetcher:
     def fetch_download(self, url: str, *, max_bytes: int) -> bytes:
         self.urls.append(url)
         self.max_bytes.append(max_bytes)
-        if isinstance(self.result, IndicatorsProviderError):
+        if isinstance(self.result, Exception):
             raise self.result
         return self.result
 

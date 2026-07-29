@@ -8,6 +8,7 @@ from ..db import ObservationRecord
 from ..definitions import SeriesDefinition
 from .base import (
     MAX_CSV_RESPONSE_BYTES,
+    BrowserUnavailableError,
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
@@ -131,9 +132,10 @@ def _fetch_h15_csv_via_browser(
     """
 
     navigation_url = _navigation_url(url, params)
-    if navigation_url in context.blocked_browser_urls:
+    blocked = context.blocked_browser_urls.get(navigation_url)
+    if blocked is not None:
         raise IndicatorsProviderError(
-            f"browser fetch of {url} already failed earlier in this pass; "
+            f"{blocked} (already seen earlier in this pass); "
             f"the plain client reported: {plain_failure}"
         )
     try:
@@ -147,11 +149,14 @@ def _fetch_h15_csv_via_browser(
             )
     except (IndicatorsProviderError, UnicodeDecodeError) as exc:
         # An edge that turned this navigation away turns the next one away too,
-        # and each attempt costs a navigation timeout. Recording the block keeps
-        # the remaining series and the retry from paying it again. The decode is
-        # wrapped here so a non-UTF-8 answer fails like every other bad response
-        # rather than escaping as an error the refresh cannot retry.
-        context.blocked_browser_urls.add(navigation_url)
+        # and each attempt costs a navigation timeout, so what the edge answered
+        # is recorded and the remaining series report it without paying again. A
+        # browser that never started says nothing about the edge, so it is not
+        # recorded and the next series still tries. The decode is wrapped here so
+        # a non-UTF-8 answer fails like every other bad response rather than
+        # escaping as an error the refresh cannot retry.
+        if not isinstance(exc, BrowserUnavailableError):
+            context.blocked_browser_urls[navigation_url] = str(exc)
         raise IndicatorsProviderError(
             f"{exc}; the plain client first failed with: {plain_failure}"
         ) from exc

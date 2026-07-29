@@ -49,6 +49,15 @@ class SourceWithheldError(IndicatorsProviderError):
     """
 
 
+class BrowserUnavailableError(IndicatorsProviderError):
+    """No browser could be started, so nothing was learned about the source.
+
+    A caller that remembers which sources turned its navigations away must not
+    remember this one: the navigation never happened. The next series has the
+    same reason to try as this one did.
+    """
+
+
 type BytesCacheKey = tuple[str, tuple[tuple[str, str], ...]]
 
 
@@ -73,7 +82,10 @@ class FetchContext:
     ) -> None:
         self.session = requests.Session()
         self.bytes_cache: dict[BytesCacheKey, bytes] = {}
-        self.blocked_browser_urls: set[str] = set()
+        # Navigation URL -> why the browser was turned away there. The reason is
+        # kept, not just the fact: a later series that skips the navigation is
+        # the only one reporting, so the evidence has to travel with the record.
+        self.blocked_browser_urls: dict[str, str] = {}
         self.store_reader = store_reader
         self.purpose = purpose
         self._browser: BrowserFetcher | None = None
@@ -86,9 +98,9 @@ class FetchContext:
         retry re-read the same bad bytes and would fail every later series that
         shares the URL, so a failed fetch invalidates the cache instead.
 
-        The blocked-browser set survives: a browser navigation costs a minute to
-        fail, and an edge that turned one away turns the next one away too. What
-        a retry is worth re-testing is the plain request, not that.
+        The blocked-browser record survives: a browser navigation costs a minute
+        to fail, and an edge that turned one away turns the next one away too.
+        What a retry is worth re-testing is the plain request, not that.
         """
 
         self.bytes_cache.clear()
@@ -161,7 +173,14 @@ def fetch_text(
     content = fetch_bytes(
         session, url, params=params, max_bytes=max_bytes, headers=headers, context=context
     )
-    return content.decode("utf-8-sig")
+    try:
+        return content.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        # A decode failure belongs to the response, not to the program. Left as a
+        # UnicodeDecodeError it escapes the refresh's retry, which only knows
+        # about provider errors, and the bytes that caused it stay in the shared
+        # cache for every later series to decode and fail on again.
+        raise IndicatorsProviderError(f"response from {url} is not UTF-8: {exc}") from exc
 
 
 def _bytes_cache_key(url: str, params: Mapping[str, str] | None) -> BytesCacheKey:

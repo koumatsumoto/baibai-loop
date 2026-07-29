@@ -10,7 +10,7 @@ from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwr
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from .base import IndicatorsProviderError
+from .base import BrowserUnavailableError, IndicatorsProviderError
 
 # A real Chromium navigation is required where an edge WAF answers a plain HTTP
 # client with a 2xx carrying a challenge page or nothing at all: the S&P Global PMI
@@ -79,7 +79,7 @@ class BrowserFetcher:
             )
         except PlaywrightError as exc:
             self.close()
-            raise IndicatorsProviderError(f"failed to launch headless browser: {exc}") from exc
+            raise BrowserUnavailableError(f"failed to launch headless browser: {exc}") from exc
         return self._context
 
     def fetch_download(self, url: str, *, max_bytes: int = _MAX_DOWNLOAD_BYTES) -> bytes:
@@ -162,6 +162,8 @@ class BrowserFetcher:
                 path = download.path()
                 size = Path(path).stat().st_size
                 if size > _MAX_DOWNLOAD_BYTES:
+                    with suppress(PlaywrightError):
+                        download.delete()
                     raise IndicatorsProviderError(
                         f"browser PDF download exceeds {_MAX_DOWNLOAD_BYTES} bytes: {size}"
                     )
