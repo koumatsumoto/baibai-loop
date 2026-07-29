@@ -79,6 +79,7 @@ uv run baibai-engine research assessment-publish .cache/opportunity/YYYY-MM-DD/b
 一次リサーチの前に、比較可能な候補群を人間へ渡すレビューgateを置く。1銘柄へ先に決め打ちしない。
 
 - **件数契約**: `longlist`上位20件から8〜10候補をshortlistへ入れる。longlistが8件未満なら全件を提示して不足を明記し、pool外の銘柄で件数を埋めない。`recommendations`のproduction capはこの件数を決めない。
+- **選定0件**: 深度契約を満たす候補が1件も無いサイクルは、selected 0件・全件rejectedのshortlistとしてpublishする。件数契約を満たすために基準を下げて枠を埋めない。銘柄ごとの見送り理由はrejected entryの`reason`にしか残らないので、publishを省くとそのサイクルの判断が記録の外へ落ちる。
 - **判断の記録**: selected銘柄は`ShortlistEntry.rank`（暫定順位。selected内で1..Nを欠番・重複なく）と`ShortlistEntry.narrative`（なぜ安いか / 一時的か / 構造的か / 5年耐性 / unlock / **上値根拠 / 下値目安 / RR成立理由** / **catalyst**（datedなら`catalyst_date`も。as_of以降・as_of + 550日以内）/ **macroヒントの消化** / 最強countercase / 深掘り論点 / 深掘り価値 / 暫定判断と暫定`ploss`）を必須にし、rejected銘柄はrank・narrativeを持たず「順位が低い」「予算外」だけでない具体的理由を必須にする。draftは[`tools/shortlist/draft-template.yaml`](../../tools/shortlist/draft-template.yaml)を写して記入し、`screening shortlist publish`でapplication DBへ一次記録する。narrativeの正本はapplication DBであり、workspace上のdraftへ残さない。
 - **暫定順位の意味**: `rank`は「一次リサーチの枠をどの順で使うか」の判断であり、機械`E[r]`の順位そのものではない。機械順位と乖離させる場合はその理由をnarrativeへ書く（下記深度契約）。順位は深掘り着手順を決めるだけで、購入額・proposal順序を決めない。
 

@@ -52,6 +52,8 @@ baibai-loop
 
 engine 内の domain は app に依存しない。app は `read_api` と query source を通じて DB を read-only mode で開き、migration、write service、外部 networkへ到達しない。
 
+`read_api` の store 欠損時の扱いは 1 つの規則で決まる: **publish 済みの内容を答える reader は空 view へ degrade し、書き込みを門番する reader は raise する**。前者は `read_rows` を通し、file 欠損と table 欠損（= writer がこの copy でまだ走っていない）を空として扱う。列名の誤り・構文エラー・store 破損は degrade せず raise するので、壊れた query が同じ沈黙に隠れない。後者は日次 batch の `market_calendar_business_day` と `previous_run_revision_id` で、休場日に見えて run を skip するのでなく故障を名指しして止まる。この規則は `tests/test_read_api_degrade.py` が全 public reader を走査して守る。
+
 ## Store contract
 
 | store | classification | contents | write owner |
