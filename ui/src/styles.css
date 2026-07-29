@@ -91,14 +91,14 @@
        ui/brand/logo.png, so `tools/generate_brand_assets.py` reports the values that
        belong here. Lime is too light to read as text or a control surface — it stays
        display-only, and anything set over it uses --text-primary. */
-    --brand-green: #12b76a;
-    --brand-lime: #d9ef37;
+    --brand-green: #09ab65;
+    --brand-lime: #c7de24;
     --primary-display: var(--brand-green);
     --primary-action: #008755;
     --primary-hover: #006b43;
     --primary-hover-color: var(--primary-hover);
     --primary-soft: #e8faf0;
-    --accent-display: #feae00;
+    --accent-display: #f9a702;
 
     /* Neutral palette carries the layout; brand color carries interaction. */
     --canvas: #f8faf9;
