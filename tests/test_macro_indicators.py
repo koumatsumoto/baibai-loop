@@ -66,9 +66,12 @@ from baibai_engine.macro.indicators.providers import (
     spglobal_pmi,
 )
 from baibai_engine.macro.indicators.providers.base import (
+    MAX_CSV_RESPONSE_BYTES,
     FetchContext,
     HttpSession,
+    SourceWithheldError,
     fetch_bytes,
+    store_fetched_bytes,
 )
 from baibai_engine.macro.indicators.providers.cftc import parse_cftc_json
 from baibai_engine.macro.indicators.providers.derived import DerivedProvider
@@ -1702,7 +1705,7 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         session = _StaticSession(_FakeResponse(b""))
 
         with FetchContext() as context:
-            with self.assertRaises(IndicatorsProviderError):
+            with self.assertRaises(SourceWithheldError):
                 fetch_bytes(
                     cast(HttpSession, session),
                     "https://example.test/data",
@@ -1714,6 +1717,44 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             # A cached empty body would fail every later series sharing the URL
             # without ever re-requesting it.
             self.assertEqual(context.bytes_cache, {})
+
+    def test_store_fetched_bytes_applies_the_guards_the_plain_path_applies(self) -> None:
+        with FetchContext() as context:
+            # A cache entry is read without any guard in front of it, so bytes
+            # reaching the cache by another route owe the same checks.
+            with self.assertRaises(SourceWithheldError):
+                store_fetched_bytes(context, "https://example.test/data", None, b"", max_bytes=1000)
+            with self.assertRaisesRegex(IndicatorsProviderError, r"response too large"):
+                store_fetched_bytes(
+                    context, "https://example.test/data", None, b"x" * 1001, max_bytes=1000
+                )
+
+            self.assertEqual(context.bytes_cache, {})
+
+            store_fetched_bytes(context, "https://example.test/data", None, b"ok", max_bytes=1000)
+
+            self.assertEqual(
+                fetch_bytes(
+                    cast(HttpSession, _RaisingSession()),
+                    "https://example.test/data",
+                    params=None,
+                    max_bytes=1000,
+                    context=context,
+                ),
+                b"ok",
+            )
+
+    def test_discard_cached_bytes_keeps_the_blocked_browser_record(self) -> None:
+        with FetchContext() as context:
+            store_fetched_bytes(context, "https://example.test/data", None, b"ok", max_bytes=1000)
+            context.blocked_browser_urls.add("https://example.test/data")
+
+            context.discard_cached_bytes()
+
+            # A retry is worth re-testing the plain request, not a navigation that
+            # already spent a timeout failing against the same edge.
+            self.assertEqual(context.bytes_cache, {})
+            self.assertEqual(context.blocked_browser_urls, {"https://example.test/data"})
 
     def test_h15_falls_back_to_a_browser_when_the_plain_response_is_empty(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
@@ -1734,6 +1775,24 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         # The browser navigates to the same query the plain client sent.
         self.assertIn("series=bf17364827e38702b42a58cf8eaa3f78", browser.urls[0])
         self.assertIn("from=05%2F01%2F2026", browser.urls[0])
+
+    def test_h15_falls_back_to_a_browser_when_the_plain_response_is_forbidden(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
+
+        with _context_with_browser(browser) as context:
+            observations = FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                # A Cloudflare bot-mitigation challenge arrives as a 403 as
+                # readily as it arrives as an empty body.
+                session=cast(HttpSession, _StaticSession(_ForbiddenResponse())),
+                context=context,
+            )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(len(browser.urls), 1)
 
     def test_h15_falls_back_to_a_browser_when_the_plain_response_is_a_block_page(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
@@ -1794,6 +1853,141 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 ),
                 context=context,
             )
+
+    def test_h15_reports_the_block_page_when_the_browser_is_also_blocked(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(IndicatorsProviderError("browser could not download"))
+        block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
+
+        with (
+            _context_with_browser(browser) as context,
+            # A block page arrives as a normal 2xx, so the evidence of how the
+            # edge blocked has to survive the fallback just like an empty body.
+            self.assertRaisesRegex(
+                IndicatorsProviderError,
+                r"the plain client first failed with: response without the CSV header: "
+                r"'<!DOCTYPE html><html><title>Access Denied",
+            ),
+        ):
+            FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(block_page))),
+                context=context,
+            )
+
+    def test_h15_rejects_a_browser_response_without_the_csv_header(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(b"<!DOCTYPE html><html><title>Just a moment</title></html>")
+
+        with _context_with_browser(browser) as context:
+            with self.assertRaisesRegex(
+                IndicatorsProviderError, r"browser response without the CSV header"
+            ):
+                FrbH15Provider().fetch(
+                    series,
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
+                    context=context,
+                )
+
+            # An unvalidated browser answer in the cache would fail every later
+            # series sharing the URL with the parser's format error.
+            self.assertEqual(context.bytes_cache, {})
+
+    def test_h15_rejects_a_browser_response_that_is_not_utf8(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(b"\xff\xfe\x00garbage")
+
+        with _context_with_browser(browser) as context:
+            # A decode error is not an IndicatorsProviderError, so escaping as one
+            # would deny the refresh its retry and leave the bytes cached.
+            with self.assertRaises(IndicatorsProviderError):
+                FrbH15Provider().fetch(
+                    series,
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
+                    context=context,
+                )
+
+            self.assertEqual(context.bytes_cache, {})
+
+    def test_h15_does_not_re_navigate_after_the_browser_was_blocked_in_this_pass(self) -> None:
+        browser = _FakeBrowserFetcher(IndicatorsProviderError("navigation timed out"))
+        session = cast(HttpSession, _StaticSession(_FakeResponse(b"")))
+
+        with _context_with_browser(browser) as context:
+            for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
+                with self.assertRaises(IndicatorsProviderError):
+                    FrbH15Provider().fetch(
+                        _series("frb_h15", provider_series_id),
+                        start=date(2026, 5, 1),
+                        end=date(2026, 5, 1),
+                        session=session,
+                        context=context,
+                    )
+
+        # Each navigation costs a timeout, so a blocked edge must be paid for once
+        # per pass rather than once per series and attempt.
+        self.assertEqual(len(browser.urls), 1)
+
+    def test_h15_does_not_fall_back_to_a_browser_for_a_failure_that_is_not_a_block(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
+        oversized = _FakeResponse(b"x" * 32, headers={"Content-Length": "9000000"})
+
+        with _context_with_browser(browser) as context:
+            with self.assertRaisesRegex(IndicatorsProviderError, r"response too large"):
+                FrbH15Provider().fetch(
+                    series,
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=cast(HttpSession, _StaticSession(oversized)),
+                    context=context,
+                )
+
+            # The size cap did its job; re-fetching the same resource through a
+            # browser would have it written to disk with no cap in front of it.
+            self.assertEqual(browser.urls, [])
+
+    def test_h15_browser_navigation_preserves_a_query_already_in_the_source_url(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        series = replace(series, source_url="https://example.test/Output.aspx?rel=H15")
+        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
+
+        with _context_with_browser(browser) as context:
+            FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
+                context=context,
+            )
+
+        # The plain client merges params into an existing query; the navigation
+        # must address the same resource rather than a doubled "?".
+        self.assertEqual(browser.urls[0].count("?"), 1)
+        self.assertIn("rel=H15", browser.urls[0])
+        self.assertIn("layout=seriescolumn", browser.urls[0])
+
+    def test_h15_browser_download_is_capped_by_the_provider_limit(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
+
+        with _context_with_browser(browser) as context:
+            FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
+                context=context,
+            )
+
+        # One resource, one ceiling — not a second one that depends on the route.
+        self.assertEqual(browser.max_bytes, [MAX_CSV_RESPONSE_BYTES])
 
     def test_h15_without_a_context_reports_the_response_instead_of_falling_back(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
@@ -6002,15 +6196,34 @@ def _parse_dashboard(
     )
 
 
+class _ForbiddenResponse:
+    """A 403 as an edge bot-mitigation serves it: a challenge page, not an error."""
+
+    status_code = 403
+    headers: dict[str, str] = {"Content-Type": "text/html"}
+
+    def raise_for_status(self) -> None:
+        raise requests.HTTPError("403 Client Error: Forbidden")
+
+    def iter_content(self, *, chunk_size: int) -> list[bytes]:
+        return [b"<!DOCTYPE html><html><title>Just a moment...</title></html>"]
+
+
 class _FakeBrowserFetcher:
-    """Stands in for the headless browser so a fallback is testable without Playwright."""
+    """Stands in for the headless browser so a fallback is testable without Playwright.
+
+    Returns whatever bytes it is given rather than only well-formed CSV, so a
+    caller that skips validating the browser's answer is visible in a test.
+    """
 
     def __init__(self, result: bytes | IndicatorsProviderError) -> None:
         self.result = result
         self.urls: list[str] = []
+        self.max_bytes: list[int] = []
 
-    def fetch_download(self, url: str) -> bytes:
+    def fetch_download(self, url: str, *, max_bytes: int) -> bytes:
         self.urls.append(url)
+        self.max_bytes.append(max_bytes)
         if isinstance(self.result, IndicatorsProviderError):
             raise self.result
         return self.result

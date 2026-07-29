@@ -82,12 +82,14 @@ class BrowserFetcher:
             raise IndicatorsProviderError(f"failed to launch headless browser: {exc}") from exc
         return self._context
 
-    def fetch_download(self, url: str) -> bytes:
+    def fetch_download(self, url: str, *, max_bytes: int = _MAX_DOWNLOAD_BYTES) -> bytes:
         """Navigate to ``url`` and return the downloaded file's bytes.
 
         For a source that answers with ``Content-Disposition: attachment`` and a
         format carrying no magic bytes of its own (a CSV). Validating what came
         back is the caller's job: only it knows what the file should contain.
+        ``max_bytes`` is the caller's own ceiling so one resource does not have
+        two different limits depending on which route reached it.
 
         One navigation, not several. A download either starts as the navigation
         commits or the edge served something else instead, and repeating the
@@ -97,11 +99,11 @@ class BrowserFetcher:
         """
 
         try:
-            return self._fetch_download(url)
+            return self._fetch_download(url, max_bytes=min(max_bytes, _MAX_DOWNLOAD_BYTES))
         except PlaywrightError as exc:
             raise IndicatorsProviderError(f"browser failed downloading from {url}: {exc}") from exc
 
-    def _fetch_download(self, url: str) -> bytes:
+    def _fetch_download(self, url: str, *, max_bytes: int) -> bytes:
         context = self._ensure_context()
         page = context.new_page()
         try:
@@ -119,10 +121,13 @@ class BrowserFetcher:
                 ) from exc
             path = download.path()
             size = Path(path).stat().st_size
-            if size > _MAX_DOWNLOAD_BYTES:
-                raise IndicatorsProviderError(
-                    f"browser download exceeds {_MAX_DOWNLOAD_BYTES} bytes: {size}"
-                )
+            if size > max_bytes:
+                # Playwright writes the whole file before handing it over, so the
+                # only thing still worth doing is not leaving it on a runner disk
+                # the rest of the batch has to share.
+                with suppress(PlaywrightError):
+                    download.delete()
+                raise IndicatorsProviderError(f"browser download exceeds {max_bytes} bytes: {size}")
             return Path(path).read_bytes()
         finally:
             page.close()

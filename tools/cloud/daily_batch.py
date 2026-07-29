@@ -268,9 +268,17 @@ def _failed_series_count(exc: BatchStepError, *, requested: int) -> int:
     what the run summary and its notification show. The refresh reports its own
     count, so read that and only fall back to the group size when the step failed
     before reporting one — over-counting is the safe direction for a health signal.
+
+    Nothing about reading a count is worth failing a run over. This runs inside
+    the handler that keeps a macro failure from blocking the publish, and an
+    exception escaping here would leave the day's screening result unexported,
+    so any trouble reading resolves to the same conservative fallback.
     """
 
-    reported = parse_refresh_failure_count(exc.stderr)
+    try:
+        reported = parse_refresh_failure_count(exc.stderr)
+    except Exception:
+        return requested
     if reported is None or reported > requested:
         return requested
     return reported
