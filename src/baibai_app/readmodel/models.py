@@ -146,7 +146,6 @@ class DashboardView(BaseModel):
     upcoming_events: list[UpcomingEventView]
     open_tasks: list[TaskView]
     next_task: TaskView | None
-    next_event: TaskView | None
     tasks_exist: bool
     research_load_errors: list[str]
 

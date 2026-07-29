@@ -179,7 +179,6 @@ export interface DashboardView {
   upcoming_events: UpcomingEventView[]
   open_tasks: TaskView[]
   next_task: TaskView | null
-  next_event: TaskView | null
   tasks_exist: boolean
   research_load_errors: string[]
 }
