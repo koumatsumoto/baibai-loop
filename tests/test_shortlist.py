@@ -90,7 +90,7 @@ def test_shortlist_publish_is_immutable_and_identical_retry_is_no_change(tmp_pat
         service.publish(changed, selection=_binding())
 
 
-def test_shortlist_rejects_duplicate_ticker_and_missing_selected() -> None:
+def test_shortlist_rejects_duplicate_ticker() -> None:
     payload = _shortlist().payload()
     payload["entries"] = [
         {"ticker": "2331", "decision": "rejected", "reason": "a"},
@@ -98,6 +98,40 @@ def test_shortlist_rejects_duplicate_ticker_and_missing_selected() -> None:
     ]
     with pytest.raises(ValidationError):
         Shortlist.model_validate(payload)
+
+
+def _no_selected_shortlist() -> Shortlist:
+    payload = _shortlist().payload()
+    payload["entries"] = [
+        {"ticker": "2331", "decision": "rejected", "reason": "正常利益ベースでも割高"},
+        {"ticker": "0001", "decision": "rejected", "reason": "一時益で見かけ上安いだけ"},
+    ]
+    return Shortlist.model_validate(payload)
+
+
+def test_shortlist_records_a_cycle_where_nothing_was_worth_researching(tmp_path: Path) -> None:
+    shortlist = _no_selected_shortlist()
+
+    assert shortlist.selected_by_rank() == ()
+    assert [entry.reason for entry in shortlist.entries] == [
+        "正常利益ベースでも割高",
+        "一時益で見かけ上安いだけ",
+    ]
+
+    path = tmp_path / "app.sqlite"
+    ShortlistService(path).publish(shortlist, selection=_binding())
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT count(*) FROM shortlist").fetchone()[0] == 1
+
+
+def test_no_selected_cycle_suggests_a_reevaluation_trigger_for_every_entry() -> None:
+    suggestions = reevaluation_task_suggestions(
+        _no_selected_shortlist(), {"2331": "2026-08-06", "0001": None}
+    )
+
+    assert len(suggestions) == 2
+    assert "--due 2026-08-06" in suggestions[0]
+    assert suggestions[1].startswith("#")
 
 
 def test_shortlist_selected_entry_requires_narrative() -> None:

@@ -99,9 +99,11 @@ class Shortlist(BaseModel):
         tickers = [entry.ticker for entry in self.entries]
         if len(tickers) != len(set(tickers)):
             raise ValueError("shortlist ticker must be unique")
+        # selected 0 件は「longlist を OP3 で見たが、一次リサーチの枠を使う価値のある
+        # 候補が無かった」という正常な判断であり、その見送り理由は rejected entry の
+        # reason にしか書けない。ここで publish を拒むと、そのサイクルの判断が
+        # 記録の外へ落ちる。
         selected = [entry for entry in self.entries if entry.decision == "selected"]
-        if not selected:
-            raise ValueError("shortlist must contain at least one selected entry")
         ranks = sorted(entry.rank for entry in selected if entry.rank is not None)
         if ranks != list(range(1, len(selected) + 1)):
             raise ValueError("selected provisional ranks must be 1..N without gaps or duplicates")

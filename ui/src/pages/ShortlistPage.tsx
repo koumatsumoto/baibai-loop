@@ -312,6 +312,18 @@ export function ShortlistPage() {
         {data.run?.stale && <StaleBadge className="text-[10px]" detail={data.run.asof_date} />}
       </div>
 
+      {/* Selecting nothing is a conclusion, not an empty page. Saying so keeps the
+          reader from reading the missing comparison table as a load failure. */}
+      {comparison.length === 0 && (
+        <SectionCard
+          description="longlist を review したが、一次リサーチの枠を使う価値のある候補が無かったサイクル。銘柄ごとの見送り理由は下表に残る。"
+          padded
+          title="深掘り候補なし"
+        >
+          <p className="text-sm text-muted-foreground">次の longlist を待つか、条件を変えて再 screening する。</p>
+        </SectionCard>
+      )}
+
       {comparison.length > 0 && <ComparisonTable rows={comparison} />}
 
       <div className="grid gap-4">
