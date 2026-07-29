@@ -9,6 +9,11 @@ maskable PWA icons and an iOS home-screen icon — each with its own size, paddi
 and transparency rules. Deriving them here keeps the logo a one-file change: swap
 `ui/brand/logo.png`, run this, and the whole set follows.
 
+That source is a square RGBA mark standing on a transparent ground and drawn to fill
+roughly 95% of its canvas. The header image is the source scaled down whole and the
+maskable insets are tuned against that framing, so padding left around the mark shrinks
+it in the header and in every launcher icon at once.
+
 The run also reports the source's own lime and gold, so the palette tokens that
 name those colors (`--brand-lime`, `--accent-display`) can be checked against the
 image they claim to come from rather than against memory.
@@ -69,6 +74,14 @@ def load_source(path: Path) -> Image.Image:
     image = Image.open(path).convert("RGBA")
     if image.width != image.height:
         message = f"source logo must be square, got {image.width}x{image.height}"
+        raise BrandAssetError(message)
+    # The header image and the favicon are the two outputs that keep their transparency, and
+    # both are drawn straight from the source. Artwork delivered as a render still carries the
+    # background it was composited on, which would paint a square behind the mark on every
+    # surface those two land on — and nothing downstream can tell that from a mark meant to be
+    # opaque. Refuse it here instead, where the fix is to cut the background out.
+    if image.getchannel("A").getextrema()[0] > 0:
+        message = f"source logo stands on no transparent ground: {display(path)}"
         raise BrandAssetError(message)
     return image
 
