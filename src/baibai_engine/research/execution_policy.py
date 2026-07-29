@@ -265,7 +265,6 @@ class ExecutionProposal:
     visible_ask_coverage: float | None
     adv_participation_pct: float | None
     cash_after_execution_yen: int
-    dry_powder_after_execution_yen: int
     quote_freshness_status: str
     quote_source_kind: str
     quote_observed_at: datetime
@@ -273,125 +272,6 @@ class ExecutionProposal:
     ledger_as_of: datetime
     warnings: tuple[str, ...]
     prospective_concentration_warnings: tuple[str, ...]
-
-
-class OutcomeBar(BaseModel):
-    """One same-basis daily observation used for a not-filled outcome."""
-
-    model_config = _CONFIG
-
-    ticker: Annotated[str, Field(pattern=_TICKER)]
-    trade_date: date
-    low_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
-    close_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
-    price_basis: Literal["realtime", "last_close_adjusted", "last_close_unadjusted"]
-    basis_group_id: Annotated[str, Field(min_length=1)]
-    source_ref: Annotated[str, Field(min_length=1)]
-    fetched_at: datetime
-    corporate_action_checked: bool
-
-    @field_validator("trade_date", mode="before")
-    @classmethod
-    def _parse_date(cls, value: object) -> date:
-        return _date(value)
-
-    @field_validator("low_yen", "close_yen", mode="before")
-    @classmethod
-    def _parse_price(cls, value: object) -> Decimal:
-        return _decimal(value)
-
-    @field_validator("fetched_at", mode="before")
-    @classmethod
-    def _parse_time(cls, value: object) -> datetime:
-        return _datetime(value)
-
-
-class ExecutionOutcomeInput(BaseModel):
-    """Observed evidence required to evaluate one expired or cancelled buy order."""
-
-    model_config = _CONFIG
-
-    decision_reference: Annotated[str, Field(min_length=1)]
-    order_id: Annotated[str, Field(min_length=1)]
-    ticker: Annotated[str, Field(pattern=_TICKER)]
-    side: Literal["buy"]
-    limit_price_yen: Annotated[Decimal, Field(gt=0, decimal_places=4)]
-    quantity: Annotated[int, Field(gt=0)]
-    filled_quantity: Annotated[int, Field(ge=0)]
-    submitted_at: datetime
-    expires_at: datetime
-    terminal_reason: Literal["broker_rejected", "cancelled", "expired"]
-    terminal_at: datetime
-    decision_quote: ExecutionQuote
-    tracking_horizon_sessions: Annotated[int, Field(gt=0)] = 5
-    bars: tuple[OutcomeBar, ...]
-
-    @field_validator("limit_price_yen", mode="before")
-    @classmethod
-    def _parse_price(cls, value: object) -> Decimal:
-        return _decimal(value)
-
-    @field_validator("submitted_at", "expires_at", "terminal_at", mode="before")
-    @classmethod
-    def _parse_time(cls, value: object) -> datetime:
-        return _datetime(value)
-
-    @field_validator("bars", mode="before")
-    @classmethod
-    def _parse_bars(cls, value: object) -> object:
-        return _tuple(value)
-
-    @model_validator(mode="after")
-    def _outcome_shape(self) -> ExecutionOutcomeInput:
-        if self.filled_quantity >= self.quantity:
-            raise ValueError("not-filled outcome requires unfilled quantity")
-        if self.terminal_reason == "broker_rejected" and self.filled_quantity:
-            raise ValueError("broker_rejected outcome cannot contain a fill")
-        if self.expires_at <= self.submitted_at:
-            raise ValueError("expires_at must follow submitted_at")
-        if self.terminal_at < self.submitted_at:
-            raise ValueError("terminal_at cannot predate submitted_at")
-        if self.terminal_reason == "expired" and self.terminal_at < self.expires_at:
-            raise ValueError("expired terminal_at cannot predate expires_at")
-        if (
-            self.terminal_reason in {"broker_rejected", "cancelled"}
-            and self.terminal_at >= self.expires_at
-        ):
-            raise ValueError("terminal_at at or after expiry must use expired reason")
-        if self.decision_quote.ticker != self.ticker:
-            raise ValueError("decision quote ticker must match outcome ticker")
-        if self.decision_quote.observed_at > self.submitted_at:
-            raise ValueError("decision quote cannot be observed after submission")
-        if self.submitted_at - self.decision_quote.observed_at > _CURRENT_SNAPSHOT_MAX_AGE:
-            raise ValueError("decision quote is too old at submission")
-        if any(
-            current.trade_date >= following.trade_date
-            for current, following in zip(self.bars, self.bars[1:], strict=False)
-        ):
-            raise ValueError("bars must be strictly ordered by trade_date")
-        if any(bar.fetched_at.date() < bar.trade_date for bar in self.bars):
-            raise ValueError("bar fetched_at cannot predate trade_date")
-        return self
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionOutcome:
-    decision_reference: str
-    order_id: str
-    terminal_reason: str
-    unfilled_quantity: int
-    touch_within_window: Literal["true", "false", "unresolved"]
-    first_touch_date: date | None
-    tracking_horizon_sessions: int
-    target_date: date | None
-    resolved_trade_date: date | None
-    post_expiry_price_yen: Decimal | None
-    post_expiry_return_pct: float | None
-    missed_upside_yen: int | None
-    price_basis: str | None
-    source_ref: str | None
-    corporate_action_checked: bool | None
-    same_basis_group_id: str | None
 
 
 def load_execution_policy_input(path: Path) -> ExecutionPolicyInput:
@@ -501,7 +381,6 @@ def evaluate_execution_policy(
         visible_ask_coverage=visible_ask_coverage,
         adv_participation_pct=adv_participation,
         cash_after_execution_yen=cash_after,
-        dry_powder_after_execution_yen=cash_after,
         quote_freshness_status=quote.freshness_status,
         quote_source_kind=quote.source_kind,
         quote_observed_at=quote.observed_at,
@@ -624,82 +503,6 @@ def portfolio_input_from_snapshot(
     )
 
 
-def evaluate_execution_outcome(outcome_input: ExecutionOutcomeInput) -> ExecutionOutcome:
-    """Measure a not-filled order from observed bars without treating a touch as a fill."""
-
-    window_bars = tuple(
-        bar
-        for bar in outcome_input.bars
-        if outcome_input.submitted_at.date() < bar.trade_date < outcome_input.terminal_at.date()
-    )
-    if not window_bars:
-        touch: Literal["true", "false", "unresolved"] = "unresolved"
-        first_touch = None
-    elif any(
-        bar.ticker != outcome_input.ticker
-        or bar.price_basis != outcome_input.decision_quote.price_basis
-        or bar.basis_group_id != outcome_input.decision_quote.basis_group_id
-        or not bar.corporate_action_checked
-        for bar in window_bars
-    ):
-        touch = "unresolved"
-        first_touch = None
-    else:
-        touched = next(
-            (bar for bar in window_bars if bar.low_yen <= outcome_input.limit_price_yen), None
-        )
-        touch = "true" if touched is not None else "false"
-        first_touch = touched.trade_date if touched is not None else None
-
-    post_expiry = tuple(
-        bar for bar in outcome_input.bars if bar.trade_date > outcome_input.terminal_at.date()
-    )
-    resolved = (
-        post_expiry[outcome_input.tracking_horizon_sessions - 1]
-        if len(post_expiry) >= outcome_input.tracking_horizon_sessions
-        else None
-    )
-    quote = outcome_input.decision_quote
-    counterfactual_is_known = (
-        touch != "unresolved"
-        and resolved is not None
-        and resolved.ticker == outcome_input.ticker
-        and resolved.price_basis == quote.price_basis
-        and resolved.basis_group_id == quote.basis_group_id
-        and resolved.corporate_action_checked
-        and quote.ask_yen is not None
-        and _quote_was_executable(quote)
-        and quote.ask_yen <= outcome_input.limit_price_yen
-    )
-    unfilled = outcome_input.quantity - outcome_input.filled_quantity
-    if counterfactual_is_known and resolved is not None and quote.ask_yen is not None:
-        return_pct = float((resolved.close_yen / quote.ask_yen - 1) * 100)
-        missed_upside = _notional(max(Decimal(), resolved.close_yen - quote.ask_yen), unfilled)
-    else:
-        return_pct = None
-        missed_upside = None
-    return ExecutionOutcome(
-        decision_reference=outcome_input.decision_reference,
-        order_id=outcome_input.order_id,
-        terminal_reason=outcome_input.terminal_reason,
-        unfilled_quantity=unfilled,
-        touch_within_window=touch,
-        first_touch_date=first_touch,
-        tracking_horizon_sessions=outcome_input.tracking_horizon_sessions,
-        target_date=resolved.trade_date if resolved is not None else None,
-        resolved_trade_date=resolved.trade_date if resolved is not None else None,
-        post_expiry_price_yen=resolved.close_yen if resolved is not None else None,
-        post_expiry_return_pct=return_pct,
-        missed_upside_yen=missed_upside,
-        price_basis=resolved.price_basis if resolved is not None else None,
-        source_ref=resolved.source_ref if resolved is not None else None,
-        corporate_action_checked=resolved.corporate_action_checked
-        if resolved is not None
-        else None,
-        same_basis_group_id=resolved.basis_group_id if resolved is not None else None,
-    )
-
-
 def execution_proposal_to_payload(proposal: ExecutionProposal) -> dict[str, object]:
     """Serialize a policy result for the decision CLI's concise first layer."""
 
@@ -723,8 +526,10 @@ def execution_proposal_to_payload(proposal: ExecutionProposal) -> dict[str, obje
             for order in proposal.orders
         ],
         "cash_after_execution_yen": proposal.cash_after_execution_yen,
-        "dry_powder_after_execution_yen": proposal.dry_powder_after_execution_yen,
-        "largest_warning": proposal.warnings[0] if proposal.warnings else None,
+        # Warnings stay a complete list. There are at most a handful per proposal and
+        # they carry no severity order, so any single-warning summary would have to
+        # invent one — and picking the wrong one is worse than reading all of them.
+        "warnings": list(proposal.warnings),
         "detail": {
             "options": [
                 {
@@ -745,38 +550,8 @@ def execution_proposal_to_payload(proposal: ExecutionProposal) -> dict[str, obje
                 "freshness_status": proposal.quote_freshness_status,
                 "source_kind": proposal.quote_source_kind,
             },
-            "warnings": list(proposal.warnings),
             "prospective_concentration_warnings": list(proposal.prospective_concentration_warnings),
         },
-    }
-
-
-def execution_outcome_to_payload(outcome: ExecutionOutcome) -> dict[str, object]:
-    """Serialize an observed not-filled outcome without reporting it as performance."""
-
-    return {
-        "decision_reference": outcome.decision_reference,
-        "order_id": outcome.order_id,
-        "terminal_reason": outcome.terminal_reason,
-        "unfilled_quantity": outcome.unfilled_quantity,
-        "touch_within_window": outcome.touch_within_window,
-        "first_touch_date": outcome.first_touch_date.isoformat()
-        if outcome.first_touch_date
-        else None,
-        "tracking_horizon_sessions": outcome.tracking_horizon_sessions,
-        "target_date": outcome.target_date.isoformat() if outcome.target_date else None,
-        "resolved_trade_date": outcome.resolved_trade_date.isoformat()
-        if outcome.resolved_trade_date
-        else None,
-        "post_expiry_price_yen": str(outcome.post_expiry_price_yen)
-        if outcome.post_expiry_price_yen is not None
-        else None,
-        "post_expiry_return_pct": outcome.post_expiry_return_pct,
-        "missed_upside_yen": outcome.missed_upside_yen,
-        "price_basis": outcome.price_basis,
-        "source_ref": outcome.source_ref,
-        "corporate_action_checked": outcome.corporate_action_checked,
-        "same_basis_group_id": outcome.same_basis_group_id,
     }
 
 

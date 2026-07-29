@@ -422,8 +422,7 @@ def test_decision_cli_emits_execution_proposal_shape(
         "recommended_tactic",
         "orders",
         "cash_after_execution_yen",
-        "dry_powder_after_execution_yen",
-        "largest_warning",
+        "warnings",
         "detail",
     }
 

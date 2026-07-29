@@ -17,11 +17,9 @@ from baibai_engine.position.ledger import (
 )
 from baibai_engine.research.decision_cli import main as decision_cli_main
 from baibai_engine.research.execution_policy import (
-    ExecutionOutcomeInput,
     ExecutionPolicyError,
     ExecutionPolicyInput,
     ExecutionProposal,
-    evaluate_execution_outcome,
     evaluate_execution_policy,
     max_acceptable_price,
     portfolio_input_from_snapshot,
@@ -40,7 +38,6 @@ ROOT = Path(__file__).parents[1]
 THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
 REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 POLICY = ROOT / "tests/fixtures/execution-policy/current-ladder.yaml"
-OUTCOME = ROOT / "tests/fixtures/execution-policy/not-filled-outcome.yaml"
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 EVALUATED_AT = datetime.fromisoformat("2026-07-11T10:01:00+09:00")
 
@@ -396,96 +393,6 @@ def test_policy_rejects_a_result_that_is_bound_to_another_thesis() -> None:
 
     with pytest.raises(ExecutionPolicyError, match="must match the thesis"):
         evaluate_execution_policy(changed_document, original_result, _policy())
-
-
-def test_not_filled_outcome_records_touch_without_turning_it_into_a_fill() -> None:
-    outcome = evaluate_execution_outcome(ExecutionOutcomeInput.model_validate(_raw(OUTCOME)))
-
-    assert outcome.unfilled_quantity == 100
-    assert outcome.touch_within_window == "true"
-    assert outcome.first_touch_date is not None
-    assert outcome.post_expiry_price_yen == 1155
-    assert outcome.missed_upside_yen == 5000
-
-
-def test_not_filled_outcome_is_unresolved_when_price_bases_do_not_match() -> None:
-    raw = _raw(OUTCOME)
-    bars = raw["bars"]
-    assert isinstance(bars, list)
-    for bar in bars:
-        assert isinstance(bar, dict)
-        bar["basis_group_id"] = "adjusted-other-group"
-
-    outcome = evaluate_execution_outcome(ExecutionOutcomeInput.model_validate(raw))
-
-    assert outcome.touch_within_window == "unresolved"
-    assert outcome.missed_upside_yen is None
-
-
-def test_not_filled_outcome_rejects_pre_submission_daily_low_as_a_touch() -> None:
-    raw = _raw(OUTCOME)
-    bars = raw["bars"]
-    assert isinstance(bars, list)
-    bars[:] = [bar for bar in bars if isinstance(bar, dict) and bar["trade_date"] == "2026-07-03"]
-
-    outcome = evaluate_execution_outcome(ExecutionOutcomeInput.model_validate(raw))
-
-    assert outcome.touch_within_window == "unresolved"
-
-
-@pytest.mark.parametrize("observed_at", ["2026-07-03T10:01:00+09:00", "2026-07-03T09:50:00+09:00"])
-def test_not_filled_outcome_rejects_future_or_stale_decision_quote(observed_at: str) -> None:
-    raw = _raw(OUTCOME)
-    decision_quote = raw["decision_quote"]
-    assert isinstance(decision_quote, dict)
-    decision_quote["observed_at"] = observed_at
-
-    with pytest.raises(ValueError, match="decision quote"):
-        ExecutionOutcomeInput.model_validate(raw)
-
-
-@pytest.mark.parametrize(
-    ("terminal_reason", "filled_quantity", "message"),
-    [
-        ("expired", 100, "requires unfilled quantity"),
-        ("broker_rejected", 1, "cannot contain a fill"),
-    ],
-)
-def test_not_filled_outcome_matches_terminal_fill_invariants(
-    terminal_reason: str, filled_quantity: int, message: str
-) -> None:
-    raw = _raw(OUTCOME)
-    raw["terminal_reason"] = terminal_reason
-    raw["filled_quantity"] = filled_quantity
-    if terminal_reason == "broker_rejected":
-        raw["terminal_at"] = "2026-07-07T15:29:00+09:00"
-
-    with pytest.raises(ValueError, match=message):
-        ExecutionOutcomeInput.model_validate(raw)
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("price_basis", "last_close_adjusted"),
-        ("corporate_action_checked", False),
-        ("ticker", "9999"),
-    ],
-)
-def test_not_filled_outcome_requires_same_ticker_basis_and_corporate_action_check(
-    field: str, value: object
-) -> None:
-    raw = _raw(OUTCOME)
-    bars = raw["bars"]
-    assert isinstance(bars, list)
-    target = bars[1]
-    assert isinstance(target, dict)
-    target[field] = value
-
-    outcome = evaluate_execution_outcome(ExecutionOutcomeInput.model_validate(raw))
-
-    assert outcome.touch_within_window == "unresolved"
-    assert outcome.missed_upside_yen is None
 
 
 def test_decision_cli_includes_execution_proposal_when_input_is_supplied(
