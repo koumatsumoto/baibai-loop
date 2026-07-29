@@ -9,8 +9,10 @@ import type {
   SelectionLonglistEntryView,
   ShortlistEntryView,
 } from '../api/types'
-import { AppShell } from '../components/AppShell'
+import { AsOfBadge } from '../components/AsOfBadge'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
+import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { PortfolioStateBadge } from '../components/PortfolioStateBadge'
@@ -154,12 +156,7 @@ function DivergenceCell({ row }: { row: ShortlistComparisonRow }) {
 
 function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) {
   return (
-    <Card className="gap-3 py-5 shadow-sm">
-      <CardHeader className="px-5">
-        <CardTitle className="text-base">候補比較</CardTitle>
-        <CardDescription>暫定順位は深掘りの着手順の提案です。機械順位との乖離は narrative に理由があります。</CardDescription>
-      </CardHeader>
-      <CardContent className="px-5">
+    <SectionCard description="暫定順位は深掘りの着手順の提案です。機械順位との乖離は narrative に理由があります。" padded title="候補比較">
         <Table className="text-sm">
           <TableHeader>
             <TableRow>
@@ -206,8 +203,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
             ))}
           </TableBody>
         </Table>
-      </CardContent>
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -294,80 +290,60 @@ export function ShortlistPage() {
   const machineMissing = selection === null
 
   return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Shortlist レビュー面</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。
-            </p>
-          </div>
-          <dl className="grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
-            {[
-              [LABEL.asOf, shortlist.as_of],
-              [LABEL.published, formatJstDateTime(shortlist.published_at)],
-              ['SELECTED', String(comparison.length)],
-              ['REJECTED', String(rejected.length)],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</dt>
-                <dd className="mt-1 font-mono text-sm font-medium tabular-nums">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </header>
-
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <Badge className="font-mono text-[10px]" variant="secondary">{shortlist.shortlist_id}</Badge>
-          <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks">Candidates を見る →</Link>
-          {machineMissing && <span className="text-warning">source selection が最新 run に無いため機械値は非表示です</span>}
-          {shortlist.unreadable_entries > 0 && (
-            <span className="text-warning">{shortlist.unreadable_entries} 件の entry を読めないため表示から除いています</span>
-          )}
-          {data.run?.stale && <StaleBadge className="text-[10px]" detail={data.run.asof_date} />}
+    <PageShell
+      lead={<>longlist を人間が review して選んだ深掘り候補。<strong>最終 buy 提案ではありません。</strong>推奨 2〜4 銘柄を選んで個別リサーチへ進みます。</>}
+      meta={(
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground tabular-nums">
+          <AsOfBadge value={shortlist.as_of} />
+          <span>{LABEL.published} {formatJstDateTime(shortlist.published_at)}</span>
+          <span>選定 {comparison.length}・見送り {rejected.length}</span>
         </div>
-
-        {comparison.length > 0 && <ComparisonTable rows={comparison} />}
-
-        <div className="grid gap-4">
-          {comparison.map((row) => (
-            <SelectedCard comparison={row} key={row.ticker} />
-          ))}
-        </div>
-
-        {rejected.length > 0 && (
-          <Card className="gap-3 py-5 shadow-sm">
-            <CardHeader className="px-5">
-              <CardTitle className="text-base">longlist から非選択</CardTitle>
-              <CardDescription>review したが shortlist へ残さなかった理由</CardDescription>
-            </CardHeader>
-            <CardContent className="px-5">
-              <Table className="text-sm">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-28">ticker</TableHead>
-                    <TableHead>非選択理由</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rejected.map((entry) => (
-                    <TableRow key={entry.ticker}>
-                      <TableCell><Link className="font-mono underline-offset-4 hover:underline" to={`/securities/${entry.ticker}`}>{entry.ticker}</Link></TableCell>
-                      <TableCell className="text-muted-foreground">{entry.reason}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+      )}
+      title="Shortlist レビュー面"
+      width="reading"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <Badge className="font-mono text-[10px]" variant="secondary">{shortlist.shortlist_id}</Badge>
+        <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks">Candidates を見る →</Link>
+        {machineMissing && <span className="text-warning">source selection が最新 run に無いため機械値は非表示です</span>}
+        {shortlist.unreadable_entries > 0 && (
+          <span className="text-warning">{shortlist.unreadable_entries} 件の entry を読めないため表示から除いています</span>
         )}
+        {data.run?.stale && <StaleBadge className="text-[10px]" detail={data.run.asof_date} />}
+      </div>
 
-        <p className="text-xs text-muted-foreground">
-          機械 E[r]・FV アンカーは screening の機械見積り（reversion + carry）で<strong>事実ではありません</strong>。上値・下値・RR は一次リサーチ前の暫定読みで、7 軸の永久損失評価と FV 確定は個別リサーチ（第 2 段階）で行います。
-        </p>
-      </main>
-    </>
+      {comparison.length > 0 && <ComparisonTable rows={comparison} />}
+
+      <div className="grid gap-4">
+        {comparison.map((row) => (
+          <SelectedCard comparison={row} key={row.ticker} />
+        ))}
+      </div>
+
+      {rejected.length > 0 && (
+        <SectionCard description="review したが shortlist へ残さなかった理由" padded title="longlist から非選択">
+            <Table className="text-sm">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-28">ticker</TableHead>
+                  <TableHead>非選択理由</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rejected.map((entry) => (
+                  <TableRow key={entry.ticker}>
+                    <TableCell><Link className="font-mono underline-offset-4 hover:underline" to={`/securities/${entry.ticker}`}>{entry.ticker}</Link></TableCell>
+                    <TableCell className="text-muted-foreground">{entry.reason}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+        </SectionCard>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        機械 E[r]・FV アンカーは screening の機械見積り（reversion + carry）で<strong>事実ではありません</strong>。上値・下値・RR は一次リサーチ前の暫定読みで、7 軸の永久損失評価と FV 確定は個別リサーチ（第 2 段階）で行います。
+      </p>
+    </PageShell>
   )
 }

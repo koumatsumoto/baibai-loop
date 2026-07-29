@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarCheck2, CalendarClock, CalendarDays, CircleAlert } from 'lucide-react'
+import { CircleAlert } from 'lucide-react'
 import { Pie, PieChart } from 'recharts'
 
 import { fetchJson } from '../api/client'
@@ -8,29 +8,41 @@ import type {
   DashboardView,
   HoldingView,
   OperationSessionView,
-  PortfolioOutcomeView,
   OperationsView,
-  ProposalView,
   TaskView,
   UpcomingEventView,
   WarningView,
 } from '../api/types'
-import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
+import { InfoHint } from '../components/InfoHint'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
+import { SectionCard } from '../components/SectionCard'
 import { StaleBadge } from '../components/StaleBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { YenAmount } from '../components/YenAmount'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDate, formatPct, formatYen } from '../lib/format'
+import { EMPTY, formatJstDate, formatJstDateShort, formatPct, formatYen, isOlderThanDays } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
+
+// Why each section is on this page, carried behind its own ⓘ instead of a subtitle that
+// repeats what the numbers already say.
+const HINT = {
+  allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
+  nextTask: '期限が最も近い未完了タスク。下の一覧の先頭と同じもので、開いて最初に目に入る位置に置いている。',
+  events: '決算と予約期限は、保有の見直しと資金の解放が起きる日。判断より先に日付を押さえておくために置いている。',
+  operations: '判断は trigger ごとに 1 件の operation session として進み、active は常に最大 1 件。いま何が途中で、次にどこから再開するのかをここで確かめる。',
+  holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
+  reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
+  tasks: '決算日や再評価日など、日付が来たら判断を始める合図。task が trigger 発火の正本で、期限超過は放置している判断を意味する。',
+} as const
 
 const allocationConfig = {
   holdings: { label: '保有株式', color: 'var(--chart-1)' },
@@ -38,31 +50,20 @@ const allocationConfig = {
   reserved: { label: '予約', color: 'var(--chart-3)' },
 } satisfies ChartConfig
 
-function NextCard({ label, task, event = false }: { label: string; task: TaskView | null; event?: boolean }) {
-  const date = event ? task?.event_date ?? task?.due_date ?? null : task?.due_date ?? null
-  const Icon = event ? CalendarDays : CalendarCheck2
-
+function NextTaskCard({ task }: { task: TaskView | null }) {
   return (
-    <Card className="gap-4 py-5 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between px-5">
-        <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-foreground">
-          <Icon className="size-4" aria-hidden="true" />
-          <span>{label}</span>
+    <SectionCard hint={HINT.nextTask} meta={task?.overdue === true && <Badge variant="destructive">期限超過</Badge>} padded title="次のタスク">
+      {task ? (
+        // Date and title side by side: one line of content fills the row rather than
+        // stacking into a tall, mostly empty card.
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <time className="shrink-0 font-mono text-sm font-semibold tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
+          <p className="min-w-[16rem] flex-1 font-medium leading-snug">{task.title}</p>
         </div>
-        {task?.overdue && <Badge variant="destructive">期限超過</Badge>}
-      </CardHeader>
-      <CardContent className="px-5">
-        {task ? (
-          <div className="grid gap-3">
-            <time className="w-fit rounded-md bg-muted px-2.5 py-1.5 font-mono text-sm font-semibold tabular-nums text-foreground ring-1 ring-foreground/10" dateTime={date ?? undefined}>{formatJstDate(date)}</time>
-            <p className="font-medium leading-snug">{event && task.event_label ? task.event_label : task.title}</p>
-            {event && task.event_label && <p className="truncate text-xs text-muted-foreground">{task.title}</p>}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">なし</p>
-        )}
-      </CardContent>
-    </Card>
+      ) : (
+        <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p>
+      )}
+    </SectionCard>
   )
 }
 
@@ -81,12 +82,12 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   return (
     <Card className="overflow-hidden py-0 shadow-sm">
       <div className="grid min-w-0 lg:grid-cols-[minmax(320px,0.8fr)_1.2fr]">
-        <div className="min-w-0 border-b p-5 lg:border-r lg:border-b-0 sm:p-6">
-          <CardHeader className="px-0 pb-2">
-            <CardTitle className="text-base">資産と損益</CardTitle>
-            <CardDescription>保有株式・購入余力・予約の内訳と評価損益</CardDescription>
+        <div className="flex min-w-0 flex-col border-b p-5 lg:border-r lg:border-b-0 sm:p-6">
+          <CardHeader className="flex flex-row items-center gap-1.5 px-0 pb-2">
+            <CardTitle aria-level={2} className="text-base" role="heading">資産と損益</CardTitle>
+            <InfoHint label="資産と損益">{HINT.allocation}</InfoHint>
           </CardHeader>
-          <div className="relative mx-auto h-[230px] w-full max-w-[360px]">
+          <div className="relative mx-auto min-h-[230px] w-full max-w-[360px] flex-1">
             {hasAllocation ? (
               <ChartContainer className="h-full w-full" config={allocationConfig}>
                 <PieChart accessibilityLayer>
@@ -210,28 +211,20 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
   const unrealizedPnl = useMemo(() => totalUnrealizedPnl(holdings), [holdings])
 
   return (
-    <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b px-5 py-5 sm:px-6">
-        <div>
-          <CardTitle>保有銘柄</CardTitle>
-          <CardDescription className="mt-1">{holdings.length} positions</CardDescription>
+    // The page header already states the valuation basis. It is repeated here only when
+    // the holdings disagree on it, and then per row rather than as one date.
+    <SectionCard
+      hint={HINT.holdings}
+      meta={(
+        <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
+          <Badge variant="secondary">{holdings.length} 銘柄</Badge>
+          <span className="text-muted-foreground">評価損益 合計</span>
+          <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />
+          <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
         </div>
-        <div className="grid justify-items-end gap-2">
-          {marketPriceAsOf ? (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span>価格基準</span>
-              <AsOfBadge compact value={marketPriceAsOf} />
-            </div>
-          ) : (
-            <span className="text-right text-xs text-muted-foreground">価格基準は銘柄ごとに異なります</span>
-          )}
-          <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
-            <span className="text-muted-foreground">評価損益 合計</span>
-            <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />
-            <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
-          </div>
-        </div>
-      </CardHeader>
+      )}
+      title="保有銘柄"
+    >
       <Table>
         <TableHeader className="bg-muted/60">
           <TableRow className="hover:bg-transparent">
@@ -280,7 +273,7 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
         </TableBody>
       </Table>
       <PortfolioWarnings warnings={warnings} />
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -297,46 +290,41 @@ function eventCountdownLabel(daysUntil: number) {
 
 function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
   return (
-    <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b px-5 py-5 sm:px-6">
-        <div className="flex items-center gap-2">
-          <CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" />
-          <div><CardTitle>今後 14 日のイベント</CardTitle><CardDescription className="mt-1">決算・予約期限</CardDescription></div>
-        </div>
-        <Badge variant="secondary">{events.length} 件</Badge>
-      </CardHeader>
+    <SectionCard
+      description="決算・予約期限"
+      hint={HINT.events}
+      meta={<Badge variant="secondary">{events.length} 件</Badge>}
+      title="今後 14 日のイベント"
+    >
       {events.length === 0 ? (
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">今後 14 日のイベントはありません。</CardContent>
+        <p className="py-8 text-center text-sm text-muted-foreground">今後 14 日のイベントはありません。</p>
       ) : (
-        <div className="overflow-x-auto">
-          <div className="min-w-[640px] divide-y">
-            {events.map((event) => (
-              <div className="grid grid-cols-[max-content_74px_minmax(320px,1fr)] items-center gap-3 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
-                <time className="whitespace-nowrap font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDate(event.event_date)}</time>
-                <Badge className="w-fit" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
-                <div className="flex min-w-0 items-center gap-2">
-                  <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
-                  {event.ticker ? (
-                    <Link className="whitespace-nowrap font-medium underline-offset-4 hover:underline" to={`/securities/${event.ticker}`}>
-                      <span className="font-mono">{event.ticker}</span>{event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}
-                    </Link>
-                  ) : (
-                    <span className="whitespace-nowrap text-muted-foreground">{event.label}</span>
-                  )}
-                </div>
+        // The row wraps instead of scrolling sideways. `flex-1` alone would not wrap —
+        // its basis is 0, so the security would shrink to an unreadable sliver rather
+        // than reach a second line; the minimum width is what makes the wrap happen.
+        <div className="divide-y">
+          {events.map((event) => (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
+              {/* A minimum, not a fixed width: the dates line up across rows and a wider
+                  one still renders in full. */}
+              <time className="min-w-[5.5rem] shrink-0 font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDateShort(event.event_date)}</time>
+              <Badge className="shrink-0" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
+              <div className="flex min-w-[13rem] flex-1 items-center gap-2">
+                <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
+                {event.ticker ? (
+                  <Link className="min-w-0 truncate font-medium underline-offset-4 hover:underline" to={`/securities/${event.ticker}`}>
+                    <span className="font-mono">{event.ticker}</span>{event.label !== event.ticker && <span className="ml-2 text-muted-foreground">{event.label}</span>}
+                  </Link>
+                ) : (
+                  <span className="min-w-0 truncate text-muted-foreground">{event.label}</span>
+                )}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       )}
-    </Card>
+    </SectionCard>
   )
-}
-
-function planField(payload: Record<string, unknown>, key: string): unknown {
-  const plan = payload.planned_limit
-  if (typeof plan !== 'object' || plan === null) return undefined
-  return (plan as Record<string, unknown>)[key]
 }
 
 const OPERATION_KIND_LABEL: Record<string, string> = {
@@ -351,96 +339,37 @@ const OPERATION_KIND_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   active: '進行中',
   completed: '完了',
-  pending: '判断待ち',
-  approved: '承認',
-  deferred: '保留',
-  rejected: '見送り',
-  resolved: '評価済み',
-  unresolved: '未確定',
 }
 
 function OperationCard({ operations }: { operations: OperationSessionView[] }) {
   return (
-    <Card>
-      <CardHeader><CardTitle>運用状況</CardTitle><CardDescription>候補選定・注文結果・保有見直しなど</CardDescription></CardHeader>
-      <CardContent className="grid gap-3 text-sm">
-        {operations.length === 0 ? <p className="text-muted-foreground">進行中または完了済みの運用はありません。</p> : operations.map((item) => (
-          <div className="grid gap-1 border-b pb-3 last:border-0 last:pb-0" key={item.operation_id}>
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{OPERATION_KIND_LABEL[item.session_kind] ?? item.session_kind}{item.ticker && <span className="ml-2 font-mono text-xs text-muted-foreground">{item.ticker}</span>}</span>
-              <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
-            </div>
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span className="truncate font-mono">{item.operation_id}</span>
-              <AsOfBadge compact value={item.started_at} />
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function ProposalCard({ proposals }: { proposals: ProposalView[] }) {
-  return (
-    <Card>
-      <CardHeader><CardTitle>売買提案</CardTitle><CardDescription>指値・数量・期限と判断状況</CardDescription></CardHeader>
-      <CardContent className="grid gap-3 text-sm">
-        {proposals.length === 0 ? <p className="text-muted-foreground">売買提案はありません。</p> : proposals.map((item) => {
-          const limit = planField(item.payload, 'limit_price_yen')
-          const quantity = planField(item.payload, 'quantity')
-          const expiresAt = planField(item.payload, 'expires_at')
-          return (
-            <div className="grid gap-1.5 border-b pb-3 last:border-0 last:pb-0" key={item.proposal_id}>
-              <div className="flex items-center justify-between gap-2">
-                <Link className="font-mono font-semibold underline-offset-4 hover:underline" to={`/securities/${item.ticker}`}>{item.ticker}</Link>
+    <SectionCard
+      hint={HINT.operations}
+      meta={<Badge variant="secondary">{operations.length} 件</Badge>}
+      title="運用状況"
+    >
+      {operations.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">進行中または完了済みの運用はありません。</p>
+      ) : (
+        <div className="divide-y">
+          {operations.map((item) => (
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3 sm:px-6" key={item.operation_id}>
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {OPERATION_KIND_LABEL[item.session_kind] ?? item.session_kind}
+                  {item.ticker && <span className="ml-2 font-mono text-xs text-muted-foreground">{item.ticker}</span>}
+                </p>
+                <p className="truncate font-mono text-xs text-muted-foreground">{item.operation_id}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <AsOfBadge compact value={item.started_at} />
                 <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                <span>指値 <span className="font-mono tabular-nums text-foreground">{typeof limit === 'string' || typeof limit === 'number' ? formatYen(Number(limit)) : EMPTY}</span></span>
-                <span>数量 <span className="font-mono tabular-nums text-foreground">{typeof quantity === 'number' ? `${quantity.toLocaleString('ja-JP')} 株` : EMPTY}</span></span>
-                <span>期限 <span className="font-mono tabular-nums text-foreground">{typeof expiresAt === 'string' ? formatJstDate(expiresAt.slice(0, 10)) : EMPTY}</span></span>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground">
-                <span className="truncate font-mono" title={item.thesis_id}>{item.thesis_id}</span>
-                <span>作成 {formatJstDate(item.created_at.slice(0, 10))}</span>
-                {item.decided_at && <span>決定 {formatJstDate(item.decided_at.slice(0, 10))}</span>}
-              </div>
-              <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer select-none">payload 全体</summary>
-                <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-[11px] leading-relaxed">{JSON.stringify(item.payload, null, 2)}</pre>
-              </details>
             </div>
-          )
-        })}
-      </CardContent>
-    </Card>
-  )
-}
-
-function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
-  return (
-    <Card>
-      <CardHeader><CardTitle>運用成績</CardTitle><CardDescription>ポートフォリオとベンチマークの期間比較</CardDescription></CardHeader>
-      <CardContent className="grid gap-3 text-sm">
-        {outcomes.length === 0 ? <p className="text-muted-foreground">運用成績はまだありません。</p> : outcomes.map((item) => (
-          <div className="grid gap-1.5 border-b pb-3 last:border-0 last:pb-0" key={item.outcome_id}>
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{item.horizon} · {item.period_end_date}</span>
-              <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-              {/* The benchmark is a market index, but here it exists only to be read against
-                  the portfolio's own return — the pair is one comparison, so both wear the
-                  money colors rather than splitting across two systems. */}
-              <span>ポート TWR <PctBadge className="text-xs" tone="pnl" value={item.portfolio_twr_pct} /></span>
-              <span>ベンチマーク <PctBadge className="text-xs" tone="pnl" value={item.benchmark_cumulative_return_pct} /></span>
-            </div>
-            {item.reason && <p className="text-xs text-muted-foreground">{item.reason}</p>}
-          </div>
-        ))}
-      </CardContent>
-    </Card>
+          ))}
+        </div>
+      )}
+    </SectionCard>
   )
 }
 
@@ -448,19 +377,6 @@ function dashboardValuationAsOf(data: DashboardView): string | null {
   if (data.valuation_as_of) return data.valuation_as_of
   const holdingDates = data.holdings.map((holding) => holding.market_price_as_of)
   return holdingDates.sort().at(0) ?? data.ledger_as_of
-}
-
-function valuationIsStale(value: string | null): boolean {
-  if (value === null) return false
-  const formatter = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  const today = formatter.format(new Date())
-  const asOf = formatter.format(new Date(value))
-  return Date.parse(`${today}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`) >= 7 * 86_400_000
 }
 
 export function DashboardPage() {
@@ -482,110 +398,92 @@ export function DashboardPage() {
   const valuationAsOf = dashboardValuationAsOf(data)
 
   return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <header className="flex items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            {valuationIsStale(valuationAsOf) && <StaleBadge />}
-            <AsOfBadge value={valuationAsOf} />
-          </div>
-        </header>
+    <PageShell
+      meta={(
+        <div className="flex items-center gap-2">
+          {valuationAsOf !== null && isOlderThanDays(valuationAsOf, 7) && <StaleBadge />}
+          <AsOfBadge value={valuationAsOf} />
+        </div>
+      )}
+      title="Dashboard"
+    >
+      {data.ledger_error && (
+        <Alert variant="destructive"><CircleAlert /><AlertTitle>Ledger error</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
+      )}
+      {data.research_load_errors.length > 0 && (
+        <Alert variant="destructive"><CircleAlert /><AlertTitle>Research read error</AlertTitle><AlertDescription>{data.research_load_errors.join(' / ')}</AlertDescription></Alert>
+      )}
 
-        {data.ledger_error && (
-          <Alert variant="destructive"><CircleAlert /><AlertTitle>Ledger error</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
-        )}
-        {data.research_load_errors.length > 0 && (
-          <Alert variant="destructive"><CircleAlert /><AlertTitle>Research read error</AlertTitle><AlertDescription>{data.research_load_errors.join(' / ')}</AlertDescription></Alert>
-        )}
+      <PortfolioAllocationCard data={data} />
 
-        <PortfolioAllocationCard data={data} />
+      <NextTaskCard task={data.next_task} />
 
-        <section className="grid gap-4 md:grid-cols-2" aria-label="次のアクション">
-          <NextCard label="NEXT TASK" task={data.next_task} />
-          <NextCard event label="NEXT EVENT" task={data.next_event} />
-        </section>
+      <UpcomingEventsCard events={data.upcoming_events} />
 
-        <UpcomingEventsCard events={data.upcoming_events} />
+      {operations && <OperationCard operations={operations.operations} />}
 
-        {operations && (
-          <section className="grid gap-4 lg:grid-cols-3" aria-label="運用・提案・評価">
-            <OperationCard operations={operations.operations} />
-            <ProposalCard proposals={operations.proposals} />
-            <OutcomeCard outcomes={operations.outcomes} />
-          </section>
-        )}
-
-        {!data.ledger_exists && !data.ledger_error ? (
-          <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
-        ) : data.holdings.length > 0 ? (
-          <HoldingsTable holdings={data.holdings} warnings={data.warnings} />
-        ) : (
-          <Card className="gap-0 overflow-hidden border-dashed py-0 shadow-none">
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">保有銘柄はありません。</CardContent>
-            <PortfolioWarnings warnings={data.warnings} />
-          </Card>
-        )}
-
-        {data.reservations.length > 0 && (
-          <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-            <CardHeader className="border-b px-5 py-5 sm:px-6">
-              <CardTitle>資金予約</CardTitle>
-              <CardDescription>{data.reservations.length} reservations</CardDescription>
-            </CardHeader>
-            <Table>
-              <TableHeader className="bg-muted/60">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
-                  <TableHead className="text-right">数量 / 指値</TableHead>
-                  <TableHead className="text-right">予約額</TableHead>
-                  <TableHead className="pr-5 text-right sm:pr-6">期限</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.reservations.map((reservation) => (
-                  <TableRow key={reservation.reservation_id}>
-                    <TableCell className="pl-5 sm:pl-6">
-                      <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
-                      <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
-                    </TableCell>
-                    <TableCell className="text-right"><YenAmount className="font-medium" value={reservation.reserved_yen} /></TableCell>
-                    <TableCell className="pr-5 text-right sm:pr-6"><AsOfBadge compact value={reservation.expires_at} /></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
-        )}
-
-        <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-          <CardHeader className="flex flex-row items-start justify-between gap-4 border-b px-5 py-5 sm:px-6">
-            <CardTitle>Open tasks</CardTitle>
-            <Badge variant="secondary">{data.open_tasks.length} open</Badge>
-          </CardHeader>
-          {!data.tasks_exist ? (
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">task はまだ登録されていません</CardContent>
-          ) : data.open_tasks.length === 0 ? (
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">open task はありません。</CardContent>
-          ) : (
-            <div className="divide-y">
-              {data.open_tasks.map((task) => (
-                <article className="grid items-center gap-2 px-5 py-4 sm:grid-cols-[160px_1fr_auto] sm:px-6" key={task.task_id}>
-                  <time className="font-mono text-sm font-medium tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
-                  <strong className="text-sm font-medium">{task.title}</strong>
-                  {task.overdue && <Badge variant="destructive">期限超過</Badge>}
-                </article>
-              ))}
-            </div>
-          )}
+      {!data.ledger_exists && !data.ledger_error ? (
+        <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
+      ) : data.holdings.length > 0 ? (
+        <HoldingsTable holdings={data.holdings} warnings={data.warnings} />
+      ) : (
+        <Card className="gap-0 overflow-hidden border-dashed py-0 shadow-none">
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">保有銘柄はありません。</CardContent>
+          <PortfolioWarnings warnings={data.warnings} />
         </Card>
-      </main>
-    </>
+      )}
+
+      {data.reservations.length > 0 && (
+        <SectionCard hint={HINT.reservations} meta={<Badge variant="secondary">{data.reservations.length} 件</Badge>} title="資金予約">
+          <Table>
+            <TableHeader className="bg-muted/60">
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
+                <TableHead className="text-right">数量 / 指値</TableHead>
+                <TableHead className="text-right">予約額</TableHead>
+                <TableHead className="pr-5 text-right sm:pr-6">期限</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.reservations.map((reservation) => (
+                <TableRow key={reservation.reservation_id}>
+                  <TableCell className="pl-5 sm:pl-6">
+                    <Link className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" to={`/securities/${reservation.ticker}`}>{reservation.ticker}</Link>
+                  </TableCell>
+                  <TableCell className="text-right font-mono tabular-nums">
+                    {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
+                    <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
+                  </TableCell>
+                  <TableCell className="text-right"><YenAmount className="font-medium" value={reservation.reserved_yen} /></TableCell>
+                  <TableCell className="pr-5 text-right sm:pr-6"><AsOfBadge compact value={reservation.expires_at} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </SectionCard>
+      )}
+
+      <SectionCard hint={HINT.tasks} meta={<Badge variant="secondary">未完了 {data.open_tasks.length} 件</Badge>} title="タスク">
+        {!data.tasks_exist ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">タスクはまだ登録されていません。</p>
+        ) : data.open_tasks.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">未完了のタスクはありません。</p>
+        ) : (
+          // Same row shape as the event list: a date column wide enough to align, the
+          // badge that qualifies it, then the title, which takes a second line on a
+          // phone rather than being squeezed to a ribbon. A due date can be months out,
+          // so this one keeps its year.
+          <div className="divide-y">
+            {data.open_tasks.map((task) => (
+              <article className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6" key={task.task_id}>
+                <time className="min-w-[10rem] shrink-0 font-mono text-sm tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
+                {task.overdue && <Badge className="shrink-0" variant="destructive">期限超過</Badge>}
+                <span className="min-w-[16rem] flex-1 text-sm font-medium">{task.title}</span>
+              </article>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </PageShell>
   )
 }

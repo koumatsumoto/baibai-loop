@@ -3,15 +3,15 @@ import { Link, useParams } from 'react-router-dom'
 
 import { ApiError, fetchJson } from '../api/client'
 import type { CandidateRowView, SecurityDetailView } from '../api/types'
-import { AppShell } from '../components/AppShell'
 import { AsOfBadge } from '../components/AsOfBadge'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
+import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { YenAmount } from '../components/YenAmount'
 import { Badge } from '../components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Separator } from '../components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { LABEL } from '../lib/labels'
@@ -81,162 +81,150 @@ export function SecurityDetailPage() {
     : null
 
   return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+    <PageShell
+      above={(
         <nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="パンくず">
           <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks">Stocks</Link>
           <span>/</span>
           <span className="font-mono text-foreground">{data.ticker}</span>
         </nav>
-
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-mono text-3xl font-semibold tracking-tight">{data.ticker}</h1>
-              {data.holding && <Badge variant="secondary">保有</Badge>}
-              {data.revisions.length > 0 && <Badge variant="outline">research {data.revisions.length}</Badge>}
-            </div>
-            <p className="mt-2 text-lg font-medium">{data.company_name ?? '名称なし'}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{data.sector ?? 'sector —'}</p>
-          </div>
+      )}
+      // The heading is the ticker, so the name is what a reader actually recognises the
+      // page by and keeps its weight; the sector trails it as context.
+      lead={<><span className="font-medium text-foreground">{data.company_name ?? '名称なし'}</span> · {data.sector ?? 'sector —'}</>}
+      meta={(
+        <div className="flex flex-wrap items-center gap-2">
+          {data.holding && <Badge variant="secondary">保有</Badge>}
+          {data.revisions.length > 0 && <Badge variant="outline">research {data.revisions.length}</Badge>}
           <TradingViewButton labeled ticker={data.ticker} />
-        </header>
+        </div>
+      )}
+      title={<span className="font-mono">{data.ticker}</span>}
+      width="reading"
+    >
+      {data.holding && (
+        <SectionCard description="portfolio ledger" meta={<AsOfBadge value={data.holding.market_price_as_of} />} padded title="現在の保有">
+          <>
+            <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="数量"><span className="font-mono tabular-nums">{data.holding.quantity.toLocaleString('ja-JP')} 株</span></Field>
+              <Field label="取得 / 現在">
+                <span className="font-mono tabular-nums text-muted-foreground">取得 <YenAmount value={averageCostYen} /></span>
+                <span className="ml-3 font-mono tabular-nums">現在 <YenAmount value={Number(data.holding.market_price_yen)} /></span>
+              </Field>
+              <Field label="評価額"><YenAmount value={data.holding.market_value_yen} /></Field>
+              <Field label="含み損益">
+                <span>
+                  <YenAmount sign tone="pnl" value={data.holding.unrealized_pnl_yen} /> <PctBadge tone="pnl" value={data.holding.unrealized_pnl_pct} />
+                </span>
+              </Field>
+              <Field label="FV"><YenAmount value={data.holding.fair_value_yen} /></Field>
+              <Field label="FV乖離"><PctBadge value={data.holding.fv_gap_pct} /></Field>
+              <Field label="判断"><Badge className="font-mono uppercase" variant="outline">{data.holding.recommendation ?? '—'}</Badge></Field>
+              <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
+            </dl>
+          </>
+        </SectionCard>
+      )}
 
-        {data.holding && (
-          <Card className="shadow-sm">
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
-              <div><CardTitle>現在の保有</CardTitle><CardDescription className="mt-1">portfolio ledger</CardDescription></div>
-              <AsOfBadge value={data.holding.market_price_as_of} />
-            </CardHeader>
-            <CardContent>
-              <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="数量"><span className="font-mono tabular-nums">{data.holding.quantity.toLocaleString('ja-JP')} 株</span></Field>
-                <Field label="取得 / 現在">
-                  <span className="font-mono tabular-nums text-muted-foreground">取得 <YenAmount value={averageCostYen} /></span>
-                  <span className="ml-3 font-mono tabular-nums">現在 <YenAmount value={Number(data.holding.market_price_yen)} /></span>
-                </Field>
-                <Field label="評価額"><YenAmount value={data.holding.market_value_yen} /></Field>
-                <Field label="含み損益">
-                  <span>
-                    <YenAmount sign tone="pnl" value={data.holding.unrealized_pnl_yen} /> <PctBadge tone="pnl" value={data.holding.unrealized_pnl_pct} />
-                  </span>
-                </Field>
-                <Field label="FV"><YenAmount value={data.holding.fair_value_yen} /></Field>
-                <Field label="FV乖離"><PctBadge value={data.holding.fv_gap_pct} /></Field>
-                <Field label="判断"><Badge className="font-mono uppercase" variant="outline">{data.holding.recommendation ?? '—'}</Badge></Field>
-                <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
-              </dl>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
-            <div><CardTitle>最新の 5 年評価</CardTitle><CardDescription className="mt-1">latest research</CardDescription></div>
-            {thesis && <time className="font-mono text-sm tabular-nums text-muted-foreground" dateTime={thesis.revision.as_of}>{thesis.revision.as_of}</time>}
-          </CardHeader>
-          <CardContent>
-            {!thesis ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">research 記録なし</div>
-            ) : (
-              <div className="grid gap-6">
-                <div className="grid overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x">
-                  {[
-                    ['RECOMMENDATION', thesis.revision.recommendation],
-                    ['CONFIDENCE', thesis.revision.confidence ?? '—'],
-                    ['FAIR VALUE', <YenAmount key="fv" value={thesis.revision.current_fair_value_yen} />],
-                  ].map(([label, value]) => (
-                    <div className="border-b p-4 last:border-b-0 sm:border-b-0" key={String(label)}>
-                      <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</p>
-                      <strong className="mt-2 block font-mono text-lg">{value}</strong>
-                    </div>
-                  ))}
-                </div>
-
-                <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                  <Field label="entry price basis"><YenAmount value={thesis.entry_price_basis_yen} /></Field>
-                  <Field label="required 5y base CAGR"><PctBadge value={thesis.required_5y_base_cagr_pct} /></Field>
-                  <Field label="permanent loss risks"><span className="font-mono tabular-nums">{thesis.permanent_loss_risk_count} axes</span></Field>
-                  <Field label="model"><span>{thesis.revision.model_version ?? '—'}</span></Field>
-                </dl>
-
-                <div className="flex flex-wrap gap-2">
-                  {thesis.scenarios.map((scenario) => <Badge key={`${scenario.name}-${scenario.horizon_years}`} variant="secondary">{scenario.name} · {scenario.horizon_years}Y</Badge>)}
-                </div>
-
-                <Separator />
-
-                <dl className="grid gap-6 lg:grid-cols-3">
-                  <Field label="Permanent loss conclusion"><p className="font-normal leading-relaxed">{thesis.permanent_loss_conclusion ?? '—'}</p></Field>
-                  <Field label="Strongest countercase"><p className="font-normal leading-relaxed">{thesis.strongest_countercase ?? '—'}</p></Field>
-                  <Field label="Sizing action"><p className="font-normal leading-relaxed">{thesis.sizing_action ?? '—'}</p></Field>
-                </dl>
-                <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
+      <SectionCard
+        description="latest research"
+        meta={thesis && <AsOfBadge value={thesis.revision.as_of} />}
+        padded
+        title="最新の 5 年評価"
+      >
+        <>
+          {!thesis ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">research 記録なし</div>
+          ) : (
+            <div className="grid gap-6">
+              <div className="grid overflow-hidden rounded-lg border sm:grid-cols-3 sm:divide-x">
+                {[
+                  ['RECOMMENDATION', thesis.revision.recommendation],
+                  ['CONFIDENCE', thesis.revision.confidence ?? '—'],
+                  ['FAIR VALUE', <YenAmount key="fv" value={thesis.revision.current_fair_value_yen} />],
+                ].map(([label, value]) => (
+                  <div className="border-b p-4 last:border-b-0 sm:border-b-0" key={String(label)}>
+                    <p className="text-[10px] font-semibold tracking-wider text-muted-foreground">{label}</p>
+                    <strong className="mt-2 block font-mono text-lg">{value}</strong>
+                  </div>
+                ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
 
-        <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-          <CardHeader className="flex flex-row items-start justify-between gap-4 border-b py-5">
-            <div><CardTitle>Research 履歴</CardTitle><CardDescription className="mt-1">過去の判断記録</CardDescription></div>
-            <Badge variant="secondary">{data.revisions.length} revisions</Badge>
-          </CardHeader>
-          {data.revisions.length === 0 ? (
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">research 記録なし</CardContent>
-          ) : (
-            <Table>
-              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {data.revisions.map((revision) => (
-                  <TableRow key={revision.thesis_id}>
-                    <TableCell className="font-mono tabular-nums">{revision.as_of}</TableCell>
-                    <TableCell><Badge className="font-mono uppercase" variant="outline">{revision.recommendation}</Badge></TableCell>
-                    <TableCell className="text-right"><YenAmount value={revision.current_fair_value_yen} /></TableCell>
-                    <TableCell>{revision.model_version ?? '—'}</TableCell>
-                    <TableCell>{revision.review_id ? <Badge variant="secondary">有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+              <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <Field label="entry price basis"><YenAmount value={thesis.entry_price_basis_yen} /></Field>
+                <Field label="required 5y base CAGR"><PctBadge value={thesis.required_5y_base_cagr_pct} /></Field>
+                <Field label="permanent loss risks"><span className="font-mono tabular-nums">{thesis.permanent_loss_risk_count} axes</span></Field>
+                <Field label="model"><span>{thesis.revision.model_version ?? '—'}</span></Field>
+              </dl>
+
+              <div className="flex flex-wrap gap-2">
+                {thesis.scenarios.map((scenario) => <Badge key={`${scenario.name}-${scenario.horizon_years}`} variant="secondary">{scenario.name} · {scenario.horizon_years}Y</Badge>)}
+              </div>
+
+              <Separator />
+
+              <dl className="grid gap-6 lg:grid-cols-3">
+                <Field label="Permanent loss conclusion"><p className="font-normal leading-relaxed">{thesis.permanent_loss_conclusion ?? '—'}</p></Field>
+                <Field label="Strongest countercase"><p className="font-normal leading-relaxed">{thesis.strongest_countercase ?? '—'}</p></Field>
+                <Field label="Sizing action"><p className="font-normal leading-relaxed">{thesis.sizing_action ?? '—'}</p></Field>
+              </dl>
+              <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
+            </div>
           )}
-        </Card>
+        </>
+      </SectionCard>
 
-        <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-          <CardHeader className="flex flex-row items-start justify-between gap-4 border-b py-5">
-            <div><CardTitle>Holding review 履歴</CardTitle><CardDescription className="mt-1">人間確認後に publish された保有判断</CardDescription></div>
-            <Badge variant="secondary">{data.holding_reviews.length} revisions</Badge>
-          </CardHeader>
-          {data.holding_reviews.length === 0 ? (
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</CardContent>
-          ) : (
-            <Table>
-              <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>action</TableHead><TableHead>thesis</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {data.holding_reviews.map((review) => (
-                  <TableRow key={review.holding_review_id}>
-                    <TableCell className="font-mono tabular-nums">{review.as_of}</TableCell>
-                    <TableCell><Badge className="font-mono uppercase" variant="outline">{review.action}</Badge></TableCell>
-                    <TableCell><code className="text-xs">{review.thesis_id}</code></TableCell>
-                    <TableCell className="max-w-md text-sm text-muted-foreground">{review.note ?? '—'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </Card>
-
-        {data.candidate_row && (
-          <Card className="shadow-sm">
-            <CardHeader className="flex flex-row items-start justify-between gap-4">
-              <div><CardTitle>Screening 指標</CardTitle><CardDescription className="mt-1">latest screening</CardDescription></div>
-              {data.candidate_run && <span className="font-mono text-xs tabular-nums text-muted-foreground">{LABEL.asOf} {data.candidate_run.asof_date}</span>}
-            </CardHeader>
-            <CardContent><ScreeningMetrics row={data.candidate_row} /></CardContent>
-          </Card>
+      <SectionCard description="過去の判断記録" meta={<Badge variant="secondary">{data.revisions.length} 件</Badge>} title="Research 履歴">
+        {data.revisions.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">research 記録なし</p>
+        ) : (
+          <Table>
+            <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {data.revisions.map((revision) => (
+                <TableRow key={revision.thesis_id}>
+                  <TableCell className="font-mono tabular-nums">{revision.as_of}</TableCell>
+                  <TableCell><Badge className="font-mono uppercase" variant="outline">{revision.recommendation}</Badge></TableCell>
+                  <TableCell className="text-right"><YenAmount value={revision.current_fair_value_yen} /></TableCell>
+                  <TableCell>{revision.model_version ?? '—'}</TableCell>
+                  <TableCell>{revision.review_id ? <Badge variant="secondary">有</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-      </main>
-    </>
+      </SectionCard>
+
+      <SectionCard description="人間確認後に publish された保有判断" meta={<Badge variant="secondary">{data.holding_reviews.length} 件</Badge>} title="Holding review 履歴">
+        {data.holding_reviews.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</p>
+        ) : (
+          <Table>
+            <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>action</TableHead><TableHead>thesis</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {data.holding_reviews.map((review) => (
+                <TableRow key={review.holding_review_id}>
+                  <TableCell className="font-mono tabular-nums">{review.as_of}</TableCell>
+                  <TableCell><Badge className="font-mono uppercase" variant="outline">{review.action}</Badge></TableCell>
+                  <TableCell><code className="text-xs">{review.thesis_id}</code></TableCell>
+                  <TableCell className="max-w-md text-sm text-muted-foreground">{review.note ?? '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </SectionCard>
+
+      {data.candidate_row && (
+        <SectionCard
+          description="latest screening"
+          meta={data.candidate_run && <AsOfBadge value={data.candidate_run.asof_date} />}
+          padded
+          title="Screening 指標"
+        >
+          <ScreeningMetrics row={data.candidate_row} />
+        </SectionCard>
+      )}
+    </PageShell>
   )
 }

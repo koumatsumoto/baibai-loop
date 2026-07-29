@@ -4,8 +4,9 @@ import { ArrowLeft, CircleAlert } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type { AssessmentLaneView, AssessmentPurchaseView, BargainAssessmentView } from '../api/types'
-import { AppShell } from '../components/AppShell'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
+import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
@@ -65,18 +66,18 @@ function PurchaseCard({ purchase }: { purchase: AssessmentPurchaseView }) {
   const limitGap = limitVsClosePct(purchase)
   const headroom = headroomToMaxPct(purchase)
   return (
-    <Card className="gap-3 border-positive/40 py-5 shadow-sm">
-      <CardHeader className="px-5">
+    <SectionCard
+      description={<>指値 {formatYen(purchase.limit_price_yen)} × {purchase.quantity.toLocaleString('ja-JP')} 株 · {LABEL.published}時点 proposal <span className="font-mono">{purchase.proposal_id}</span></>}
+      meta={(
         <div className="flex flex-wrap items-center gap-3">
-          <CardTitle className="text-base">購入方法</CardTitle>
           <Link className="font-mono text-sm font-semibold underline-offset-4 hover:underline" to={`/securities/${purchase.ticker}`}>{purchase.ticker}</Link>
           <TradingViewButton ticker={purchase.ticker} />
         </div>
-        <CardDescription>
-          指値 {formatYen(purchase.limit_price_yen)} × {purchase.quantity.toLocaleString('ja-JP')} 株 · {LABEL.published}時点 proposal <span className="font-mono">{purchase.proposal_id}</span>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 px-5">
+      )}
+      padded
+      title="購入方法"
+    >
+      <div className="grid gap-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             ['指値', formatYen(purchase.limit_price_yen)],
@@ -111,19 +112,14 @@ function PurchaseCard({ purchase }: { purchase: AssessmentPurchaseView }) {
             <AlertDescription>{alert.message}</AlertDescription>
           </Alert>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   )
 }
 
 function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
   return (
-    <Card className="gap-3 py-5 shadow-sm">
-      <CardHeader className="px-5">
-        <CardTitle className="text-base">lane 横比較</CardTitle>
-        <CardDescription>個別リサーチの thesis から engine が導いた値。publish 時に thesis と突合済みです。</CardDescription>
-      </CardHeader>
-      <CardContent className="px-5">
+    <SectionCard description="個別リサーチの thesis から engine が導いた値。publish 時に thesis と突合済みです。" padded title="lane 横比較">
         <div className="overflow-x-auto">
           <Table className="text-sm">
             <TableHeader>
@@ -163,13 +159,15 @@ function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
               ))}
               <TableRow>
                 <TableCell className="font-medium">判定理由</TableCell>
-                {lanes.map((lane) => <TableCell className="text-left align-top text-muted-foreground" key={lane.ticker}>{lane.disposition_reason}</TableCell>)}
+                {/* The only prose in the table. Cells do not wrap by default, so without
+                    this one sentence stretches the table past the viewport and pushes
+                    every value in every row out of sight. */}
+                {lanes.map((lane) => <TableCell className="max-w-96 min-w-64 text-left align-top whitespace-normal text-muted-foreground" key={lane.ticker}>{lane.disposition_reason}</TableCell>)}
               </TableRow>
             </TableBody>
           </Table>
         </div>
-      </CardContent>
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -275,77 +273,70 @@ export function AssessmentPage() {
   const result = ASSESSMENT_RESULT[data.result] ?? { label: data.result, tone: 'muted' as const }
 
   return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <div>
-          <Button asChild size="sm" variant="ghost"><Link to="/stocks"><ArrowLeft />Stocks に戻る</Link></Button>
-        </div>
-
-        <Card className="shadow-sm">
-          <CardHeader className="gap-3 border-b">
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge className={cn('font-semibold', TONE_CLASS[result.tone])}>{result.label}</Badge>
-              <CardTitle className="text-xl">{data.headline}</CardTitle>
-            </div>
-            <CardDescription className="flex flex-wrap gap-x-4 gap-y-1">
-              <span className="font-mono">{data.assessment_id}</span>
-              <span>{LABEL.asOf} {data.as_of}</span>
-              <span>{LABEL.published} {formatJstDateTime(data.published_at)}</span>
-              <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks/shortlist">選定レポート {data.shortlist_id} →</Link>
-              {data.macro_context_id !== null && (
-                <Link className="underline-offset-4 hover:text-foreground hover:underline" to={`/macro/reports/${data.macro_context_id}`}>macro context {data.macro_context_id} →</Link>
-              )}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-
-        {data.purchase !== null && <PurchaseCard purchase={data.purchase} />}
-
-        {data.entry_timing !== null && (
-          <Card className="gap-2 py-5 shadow-sm">
-            <CardHeader className="px-5"><CardTitle className="text-base">entry timing</CardTitle><CardDescription>いま買う理由と、待つ場合に何を待つのか</CardDescription></CardHeader>
-            <CardContent className="px-5"><p className="text-sm">{data.entry_timing}</p></CardContent>
-          </Card>
-        )}
-
-        <Card className="gap-2 py-5 shadow-sm">
-          <CardHeader className="px-5"><CardTitle className="text-base">なぜこの結論か</CardTitle><CardDescription>lane 間の比較で何が決め手になったか</CardDescription></CardHeader>
-          <CardContent className="px-5"><p className="text-sm whitespace-pre-line">{data.comparison}</p></CardContent>
-        </Card>
-
-        {lanes.length > 0 && <LaneComparison lanes={lanes} />}
-
-        <div className="grid gap-4">
-          {lanes.map((lane) => <LaneCard key={lane.ticker} lane={lane} />)}
-        </div>
-
-        <Card className="gap-2 py-5 shadow-sm">
-          <CardHeader className="px-5"><CardTitle className="text-base">見送ったもの</CardTitle><CardDescription>この判断で諦めた機会と、その代償の見立て</CardDescription></CardHeader>
-          <CardContent className="px-5"><p className="text-sm whitespace-pre-line">{data.forgone}</p></CardContent>
-        </Card>
-
-        <Card className="gap-2 py-5 shadow-sm">
-          <CardHeader className="px-5"><CardTitle className="text-base">内容レビュー</CardTitle></CardHeader>
-          <CardContent className="grid gap-2 px-5">
-            <p className="text-sm">
-              <span className="font-mono">{data.review.reviewer_identity}</span> · attempt {data.review.attempt} · {formatJstDateTime(data.review.reviewed_at)} · <strong>{data.review.conclusion}</strong>
-            </p>
-            {data.review.open_findings.length > 0 && (
-              <div>
-                <h4 className="text-sm font-semibold text-warning">未解消の指摘</h4>
-                <ul className="ml-4 list-disc text-sm text-muted-foreground">
-                  {data.review.open_findings.map((finding) => <li key={finding}>{finding}</li>)}
-                </ul>
-              </div>
+    // The page is named for what it is; the headline is data and stays in the card, where
+    // a long sentence reads as a sentence rather than as a heading.
+    <PageShell
+      above={<div><Button asChild size="sm" variant="ghost"><Link to="/stocks"><ArrowLeft />Stocks に戻る</Link></Button></div>}
+      meta={<Badge className={cn('font-semibold', TONE_CLASS[result.tone])}>{result.label}</Badge>}
+      title="割安機会評価"
+      width="reading"
+    >
+      <Card className="shadow-sm">
+        <CardHeader className="gap-3">
+          <CardTitle className="text-xl">{data.headline}</CardTitle>
+          <CardDescription className="flex flex-wrap gap-x-4 gap-y-1">
+            <span className="font-mono">{data.assessment_id}</span>
+            <span>{LABEL.asOf} {data.as_of}</span>
+            <span>{LABEL.published} {formatJstDateTime(data.published_at)}</span>
+            <Link className="underline-offset-4 hover:text-foreground hover:underline" to="/stocks/shortlist">選定レポート {data.shortlist_id} →</Link>
+            {data.macro_context_id !== null && (
+              <Link className="underline-offset-4 hover:text-foreground hover:underline" to={`/macro/reports/${data.macro_context_id}`}>macro context {data.macro_context_id} →</Link>
             )}
-          </CardContent>
-        </Card>
+          </CardDescription>
+        </CardHeader>
+      </Card>
 
-        <p className="text-xs text-muted-foreground">
-          この文書は publish 時点で確定した判断で、以後書き換わりません。指値・数量は proposal に紐づく発注計画で、現在の proposal 状態は上のカードに表示しています。
-        </p>
-      </main>
-    </>
+      {data.purchase !== null && <PurchaseCard purchase={data.purchase} />}
+
+      {data.entry_timing !== null && (
+        <SectionCard description="いま買う理由と、待つ場合に何を待つのか" padded title="entry timing">
+          <p className="text-sm">{data.entry_timing}</p>
+        </SectionCard>
+      )}
+
+      <SectionCard description="lane 間の比較で何が決め手になったか" padded title="なぜこの結論か">
+        <p className="text-sm whitespace-pre-line">{data.comparison}</p>
+      </SectionCard>
+
+      {lanes.length > 0 && <LaneComparison lanes={lanes} />}
+
+      <div className="grid gap-4">
+        {lanes.map((lane) => <LaneCard key={lane.ticker} lane={lane} />)}
+      </div>
+
+      <SectionCard description="この判断で諦めた機会と、その代償の見立て" padded title="見送ったもの">
+        <p className="text-sm whitespace-pre-line">{data.forgone}</p>
+      </SectionCard>
+
+      <SectionCard padded title="内容レビュー">
+        <div className="grid gap-2">
+          <p className="text-sm">
+            <span className="font-mono">{data.review.reviewer_identity}</span> · attempt {data.review.attempt} · {formatJstDateTime(data.review.reviewed_at)} · <strong>{data.review.conclusion}</strong>
+          </p>
+          {data.review.open_findings.length > 0 && (
+            <div>
+              <h4 className="text-sm font-semibold text-warning">未解消の指摘</h4>
+              <ul className="ml-4 list-disc text-sm text-muted-foreground">
+                {data.review.open_findings.map((finding) => <li key={finding}>{finding}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      </SectionCard>
+
+      <p className="text-xs text-muted-foreground">
+        この文書は publish 時点で確定した判断で、以後書き換わりません。指値・数量は proposal に紐づく発注計画で、現在の proposal 状態は上のカードに表示しています。
+      </p>
+    </PageShell>
   )
 }
