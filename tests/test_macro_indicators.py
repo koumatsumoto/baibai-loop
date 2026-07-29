@@ -11,14 +11,18 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 import openpyxl
 import requests
 
 import baibai_engine.macro.indicators.db as indicators_db
-from baibai_engine.macro.indicators.cli import build_parser, main
+from baibai_engine.macro.indicators.cli import (
+    build_parser,
+    main,
+    parse_refresh_failure_count,
+)
 from baibai_engine.macro.indicators.db import (
     RETRACTED_STATUS,
     SQLITE_SCHEMA_VERSION,
@@ -61,7 +65,11 @@ from baibai_engine.macro.indicators.providers import (
     registered_specs,
     spglobal_pmi,
 )
-from baibai_engine.macro.indicators.providers.base import FetchContext, HttpSession
+from baibai_engine.macro.indicators.providers.base import (
+    FetchContext,
+    HttpSession,
+    fetch_bytes,
+)
 from baibai_engine.macro.indicators.providers.cftc import parse_cftc_json
 from baibai_engine.macro.indicators.providers.derived import DerivedProvider
 from baibai_engine.macro.indicators.providers.estat_dashboard import (
@@ -95,6 +103,11 @@ from baibai_engine.macro.indicators.service import (
 )
 from baibai_engine.macro.reading.cli import main as reading_main
 from tests.helpers.indicator_store import downgrade_to_previous_schema
+
+if TYPE_CHECKING:
+    # Only the annotation is needed; importing it for real would pull Playwright
+    # onto the import path of the whole suite, which the lazy launch avoids.
+    from baibai_engine.macro.indicators.providers.browser import BrowserFetcher
 
 
 class IndicatorsDBTests(unittest.TestCase):
@@ -1667,6 +1680,134 @@ class IndicatorsProviderParserTests(unittest.TestCase):
         # Companion browser headers reduce the datacenter-IP block-page rate.
         self.assertIn("Accept", headers)
         self.assertIn("Accept-Language", headers)
+
+    def test_fetch_bytes_rejects_an_empty_body_naming_status_and_content_type(self) -> None:
+        session = _StaticSession(
+            _FakeResponse(b"", headers={"Content-Type": "text/html"}, status_code=200)
+        )
+
+        with self.assertRaisesRegex(
+            IndicatorsProviderError,
+            r"empty response body from https://example\.test/data "
+            r"\(status 200, content-type 'text/html'\)",
+        ):
+            fetch_bytes(
+                cast(HttpSession, session),
+                "https://example.test/data",
+                params=None,
+                max_bytes=1000,
+            )
+
+    def test_fetch_bytes_keeps_an_empty_body_out_of_the_shared_cache(self) -> None:
+        session = _StaticSession(_FakeResponse(b""))
+
+        with FetchContext() as context:
+            with self.assertRaises(IndicatorsProviderError):
+                fetch_bytes(
+                    cast(HttpSession, session),
+                    "https://example.test/data",
+                    params=None,
+                    max_bytes=1000,
+                    context=context,
+                )
+
+            # A cached empty body would fail every later series sharing the URL
+            # without ever re-requesting it.
+            self.assertEqual(context.bytes_cache, {})
+
+    def test_h15_falls_back_to_a_browser_when_the_plain_response_is_empty(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
+
+        with _context_with_browser(browser) as context:
+            observations = FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
+                context=context,
+            )
+
+        self.assertEqual(len(observations), 1)
+        self.assertAlmostEqual(observations[0].value, 4.39)
+        self.assertEqual(len(browser.urls), 1)
+        # The browser navigates to the same query the plain client sent.
+        self.assertIn("series=bf17364827e38702b42a58cf8eaa3f78", browser.urls[0])
+        self.assertIn("from=05%2F01%2F2026", browser.urls[0])
+
+    def test_h15_falls_back_to_a_browser_when_the_plain_response_is_a_block_page(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
+        block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
+
+        with _context_with_browser(browser) as context:
+            observations = FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(block_page))),
+                context=context,
+            )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(len(browser.urls), 1)
+
+    def test_h15_browser_fallback_downloads_once_for_every_series_in_a_pass(self) -> None:
+        browser = _FakeBrowserFetcher(
+            b'"Time Period","RIFLGFCY10_N.B","RIFLGFCY02_N.B"\n2026-05-01,4.39,3.88\n'
+        )
+        session = cast(HttpSession, _StaticSession(_FakeResponse(b"")))
+
+        with _context_with_browser(browser) as context:
+            for provider_series_id in ("RIFLGFCY10_N.B", "RIFLGFCY02_N.B"):
+                FrbH15Provider().fetch(
+                    _series("frb_h15", provider_series_id),
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=session,
+                    context=context,
+                )
+
+        # The package download is shared, so a second series reads the cache
+        # rather than paying for another browser navigation.
+        self.assertEqual(len(browser.urls), 1)
+
+    def test_h15_reports_the_plain_failure_when_the_browser_is_also_blocked(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        browser = _FakeBrowserFetcher(IndicatorsProviderError("browser could not download"))
+
+        with (
+            _context_with_browser(browser) as context,
+            self.assertRaisesRegex(
+                IndicatorsProviderError,
+                r"browser could not download; the plain client first failed with: "
+                r"empty response body from .* \(status 200, content-type 'text/html'\)",
+            ),
+        ):
+            FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(
+                    HttpSession,
+                    _StaticSession(_FakeResponse(b"", headers={"Content-Type": "text/html"})),
+                ),
+                context=context,
+            )
+
+    def test_h15_without_a_context_reports_the_response_instead_of_falling_back(self) -> None:
+        series = _series("frb_h15", "RIFLGFCY10_N.B")
+        block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
+
+        with self.assertRaisesRegex(
+            IndicatorsProviderError, r"missing Time Period header; response starts with: '<!DOCTYPE"
+        ):
+            FrbH15Provider().fetch(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(block_page))),
+            )
 
     def test_parse_ecb_fx_csv_computes_cross_rate(self) -> None:
         series = _series("ecb_fx", "USDJPY", unit="jpy-per-usd")
@@ -5024,6 +5165,13 @@ class IndicatorsServiceTests(unittest.TestCase):
                 reported.strip().splitlines()[-1],
                 "error: refresh failed for 2 of 3 series: us.2y, us.30y",
             )
+            # A caller counting failures reads that same line, so the reader is
+            # bound to what the CLI actually emits rather than to a copy of it.
+            self.assertEqual(parse_refresh_failure_count(reported), 2)
+
+    def test_parse_refresh_failure_count_is_none_when_no_roll_up_was_reported(self) -> None:
+        self.assertIsNone(parse_refresh_failure_count(""))
+        self.assertIsNone(parse_refresh_failure_count("Traceback (most recent call last):\n"))
 
     def test_refresh_cli_requires_one_range_mode(self) -> None:
         parser = build_parser()
@@ -5854,6 +6002,31 @@ def _parse_dashboard(
     )
 
 
+class _FakeBrowserFetcher:
+    """Stands in for the headless browser so a fallback is testable without Playwright."""
+
+    def __init__(self, result: bytes | IndicatorsProviderError) -> None:
+        self.result = result
+        self.urls: list[str] = []
+
+    def fetch_download(self, url: str) -> bytes:
+        self.urls.append(url)
+        if isinstance(self.result, IndicatorsProviderError):
+            raise self.result
+        return self.result
+
+    def close(self) -> None:
+        return None
+
+
+def _context_with_browser(browser: _FakeBrowserFetcher) -> FetchContext:
+    """A fetch context whose browser is already the fake, so none is ever launched."""
+
+    context = FetchContext()
+    context._browser = cast("BrowserFetcher", browser)
+    return context
+
+
 class _RecordingSession:
     """Captures the query a provider sends so the request contract is testable."""
 
@@ -5904,9 +6077,16 @@ class _StaticSession:
 
 
 class _FakeResponse:
-    def __init__(self, content: bytes, *, headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        content: bytes,
+        *,
+        headers: dict[str, str] | None = None,
+        status_code: int = 200,
+    ) -> None:
         self.content = content
         self.headers = headers or {}
+        self.status_code = status_code
 
     def raise_for_status(self) -> None:
         return None

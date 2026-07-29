@@ -143,6 +143,20 @@ def fetch_text(
     return content.decode("utf-8-sig")
 
 
+type BytesCacheKey = tuple[str, tuple[tuple[str, str], ...]]
+
+
+def bytes_cache_key(url: str, params: Mapping[str, str] | None) -> BytesCacheKey:
+    """Cache identity of one download.
+
+    A provider that obtains the same URL by another route (a browser navigation
+    after a blocked plain fetch) shares the entry only if it derives the key the
+    same way, so the key lives here rather than inline in :func:`fetch_bytes`.
+    """
+
+    return (url, tuple(sorted((params or {}).items())))
+
+
 def fetch_bytes(
     session: HttpSession,
     url: str,
@@ -152,7 +166,7 @@ def fetch_bytes(
     headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
 ) -> bytes:
-    key = (url, tuple(sorted((params or {}).items())))
+    key = bytes_cache_key(url, params)
     if context is not None and key in context.bytes_cache:
         return context.bytes_cache[key]
     try:
@@ -180,6 +194,18 @@ def fetch_bytes(
                 raise IndicatorsProviderError(f"indicator response too large: {total} bytes")
             chunks.append(chunk)
         content = b"".join(chunks)
+        if not content:
+            # A source can answer 2xx with no body at all: federalreserve.gov's
+            # edge does this to datacenter IPs instead of serving the CSV. No
+            # parser has a reading for zero bytes, so failing here keeps a
+            # blocked fetch from being reported as a format change, keeps the
+            # empty body out of the cache every series sharing the URL reads,
+            # and makes the fetch retryable. The status and content type name
+            # what the source actually answered with.
+            raise IndicatorsProviderError(
+                f"empty response body from {url} (status {response.status_code}, "
+                f"content-type {response.headers.get('Content-Type')!r})"
+            )
     except requests.RequestException as exc:
         raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
     if context is not None:
