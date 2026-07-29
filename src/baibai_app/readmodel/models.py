@@ -110,7 +110,12 @@ class TaskView(BaseModel):
     kind: str
     status: str
     ticker: str | None
+    # When to act. This is what fires the trigger and what the task list orders by.
     due_date: date
+    # What the task is waiting on — a distinct concept from the deadline, kept even
+    # where the two happen to hold the same date. The Dashboard renders the deadline
+    # alone today; the event stays in the projection because it answers "why is this
+    # dated" and is the task's own context, not a display leftover.
     event_label: str | None
     event_date: date | None
     overdue: bool
@@ -146,7 +151,6 @@ class DashboardView(BaseModel):
     upcoming_events: list[UpcomingEventView]
     open_tasks: list[TaskView]
     next_task: TaskView | None
-    next_event: TaskView | None
     tasks_exist: bool
     research_load_errors: list[str]
 

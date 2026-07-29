@@ -266,8 +266,12 @@ def test_dashboard_returns_task_data_when_ledger_is_absent_or_invalid() -> None:
     assert absent.next_task is not None
     assert absent.next_task.task_id == "task-20000101-overdue"
     assert absent.next_task.overdue is True
-    assert absent.next_event is not None
-    assert absent.next_event.task_id == "task-29990102-event"
+    # The task carrying an event date is still just a task: it takes its place in the
+    # open list by due date and gets no separate slot of its own.
+    assert [item.task_id for item in absent.open_tasks] == [
+        "task-20000101-overdue",
+        "task-29990102-event",
+    ]
     assert invalid.ledger_exists is True
     assert invalid.ledger_error == "missing market price"
     assert invalid.total_capital_yen is None

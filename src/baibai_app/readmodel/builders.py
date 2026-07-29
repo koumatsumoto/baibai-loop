@@ -241,7 +241,7 @@ def build_dashboard(
     latest_research = _latest_research_by_ticker(revisions)
     latest_run = candidates.latest_run()
     candidate_names = _candidate_names(latest_run)
-    open_tasks, next_task, next_event = _task_views(tasks.list_tasks(), today=today)
+    open_tasks, next_task = _task_views(tasks.list_tasks(), today=today)
     tasks_exist = tasks.exists()
     research_load_errors = research.load_errors()
 
@@ -252,7 +252,6 @@ def build_dashboard(
             ledger_error=None,
             open_tasks=open_tasks,
             next_task=next_task,
-            next_event=next_event,
             tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
             upcoming_events=_upcoming_events(today=today, holdings=[], reservations=[]),
@@ -266,7 +265,6 @@ def build_dashboard(
             ledger_error=str(error),
             open_tasks=open_tasks,
             next_task=next_task,
-            next_event=next_event,
             tasks_exist=tasks_exist,
             research_load_errors=research_load_errors,
             upcoming_events=_upcoming_events(today=today, holdings=[], reservations=[]),
@@ -348,7 +346,6 @@ def build_dashboard(
         ),
         open_tasks=open_tasks,
         next_task=next_task,
-        next_event=next_event,
         tasks_exist=tasks_exist,
         research_load_errors=research_load_errors,
     )
@@ -1093,7 +1090,6 @@ def _empty_dashboard(
     ledger_error: str | None,
     open_tasks: list[TaskView],
     next_task: TaskView | None,
-    next_event: TaskView | None,
     tasks_exist: bool,
     research_load_errors: list[str],
     upcoming_events: list[UpcomingEventView],
@@ -1120,7 +1116,6 @@ def _empty_dashboard(
         upcoming_events=upcoming_events,
         open_tasks=open_tasks,
         next_task=next_task,
-        next_event=next_event,
         tasks_exist=tasks_exist,
         research_load_errors=research_load_errors,
     )
@@ -1253,19 +1248,13 @@ def _task_views(
     records: list[TaskRecord],
     *,
     today: date,
-) -> tuple[list[TaskView], TaskView | None, TaskView | None]:
+) -> tuple[list[TaskView], TaskView | None]:
     open_records = sorted(
         (item for item in records if item.status == "open"),
         key=lambda item: (item.due_date, item.task_id),
     )
     views = [_task_view(item, today=today) for item in open_records]
-    next_task = views[0] if views else None
-    event_records = sorted(
-        (item for item in open_records if item.event_date is not None),
-        key=lambda item: (item.event_date, item.task_id),
-    )
-    next_event = _task_view(event_records[0], today=today) if event_records else next_task
-    return views, next_task, next_event
+    return views, views[0] if views else None
 
 
 def _task_view(record: TaskRecord, *, today: date) -> TaskView:
