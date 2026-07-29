@@ -194,14 +194,11 @@ function pairs<T>(items: readonly T[]): [T, T][] {
 }
 
 describe('brand palette', () => {
-  // The two colors the mark itself owns, checked against what was measured from
+  // The color the mark itself owns, checked against what was measured from
   // ui/brand/logo.png rather than against a value typed in twice. Regenerating the brand
-  // assets rewrites that measurement, so a logo whose lime or gold has moved fails here
+  // assets rewrites that measurement, so a logo whose lime has moved fails here
   // until the palette follows the image it claims to come from.
-  it.each([
-    ['--brand-lime', 'lime'],
-    ['--accent-display', 'gold'],
-  ])('takes %s from the source logo', (token, measurement) => {
+  it.each([['--brand-lime', 'lime']])('takes %s from the source logo', (token, measurement) => {
     const measured = JSON.parse(source('brand/measured-colors.json')) as Record<string, string>
     expect(measured[measurement]).toMatch(/^#[0-9a-f]{6}$/i)
     expect(tokenValue(token)).toBe(measured[measurement].toLowerCase())
@@ -230,13 +227,30 @@ describe('brand palette', () => {
     expect(themeMappings.get(`--color${token.slice(1)}`)).toBe(`var(${token})`)
   })
 
-  it('maps no utility onto a token that no longer exists', () => {
-    for (const [name, value] of themeMappings) {
+  // A token dropped from the palette leaves its references behind as `var(--gone)`, which
+  // costs no error: the declaration is simply discarded and the element keeps whatever it
+  // inherited. The palette's own aliases are followed as well as the utility layer, since
+  // an alias is one more place a name outlives the color it stood for.
+  it('points no declaration at a token that no longer exists', () => {
+    for (const [name, value] of [...themeMappings, ...tokens]) {
       const reference = value.match(/^var\((--[\w-]+)\)$/)
       if (reference === null) continue
       const declared = tokens.has(reference[1]) || themeMappings.has(reference[1])
       expect(declared, `${name} points at a missing token`).toBe(true)
     }
+  })
+
+  // The mark's own green is the palette's record of the artwork, not a color to paint with:
+  // at 2.99 on --surface and 2.85 on --canvas it sits under the 3:1 a state indicator needs,
+  // and the greens that carry interaction are darkened from it instead. It is exposed as no
+  // utility, so the only way to reach it is var(--brand-green) — which is what this refuses,
+  // because an affordance drawn in it would be gated by nothing.
+  it('leaves the mark’s own green out of the components', () => {
+    expect(themeMappings.has('--color-brand-green')).toBe(false)
+    const painted = componentSources((entry) => entry !== 'styles.css').filter((text) =>
+      text.includes('brand-green'),
+    )
+    expect(painted).toEqual([])
   })
 
   it('keeps status colors independent from brand and accent tokens', () => {
@@ -273,10 +287,12 @@ describe('brand palette', () => {
 const STATUS_FAMILIES = ['--positive', '--warning', '--destructive'] as const
 const STATUS_NAMES = 'positive|warning|destructive'
 
-function componentSources(): readonly string[] {
+// Everything under src/ that can name a color, with the palette itself excludable: a token
+// has to be declared somewhere, so a check about where a color is *used* has to skip it.
+function componentSources(include: (entry: string) => boolean = () => true): readonly string[] {
   const root = resolve(uiRoot, 'src')
   return readdirSync(root, { encoding: 'utf8', recursive: true })
-    .filter((entry) => /\.(?:tsx?|css)$/.test(entry))
+    .filter((entry) => /\.(?:tsx?|css)$/.test(entry) && include(entry))
     .map((entry) => readFileSync(resolve(root, entry), 'utf8'))
 }
 

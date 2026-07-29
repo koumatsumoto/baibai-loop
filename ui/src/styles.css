@@ -27,7 +27,6 @@
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
     --font-mono: 'Geist Variable', 'Noto Sans JP Variable', sans-serif;
-    --color-primary-display: var(--primary-display);
     --color-primary-action: var(--primary-action);
     --color-primary-hover: var(--primary-hover-color);
     --color-primary-soft: var(--primary-soft);
@@ -86,21 +85,25 @@
 }
 
 :root {
-    /* The mark's three colors, each with one job: green carries interaction, lime is
-       the brand's face, gold marks outcomes. Both lime and gold are measured from
-       ui/brand/logo.png, so `tools/generate_brand_assets.py` reports the values that
-       belong here. Lime is too light to read as text or a control surface — it stays
-       display-only, and anything set over it uses --text-primary. */
+    /* The two colors of the mark the palette keeps a record of. --brand-lime is measured
+       from ui/brand/logo.png, so `tools/generate_brand_assets.py` reports the value that
+       belongs here; it is far too light to read as text or a control surface, so it only
+       ever washes a decorative fill and anything set over it uses --text-primary.
+
+       Neither one paints an interaction. The mark's green is 2.99 on --surface and 2.85 on
+       --canvas, under the 3:1 that a state indicator needs to be seen at all, so the greens
+       that carry interaction are darkened from it: --primary-action for anything that has to
+       be read or identified, --primary-hover under the pointer. Painting a control in the
+       brand green would put an ungated color in charge of an affordance, and a later logo
+       could then wash it out without a single check noticing. */
     --brand-green: #09ab65;
     --brand-lime: #c7de24;
-    --primary-display: var(--brand-green);
     --primary-action: #008755;
     --primary-hover: #006b43;
     --primary-hover-color: var(--primary-hover);
     --primary-soft: #e8faf0;
-    --accent-display: #f9a702;
 
-    /* Neutral palette carries the layout; brand color carries interaction. */
+    /* Neutral palette carries the layout; the action greens carry interaction. */
     --canvas: #f8faf9;
     --surface: #ffffff;
     --surface-subtle: #f2f5f3;
@@ -194,7 +197,7 @@
     --sidebar-accent: var(--primary-soft);
     --sidebar-accent-foreground: var(--text-primary);
     --sidebar-border: var(--border);
-    --sidebar-ring: var(--primary-display);
+    --sidebar-ring: var(--ring);
 }
 
 @layer base {
