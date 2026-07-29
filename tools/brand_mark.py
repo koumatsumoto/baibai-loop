@@ -1,16 +1,16 @@
 """The shapes and colors every Baibai App brand asset is built from.
 
 `tools/generate_brand_assets.py` renders them, and it needs Pillow — which stays out of the
-project's lock so no daily workflow installs a native image library, and which therefore
-leaves that file outside both the type check and the test run. So the decisions live here
-instead: what each asset's size and inset are, how much of its canvas the mark is framed to
-fill, and what counts as one of the mark's own colors. What stays next door is Pillow glue —
+project's lock so no daily workflow installs a native image library. So the decisions live
+here instead: what each asset's size and inset are, how much of its canvas the mark is framed
+to fill, and what counts as one of the mark's own colors. What stays next door is Pillow glue —
 open, crop, paste, save.
 """
 
 from __future__ import annotations
 
 import colorsys
+from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -38,12 +38,21 @@ HEADER_SIZE = 192
 APPLE_TOUCH_SIZE = 180
 MASKABLE_SIZES = (192, 512)
 
-# What belongs to the mark rather than to the edge it was anti-aliased against.
+# Two thresholds, because framing and measuring ask different questions of the same alpha.
+#
+# Framing asks how far the mark reaches, so it counts anything a viewer could see. Alpha below
+# a few percent is not that: it is the dust an export leaves behind — a stray guide layer, a
+# 1-px artboard overrun — and one such pixel in a corner would otherwise stretch the frame to
+# the whole canvas and shrink the mark in every asset at once, silently.
+VISIBLE_ALPHA = 10
+# Measuring asks what the mark is painted in, so it counts only pixels whose color is the paint
+# rather than a blend with whatever was behind them.
 OPAQUE_ALPHA = 250
+# Below this, a pixel carries no hue worth naming a color after.
 MIN_SATURATION = 0.35
 # A hue band thinner than this is a seam between two of the mark's colors, not a color of its
 # own: the boundary between a fill and its shading holds a few hundred anti-aliased pixels in
-# hues neither side was painted in, and they would otherwise name a palette token.
+# hues neither side was painted in, and they would otherwise name a palette entry.
 MIN_BAND_SHARE = 0.01
 
 type Histogram = Sequence[tuple[int, tuple[int, int, int, int]]]
@@ -52,7 +61,7 @@ type Box = tuple[int, int, int, int]
 
 @dataclass(frozen=True, slots=True)
 class Band:
-    """A hue range (HSL degrees) that one palette token is named after."""
+    """A hue range (HSL degrees) that one palette entry is named after."""
 
     name: str
     # The palette entry that claims this color, named for its CSS spelling: a field called
@@ -62,10 +71,11 @@ class Band:
     high: float
 
 
-# The mark's lime sits near 67°, its green near 155° and its leaf near 40°. Only the lime is
-# named by a palette token, so it is the only band read out — a band added here has to name a
-# token that the palette actually paints with.
-BANDS = (Band(name="lime", custom_property="--brand-lime", low=55.0, high=85.0),)
+# The mark's lime sits near 67° and its green near 154°. The green band runs from where the
+# lime ends to before the blues, so a green that shifts with a new mark is still read out.
+LIME_BAND = Band(name="lime", custom_property="--brand-lime", low=55.0, high=85.0)
+GREEN_BAND = Band(name="green", custom_property="--brand-green", low=85.0, high=200.0)
+BANDS = (LIME_BAND, GREEN_BAND)
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +94,7 @@ def square_frame(box: Box | None) -> Frame:
     with different margins put the same mark at the same size.
     """
     if box is None:
-        message = "source logo has no opaque pixel to frame"
+        message = "source logo has no visible pixel to frame"
         raise BrandAssetError(message)
     left, top, right, bottom = box
     width = right - left
@@ -93,13 +103,20 @@ def square_frame(box: Box | None) -> Frame:
     return Frame(size=size, left=(size - width) // 2, top=(size - height) // 2)
 
 
-def measure_palette(histogram: Histogram) -> dict[str, str]:
-    """The mark's own colors, one per band, as the palette should name them.
+def measure_palette(histogram: Histogram, bands: Sequence[Band] = BANDS) -> dict[str, str]:
+    """Each band's color, keyed by the palette entry that claims it.
 
-    Each color is the count-weighted mean of its band, not the band's most frequent pixel.
-    Shading spreads a fill across hundreds of neighbouring values, so a mode is decided by a
-    thin margin between two colors a viewer cannot tell apart and moves whenever the artwork
-    is rendered again — while the mean only moves when the paint does.
+    A band's color is its most frequent pixel, so what reaches the palette is a color the mark
+    is actually painted in rather than an average of a fill and its shading — an average lands
+    between the two and can name a color no pixel of the mark holds.
+
+    Shading spreads a fill over hundreds of neighbouring values, so the winner leads by a
+    modest margin and re-rendering the artwork can move a channel by one step. No estimator
+    escapes that: on every mark measured here the mode, the mean and a quantized mode all shift
+    by a step under a resample. `ui/tests/brand.test.ts` therefore holds the palette to this
+    perceptually rather than byte for byte, which passes a step and stops a color change. What
+    the minimum share below rules out is the different failure — a winner decided by a seam
+    between two colors instead of by paint.
     """
     opaque = sum(count for count, pixel in histogram if pixel[3] >= OPAQUE_ALPHA)
     if opaque == 0:
@@ -107,9 +124,8 @@ def measure_palette(histogram: Histogram) -> dict[str, str]:
         raise BrandAssetError(message)
 
     measured: dict[str, str] = {}
-    for band in BANDS:
-        total = 0
-        reds = greens = blues = 0
+    for band in bands:
+        tally: Counter[tuple[int, int, int]] = Counter()
         for count, (red, green, blue, alpha) in histogram:
             if alpha < OPAQUE_ALPHA:
                 continue
@@ -118,18 +134,14 @@ def measure_palette(histogram: Histogram) -> dict[str, str]:
                 continue
             if not (band.low <= hue * 360 < band.high):
                 continue
-            total += count
-            reds += red * count
-            greens += green * count
-            blues += blue * count
-        share = total / opaque
+            tally[(red, green, blue)] += count
+        share = tally.total() / opaque
         if share < MIN_BAND_SHARE:
             message = (
                 f"source logo's {band.name} covers {share:.2%} of the mark, under the "
                 f"{MIN_BAND_SHARE:.0%} that naming {band.custom_property} after it would take"
             )
             raise BrandAssetError(message)
-        measured[band.name] = (
-            f"#{round(reds / total):02X}{round(greens / total):02X}{round(blues / total):02X}"
-        )
+        red, green, blue = tally.most_common(1)[0][0]
+        measured[band.custom_property] = f"#{red:02X}{green:02X}{blue:02X}"
     return measured

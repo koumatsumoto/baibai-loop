@@ -85,17 +85,19 @@
 }
 
 :root {
-    /* The two colors of the mark the palette keeps a record of. --brand-lime is measured
-       from ui/brand/logo.png, so `tools/generate_brand_assets.py` reports the value that
-       belongs here; it is far too light to read as text or a control surface, so it only
-       ever washes a decorative fill and anything set over it uses --text-primary.
+    /* The mark's own two colors. Both are measured from ui/brand/logo.png — running
+       `tools/generate_brand_assets.py` reports the values that belong here, and
+       `ui/tests/brand.test.ts` holds these two to that measurement — so the palette states
+       what the artwork is painted in rather than what someone remembers it as.
 
        Neither one paints an interaction. The mark's green is 2.99 on --surface and 2.85 on
        --canvas, under the 3:1 that a state indicator needs to be seen at all, so the greens
        that carry interaction are darkened from it: --primary-action for anything that has to
        be read or identified, --primary-hover under the pointer. Painting a control in the
-       brand green would put an ungated color in charge of an affordance, and a later logo
-       could then wash it out without a single check noticing. */
+       brand green would put a color the artwork decides in charge of an affordance, and a
+       later logo could then wash it out without a single check noticing. Lime is lighter
+       still — it only ever washes a decorative fill, and anything set over it uses
+       --text-primary. */
     --brand-green: #09ab65;
     --brand-lime: #c7de24;
     --primary-action: #008755;
@@ -181,7 +183,7 @@
     --destructive-ink: oklch(0.4 0.14 27.325);
     --input: var(--border-strong);
     /* Focus is drawn as an opaque border plus a translucent halo; the border carries
-       the contrast, so the ring uses the action green rather than the lighter display. */
+       the contrast, so the ring is the action green. */
     --ring: var(--primary-action);
     /* Green is the base color of a chart here: the allocation ring reads as one green
        family from deployed to available, and gray drops the slice that is only reserved.

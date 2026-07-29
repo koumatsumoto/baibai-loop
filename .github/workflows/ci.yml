@@ -57,6 +57,14 @@ jobs:
           uv run coverage report -m
           uv run coverage xml
 
+      - name: Brand asset contract
+        # tools/generate_brand_assets.py needs Pillow, which stays out of the lock so no daily
+        # workflow installs a native image library and pip-audit never carries it. That leaves
+        # its end-to-end test skipped in the run above, so it gets a step with Pillow as a
+        # throwaway overlay: --with resolves into a temporary env and touches neither uv.lock
+        # nor `uv export --all-groups`.
+        run: uv run --with 'pillow>=12.0.0' pytest tests/test_brand_assets.py
+
       - name: Build package
         run: uv build --wheel
 
