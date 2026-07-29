@@ -9,6 +9,7 @@ import type {
   HoldingView,
   OperationSessionView,
   OperationsView,
+  PortfolioOutcomeView,
   TaskView,
   UpcomingEventView,
   WarningView,
@@ -42,6 +43,7 @@ const HINT = {
   holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
   reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
   tasks: '決算日や再評価日など、日付が来たら判断を始める合図。task が trigger 発火の正本で、期限超過は放置している判断を意味する。',
+  outcomes: '税・費用込みの総合 return を、同じ期間の配当込み TOPIX と同じ basis で比べた結果。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
 
 const allocationConfig = {
@@ -339,6 +341,8 @@ const OPERATION_KIND_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   active: '進行中',
   completed: '完了',
+  resolved: '評価済み',
+  unresolved: '未確定',
 }
 
 function OperationCard({ operations }: { operations: OperationSessionView[] }) {
@@ -365,6 +369,45 @@ function OperationCard({ operations }: { operations: OperationSessionView[] }) {
                 <AsOfBadge compact value={item.started_at} />
                 <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
+// Performance belongs on the dashboard because the portfolio has one owner asking one
+// question — is this working — and there is nowhere else that question is answered. A
+// dedicated screen is the natural home once an outcome carries more than a period
+// comparison (annual review notes, per-holding attribution, calibration against the
+// entry estimate); that surface does not exist yet.
+function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
+  return (
+    <SectionCard
+      description="ポートフォリオと配当込み TOPIX の期間比較"
+      hint={HINT.outcomes}
+      meta={<Badge variant="secondary">{outcomes.length} 件</Badge>}
+      title="運用成績"
+    >
+      {outcomes.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">運用成績はまだありません。</p>
+      ) : (
+        <div className="divide-y">
+          {outcomes.map((item) => (
+            <div className="grid gap-1.5 px-5 py-3 sm:px-6" key={item.outcome_id}>
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                <span className="font-medium">{item.horizon} · {item.period_end_date}</span>
+                <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
+              </div>
+              {/* The benchmark is a market index, but here it exists only to be read
+                  against the portfolio's own return — the pair is one comparison, so both
+                  wear the money colors rather than splitting across two systems. */}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                <span>ポート TWR <PctBadge className="text-xs" tone="pnl" value={item.portfolio_twr_pct} /></span>
+                <span>ベンチマーク <PctBadge className="text-xs" tone="pnl" value={item.benchmark_cumulative_return_pct} /></span>
+              </div>
+              {item.reason && <p className="text-xs text-muted-foreground">{item.reason}</p>}
             </div>
           ))}
         </div>
@@ -420,8 +463,6 @@ export function DashboardPage() {
 
       <UpcomingEventsCard events={data.upcoming_events} />
 
-      {operations && <OperationCard operations={operations.operations} />}
-
       {!data.ledger_exists && !data.ledger_error ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
@@ -462,6 +503,10 @@ export function DashboardPage() {
           </Table>
         </SectionCard>
       )}
+
+      {operations && <OperationCard operations={operations.operations} />}
+
+      {operations && <OutcomeCard outcomes={operations.outcomes} />}
 
       <SectionCard hint={HINT.tasks} meta={<Badge variant="secondary">未完了 {data.open_tasks.length} 件</Badge>} title="タスク">
         {!data.tasks_exist ? (
