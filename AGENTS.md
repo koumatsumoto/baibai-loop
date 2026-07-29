@@ -24,6 +24,8 @@ Baibai-Loop の運用作業を AI エージェントに任せるときの最小�
 
 subsystem、public CLI、schema、persistence、dependency、state、運用手順などの複雑性を増やす前に、期待効果の大きさと導入・保守・撤回コストを比較する。期待効果は[`doctrine.md#improvement-value-hierarchy`](./docs/doctrine.md#improvement-value-hierarchy)の価値階層を第一基準とし、利用頻度、evidence強度とあわせて評価する。作れることや実装済みであること自体を採用理由にしない。
 
+ここでのコストに実装量・工数は含まない。規模と複雑性の扱いは[`doctrine.md#development-investment-policy`](./docs/doctrine.md#development-investment-policy)の開発投資の大方針を正本とする。
+
 改善提案とreview指摘は、冒頭に`価値tier: Tn — <直接的な成果への因果経路>`を1行で宣言する。tierの定義、複数効果の扱い、T4の採用条件はdoctrineを正本とし、同じ定義をこの文書へ複写しない。
 
 効果に見合う最小で可逆なsurfaceを選ぶ。初期サンプルや単発用途は`tools/`、既存output、operation sessionから始め、反復利用と効果を確認してからstable CLI、model、subsystemへ昇格する。将来の利用を仮定した未使用拡張、汎用化、永続stateは持ち込まない。
