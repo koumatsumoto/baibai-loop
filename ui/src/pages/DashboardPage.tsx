@@ -28,7 +28,7 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatJstDate, formatJstDateShort, formatPct, formatYen } from '../lib/format'
+import { EMPTY, formatJstDate, formatJstDateShort, formatPct, formatYen, isOlderThanDays } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
@@ -52,19 +52,17 @@ const allocationConfig = {
 
 function NextTaskCard({ task }: { task: TaskView | null }) {
   return (
-    <SectionCard hint={HINT.nextTask} meta={task?.overdue === true && <Badge variant="destructive">期限超過</Badge>} title="次のタスク">
-      <div className="px-5 py-4 sm:px-6">
-        {task ? (
-          // Date and title side by side: one line of content fills the row rather than
-          // stacking into a tall, mostly empty card.
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <time className="font-mono text-sm font-semibold tabular-nums" dateTime={task.due_date ?? undefined}>{formatJstDate(task.due_date)}</time>
-            <p className="min-w-0 flex-1 font-medium leading-snug">{task.title}</p>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p>
-        )}
-      </div>
+    <SectionCard hint={HINT.nextTask} meta={task?.overdue === true && <Badge variant="destructive">期限超過</Badge>} padded title="次のタスク">
+      {task ? (
+        // Date and title side by side: one line of content fills the row rather than
+        // stacking into a tall, mostly empty card.
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <time className="shrink-0 font-mono text-sm font-semibold tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
+          <p className="min-w-[16rem] flex-1 font-medium leading-snug">{task.title}</p>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p>
+      )}
     </SectionCard>
   )
 }
@@ -85,8 +83,9 @@ function PortfolioAllocationCard({ data }: { data: DashboardView }) {
     <Card className="overflow-hidden py-0 shadow-sm">
       <div className="grid min-w-0 lg:grid-cols-[minmax(320px,0.8fr)_1.2fr]">
         <div className="flex min-w-0 flex-col border-b p-5 lg:border-r lg:border-b-0 sm:p-6">
-          <CardHeader className="px-0 pb-2">
-            <CardTitle className="flex items-center gap-1.5 text-base">資産と損益<InfoHint label="資産と損益">{HINT.allocation}</InfoHint></CardTitle>
+          <CardHeader className="flex flex-row items-center gap-1.5 px-0 pb-2">
+            <CardTitle aria-level={2} className="text-base" role="heading">資産と損益</CardTitle>
+            <InfoHint label="資産と損益">{HINT.allocation}</InfoHint>
           </CardHeader>
           <div className="relative mx-auto min-h-[230px] w-full max-w-[360px] flex-1">
             {hasAllocation ? (
@@ -215,10 +214,10 @@ function HoldingsTable({ holdings, warnings }: { holdings: HoldingView[]; warnin
     // The page header already states the valuation basis. It is repeated here only when
     // the holdings disagree on it, and then per row rather than as one date.
     <SectionCard
-      description={`${holdings.length} 銘柄`}
       hint={HINT.holdings}
       meta={(
         <div className="flex flex-wrap items-baseline justify-end gap-x-2 text-xs">
+          <Badge variant="secondary">{holdings.length} 銘柄</Badge>
           <span className="text-muted-foreground">評価損益 合計</span>
           <YenAmount className="font-semibold" sign tone="pnl" value={unrealizedPnl.yen} />
           <PctBadge className="text-xs" tone="pnl" value={unrealizedPnl.pct} />
@@ -298,11 +297,11 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
       title="今後 14 日のイベント"
     >
       {events.length === 0 ? (
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">今後 14 日のイベントはありません。</CardContent>
+        <p className="py-8 text-center text-sm text-muted-foreground">今後 14 日のイベントはありません。</p>
       ) : (
-        // No minimum width anywhere: the window is 14 days, so a short date plus the
-        // countdown beside it fits a phone, and the security wraps to a second line
-        // rather than pushing the row into a sideways scroll.
+        // The row wraps instead of scrolling sideways. `flex-1` alone would not wrap —
+        // its basis is 0, so the security would shrink to an unreadable sliver rather
+        // than reach a second line; the minimum width is what makes the wrap happen.
         <div className="divide-y">
           {events.map((event) => (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6" key={`${event.kind}-${event.event_date}-${event.ticker ?? ''}`}>
@@ -310,7 +309,7 @@ function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
                   one still renders in full. */}
               <time className="min-w-[5.5rem] shrink-0 font-mono text-sm tabular-nums" dateTime={event.event_date}>{formatJstDateShort(event.event_date)}</time>
               <Badge className="shrink-0" variant={event.days_until <= 1 ? 'destructive' : 'outline'}>{eventCountdownLabel(event.days_until)}</Badge>
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex min-w-[13rem] flex-1 items-center gap-2">
                 <Badge className="shrink-0 font-mono text-[10px]" variant="secondary">{eventKindLabel[event.kind]}</Badge>
                 {event.ticker ? (
                   <Link className="min-w-0 truncate font-medium underline-offset-4 hover:underline" to={`/securities/${event.ticker}`}>
@@ -345,13 +344,12 @@ const STATUS_LABEL: Record<string, string> = {
 function OperationCard({ operations }: { operations: OperationSessionView[] }) {
   return (
     <SectionCard
-      description="1 つの trigger を 1 件の session で進める"
       hint={HINT.operations}
       meta={<Badge variant="secondary">{operations.length} 件</Badge>}
       title="運用状況"
     >
       {operations.length === 0 ? (
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">進行中または完了済みの運用はありません。</CardContent>
+        <p className="py-8 text-center text-sm text-muted-foreground">進行中または完了済みの運用はありません。</p>
       ) : (
         <div className="divide-y">
           {operations.map((item) => (
@@ -381,19 +379,6 @@ function dashboardValuationAsOf(data: DashboardView): string | null {
   return holdingDates.sort().at(0) ?? data.ledger_as_of
 }
 
-function valuationIsStale(value: string | null): boolean {
-  if (value === null) return false
-  const formatter = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  const today = formatter.format(new Date())
-  const asOf = formatter.format(new Date(value))
-  return Date.parse(`${today}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`) >= 7 * 86_400_000
-}
-
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
   const [operations, setOperations] = useState<OperationsView | null>(null)
@@ -416,7 +401,7 @@ export function DashboardPage() {
     <PageShell
       meta={(
         <div className="flex items-center gap-2">
-          {valuationIsStale(valuationAsOf) && <StaleBadge />}
+          {valuationAsOf !== null && isOlderThanDays(valuationAsOf, 7) && <StaleBadge />}
           <AsOfBadge value={valuationAsOf} />
         </div>
       )}
@@ -480,19 +465,20 @@ export function DashboardPage() {
 
       <SectionCard hint={HINT.tasks} meta={<Badge variant="secondary">未完了 {data.open_tasks.length} 件</Badge>} title="タスク">
         {!data.tasks_exist ? (
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">タスクはまだ登録されていません。</CardContent>
+          <p className="py-8 text-center text-sm text-muted-foreground">タスクはまだ登録されていません。</p>
         ) : data.open_tasks.length === 0 ? (
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">未完了のタスクはありません。</CardContent>
+          <p className="py-8 text-center text-sm text-muted-foreground">未完了のタスクはありません。</p>
         ) : (
           // Same row shape as the event list: a date column wide enough to align, the
-          // badge that qualifies it, then the text. A due date can be months out, so
-          // this one keeps its year.
+          // badge that qualifies it, then the title, which takes a second line on a
+          // phone rather than being squeezed to a ribbon. A due date can be months out,
+          // so this one keeps its year.
           <div className="divide-y">
             {data.open_tasks.map((task) => (
               <article className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6" key={task.task_id}>
                 <time className="min-w-[10rem] shrink-0 font-mono text-sm tabular-nums" dateTime={task.due_date}>{formatJstDate(task.due_date)}</time>
                 {task.overdue && <Badge className="shrink-0" variant="destructive">期限超過</Badge>}
-                <span className="min-w-0 flex-1 text-sm font-medium">{task.title}</span>
+                <span className="min-w-[16rem] flex-1 text-sm font-medium">{task.title}</span>
               </article>
             ))}
           </div>

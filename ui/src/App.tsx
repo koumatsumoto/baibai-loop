@@ -1,7 +1,7 @@
-import { lazy, Suspense } from 'react'
+import { lazy } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
-import { LoadingPage } from './components/LoadingIndicator'
+import { AppLayout } from './components/AppLayout'
 import { PasswordGate } from './components/PasswordGate'
 import { RouteErrorBoundary } from './components/RouteErrorBoundary'
 import { TooltipProvider } from './components/ui/tooltip'
@@ -16,18 +16,14 @@ const MacroReportPage = lazy(() => import('./pages/MacroReportPage').then((modul
 const SecurityDetailPage = lazy(() => import('./pages/SecurityDetailPage').then((module) => ({ default: module.SecurityDetailPage })))
 const SystemPage = lazy(() => import('./pages/SystemPage').then((module) => ({ default: module.SystemPage })))
 
-function RouteLoading() {
-  return <LoadingPage label="Baibai App を読み込んでいます" shell={false} />
-}
-
 function App() {
   return (
     <TooltipProvider>
       <BrowserRouter>
         <PasswordGate>
           <RouteErrorBoundary>
-            <Suspense fallback={<RouteLoading />}>
-              <Routes>
+            <Routes>
+              <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/macro" element={<MacroPage />} />
                 <Route path="/macro/reports/:contextId" element={<MacroReportPage />} />
@@ -36,8 +32,8 @@ function App() {
                 <Route path="/stocks/assessments/:assessmentId" element={<AssessmentPage />} />
                 <Route path="/securities/:ticker" element={<SecurityDetailPage />} />
                 <Route path="/system" element={<SystemPage />} />
-              </Routes>
-            </Suspense>
+              </Route>
+            </Routes>
           </RouteErrorBoundary>
         </PasswordGate>
       </BrowserRouter>

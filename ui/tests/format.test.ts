@@ -9,7 +9,7 @@ import {
   formatNumber,
   formatPct,
   formatYen,
-  isDateOnly,
+  isOlderThanDays,
 } from '../src/lib/format'
 
 describe('formatJstDateTime', () => {
@@ -25,6 +25,12 @@ describe('formatJstDateTime', () => {
     expect(formatJstDateTime('2026-07-19T12:00:00')).toBe('2026-07-19 12:00')
   })
 
+  // A bare date is JST midnight, not UTC midnight — reading it as UTC would land the
+  // same calendar day at 09:00 and go unnoticed everywhere the time is not shown.
+  it('reads a bare date as JST midnight', () => {
+    expect(formatJstDateTime('2026-07-19')).toBe('2026-07-19 00:00')
+  })
+
   it('keeps the same instant across a non-JST offset', () => {
     expect(formatJstDateTime('2026-07-18T23:00:00-04:00')).toBe('2026-07-19 12:00')
   })
@@ -33,6 +39,15 @@ describe('formatJstDateTime', () => {
 describe('formatJstStamp', () => {
   it('renders a compact MM/DD HH:mm in JST', () => {
     expect(formatJstStamp('2026-07-19T03:00:00Z')).toBe('07/19 12:00')
+  })
+
+  // A value with no time of day has no 00:00 to state.
+  it('drops the time for a calendar date', () => {
+    expect(formatJstStamp('2026-07-19')).toBe('07/19')
+  })
+
+  it('reads a bare date as JST midnight rather than failing to parse', () => {
+    expect(formatJstStamp('2026-01-01')).toBe('01/01')
   })
 })
 
@@ -46,17 +61,6 @@ describe('formatJstDate', () => {
   })
 })
 
-describe('isDateOnly', () => {
-  it('is true for a calendar date', () => {
-    expect(isDateOnly('2026-07-19')).toBe(true)
-  })
-
-  it('is false for anything carrying a time of day', () => {
-    expect(isDateOnly('2026-07-19T12:00:00+09:00')).toBe(false)
-    expect(isDateOnly('2026-07-19T12:00:00')).toBe(false)
-  })
-})
-
 describe('formatJstDateShort', () => {
   it('drops the year and keeps the weekday', () => {
     expect(formatJstDateShort('2026-07-19')).toBe('7/19 (日)')
@@ -66,8 +70,35 @@ describe('formatJstDateShort', () => {
     expect(formatJstDateShort('2026-01-05')).toBe('1/5 (月)')
   })
 
-  it('reads the date in JST rather than the viewer timezone', () => {
-    expect(formatJstDateShort('2026-12-31')).toBe('12/31 (木)')
+  it('reads an instant in JST rather than the viewer timezone', () => {
+    // 20:00 UTC on new year's eve is already the next year in Tokyo.
+    expect(formatJstDateShort('2026-12-31T20:00:00Z')).toBe('1/1 (金)')
+  })
+})
+
+describe('isOlderThanDays', () => {
+  const today = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+  const daysAgo = (days: number) =>
+    new Date(Date.parse(`${today}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10)
+
+  it('is false inside the window', () => {
+    expect(isOlderThanDays(daysAgo(6), 7)).toBe(false)
+  })
+
+  it('is true on and past the boundary', () => {
+    expect(isOlderThanDays(daysAgo(7), 7)).toBe(true)
+    expect(isOlderThanDays(daysAgo(30), 7)).toBe(true)
+  })
+
+  // The bare date must not be read in the viewer's timezone, which would shift the
+  // boundary by a day for anyone outside JST.
+  it('accepts a stamp with no offset', () => {
+    expect(isOlderThanDays(`${daysAgo(6)}T09:00:00`, 7)).toBe(false)
   })
 })
 

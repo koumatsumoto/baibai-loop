@@ -12,7 +12,6 @@ import { PctBadge } from '../components/PctBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
 import { YenAmount } from '../components/YenAmount'
 import { Badge } from '../components/ui/badge'
-import { CardContent } from '../components/ui/card'
 import { Separator } from '../components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { LABEL } from '../lib/labels'
@@ -90,7 +89,9 @@ export function SecurityDetailPage() {
           <span className="font-mono text-foreground">{data.ticker}</span>
         </nav>
       )}
-      lead={`${data.company_name ?? '名称なし'} · ${data.sector ?? 'sector —'}`}
+      // The heading is the ticker, so the name is what a reader actually recognises the
+      // page by and keeps its weight; the sector trails it as context.
+      lead={<><span className="font-medium text-foreground">{data.company_name ?? '名称なし'}</span> · {data.sector ?? 'sector —'}</>}
       meta={(
         <div className="flex flex-wrap items-center gap-2">
           {data.holding && <Badge variant="secondary">保有</Badge>}
@@ -99,11 +100,11 @@ export function SecurityDetailPage() {
         </div>
       )}
       title={<span className="font-mono">{data.ticker}</span>}
-      width="medium"
+      width="reading"
     >
       {data.holding && (
-        <SectionCard description="portfolio ledger" meta={<AsOfBadge value={data.holding.market_price_as_of} />} title="現在の保有">
-          <CardContent className="py-5">
+        <SectionCard description="portfolio ledger" meta={<AsOfBadge value={data.holding.market_price_as_of} />} padded title="現在の保有">
+          <>
             <dl className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="数量"><span className="font-mono tabular-nums">{data.holding.quantity.toLocaleString('ja-JP')} 株</span></Field>
               <Field label="取得 / 現在">
@@ -121,16 +122,17 @@ export function SecurityDetailPage() {
               <Field label="判断"><Badge className="font-mono uppercase" variant="outline">{data.holding.recommendation ?? '—'}</Badge></Field>
               <Field label="次決算"><span className="font-mono tabular-nums">{data.holding.next_earnings_date ?? LABEL.earningsTbd}</span></Field>
             </dl>
-          </CardContent>
+          </>
         </SectionCard>
       )}
 
       <SectionCard
         description="latest research"
         meta={thesis && <AsOfBadge value={thesis.revision.as_of} />}
+        padded
         title="最新の 5 年評価"
       >
-        <CardContent>
+        <>
           {!thesis ? (
             <div className="py-8 text-center text-sm text-muted-foreground">research 記録なし</div>
           ) : (
@@ -169,12 +171,12 @@ export function SecurityDetailPage() {
               <code className="truncate rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground" title={thesis.revision.thesis_id}>{thesis.revision.thesis_id}</code>
             </div>
           )}
-        </CardContent>
+        </>
       </SectionCard>
 
-      <SectionCard description="過去の判断記録" meta={<Badge variant="secondary">{data.revisions.length} revisions</Badge>} title="Research 履歴">
+      <SectionCard description="過去の判断記録" meta={<Badge variant="secondary">{data.revisions.length} 件</Badge>} title="Research 履歴">
         {data.revisions.length === 0 ? (
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">research 記録なし</CardContent>
+          <p className="py-8 text-center text-sm text-muted-foreground">research 記録なし</p>
         ) : (
           <Table>
             <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>判断</TableHead><TableHead className="text-right">FV</TableHead><TableHead>model</TableHead><TableHead>review</TableHead></TableRow></TableHeader>
@@ -193,9 +195,9 @@ export function SecurityDetailPage() {
         )}
       </SectionCard>
 
-      <SectionCard description="人間確認後に publish された保有判断" meta={<Badge variant="secondary">{data.holding_reviews.length} revisions</Badge>} title="Holding review 履歴">
+      <SectionCard description="人間確認後に publish された保有判断" meta={<Badge variant="secondary">{data.holding_reviews.length} 件</Badge>} title="Holding review 履歴">
         {data.holding_reviews.length === 0 ? (
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</CardContent>
+          <p className="py-8 text-center text-sm text-muted-foreground">holding review 記録なし</p>
         ) : (
           <Table>
             <TableHeader className="bg-muted/60"><TableRow className="hover:bg-transparent"><TableHead>{LABEL.asOf}</TableHead><TableHead>action</TableHead><TableHead>thesis</TableHead><TableHead>note</TableHead></TableRow></TableHeader>
@@ -217,9 +219,10 @@ export function SecurityDetailPage() {
         <SectionCard
           description="latest screening"
           meta={data.candidate_run && <AsOfBadge value={data.candidate_run.asof_date} />}
+          padded
           title="Screening 指標"
         >
-          <CardContent className="py-5"><ScreeningMetrics row={data.candidate_row} /></CardContent>
+          <ScreeningMetrics row={data.candidate_row} />
         </SectionCard>
       )}
     </PageShell>

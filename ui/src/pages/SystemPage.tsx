@@ -146,12 +146,12 @@ function BatchRow({ batch }: { batch: RunBatchView }) {
 
 function NoRunCard({ reason }: { reason: string }) {
   return (
-    <SectionCard description={reason} title="直近の日次バッチ">
-      <CardContent className="py-4">
+    <SectionCard description={reason} padded title="直近の日次バッチ">
+      <>
         <Button asChild size="sm" variant="outline">
           <a href={ACTIONS_URL} rel="noreferrer noopener" target="_blank"><ExternalLink />GitHub Actions で確認</a>
         </Button>
-      </CardContent>
+      </>
     </SectionCard>
   )
 }
@@ -176,9 +176,10 @@ function LatestRunCard({ run }: { run: WorkflowRunSummaryView | null }) {
           {OUTCOME_LABEL[run.overall_outcome] ?? run.overall_outcome}
         </Badge>
       )}
+      padded
       title="直近の日次バッチ"
     >
-      <CardContent className="grid gap-4 py-4">
+      <div className="grid gap-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">
           <DetailRow label="run 終了">
             {formatJstDateTime(run.finished_at)}
@@ -209,7 +210,7 @@ function LatestRunCard({ run }: { run: WorkflowRunSummaryView | null }) {
         <Button asChild className="w-fit" size="sm" variant="outline">
           <a href={run.run_url} rel="noreferrer noopener" target="_blank"><ExternalLink />この run の log を開く</a>
         </Button>
-      </CardContent>
+      </div>
     </SectionCard>
   )
 }
@@ -265,9 +266,9 @@ function ProvidersCard({ data }: { data: SystemView }) {
       title="provider 取得の健全性"
     >
       {unhealthy === 0 ? (
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+        <p className="py-8 text-center text-sm text-muted-foreground">
           全 {data.provider_series_total} 系列の直近取得が成功しています。
-        </CardContent>
+        </p>
       ) : (
         <div className="overflow-x-auto">
           {failing.length > 0 && (
@@ -352,7 +353,7 @@ export function SystemPage() {
         </div>
       )}
       title="システム状態"
-      width="narrow"
+      width="reading"
     >
       <LatestRunCard run={run} />
       {data === null ? (

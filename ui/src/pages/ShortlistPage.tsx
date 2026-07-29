@@ -12,6 +12,7 @@ import type {
 import { AsOfBadge } from '../components/AsOfBadge'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
+import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { PortfolioStateBadge } from '../components/PortfolioStateBadge'
@@ -155,12 +156,7 @@ function DivergenceCell({ row }: { row: ShortlistComparisonRow }) {
 
 function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) {
   return (
-    <Card className="gap-3 py-5 shadow-sm">
-      <CardHeader className="px-5">
-        <CardTitle className="text-base">候補比較</CardTitle>
-        <CardDescription>暫定順位は深掘りの着手順の提案です。機械順位との乖離は narrative に理由があります。</CardDescription>
-      </CardHeader>
-      <CardContent className="px-5">
+    <SectionCard description="暫定順位は深掘りの着手順の提案です。機械順位との乖離は narrative に理由があります。" padded title="候補比較">
         <Table className="text-sm">
           <TableHeader>
             <TableRow>
@@ -207,8 +203,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
             ))}
           </TableBody>
         </Table>
-      </CardContent>
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -305,7 +300,7 @@ export function ShortlistPage() {
         </div>
       )}
       title="Shortlist レビュー面"
-      width="medium"
+      width="reading"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <Badge className="font-mono text-[10px]" variant="secondary">{shortlist.shortlist_id}</Badge>
@@ -326,12 +321,7 @@ export function ShortlistPage() {
       </div>
 
       {rejected.length > 0 && (
-        <Card className="gap-3 py-5 shadow-sm">
-          <CardHeader className="px-5">
-            <CardTitle className="text-base">longlist から非選択</CardTitle>
-            <CardDescription>review したが shortlist へ残さなかった理由</CardDescription>
-          </CardHeader>
-          <CardContent className="px-5">
+        <SectionCard description="review したが shortlist へ残さなかった理由" padded title="longlist から非選択">
             <Table className="text-sm">
               <TableHeader>
                 <TableRow>
@@ -348,8 +338,7 @@ export function ShortlistPage() {
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
+        </SectionCard>
       )}
 
       <p className="text-xs text-muted-foreground">

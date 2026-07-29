@@ -1,7 +1,6 @@
 import { DotPulse } from 'ldrs/react'
 import 'ldrs/react/DotPulse.css'
 
-import { AppShell } from './AppShell'
 import { cn } from '../lib/utils'
 
 interface LoadingIndicatorProps {
@@ -22,13 +21,11 @@ export function LoadingIndicator({ label, className, size = 36 }: LoadingIndicat
   )
 }
 
-export function LoadingPage({ label, shell = true }: { label: string; shell?: boolean }) {
-  const content = (
-    <main className={cn('grid place-items-center bg-background px-6', shell ? 'min-h-[60vh]' : 'min-h-screen')}>
+// The layout route keeps the shell on screen, so this fills the space under it.
+export function LoadingPage({ label }: { label: string }) {
+  return (
+    <main className="grid min-h-[60vh] place-items-center bg-background px-6">
       <LoadingIndicator label={label} size={44} />
     </main>
   )
-
-  if (!shell) return content
-  return <><AppShell />{content}</>
 }

@@ -6,12 +6,13 @@ import { fetchJson } from '../api/client'
 import type { MacroConnectionSectionView, MacroContextView, MacroCoreSectionView, MacroScenarioView, MacroSeriesReferenceView, MacroSynthesisView } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
+import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { StaleBadge } from '../components/StaleBadge'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { formatJstDateTime } from '../lib/format'
 import { LABEL } from '../lib/labels'
 
@@ -46,15 +47,17 @@ function SourceIds({ ids }: { ids: readonly string[] }) {
 
 function SectionShell({ title, seriesBadges, children }: { title: string; seriesBadges: readonly MacroSeriesReferenceView[]; children: React.ReactNode }) {
   return (
-    <Card className="gap-4 py-5 shadow-sm">
-      <CardHeader className="gap-3 px-5">
-        <CardTitle aria-level={2} className="text-lg" role="heading">{title}</CardTitle>
-        <div className="flex flex-wrap gap-2">
+    <SectionCard
+      meta={(
+        <div className="flex flex-wrap justify-end gap-2">
           {seriesBadges.map((series) => <Badge key={series.series_id} variant="outline">{series.name} · {series.series_id}</Badge>)}
         </div>
-      </CardHeader>
-      <CardContent className="grid gap-5 px-5 lg:grid-cols-3">{children}</CardContent>
-    </Card>
+      )}
+      padded
+      title={title}
+    >
+      <div className="grid gap-5 lg:grid-cols-3">{children}</div>
+    </SectionCard>
   )
 }
 
@@ -74,12 +77,8 @@ function SynthesisSection({ synthesis }: { synthesis: MacroSynthesisView }) {
   const forces = synthesis.dominant_forces ?? []
   const interactions = synthesis.interactions ?? []
   return (
-    <Card className="gap-4 py-5 shadow-sm">
-      <CardHeader className="gap-1 px-5">
-        <CardTitle aria-level={2} className="text-lg" role="heading">統合評価 — 支配的な力</CardTitle>
-        <CardDescription>複数の伝達チャネルを横断して現局面を動かしている力と、その相互作用。</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 px-5">
+    <SectionCard description="複数の伝達チャネルを横断して現局面を動かしている力と、その相互作用。" padded title="統合評価 — 支配的な力">
+      <div className="grid gap-4">
         <div className="grid gap-4 lg:grid-cols-2">
           {forces.map((force) => (
             <div className="grid content-start gap-2 rounded-lg border p-4" key={force.force_id}>
@@ -111,8 +110,8 @@ function SynthesisSection({ synthesis }: { synthesis: MacroSynthesisView }) {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   )
 }
 
@@ -264,7 +263,7 @@ export function MacroReportPage() {
       above={<div><Button asChild size="sm" variant="ghost"><Link to="/macro"><ArrowLeft />Macro に戻る</Link></Button></div>}
       meta={data.stale ? <StaleBadge /> : undefined}
       title="マクロ環境レポート"
-      width="medium"
+      width="reading"
     >
       <Card className="shadow-sm">
         <CardHeader>

@@ -6,6 +6,7 @@ import { fetchJson } from '../api/client'
 import type { AssessmentLaneView, AssessmentPurchaseView, BargainAssessmentView } from '../api/types'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
+import { SectionCard } from '../components/SectionCard'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { TradingViewButton } from '../components/TradingViewButton'
@@ -65,18 +66,18 @@ function PurchaseCard({ purchase }: { purchase: AssessmentPurchaseView }) {
   const limitGap = limitVsClosePct(purchase)
   const headroom = headroomToMaxPct(purchase)
   return (
-    <Card className="gap-3 border-positive/40 py-5 shadow-sm">
-      <CardHeader className="px-5">
+    <SectionCard
+      description={<>指値 {formatYen(purchase.limit_price_yen)} × {purchase.quantity.toLocaleString('ja-JP')} 株 · {LABEL.published}時点 proposal <span className="font-mono">{purchase.proposal_id}</span></>}
+      meta={(
         <div className="flex flex-wrap items-center gap-3">
-          <CardTitle className="text-base">購入方法</CardTitle>
           <Link className="font-mono text-sm font-semibold underline-offset-4 hover:underline" to={`/securities/${purchase.ticker}`}>{purchase.ticker}</Link>
           <TradingViewButton ticker={purchase.ticker} />
         </div>
-        <CardDescription>
-          指値 {formatYen(purchase.limit_price_yen)} × {purchase.quantity.toLocaleString('ja-JP')} 株 · {LABEL.published}時点 proposal <span className="font-mono">{purchase.proposal_id}</span>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 px-5">
+      )}
+      padded
+      title="購入方法"
+    >
+      <div className="grid gap-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             ['指値', formatYen(purchase.limit_price_yen)],
@@ -111,19 +112,14 @@ function PurchaseCard({ purchase }: { purchase: AssessmentPurchaseView }) {
             <AlertDescription>{alert.message}</AlertDescription>
           </Alert>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   )
 }
 
 function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
   return (
-    <Card className="gap-3 py-5 shadow-sm">
-      <CardHeader className="px-5">
-        <CardTitle className="text-base">lane 横比較</CardTitle>
-        <CardDescription>個別リサーチの thesis から engine が導いた値。publish 時に thesis と突合済みです。</CardDescription>
-      </CardHeader>
-      <CardContent className="px-5">
+    <SectionCard description="個別リサーチの thesis から engine が導いた値。publish 時に thesis と突合済みです。" padded title="lane 横比較">
         <div className="overflow-x-auto">
           <Table className="text-sm">
             <TableHeader>
@@ -171,8 +167,7 @@ function LaneComparison({ lanes }: { lanes: readonly AssessmentLaneView[] }) {
             </TableBody>
           </Table>
         </div>
-      </CardContent>
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -284,7 +279,7 @@ export function AssessmentPage() {
       above={<div><Button asChild size="sm" variant="ghost"><Link to="/stocks"><ArrowLeft />Stocks に戻る</Link></Button></div>}
       meta={<Badge className={cn('font-semibold', TONE_CLASS[result.tone])}>{result.label}</Badge>}
       title="割安機会評価"
-      width="medium"
+      width="reading"
     >
       <Card className="shadow-sm">
         <CardHeader className="gap-3">
@@ -304,16 +299,14 @@ export function AssessmentPage() {
       {data.purchase !== null && <PurchaseCard purchase={data.purchase} />}
 
       {data.entry_timing !== null && (
-        <Card className="gap-2 py-5 shadow-sm">
-          <CardHeader className="px-5"><CardTitle className="text-base">entry timing</CardTitle><CardDescription>いま買う理由と、待つ場合に何を待つのか</CardDescription></CardHeader>
-          <CardContent className="px-5"><p className="text-sm">{data.entry_timing}</p></CardContent>
-        </Card>
+        <SectionCard description="いま買う理由と、待つ場合に何を待つのか" padded title="entry timing">
+          <p className="text-sm">{data.entry_timing}</p>
+        </SectionCard>
       )}
 
-      <Card className="gap-2 py-5 shadow-sm">
-        <CardHeader className="px-5"><CardTitle className="text-base">なぜこの結論か</CardTitle><CardDescription>lane 間の比較で何が決め手になったか</CardDescription></CardHeader>
-        <CardContent className="px-5"><p className="text-sm whitespace-pre-line">{data.comparison}</p></CardContent>
-      </Card>
+      <SectionCard description="lane 間の比較で何が決め手になったか" padded title="なぜこの結論か">
+        <p className="text-sm whitespace-pre-line">{data.comparison}</p>
+      </SectionCard>
 
       {lanes.length > 0 && <LaneComparison lanes={lanes} />}
 
@@ -321,14 +314,12 @@ export function AssessmentPage() {
         {lanes.map((lane) => <LaneCard key={lane.ticker} lane={lane} />)}
       </div>
 
-      <Card className="gap-2 py-5 shadow-sm">
-        <CardHeader className="px-5"><CardTitle className="text-base">見送ったもの</CardTitle><CardDescription>この判断で諦めた機会と、その代償の見立て</CardDescription></CardHeader>
-        <CardContent className="px-5"><p className="text-sm whitespace-pre-line">{data.forgone}</p></CardContent>
-      </Card>
+      <SectionCard description="この判断で諦めた機会と、その代償の見立て" padded title="見送ったもの">
+        <p className="text-sm whitespace-pre-line">{data.forgone}</p>
+      </SectionCard>
 
-      <Card className="gap-2 py-5 shadow-sm">
-        <CardHeader className="px-5"><CardTitle className="text-base">内容レビュー</CardTitle></CardHeader>
-        <CardContent className="grid gap-2 px-5">
+      <SectionCard padded title="内容レビュー">
+        <div className="grid gap-2">
           <p className="text-sm">
             <span className="font-mono">{data.review.reviewer_identity}</span> · attempt {data.review.attempt} · {formatJstDateTime(data.review.reviewed_at)} · <strong>{data.review.conclusion}</strong>
           </p>
@@ -340,8 +331,8 @@ export function AssessmentPage() {
               </ul>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </SectionCard>
 
       <p className="text-xs text-muted-foreground">
         この文書は publish 時点で確定した判断で、以後書き換わりません。指値・数量は proposal に紐づく発注計画で、現在の proposal 状態は上のカードに表示しています。

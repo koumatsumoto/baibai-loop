@@ -8,8 +8,7 @@ const JST = 'Asia/Tokyo'
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
-/** True for a calendar date with no time of day, e.g. an as-of or an event date. */
-export function isDateOnly(value: string): boolean {
+function isDateOnly(value: string): boolean {
   return DATE_ONLY.test(value)
 }
 
@@ -50,9 +49,14 @@ export function formatJstDateTime(value: string): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`
 }
 
-/** Compact JST timestamp as `MM/DD HH:mm` for inline as-of badges. */
+/**
+ * Compact JST timestamp as `MM/DD HH:mm` for inline as-of badges, or `MM/DD` when the
+ * value carries no time of day. A reading computed for a date has no time, and printing
+ * `00:00` for it would state a precision the value does not have.
+ */
 export function formatJstStamp(value: string): string {
   const parts = jstParts(value)
+  if (isDateOnly(value)) return `${parts.month}/${parts.day}`
   return `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`
 }
 
@@ -85,6 +89,25 @@ export function formatJstDateShort(value: string): string {
   const parts = shortDateFormatter.formatToParts(toInstant(value))
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
   return `${get('month')}/${get('day')} (${get('weekday')})`
+}
+
+const dateKeyFormatter = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: JST,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+/**
+ * True when the value is `days` or more JST calendar days behind today. Freshness is a
+ * question about market days, so it compares dates rather than elapsed hours — and it
+ * goes through the shared parser, so an offset-less stamp is not read in the viewer's
+ * timezone.
+ */
+export function isOlderThanDays(value: string, days: number): boolean {
+  const today = dateKeyFormatter.format(new Date())
+  const asOf = dateKeyFormatter.format(toInstant(value))
+  return Date.parse(`${today}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`) >= days * 86_400_000
 }
 
 const yenFormatter = new Intl.NumberFormat('ja-JP', {
