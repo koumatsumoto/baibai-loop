@@ -144,10 +144,9 @@ def compute_portfolio_outcome(
             for event, effective_day in zip(ledger.events, effective_event_dates, strict=True)
             if effective_day is not None and effective_day <= valuation_day
         )
-        try:
-            state = replay_events_through(selected, _close_instant(valuation_day))
-        except PortfolioLedgerError:
-            raise
+        state = replay_events_through(
+            selected, _close_instant(valuation_day), require_expired_release=False
+        )
         prices: dict[str, MarketPrice] = {}
         for ticker, lots in state.lots.items():
             if not any(lot.quantity > 0 for lot in lots):

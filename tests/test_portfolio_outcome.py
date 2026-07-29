@@ -6,7 +6,7 @@ import pytest
 from baibai_engine.market.bars import JQuantsDailyBar
 from baibai_engine.market.jpx_total_return import BenchmarkObservation
 from baibai_engine.position.cli import main
-from baibai_engine.position.ledger import PortfolioLedgerDocument
+from baibai_engine.position.ledger import PortfolioLedgerDocument, PortfolioLedgerError
 from baibai_engine.position.outcome import (
     DailyNav,
     PortfolioOutcomeError,
@@ -174,6 +174,74 @@ def test_portfolio_outcome_rejects_unresolved_corporate_action() -> None:
 
     assert result.status == "unresolved"
     assert result.reason == "corporate_action_unresolved"
+
+
+def _lapsed_reservation_ledger() -> PortfolioLedgerDocument:
+    """A reservation that lapses during the session and is reported that evening."""
+
+    return PortfolioLedgerDocument.model_validate(
+        {
+            "schema_version": 2,
+            "portfolio_scope": "repository_only",
+            "as_of": "2026-01-06T16:00:00+09:00",
+            "market_prices": [],
+            "events": [
+                {
+                    "event_id": "opening",
+                    "type": "opening_balance",
+                    "occurred_at": "2025-01-06T09:00:00+09:00",
+                    "amount_yen": 1_000_000,
+                },
+                {
+                    "event_id": "reserve",
+                    "type": "reservation",
+                    "occurred_at": "2026-01-05T09:00:00+09:00",
+                    "reservation_id": "r1",
+                    "order_id": "o1",
+                    "ticker": "1234",
+                    "sector": "test",
+                    "common_factors": [],
+                    "quantity": 100,
+                    "price_guard_yen": 500,
+                    "expires_at": "2026-01-06T15:00:00+09:00",
+                },
+                {
+                    "event_id": "release",
+                    "type": "release",
+                    "occurred_at": "2026-01-06T16:00:00+09:00",
+                    "reservation_id": "r1",
+                    "reason": "expired",
+                },
+            ],
+        }
+    )
+
+
+def test_outcome_values_a_lapsed_reservation_reported_after_close() -> None:
+    from baibai_engine.position.outcome import compute_portfolio_outcome
+
+    result = compute_portfolio_outcome(
+        _lapsed_reservation_ledger(),
+        _benchmark(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 5), date(2026, 1, 6)),
+        bars=(),
+    )
+
+    assert result.status == "resolved"
+    # A release only moves yen between reserved and available, so NAV never moves.
+    assert result.portfolio_twr_pct == pytest.approx(0.0)
+    assert result.ending_cash_yen == 950_000
+    assert result.ending_reserved_cash_yen == 50_000
+
+
+def test_ledger_snapshot_still_requires_the_release_of_a_lapsed_reservation() -> None:
+    from baibai_engine.position.ledger import reconcile_portfolio
+
+    raw = _lapsed_reservation_ledger().model_dump(mode="json")
+    raw["events"] = [event for event in raw["events"] if event["event_id"] != "release"]
+
+    with pytest.raises(PortfolioLedgerError, match="expired reservations require"):
+        reconcile_portfolio(PortfolioLedgerDocument.model_validate(raw))
 
 
 def test_after_close_internal_cashflow_rolls_past_that_close() -> None:

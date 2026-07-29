@@ -435,6 +435,7 @@ def replay_events_through(
     as_of: datetime,
     *,
     policy: PolicyConfig = PORTFOLIO_POLICY,
+    require_expired_release: bool = True,
 ) -> ReplayedPortfolioState:
     """Replay ordered events through ``as_of`` without reading any price.
 
@@ -442,6 +443,14 @@ def replay_events_through(
     are intentionally not re-sorted by identifier.  This is the same execution
     state machine used by the current ledger snapshot, exposed so historical
     valuation can supply only that day's close prices.
+
+    ``require_expired_release`` keeps the current snapshot honest: a lapsed
+    reservation must be resolved by a human before the ledger describes today's
+    capital.  A historical valuation replays a prefix of an already validated
+    ledger, where a reservation still awaiting its release is the ordinary state
+    of any moment between expiry and the human's report, so that path passes
+    ``False``.  Total capital is identical either way — a release only moves yen
+    between reserved and available.
     """
 
     available_cash = reserved_cash = confirmed_income = confirmed_cost = confirmed_tax = 0
@@ -588,7 +597,7 @@ def replay_events_through(
                 confirmed_tax += event.amount_yen
 
     expired = sorted(item.reservation_id for item in active.values() if item.expires_at <= as_of)
-    if expired:
+    if expired and require_expired_release:
         raise PortfolioLedgerError(f"expired reservations require an explicit release: {expired}")
     if reserved_cash != sum(
         _yen_notional(
