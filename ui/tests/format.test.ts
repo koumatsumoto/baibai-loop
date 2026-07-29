@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest'
 import {
   EMPTY,
   formatJstDate,
+  formatJstDateShort,
   formatJstDateTime,
   formatJstStamp,
   formatNumber,
   formatPct,
   formatYen,
+  isDateOnly,
 } from '../src/lib/format'
 
 describe('formatJstDateTime', () => {
@@ -41,6 +43,31 @@ describe('formatJstDate', () => {
 
   it('returns a placeholder for a missing date', () => {
     expect(formatJstDate(null)).toBe('日時なし')
+  })
+})
+
+describe('isDateOnly', () => {
+  it('is true for a calendar date', () => {
+    expect(isDateOnly('2026-07-19')).toBe(true)
+  })
+
+  it('is false for anything carrying a time of day', () => {
+    expect(isDateOnly('2026-07-19T12:00:00+09:00')).toBe(false)
+    expect(isDateOnly('2026-07-19T12:00:00')).toBe(false)
+  })
+})
+
+describe('formatJstDateShort', () => {
+  it('drops the year and keeps the weekday', () => {
+    expect(formatJstDateShort('2026-07-19')).toBe('7/19 (日)')
+  })
+
+  it('leaves the month and day unpadded', () => {
+    expect(formatJstDateShort('2026-01-05')).toBe('1/5 (月)')
+  })
+
+  it('reads the date in JST rather than the viewer timezone', () => {
+    expect(formatJstDateShort('2026-12-31')).toBe('12/31 (木)')
   })
 })
 

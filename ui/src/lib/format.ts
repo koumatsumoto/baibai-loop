@@ -6,10 +6,19 @@ export const EMPTY = '—'
 
 const JST = 'Asia/Tokyo'
 
-// Persisted stamps carry an explicit +09:00 offset from the writer. The fallback
-// appends it so an offset-less stamp is still read as JST wall-clock rather than the
-// viewer's local time.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/** True for a calendar date with no time of day, e.g. an as-of or an event date. */
+export function isDateOnly(value: string): boolean {
+  return DATE_ONLY.test(value)
+}
+
+// Persisted stamps carry an explicit +09:00 offset from the writer. A date carries no
+// time at all and means midnight JST; an offset-less stamp is read as JST wall-clock
+// rather than the viewer's local time. Appending an offset to a bare date would build
+// `2026-07-29+09:00`, which is not a parseable ISO string.
 function toInstant(value: string): Date {
+  if (isDateOnly(value)) return new Date(`${value}T00:00:00+09:00`)
   const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
   return new Date(hasZone ? value : `${value}+09:00`)
 }
@@ -58,7 +67,24 @@ const dateFormatter = new Intl.DateTimeFormat('ja-JP', {
 /** JST calendar date with weekday, e.g. `2026年7月19日(日)`. */
 export function formatJstDate(value: string | null): string {
   if (value === null) return '日時なし'
-  return dateFormatter.format(new Date(`${value}T00:00:00+09:00`))
+  return dateFormatter.format(toInstant(value))
+}
+
+const shortDateFormatter = new Intl.DateTimeFormat('ja-JP', {
+  timeZone: JST,
+  month: 'numeric',
+  day: 'numeric',
+  weekday: 'short',
+})
+
+/**
+ * Compact JST calendar date, e.g. `7/19 (日)`. For lists whose own window already
+ * fixes the year — dropping it there costs nothing and keeps the column narrow.
+ */
+export function formatJstDateShort(value: string): string {
+  const parts = shortDateFormatter.formatToParts(toInstant(value))
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  return `${get('month')}/${get('day')} (${get('weekday')})`
 }
 
 const yenFormatter = new Intl.NumberFormat('ja-JP', {
