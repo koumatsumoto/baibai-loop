@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -21,7 +22,7 @@ from baibai_engine.macro.reading.rules import (
 )
 from baibai_engine.macro.reading.rules import load_reading_rules, rules_revision
 
-from .sqlite import connect_read_only
+from .sqlite import connect_read_only, is_unwritten_store, read_rows
 
 type MacroGranularity = Literal["daily", "weekly", "monthly", "yearly"]
 
@@ -36,9 +37,10 @@ def macro_reading_snapshot(
 
     The reading is a pure function of the store, the rules revision and the as-of date,
     so a read-only consumer recomputes it instead of depending on a stored snapshot. A
-    missing store yields None so a consumer can hide the panel. Rules are trusted
-    configuration: read or validation failures propagate and stop materialization,
-    because publishing a fresh generation with the reading silently absent is unsafe.
+    store that has not been written yields None so a consumer can hide the panel.
+    Rules are trusted configuration: read or validation failures propagate and stop
+    materialization, because publishing a fresh generation with the reading silently
+    absent is unsafe.
     """
 
     if not path.is_file():
@@ -57,6 +59,10 @@ def macro_reading_snapshot(
             rules_revision=rules_revision(rules_path),
             asof=asof,
         )
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error):
+            raise
+        return None
     finally:
         connection.close()
     return snapshot_payload(snapshot)
@@ -70,12 +76,9 @@ def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
     record knows immediately, so the health panel reads both.
     """
 
-    if not path.is_file():
-        return []
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(
-            """
+    rows = read_rows(
+        path,
+        """
             SELECT series_id, status, finished_at, record_count, error_message FROM (
                 SELECT series_id, status, finished_at, record_count, error_message,
                        row_number() OVER (
@@ -85,10 +88,8 @@ def macro_series_fetch_health(path: Path) -> list[dict[str, object]]:
             )
             WHERE rank = 1
             ORDER BY series_id
-            """
-        ).fetchall()
-    finally:
-        connection.close()
+            """,
+    )
     registered = _registry_by_id()
     return [
         {
@@ -130,48 +131,34 @@ def macro_registered_series(series_id: str) -> dict[str, str | None] | None:
 
 
 def latest_macro_context_payload(path: Path, *, as_of: date) -> dict[str, object] | None:
-    if not path.is_file():
-        return None
-    connection = connect_read_only(path)
-    try:
-        row = connection.execute(
-            """
-            SELECT payload FROM macro_context
-            WHERE as_of <= ? AND schema_version = ?
-            ORDER BY published_at DESC, as_of DESC, context_id DESC
-            LIMIT 1
-            """,
-            (as_of.isoformat(), MACRO_CONTEXT_SCHEMA_VERSION),
-        ).fetchone()
-    finally:
-        connection.close()
-    if row is None:
-        return None
-    payload = json.loads(str(row[0]))
-    if not isinstance(payload, dict):
-        raise ValueError("macro context payload must be an object")
-    return payload
+    rows = read_rows(
+        path,
+        """
+        SELECT payload FROM macro_context
+        WHERE as_of <= ? AND schema_version = ?
+        ORDER BY published_at DESC, as_of DESC, context_id DESC
+        LIMIT 1
+        """,
+        (as_of.isoformat(), MACRO_CONTEXT_SCHEMA_VERSION),
+    )
+    return _context_payload(rows[0][0]) if rows else None
 
 
 def list_macro_context_payloads(path: Path) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(
-            "SELECT payload FROM macro_context WHERE schema_version = ? "
-            "ORDER BY published_at DESC, as_of DESC, context_id DESC",
-            (MACRO_CONTEXT_SCHEMA_VERSION,),
-        ).fetchall()
-    finally:
-        connection.close()
-    result: list[dict[str, object]] = []
-    for row in rows:
-        payload = json.loads(str(row[0]))
-        if not isinstance(payload, dict):
-            raise ValueError("macro context payload must be an object")
-        result.append(payload)
-    return result
+    rows = read_rows(
+        path,
+        "SELECT payload FROM macro_context WHERE schema_version = ? "
+        "ORDER BY published_at DESC, as_of DESC, context_id DESC",
+        (MACRO_CONTEXT_SCHEMA_VERSION,),
+    )
+    return [_context_payload(row[0]) for row in rows]
+
+
+def _context_payload(raw: object) -> dict[str, object]:
+    payload = json.loads(str(raw))
+    if not isinstance(payload, dict):
+        raise ValueError("macro context payload must be an object")
+    return payload
 
 
 def macro_context_payload(
@@ -180,18 +167,14 @@ def macro_context_payload(
     context_id: str,
     as_of: date,
 ) -> dict[str, object]:
-    if not path.is_file():
-        raise ValueError(f"application database not found: {path}")
-    connection = connect_read_only(path)
-    try:
-        row = connection.execute(
-            "SELECT as_of, payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
-            (context_id, MACRO_CONTEXT_SCHEMA_VERSION),
-        ).fetchone()
-    finally:
-        connection.close()
-    if row is None:
+    rows = read_rows(
+        path,
+        "SELECT as_of, payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
+        (context_id, MACRO_CONTEXT_SCHEMA_VERSION),
+    )
+    if not rows:
         raise ValueError(f"unknown context_id: {context_id}")
+    row = rows[0]
     context_as_of = date.fromisoformat(str(row[0]))
     if context_as_of > as_of:
         raise ValueError(

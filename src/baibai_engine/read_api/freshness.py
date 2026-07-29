@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.macro.indicators.definitions import load_definitions
 
-from .sqlite import connect_read_only
+from .sqlite import read_rows
 
 # Judgment-layer stores are all JST-domain records. Date-only columns
 # (task dates, holding-review as-of) and any timezone-naive value are read at JST
@@ -24,14 +24,10 @@ _JST = ZoneInfo("Asia/Tokyo")
 def screening_latest_asof(path: Path) -> date | None:
     """Return the as-of date of the newest screening run, or None without runs."""
 
-    if not path.is_file():
+    rows = read_rows(path, "SELECT max(asof_date) FROM screening_run")
+    if not rows or rows[0][0] is None:
         return None
-    connection = connect_read_only(path)
-    try:
-        row = connection.execute("SELECT max(asof_date) FROM screening_run").fetchone()
-    finally:
-        connection.close()
-    return None if row[0] is None else date.fromisoformat(str(row[0]))
+    return date.fromisoformat(str(rows[0][0]))
 
 
 def macro_latest_observed_at(path: Path) -> date | None:
@@ -42,9 +38,9 @@ def macro_latest_observed_at(path: Path) -> date | None:
     registered = {series.series_id for series in load_definitions().series}
     if not registered:
         return None
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(
+    rows = read_rows(
+        path,
+        (
             # A retracted date is not an observation any consumer reads, so it must not
             # be what the freshness badge dates the store by. Asking whether a newer
             # retraction exists costs a third of resolving the newest vintage outright,
@@ -55,9 +51,8 @@ def macro_latest_observed_at(path: Path) -> date | None:
             "WHERE r.series_id = o.series_id AND r.observed_at = o.observed_at "
             "AND r.fetch_status = 'retracted' AND r.vintage_at > o.vintage_at"
             ") GROUP BY o.series_id"
-        ).fetchall()
-    finally:
-        connection.close()
+        ),
+    )
     latest = max(
         (str(row[1]) for row in rows if str(row[0]) in registered and row[1] is not None),
         default=None,
@@ -76,12 +71,9 @@ def application_db_updated_at(path: Path) -> datetime | None:
     so timezone-aware timestamps and date-only columns compare in one pass.
     """
 
-    if not path.is_file():
-        return None
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(
-            """
+    rows = read_rows(
+        path,
+        """
             SELECT occurred_at FROM ledger_event
             UNION ALL
             SELECT published_at FROM thesis
@@ -105,10 +97,8 @@ def application_db_updated_at(path: Path) -> datetime | None:
             SELECT started_at FROM operation_session
             UNION ALL
             SELECT completed_at FROM operation_session WHERE completed_at IS NOT NULL
-            """
-        ).fetchall()
-    finally:
-        connection.close()
+            """,
+    )
     return max((_as_jst_instant(str(row[0])) for row in rows), default=None)
 
 

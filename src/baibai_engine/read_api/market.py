@@ -3,28 +3,29 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from .sqlite import connect_read_only
+from .sqlite import connect_read_only, read_rows
 
 
 def market_calendar_business_day(path: Path, day: date) -> bool | None:
     """Return whether ``day`` is a trading day, or None when the calendar has no such row.
 
-    Reads the licensed market calendar read-only. The caller checks for a missing
-    file first (so it can report that distinctly); a sqlite error propagates so a
-    corrupt store is not silently treated as an unknown date.
+    This answer gates whether the daily batch writes at all, so unlike the view
+    readers here it does not degrade: every way of failing to read the calendar
+    raises and reaches the caller as its own diagnosis. An absent file, an
+    unreadable store and an uncovered date each send the operator somewhere
+    different, and collapsing them into "not a trading day" would skip a run that
+    should have been reported as broken.
     """
 
-    connection = connect_read_only(path)
-    try:
+    with closing(connect_read_only(path)) as connection:
         row = connection.execute(
             "SELECT is_business_day FROM jquants_market_calendar WHERE day = ?",
             (day.isoformat(),),
         ).fetchone()
-    finally:
-        connection.close()
     return None if row is None else bool(row[0])
 
 
@@ -36,15 +37,14 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
     Rows whose close is NULL are ignored.
     """
 
-    if not tickers or not path.is_file():
+    if not tickers:
         return {}
     unique = list(dict.fromkeys(tickers))
     placeholders = ",".join("?" for _ in unique)
-    connection = connect_read_only(path)
-    try:
-        # The f-string only expands "?" placeholders; every value is parameter-bound.
-        rows = connection.execute(
-            f"""
+    # The f-string only expands "?" placeholders; every value is parameter-bound.
+    rows = read_rows(
+        path,
+        f"""
             SELECT ticker, traded_at, close FROM (
                 SELECT ticker, traded_at, close,
                        row_number() OVER (
@@ -55,10 +55,8 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
             )
             WHERE rank = 1
             """,  # nosec B608
-            unique,
-        ).fetchall()
-    finally:
-        connection.close()
+        unique,
+    )
     return {str(row[0]): (float(row[2]), date.fromisoformat(str(row[1]))) for row in rows}
 
 
@@ -71,24 +69,21 @@ def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> di
     treat the earnings date as unknown rather than surfacing a stale schedule.
     """
 
-    if not tickers or not path.is_file():
+    if not tickers:
         return {}
     unique = list(dict.fromkeys(tickers))
     placeholders = ",".join("?" for _ in unique)
-    connection = connect_read_only(path)
-    try:
-        # The f-string only expands "?" placeholders; every value is parameter-bound.
-        rows = connection.execute(
-            f"""
+    # The f-string only expands "?" placeholders; every value is parameter-bound.
+    rows = read_rows(
+        path,
+        f"""
             SELECT ticker, MIN(announcement_date) AS next_date
             FROM jquants_earnings_calendar
             WHERE ticker IN ({placeholders}) AND announcement_date >= ?
             GROUP BY ticker
             """,  # nosec B608
-            [*unique, asof.isoformat()],
-        ).fetchall()
-    finally:
-        connection.close()
+        [*unique, asof.isoformat()],
+    )
     result: dict[str, date] = {}
     for row in rows:
         if row[1] is None:

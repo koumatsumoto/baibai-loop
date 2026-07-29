@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .sqlite import connect_read_only
+from .sqlite import read_rows
 
 
 def list_thesis_payloads(
@@ -98,18 +98,13 @@ def _many(
     where: tuple[str, tuple[object, ...]] | None,
     order: str,
 ) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
     clause, parameters = ("", ()) if where is None else (f" WHERE {where[0]}", where[1])
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(
-            # Private callers provide fixed schema fragments; all values stay bound.
-            f"SELECT payload FROM {table}{clause} ORDER BY {order}",  # nosec B608
-            parameters,
-        ).fetchall()
-    finally:
-        connection.close()
+    rows = read_rows(
+        path,
+        # Private callers provide fixed schema fragments; all values stay bound.
+        f"SELECT payload FROM {table}{clause} ORDER BY {order}",  # nosec B608
+        parameters,
+    )
     return [_object(str(row[0])) for row in rows]
 
 
@@ -128,19 +123,14 @@ def _publications(
     where: tuple[str, tuple[object, ...]] | None,
     order: str,
 ) -> list[dict[str, object]]:
-    if not path.is_file():
-        return []
     clause, parameters = ("", ()) if where is None else (f" WHERE {where[0]}", where[1])
     selected = ", ".join((*columns, "payload"))
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(
-            # Private callers provide fixed schema fragments; all values stay bound.
-            f"SELECT {selected} FROM {table}{clause} ORDER BY {order}",  # nosec B608
-            parameters,
-        ).fetchall()
-    finally:
-        connection.close()
+    rows = read_rows(
+        path,
+        # Private callers provide fixed schema fragments; all values stay bound.
+        f"SELECT {selected} FROM {table}{clause} ORDER BY {order}",  # nosec B608
+        parameters,
+    )
     return [
         {**{column: row[column] for column in columns}, "payload": _object(str(row["payload"]))}
         for row in rows

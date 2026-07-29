@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import sqlite3
+from collections.abc import Callable
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
 from baibai_engine.screening.run_store import ScreeningRunReader
 
-from .sqlite import connect_read_only
+from .sqlite import connect_read_only, is_unwritten_store, read_rows
 
 
 def previous_run_revision_id(path: Path, asof: date) -> str | None:
@@ -16,21 +19,21 @@ def previous_run_revision_id(path: Path, asof: date) -> str | None:
     Resolves the ambiguity ``screening select`` raises when the greatest prior
     as-of holds more than one revision: the store's canonical ordering
     (``asof_date``, ``run_at``, ``run_revision_id`` descending) picks one
-    deterministically. A missing store yields None; a sqlite error propagates so
-    a corrupt store is not silently treated as "no previous run".
+    deterministically. This answer feeds a run that is about to be written, so
+    unlike the view readers here it does not degrade: any failure to read the store
+    raises rather than becoming "no previous run", which would publish a run whose
+    drift comparison is silently missing. A missing file is still None — the first
+    run of a fresh store legitimately has no predecessor.
     """
 
     if not path.is_file():
         return None
-    connection = connect_read_only(path)
-    try:
+    with closing(connect_read_only(path)) as connection:
         row = connection.execute(
             "SELECT run_revision_id FROM screening_run WHERE asof_date < ? "
             "ORDER BY asof_date DESC, run_at DESC, run_revision_id DESC LIMIT 1",
             (asof.isoformat(),),
         ).fetchone()
-    finally:
-        connection.close()
     return None if row is None else str(row[0])
 
 
@@ -46,25 +49,22 @@ def screening_run_payload(
     if run_revision_id is not None and as_of_date is not None:
         raise ValueError("run_revision_id and as_of_date are mutually exclusive")
     if run_revision_id is not None:
-        run = reader.get_run(run_revision_id)
+        run = _absent_as_none(lambda: reader.get_run(run_revision_id))
     elif as_of_date is not None:
-        connection = connect_read_only(path)
-        try:
-            row = connection.execute(
-                """
-                SELECT run_revision_id
-                FROM screening_run
-                WHERE asof_date = ?
-                ORDER BY run_at DESC, run_revision_id DESC
-                LIMIT 1
-                """,
-                (as_of_date.isoformat(),),
-            ).fetchone()
-        finally:
-            connection.close()
-        run = None if row is None else reader.get_run(str(row[0]))
+        rows = read_rows(
+            path,
+            """
+            SELECT run_revision_id
+            FROM screening_run
+            WHERE asof_date = ?
+            ORDER BY run_at DESC, run_revision_id DESC
+            LIMIT 1
+            """,
+            (as_of_date.isoformat(),),
+        )
+        run = _absent_as_none(lambda: reader.get_run(str(rows[0][0]))) if rows else None
     else:
-        run = reader.latest_run()
+        run = _absent_as_none(lambda: reader.latest_run())
     return None if run is None else _run_payload(run)
 
 
@@ -73,21 +73,16 @@ def screening_run_asof_dates(path: Path, *, limit: int = 31) -> list[date]:
 
     if limit < 1:
         raise ValueError("limit must be positive")
-    if not path.is_file():
-        return []
-    connection = connect_read_only(path)
-    try:
-        rows = connection.execute(
-            """
-            SELECT DISTINCT asof_date
-            FROM screening_run
-            ORDER BY asof_date DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-    finally:
-        connection.close()
+    rows = read_rows(
+        path,
+        """
+        SELECT DISTINCT asof_date
+        FROM screening_run
+        ORDER BY asof_date DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
     return [date.fromisoformat(str(row[0])) for row in rows]
 
 
@@ -96,7 +91,10 @@ def screening_selection_payloads(
     *,
     run_revision_id: str | None = None,
 ) -> list[dict[str, object]]:
-    if not path.is_file():
+    selections = _absent_as_none(
+        lambda: ScreeningRunReader(path).list_selections(run_revision_id=run_revision_id)
+    )
+    if selections is None:
         return []
     return [
         {
@@ -111,8 +109,19 @@ def screening_selection_payloads(
             "payload": item.payload,
             "entries": list(item.entries),
         }
-        for item in ScreeningRunReader(path).list_selections(run_revision_id=run_revision_id)
+        for item in selections
     ]
+
+
+def _absent_as_none[T](read: Callable[[], T]) -> T | None:
+    """Read the run store, treating a store the writer has not created as no rows."""
+
+    try:
+        return read()
+    except sqlite3.OperationalError as error:
+        if not is_unwritten_store(error):
+            raise
+        return None
 
 
 def _run_payload(run: object) -> dict[str, object]:
