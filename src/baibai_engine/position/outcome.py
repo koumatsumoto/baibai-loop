@@ -283,10 +283,6 @@ def _unresolved(benchmark: BenchmarkObservation, reason: str) -> PortfolioOutcom
     )
 
 
-def _tokyo_date(instant: datetime) -> date:
-    return instant.astimezone(_TOKYO).date()
-
-
 def _effective_date(instant: datetime, business_days: tuple[date, ...]) -> date | None:
     local = instant.astimezone(_TOKYO)
     event_day = local.date()
