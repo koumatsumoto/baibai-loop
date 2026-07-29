@@ -11,11 +11,12 @@ import type {
   SystemView,
   WorkflowRunSummaryView,
 } from '../api/types'
-import { AppShell } from '../components/AppShell'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
+import { SectionCard } from '../components/SectionCard'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { Card, CardContent } from '../components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDate, formatJstDateTime } from '../lib/format'
 import { ACTIONS_URL } from '../lib/nav'
@@ -145,17 +146,13 @@ function BatchRow({ batch }: { batch: RunBatchView }) {
 
 function NoRunCard({ reason }: { reason: string }) {
   return (
-    <Card className="gap-3 py-5 shadow-sm">
-      <CardHeader className="px-5">
-        <CardTitle className="text-base">直近の日次バッチ</CardTitle>
-        <CardDescription>{reason}</CardDescription>
-      </CardHeader>
-      <CardContent className="px-5">
+    <SectionCard description={reason} title="直近の日次バッチ">
+      <CardContent className="py-4">
         <Button asChild size="sm" variant="outline">
           <a href={ACTIONS_URL} rel="noreferrer noopener" target="_blank"><ExternalLink />GitHub Actions で確認</a>
         </Button>
       </CardContent>
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -172,17 +169,16 @@ function LatestRunCard({ run }: { run: WorkflowRunSummaryView | null }) {
   const elapsed = elapsedLabel(run.finished_at)
 
   return (
-    <Card className="gap-3 py-5 shadow-sm">
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 px-5">
-        <div>
-          <CardTitle className="text-base">直近の日次バッチ</CardTitle>
-          <CardDescription className="mt-1">{run.workflow} · {run.trigger} · attempt {run.run_attempt}</CardDescription>
-        </div>
+    <SectionCard
+      description={`${run.workflow} · ${run.trigger} · attempt ${run.run_attempt}`}
+      meta={(
         <Badge className={cn('text-xs', outcomeTone(run.overall_outcome))} variant="outline">
           {OUTCOME_LABEL[run.overall_outcome] ?? run.overall_outcome}
         </Badge>
-      </CardHeader>
-      <CardContent className="grid gap-4 px-5">
+      )}
+      title="直近の日次バッチ"
+    >
+      <CardContent className="grid gap-4 py-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-5">
           <DetailRow label="run 終了">
             {formatJstDateTime(run.finished_at)}
@@ -214,19 +210,13 @@ function LatestRunCard({ run }: { run: WorkflowRunSummaryView | null }) {
           <a href={run.run_url} rel="noreferrer noopener" target="_blank"><ExternalLink />この run の log を開く</a>
         </Button>
       </CardContent>
-    </Card>
+    </SectionCard>
   )
 }
 
 function StoresCard({ data }: { data: SystemView }) {
   return (
-    <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-      <CardHeader className="border-b px-5 py-5 sm:px-6">
-        <CardTitle className="text-base">store の鮮度と規模</CardTitle>
-        <CardDescription className="mt-1">
-          日付は store が持つ最新データ、件数は代表テーブルの行数
-        </CardDescription>
-      </CardHeader>
+    <SectionCard description="日付は store が持つ最新データ、件数は代表テーブルの行数" title="store の鮮度と規模">
       <div className="overflow-x-auto">
         <Table className="min-w-[560px] text-sm">
           <TableHeader className="bg-muted/60">
@@ -260,7 +250,7 @@ function StoresCard({ data }: { data: SystemView }) {
           </TableBody>
         </Table>
       </div>
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -269,18 +259,11 @@ function ProvidersCard({ data }: { data: SystemView }) {
   const neverAttempted = data.never_attempted_series ?? []
   const unhealthy = failing.length + neverAttempted.length
   return (
-    <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b px-5 py-5 sm:px-6">
-        <div>
-          <CardTitle className="text-base">provider 取得の健全性</CardTitle>
-          <CardDescription className="mt-1">
-            直近の取得が失敗したままの系列。ローカル実行の記録も同じ store に入る
-          </CardDescription>
-        </div>
-        <Badge variant={unhealthy === 0 ? 'secondary' : 'destructive'}>
-          {unhealthy} / {data.provider_series_total} 系列
-        </Badge>
-      </CardHeader>
+    <SectionCard
+      description="直近の取得が失敗したままの系列。ローカル実行の記録も同じ store に入る"
+      meta={<Badge variant={unhealthy === 0 ? 'secondary' : 'destructive'}>{unhealthy} / {data.provider_series_total} 系列</Badge>}
+      title="provider 取得の健全性"
+    >
       {unhealthy === 0 ? (
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
           全 {data.provider_series_total} 系列の直近取得が成功しています。
@@ -331,7 +314,7 @@ function ProvidersCard({ data }: { data: SystemView }) {
           )}
         </div>
       )}
-    </Card>
+    </SectionCard>
   )
 }
 
@@ -359,39 +342,31 @@ export function SystemPage() {
   if (loading) return <LoadingPage label="システム状態を読み込んでいます" />
 
   return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid max-w-[1200px] gap-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">システム状態</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              判断材料ではなく、パイプラインが動いているかどうか
-            </p>
-          </div>
-          {data !== null && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>store 状態の生成</span>
-              <span className="font-mono tabular-nums">{formatJstDateTime(data.generated_at)}</span>
-              {data.batch !== null && <Badge variant="secondary">{BATCH_KIND_LABEL[data.batch] ?? data.batch}</Badge>}
-            </div>
-          )}
-        </header>
-
-        <LatestRunCard run={run} />
-        {data === null ? (
-          <Card className="border-dashed shadow-none">
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              store の状態はまだ配信されていません。deploy 直後は materialize が走るまでこの状態になります。
-            </CardContent>
-          </Card>
-        ) : (
-          <>
-            <StoresCard data={data} />
-            <ProvidersCard data={data} />
-          </>
-        )}
-      </main>
-    </>
+    <PageShell
+      lead="判断材料ではなく、パイプラインが動いているかどうか"
+      meta={data !== null && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>store 状態の生成</span>
+          <span className="font-mono tabular-nums">{formatJstDateTime(data.generated_at)}</span>
+          {data.batch !== null && <Badge variant="secondary">{BATCH_KIND_LABEL[data.batch] ?? data.batch}</Badge>}
+        </div>
+      )}
+      title="システム状態"
+      width="narrow"
+    >
+      <LatestRunCard run={run} />
+      {data === null ? (
+        <Card className="border-dashed shadow-none">
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            store の状態はまだ配信されていません。deploy 直後は materialize が走るまでこの状態になります。
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <StoresCard data={data} />
+          <ProvidersCard data={data} />
+        </>
+      )}
+    </PageShell>
   )
 }

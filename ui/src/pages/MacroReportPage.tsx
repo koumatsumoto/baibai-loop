@@ -4,8 +4,8 @@ import { ArrowLeft, CircleAlert } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
 import type { MacroConnectionSectionView, MacroContextView, MacroCoreSectionView, MacroScenarioView, MacroSeriesReferenceView, MacroSynthesisView } from '../api/types'
-import { AppShell } from '../components/AppShell'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { StaleBadge } from '../components/StaleBadge'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
@@ -258,13 +258,17 @@ export function MacroReportPage() {
   const connection = data.connection
 
   return (
-    <><AppShell /><main className="mx-auto grid max-w-[1600px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
-      <div>
-        <Button asChild size="sm" variant="ghost"><Link to="/macro"><ArrowLeft />Macro に戻る</Link></Button>
-      </div>
+    // The page is named for what it is; the summary is data and stays in the card, where
+    // a long sentence reads as a sentence rather than as a heading.
+    <PageShell
+      above={<div><Button asChild size="sm" variant="ghost"><Link to="/macro"><ArrowLeft />Macro に戻る</Link></Button></div>}
+      meta={data.stale ? <StaleBadge /> : undefined}
+      title="マクロ環境レポート"
+      width="medium"
+    >
       <Card className="shadow-sm">
-        <CardHeader className="border-b">
-          <div className="flex flex-wrap items-center gap-2"><CardTitle>{data.summary}</CardTitle>{data.stale && <StaleBadge />}</div>
+        <CardHeader>
+          <CardTitle>{data.summary}</CardTitle>
           <CardDescription>{data.context_id} · {LABEL.asOf} {data.as_of}（{data.age_days} 日前） · {LABEL.published} {formatJstDateTime(data.published_at)}</CardDescription>
         </CardHeader>
       </Card>
@@ -272,6 +276,6 @@ export function MacroReportPage() {
       {data.synthesis && <SynthesisSection synthesis={data.synthesis} />}
       {core.map((section) => <CoreSection key={section.section_id} section={section} />)}
       {connection && <ConnectionSection section={connection} />}
-    </main></>
+    </PageShell>
   )
 }

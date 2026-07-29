@@ -11,8 +11,9 @@ import type {
   ScreeningRunView,
   ScreeningView,
 } from '../api/types'
-import { AppShell } from '../components/AppShell'
+import { AsOfBadge } from '../components/AsOfBadge'
 import { LoadingPage } from '../components/LoadingIndicator'
+import { PageShell } from '../components/PageShell'
 import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { PortfolioStateBadge } from '../components/PortfolioStateBadge'
@@ -277,47 +278,37 @@ export function StocksPage() {
   const visibleRows = showAll ? rows : rows.slice(0, 500)
 
   return (
-    <>
-      <AppShell />
-      <main className="mx-auto grid max-w-[1600px] gap-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Stocks</h1>
-          <div className="flex flex-col items-start gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm lg:items-end">
-            {data.run.stale && <StaleBadge detail={`${LABEL.asOf} ${data.run.asof_date}（7 日超）`} />}
-            <dl className="grid grid-cols-3 gap-x-6 gap-y-2">
-              {[
-                [LABEL.asOf, data.run.asof_date],
-                ['対象銘柄', data.run.universe_size.toLocaleString('ja-JP')],
-                ['Candidates', data.run.candidate_count.toLocaleString('ja-JP')],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <dt className="text-[10px] font-semibold tracking-wide text-muted-foreground">{label}</dt>
-                  <dd className="mt-1 font-mono text-sm font-medium tabular-nums">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </header>
+    <PageShell
+      meta={(
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground tabular-nums">
+          {data.run.stale && <StaleBadge detail={`${LABEL.asOf} ${data.run.asof_date}（7 日超）`} />}
+          <AsOfBadge value={data.run.asof_date} />
+          <span>対象銘柄 {data.run.universe_size.toLocaleString('ja-JP')}</span>
+          <span>Candidates {data.run.candidate_count.toLocaleString('ja-JP')}</span>
+        </div>
+      )}
+      title="Stocks"
+    >
+      <section className="grid gap-3">
+        <h2 className="text-xl font-semibold tracking-tight">割安機会評価</h2>
+        <AssessmentIndex assessments={data.assessments} />
+      </section>
 
-        <section className="grid gap-3">
-          <h2 className="text-xl font-semibold tracking-tight">割安機会評価</h2>
-          <AssessmentIndex assessments={data.assessments} />
-        </section>
+      <section className="grid gap-3">
+        <h2 className="text-xl font-semibold tracking-tight">リサーチ候補選定</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="gap-3 py-5 shadow-sm">
+            <CardHeader className="px-5"><CardTitle className="text-base">Shortlist</CardTitle><CardDescription>OP3 gate で選んだ深掘り候補</CardDescription></CardHeader>
+            <CardContent className="grid gap-3 px-5">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">Shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">選定 {selectedCount} 件・見送り {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/stocks/shortlist">Shortlist の詳細を見る →</Link></Button></CardContent>
+          </Card>
+          <Card className="gap-3 py-5 shadow-sm">
+            <CardHeader className="px-5"><CardTitle className="text-base">Longlist</CardTitle><CardDescription>E[r] ranking による OP3 レビューの入力母集団</CardDescription></CardHeader>
+            <CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">Longlist はありません</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.longlist.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div><p className="mt-2 text-xs text-muted-foreground">{selection.longlist.length} 件</p></div>)}</CardContent>
+          </Card>
+        </div>
+      </section>
 
-        <section className="grid gap-3">
-          <h2 className="text-xl font-semibold tracking-tight">リサーチ候補選定</h2>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card className="gap-3 py-5 shadow-sm">
-              <CardHeader className="px-5"><CardTitle className="text-base">Shortlist</CardTitle><CardDescription>OP3 gate で選んだ深掘り候補</CardDescription></CardHeader>
-              <CardContent className="grid gap-3 px-5">{data.shortlists.length === 0 ? <p className="text-sm font-medium text-warning">Shortlist 未作成</p> : data.shortlists.map((shortlist) => { const selectedCount = shortlist.entries.filter((entry) => entry.decision === 'selected').length; return <div className="rounded-lg border p-3" key={shortlist.shortlist_id}><p className="mb-2 font-mono text-xs text-muted-foreground">{shortlist.shortlist_id}</p><div className="mb-3 flex flex-wrap gap-1.5">{shortlist.entries.filter((entry) => entry.decision === 'selected').map((entry) => <Link key={entry.ticker} to={`/securities/${entry.ticker}`}><Badge>{entry.ticker}</Badge></Link>)}</div><p className="text-xs text-muted-foreground">選定 {selectedCount} 件・見送り {shortlist.entries.length - selectedCount} 件</p></div> })}<Button asChild className="w-full" size="sm" variant="outline"><Link to="/stocks/shortlist">Shortlist の詳細を見る →</Link></Button></CardContent>
-            </Card>
-            <Card className="gap-3 py-5 shadow-sm">
-              <CardHeader className="px-5"><CardTitle className="text-base">Longlist</CardTitle><CardDescription>E[r] ranking による OP3 レビューの入力母集団</CardDescription></CardHeader>
-              <CardContent className="grid gap-3 px-5">{data.selections.length === 0 ? <p className="text-sm text-muted-foreground">Longlist はありません</p> : data.selections.map((selection) => <div className="rounded-lg border p-3" key={selection.selection_id}><div className="mb-2 flex flex-wrap gap-2"><Badge>{selection.profile}</Badge><span className="font-mono text-xs text-muted-foreground">{selection.selection_id}</span></div><div className="flex flex-wrap gap-2">{selection.longlist.map((item, index) => <Badge key={String(item.ticker ?? index)} variant="secondary">{String(item.ticker ?? 'unknown')}</Badge>)}</div><p className="mt-2 text-xs text-muted-foreground">{selection.longlist.length} 件</p></div>)}</CardContent>
-            </Card>
-          </div>
-        </section>
-
+      <section className="grid gap-3">
         <h2 className="text-xl font-semibold tracking-tight">Candidates</h2>
         <Card className="gap-4 py-5 shadow-sm">
           <CardContent className="grid items-end gap-3 px-5 sm:grid-cols-2 sm:px-6 lg:grid-cols-[1fr_1.4fr_1.1fr_repeat(3,minmax(96px,.55fr))]">
@@ -437,7 +428,7 @@ export function StocksPage() {
         {!showAll && rows.length > 500 && (
           <Button className="mx-auto" onClick={() => setShowAll(true)} type="button" variant="outline">全 {rows.length.toLocaleString('ja-JP')} 件を表示</Button>
         )}
-      </main>
-    </>
+      </section>
+    </PageShell>
   )
 }
