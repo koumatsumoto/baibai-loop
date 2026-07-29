@@ -64,6 +64,7 @@ from baibai_engine.position.ledger import (
     WithdrawalEvent,
     reconcile_portfolio,
     replay_events_through,
+    require_resolved_expiries,
     snapshot_to_payload,
 )
 from baibai_engine.position.outcome import compute_portfolio_outcome, outcome_to_payload
@@ -498,6 +499,12 @@ def _run_outcome(
         return 2
     try:
         ledger = LedgerStoreService(db_path).load()
+        # An outcome is written once and never corrected, so it must not be derived
+        # from a ledger the current snapshot would refuse. Historical valuation
+        # tolerates a reservation still awaiting its release while replaying a prefix;
+        # that tolerance must not extend to publishing from a ledger whose end state a
+        # human has yet to resolve.
+        require_resolved_expiries(replay_events_through(ledger.events, ledger.as_of))
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

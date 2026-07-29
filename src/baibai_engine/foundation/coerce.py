@@ -104,16 +104,3 @@ def date_from_datetime_prefix(value: object) -> date | None:
         return datetime.fromisoformat(value).date()
     except ValueError:
         return parse_iso_date(value)
-
-
-def parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def list_or_empty(value: object) -> list[object]:
-    return value if isinstance(value, list) else []

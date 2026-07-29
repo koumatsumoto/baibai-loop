@@ -144,9 +144,10 @@ def compute_portfolio_outcome(
             for event, effective_day in zip(ledger.events, effective_event_dates, strict=True)
             if effective_day is not None and effective_day <= valuation_day
         )
-        state = replay_events_through(
-            selected, _close_instant(valuation_day), require_expired_release=False
-        )
+        # No expiry check here: this prefix ends wherever the valuation day falls, so a
+        # reservation lapsing that session with its release reported that evening is the
+        # ordinary shape of the ledger at this instant, not a ledger awaiting a human.
+        state = replay_events_through(selected, _close_instant(valuation_day))
         prices: dict[str, MarketPrice] = {}
         for ticker, lots in state.lots.items():
             if not any(lot.quantity > 0 for lot in lots):

@@ -20,12 +20,7 @@ from baibai_engine.position.ledger import PortfolioSnapshot
 from baibai_engine.position.policy import PORTFOLIO_POLICY
 
 from .close_source import resolve_holding_close_on_basis
-
-
-def _decimal_to_number(value: Decimal) -> float | int:
-    if value == value.to_integral_value():
-        return int(value)
-    return float(value)
+from .decimal_number import decimal_to_number
 
 
 def portfolio_annotations(snapshot: PortfolioSnapshot, *, ticker: str) -> list[str]:
@@ -39,7 +34,7 @@ def portfolio_annotations(snapshot: PortfolioSnapshot, *, ticker: str) -> list[s
     return annotations
 
 
-def portfolio_warnings(
+def planned_order_cash_warnings(
     snapshot: PortfolioSnapshot, *, notional_yen: Decimal, total_capital_yen: int
 ) -> list[str]:
     # Cash / dry powder shortfalls are human-decision warnings only; they never
@@ -143,7 +138,7 @@ def portfolio_exposure(
             "current_and_reserved_yen": current_yen,
             "prospective_yen": prospective_yen,
             "prospective_pct": float(prospective_pct),
-            "warning_pct": _decimal_to_number(warning_pct),
+            "warning_pct": decimal_to_number(warning_pct),
         }
 
     ticker_current_yen = current_exposure(scope="ticker", key=ticker)
@@ -210,7 +205,7 @@ def portfolio_exposure(
 
 
 __all__ = [
+    "planned_order_cash_warnings",
     "portfolio_annotations",
     "portfolio_exposure",
-    "portfolio_warnings",
 ]

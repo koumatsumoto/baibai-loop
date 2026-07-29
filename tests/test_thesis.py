@@ -105,7 +105,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "88b7d6c21b7fd2578709ba1c52fa7472717240455d0e75cc2008444470b1131b"
+        result.thesis_sha256 == "e3d49503aa054e7b012be18a26a5da32ceaa45ae8cba7666cf02de8848d71427"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -18,7 +17,7 @@ from .thesis import (
 )
 
 
-def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="baibai-engine research evaluate")
     parser.add_argument("thesis", type=Path)
     args = parser.parse_args(argv)

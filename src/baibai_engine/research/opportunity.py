@@ -45,11 +45,12 @@ from .close_source import (
     PreviousClose,
     resolve_previous_business_day_close,
 )
+from .decimal_number import decimal_to_number
 from .execution_policy import ExecutionPolicyError, max_acceptable_price
 from .portfolio_exposure import (
+    planned_order_cash_warnings,
     portfolio_annotations,
     portfolio_exposure,
-    portfolio_warnings,
 )
 from .store import ResearchConflictError, ResearchStoreService, ResearchValidationError
 from .thesis import (
@@ -1263,7 +1264,7 @@ def plan_limit(
         "price_basis": "last_close_unadjusted",
         "source_ref": f"{sqlite_path.as_posix()}:jquants_daily_bars",
         "close_yen": price.close_yen if price is not None else None,
-        "max_acceptable_price_yen": _decimal_to_number(max_price),
+        "max_acceptable_price_yen": decimal_to_number(max_price),
         "board_lot": BOARD_LOT,
         "budget_min_yen": budget_min_yen,
         "budget_max_yen": budget_max_yen,
@@ -1309,7 +1310,7 @@ def plan_limit(
         order_notional_yen=int(notional),
     )
     warnings.extend(
-        portfolio_warnings(
+        planned_order_cash_warnings(
             snapshot,
             notional_yen=notional,
             total_capital_yen=exposure_total_capital_yen,
@@ -1319,7 +1320,7 @@ def plan_limit(
     return {
         "status": "planned_limit",
         **base_output,
-        "limit_price_yen": _decimal_to_number(close_decimal),
+        "limit_price_yen": decimal_to_number(close_decimal),
         "quantity": quantity,
         "notional_yen": int(notional),
         "portfolio_exposure": exposure,
@@ -1413,12 +1414,6 @@ def _parse_date(value: str, *, label: str) -> date:
         return date.fromisoformat(value)
     except ValueError as error:
         raise OpportunityDataError(f"invalid {label}: {value}") from error
-
-
-def _decimal_to_number(value: Decimal) -> float | int:
-    if value == value.to_integral_value():
-        return int(value)
-    return float(value)
 
 
 __all__ = [

@@ -435,7 +435,6 @@ def replay_events_through(
     as_of: datetime,
     *,
     policy: PolicyConfig = PORTFOLIO_POLICY,
-    require_expired_release: bool = True,
 ) -> ReplayedPortfolioState:
     """Replay ordered events through ``as_of`` without reading any price.
 
@@ -444,13 +443,11 @@ def replay_events_through(
     state machine used by the current ledger snapshot, exposed so historical
     valuation can supply only that day's close prices.
 
-    ``require_expired_release`` keeps the current snapshot honest: a lapsed
-    reservation must be resolved by a human before the ledger describes today's
-    capital.  A historical valuation replays a prefix of an already validated
-    ledger, where a reservation still awaiting its release is the ordinary state
-    of any moment between expiry and the human's report, so that path passes
-    ``False``.  Total capital is identical either way — a release only moves yen
-    between reserved and available.
+    What this enforces are the ledger's own arithmetic invariants — identifiers,
+    board lots, price guards, FIFO, cash sufficiency, reserved-cash reconciliation.
+    Whether a lapsed reservation still awaiting its release is acceptable depends
+    on what the caller is describing, not on the events, so that question lives
+    with the caller: see ``require_resolved_expiries``.
     """
 
     available_cash = reserved_cash = confirmed_income = confirmed_cost = confirmed_tax = 0
@@ -596,9 +593,6 @@ def replay_events_through(
                 available_cash -= event.amount_yen
                 confirmed_tax += event.amount_yen
 
-    expired = sorted(item.reservation_id for item in active.values() if item.expires_at <= as_of)
-    if expired and require_expired_release:
-        raise PortfolioLedgerError(f"expired reservations require an explicit release: {expired}")
     if reserved_cash != sum(
         _yen_notional(
             item.remaining_quantity, item.price_guard_yen, field="active reservation notional"
@@ -617,6 +611,26 @@ def replay_events_through(
         lots=lots,
         metadata=metadata,
     )
+
+
+def require_resolved_expiries(state: ReplayedPortfolioState) -> None:
+    """Reject a state that still owes a human's report on a lapsed reservation.
+
+    This is a claim about the ledger being current, not about the events being
+    well-formed: a reservation whose ``expires_at`` has passed with no release is
+    exactly what the ledger looks like between the lapse and the evening the human
+    reports it. A snapshot that says "this is the capital right now" must not be
+    built from that gap, so ``reconcile_portfolio`` calls this. A historical
+    valuation replaying a prefix legitimately passes through the gap and does not.
+    """
+
+    expired = sorted(
+        item.reservation_id
+        for item in state.active_reservations.values()
+        if item.expires_at <= state.as_of
+    )
+    if expired:
+        raise PortfolioLedgerError(f"expired reservations require an explicit release: {expired}")
 
 
 def value_replayed_state(
@@ -682,6 +696,7 @@ def reconcile_portfolio(
     """
 
     state = replay_events_through(document.events, document.as_of, policy=policy)
+    require_resolved_expiries(state)
     valuation_policy = _policy_mapping(policy, "valuation")
     max_price_age_days = _policy_positive_int(valuation_policy, "market_price_max_age_days")
     for price in document.market_prices:

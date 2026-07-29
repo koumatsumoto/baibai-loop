@@ -23,9 +23,9 @@ from baibai_engine.research.close_source import resolve_previous_business_day_cl
 from baibai_engine.research.execution_policy import ExecutionPolicyError, max_acceptable_price
 from baibai_engine.research.opportunity import BOARD_LOT, PLANNING_TICK_SIZE_YEN
 from baibai_engine.research.portfolio_exposure import (
+    planned_order_cash_warnings,
     portfolio_annotations,
     portfolio_exposure,
-    portfolio_warnings,
 )
 from baibai_engine.research.thesis import (
     IndependentReview,
@@ -519,7 +519,7 @@ def _validate_planned_limit(
         market_connection=market_connection,
     )
     expected_warnings.extend(
-        portfolio_warnings(
+        planned_order_cash_warnings(
             snapshot,
             notional_yen=expected_notional,
             total_capital_yen=total_capital,

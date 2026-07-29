@@ -398,7 +398,6 @@ class EstimatesNamespace(BaseModel):
     fair_value_source_ids: Annotated[
         tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)
     ]
-    deep_discount_bps: Annotated[int, Field(ge=0, le=9_999)] | None
     scenarios: tuple[ScenarioEstimate, ...]
     screening_fv_bridge: ScreeningFVBridge | None = None
 

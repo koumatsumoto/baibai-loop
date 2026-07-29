@@ -313,8 +313,10 @@ export function ShortlistPage() {
       </div>
 
       {/* Selecting nothing is a conclusion, not an empty page. Saying so keeps the
-          reader from reading the missing comparison table as a load failure. */}
-      {comparison.length === 0 && (
+          reader from reading the missing comparison table as a load failure — but only
+          when every entry was readable, since an unreadable selected entry empties the
+          same table without anyone having concluded anything. */}
+      {comparison.length === 0 && shortlist.unreadable_entries === 0 && (
         <SectionCard
           description="longlist を review したが、一次リサーチの枠を使う価値のある候補が無かったサイクル。銘柄ごとの見送り理由は下表に残る。"
           padded

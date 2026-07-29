@@ -71,35 +71,40 @@ def application_db_updated_at(path: Path) -> datetime | None:
     so timezone-aware timestamps and date-only columns compare in one pass.
     """
 
-    rows = read_rows(
-        path,
-        """
-            SELECT occurred_at FROM ledger_event
-            UNION ALL
-            SELECT published_at FROM thesis
-            UNION ALL
-            SELECT reviewed_at FROM thesis_review
-            UNION ALL
-            SELECT as_of FROM holding_review
-            UNION ALL
-            SELECT published_at FROM macro_context
-            UNION ALL
-            SELECT published_at FROM shortlist
-            UNION ALL
-            SELECT created_at FROM proposal
-            UNION ALL
-            SELECT decided_at FROM proposal WHERE decided_at IS NOT NULL
-            UNION ALL
-            SELECT created_at FROM task
-            UNION ALL
-            SELECT closed_at FROM task WHERE closed_at IS NOT NULL
-            UNION ALL
-            SELECT started_at FROM operation_session
-            UNION ALL
-            SELECT completed_at FROM operation_session WHERE completed_at IS NOT NULL
-            """,
-    )
-    return max((_as_jst_instant(str(row[0])) for row in rows), default=None)
+    # One query per source, not one UNION: a store older than this code is missing a
+    # table, and that is exactly the case this value is asked about. Reading each source
+    # on its own keeps the answer the newest write the store can actually show, instead
+    # of blanking the freshness badge because one table has yet to be migrated in.
+    latest: datetime | None = None
+    for table, column in _WRITE_INSTANT_COLUMNS:
+        rows = read_rows(
+            path,
+            # Fixed pairs from the tuple below; no caller input reaches this string.
+            f"SELECT max({column}) FROM {table}",  # nosec B608
+        )
+        if not rows or rows[0][0] is None:
+            continue
+        instant = _as_jst_instant(str(rows[0][0]))
+        latest = instant if latest is None else max(latest, instant)
+    return latest
+
+
+# Every judgment-layer write instant, as (table, column). Nullable decision timestamps
+# are read through max(), which ignores NULL, so they contribute only once set.
+_WRITE_INSTANT_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("ledger_event", "occurred_at"),
+    ("thesis", "published_at"),
+    ("thesis_review", "reviewed_at"),
+    ("holding_review", "as_of"),
+    ("macro_context", "published_at"),
+    ("shortlist", "published_at"),
+    ("proposal", "created_at"),
+    ("proposal", "decided_at"),
+    ("task", "created_at"),
+    ("task", "closed_at"),
+    ("operation_session", "started_at"),
+    ("operation_session", "completed_at"),
+)
 
 
 def _as_jst_instant(value: str) -> datetime:

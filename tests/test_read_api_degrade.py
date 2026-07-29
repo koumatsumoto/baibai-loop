@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
+import re
 import sqlite3
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 import baibai_engine.read_api as read_api
+from baibai_engine.appdb.write import initialize_database
+from baibai_engine.macro.indicators.db import initialize_database as initialize_macro_database
+from baibai_engine.market.sqlite.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.read_api.sqlite import read_rows
+from baibai_engine.screening.run_store import initialize_run_store
 
 # ``load_portfolio_ledger`` / ``load_thesis`` parse a YAML path, not a store.
 _NOT_STORE_READERS = frozenset({"load_portfolio_ledger", "load_thesis"})
@@ -74,19 +81,24 @@ def test_the_sweep_covers_every_store_reader() -> None:
     assert "portfolio_ledger_document" in covered
 
 
-def test_no_store_reader_raises_when_the_writer_has_not_run(tmp_path: Path) -> None:
-    empty = tmp_path / "empty.sqlite"
-    sqlite3.connect(empty).close()
+@pytest.mark.parametrize("store", ["absent-file", "empty-file"])
+def test_no_store_reader_raises_when_the_writer_has_not_run(tmp_path: Path, store: str) -> None:
+    """Both shapes of "not written here" must read the same: an absent file and a
+    file the migrations never touched. Only exercising one lets the other regress."""
+
+    path = tmp_path / f"{store}.sqlite"
+    if store == "empty-file":
+        sqlite3.connect(path).close()
 
     leaked: list[str] = []
     for name, function, arguments in _store_readers():
-        call = {key: (empty if value is None else value) for key, value in arguments.items()}
+        call = {key: (path if value is None else value) for key, value in arguments.items()}
         try:
             function(**call)
         except sqlite3.OperationalError as error:
             leaked.append(f"{name}: {error}")
         except ValueError:
-            assert name in _RAISES_FOR_UNKNOWN_ID, f"{name} raised for an empty store"
+            assert name in _RAISES_FOR_UNKNOWN_ID, f"{name} raised for an unwritten store"
 
     assert leaked == []
 
@@ -103,6 +115,60 @@ def test_the_daily_batch_gates_report_an_unwritten_store_instead_of_degrading(
         read_api.market_calendar_business_day(empty, date(2026, 7, 29))
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         read_api.previous_run_revision_id(empty, date(2026, 7, 29))
+
+
+def _tables_named_in_read_api_sql() -> set[str]:
+    """Every table read_api's own SQL names, taken from the source rather than a list."""
+
+    package = Path(read_api.__file__).parent
+    tables: set[str] = set()
+    for module in sorted(package.glob("*.py")):
+        for node in ast.walk(ast.parse(module.read_text())):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            if not re.search(r"\bSELECT\b", node.value, re.IGNORECASE):
+                continue
+            tables.update(
+                match.group(1)
+                for match in re.finditer(
+                    r"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)", node.value, re.IGNORECASE
+                )
+            )
+    return tables
+
+
+def test_every_table_read_api_reads_exists_in_a_migrated_store(tmp_path: Path) -> None:
+    """The degrade rule reads a missing table as "not written yet", so a table renamed
+    by a migration without its reader would turn into a permanently empty view instead
+    of an error. Pin the reader-to-schema correspondence the degrade cannot check."""
+
+    def table_names(path: Path) -> set[str]:
+        with closing(sqlite3.connect(path)) as connection:
+            rows = connection.execute("SELECT name FROM sqlite_schema WHERE type='table'")
+            return {str(row[0]) for row in rows}
+
+    application = tmp_path / "app.sqlite"
+    initialize_database(application)
+    runs = tmp_path / "runs.sqlite"
+    initialize_run_store(runs)
+    market = tmp_path / "market.sqlite"
+    with closing(sqlite3.connect(market)) as connection:
+        connection.executescript(MARKET_SCHEMA_SQL)
+    macro = tmp_path / "macro.sqlite"
+    initialize_macro_database(macro).close()
+
+    # Every schema is built here rather than listed, so renaming a table on either
+    # side of the read is what the assertion sees.
+    known = {"sqlite_schema"}
+    for store in (application, runs, market, macro):
+        known |= table_names(store)
+
+    unknown = sorted(_tables_named_in_read_api_sql() - known)
+
+    assert unknown == [], (
+        f"read_api reads tables no migrated store defines: {unknown}. "
+        "A renamed table would otherwise degrade to an empty view forever."
+    )
 
 
 def test_read_rows_still_raises_for_a_broken_query(tmp_path: Path) -> None:

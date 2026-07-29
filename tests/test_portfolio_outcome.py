@@ -234,14 +234,30 @@ def test_outcome_values_a_lapsed_reservation_reported_after_close() -> None:
     assert result.ending_reserved_cash_yen == 50_000
 
 
+def _unreleased_ledger() -> PortfolioLedgerDocument:
+    raw = _lapsed_reservation_ledger().model_dump(mode="json")
+    raw["events"] = [event for event in raw["events"] if event["event_id"] != "release"]
+    return PortfolioLedgerDocument.model_validate(raw)
+
+
 def test_ledger_snapshot_still_requires_the_release_of_a_lapsed_reservation() -> None:
     from baibai_engine.position.ledger import reconcile_portfolio
 
-    raw = _lapsed_reservation_ledger().model_dump(mode="json")
-    raw["events"] = [event for event in raw["events"] if event["event_id"] != "release"]
+    with pytest.raises(PortfolioLedgerError, match="expired reservations require"):
+        reconcile_portfolio(_unreleased_ledger())
+
+
+def test_an_outcome_is_not_published_from_a_ledger_awaiting_a_human_report() -> None:
+    """The tolerance that lets a prefix replay through a lapse must not reach publish:
+    an outcome row cannot be corrected once written."""
+
+    from baibai_engine.position.ledger import replay_events_through, require_resolved_expiries
+
+    ledger = _unreleased_ledger()
+    state = replay_events_through(ledger.events, ledger.as_of)
 
     with pytest.raises(PortfolioLedgerError, match="expired reservations require"):
-        reconcile_portfolio(PortfolioLedgerDocument.model_validate(raw))
+        require_resolved_expiries(state)
 
 
 def test_after_close_internal_cashflow_rolls_past_that_close() -> None:

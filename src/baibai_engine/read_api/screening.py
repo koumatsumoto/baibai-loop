@@ -49,7 +49,7 @@ def screening_run_payload(
     if run_revision_id is not None and as_of_date is not None:
         raise ValueError("run_revision_id and as_of_date are mutually exclusive")
     if run_revision_id is not None:
-        run = _absent_as_none(lambda: reader.get_run(run_revision_id))
+        run = _absent_as_none(path, lambda: reader.get_run(run_revision_id))
     elif as_of_date is not None:
         rows = read_rows(
             path,
@@ -62,9 +62,9 @@ def screening_run_payload(
             """,
             (as_of_date.isoformat(),),
         )
-        run = _absent_as_none(lambda: reader.get_run(str(rows[0][0]))) if rows else None
+        run = _absent_as_none(path, lambda: reader.get_run(str(rows[0][0]))) if rows else None
     else:
-        run = _absent_as_none(lambda: reader.latest_run())
+        run = _absent_as_none(path, lambda: reader.latest_run())
     return None if run is None else _run_payload(run)
 
 
@@ -92,7 +92,7 @@ def screening_selection_payloads(
     run_revision_id: str | None = None,
 ) -> list[dict[str, object]]:
     selections = _absent_as_none(
-        lambda: ScreeningRunReader(path).list_selections(run_revision_id=run_revision_id)
+        path, lambda: ScreeningRunReader(path).list_selections(run_revision_id=run_revision_id)
     )
     if selections is None:
         return []
@@ -113,9 +113,16 @@ def screening_selection_payloads(
     ]
 
 
-def _absent_as_none[T](read: Callable[[], T]) -> T | None:
-    """Read the run store, treating a store the writer has not created as no rows."""
+def _absent_as_none[T](path: Path, read: Callable[[], T]) -> T | None:
+    """Read the run store, treating a store the writer has not created as no rows.
 
+    Same rule as ``read_rows``, applied where the read goes through the run-store
+    reader rather than one statement: an absent file and an absent table both mean
+    nothing has been published here, and everything else still raises.
+    """
+
+    if not path.is_file():
+        return None
     try:
         return read()
     except sqlite3.OperationalError as error:

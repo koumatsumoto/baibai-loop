@@ -78,7 +78,7 @@ break_even_earnings_growth =
 
 ## Planning-only execution pricing
 
-`estimates.required_5y_base_cagr_pct`は、5年base scenarioに対してこの判断が要求する年率を明示する。`deep_discount_bps`を使う場合も同じthesisに保存し、後から別の値へ差し替えない。execution policyは表示用の上限価格や終値からの任意率を入力にせず、再計算した5年base terminal priceと累積配当から最大許容価格を求める。
+`estimates.required_5y_base_cagr_pct`は、5年base scenarioに対してこの判断が要求する年率を明示する。最大許容価格は表示用の上限価格や終値からの任意率を入力にせず、再計算した5年base terminal priceと累積配当から求める。
 
 ```text
 terminal_total_value = recalculated_5y_base_terminal_price

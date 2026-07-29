@@ -167,6 +167,10 @@ def macro_context_payload(
     context_id: str,
     as_of: date,
 ) -> dict[str, object]:
+    # An absent store and an unknown id send the operator to different places, so
+    # this reader names which one it hit rather than reporting the id as wrong.
+    if not path.is_file():
+        raise ValueError(f"application database not found: {path}")
     rows = read_rows(
         path,
         "SELECT as_of, payload FROM macro_context WHERE context_id = ? AND schema_version = ?",
