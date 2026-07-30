@@ -170,3 +170,54 @@ class ScreeningUniverseTests(unittest.TestCase):
         )
         self.assertNotIn("400A", result.snapshots)
         self.assertEqual(result.exclusion_counts.get("insufficient_bar_history"), 1)
+
+
+class HistoricalMarketSegmentTests(unittest.TestCase):
+    def test_pre_restructuring_segments_are_in_scope(self) -> None:
+        # A point-in-time master from before the April 2022 renaming carries the
+        # older segment names for the same markets. Reading them as out of scope
+        # empties the universe for every cohort of that era, which is the whole
+        # history the long horizons are measured over.
+        for segment in (
+            "東証一部",
+            "東証二部",
+            "マザーズ",
+            "JASDAQ スタンダード",
+            "JASDAQ グロース",
+        ):
+            with self.subTest(segment=segment):
+                security = SecurityMaster(
+                    code="130A",
+                    name="Sample",
+                    market_segment=segment,
+                    sector_33="情報・通信業",
+                    is_common_stock=True,
+                )
+                result = build_universe(
+                    asof_date=date(2019, 11, 29),
+                    securities=[security],
+                    bars_by_ticker={"130A": _bars("130A")},
+                    shares_outstanding_by_ticker={"130A": 400_000_000.0},
+                    jpx_flags_by_ticker={},
+                )
+                self.assertIn("130A", result.snapshots)
+
+    def test_the_professional_market_stays_out_of_scope(self) -> None:
+        # Widening the vocabulary must not widen the scope: TOKYO PRO MARKET is not
+        # a market a private investor buys on ordinary terms, in either era.
+        security = SecurityMaster(
+            code="130A",
+            name="Sample",
+            market_segment="TOKYO PRO MARKET",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        result = build_universe(
+            asof_date=date(2019, 11, 29),
+            securities=[security],
+            bars_by_ticker={"130A": _bars("130A")},
+            shares_outstanding_by_ticker={"130A": 400_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+        self.assertNotIn("130A", result.snapshots)
+        self.assertEqual(result.exclusion_counts.get("market_out_of_scope"), 1)
