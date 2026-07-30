@@ -177,6 +177,10 @@ def _evaluate_cohort(
         "entry_not_listed_count": len(entry_not_listed),
         "entry_price_gap_count": len(entry_price_gap),
         "unpriced_exit_count": len(unpriced_exit),
+        # Whether those exclusions could have produced the cohort's conclusions.
+        "delisting_exclusion": delisting_exclusion_sensitivity(
+            panel, forward_rows, horizon=horizon
+        ),
         "future_horizon_count": len(future_horizon),
         # The classes above are an allowlist, so a status none of them names would
         # pass without a blocker. The residual makes that impossible.
@@ -246,12 +250,9 @@ def _evaluate_cohort(
     }
 
 
-def _cohort_excess_context(
-    panel: Sequence[PanelRow],
-    forward_rows: Sequence[ForwardReturnRow],
-    *,
-    horizon: str,
-) -> _CohortExcessContext | None:
+def _resolved_price_returns(
+    forward_rows: Sequence[ForwardReturnRow], *, horizon: str
+) -> tuple[dict[str, float], int]:
     price_returns: dict[str, float] = {}
     stale_count = 0
     for row in forward_rows:
@@ -260,7 +261,16 @@ def _cohort_excess_context(
         price_returns[row.ticker] = row.price_return
         if row.stale_price:
             stale_count += 1
+    return price_returns, stale_count
 
+
+def _context_from_returns(
+    panel: Sequence[PanelRow],
+    price_returns: Mapping[str, float],
+    *,
+    horizon: str,
+    stale_count: int,
+) -> _CohortExcessContext | None:
     population = [row for row in panel if row.in_population and row.ticker in price_returns]
     if len(population) < MIN_AXIS_SAMPLE:
         return None
@@ -278,6 +288,120 @@ def _cohort_excess_context(
         dividend_yield_coverage=0,
         horizon_years=years,
     )
+
+
+def _cohort_excess_context(
+    panel: Sequence[PanelRow],
+    forward_rows: Sequence[ForwardReturnRow],
+    *,
+    horizon: str,
+) -> _CohortExcessContext | None:
+    price_returns, stale_count = _resolved_price_returns(forward_rows, horizon=horizon)
+    return _context_from_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
+
+
+# Names whose series ends inside the window carry no exit value, so they leave the
+# cohort silently. Rather than block every cohort that has one, the conclusions are
+# recomputed with those names given a value from each end of the plausible range: a
+# total loss, and the return the rest of the cohort had. A conclusion that points the
+# same way under both cannot have been produced by the exclusion.
+_DELISTING_IMPUTATIONS: tuple[str, ...] = ("total_loss", "neutral")
+_TOTAL_LOSS_RETURN = -1.0
+
+
+def _direction_signs(context: _CohortExcessContext, *, horizon: str) -> dict[str, float | None]:
+    """The sign-bearing quantity of each conclusion the authority gate reads."""
+    selection = _evaluate_selection(context.population, context.excess)
+    signs: dict[str, float | None] = {}
+    for key in ("recommended_rank_top5", "recommended_rank_top10"):
+        group = selection.get(key)
+        value = group.get("median_excess") if isinstance(group, dict) else None
+        signs[key] = value if isinstance(value, int | float) else None
+    calibration = _evaluate_er_calibration(
+        context.population, context.excess, years=require_horizon(horizon).months / 12
+    )
+    quintiles = calibration.get("er_quintiles")
+    if isinstance(quintiles, list) and len(quintiles) >= 2:
+        top = quintiles[-1].get("median_realized_price_excess")
+        bottom = quintiles[0].get("median_realized_price_excess")
+        signs["er_calibration"] = (
+            top - bottom
+            if isinstance(top, int | float) and isinstance(bottom, int | float)
+            else None
+        )
+    else:
+        signs["er_calibration"] = None
+    return signs
+
+
+def delisting_exclusion_sensitivity(
+    panel: Sequence[PanelRow],
+    forward_rows: Sequence[ForwardReturnRow],
+    *,
+    horizon: str,
+) -> dict[str, object]:
+    """Say whether the names without an exit value could have produced the conclusions.
+
+    The two imputations bracket the exclusion from below: a delisted name is given
+    either nothing or what the cohort as a whole returned. A takeover settles above
+    the neutral case, so the bracket bounds how far the exclusion can have pushed a
+    conclusion down, not up; that limit is stated in the pre-registration rather than
+    hidden here.
+    """
+    price_returns, stale_count = _resolved_price_returns(forward_rows, horizon=horizon)
+    in_population = {row.ticker for row in panel if row.in_population}
+    excluded = sorted(
+        {
+            row.ticker
+            for row in forward_rows
+            if row.horizon == horizon
+            and row.status in {"unresolved_missing_exit", "unresolved_stale_exit"}
+            and row.ticker in in_population
+        }
+    )
+    if not excluded:
+        return {"excluded_count": 0, "direction_stable": True, "imputations": {}}
+
+    neutral = median(price_returns.values()) if price_returns else 0.0
+    imputed: dict[str, dict[str, float | None]] = {}
+    for name in _DELISTING_IMPUTATIONS:
+        value = _TOTAL_LOSS_RETURN if name == "total_loss" else neutral
+        augmented = dict(price_returns)
+        for ticker in excluded:
+            augmented[ticker] = value
+        context = _context_from_returns(panel, augmented, horizon=horizon, stale_count=stale_count)
+        imputed[name] = (
+            _direction_signs(context, horizon=horizon)
+            if context is not None
+            else dict.fromkeys(
+                ("recommended_rank_top5", "recommended_rank_top10", "er_calibration")
+            )
+        )
+
+    stable = True
+    for metric in ("recommended_rank_top5", "recommended_rank_top10", "er_calibration"):
+        values = [imputed[name][metric] for name in _DELISTING_IMPUTATIONS]
+        if all(value is None for value in values):
+            # The metric has no conclusion under either end, so the exclusion cannot
+            # have produced one. Whether it is reportable at all is the separate
+            # question `metric_statuses` answers.
+            continue
+        if any(value is None for value in values):
+            # It has a conclusion at one end and none at the other: the exclusion
+            # decides whether the cohort says anything, which is instability too.
+            stable = False
+            continue
+        # A conclusion that changes sign between the two ends was produced by the
+        # exclusion, not by the cohort.
+        signs = {value > 0 for value in values if value is not None}
+        if len(signs) > 1:
+            stable = False
+    return {
+        "excluded_count": len(excluded),
+        "neutral_return": round(neutral, 6),
+        "direction_stable": stable,
+        "imputations": imputed,
+    }
 
 
 def _adjustment_factor_status(rows: Sequence[ForwardReturnRow]) -> str:
