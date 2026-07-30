@@ -284,6 +284,92 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertTrue(covered)
             self.assertEqual(windows, [("2026-05-12", "2026-06-05", 3)])
 
+    def test_partial_chunk_does_not_shrink_the_wider_window_it_lands_in(self) -> None:
+        """One unusable record in one chunk must not retract the years of coverage
+        around it. The chunk's own range stops being claimed so the quality problem
+        stays visible, but the history outside it was never re-fetched and its claim
+        still holds -- collapsing the window to the chunk is what left five years of
+        filings in the store unreadable behind a two-year claim.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {"Code": "72030", "DisclosedDate": "2021-08-02", "NetSales": 100},
+                    {"Code": "72040", "DisclosedDate": "2024-01-10", "NetSales": 200},
+                    {"Code": "72050", "DisclosedDate": "2026-07-16", "NetSales": 300},
+                ],
+                requested_start=date(2021, 8, 2),
+                requested_end=date(2026, 7, 16),
+            )
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {"Code": "", "DisclosedDate": "2025-03-05", "NetSales": 400},
+                    {"Code": "72060", "DisclosedDate": "2025-03-06", "NetSales": 500},
+                ],
+                requested_start=date(2025, 3, 1),
+                requested_end=date(2025, 3, 31),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                windows = conn.execute(
+                    "SELECT coverage_start, coverage_end, status FROM source_coverage "
+                    "WHERE source = 'jquants_fin_summaries' ORDER BY coverage_start"
+                ).fetchall()
+                early_covered = range_covered(
+                    conn, "jquants_fin_summaries", date(2021, 8, 2), date(2025, 2, 28)
+                )
+                late_covered = range_covered(
+                    conn, "jquants_fin_summaries", date(2025, 4, 1), date(2026, 7, 16)
+                )
+                across_covered = range_covered(
+                    conn, "jquants_fin_summaries", date(2021, 8, 2), date(2026, 7, 16)
+                )
+            finally:
+                conn.close()
+            self.assertEqual(
+                windows,
+                [
+                    ("2021-08-02", "2025-02-28", "ok"),
+                    ("2025-03-01", "2025-03-31", "partial"),
+                    ("2025-04-01", "2026-07-16", "ok"),
+                ],
+            )
+            self.assertTrue(early_covered)
+            self.assertTrue(late_covered)
+            self.assertFalse(across_covered)
+
+    def test_clean_refetch_clears_the_earlier_partial_complaint(self) -> None:
+        """Re-fetching a range cleanly makes the stored rows good, so the previous
+        quality complaint about that range no longer describes the store and is
+        dropped instead of accumulating one row per failed chunk.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [{"Code": "", "DisclosedDate": "2025-03-05", "NetSales": 400}],
+                requested_start=date(2025, 3, 1),
+                requested_end=date(2025, 3, 31),
+            )
+            store_jquants_fin_summaries(
+                db,
+                [{"Code": "72060", "DisclosedDate": "2025-03-05", "NetSales": 500}],
+                requested_start=date(2025, 3, 1),
+                requested_end=date(2025, 3, 31),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                windows = conn.execute(
+                    "SELECT coverage_start, coverage_end, status FROM source_coverage "
+                    "WHERE source = 'jquants_fin_summaries' ORDER BY coverage_start"
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(windows, [("2025-03-01", "2025-03-31", "ok")])
+
     def test_daily_bars_shifted_chunk_refetch_merges_coverage_window(self) -> None:
         """The shared coverage-merge path keeps daily_bars source_coverage contiguous
         so its record-count consistency check stays satisfied after a re-fetch with

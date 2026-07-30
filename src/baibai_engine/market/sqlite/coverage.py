@@ -127,6 +127,10 @@ def record_range_source_coverage(
 
     A non-``ok`` fetch is recorded for its own range without merging, so a fetch
     quality problem stays visible instead of being absorbed into an ``ok`` window.
+    Overlapping ``ok`` windows are trimmed around that range rather than dropped:
+    a rejected record inside one chunk says nothing about the years of history the
+    same window covers outside it, and dropping the window narrows coverage to the
+    chunk -- which is how a store holding five years of filings came to claim two.
     """
     merged_start, merged_end = requested_start, requested_end
     if status == "ok":
@@ -159,8 +163,34 @@ def record_range_source_coverage(
             "AND coverage_start <= ? AND coverage_end >= ?",
             overlap_params,
         )
+        # A clean re-fetch supersedes any quality complaint about the range it now
+        # covers, so those rows go rather than accumulating one per partial chunk.
+        conn.execute(
+            "DELETE FROM source_coverage "
+            "WHERE source = ? AND status <> 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start >= ? AND coverage_end <= ?",
+            (source, merged_start.isoformat(), merged_end.isoformat()),
+        )
     else:
-        delete_overlapping_source_coverage(conn, source, requested_start, requested_end)
+        _trim_ok_coverage_around(
+            conn,
+            source=source,
+            table=table,
+            date_column=date_column,
+            start=requested_start,
+            end=requested_end,
+        )
+        # Only complaints this fetch fully re-examined are replaced. One that reaches
+        # past the fetched range still describes the months outside it, and narrowing
+        # it to this chunk would report one bad month where a bad year was found.
+        conn.execute(
+            "DELETE FROM source_coverage "
+            "WHERE source = ? AND status <> 'ok' "
+            "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+            "AND coverage_start >= ? AND coverage_end <= ?",
+            (source, requested_start.isoformat(), requested_end.isoformat()),
+        )
     persisted_count = date_range_row_count(conn, table, date_column, merged_start, merged_end)
     record_source_coverage(
         conn,
@@ -173,6 +203,68 @@ def record_range_source_coverage(
         error=error,
     )
     return persisted_count
+
+
+def _trim_ok_coverage_around(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+) -> None:
+    """Cut ``[start, end]`` out of the overlapping ``ok`` windows, keeping the rest.
+
+    The parts of a window outside the range keep their claim, because nothing was
+    re-fetched there. Each surviving part gets its own row so `range_covered` sees
+    a gap exactly where the fetch failed, and its `record_count` is recounted from
+    the rows so the row stays a statement about what the store actually holds.
+
+    A part narrower than the disclosure cadence can recount to zero, and for the
+    sources that require rows `range_covered` treats a zero-count window as no claim
+    at all. Such a part is therefore re-fetched next time rather than trusted -- the
+    conservative direction, and the same one the whole-window delete took, but over
+    days instead of years.
+    """
+    rows = conn.execute(
+        "SELECT coverage_key, coverage_start, coverage_end, fetched_at_utc "
+        "FROM source_coverage WHERE source = ? AND status = 'ok' "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL "
+        "AND coverage_start <= ? AND coverage_end >= ?",
+        (source, end.isoformat(), start.isoformat()),
+    ).fetchall()
+    for coverage_key, coverage_start, coverage_end, fetched_at_utc in rows:
+        try:
+            existing_start = date.fromisoformat(coverage_start)
+            existing_end = date.fromisoformat(coverage_end)
+        except ValueError:
+            continue
+        conn.execute(
+            "DELETE FROM source_coverage WHERE source = ? AND coverage_key = ?",
+            (source, coverage_key),
+        )
+        # The key carries the operation that produced the window; the range part is
+        # rewritten per surviving piece.
+        operation = str(coverage_key).rsplit(":", 1)[0]
+        remainders = (
+            (existing_start, min(existing_end, start - timedelta(days=1))),
+            (max(existing_start, end + timedelta(days=1)), existing_end),
+        )
+        for piece_start, piece_end in remainders:
+            if piece_start > piece_end:
+                continue
+            record_source_coverage(
+                conn,
+                source=source,
+                coverage_key=_range_coverage_key(operation, piece_start, piece_end),
+                coverage_start=piece_start.isoformat(),
+                coverage_end=piece_end.isoformat(),
+                record_count=date_range_row_count(conn, table, date_column, piece_start, piece_end),
+                status="ok",
+                error=None,
+                fetched_at_utc=str(fetched_at_utc),
+            )
 
 
 def delete_date_range(
