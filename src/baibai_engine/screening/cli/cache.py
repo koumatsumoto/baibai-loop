@@ -208,7 +208,7 @@ def extract_edinet_metrics_command(
         return 1
 
     try:
-        candidates = select_document_candidates(documents)
+        candidates = select_document_candidates(documents, origin_start=start)
     except EDINETProviderError as exc:
         message = f"EDINET document selection failed: {type(exc).__name__}: {exc}"
         store_edinet_metrics(
@@ -494,4 +494,29 @@ def bootstrap_cache_command(
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print("bootstrap-cache done", file=out, flush=True)
+    return 0
+
+
+def refresh_edinet_documents_command(
+    *,
+    asof_date: date,
+    providers: ProviderBundle,
+    stdout: TextIO | None = None,
+) -> int:
+    """Refresh current EDINET list state independently of broad cache coverage."""
+    out = stdout if stdout is not None else sys.stdout
+    if providers.edinet is None:
+        print("EDINET provider is not configured", file=sys.stderr)
+        return 1
+    try:
+        result = providers.edinet.refresh_document_state(asof_date)
+    except (EDINETProviderError, sqlite3.Error) as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print(
+        "refresh-edinet-documents: "
+        + ", ".join(f"{key}={value}" for key, value in sorted(result.items())),
+        file=out,
+        flush=True,
+    )
     return 0

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,20 +27,31 @@ def store_edinet_documents(
     db_path: Path,
     on_date: date,
     records: Iterable[Mapping[str, Any]],
+    *,
+    process_datetime: str | None = None,
+    result_count: int | None = None,
+    is_final: bool = False,
 ) -> int:
     conn = open_connection(db_path)
     try:
         records_list = list(records)
         rows = _edinet_document_rows(on_date.isoformat(), records_list)
+        expected_count = len(records_list) if result_count is None else result_count
+        if expected_count != len(records_list):
+            raise ValueError(
+                "EDINET document resultset count mismatch: "
+                f"metadata={expected_count} results={len(records_list)}"
+            )
         conn.execute("DELETE FROM edinet_documents WHERE doc_date = ?", (on_date.isoformat(),))
         delete_overlapping_source_coverage(conn, "edinet_documents", on_date, on_date)
         if rows:
             conn.executemany(
-                "INSERT OR REPLACE INTO edinet_documents("
-                "doc_date, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, "
-                "legal_status, disclosure_status, withdrawal_status, submit_datetime, "
+                "INSERT INTO edinet_documents("
+                "doc_date, sequence_number, doc_id, sec_code, doc_type_code, csv_flag, "
+                "xbrl_flag, legal_status, disclosure_status, withdrawal_status, "
+                "doc_info_edit_status, parent_doc_id, operation_datetime, submit_datetime, "
                 "doc_description, period_start, period_end"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
         persisted_count = date_range_row_count(
@@ -58,12 +69,20 @@ def store_edinet_documents(
             params={"date": on_date.isoformat(), "type": 2},
             record_count=persisted_count,
             raw_record_count=len(records_list),
-            skipped_record_count=len(records_list) - len(rows),
-            status="partial" if len(rows) < len(records_list) else "ok",
-            error=(
-                f"{len(records_list) - len(rows)} EDINET document rows were skipped"
-                if len(rows) < len(records_list)
-                else None
+            skipped_record_count=0,
+            status="ok",
+            error=None,
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO edinet_document_lists("
+            "doc_date, process_datetime, result_count, fetched_at_utc, is_final"
+            ") VALUES (?, ?, ?, ?, ?)",
+            (
+                on_date.isoformat(),
+                process_datetime,
+                expected_count,
+                datetime.now(UTC).isoformat(),
+                int(is_final),
             ),
         )
         conn.commit()
@@ -137,13 +156,31 @@ def _edinet_document_rows(
     records: Iterable[Mapping[str, Any]],
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
+    sequence_numbers: set[int] = set()
     for record in records:
         doc_id = to_str_or_none(first(record, "docID", "doc_id"))
         if doc_id is None:
-            continue
+            raise ValueError("EDINET document row is missing docID")
+        raw_sequence = first(record, "seqNumber", "sequence_number")
+        if raw_sequence in (None, ""):
+            raise ValueError("EDINET document row is missing seqNumber")
+        if isinstance(raw_sequence, bool):
+            raise ValueError(f"invalid EDINET seqNumber: {raw_sequence!r}")
+        if isinstance(raw_sequence, int):
+            sequence_number = raw_sequence
+        elif isinstance(raw_sequence, str) and raw_sequence.isdecimal():
+            sequence_number = int(raw_sequence)
+        else:
+            raise ValueError(f"invalid EDINET seqNumber: {raw_sequence!r}")
+        if sequence_number <= 0:
+            raise ValueError(f"invalid EDINET seqNumber: {raw_sequence!r}")
+        if sequence_number in sequence_numbers:
+            raise ValueError(f"duplicate EDINET seqNumber: {sequence_number}")
+        sequence_numbers.add(sequence_number)
         rows.append(
             (
                 doc_date,
+                sequence_number,
                 doc_id,
                 to_str_or_none(first(record, "secCode", "sec_code")),
                 to_str_or_none(first(record, "docTypeCode", "doc_type_code")),
@@ -152,6 +189,9 @@ def _edinet_document_rows(
                 to_str_or_none(first(record, "legalStatus", "legal_status")),
                 to_str_or_none(first(record, "disclosureStatus", "disclosure_status")),
                 to_str_or_none(first(record, "withdrawalStatus", "withdrawal_status")),
+                to_str_or_none(first(record, "docInfoEditStatus", "doc_info_edit_status")),
+                to_str_or_none(first(record, "parentDocID", "parent_doc_id")),
+                to_str_or_none(first(record, "opeDateTime", "operation_datetime")),
                 to_str_or_none(first(record, "submitDateTime", "submit_datetime")),
                 to_str_or_none(first(record, "docDescription", "doc_description")),
                 date_iso(first(record, "periodStart", "period_start")),

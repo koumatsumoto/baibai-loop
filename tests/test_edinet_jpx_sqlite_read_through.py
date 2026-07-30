@@ -64,9 +64,9 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             conn.execute(
                 "INSERT INTO edinet_documents("
-                "doc_date, doc_id, sec_code, doc_type_code"
-                ") VALUES (?, ?, ?, ?)",
-                ("2026-04-24", "S100ABCD", "13010", "120"),
+                "doc_date, sequence_number, doc_id, sec_code, doc_type_code"
+                ") VALUES (?, ?, ?, ?, ?)",
+                ("2026-04-24", 1, "S100ABCD", "13010", "120"),
             )
             _add_source_coverage(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()
@@ -85,6 +85,7 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
                 date(2026, 4, 24),
                 [
                     {
+                        "seqNumber": 1,
                         "docID": "S100ABCD",
                         "secCode": "13010",
                         "docTypeCode": "120",
@@ -194,9 +195,9 @@ class EDINETProviderReadThroughTests(unittest.TestCase):
             conn = open_connection(sqlite_path)
             conn.execute(
                 "INSERT INTO edinet_documents("
-                "doc_date, doc_id, sec_code, doc_type_code"
-                ") VALUES (?, ?, ?, ?)",
-                ("2026-04-24", "S100A", "13010", "120"),
+                "doc_date, sequence_number, doc_id, sec_code, doc_type_code"
+                ") VALUES (?, ?, ?, ?, ?)",
+                ("2026-04-24", 1, "S100A", "13010", "120"),
             )
             _add_source_coverage(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()

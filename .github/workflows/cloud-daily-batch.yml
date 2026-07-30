@@ -98,6 +98,10 @@ jobs:
         id: pull
         run: tools/cloud/r2_transfer.sh pull-all
 
+      - name: Preserve and verify market schema v13 rollback
+        id: preserve-market-v13
+        run: tools/cloud/r2_transfer.sh preserve-market-v13
+
       - name: Run daily batch
         id: batch
         shell: bash

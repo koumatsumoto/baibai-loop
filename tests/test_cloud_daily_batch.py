@@ -138,6 +138,7 @@ class ScriptedRunner:
 
 def _success_script() -> dict[str, list[CommandResult]]:
     return {
+        "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [OK],
         "screening run": [RUN_OK],
         "screening select": [SELECT_OK],
@@ -194,6 +195,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert runner.call_keys() == [
+        "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening run",
         "screening select",
@@ -205,12 +207,12 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening prune",
     ]
 
-    run_argv = runner.calls[1]
+    run_argv = runner.calls[2]
     assert run_argv[:3] == ["baibai-engine", "screening", "run"]
     assert run_argv[3:5] == ["--asof", "2026-07-21"]
     assert "--output-path" in run_argv
 
-    select_argv = runner.calls[2]
+    select_argv = runner.calls[3]
     assert select_argv[3:] == [
         "--asof",
         "2026-07-21",
@@ -220,7 +222,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "20",
     ]
 
-    export_argv = runner.calls[7]
+    export_argv = runner.calls[8]
     assert export_argv[1].endswith("tools/cloud/export_read_models.py")
     assert export_argv[2:] == [
         "--output-dir",
@@ -274,15 +276,16 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path
     )
 
     assert exit_code == 0
-    assert runner.call_keys()[:5] == [
+    assert runner.call_keys()[:6] == [
+        "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening bootstrap-cache",
         "screening extract-edinet-metrics",
         "screening verify-cache-coverage",
         "screening run",
     ]
-    assert runner.calls[1][3:] == ["--asof", "2026-07-21"]
     assert runner.calls[2][3:] == ["--asof", "2026-07-21"]
+    assert runner.calls[3][3:] == ["--asof", "2026-07-21"]
 
 
 def test_daily_batch_treats_verify_exit1_without_marker_as_crash(tmp_path: Path) -> None:
@@ -302,6 +305,7 @@ def test_daily_batch_treats_verify_exit1_without_marker_as_crash(tmp_path: Path)
 def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_path: Path) -> None:
     incomplete = CommandResult(1, "SQLite cache coverage incomplete for --asof 2026-07-21\n", "")
     script = {
+        "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [incomplete, incomplete],
         "screening bootstrap-cache": [OK],
         "screening extract-edinet-metrics": [OK],

@@ -142,8 +142,14 @@ class EDINETProvider:
         self._cache_only = cache_only
         self._zip_cache_dir = self._cache_dir / "csv_zips"
 
-    def list_documents(self, on_date: date) -> list[dict[str, Any]]:
-        if self._sqlite_path is not None:
+    def list_documents(
+        self,
+        on_date: date,
+        *,
+        force_refresh: bool = False,
+        is_final: bool = False,
+    ) -> list[dict[str, Any]]:
+        if self._sqlite_path is not None and not force_refresh:
             from ..sqlite_reader import read_edinet_documents
 
             cached = read_edinet_documents(self._sqlite_path, on_date)
@@ -163,15 +169,42 @@ class EDINETProvider:
         results = data.get("results", [])
         if not isinstance(results, list):
             raise EDINETProviderError("EDINET documents.json returned unexpected results payload")
+        metadata = data.get("metadata")
+        if not isinstance(metadata, Mapping):
+            raise EDINETProviderError("EDINET documents.json returned no metadata")
+        resultset = metadata.get("resultset")
+        if not isinstance(resultset, Mapping):
+            raise EDINETProviderError("EDINET documents.json returned no resultset metadata")
+        raw_result_count = resultset.get("count")
+        if raw_result_count is None:
+            raise EDINETProviderError("EDINET documents.json returned invalid resultset count")
+        try:
+            result_count = int(str(raw_result_count))
+        except (TypeError, ValueError) as exc:
+            raise EDINETProviderError(
+                "EDINET documents.json returned invalid resultset count"
+            ) from exc
+        if result_count != len(results):
+            raise EDINETProviderError(
+                "EDINET documents.json resultset count mismatch: "
+                f"metadata={result_count} results={len(results)}"
+            )
+        process_datetime = _to_str_or_none(metadata.get("processDateTime"))
+        documents = _coerce_document_items(results, source="EDINET documents.json")
+        for document in documents:
+            document["doc_date"] = on_date.isoformat()
         if self._sqlite_path is not None:
             from ..sqlite_cache import store_edinet_documents
 
             store_edinet_documents(
                 self._sqlite_path,
                 on_date,
-                _coerce_document_items(results, source="EDINET documents.json"),
+                documents,
+                process_datetime=process_datetime,
+                result_count=result_count,
+                is_final=is_final,
             )
-        return _coerce_document_items(results, source="EDINET documents.json")
+        return documents
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         if self._sqlite_path is not None:
@@ -185,12 +218,31 @@ class EDINETProvider:
         return {}
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        total = 0
+        fetched = self._refresh_document_state(end)
         cursor = start
         while cursor <= end:
-            total += len(self.list_documents(cursor))
+            if cursor not in fetched:
+                fetched[cursor] = len(self.list_documents(cursor, is_final=cursor < end))
             cursor += timedelta(days=1)
-        return {"documents": total}
+        return {"documents": sum(fetched.values())}
+
+    def refresh_document_state(self, asof_date: date) -> dict[str, int]:
+        """Refresh the mutable target day, then finalize every older unresolved day."""
+        fetched = self._refresh_document_state(asof_date)
+        return {"documents": sum(fetched.values())}
+
+    def _refresh_document_state(self, end: date) -> dict[date, int]:
+        fetched = {
+            end: len(self.list_documents(end, force_refresh=True, is_final=False)),
+        }
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_unfinalized_edinet_document_dates
+
+            for unresolved in read_unfinalized_edinet_document_dates(self._sqlite_path, before=end):
+                fetched[unresolved] = len(
+                    self.list_documents(unresolved, force_refresh=True, is_final=True)
+                )
+        return fetched
 
     def download_csv_zip(self, doc_id: str) -> bytes:
         safe_doc_id = parse_doc_id(doc_id)
@@ -353,10 +405,12 @@ def parse_doc_id(value: object) -> str:
 
 def select_document_candidates(
     documents: Sequence[Mapping[str, Any]],
+    *,
+    origin_start: date | None = None,
 ) -> dict[str, EdinetDocumentCandidate]:
     """Select the latest usable EDINET CSV-capable filing per ticker."""
     candidates: dict[str, EdinetDocumentCandidate] = {}
-    for document in documents:
+    for document in _canonicalize_document_events(documents, origin_start=origin_start):
         raw_doc_id = _coalesce(document, "docID", "doc_id")
         raw_type = _to_str_or_none(_coalesce(document, "docTypeCode", "doc_type_code"))
         if raw_doc_id is None or raw_type not in TARGET_DOC_TYPE_CODES:
@@ -385,6 +439,154 @@ def select_document_candidates(
         if current is None or _document_sort_key(candidate) > _document_sort_key(current):
             candidates[ticker] = candidate
     return candidates
+
+
+def _canonicalize_document_events(
+    documents: Sequence[Mapping[str, Any]],
+    *,
+    origin_start: date | None,
+) -> list[dict[str, Any]]:
+    """Fold EDINET operation rows onto origin filings before ticker selection."""
+    normalized = [dict(document) for document in documents]
+    normalized.sort(key=_document_event_sort_key)
+    origins: dict[str, dict[str, Any]] = {}
+    events: list[dict[str, Any]] = []
+    for document in normalized:
+        _validate_document_statuses(document)
+        doc_id_raw = _coalesce(document, "docID", "doc_id")
+        if doc_id_raw is None:
+            continue
+        doc_id = parse_doc_id(doc_id_raw)
+        edit_status = _to_str_or_none(
+            _coalesce(document, "docInfoEditStatus", "doc_info_edit_status")
+        )
+        withdrawal_status = _to_str_or_none(
+            _coalesce(document, "withdrawalStatus", "withdrawal_status")
+        )
+        disclosure_status = _to_str_or_none(
+            _coalesce(document, "disclosureStatus", "disclosure_status")
+        )
+        is_event = edit_status == "1" or withdrawal_status == "1" or disclosure_status in {"1", "3"}
+        if is_event:
+            events.append(document)
+            continue
+        origin_date = _to_str_or_none(_coalesce(document, "doc_date"))
+        if origin_start is not None and origin_date is not None:
+            try:
+                if date.fromisoformat(origin_date) < origin_start:
+                    continue
+            except ValueError as exc:
+                raise EDINETProviderError(
+                    f"invalid EDINET origin date: {_safe_error_value(origin_date)}"
+                ) from exc
+        origins[doc_id] = document
+
+    children: dict[str, set[str]] = {}
+    for doc_id, origin in origins.items():
+        parent = _to_str_or_none(_coalesce(origin, "parentDocID", "parent_doc_id"))
+        if parent:
+            children.setdefault(parent, set()).add(doc_id)
+    _validate_parent_graph(origins)
+
+    for event in events:
+        doc_id = parse_doc_id(_coalesce(event, "docID", "doc_id"))
+        edit_status = _to_str_or_none(_coalesce(event, "docInfoEditStatus", "doc_info_edit_status"))
+        withdrawal_status = _to_str_or_none(
+            _coalesce(event, "withdrawalStatus", "withdrawal_status")
+        )
+        disclosure_status = _to_str_or_none(
+            _coalesce(event, "disclosureStatus", "disclosure_status")
+        )
+        if withdrawal_status == "1":
+            parent = _to_str_or_none(_coalesce(event, "parentDocID", "parent_doc_id"))
+            if parent is None or parent not in origins:
+                raise EDINETProviderError(
+                    f"EDINET withdrawal event target is missing: {_safe_error_value(parent)}"
+                )
+            _tombstone_document_tree(parent, origins=origins, children=children)
+            continue
+        current = origins.get(doc_id)
+        if current is None:
+            raise EDINETProviderError(f"EDINET document event target is missing: {doc_id}")
+        if _to_str_or_none(_coalesce(current, "withdrawalStatus", "withdrawal_status")) == "2":
+            raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
+        origin_date = current.get("doc_date")
+        current.update(event)
+        if origin_date is not None:
+            current["doc_date"] = origin_date
+        if edit_status == "1":
+            current["docInfoEditStatus"] = "2"
+        if disclosure_status == "1":
+            current["disclosureStatus"] = "2"
+        elif disclosure_status == "3":
+            current["disclosureStatus"] = "0"
+    return list(origins.values())
+
+
+def _validate_parent_graph(origins: Mapping[str, Mapping[str, Any]]) -> None:
+    """Reject cycles even when no withdrawal event traverses the relation."""
+    complete: set[str] = set()
+    for start in origins:
+        path: set[str] = set()
+        current = start
+        while current in origins and current not in complete:
+            if current in path:
+                raise EDINETProviderError(f"EDINET parent relation cycle detected: {current}")
+            path.add(current)
+            parent = _to_str_or_none(_coalesce(origins[current], "parentDocID", "parent_doc_id"))
+            if parent is None:
+                break
+            current = parent
+        complete.update(path)
+
+
+def _tombstone_document_tree(
+    root: str,
+    *,
+    origins: dict[str, dict[str, Any]],
+    children: Mapping[str, set[str]],
+) -> None:
+    pending = [root]
+    seen: set[str] = set()
+    while pending:
+        doc_id = pending.pop()
+        if doc_id in seen:
+            raise EDINETProviderError(f"EDINET parent relation cycle detected: {doc_id}")
+        seen.add(doc_id)
+        origin = origins.get(doc_id)
+        if origin is not None:
+            origin["withdrawalStatus"] = "2"
+            origin["legalStatus"] = "0"
+        pending.extend(children.get(doc_id, ()))
+
+
+def _validate_document_statuses(document: Mapping[str, Any]) -> None:
+    allowed = {
+        "legal": {None, "0", "1", "2"},
+        "withdrawal": {None, "0", "1", "2"},
+        "edit": {None, "0", "1", "2"},
+        "disclosure": {None, "0", "1", "2", "3"},
+    }
+    values = {
+        "legal": _to_str_or_none(_coalesce(document, "legalStatus", "legal_status")),
+        "withdrawal": _to_str_or_none(_coalesce(document, "withdrawalStatus", "withdrawal_status")),
+        "edit": _to_str_or_none(_coalesce(document, "docInfoEditStatus", "doc_info_edit_status")),
+        "disclosure": _to_str_or_none(_coalesce(document, "disclosureStatus", "disclosure_status")),
+    }
+    for name, value in values.items():
+        if value not in allowed[name]:
+            raise EDINETProviderError(f"unknown EDINET {name} status: {value!r}")
+
+
+def _document_event_sort_key(document: Mapping[str, Any]) -> tuple[str, str, int]:
+    doc_date = _to_str_or_none(_coalesce(document, "doc_date")) or ""
+    operation = _to_str_or_none(_coalesce(document, "opeDateTime", "operation_datetime")) or ""
+    raw_sequence = _coalesce(document, "seqNumber", "sequence_number")
+    try:
+        sequence = int(raw_sequence or 0)
+    except (TypeError, ValueError):
+        sequence = 0
+    return doc_date, operation, sequence
 
 
 def _coerce_document_items(payload: list[Any], *, source: str) -> list[dict[str, Any]]:
@@ -453,7 +655,7 @@ def _is_unusable_status(document: Mapping[str, Any]) -> bool:
     # withdrawalStatus="0" for normal usable filings. Treat unknown/missing
     # status as usable because older cached payloads may not have all fields.
     return (
-        legal_status not in (None, "1")
+        legal_status not in (None, "1", "2")
         or disclosure_status not in (None, "0")
         or withdrawal_status not in (None, "0")
     )

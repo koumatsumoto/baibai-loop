@@ -45,6 +45,9 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
   printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
   exit 254
 fi
+if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
+  printf 'x' > "$4"
+fi
 """,
         encoding="utf-8",
     )
@@ -64,10 +67,14 @@ for argument in "$@"; do
 done
 case "${script}" in
   snapshot)
+    if [[ "$*" == *" version "* ]]; then
+      printf '%s\\n' "${SQLITE_FAKE_VERSION:-13}"
+      exit 0
+    fi
     while [[ $# -gt 0 ]]; do
       if [[ "$1" == "--output" ]]; then
         shift
-        : > "$1"
+        printf 'x' > "$1"
       fi
       shift
     done
@@ -190,6 +197,129 @@ def test_run_summary_upload_reports_a_missing_summary_without_uploading(
     assert completed.returncode == 2
     assert "no workflow run summary to upload" in completed.stderr
     assert not log.exists()
+
+
+def test_preserve_market_v13_uploads_once_and_verifies_download(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "preserve-market-v13"],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    key = "s3://baibai-stores/schema-migrations/market-v13.sqlite"
+    assert sum(key in command and command.startswith("s3 cp ") for command in commands) == 2
+
+
+def test_preserve_market_v13_refuses_v14_without_rollback_object(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["SQLITE_FAKE_VERSION"] = "14"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "preserve-market-v13"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "required immutable rollback object is missing" in completed.stderr
+    assert all("s3 cp" not in command for command in log.read_text(encoding="utf-8").splitlines())
+
+
+def test_preserve_market_v13_reuses_existing_immutable_object(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["SQLITE_FAKE_VERSION"] = "14"
+    env["AWS_FAKE_EXISTING_KEY"] = "schema-migrations/market-v13.sqlite"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "preserve-market-v13"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    uploads = [
+        command
+        for command in commands
+        if command.startswith("s3 cp ")
+        and command.rstrip().endswith(
+            "s3://baibai-stores/schema-migrations/market-v13.sqlite --endpoint-url "
+            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
+        )
+    ]
+    assert uploads == []
+
+
+def test_preserve_market_v13_accepts_future_schema_with_existing_artifact(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["SQLITE_FAKE_VERSION"] = "15"
+    env["AWS_FAKE_EXISTING_KEY"] = "schema-migrations/market-v13.sqlite"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "preserve-market-v13"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+
+
+def test_download_market_v13_rollback_is_read_only_and_refuses_overwrite(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = tmp_path / "rollback.sqlite"
+
+    first = subprocess.run(
+        [TRANSFER_SCRIPT, "download-market-v13-rollback", output],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    second = subprocess.run(
+        [TRANSFER_SCRIPT, "download-market-v13-rollback", output],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert first.returncode == 0
+    assert output.read_text(encoding="utf-8") == "x"
+    assert second.returncode == 2
+    assert "refusing rollback download overwrite" in second.stderr
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert all(
+        not command.rstrip().endswith(
+            "s3://baibai-stores/market.sqlite --endpoint-url "
+            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
+        )
+        for command in commands
+    )
 
 
 def test_initial_seed_refuses_to_overwrite_an_existing_store(tmp_path: Path) -> None:

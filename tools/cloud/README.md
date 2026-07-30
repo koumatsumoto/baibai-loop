@@ -14,6 +14,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-stores` | `market.sqlite` / `runs.sqlite` | `cloud-daily-batch` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
+| `baibai-stores` | `schema-migrations/market-v13.sqlite` | `cloud-daily-batch`（write-once rollback artifact） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 | `baibai-serving` | `system/latest-run.json` | 日次batch、毎runで上書き（`views/`外なのでexportの再生成で消えない） |
@@ -141,6 +142,7 @@ npx wrangler secret put VIEW_PASSWORD
 
 ## R2 transferの安全境界
 
+- `market.sqlite`のv13からv14へのmigration前に、workflowは`schema-migrations/market-v13.sqlite`を固定keyへ一度だけ保存する。既存objectは上書きせず、毎回再downloadして非空・`quick_check`・`user_version = 13`を検証してからbatchを開始する。v14 storeに対してartifactが存在しなければ処理を停止する。
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（cloudが唯一のwriterである`market.sqlite` / `runs.sqlite`を古いローカルcopyで巻き戻さないため）。`macro.sqlite`はローカルからも`push-macro`でuploadできるが、cloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
 - pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例して数百MBのstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。
@@ -150,6 +152,26 @@ npx wrangler secret put VIEW_PASSWORD
 - servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
 - `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。
 - bucket名は`R2_STORES_BUCKET` / `R2_SERVING_BUCKET`で明示的にoverrideできるが、通常は固定defaultを使う。
+
+### market schema v14のrollback
+
+v14 migration後にEDINET document stateの欠損または誤変換が確認された場合は、日次workflowを停止する。最初にwrite-once artifactを別pathへdownloadし、実SQLiteとして非空・`quick_check`・schema v13を満たすことをdry-run確認する。その後artifactを正本keyへserver-side copyし、`pull-machine`で取得して再検査する。復旧中にv14 codeでstoreを開くと再migrationされるため、原因修正版またはv13 codeへ切り替えるまでworkflowを再開しない。
+
+```bash
+tools/cloud/r2_transfer.sh download-market-v13-rollback \
+  /tmp/baibai-market-v13-rollback.sqlite
+uv run python tools/cloud/sqlite_snapshot.py check \
+  --path /tmp/baibai-market-v13-rollback.sqlite --schema-version 13
+aws s3api copy-object \
+  --bucket baibai-stores \
+  --key market.sqlite \
+  --copy-source baibai-stores/schema-migrations/market-v13.sqlite \
+  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+  --cli-read-timeout 300
+tools/cloud/r2_transfer.sh pull-machine
+uv run python tools/cloud/sqlite_snapshot.py check \
+  --path data/screening/market.sqlite --schema-version 13
+```
 
 ## export_read_models.py — read model の材料化
 

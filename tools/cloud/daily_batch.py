@@ -664,6 +664,12 @@ def _execute_daily_batch(
         )
     asof_arg = target.isoformat()
 
+    _run_step(
+        runner,
+        name="refresh-edinet-documents",
+        argv=(_ENGINE, "screening", "refresh-edinet-documents", "--asof", asof_arg),
+        cwd=root,
+    )
     verify_argv = (_ENGINE, "screening", "verify-cache-coverage", "--asof", asof_arg)
     verify = _run_step(
         runner,

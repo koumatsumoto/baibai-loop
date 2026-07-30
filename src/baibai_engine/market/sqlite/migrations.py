@@ -45,9 +45,50 @@ class Migration:
     transform: Callable[[sqlite3.Connection], None] | None = None
 
 
-# No migrations past the baseline yet: the store is created directly at the
-# baseline DDL. Each schema change appends the next contiguous version here.
-MIGRATIONS: tuple[Migration, ...] = ()
+def _migrate_v14_edinet_document_events(conn: sqlite3.Connection) -> None:
+    """Replace the rebuildable EDINET list cache with event-complete storage."""
+    conn.execute("DROP TABLE edinet_documents")
+    conn.execute(
+        """
+        CREATE TABLE edinet_documents(
+          doc_date TEXT NOT NULL,
+          sequence_number INTEGER NOT NULL,
+          doc_id TEXT NOT NULL,
+          sec_code TEXT,
+          doc_type_code TEXT,
+          csv_flag TEXT,
+          xbrl_flag TEXT,
+          legal_status TEXT,
+          disclosure_status TEXT,
+          withdrawal_status TEXT,
+          doc_info_edit_status TEXT,
+          parent_doc_id TEXT,
+          operation_datetime TEXT,
+          submit_datetime TEXT,
+          doc_description TEXT,
+          period_start TEXT,
+          period_end TEXT,
+          PRIMARY KEY (doc_date, sequence_number)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE edinet_document_lists(
+          doc_date TEXT PRIMARY KEY,
+          process_datetime TEXT,
+          result_count INTEGER NOT NULL,
+          fetched_at_utc TEXT NOT NULL,
+          is_final INTEGER NOT NULL
+        )
+        """
+    )
+    conn.execute("DELETE FROM source_coverage WHERE source = 'edinet_documents'")
+
+
+MIGRATIONS: tuple[Migration, ...] = (
+    Migration(version=14, transform=_migrate_v14_edinet_document_events),
+)
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION
 

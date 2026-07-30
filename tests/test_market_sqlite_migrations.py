@@ -131,6 +131,55 @@ def test_forward_migration_applies_in_place_and_validates(
         migrated.close()
 
 
+def test_v14_migration_invalidates_only_edinet_document_cache(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    conn = open_connection(sqlite_path)
+    _seed_bar(conn, "1301", "2024-06-28", 100.0)
+    conn.execute("INSERT INTO edinet_metrics(asof_date, ticker) VALUES ('2026-04-24', '1301')")
+    conn.execute("DROP TABLE edinet_document_lists")
+    conn.execute("DROP TABLE edinet_documents")
+    conn.execute(
+        "CREATE TABLE edinet_documents("
+        "doc_date TEXT NOT NULL, doc_id TEXT NOT NULL, sec_code TEXT, "
+        "doc_type_code TEXT, csv_flag TEXT, xbrl_flag TEXT, legal_status TEXT, "
+        "disclosure_status TEXT, withdrawal_status TEXT, submit_datetime TEXT, "
+        "doc_description TEXT, period_start TEXT, period_end TEXT, "
+        "PRIMARY KEY (doc_date, doc_id))"
+    )
+    conn.execute("INSERT INTO edinet_documents(doc_date, doc_id) VALUES ('2026-04-24', 'S100TEST')")
+    add_source_coverage(
+        conn,
+        source="edinet_documents",
+        coverage_key="2026-04-24",
+        record_count=1,
+        min_date="2026-04-24",
+        max_date="2026-04-24",
+    )
+    conn.execute("PRAGMA user_version = 13")
+    conn.commit()
+    conn.close()
+
+    migrated = open_connection(sqlite_path)
+    try:
+        assert _user_version(migrated) == 14
+        assert migrated.execute("SELECT COUNT(*) FROM edinet_documents").fetchone()[0] == 0
+        assert (
+            migrated.execute(
+                "SELECT COUNT(*) FROM source_coverage WHERE source = 'edinet_documents'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert migrated.execute("SELECT COUNT(*) FROM edinet_metrics").fetchone()[0] == 1
+        assert (
+            migrated.execute(
+                "SELECT close FROM jquants_daily_bars WHERE ticker = '1301'"
+            ).fetchone()[0]
+            == 100.0
+        )
+    finally:
+        migrated.close()
+
+
 def test_forward_migration_sequence_gap_is_rejected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -4,7 +4,11 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from tools.cloud.sqlite_snapshot import create_snapshot, validate_database
+from tools.cloud.sqlite_snapshot import (
+    create_snapshot,
+    database_schema_version,
+    validate_database,
+)
 
 
 def test_snapshot_includes_uncheckpointed_wal_rows(tmp_path: Path) -> None:
@@ -27,3 +31,23 @@ def test_validate_database_rejects_non_sqlite_file(tmp_path: Path) -> None:
 
     with pytest.raises(sqlite3.DatabaseError):
         validate_database(invalid)
+
+
+def test_v13_rollback_snapshot_preserves_edinet_rows_and_schema(tmp_path: Path) -> None:
+    source = tmp_path / "market-v13.sqlite"
+    restored = tmp_path / "restored.sqlite"
+    with sqlite3.connect(source) as connection:
+        connection.execute("PRAGMA user_version = 13")
+        connection.execute(
+            "CREATE TABLE edinet_documents (doc_date TEXT NOT NULL, doc_id TEXT NOT NULL)"
+        )
+        connection.execute("INSERT INTO edinet_documents VALUES ('2026-07-10', 'S100KEPT')")
+        connection.commit()
+
+    create_snapshot(source, restored)
+
+    assert database_schema_version(restored) == 13
+    with sqlite3.connect(restored) as connection:
+        assert connection.execute("SELECT doc_date, doc_id FROM edinet_documents").fetchall() == [
+            ("2026-07-10", "S100KEPT")
+        ]
