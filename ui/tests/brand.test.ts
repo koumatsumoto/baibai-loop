@@ -261,14 +261,18 @@ describe('brand palette', () => {
   // The threshold is asserted rather than described, so a mark whose green does clear 3:1 fails
   // here and the rule gets revisited instead of outliving its reason.
   it('leaves the mark’s own green out of the components', () => {
-    const markGreen = tokenValue('--brand-green')
+    const markGreen = tokenValue('--brand-green').toLowerCase()
     expect(contrastRatio(markGreen, tokenValue('--surface'))).toBeLessThan(3)
-    const aliases = [...tokens.keys()].filter((name) => tokenValue(name) === markGreen)
+    const aliases = [...tokens.keys()].filter((name) => tokenValue(name).toLowerCase() === markGreen)
     for (const name of aliases) {
       expect(themeMappings.has(`--color${name.slice(1)}`), `${name} is a utility`).toBe(false)
     }
+    // Every shape a class string can name a custom property in: the arbitrary value, and the
+    // shorthand `bg-(--x)` that needs no `@theme` entry at all and so escapes the check above.
+    const reaches = (text: string, name: string): boolean =>
+      text.includes(`var(${name})`) || text.includes(`(${name})`)
     const painted = componentSources((entry) => entry !== 'styles.css').filter((text) =>
-      aliases.some((name) => text.includes(`var(${name})`)),
+      aliases.some((name) => reaches(text, name)),
     )
     expect(painted).toEqual([])
   })
@@ -280,11 +284,10 @@ describe('brand palette', () => {
   // belongs to the palette are checked, which leaves Tailwind's own scale (text-sm, border-b)
   // alone.
   it('paints with no color the theme layer does not export', () => {
-    const roots = new Set(
-      [...themeMappings.keys()]
-        .filter((name) => name.startsWith('--color-'))
-        .map((name) => name.slice('--color-'.length).split('-')[0]),
-    )
+    // Which names belong to the palette is read from the palette, not from the utility layer this
+    // checks: taking it from `@theme` would let the last mapping under a name take the check with
+    // it when it goes.
+    const roots = new Set([...tokens.keys()].map((name) => name.slice(2).split('-')[0]))
     const missing = new Set<string>()
     for (const text of componentSources()) {
       for (const [, name] of text.matchAll(

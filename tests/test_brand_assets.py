@@ -22,6 +22,8 @@ Image = pytest.importorskip("PIL.Image", reason="Pillow is a script dependency, 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = REPO_ROOT / "tools" / "generate_brand_assets.py"
+COMMITTED_LOGO = REPO_ROOT / "ui" / "brand" / "logo.png"
+COMMITTED_MEASUREMENT = REPO_ROOT / "ui" / "brand" / "measured-colors.json"
 ASSET_NAMES = ("logo.png", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "favicon.ico")
 MEASURED = {"--brand-lime": "#C7DE24", "--brand-green": "#09AB65"}
 
@@ -166,21 +168,42 @@ def test_generate_ignores_a_pixel_too_faint_for_a_viewer_to_see(tmp_path):
         ).read_bytes(), name
 
 
-def test_generate_frames_a_pixel_a_viewer_can_see(tmp_path):
+def test_generate_frames_the_soft_edge_around_the_mark(tmp_path):
     plain = _source(tmp_path / "plain", canvas=800, mark=200, offset=(300, 300))
-    marked = _source(tmp_path / "marked", canvas=800, mark=200, offset=(300, 300))
-    with Image.open(marked) as image:
-        visible = image.convert("RGBA")
-    # Half-opaque, so it reads as part of the artwork and the frame has to reach it.
-    visible.putpixel((0, 0), (255, 0, 0, 128))
-    visible.save(marked)
+    softened = _source(tmp_path / "softened", canvas=800, mark=200, offset=(300, 300))
+    with Image.open(softened) as image:
+        edged = image.convert("RGBA")
+    # Half-opaque and right against the mark: a feathered edge or a tight shadow is part of the
+    # artwork, so the frame has to reach it rather than crop it.
+    edged.putpixel((280, 300), (255, 0, 0, 128))
+    edged.save(softened)
 
     _generate(plain, tmp_path / "plain-out")
-    _generate(marked, tmp_path / "marked-out")
+    result = _generate(softened, tmp_path / "softened-out")
 
     assert (tmp_path / "plain-out" / "logo.png").read_bytes() != (
-        tmp_path / "marked-out" / "logo.png"
+        tmp_path / "softened-out" / "logo.png"
     ).read_bytes()
+    # The run reports what the paint actually spans, which a soft edge pushes away from the
+    # coverage the frame was sized to: 200px of paint on the 232px canvas that 220px of visible
+    # mark asks for. Reading the constant back out would say 95% of every source ever passed.
+    assert "paint spans 86.2% of it" in result.stdout
+
+
+def test_generate_refuses_a_source_reaching_far_past_its_own_paint(tmp_path):
+    # Visible, and nowhere near the mark. A threshold alone cannot tell this from a soft edge, so
+    # the reach is checked against the paint: this one is 2.5x, which no edge is.
+    source = _source(tmp_path / "brand", canvas=800, mark=200, offset=(300, 300))
+    with Image.open(source) as image:
+        strayed = image.convert("RGBA")
+    strayed.putpixel((0, 0), (255, 0, 0, 128))
+    strayed.save(source)
+
+    result = _generate(source, tmp_path / "out")
+
+    assert result.returncode == 1
+    assert "past its own paint" in result.stderr
+    assert not (tmp_path / "out").exists()
 
 
 def test_generate_leaves_the_previous_assets_alone_when_the_source_cannot_be_measured(tmp_path):
@@ -220,9 +243,63 @@ def test_generate_refuses_to_overwrite_the_source_it_reads(tmp_path):
     assert not (source.parent / "icon-192.png").exists()
 
 
-def test_generate_refuses_to_measure_a_repo_source_into_images_written_elsewhere(tmp_path):
-    result = _generate(REPO_ROOT / "ui" / "brand" / "logo.png", tmp_path / "preview")
+def test_generate_writes_the_measurement_before_the_images(tmp_path):
+    # A file where the output dir belongs, so the images cannot be written. The measurement going
+    # first is what makes a half-applied swap fail loudly: `ui/tests/brand.test.ts` reads the
+    # measurement against the palette, so a measurement without its images is a red test rather
+    # than a deployed mark nothing describes.
+    source = _source(tmp_path / "brand", canvas=400, mark=200, offset=(100, 100))
+    blocked = tmp_path / "public"
+    blocked.write_bytes(b"not a directory")
+
+    result = _generate(source, blocked)
 
     assert result.returncode == 1
-    assert "while the measurement lands in" in result.stderr
-    assert not (tmp_path / "preview").exists()
+    assert json.loads((source.parent / "measured-colors.json").read_text(encoding="utf-8")) == (
+        MEASURED
+    )
+
+
+def test_the_committed_measurement_is_what_the_committed_logo_measures(tmp_path):
+    # The one case that reaches the artwork. Every other source here is synthetic, and
+    # `ui/tests/brand.test.ts` holds the palette to the measurement rather than to the image — so
+    # without this, the palette and the measurement can agree on a color the logo is not painted
+    # in and the whole suite stays green.
+    source = tmp_path / "brand" / "logo.png"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(COMMITTED_LOGO.read_bytes())
+
+    result = _generate(source, tmp_path / "out")
+
+    assert result.returncode == 0, result.stderr
+    measured = json.loads((source.parent / "measured-colors.json").read_text(encoding="utf-8"))
+    assert measured == json.loads(COMMITTED_MEASUREMENT.read_text(encoding="utf-8"))
+
+
+def test_the_measurement_moves_at_most_a_step_when_the_artwork_is_re_rendered(tmp_path):
+    # Rendering the same mark at another resolution re-draws every anti-aliased pixel, which is
+    # what a designer re-exporting the artwork does. No way of reading a color out of it is
+    # invariant under that, so the contract is that it moves by at most one step per channel —
+    # which is under the perceptual bar `ui/tests/brand.test.ts` holds the palette to.
+    original = tmp_path / "original" / "logo.png"
+    original.parent.mkdir(parents=True)
+    original.write_bytes(COMMITTED_LOGO.read_bytes())
+    rerendered = tmp_path / "rerendered" / "logo.png"
+    rerendered.parent.mkdir(parents=True)
+    with Image.open(original) as image:
+        mark = image.convert("RGBA")
+    smaller = mark.resize((mark.width * 2 // 3,) * 2, Image.LANCZOS)
+    smaller.resize((mark.width,) * 2, Image.LANCZOS).save(rerendered)
+
+    assert _generate(original, tmp_path / "original-out").returncode == 0
+    assert _generate(rerendered, tmp_path / "rerendered-out").returncode == 0
+
+    before = json.loads((original.parent / "measured-colors.json").read_text(encoding="utf-8"))
+    after = json.loads((rerendered.parent / "measured-colors.json").read_text(encoding="utf-8"))
+    assert before.keys() == after.keys()
+    for token, value in before.items():
+        drift = [
+            abs(int(value[start : start + 2], 16) - int(after[token][start : start + 2], 16))
+            for start in (1, 3, 5)
+        ]
+        assert max(drift) <= 1, f"{token}: {value} -> {after[token]}"

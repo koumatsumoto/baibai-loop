@@ -12,10 +12,18 @@ from __future__ import annotations
 import colorsys
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SOURCE = REPO_ROOT / "ui" / "brand" / "logo.png"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "ui" / "public"
+# Written next to the source so the palette can be checked against the image it claims to come
+# from: `ui/tests/brand.test.ts` reads this, not the developer's memory.
+MEASUREMENT_FILENAME = "measured-colors.json"
 
 
 class BrandAssetError(RuntimeError):
@@ -38,6 +46,13 @@ HEADER_SIZE = 192
 APPLE_TOUCH_SIZE = 180
 MASKABLE_SIZES = (192, 512)
 
+ASSET_NAMES = (
+    "logo.png",
+    *(f"icon-{size}.png" for size in MASKABLE_SIZES),
+    "apple-touch-icon.png",
+    "favicon.ico",
+)
+
 # Two thresholds, because framing and measuring ask different questions of the same alpha.
 #
 # Framing asks how far the mark reaches, so it counts anything a viewer could see. Alpha below
@@ -45,6 +60,11 @@ MASKABLE_SIZES = (192, 512)
 # 1-px artboard overrun — and one such pixel in a corner would otherwise stretch the frame to
 # the whole canvas and shrink the mark in every asset at once, silently.
 VISIBLE_ALPHA = 10
+# A threshold alone only narrows that window, so the reach is checked against the paint as well:
+# a soft edge stays close to what it surrounds, while dust sits wherever the export dropped it.
+# Measured on this artwork, a generous drop shadow (45px blur at 35%) reaches 1.11x past the
+# opaque mark and a single speck in the corner of an 800px canvas reaches 2.5x.
+MAX_VISIBLE_OVERREACH = 1.5
 # Measuring asks what the mark is painted in, so it counts only pixels whose color is the paint
 # rather than a blend with whatever was behind them.
 OPAQUE_ALPHA = 250
@@ -80,27 +100,91 @@ BANDS = (LIME_BAND, GREEN_BAND)
 
 @dataclass(frozen=True, slots=True)
 class Frame:
-    """Where the mark sits on the square canvas every asset is rendered from."""
+    """How the mark sits on the square canvas every asset is rendered from."""
 
     size: int
     left: int
     top: int
+    # What the fully opaque part of the mark spans, as a share of that canvas. Reported so the
+    # run states a measured number instead of reading `MARK_COVERAGE` back out: the two differ
+    # by however soft the mark's edge is, and only this one moves when a source goes wrong.
+    paint_share: float
 
 
-def square_frame(box: Box | None) -> Frame:
-    """Center a mark's bounding box on the canvas it fills to `MARK_COVERAGE`.
+def display(path: Path) -> str:
+    """Repo-relative where that reads better, absolute where it would not."""
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path.resolve())
 
-    The canvas is sized from the mark's longest side and nothing else, so two sources drawn
-    with different margins put the same mark at the same size.
+
+def check_destinations(source_path: Path, output_dir: Path) -> None:
+    """Refuse the destinations that would leave the repo describing something it does not hold.
+
+    Nothing here reads or writes a file, so a run that is going to be refused is refused before
+    it renders anything — and the rule can be checked without putting the repo's own asset
+    directory in a test's reach.
     """
-    if box is None:
+    # The source is read from disk and the outputs are written to it, so an output dir holding the
+    # source would replace the original with a 192px derivative — and every later run would then
+    # shrink it again.
+    resolved_source = source_path.resolve()
+    collision = next(
+        (name for name in ASSET_NAMES if (output_dir / name).resolve() == resolved_source), None
+    )
+    if collision is not None:
+        message = f"output would overwrite the source logo: {display(output_dir / collision)}"
+        raise BrandAssetError(message)
+    # The measurement lands beside the source and the images land in the output dir, so those two
+    # have to agree on whether this run is the repo's. If only one of them is, the repo ends up
+    # describing a mark it does not hold: images the palette never followed, or a measurement no
+    # asset was rendered from. Neither is visible downstream, since `ui/tests/brand.test.ts` reads
+    # the measurement and never the images.
+    measurement_path = source_path.parent / MEASUREMENT_FILENAME
+    if measurement_path.resolve().is_relative_to(REPO_ROOT) != output_dir.resolve().is_relative_to(
+        REPO_ROOT
+    ):
+        message = (
+            f"images would go to {display(output_dir)} while the measurement lands in "
+            f"{display(measurement_path)}: keep both inside the repo or both outside it"
+        )
+        raise BrandAssetError(message)
+
+
+def _longest(box: Box) -> int:
+    left, top, right, bottom = box
+    return max(right - left, bottom - top)
+
+
+def square_frame(visible: Box | None, painted: Box | None) -> Frame:
+    """Center the mark's visible extent on the canvas it fills to `MARK_COVERAGE`.
+
+    The canvas is sized from that extent's longest side and nothing else, so two sources drawn
+    with different margins put the same mark at the same size. `painted` is the same mark bounded
+    at full opacity: a visible extent reaching far past it is not a soft edge but dust the export
+    left behind, and framing from it would shrink the mark in every asset at once.
+    """
+    if visible is None or painted is None:
         message = "source logo has no visible pixel to frame"
         raise BrandAssetError(message)
-    left, top, right, bottom = box
+    reach = _longest(visible) / _longest(painted)
+    if reach > MAX_VISIBLE_OVERREACH:
+        message = (
+            f"source logo reaches {reach:.1f}x past its own paint, over the "
+            f"{MAX_VISIBLE_OVERREACH:.1f}x a soft edge takes: erase what is left outside the mark"
+        )
+        raise BrandAssetError(message)
+    left, top, right, bottom = visible
     width = right - left
     height = bottom - top
     size = round(max(width, height) / MARK_COVERAGE)
-    return Frame(size=size, left=(size - width) // 2, top=(size - height) // 2)
+    return Frame(
+        size=size,
+        left=(size - width) // 2,
+        top=(size - height) // 2,
+        paint_share=_longest(painted) / size,
+    )
 
 
 def measure_palette(histogram: Histogram, bands: Sequence[Band] = BANDS) -> dict[str, str]:

@@ -42,26 +42,26 @@ from pathlib import Path
 from brand_mark import (
     APPLE_TOUCH_SCALE,
     APPLE_TOUCH_SIZE,
+    ASSET_NAMES,
     BANDS,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_SOURCE,
     FAVICON_SIZES,
     HEADER_SIZE,
-    MARK_COVERAGE,
     MASKABLE_SCALE,
     MASKABLE_SIZES,
+    MEASUREMENT_FILENAME,
+    OPAQUE_ALPHA,
     VISIBLE_ALPHA,
     BrandAssetError,
+    Frame,
+    check_destinations,
+    display,
     measure_palette,
     square_frame,
 )
 from PIL import Image, UnidentifiedImageError
 from PIL.Image import DecompressionBombError
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SOURCE = REPO_ROOT / "ui" / "brand" / "logo.png"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "ui" / "public"
-# Written next to the source so the palette can be checked against the image it claims to
-# come from: `ui/tests/brand.test.ts` reads this, not the developer's memory.
-MEASUREMENT_FILENAME = "measured-colors.json"
 
 WHITE = (255, 255, 255)
 TRANSPARENT = (0, 0, 0, 0)
@@ -83,16 +83,20 @@ def load_source(path: Path) -> Image.Image:
     return image
 
 
-def framed(source: Image.Image) -> Image.Image:
+def _bbox_above(alpha: Image.Image, threshold: int) -> tuple[int, int, int, int] | None:
+    return alpha.point(lambda level: 255 if level >= threshold else 0).getbbox()
+
+
+def framed(source: Image.Image) -> tuple[Image.Image, Frame]:
     """The mark alone, centered on a transparent square it fills to `MARK_COVERAGE`."""
-    visible = source.getchannel("A").point(lambda alpha: 255 if alpha >= VISIBLE_ALPHA else 0)
-    box = visible.getbbox()
-    frame = square_frame(box)
+    alpha = source.getchannel("A")
+    visible = _bbox_above(alpha, VISIBLE_ALPHA)
+    frame = square_frame(visible, _bbox_above(alpha, OPAQUE_ALPHA))
     canvas = Image.new("RGBA", (frame.size, frame.size), TRANSPARENT)
     # Pasted without a mask so the mark's own alpha is copied rather than composited over the
     # canvas: compositing would leave every transparent pixel carrying the canvas' black.
-    canvas.paste(source.crop(box), (frame.left, frame.top))
-    return canvas
+    canvas.paste(source.crop(visible), (frame.left, frame.top))
+    return canvas, frame
 
 
 def on_white(image: Image.Image, size: int, scale: float) -> Image.Image:
@@ -120,14 +124,6 @@ def as_favicon(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
-def display(path: Path) -> str:
-    """Repo-relative where that reads better, absolute where it would not."""
-    try:
-        return str(path.resolve().relative_to(REPO_ROOT))
-    except ValueError:
-        return str(path.resolve())
-
-
 def render(mark: Image.Image) -> dict[str, bytes]:
     """Every asset's bytes, so a failure to encode one of them writes none of them."""
     return {
@@ -141,33 +137,8 @@ def render(mark: Image.Image) -> dict[str, bytes]:
     }
 
 
-def check_destinations(
-    source_path: Path, output_dir: Path, paths: list[Path], measurement_path: Path
-) -> None:
-    """Refuse the destinations that would leave the repo describing something it does not hold."""
-    # The source is read from disk and the outputs are written to it, so an output dir
-    # holding the source would replace the original with a 192px derivative — and every
-    # later run would then shrink it again.
-    resolved_source = source_path.resolve()
-    collision = next((path for path in paths if path.resolve() == resolved_source), None)
-    if collision is not None:
-        message = f"output would overwrite the source logo: {display(collision)}"
-        raise BrandAssetError(message)
-    # The measurement belongs beside the source, so a run that sends the images elsewhere while
-    # the source still sits in the repo would leave the repo's measurement — and through it the
-    # palette check — describing a mark that was never rendered.
-    if measurement_path.resolve().is_relative_to(REPO_ROOT) and output_dir.resolve() != (
-        DEFAULT_OUTPUT_DIR.resolve()
-    ):
-        message = (
-            f"images would go to {display(output_dir)} while the measurement lands in "
-            f"{display(measurement_path)}: render into {display(DEFAULT_OUTPUT_DIR)}, or copy "
-            f"the source outside the repo first"
-        )
-        raise BrandAssetError(message)
-
-
 def generate(source_path: Path, output_dir: Path) -> list[Path]:
+    check_destinations(source_path, output_dir)
     source = load_source(source_path)
     histogram = source.getcolors(maxcolors=source.width * source.height)
     if histogram is None:
@@ -176,19 +147,18 @@ def generate(source_path: Path, output_dir: Path) -> list[Path]:
     # Everything the source is asked is asked, and every byte to be written is produced, before
     # the first one lands: a source this cannot measure or frame leaves the last set untouched.
     measured = measure_palette(histogram)
-    mark = framed(source)
+    mark, frame = framed(source)
     assets = render(mark)
-    measurement_path = source_path.parent / MEASUREMENT_FILENAME
-    paths = [output_dir / name for name in assets]
-    check_destinations(source_path, output_dir, paths, measurement_path)
 
+    measurement_path = source_path.parent / MEASUREMENT_FILENAME
     measurement_path.write_text(json.dumps(measured, indent=2) + "\n", encoding="utf-8")
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name, data in assets.items():
-        (output_dir / name).write_bytes(data)
+    paths = [output_dir / name for name in ASSET_NAMES]
+    for path in paths:
+        path.write_bytes(assets[path.name])
 
     print(f"source: {display(source_path)} ({source.width}x{source.height})")
-    print(f"framed: {mark.width}x{mark.height}, mark at {MARK_COVERAGE:.0%} of the canvas")
+    print(f"framed: {mark.width}x{mark.height}, paint spans {frame.paint_share:.1%} of it")
     for band in BANDS:
         print(f"measured {band.name} ({band.custom_property}): {measured[band.custom_property]}")
     print(f"wrote {display(measurement_path)}")
