@@ -41,10 +41,12 @@ from .macro import (
 from .market import (
     close_change_since,
     latest_disclosure_dates_after,
+    latest_market_bar_date,
     latest_unadjusted_closes,
     market_calendar_business_day,
     next_earnings_dates,
     previous_business_day,
+    worst_close_drawdown,
 )
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
@@ -90,6 +92,7 @@ __all__ = [
     "close_change_since",
     "latest_disclosure_dates_after",
     "latest_macro_context_payload",
+    "latest_market_bar_date",
     "latest_shortlist_payload",
     "latest_unadjusted_closes",
     "list_bargain_assessment_payloads",
@@ -131,4 +134,5 @@ __all__ = [
     "store_stats",
     "task_store_exists",
     "thesis_publication",
+    "worst_close_drawdown",
 ]

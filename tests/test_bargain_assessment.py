@@ -86,6 +86,7 @@ def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721
             profile=shortlist.profile,
             macro_context_id=shortlist.macro_context_id,
             candidate_tickers=frozenset({"2331", "0001"}),
+            candidate_er={"2331": 0.12, "0001": 0.04},
         ),
     )
     return shortlist_id

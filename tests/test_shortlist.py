@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -71,6 +72,7 @@ def _binding() -> SelectionBinding:
         profile=shortlist.profile,
         macro_context_id=shortlist.macro_context_id,
         candidate_tickers=frozenset({"2331", "0001"}),
+        candidate_er={"2331": 0.12, "0001": 0.04},
     )
 
 
@@ -88,6 +90,23 @@ def test_shortlist_publish_is_immutable_and_identical_retry_is_no_change(tmp_pat
     )
     with pytest.raises(ShortlistConflictError):
         service.publish(changed, selection=_binding())
+
+
+def test_publish_keeps_the_machine_estimate_the_judgment_was_made_against(
+    tmp_path: Path,
+) -> None:
+    # The run store keeps a few generations and the horizon takes months, so the
+    # ranking the judgment started from is gone by the time it could be compared
+    # unless publish writes it into the judgment.
+    path = tmp_path / "app.sqlite"
+    ShortlistService(path).publish(_shortlist(), selection=_binding())
+
+    with sqlite3.connect(path) as connection:
+        payload = json.loads(connection.execute("SELECT payload FROM shortlist").fetchone()[0])
+    assert {entry["ticker"]: entry["er_annual"] for entry in payload["entries"]} == {
+        "2331": 0.12,
+        "0001": 0.04,
+    }
 
 
 def test_shortlist_rejects_duplicate_ticker() -> None:
