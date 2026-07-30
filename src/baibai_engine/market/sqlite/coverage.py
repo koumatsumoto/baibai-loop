@@ -403,11 +403,16 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
 # interrupted fetch that left source_coverage holes but already wrote the rows
 # must not trigger a re-fetch of data we hold. The natural gaps are weekends, the
 # Golden Week / New Year closures, and the ten consecutive closed days of the 2019
-# imperial transition, which puts eleven days between two trading days. The threshold
-# clears that with margin for another exceptional closure and still sits far below the
-# 31-day fetch chunk whose absence it has to catch.
+# imperial transition, which puts eleven days between two trading days.
+#
+# The two thresholds answer different questions and are deliberately not equal. The
+# gap threshold has to clear that eleven-day run with margin for another exceptional
+# closure. The edge tolerance only has to reach from a requested boundary to the
+# nearest trading day, so ten days covers the longest closure exactly; raising it
+# further would let a 31-day chunk holding a single trading day near its middle read
+# as covered, because the two tolerances would then span the whole chunk between them.
 _DAILY_BARS_MAX_GAP_DAYS = 15
-_DAILY_BARS_EDGE_TOLERANCE_DAYS = 15
+_DAILY_BARS_EDGE_TOLERANCE_DAYS = 10
 _DAILY_BARS_COVERAGE_QUERY = (
     "SELECT DISTINCT traded_at FROM jquants_daily_bars "
     "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at"

@@ -743,3 +743,39 @@ class DailyBarsCoverageTest(unittest.TestCase):
                 conn.close()
             self.assertTrue(covered)
             self.assertFalse(after_deletion)
+
+    def test_a_fetch_chunk_holding_one_trading_day_is_not_covered(self) -> None:
+        # The edge tolerances apply at both ends, so if they are wide enough to meet
+        # in the middle of a 31-day fetch chunk, a chunk holding a single day reads as
+        # covered and the rest is never fetched. Nothing downstream catches a hole
+        # that small: the density check works in 120-day buckets.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            try:
+                start, end = date(2024, 4, 1), date(2024, 5, 1)
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("7203", (start + timedelta(days=15)).isoformat(), 1000.0, 1000.0),
+                )
+                conn.commit()
+                sparse = daily_bars_covered_by_data(conn, start, end)
+                # The closure that forced the gap threshold up still has to be
+                # reachable from a boundary that lands on its first day.
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars"
+                    "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                    [
+                        ("7203", (date(2019, 5, 7) + timedelta(days=offset)).isoformat(), 1.0, 1.0)
+                        for offset in range(8)
+                    ],
+                )
+                conn.commit()
+                after_closure = daily_bars_covered_by_data(
+                    conn, date(2019, 4, 27), date(2019, 5, 14)
+                )
+            finally:
+                conn.close()
+            self.assertFalse(sparse)
+            self.assertTrue(after_closure)
