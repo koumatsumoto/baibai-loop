@@ -59,17 +59,21 @@ def days_with_bars(
     """
     if not days or not sqlite_path.exists():
         return set()
+    requested = set(days)
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
-        placeholders = ",".join("?" * len(days))
         rows = conn.execute(
             "SELECT traded_at, COUNT(*) FROM jquants_daily_bars "
-            f"WHERE traded_at IN ({placeholders}) GROUP BY traded_at",
-            [day.isoformat() for day in days],
+            "WHERE traded_at BETWEEN ? AND ? GROUP BY traded_at",
+            (min(requested).isoformat(), max(requested).isoformat()),
         ).fetchall()
     finally:
         conn.close()
-    return {date.fromisoformat(str(day)) for day, count in rows if int(count) >= min_tickers}
+    return {
+        day
+        for day, count in ((date.fromisoformat(str(raw)), int(count)) for raw, count in rows)
+        if day in requested and count >= min_tickers
+    }
 
 
 def complete_month_end_dates(
