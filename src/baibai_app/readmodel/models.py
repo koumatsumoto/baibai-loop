@@ -769,6 +769,7 @@ class BargainAssessmentView(BaseModel):
 type DeltaPool = Literal["longlist", "recommendations"]
 type DeltaUnavailable = Literal[
     "candidates",
+    "candidates_estimate",
     "candidates_pool",
     "candidates_previous_run",
     "holdings",
@@ -787,7 +788,6 @@ class CandidateEntryDeltaView(BaseModel):
 
     ticker: str
     company_name: str | None
-    sector: str
     er_annual_pct: float | None
     disclosed_since_previous: bool | None
 

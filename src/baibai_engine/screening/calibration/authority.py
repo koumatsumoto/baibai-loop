@@ -38,10 +38,19 @@ class CohortIntegrity:
 
 @dataclass(frozen=True, slots=True)
 class AuthorityDecision:
+    """Why production authority is or is not granted.
+
+    ``blocking_reasons`` names classes of problem, never single cohorts: one entry per
+    cohort would grow with the panel count and bury the handful of causes a reader can
+    act on. Per-cohort detail belongs to that cohort's own result. ``missing_cohorts``
+    is the exception, because a cohort with no result has nowhere else to be named.
+    """
+
     authority: str
     evidence_status: EvidenceStatus
     production_change_allowed: bool
     blocking_reasons: tuple[str, ...]
+    missing_cohorts: tuple[str, ...] = ()
 
     def payload(self) -> dict[str, object]:
         return asdict(self)
@@ -77,18 +86,20 @@ def decide_authority(
             reasons.append(f"missing_core_metrics:{','.join(sorted(missing_core_metrics))}")
 
     index = {(item.asof, item.horizon): item for item in cohorts}
+    missing: list[str] = []
     for asof in scope.required_asofs:
         for horizon in required_horizons:
             item = index.get((asof, horizon))
             if item is None:
-                reasons.append(f"missing_cohort:{asof}:{horizon}")
+                reasons.append("missing_cohort")
+                missing.append(f"{asof}:{horizon}")
                 continue
             if item.integrity_status != "eligible":
-                reasons.append(f"integrity_{item.integrity_status}:{asof}:{horizon}")
+                reasons.append(f"integrity_{item.integrity_status}")
             reasons.extend(item.blocking_reasons)
             for metric in scope.required_metrics:
                 if item.metric_statuses.get(metric) != "eligible":
-                    reasons.append(f"metric_unresolved:{asof}:{horizon}:{metric}")
+                    reasons.append(f"metric_unresolved:{metric}")
     if not reasons:
         return AuthorityDecision(
             authority="production_decision_evidence",
@@ -104,4 +115,5 @@ def decide_authority(
         evidence_status=status,
         production_change_allowed=False,
         blocking_reasons=tuple(dict.fromkeys(reasons)),
+        missing_cohorts=tuple(missing),
     )

@@ -1519,6 +1519,11 @@ def build_daily_delta(
             pool = pools[0]
         else:
             pool, current_pool, previous_pool = pools
+            if not any(_pool_er(row) is not None for row in current_pool.values()):
+                # A pool whose rows carry no estimate cannot produce a mover, and an
+                # empty mover list would read as "nothing moved". Naming it keeps a
+                # pool shape this reader does not know from silencing the section.
+                unavailable.append("candidates_estimate")
             entered, exited, er_moves, er_moves_total = _candidate_deltas(
                 current_pool,
                 previous_pool,
@@ -1619,13 +1624,22 @@ def _delta_pools(
 
 
 def _pool_er(row: Mapping[str, object]) -> float | None:
-    """Read the machine E[r] a selection row carries, whatever nesting it uses."""
+    """Read the machine E[r] of a selection row as an annual ratio.
+
+    The two pools state the same number differently: a recommendation carries the
+    ratio, a longlist row carries percent. Each source is converted where it is read,
+    because taking percent for a ratio would report a 10% estimate as 1023%.
+    """
 
     direct = _number(row.get("er_annual"))
     if direct is not None:
         return direct
     metrics = row.get("metrics")
-    return _number((metrics if isinstance(metrics, Mapping) else {}).get("er_annual"))
+    nested = _number((metrics if isinstance(metrics, Mapping) else {}).get("er_annual"))
+    if nested is not None:
+        return nested
+    percent = _number(row.get("expected_return_pct"))
+    return None if percent is None else percent / 100
 
 
 def _candidate_entry_delta(
@@ -1634,7 +1648,6 @@ def _candidate_entry_delta(
     return CandidateEntryDeltaView(
         ticker=str(row.get("ticker", "")),
         company_name=_text(row.get("name")),
-        sector=_text(row.get("sector_33")) or "",
         er_annual_pct=_percent(_pool_er(row)),
         disclosed_since_previous=disclosed,
     )
