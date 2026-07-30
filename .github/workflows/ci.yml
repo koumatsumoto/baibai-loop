@@ -57,6 +57,24 @@ jobs:
           uv run coverage report -m
           uv run coverage xml
 
+      - name: Brand asset contract
+        # tools/generate_brand_assets.py needs Pillow, which stays out of the lock so no daily
+        # workflow installs a native image library and pip-audit never carries it. That leaves
+        # its end-to-end test skipped in the run above, so it gets a step with Pillow as a
+        # throwaway overlay: --with resolves into a temporary env and touches neither uv.lock
+        # nor `uv export --all-groups`. The floor on the version stays in the script's PEP 723
+        # block, the one place that has to agree with what the script uses.
+        #
+        # The tradeoff taken here is that this job installs one package from outside the locked
+        # set. It holds `contents: read` and no secrets, and the alternative — locking a native
+        # image library into every workflow's install and into the audit surface — costs more.
+        #
+        # The import runs first because `pytest.importorskip` is fail-open: without it, a run
+        # where Pillow is missing or broken passes this step by skipping every test in the file.
+        run: |
+          uv run --with pillow python -c 'import PIL.Image'
+          uv run --with pillow pytest tests/test_brand_assets.py
+
       - name: Build package
         run: uv build --wheel
 

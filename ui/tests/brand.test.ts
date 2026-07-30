@@ -193,18 +193,28 @@ function pairs<T>(items: readonly T[]): [T, T][] {
   return items.flatMap((first, index) => items.slice(index + 1).map((second): [T, T] => [first, second]))
 }
 
+// What `tools/generate_brand_assets.py` read out of ui/brand/logo.png, keyed by the palette
+// entry each color belongs to. Regenerating the brand assets rewrites it.
+const measuredColors = JSON.parse(source('brand/measured-colors.json')) as Record<string, string>
+
 describe('brand palette', () => {
-  // The two colors the mark itself owns, checked against what was measured from
-  // ui/brand/logo.png rather than against a value typed in twice. Regenerating the brand
-  // assets rewrites that measurement, so a logo whose lime or gold has moved fails here
-  // until the palette follows the image it claims to come from.
-  it.each([
-    ['--brand-lime', 'lime'],
-    ['--accent-display', 'gold'],
-  ])('takes %s from the source logo', (token, measurement) => {
-    const measured = JSON.parse(source('brand/measured-colors.json')) as Record<string, string>
-    expect(measured[measurement]).toMatch(/^#[0-9a-f]{6}$/i)
-    expect(tokenValue(token)).toBe(measured[measurement].toLowerCase())
+  // The colors the mark itself owns, checked against the image rather than against values typed
+  // in twice. Compared perceptually, not byte for byte: re-rendering the same artwork moves a
+  // channel by a step whichever way the color is read out of it, and a step is at most 0.36 on
+  // this scale while the palette keeps its own colors 12 apart. A bar of 0.5 lets a re-render
+  // through and still fails a logo whose color has actually moved.
+  it.each(Object.entries(measuredColors))('takes %s from the source logo', (token, measured) => {
+    expect(measured).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(perceptualDistance(tokenValue(token), measured)).toBeLessThan(0.5)
+  })
+
+  // Both directions of that pairing. A measured color the palette does not declare fails above,
+  // because tokenValue throws for a name :root has not declared. A brand token nothing measures
+  // is the other half: a value with no image behind it, which is how a token outlives the mark
+  // it was named for.
+  it('leaves no brand token unmeasured', () => {
+    const declared = [...tokens.keys()].filter((name) => name.startsWith('--brand-'))
+    expect(declared.sort()).toEqual(Object.keys(measuredColors).sort())
   })
 
   // What the palette has to hold whatever the hex values become. Each color is measured
@@ -230,13 +240,62 @@ describe('brand palette', () => {
     expect(themeMappings.get(`--color${token.slice(1)}`)).toBe(`var(${token})`)
   })
 
-  it('maps no utility onto a token that no longer exists', () => {
-    for (const [name, value] of themeMappings) {
+  // A token dropped from the palette leaves its references behind as `var(--gone)`, which
+  // costs no error: the declaration is simply discarded and the element keeps whatever it
+  // inherited. The palette's own aliases are followed as well as the utility layer, since
+  // an alias is one more place a name outlives the color it stood for.
+  it('points no declaration at a token that no longer exists', () => {
+    for (const [name, value] of [...themeMappings, ...tokens]) {
       const reference = value.match(/^var\((--[\w-]+)\)$/)
       if (reference === null) continue
       const declared = tokens.has(reference[1]) || themeMappings.has(reference[1])
       expect(declared, `${name} points at a missing token`).toBe(true)
     }
+  })
+
+  // The mark's own green is the palette's record of the artwork, not a color to paint with: it
+  // sits under the 3:1 a state indicator needs, and the greens that carry interaction are
+  // darkened from it instead. Since a new logo moves this value, a component reaching for it
+  // would let the artwork decide an affordance's contrast.
+  //
+  // What this holds is the reachable half — the token and the `:root` aliases that resolve to it,
+  // by utility, by var() and by the `bg-(--x)` shorthand. Tailwind accepts enough spellings that
+  // chasing the rest would cost more than the rule is worth, so the palette states it as well.
+  // The threshold is asserted rather than described, so a mark whose green does clear 3:1 fails
+  // here and the rule gets revisited instead of outliving its reason.
+  it('leaves the mark’s own green out of the components', () => {
+    const markGreen = tokenValue('--brand-green').toLowerCase()
+    expect(contrastRatio(markGreen, tokenValue('--surface'))).toBeLessThan(3)
+    const aliases = [...tokens.keys()].filter((name) => tokenValue(name).toLowerCase() === markGreen)
+    for (const name of aliases) {
+      expect(themeMappings.has(`--color${name.slice(1)}`), `${name} is a utility`).toBe(false)
+    }
+    const painted = componentSources((entry) => entry !== 'styles.css').filter((text) =>
+      aliases.some((name) => text.includes(`var(${name})`) || text.includes(`(${name})`)),
+    )
+    expect(painted).toEqual([])
+  })
+
+  // Tailwind emits a rule for `bg-primary-soft` only because `--color-primary-soft` is
+  // re-exported through `@theme inline`. Painting with a name that is not costs no error: the
+  // class matches nothing and the element keeps whatever it inherited, so dropping a mapping
+  // empties every class string that named it without a word. Only names whose first segment
+  // belongs to the palette are checked, which leaves Tailwind's own scale (text-sm, border-b)
+  // alone.
+  it('paints with no color the theme layer does not export', () => {
+    // Which names belong to the palette is read from the palette, not from the utility layer this
+    // checks: taking it from `@theme` would let the last mapping under a name take the check with
+    // it when it goes.
+    const roots = new Set([...tokens.keys()].map((name) => name.slice(2).split('-')[0]))
+    const missing = new Set<string>()
+    for (const text of componentSources()) {
+      for (const [, name] of text.matchAll(
+        /\b(?:bg|text|border|ring|fill|stroke|from|via|to|outline|divide|caret|accent|decoration|placeholder)-([a-z][\w-]*)/g,
+      )) {
+        if (roots.has(name.split('-')[0]) && !themeMappings.has(`--color-${name}`)) missing.add(name)
+      }
+    }
+    expect([...missing]).toEqual([])
   })
 
   it('keeps status colors independent from brand and accent tokens', () => {
@@ -273,10 +332,12 @@ describe('brand palette', () => {
 const STATUS_FAMILIES = ['--positive', '--warning', '--destructive'] as const
 const STATUS_NAMES = 'positive|warning|destructive'
 
-function componentSources(): readonly string[] {
+// Everything under src/ that can name a color, with the palette itself excludable: a token
+// has to be declared somewhere, so a check about where a color is *used* has to skip it.
+function componentSources(include: (entry: string) => boolean = () => true): readonly string[] {
   const root = resolve(uiRoot, 'src')
   return readdirSync(root, { encoding: 'utf8', recursive: true })
-    .filter((entry) => /\.(?:tsx?|css)$/.test(entry))
+    .filter((entry) => /\.(?:tsx?|css)$/.test(entry) && include(entry))
     .map((entry) => readFileSync(resolve(root, entry), 'utf8'))
 }
 

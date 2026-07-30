@@ -70,7 +70,7 @@ export function AppShell() {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'relative flex h-full items-center px-2 text-sm font-medium text-muted-foreground transition-colors hover:text-primary sm:px-3',
-                  active && 'text-primary after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary-display',
+                  active && 'text-primary after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary',
                 )}
                 key={item.to}
                 to={item.to}

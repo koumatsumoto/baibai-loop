@@ -1,4 +1,4 @@
 {
-  "lime": "#C7DE24",
-  "gold": "#F9A702"
+  "--brand-lime": "#C7DE24",
+  "--brand-green": "#09AB65"
 }
