@@ -5,13 +5,16 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.foundation.env import load_project_env
+from baibai_engine.foundation.time import JST
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
 )
+from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
 from baibai_engine.screening.calibration.store import DEFAULT_CALIBRATION_DIR
 from baibai_engine.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
@@ -29,6 +32,7 @@ from baibai_engine.screening.sqlite_coverage import (
 
 from .cache import (
     _print_cache_coverage_issues,
+    backfill_master_command,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     invalidate_coverage_command,
@@ -87,6 +91,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--asof",
         required=True,
         help="screening target date (YYYY-MM-DD); computes each source window automatically",
+    )
+
+    backfill_master_parser = subparsers.add_parser(
+        "backfill-master",
+        help="store the point-in-time security master for one or more as-of dates",
+    )
+    backfill_master_parser.add_argument(
+        "--asof",
+        action="append",
+        dest="asofs",
+        help="master snapshot date (YYYY-MM-DD; repeatable)",
+    )
+    backfill_master_parser.add_argument(
+        "--month-end-from",
+        help="add every calendar month end from this date through --month-end-to (YYYY-MM-DD)",
+    )
+    backfill_master_parser.add_argument(
+        "--month-end-to",
+        help="last date considered for --month-end-from (YYYY-MM-DD)",
     )
 
     extract_parser = subparsers.add_parser(
@@ -524,6 +547,59 @@ def main(argv: list[str] | None = None) -> int:
         return bootstrap_cache_command(
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
+        )
+
+    if args.command == "backfill-master":
+        asof_dates = [_parse_iso_date(value) for value in (args.asofs or [])]
+        if bool(args.month_end_from) != bool(args.month_end_to):
+            print(
+                "--month-end-from and --month-end-to must be given together",
+                file=sys.stderr,
+            )
+            return 1
+        if args.month_end_from:
+            grid_start = _parse_iso_date(args.month_end_from)
+            grid_end = _parse_iso_date(args.month_end_to)
+            if grid_start > grid_end:
+                print(
+                    "--month-end-from "
+                    f"{grid_start.isoformat()} is after --month-end-to {grid_end.isoformat()}",
+                    file=sys.stderr,
+                )
+                return 1
+            if not sqlite_path.exists():
+                print(f"SQLite cache not found: {sqlite_path}", file=sys.stderr)
+                return 1
+            # The grid is derived from the bar store so that the backfilled dates
+            # are the cohort dates themselves. A snapshot on any other day leaves
+            # the cohort on a non-exact-date master and buys nothing.
+            asof_dates.extend(month_end_asof_grid(sqlite_path, start=grid_start, end=grid_end))
+        unique_dates = sorted(set(asof_dates))
+        if not unique_dates:
+            print("backfill-master resolved no dates to fetch", file=sys.stderr)
+            return 1
+        # A snapshot is only meaningful for a day the market produced one. Without
+        # this check a mistyped date can persist the current population as another
+        # day's point-in-time section, and every later read treats it as exact.
+        today = datetime.now(JST).date()
+        future = [day for day in unique_dates if day > today]
+        if future:
+            print(
+                f"backfill-master rejects future dates: {', '.join(map(str, future))}",
+                file=sys.stderr,
+            )
+            return 1
+        traded = days_with_bars(sqlite_path, unique_dates)
+        non_business = [day for day in unique_dates if day not in traded]
+        if non_business:
+            print(
+                "backfill-master rejects dates the bar store does not show as trading "
+                f"days: {', '.join(map(str, non_business))}",
+                file=sys.stderr,
+            )
+            return 1
+        return backfill_master_command(
+            asof_dates=unique_dates, providers=providers, sqlite_path=sqlite_path
         )
 
     if args.command == "extract-edinet-metrics":

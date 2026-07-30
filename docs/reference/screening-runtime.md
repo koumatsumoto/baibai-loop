@@ -27,6 +27,8 @@ last_reviewed: 2026-07-23
 uv run baibai-engine screening run --asof YYYY-MM-DD
 uv run baibai-engine screening run --asof YYYY-MM-DD --allow-stale-jpx
 uv run baibai-engine screening bootstrap-cache --asof YYYY-MM-DD
+uv run baibai-engine screening backfill-master --asof YYYY-MM-DD [--asof YYYY-MM-DD ...]
+uv run baibai-engine screening backfill-master --month-end-from YYYY-MM-DD --month-end-to YYYY-MM-DD
 uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id ID [--macro-context-id ID] [--top N] [--profile PROFILE] [--detail summary|full] [--longlist-top N]
 uv run baibai-engine screening shortlist publish DRAFT.yaml [--db PATH]
 uv run baibai-engine screening ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
@@ -37,6 +39,8 @@ uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 ```
 
 `select` の `--run-revision-id` は必須で、`screening run` が返した immutable revision を指す。`--macro-context-id` は published macro context の ID（省略時は as-of 以前の latest eligible）で path ではない。`--longlist-top N` は diversity/cap 切断前の上位 N 件を longlist として出す。
+
+`backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に 1200 日の bar 窓と 730 日の summary 窓も取り直すため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
 
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
 

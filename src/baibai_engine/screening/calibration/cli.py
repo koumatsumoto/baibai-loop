@@ -101,6 +101,22 @@ def calibration_build_command(
     return 0
 
 
+def _optional_count(value: object) -> int | None:
+    """Read a panel count, keeping "not measured" distinct from zero."""
+    return value if type(value) is int else None
+
+
+def _survivorship_status(mismatch: int | None) -> str:
+    """Turn the population mismatch count into the cohort verdict.
+
+    Deriving the verdict here rather than freezing it into the panel keeps a
+    change in what counts as complete applicable to cohorts already on disk.
+    """
+    if mismatch is None:
+        return "unavailable"
+    return "complete" if mismatch == 0 else "incomplete"
+
+
 def calibration_evaluate_command(
     *,
     calibration_dir: Path,
@@ -184,6 +200,8 @@ def calibration_evaluate_command(
             policy_reason_counts = meta.get("policy_exclusion_reason_counts")
             if not isinstance(policy_reason_counts, dict):
                 policy_reason_counts = {}
+            mismatch = _optional_count(meta.get("asof_population_mismatch_count"))
+            unevaluated = _optional_count(meta.get("priced_master_without_universe_count"))
             coverage.update(
                 {
                     "master_snapshot_date": meta.get("master_snapshot_date"),
@@ -199,26 +217,47 @@ def calibration_evaluate_command(
                     "input_range_clamped": bool(
                         meta.get("bars_window_clamped") or meta.get("fin_window_clamped")
                     ),
+                    # Survivorship belongs to the population the panel drew, so the
+                    # panel measures it and the reader turns the counts into the
+                    # verdict. A panel written before the measurement existed
+                    # reports null rather than zero, so "not measured" cannot be
+                    # read as "nothing missing".
+                    "survivorship_coverage_status": _survivorship_status(mismatch),
+                    "asof_priced_count": meta.get("asof_priced_count"),
+                    "asof_population_mismatch_count": mismatch,
+                    "policy_excluded_priced_count": meta.get("policy_excluded_priced_count"),
+                    "priced_master_without_universe_count": unevaluated,
+                    "entry_resolution_lag_days": meta.get("entry_resolution_lag_days"),
                 }
             )
             if horizon in {"3y", "5y"}:
+                # One blocker per independent observation. A verdict derived from
+                # another observation would count the same gap twice and make the
+                # reason histogram unreadable.
                 if meta.get("master_snapshot_status") != "exact_date":
-                    blockers.append(
-                        f"master_snapshot:{meta.get('master_snapshot_status', 'unavailable')}"
-                    )
-                for field in (
-                    "survivorship_coverage_status",
-                    "delisting_coverage_status",
-                    "corporate_action_event_coverage_status",
-                ):
-                    if coverage.get(field) != "complete":
-                        blockers.append(f"{field}:{coverage.get(field, 'unknown')}")
+                    blockers.append("master_snapshot")
+                if coverage["survivorship_coverage_status"] != "complete":
+                    blockers.append("survivorship")
+                if coverage.get("adjustment_factor_coverage") != "complete":
+                    blockers.append("adjustment_factor")
                 if coverage["input_range_clamped"]:
                     blockers.append("input_range_clamped")
                 if not coverage.get("candidate_partition_complete"):
                     blockers.append("candidate_partition_incomplete")
-                if coverage.get("data_unresolved_count"):
-                    blockers.append("unresolved_forward_rows")
+                if not isinstance(unevaluated, int) or unevaluated:
+                    blockers.append("priced_master_without_universe")
+                # Each unresolved class blocks for its own reason, and a name the
+                # panel could not price at asof blocks for none of them. The
+                # residual keeps an unenumerated status from passing silently.
+                for field, label in (
+                    ("entry_price_gap_count", "entry_price_gap"),
+                    ("unpriced_exit_count", "unpriced_exit"),
+                    ("future_horizon_count", "horizon_not_matured"),
+                    ("unclassified_unresolved_count", "unclassified_unresolved"),
+                ):
+                    count = coverage.get(field)
+                    if isinstance(count, int) and count:
+                        blockers.append(label)
             metric_status = (
                 "eligible" if cohort["metric_calculation_status"] == "resolved" else "unresolved"
             )

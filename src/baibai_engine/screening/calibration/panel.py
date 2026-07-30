@@ -39,6 +39,7 @@ from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
 from ..sqlite_reader import read_edinet_metrics, read_eq_master_asof, read_fin_summaries
 from ..universe import ELIGIBLE_MARKETS, build_universe, liquid_median_population
+from .forward import STALE_PRICE_MAX_LAG_DAYS
 
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
@@ -129,12 +130,41 @@ class PanelDiagnostics:
     population_per_trailing_exact: int
     master_snapshot_date: str | None = None
     master_snapshot_status: str = "unavailable"
-    survivorship_coverage_status: str = "not_assessed"
-    delisting_coverage_status: str = "not_assessed"
-    corporate_action_event_coverage_status: str = "not_assessed"
     master_population_count: int = 0
     candidate_population_count: int = 0
     policy_exclusion_reason_counts: dict[str, int] | None = None
+    # Survivorship is a property of the population, not of a single forward
+    # observation, so it is measured here. The bar store keeps rows for every
+    # ticker that traded, including ones that have since left the market, so the
+    # set priced on ``asof`` is observable independently of the master snapshot
+    # and can be compared against it. Only the ``asof`` session counts: a name
+    # whose last trade was earlier had already left the market, and an exact-date
+    # master is right to omit it. Widening this to the entry tolerance would
+    # count correctly-omitted names as coverage holes, which no master could
+    # then satisfy.
+    #
+    # ``asof_population_mismatch_count`` counts tickers priced on ``asof`` that
+    # the master read does not contain. A later master misses names that were
+    # listed then and have since delisted (the survivorship hole); an earlier one
+    # misses names listed after it. Either way the panel cross-section is not the
+    # investable universe of ``asof``. An exact-date master drives the count to
+    # zero, because a name that traded that session was listed that session.
+    #
+    # ``priced_master_without_universe_count`` counts the opposite direction: a
+    # name priced on ``asof`` and present in the master that the panel still
+    # could not evaluate. Those rows exist in the panel without metrics, so the
+    # count keeps them from reading as names that were simply absent.
+    #
+    # The verdict is derived from these counts by the reader, not frozen here, so
+    # that changing what counts as complete reaches cohorts already on disk.
+    asof_priced_count: int = 0
+    asof_population_mismatch_count: int = 0
+    policy_excluded_priced_count: int = 0
+    priced_master_without_universe_count: int = 0
+    # The lag the forward entry resolution was built with. A cohort written under
+    # a different rule carries different observations for the same inputs, so the
+    # reader needs to see which rule produced it.
+    entry_resolution_lag_days: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +348,16 @@ def build_panel(
                 policy_exclusions.get("market_out_of_scope", 0) + 1
             )
     population_rows = [row for row in rows if row.in_population]
+    panel_tickers = {row.ticker for row in rows}
+    master_tickers = {security.code for security in securities}
+    # Bars arrive ordered by (ticker, traded_at) within a window ending at asof, so
+    # the last bar of each ticker is its latest priced day at or before asof.
+    asof_priced = {
+        ticker
+        for ticker, ticker_bars in bars_by_ticker.items()
+        if ticker_bars and ticker_bars[-1].traded_at == asof_date
+    }
+    population_mismatch = asof_priced - master_tickers
     diagnostics = PanelDiagnostics(
         asof=asof_date.isoformat(),
         rules_hash=rules_content_hash(rules),
@@ -347,6 +387,13 @@ def build_panel(
         master_population_count=len(securities),
         candidate_population_count=len(rows),
         policy_exclusion_reason_counts=policy_exclusions,
+        asof_priced_count=len(asof_priced),
+        asof_population_mismatch_count=len(population_mismatch),
+        policy_excluded_priced_count=len((asof_priced & master_tickers) - panel_tickers),
+        priced_master_without_universe_count=len(
+            (asof_priced & master_tickers & panel_tickers) - set(universe_result.snapshots)
+        ),
+        entry_resolution_lag_days=STALE_PRICE_MAX_LAG_DAYS,
     )
     return PanelBuildResult(rows=tuple(rows), diagnostics=diagnostics)
 

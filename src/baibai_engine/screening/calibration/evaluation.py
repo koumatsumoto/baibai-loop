@@ -137,6 +137,21 @@ def _evaluate_cohort(
     unresolved_reasons: dict[str, int] = {}
     for row in unresolved:
         unresolved_reasons[row.status] = unresolved_reasons.get(row.status, 0) + 1
+    # The panel records the last close at or before asof, so it is the authority on
+    # whether a name was priced then. A forward row that found no entry for a name
+    # the panel priced is a tradeable name dropped from the measurement, not a name
+    # that was absent from the market — the two must not share a bucket, because only
+    # the first can bias the cohort.
+    priced_at_asof = {row.ticker for row in panel if row.close is not None}
+    missing_entry = [row for row in unresolved if row.status == "unresolved_missing_entry"]
+    entry_not_listed = [row for row in missing_entry if row.ticker not in priced_at_asof]
+    entry_price_gap = [row for row in missing_entry if row.ticker in priced_at_asof]
+    unpriced_exit = [
+        row
+        for row in unresolved
+        if row.status in {"unresolved_missing_exit", "unresolved_stale_exit"}
+    ]
+    future_horizon = [row for row in unresolved if row.status == "unresolved_future_horizon"]
     population_expected = [row for row in panel if row.in_population]
     expected_tickers = {row.ticker for row in panel}
     observed_tickers = {row.ticker for row in candidate_rows}
@@ -153,19 +168,29 @@ def _evaluate_cohort(
         "resolved_count": sum(1 for row in candidate_rows if row.status == "resolved"),
         "data_unresolved_count": len(unresolved),
         "data_unresolved_reason_counts": unresolved_reasons,
+        # Unresolved rows are not one kind of defect. A name that was not listed
+        # at asof is a correct exclusion; a name priced earlier but absent at
+        # asof would be a silently dropped tradeable name; a name whose series
+        # ends inside the window is the survivorship exposure that needs an exit
+        # value. Only the last two can bias a cohort, so the authority gate
+        # reads these counts rather than the undivided total.
+        "entry_not_listed_count": len(entry_not_listed),
+        "entry_price_gap_count": len(entry_price_gap),
+        "unpriced_exit_count": len(unpriced_exit),
+        "future_horizon_count": len(future_horizon),
+        # The classes above are an allowlist, so a status none of them names would
+        # pass without a blocker. The residual makes that impossible.
+        "unclassified_unresolved_count": (
+            len(unresolved)
+            - len(entry_not_listed)
+            - len(entry_price_gap)
+            - len(unpriced_exit)
+            - len(future_horizon)
+        ),
         "candidate_partition_complete": observed_tickers == expected_tickers,
         "candidate_forward_missing_count": len(expected_tickers - observed_tickers),
         "candidate_forward_extra_count": len(observed_tickers - expected_tickers),
-        "survivorship_coverage_status": _coverage_status(
-            candidate_rows, "survivorship_coverage_status"
-        ),
-        "delisting_coverage_status": _coverage_status(candidate_rows, "delisting_coverage_status"),
-        "corporate_action_event_coverage_status": _coverage_status(
-            candidate_rows, "corporate_action_event_coverage_status"
-        ),
-        "adjustment_factor_coverage": _coverage_status(
-            candidate_rows, "adjustment_factor_coverage"
-        ),
+        "adjustment_factor_coverage": _adjustment_factor_status(candidate_rows),
     }
     if context is None:
         return {
@@ -255,15 +280,19 @@ def _cohort_excess_context(
     )
 
 
-def _coverage_status(rows: Sequence[ForwardReturnRow], name: str) -> str:
-    values = {str(getattr(row, name)) for row in rows}
-    if not values:
+def _adjustment_factor_status(rows: Sequence[ForwardReturnRow]) -> str:
+    """Say whether every bar behind these rows carried a split adjustment factor.
+
+    This is the only corporate-action question the bar store can answer. Actions
+    it does not adjust — a merger's consideration, a rights offering — leave no
+    local trace, so the residual is disclosed in the reference doc instead of
+    being folded into this value. ``unknown`` means no row reported a factor at
+    all and is kept distinct from a factor that is present but incomplete.
+    """
+    values = {str(row.adjustment_factor_coverage) for row in rows}
+    if not values or "unknown" in values:
         return "unknown"
-    if "unknown" in values:
-        return "unknown"
-    if "not_assessed" in values:
-        return "not_assessed"
-    return "complete"
+    return "complete" if values == {"complete"} else "incomplete"
 
 
 def _evaluate_axis(

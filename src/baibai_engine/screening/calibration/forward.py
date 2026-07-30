@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields, replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.market.bars import asof_basis_closes
@@ -17,7 +17,6 @@ from .horizons import HORIZONS, HorizonSpec, require_horizon
 __all__ = ("HORIZONS", "ForwardReturnRow", "compute_forward_returns")
 
 ForwardStatus = str
-CoverageStatus = str
 AdjustmentCoverage = str
 
 STALE_PRICE_MAX_LAG_DAYS = 15
@@ -26,6 +25,14 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ForwardReturnRow:
+    """One (asof, ticker, horizon) price observation and why it did not resolve.
+
+    The row records what was observed; the coverage verdicts a cohort needs are
+    derived from these observations at evaluation time so that every stored
+    cohort is judged by the current contract rather than by whatever contract
+    was in force when its cache was written.
+    """
+
     asof: str
     ticker: str
     horizon: str
@@ -36,9 +43,6 @@ class ForwardReturnRow:
     entry_date: str | None
     exit_date: str | None
     status: ForwardStatus = "resolved"
-    delisting_coverage_status: CoverageStatus = "not_assessed"
-    corporate_action_event_coverage_status: CoverageStatus = "not_assessed"
-    survivorship_coverage_status: CoverageStatus = "not_assessed"
     adjustment_factor_coverage: AdjustmentCoverage = "unknown"
 
 
@@ -56,7 +60,11 @@ def compute_forward_returns(
         return []
     specs = tuple(require_horizon(name) for name in horizons)
     unique_tickers = sorted(set(tickers) | set(BENCHMARK_TICKERS))
-    min_asof = min(asofs)
+    # Entry resolution accepts a bar up to STALE_PRICE_MAX_LAG_DAYS before asof, so
+    # the load window has to start that far ahead of the earliest asof. Loading from
+    # the asof itself makes the tolerance unusable: a name that did not trade on the
+    # asof date reads as having no entry at all, even though it traded days earlier.
+    min_asof = min(asofs) - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
     eval_cap = _latest_bar_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
     conn = sqlite3.connect(sqlite_path)
@@ -131,18 +139,11 @@ def _ticker_forward_rows(
                 exit_date = dates[exit_index] if exit_index is not None else None
                 exit_close = closes[exit_index] if exit_index is not None else None
                 if exit_close is None or exit_date is None:
-                    rows.append(
-                        replace(
-                            base,
-                            delisting_coverage_status="unknown",
-                            status="unresolved_missing_exit",
-                        )
-                    )
+                    rows.append(replace(base, status="unresolved_missing_exit"))
                 elif (target - exit_date).days > STALE_PRICE_MAX_LAG_DAYS:
                     rows.append(
                         replace(
                             base,
-                            delisting_coverage_status="unknown",
                             stale_price=True,
                             exit_date=exit_date.isoformat(),
                             status="unresolved_stale_exit",

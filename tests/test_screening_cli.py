@@ -26,6 +26,7 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import (
     ProviderBundle,
+    backfill_master_command,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     run_command,
@@ -48,6 +49,7 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
+    JQuantsProviderError,
 )
 from baibai_engine.screening.render import build_output_path
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -127,6 +129,16 @@ class FakeJQuantsProvider:
                 profit=None,
             ),
         ]
+
+
+@dataclass
+class _FailingOnDateJQuantsProvider(FakeJQuantsProvider):
+    failing_date: date | None = None
+
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
+        if requested_asof == self.failing_date:
+            raise JQuantsProviderError(f"no master for {requested_asof.isoformat()}")
+        return super().get_eq_master(requested_asof)
 
 
 @dataclass
@@ -823,6 +835,109 @@ class ScreeningCliTests(unittest.TestCase):
         )
         self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
         self.assertEqual(jpx.bootstrap_calls, [asof])
+
+    def test_backfill_master_fetches_only_the_master_for_each_date(self) -> None:
+        # 1 cohort あたり 1 request だけを使うことが、この命令の存在理由である。
+        jquants = FakeJQuantsProvider()
+        buffer = io.StringIO()
+        dates = [date(2026, 4, 30), date(2026, 5, 29)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = backfill_master_command(
+                asof_dates=dates,
+                providers=ProviderBundle(jquants=jquants, edinet=FakeEDINETProvider(), jpx=None),
+                sqlite_path=Path(tmpdir) / "market.sqlite",
+                stdout=buffer,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(jquants.calls, [("get_eq_master", day, day) for day in dates])
+        self.assertIn("backfill-master start: 2 date(s)", buffer.getvalue())
+        # 既存 snapshot が無いので fetch 側として報告される。
+        self.assertIn("2026-04-30: fetched", buffer.getvalue())
+        self.assertIn("backfill-master done", buffer.getvalue())
+
+    def test_backfill_master_continues_past_a_failed_date_and_fails_overall(self) -> None:
+        # 1 日の取得失敗で残りの cohort を諦めないが、成功したことにもしない。
+        jquants = _FailingOnDateJQuantsProvider(failing_date=date(2026, 4, 30))
+        buffer = io.StringIO()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), tempfile.TemporaryDirectory() as tmpdir:
+            exit_code = backfill_master_command(
+                asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
+                providers=ProviderBundle(jquants=jquants, edinet=FakeEDINETProvider(), jpx=None),
+                sqlite_path=Path(tmpdir) / "market.sqlite",
+                stdout=buffer,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("1 of 2 date(s) failed", stderr.getvalue())
+        self.assertIn(("get_eq_master", date(2026, 5, 29), date(2026, 5, 29)), jquants.calls)
+        self.assertNotIn("backfill-master done", buffer.getvalue())
+
+    def _backfill_master_main(self, argv: list[str]) -> tuple[int, str]:
+        """Run backfill-master through main() with no reachable provider.
+
+        The guards under test all reject before any fetch, so a provider that
+        raises on use proves the rejection happened for the stated reason.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cwd = Path.cwd()
+            stderr = io.StringIO()
+            try:
+                os.chdir(Path(tmpdir))
+                with (
+                    patch.dict(os.environ, {"JQUANTS_API_KEY": "token"}),
+                    patch.object(
+                        JQuantsProvider,
+                        "_get_client",
+                        side_effect=AssertionError("provider fetch must not be used"),
+                    ),
+                    contextlib.redirect_stderr(stderr),
+                ):
+                    exit_code = screening_cli.main(["backfill-master", *argv])
+            finally:
+                os.chdir(cwd)
+        return exit_code, stderr.getvalue()
+
+    def test_main_backfill_master_rejects_a_month_end_range_given_backwards(self) -> None:
+        # 空の grid を「対象が無い」と読ませず、引数の取り違えとして名指しする。
+        exit_code, stderr = self._backfill_master_main(
+            ["--month-end-from", "2025-06-30", "--month-end-to", "2024-01-31"]
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("2025-06-30 is after --month-end-to 2024-01-31", stderr)
+
+    def test_main_backfill_master_rejects_one_sided_month_end_range(self) -> None:
+        exit_code, stderr = self._backfill_master_main(["--month-end-from", "2025-06-30"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("must be given together", stderr)
+
+    def test_main_backfill_master_rejects_a_future_asof(self) -> None:
+        # 未来日の断面は存在しない。要求日を echo する provider があれば、当日の
+        # population が別日の断面として永続化されてしまう。
+        future = (datetime.now(JST).date() + timedelta(days=1)).isoformat()
+        exit_code, stderr = self._backfill_master_main(["--asof", future])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("rejects future dates", stderr)
+        self.assertIn(future, stderr)
+
+    def test_main_backfill_master_rejects_a_date_the_bar_store_never_priced(self) -> None:
+        # 非営業日の断面も存在しない。bar store が市場の実績を持つ唯一の証拠。
+        exit_code, stderr = self._backfill_master_main(["--asof", "2026-01-01"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("does not show as trading days", stderr)
+
+    def test_main_backfill_master_requires_at_least_one_date(self) -> None:
+        exit_code, stderr = self._backfill_master_main([])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("resolved no dates", stderr)
 
     def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
