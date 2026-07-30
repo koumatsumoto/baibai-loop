@@ -45,6 +45,7 @@ from baibai_engine.screening.sqlite_reader import (
     read_edinet_metric_baseline,
     read_eq_master_exact,
 )
+from baibai_engine.screening.store_readiness import unreadable_store_reason
 
 from .common import _date_iso
 from .providers import EDINETAdapter, ProviderBundle
@@ -416,7 +417,17 @@ def _record_edinet_extraction_failure(
     asof_date: date,
     message: str,
 ) -> None:
-    """Record a failed attempt without destroying a usable target-day snapshot."""
+    """Record a failed attempt without destroying a usable target-day snapshot.
+
+    Recording the failure deletes the day's rows, so the check for an existing
+    snapshot is what stands between a failed attempt and the loss of a good one.
+    A store that exists but the readers cannot open answers "no snapshot" to that
+    check while the write path below would migrate it and delete anyway, so there
+    the question went unanswered and nothing is written. A store that does not
+    exist yet holds nothing to lose, and the failure is recorded as usual.
+    """
+    if sqlite_path.exists() and unreadable_store_reason(sqlite_path) is not None:
+        return
     try:
         baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
     except EDINETMetricBaselineError:

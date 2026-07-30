@@ -980,6 +980,52 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(record.source_period_end, date(2026, 3, 31))
             self.assertIn("selected=1 reused=0 downloaded=1", buffer.getvalue())
 
+    def test_recording_a_failure_keeps_the_snapshot_when_the_store_cannot_be_read(
+        self,
+    ) -> None:
+        # Recording a failure deletes the day's rows, and the check that is supposed to
+        # stop that reads through a path which answers "no snapshot" for a store behind
+        # the current schema. The write path would then migrate the store and delete a
+        # snapshot that was there all along.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            store_edinet_metrics(
+                sqlite_path,
+                date(2026, 4, 24),
+                [
+                    {
+                        "secCode": "96820",
+                        "sales_ttm": 1000.0,
+                        "ocf_ttm": 200.0,
+                        "extractor_revision": "test",
+                        "source_document_revision": "test",
+                    }
+                ],
+                status="ok",
+            )
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                conn.execute("PRAGMA user_version = 1")
+                conn.commit()
+            finally:
+                conn.close()
+
+            screening_cli.cache._record_edinet_extraction_failure(
+                sqlite_path=sqlite_path,
+                asof_date=date(2026, 4, 24),
+                message="provider unavailable",
+            )
+
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM edinet_metrics WHERE asof_date = ?",
+                    ("2026-04-24",),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)
+
     def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -11,6 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.screening.calibration.cli import calibration_build_command
 from baibai_engine.screening.calibration.forward import (
     STALE_PRICE_MAX_LAG_DAYS,
     ForwardReturnRow,
@@ -25,6 +28,7 @@ from baibai_engine.screening.calibration.store import (
 )
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.sqlite_cache import open_connection
+from baibai_engine.screening.store_readiness import unreadable_store_reason
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 ASOF = date(2026, 6, 30)
@@ -320,6 +324,52 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             self.assertEqual(result.rows, ())
             self.assertEqual(result.diagnostics.master_snapshot_status, "unavailable")
+
+    def test_build_refuses_a_store_behind_the_current_schema(self) -> None:
+        # Reading such a store degrades to "nothing here", which a build would write
+        # out as a grid of empty cohorts and count as built. The operator has to be
+        # told the store is stale instead of receiving panels holding nobody.
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute("PRAGMA user_version = 1")
+                conn.commit()
+            finally:
+                conn.close()
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=Path(tmp) / "calibration",
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("user_version 1", errors.getvalue())
+            self.assertFalse((Path(tmp) / "calibration").exists())
+
+    def test_a_store_at_the_current_schema_is_not_refused(self) -> None:
+        # The refusal above is only correct if it lets a healthy store through; a guard
+        # that blocked one would stop every measurement with the same message.
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+
+            self.assertIsNone(unreadable_store_reason(sqlite_path))
+
+    def test_a_missing_store_is_named_as_missing_rather_than_stale(self) -> None:
+        # The two send the operator to different places, and only one of them is a
+        # multi-hour re-fetch.
+        with tempfile.TemporaryDirectory() as tmp:
+            reason = unreadable_store_reason(Path(tmp) / "absent.sqlite")
+
+            assert reason is not None
+            self.assertIn("not found", reason)
+            self.assertFalse((Path(tmp) / "absent.sqlite").exists())
 
 
 if __name__ == "__main__":

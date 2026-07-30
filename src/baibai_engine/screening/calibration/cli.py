@@ -11,6 +11,7 @@ from typing import TextIO, cast
 import yaml
 
 from ..rule_config import ScreeningRules
+from ..store_readiness import unreadable_store_reason
 from .authority import (
     KNOWN_METRICS,
     PRODUCTION_REQUIRED_METRICS,
@@ -45,6 +46,10 @@ def calibration_build_command(
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
+    unreadable = unreadable_store_reason(sqlite_path)
+    if unreadable is not None:
+        print(f"calibration build: {unreadable}", file=sys.stderr)
+        return 1
     asofs = month_end_asof_grid(sqlite_path, start=start, end=end)
     if not asofs:
         print("no month-end trading days found in the requested window", file=sys.stderr)

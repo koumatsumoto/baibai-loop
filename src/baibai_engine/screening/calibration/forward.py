@@ -67,7 +67,7 @@ def compute_forward_returns(
     min_asof = min(asofs) - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
     eval_cap = _latest_bar_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
-    conn = sqlite3.connect(sqlite_path)
+    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         for ticker in unique_tickers:
             rows.extend(
@@ -194,7 +194,7 @@ def _load_ticker_bars(
 
 
 def _latest_bar_date(sqlite_path: Path) -> date | None:
-    conn = sqlite3.connect(sqlite_path)
+    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
     finally:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 from datetime import date
 from pathlib import Path
@@ -10,11 +12,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.cli.shortlist_outcome_cli import shortlist_outcome_command
 from baibai_engine.screening.shortlist_outcome import (
     cohort_from_payload,
     evaluate_cohort,
     with_machine_estimates,
 )
+from baibai_engine.screening.sqlite_cache import open_connection
 
 AS_OF = date(2026, 1, 30)
 
@@ -213,3 +217,49 @@ def test_drawdown_is_reported_before_the_return_matures() -> None:
     # Reported least-concerning first, so the scale reads down.
     assert [item["ploss"] for item in result["ploss"]] == ["低", "高"]
     assert result["ploss"][1]["worst_drawdown_pct"] == -25.0
+
+
+def test_the_command_refuses_a_market_store_it_cannot_read(tmp_path: Path) -> None:
+    # Every price the comparison rests on comes from that store. A store the readers
+    # cannot open yields no bar date, which drops the drawdown block out of the
+    # payload -- a cohort that never fell and a cohort nobody measured then read the
+    # same. The refusal comes before any shortlist is read, so a missing app DB is
+    # not what stops it.
+    market = tmp_path / "market.sqlite"
+    conn = open_connection(market)
+    try:
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+    finally:
+        conn.close()
+    output = tmp_path / "outcome.yaml"
+    errors = io.StringIO()
+
+    with contextlib.redirect_stderr(errors):
+        code = shortlist_outcome_command(
+            db_path=tmp_path / "baibai.sqlite",
+            runs_db_path=None,
+            sqlite_path=market,
+            output_path=output,
+        )
+
+    assert code == 1
+    assert "user_version 1" in errors.getvalue()
+    assert not output.exists()
+
+
+def test_the_command_refuses_a_market_store_that_is_absent(tmp_path: Path) -> None:
+    output = tmp_path / "outcome.yaml"
+    errors = io.StringIO()
+
+    with contextlib.redirect_stderr(errors):
+        code = shortlist_outcome_command(
+            db_path=tmp_path / "baibai.sqlite",
+            runs_db_path=None,
+            sqlite_path=tmp_path / "absent.sqlite",
+            output_path=output,
+        )
+
+    assert code == 1
+    assert "not found" in errors.getvalue()
+    assert not output.exists()
