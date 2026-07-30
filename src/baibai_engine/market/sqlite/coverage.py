@@ -129,8 +129,8 @@ def record_range_source_coverage(
     quality problem stays visible instead of being absorbed into an ``ok`` window.
     Overlapping ``ok`` windows are trimmed around that range rather than dropped:
     a rejected record inside one chunk says nothing about the years of history the
-    same window covers outside it, and dropping the window narrows coverage to the
-    chunk -- which is how a store holding five years of filings came to claim two.
+    same window covers outside it, and dropping the window would narrow coverage to
+    the chunk, leaving the filings on either side present but unreadable.
     """
     merged_start, merged_end = requested_start, requested_end
     if status == "ok":

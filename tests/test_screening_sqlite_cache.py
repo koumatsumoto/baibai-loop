@@ -288,8 +288,8 @@ class SQLiteCacheTest(unittest.TestCase):
         """One unusable record in one chunk must not retract the years of coverage
         around it. The chunk's own range stops being claimed so the quality problem
         stays visible, but the history outside it was never re-fetched and its claim
-        still holds -- collapsing the window to the chunk is what left five years of
-        filings in the store unreadable behind a two-year claim.
+        still holds. Collapsing the window to the chunk leaves years of filings in the
+        store unreadable behind a claim that no longer reaches them.
         """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -345,6 +345,9 @@ class SQLiteCacheTest(unittest.TestCase):
         """Re-fetching a range cleanly makes the stored rows good, so the previous
         quality complaint about that range no longer describes the store and is
         dropped instead of accumulating one row per failed chunk.
+
+        The clean fetch covers a wider range than the failed one, so its coverage row
+        is keyed differently: the complaint has to be deleted rather than overwritten.
         """
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -357,6 +360,35 @@ class SQLiteCacheTest(unittest.TestCase):
             store_jquants_fin_summaries(
                 db,
                 [{"Code": "72060", "DisclosedDate": "2025-03-05", "NetSales": 500}],
+                requested_start=date(2025, 2, 1),
+                requested_end=date(2025, 4, 30),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                windows = conn.execute(
+                    "SELECT coverage_start, coverage_end, status FROM source_coverage "
+                    "WHERE source = 'jquants_fin_summaries' ORDER BY coverage_start"
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(windows, [("2025-02-01", "2025-04-30", "ok")])
+
+    def test_a_narrower_failure_does_not_shrink_a_wider_complaint(self) -> None:
+        """A complaint reaching past the fetched range still describes the months
+        outside it, so a later failure inside it must not replace it. Narrowing would
+        report one bad month where a bad quarter was found.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [{"Code": "", "DisclosedDate": "2025-02-05"}],
+                requested_start=date(2025, 2, 1),
+                requested_end=date(2025, 4, 30),
+            )
+            store_jquants_fin_summaries(
+                db,
+                [{"Code": "", "DisclosedDate": "2025-03-05"}],
                 requested_start=date(2025, 3, 1),
                 requested_end=date(2025, 3, 31),
             )
@@ -368,7 +400,13 @@ class SQLiteCacheTest(unittest.TestCase):
                 ).fetchall()
             finally:
                 conn.close()
-            self.assertEqual(windows, [("2025-03-01", "2025-03-31", "ok")])
+            self.assertEqual(
+                windows,
+                [
+                    ("2025-02-01", "2025-04-30", "partial"),
+                    ("2025-03-01", "2025-03-31", "partial"),
+                ],
+            )
 
     def test_daily_bars_shifted_chunk_refetch_merges_coverage_window(self) -> None:
         """The shared coverage-merge path keeps daily_bars source_coverage contiguous
