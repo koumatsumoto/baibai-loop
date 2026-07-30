@@ -260,10 +260,10 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             cache_dir = Path(tmp) / "raw"
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
-            # Dense at both ends but a >10-day hole in the middle (2024-03-22..
-            # 2024-04-04), so the data-derived check sees the window as not
-            # covered and the provider refetches.
-            _insert_daily_bars(conn, [("2024-03-19", "2024-03-21"), ("2024-04-05", "2024-04-18")])
+            # Dense at both ends but a hole in the middle wider than any market
+            # closure (2024-03-22..2024-04-14), so the data-derived check sees the
+            # window as not covered and the provider refetches.
+            _insert_daily_bars(conn, [("2024-03-19", "2024-03-21"), ("2024-04-15", "2024-04-18")])
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
@@ -278,12 +278,12 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
-                record_count=14,
-                min_date="2024-04-05",
+                record_count=4,
+                min_date="2024-04-15",
                 max_date="2024-04-18",
                 path=(
                     "records/_data/raw/screening/jquants/"
-                    "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-04-05.json"
+                    "get_eq_bars_daily_range-end_dt-2024-04-18-start_dt-2024-04-15.json"
                 ),
             )
             conn.commit()

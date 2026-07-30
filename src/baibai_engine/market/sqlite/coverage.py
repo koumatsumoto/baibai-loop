@@ -401,11 +401,13 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
 # truth), not source_coverage. Every trading day carries a full-market row set,
 # so a genuinely missing window shows up as a gap between present dates, while an
 # interrupted fetch that left source_coverage holes but already wrote the rows
-# must not trigger a re-fetch of data we hold. The only natural gaps are weekends
-# and the Golden Week / New Year closures (observed max 7d), so a 10-day
-# threshold separates complete history from a missing 31-day fetch chunk.
-_DAILY_BARS_MAX_GAP_DAYS = 10
-_DAILY_BARS_EDGE_TOLERANCE_DAYS = 10
+# must not trigger a re-fetch of data we hold. The natural gaps are weekends, the
+# Golden Week / New Year closures, and the ten consecutive closed days of the 2019
+# imperial transition, which puts eleven days between two trading days. The threshold
+# clears that with margin for another exceptional closure and still sits far below the
+# 31-day fetch chunk whose absence it has to catch.
+_DAILY_BARS_MAX_GAP_DAYS = 15
+_DAILY_BARS_EDGE_TOLERANCE_DAYS = 15
 _DAILY_BARS_COVERAGE_QUERY = (
     "SELECT DISTINCT traded_at FROM jquants_daily_bars "
     "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at"

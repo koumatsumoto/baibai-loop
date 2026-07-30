@@ -3,9 +3,10 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.market.sqlite.coverage import daily_bars_covered_by_data
 from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -709,3 +710,36 @@ class SQLiteCacheTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DailyBarsCoverageTest(unittest.TestCase):
+    def test_the_ten_day_imperial_transition_closure_is_not_a_missing_window(self) -> None:
+        # The market was shut for the ten consecutive days of the 2019 imperial
+        # transition, leaving eleven days between two trading days. Treating that as
+        # a hole makes the bar store read as incomplete for every window covering it
+        # and sends the fetch back for data it already holds.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            try:
+                days = [
+                    *(date(2019, 4, 22) + timedelta(days=offset) for offset in range(5)),
+                    *(date(2019, 5, 7) + timedelta(days=offset) for offset in range(5)),
+                ]
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close) "
+                    "VALUES (?, ?, ?, ?)",
+                    [("7203", day.isoformat(), 1000.0, 1000.0) for day in days],
+                )
+                conn.commit()
+                covered = daily_bars_covered_by_data(conn, date(2019, 4, 22), date(2019, 5, 11))
+                # A whole fetch chunk missing still has to read as incomplete.
+                conn.execute("DELETE FROM jquants_daily_bars WHERE traded_at > '2019-04-26'")
+                conn.commit()
+                after_deletion = daily_bars_covered_by_data(
+                    conn, date(2019, 4, 22), date(2019, 6, 30)
+                )
+            finally:
+                conn.close()
+            self.assertTrue(covered)
+            self.assertFalse(after_deletion)
