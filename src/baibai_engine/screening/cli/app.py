@@ -242,6 +242,24 @@ def build_parser() -> argparse.ArgumentParser:
     shortlist_publish.add_argument("draft")
     shortlist_publish.add_argument("--db", help="application DB path")
     shortlist_publish.add_argument("--runs-db", help="screening run store path")
+    shortlist_outcome = shortlist_commands.add_parser(
+        "outcome",
+        help="compare each published shortlist's selected / rejected / machine cohorts",
+    )
+    shortlist_outcome.add_argument("--db", help="application DB path")
+    shortlist_outcome.add_argument("--runs-db", help="screening run store path")
+    shortlist_outcome.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+    shortlist_outcome.add_argument(
+        "--horizon",
+        action="append",
+        dest="horizons",
+        help="horizon to evaluate (3m/6m/1y/3y/5y; repeatable)",
+    )
+    shortlist_outcome.add_argument("--out", help="write the YAML payload to this path")
 
     profile_parser = subparsers.add_parser(
         "ticker-profile",
@@ -403,6 +421,21 @@ def main(argv: list[str] | None = None) -> int:
             app_db_path=Path(args.app_db) if args.app_db else None,
             macro_context_id=args.macro_context_id,
             previous_run_revision_id=args.previous_run_revision_id,
+        )
+
+    if args.command == "shortlist" and args.shortlist_command == "outcome":
+        from baibai_engine.appdb import database_path
+
+        from .shortlist_outcome_cli import shortlist_outcome_command
+
+        return shortlist_outcome_command(
+            db_path=Path(args.db) if args.db else database_path(),
+            runs_db_path=(
+                Path(args.runs_db) if args.runs_db else DEFAULT_SQLITE_CACHE_DIR / "runs.sqlite"
+            ),
+            sqlite_path=Path(args.sqlite_path),
+            horizons=args.horizons,
+            output_path=Path(args.out) if args.out else None,
         )
 
     if args.command == "shortlist":

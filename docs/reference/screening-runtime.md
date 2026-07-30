@@ -31,6 +31,7 @@ uv run baibai-engine screening backfill-master --asof YYYY-MM-DD [--asof YYYY-MM
 uv run baibai-engine screening backfill-master --month-end-from YYYY-MM-DD --month-end-to YYYY-MM-DD
 uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id ID [--macro-context-id ID] [--top N] [--profile PROFILE] [--detail summary|full] [--longlist-top N]
 uv run baibai-engine screening shortlist publish DRAFT.yaml [--db PATH]
+uv run baibai-engine screening shortlist outcome [--db PATH] [--runs-db PATH] [--horizon 3m] [--out PATH]
 uv run baibai-engine screening ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
 uv run baibai-engine screening market-snapshot [--asof YYYY-MM-DD] [--weeks N]
 uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
@@ -51,6 +52,8 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
 `select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) を支援する。
+
+`shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `unresolved_pruned_run` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
 
 `prune --keep N` は as-of、run timestamp、revision ID の新しい順に N 世代を残し、対象 run のcandidateとmachine selectionをtransaction内で削除してから`VACUUM`する。既定は3世代。run storeは再生成可能なcacheであり、canonicalなshortlist、research、proposal、holding reviewはapplication DBのsnapshotを読む。
 

@@ -148,6 +148,69 @@ def _index_on_or_before(bars: Sequence[JQuantsDailyBar], day: date) -> int | Non
     return None
 
 
+def worst_close_drawdown(
+    path: Path, tickers: Sequence[str], *, start: date, end: date
+) -> dict[str, float]:
+    """Return each ticker's deepest close-to-close fall from ``start`` within the window.
+
+    A permanent-loss judgment is about how far a name can fall while it is held, which
+    the return at a single later date does not show: a name that halved and recovered
+    reads as flat. Both ends are put on the window's latest share basis so a split does
+    not register as a fall.
+
+    The value is a ratio (``-0.3`` for a 30% trough) and is never positive: a name
+    that stayed above its entry did not fall. A ticker with no close at or before
+    ``start`` yields no entry.
+    """
+
+    if not tickers:
+        return {}
+    unique = list(dict.fromkeys(tickers))
+    placeholders = ",".join("?" for _ in unique)
+    # The f-string only expands "?" placeholders; every value is parameter-bound.
+    rows = read_rows(
+        path,
+        f"""
+            SELECT ticker, traded_at, close, adjustment_factor
+            FROM jquants_daily_bars
+            WHERE ticker IN ({placeholders})
+              AND close IS NOT NULL
+              AND traded_at >= ?
+              AND traded_at <= ?
+            ORDER BY ticker, traded_at
+            """,  # nosec B608
+        [
+            *unique,
+            (start - timedelta(days=_CHANGE_START_LOOKBACK_DAYS)).isoformat(),
+            end.isoformat(),
+        ],
+    )
+    by_ticker: dict[str, list[JQuantsDailyBar]] = {}
+    for ticker, traded_at, close, factor in rows:
+        by_ticker.setdefault(str(ticker), []).append(
+            JQuantsDailyBar(
+                ticker=str(ticker),
+                traded_at=date.fromisoformat(str(traded_at)),
+                close=float(close),
+                turnover_value=None,
+                adjustment_factor=None if factor is None else float(factor),
+            )
+        )
+    worst: dict[str, float] = {}
+    for ticker, bars in by_ticker.items():
+        entry = _index_on_or_before(bars, start)
+        if entry is None or entry == len(bars) - 1:
+            continue
+        closes = asof_basis_closes(bars)
+        if closes[entry] == 0:
+            continue
+        trough = min(closes[entry + 1 :])
+        # A name that never traded below its entry has no drawdown. Reporting the
+        # distance to its lowest point would call a rise a fall.
+        worst[ticker] = min(0.0, trough / closes[entry] - 1)
+    return worst
+
+
 def latest_disclosure_dates_after(
     path: Path, tickers: Sequence[str], *, after: date
 ) -> dict[str, date]:
@@ -216,4 +279,5 @@ __all__ = [
     "market_calendar_business_day",
     "next_earnings_dates",
     "previous_business_day",
+    "worst_close_drawdown",
 ]

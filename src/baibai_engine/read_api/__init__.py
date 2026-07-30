@@ -45,6 +45,7 @@ from .market import (
     market_calendar_business_day,
     next_earnings_dates,
     previous_business_day,
+    worst_close_drawdown,
 )
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
@@ -131,4 +132,5 @@ __all__ = [
     "store_stats",
     "task_store_exists",
     "thesis_publication",
+    "worst_close_drawdown",
 ]
