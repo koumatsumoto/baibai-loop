@@ -313,6 +313,7 @@ const deltaPoolLabel: Record<DeltaPool, string> = {
 // The view names the section a store could not answer; the reader gets it in Japanese.
 const deltaUnavailableLabel: Record<DeltaUnavailable, string> = {
   candidates: '候補（run なし）',
+  candidates_estimate: '候補の E[r]（pool が見積りを持たない）',
   candidates_pool: '候補（選定出力なし）',
   candidates_previous_run: '候補（比較する前 run なし）',
   holdings: '保有（ledger なし）',
@@ -378,7 +379,6 @@ function DailyDeltaCard({ delta, failed }: { delta: DailyDeltaView | null; faile
               <DeltaSecurity name={item.company_name} ticker={item.ticker} />
               {item.er_annual_pct !== null && <span className="font-mono text-sm tabular-nums">E[r] {formatPct(item.er_annual_pct)}</span>}
               <DeltaDisclosedBadge disclosed={item.disclosed_since_previous} />
-              <span className="text-sm text-muted-foreground">{item.sector}</span>
             </DeltaRow>
           ))}
           {delta.exited.map((item) => (

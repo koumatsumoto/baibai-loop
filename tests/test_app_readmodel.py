@@ -794,8 +794,25 @@ def _delta_run(*, asof: date, revision: str, rules_ref: str | None = "rules-a") 
 
 
 def _pool(*tickers: tuple[str, float | None]) -> dict[str, list[dict[str, object]]]:
+    """Build a longlist the way the selection writes it: percent, and no sector."""
+
     return {
         "longlist": [
+            {
+                "ticker": ticker,
+                "name": ticker,
+                "expected_return_pct": None if er is None else round(er * 100, 2),
+            }
+            for ticker, er in tickers
+        ]
+    }
+
+
+def _recommendation_pool(*tickers: tuple[str, float | None]) -> dict[str, list[dict[str, object]]]:
+    """Build a recommendations pool, which states the same estimate as a ratio."""
+
+    return {
+        "recommendations": [
             {"ticker": ticker, "name": ticker, "sector_33": "情報・通信業", "er_annual": er}
             for ticker, er in tickers
         ]
@@ -837,6 +854,46 @@ def test_daily_delta_compares_the_machine_pool_not_the_evaluated_universe() -> N
     assert [item.ticker for item in view.exited] == ["3333"]
     # The disclosure window starts at the earlier run's as-of, not today.
     assert market.disclosure_afters == [date(2026, 7, 28)]
+
+
+def test_daily_delta_reads_the_two_pools_estimate_units_as_the_same_quantity() -> None:
+    # The longlist states percent and a recommendation states the ratio. Reading one
+    # for the other would report an 8% estimate as 800%, or as 0.08%.
+    longlist = _delta_pair(_pool(("1111", 0.08)), _pool(("3333", 0.02)))
+    recommendations = _delta_pair(
+        _recommendation_pool(("1111", 0.08)), _recommendation_pool(("3333", 0.02))
+    )
+
+    from_longlist = build_daily_delta(
+        longlist, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
+    )
+    from_recommendations = build_daily_delta(
+        recommendations, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
+    )
+
+    assert from_longlist.pool == "longlist"
+    assert from_recommendations.pool == "recommendations"
+    assert from_longlist.entered[0].er_annual_pct == 8.0
+    assert from_recommendations.entered[0].er_annual_pct == 8.0
+
+
+def test_daily_delta_names_the_estimate_gap_when_the_pool_carries_none() -> None:
+    # A pool this reader cannot take an estimate from produces no mover, and an empty
+    # mover list is indistinguishable from a quiet day unless the gap is named.
+    candidates = _delta_pair(
+        {"longlist": [{"ticker": "1111", "name": "1111"}, {"ticker": "2222", "name": "2222"}]},
+        {"longlist": [{"ticker": "2222", "name": "2222"}, {"ticker": "3333", "name": "3333"}]},
+    )
+
+    view = build_daily_delta(
+        candidates, StubLedger(None), StubResearch([]), StubDeltaMarket(), StubDeltaMacro({})
+    )
+
+    assert "candidates_estimate" in view.unavailable
+    # The pool comparison itself still works; only the estimate is missing.
+    assert [item.ticker for item in view.entered] == ["1111"]
+    assert view.er_moves == []
+    assert view.er_moves_total == 0
 
 
 def test_daily_delta_reports_no_pool_when_neither_run_published_one() -> None:

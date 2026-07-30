@@ -290,6 +290,17 @@ def calibration_evaluate_command(
         if item.integrity_status == "eligible"
         and all(item.metric_statuses.get(metric) == "eligible" for metric in scope.required_metrics)
     }
+    # The histogram answers "how many required cohorts show this", so the per-cohort
+    # verdicts are counted here rather than taken from the decision's deduped classes.
+    for item in required_integrity:
+        if item.integrity_status != "eligible":
+            key = f"integrity_{item.integrity_status}"
+            integrity_reason_counts[key] = integrity_reason_counts.get(key, 0) + 1
+        for metric in scope.required_metrics:
+            if item.metric_statuses.get(metric) != "eligible":
+                key = f"metric_unresolved:{metric}"
+                integrity_reason_counts[key] = integrity_reason_counts.get(key, 0) + 1
+    # Scope-level reasons hold for the run as a whole, so they count once.
     for reason in decision.blocking_reasons:
         integrity_reason_counts.setdefault(reason, 1)
     payload = {

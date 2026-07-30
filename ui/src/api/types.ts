@@ -757,6 +757,7 @@ export interface MacroView {
 export type DeltaPool = 'longlist' | 'recommendations'
 export type DeltaUnavailable =
   | 'candidates'
+  | 'candidates_estimate'
   | 'candidates_pool'
   | 'candidates_previous_run'
   | 'holdings'
@@ -767,7 +768,6 @@ export type DeltaUnavailable =
 export interface CandidateEntryDeltaView {
   ticker: string
   company_name: string | null
-  sector: string
   er_annual_pct: number | null
   disclosed_since_previous: boolean | null
 }
