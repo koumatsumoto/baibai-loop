@@ -50,8 +50,8 @@ corporate action の `complete` は「ローカルに検出できる未対応 ac
 
 | 分類 | 意味 | gate への影響 |
 | --- | --- | --- |
-| `entry_not_listed_count` | as-of に価格が 1 本も無い（未上場） | block しない。投資可能でなかった銘柄の除外は正しく、bias を生まない |
-| `entry_price_gap_count` | 以前は価格が付いていたが as-of 近傍に無い | block する。取引可能名を無言で落とす経路になる |
+| `entry_not_listed_count` | panel も as-of の価格を持たない | block しない。投資可能でなかった銘柄の除外は正しく、bias を生まない |
+| `entry_price_gap_count` | panel は as-of の価格を持つのに forward が entry を持たない | block する。断面に数えた銘柄の forward 観測が無いので、population を無言で欠く |
 | `unpriced_exit_count` | 窓中に系列が終わる（廃止 exit value なし） | block する。survivorship 露出そのもの |
 | `future_horizon_count` | target が評価可能な最終取引日より先 | block する。cohort が満期に達していない |
 

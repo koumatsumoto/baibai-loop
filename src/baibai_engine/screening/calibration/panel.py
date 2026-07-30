@@ -334,13 +334,13 @@ def build_panel(
     population_rows = [row for row in rows if row.in_population]
     panel_tickers = {row.ticker for row in rows}
     master_tickers = {security.code for security in securities}
+    # Bars arrive ordered by (ticker, traded_at) within a window ending at asof, so
+    # the last bar of each ticker is its latest priced day at or before asof.
+    entry_floor = asof_date - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
     asof_priced = {
         ticker
         for ticker, ticker_bars in bars_by_ticker.items()
-        if any(
-            asof_date - timedelta(days=STALE_PRICE_MAX_LAG_DAYS) <= bar.traded_at <= asof_date
-            for bar in ticker_bars
-        )
+        if ticker_bars and ticker_bars[-1].traded_at >= entry_floor
     }
     population_mismatch = asof_priced - master_tickers
     diagnostics = PanelDiagnostics(
