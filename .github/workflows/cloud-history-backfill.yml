@@ -25,6 +25,12 @@ permissions:
 # The daily batch is the other writer of the machine stores. Sharing its group is
 # what keeps the two from pushing over each other: R2 is last-write-wins, so a
 # concurrent pass would silently drop whichever finished first.
+#
+# The cost is that this pass holds the group for as long as it runs, and GitHub keeps
+# only one run waiting behind it: a third run entering the group cancels the one
+# already queued. So while a backfill is in flight, dispatching another cloud workflow
+# can drop a queued daily batch. Run backfills outside the hours around 18:30 JST, or
+# re-dispatch the daily batch afterwards.
 concurrency:
   group: cloud-publish
   cancel-in-progress: false
@@ -56,8 +62,8 @@ jobs:
       - name: Sync Python environment
         run: uv sync --locked
 
-      - name: Pull machine stores
-        run: tools/cloud/r2_transfer.sh pull-machine
+      - name: Pull the market store
+        run: tools/cloud/r2_transfer.sh pull-market
 
       # Writing to the store migrates it, so the rollback object has to be present
       # and verified first, exactly as the daily batch does before its own writes.
@@ -95,5 +101,5 @@ jobs:
              FROM jquants_fin_summaries;
              SELECT 'master snapshots ' || COUNT(DISTINCT snapshot_date) FROM jquants_master_snapshots;"
 
-      - name: Upload updated machine stores
-        run: tools/cloud/r2_transfer.sh push-machine
+      - name: Upload the market store
+        run: tools/cloud/r2_transfer.sh push-market
