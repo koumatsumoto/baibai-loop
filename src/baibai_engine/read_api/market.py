@@ -60,6 +60,71 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
     return {str(row[0]): (float(row[2]), date.fromisoformat(str(row[1]))) for row in rows}
 
 
+def unadjusted_closes_on_or_before(
+    path: Path, tickers: Sequence[str], *, day: date
+) -> dict[str, tuple[float, date]]:
+    """Return each ticker's most recent non-null unadjusted close at or before ``day``.
+
+    A change is only readable against a stated earlier session, so a caller that
+    compares two dates needs the older side pinned rather than "latest". A ticker
+    that had not traded by ``day`` yields no entry, which keeps a comparison from
+    being drawn against a price that did not exist yet.
+    """
+
+    if not tickers:
+        return {}
+    unique = list(dict.fromkeys(tickers))
+    placeholders = ",".join("?" for _ in unique)
+    # The f-string only expands "?" placeholders; every value is parameter-bound.
+    rows = read_rows(
+        path,
+        f"""
+            SELECT ticker, traded_at, close FROM (
+                SELECT ticker, traded_at, close,
+                       row_number() OVER (
+                           PARTITION BY ticker ORDER BY traded_at DESC
+                       ) AS rank
+                FROM jquants_daily_bars
+                WHERE ticker IN ({placeholders})
+                  AND close IS NOT NULL
+                  AND traded_at <= ?
+            )
+            WHERE rank = 1
+            """,  # nosec B608
+        [*unique, day.isoformat()],
+    )
+    return {str(row[0]): (float(row[2]), date.fromisoformat(str(row[1]))) for row in rows}
+
+
+def latest_disclosure_dates_after(
+    path: Path, tickers: Sequence[str], *, after: date
+) -> dict[str, date]:
+    """Return each ticker's newest financial disclosure strictly after ``after``.
+
+    A candidate that entered the pool right after reporting is a different thing
+    from one that entered on a price move alone, and the screen's own output does
+    not carry the disclosure date. A ticker with no disclosure in the window yields
+    no entry.
+    """
+
+    if not tickers:
+        return {}
+    unique = list(dict.fromkeys(tickers))
+    placeholders = ",".join("?" for _ in unique)
+    # The f-string only expands "?" placeholders; every value is parameter-bound.
+    rows = read_rows(
+        path,
+        f"""
+            SELECT ticker, MAX(disclosed_at)
+            FROM jquants_fin_summaries
+            WHERE ticker IN ({placeholders}) AND disclosed_at > ?
+            GROUP BY ticker
+            """,  # nosec B608
+        [*unique, after.isoformat()],
+    )
+    return {str(row[0]): date.fromisoformat(str(row[1])) for row in rows if row[1] is not None}
+
+
 def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> dict[str, date]:
     """Return each ticker's earliest scheduled JPX earnings announcement on/after ``asof``.
 

@@ -284,6 +284,32 @@ def _failed_series_count(exc: BatchStepError, *, requested: int) -> int:
     return reported
 
 
+def _daily_delta_metrics(path: Path) -> dict[str, object]:
+    """Read the exported delta counts so the run notification carries them.
+
+    The notification is the only channel that reaches a reader without being
+    opened, so the day's change counts belong in it. A view that could not be
+    written yields no metrics rather than zeros, because "nothing changed" and
+    "nothing measured" must not print the same.
+    """
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    counts: dict[str, object] = {
+        f"delta_{name}": len(value)
+        for name in ("entered", "exited", "er_moves", "holdings", "macro_flags")
+        if isinstance(value := payload.get(name), list)
+    }
+    unavailable = payload.get("unavailable")
+    if isinstance(unavailable, list) and unavailable:
+        counts["delta_unavailable"] = ",".join(str(item) for item in unavailable)
+    return counts
+
+
 def _stderr_summary(stderr: str) -> str:
     lines = stderr.strip().splitlines()
     if not lines:
@@ -791,7 +817,10 @@ def _execute_daily_batch(
             datasets=_BATCH_DATASETS["serving-export"],
             status=BATCH_STATUS_OK,
             duration_seconds=time.monotonic() - export_mono,
-            metrics={"local_output": recorder.local_export},
+            metrics={
+                "local_output": recorder.local_export,
+                **_daily_delta_metrics(output_dir / "views" / "daily-delta.json"),
+            },
         )
     )
 

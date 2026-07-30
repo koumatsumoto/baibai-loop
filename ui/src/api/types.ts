@@ -753,3 +753,58 @@ export interface MacroView {
   reports: MacroContextRevisionView[]
   groups: MacroGroupView[]
 }
+
+export interface CandidateEntryDeltaView {
+  ticker: string
+  company_name: string | null
+  sector: string
+  er_annual_pct: number | null
+  next_earnings_date: string | null
+  disclosed_since_previous: boolean
+}
+
+export interface CandidateMoveDeltaView {
+  ticker: string
+  company_name: string | null
+  er_annual_pct: number | null
+  previous_er_annual_pct: number | null
+  change_pp: number
+}
+
+export interface HoldingDeltaView {
+  ticker: string
+  company_name: string | null
+  close_yen: number | null
+  close_as_of: string | null
+  fair_value_yen: number | null
+  fv_gap_pct: number | null
+  at_or_above_fair_value: boolean | null
+  change_since_previous_pct: number | null
+  days_to_next_earnings: number | null
+}
+
+export interface MacroFlagDeltaView {
+  series_id: string
+  flag: string
+  state: 'raised' | 'cleared'
+}
+
+export interface MacroExtremeDeltaView {
+  series_id: string
+  z_score: number
+  previous_z_score: number | null
+}
+
+export interface DailyDeltaView {
+  generated_at: string
+  asof: string | null
+  previous_asof: string | null
+  entered: CandidateEntryDeltaView[]
+  exited: CandidateEntryDeltaView[]
+  er_moves: CandidateMoveDeltaView[]
+  holdings: HoldingDeltaView[]
+  holdings_without_fair_value: number
+  macro_flags: MacroFlagDeltaView[]
+  macro_extremes: MacroExtremeDeltaView[]
+  unavailable: string[]
+}

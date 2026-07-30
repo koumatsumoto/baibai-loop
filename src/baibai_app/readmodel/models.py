@@ -764,3 +764,85 @@ class BargainAssessmentView(BaseModel):
     lanes: list[AssessmentLaneView]
     purchase: AssessmentPurchaseView | None
     review: AssessmentReviewView
+
+
+class CandidateEntryDeltaView(BaseModel):
+    """A ticker whose presence in the candidate pool changed between two runs."""
+
+    ticker: str
+    company_name: str | None
+    sector: str
+    er_annual_pct: float | None
+    next_earnings_date: date | None
+    disclosed_since_previous: bool
+
+
+class CandidateMoveDeltaView(BaseModel):
+    """A ticker present in both runs whose machine E[r] moved most."""
+
+    ticker: str
+    company_name: str | None
+    er_annual_pct: float | None
+    previous_er_annual_pct: float | None
+    change_pp: float
+
+
+class HoldingDeltaView(BaseModel):
+    """One open holding's observed position against its recorded fair value.
+
+    ``at_or_above_fair_value`` is the comparison of two numbers, not a decision:
+    reaching fair value is a review trigger the human owns. ``null`` marks a
+    holding with no fair value on record, which the reader must see rather than
+    read as "not reached".
+    """
+
+    ticker: str
+    company_name: str | None
+    close_yen: float | None
+    close_as_of: date | None
+    fair_value_yen: float | None
+    fv_gap_pct: float | None
+    at_or_above_fair_value: bool | None
+    change_since_previous_pct: float | None
+    days_to_next_earnings: int | None
+
+
+class MacroFlagDeltaView(BaseModel):
+    """A threshold note that appeared or disappeared between two readings."""
+
+    series_id: str
+    flag: str
+    state: Literal["raised", "cleared"]
+
+
+class MacroExtremeDeltaView(BaseModel):
+    """A series whose |z-score| crossed into the distribution edge."""
+
+    series_id: str
+    z_score: float
+    previous_z_score: float | None
+
+
+class DailyDeltaView(BaseModel):
+    """What changed between the latest machine run and the one before it.
+
+    Every field is an observation or a comparison of observations. The view names
+    no cause and carries no recommendation: it tells the reader where to look, and
+    the decision to start an opportunity cycle or a holding review stays human.
+    ``unavailable`` lists the sections no store could answer, so an empty section
+    is never read as "nothing changed". ``holdings_without_fair_value`` is a count
+    rather than rows: a holding with no fair value on record cannot be compared to
+    one, and repeating the same list every day would bury the day's actual changes.
+    """
+
+    generated_at: datetime
+    asof: date | None
+    previous_asof: date | None
+    entered: list[CandidateEntryDeltaView]
+    exited: list[CandidateEntryDeltaView]
+    er_moves: list[CandidateMoveDeltaView]
+    holdings: list[HoldingDeltaView]
+    holdings_without_fair_value: int
+    macro_flags: list[MacroFlagDeltaView]
+    macro_extremes: list[MacroExtremeDeltaView]
+    unavailable: list[str]

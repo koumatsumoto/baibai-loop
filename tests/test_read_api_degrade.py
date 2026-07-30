@@ -41,6 +41,7 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
 )
 
 _ARGUMENTS: dict[str, object] = {
+    "after": date(2026, 7, 28),
     "as_of": date(2026, 7, 29),
     "asof": date(2026, 7, 29),
     "assessment_id": "assessment-20260729-a",

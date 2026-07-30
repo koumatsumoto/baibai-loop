@@ -10,6 +10,7 @@ from baibai_app.readmodel.builders import (
     _fair_value_by_ticker,
     _machine_selection_view,
     _shortlist_view,
+    build_daily_delta,
     build_dashboard,
     build_screening,
     build_security_detail,
@@ -690,3 +691,245 @@ def test_both_screening_surfaces_fall_back_to_the_same_run() -> None:
     assert detail.candidate_run is not None
     assert detail.candidate_run.run_revision_id == listed.run.run_revision_id
     assert detail.candidate_row.fair_value_anchor_yen == 12.5
+
+
+class StubDeltaCandidates:
+    """Two runs, so the delta has a stated earlier side."""
+
+    def __init__(self, latest: CandidatesRun | None, previous: CandidatesRun | None) -> None:
+        self._latest = latest
+        self._previous = previous
+
+    def latest_run(self):
+        return self._latest
+
+    def previous_run(self):
+        return self._previous
+
+    def run(self, run_revision_id: str):
+        for run in (self._latest, self._previous):
+            if run is not None and run.run_revision_id == run_revision_id:
+                return run
+        return None
+
+    def selections(self, *, run_revision_id: str | None = None):
+        return []
+
+
+class StubDeltaMarket(StubMarket):
+    def __init__(
+        self,
+        closes: dict[str, tuple[float, date]] | None = None,
+        earnings: dict[str, date] | None = None,
+        earlier: dict[str, tuple[float, date]] | None = None,
+        disclosures: dict[str, date] | None = None,
+    ) -> None:
+        super().__init__(closes, earnings)
+        self._earlier = earlier or {}
+        self._disclosures = disclosures or {}
+
+    def closes_on_or_before(self, tickers, *, day):
+        del day
+        return {ticker: self._earlier[ticker] for ticker in tickers if ticker in self._earlier}
+
+    def disclosures_after(self, tickers, *, after):
+        del after
+        return {
+            ticker: self._disclosures[ticker] for ticker in tickers if ticker in self._disclosures
+        }
+
+
+class StubDeltaMacro:
+    def __init__(self, readings: dict[date, dict[str, object] | None]) -> None:
+        self._readings = readings
+
+    def reading(self, *, asof: date):
+        return self._readings.get(asof)
+
+
+def _delta_run(*, asof: date, revision: str, rows: tuple[dict[str, object], ...]) -> CandidatesRun:
+    return CandidatesRun(
+        run_id=f"screening-{asof.isoformat()}",
+        run_date=asof,
+        asof_date=asof,
+        run_at=datetime(asof.year, asof.month, asof.day, 18, 30, tzinfo=JST),
+        universe_size=3744,
+        run_revision_id=revision,
+        rows=rows,
+    )
+
+
+def _delta_row(
+    ticker: str, *, er: float | None = None, name: str | None = None
+) -> dict[str, object]:
+    row: dict[str, object] = {"ticker": ticker, "name": name or ticker, "sector_33": "情報・通信業"}
+    if er is not None:
+        row["metrics"] = {"er_annual": er}
+    return row
+
+
+def _reading(series: dict[str, object]) -> dict[str, object]:
+    return {"asof": "2026-07-29", "rules_revision": "r", "series": [series]}
+
+
+def test_daily_delta_names_pool_entries_and_exits_between_two_runs() -> None:
+    latest = _delta_run(
+        asof=date(2026, 7, 29),
+        revision="run-b",
+        rows=(_delta_row("1111", er=0.08), _delta_row("2222", er=0.05)),
+    )
+    previous = _delta_run(
+        asof=date(2026, 7, 28),
+        revision="run-a",
+        rows=(_delta_row("2222", er=0.05), _delta_row("3333", er=0.02)),
+    )
+
+    view = build_daily_delta(
+        StubDeltaCandidates(latest, previous),
+        StubLedger(None),
+        StubResearch([]),
+        StubDeltaMarket(disclosures={"1111": date(2026, 7, 29)}),
+        StubDeltaMacro({}),
+    )
+
+    assert [item.ticker for item in view.entered] == ["1111"]
+    assert view.entered[0].disclosed_since_previous is True
+    assert view.entered[0].er_annual_pct == 8.0
+    assert [item.ticker for item in view.exited] == ["3333"]
+    assert view.er_moves == []
+
+
+def test_daily_delta_reports_only_er_moves_past_the_threshold() -> None:
+    latest = _delta_run(
+        asof=date(2026, 7, 29),
+        revision="run-b",
+        rows=(_delta_row("1111", er=0.08), _delta_row("2222", er=0.051)),
+    )
+    previous = _delta_run(
+        asof=date(2026, 7, 28),
+        revision="run-a",
+        rows=(_delta_row("1111", er=0.02), _delta_row("2222", er=0.05)),
+    )
+
+    view = build_daily_delta(
+        StubDeltaCandidates(latest, previous),
+        StubLedger(None),
+        StubResearch([]),
+        StubDeltaMarket(),
+        StubDeltaMacro({}),
+    )
+
+    assert [(item.ticker, item.change_pp) for item in view.er_moves] == [("1111", 6.0)]
+
+
+def test_daily_delta_marks_a_holding_at_or_above_its_recorded_fair_value() -> None:
+    latest = _delta_run(asof=date(2026, 7, 29), revision="run-b", rows=())
+    previous = _delta_run(asof=date(2026, 7, 28), revision="run-a", rows=())
+
+    view = build_daily_delta(
+        StubDeltaCandidates(latest, previous),
+        StubLedger(_snapshot()),
+        StubResearch([_revision()]),
+        StubDeltaMarket(
+            closes={"4432": (1400.0, date(2026, 7, 29))},
+            earlier={"4432": (1390.0, date(2026, 7, 28))},
+        ),
+        StubDeltaMacro({}),
+    )
+
+    assert [item.ticker for item in view.holdings] == ["4432"]
+    assert view.holdings[0].at_or_above_fair_value is True
+    assert view.holdings_without_fair_value == 0
+
+
+def test_daily_delta_counts_holdings_without_a_fair_value_instead_of_listing_them() -> None:
+    # A holding with no thesis fair value cannot be compared to one. Repeating the
+    # same list daily would bury the day's actual changes, so it is a count.
+    latest = _delta_run(asof=date(2026, 7, 29), revision="run-b", rows=())
+    previous = _delta_run(asof=date(2026, 7, 28), revision="run-a", rows=())
+
+    view = build_daily_delta(
+        StubDeltaCandidates(latest, previous),
+        StubLedger(_snapshot()),
+        StubResearch([]),
+        StubDeltaMarket(
+            closes={"4432": (1200.0, date(2026, 7, 29))},
+            earlier={"4432": (1199.0, date(2026, 7, 28))},
+        ),
+        StubDeltaMacro({}),
+    )
+
+    assert view.holdings == []
+    assert view.holdings_without_fair_value == 1
+
+
+def test_daily_delta_reports_a_flag_that_appeared_and_one_that_cleared() -> None:
+    latest = _delta_run(asof=date(2026, 7, 29), revision="run-b", rows=())
+    previous = _delta_run(asof=date(2026, 7, 28), revision="run-a", rows=())
+
+    view = build_daily_delta(
+        StubDeltaCandidates(latest, previous),
+        StubLedger(None),
+        StubResearch([]),
+        StubDeltaMarket(),
+        StubDeltaMacro(
+            {
+                date(2026, 7, 29): _reading(
+                    {"series_id": "vix", "flags": ["vix>=30"], "z_score": 1.0}
+                ),
+                date(2026, 7, 28): _reading(
+                    {"series_id": "vix", "flags": ["curve_inverted"], "z_score": 1.0}
+                ),
+            }
+        ),
+    )
+
+    assert [(item.flag, item.state) for item in view.macro_flags] == [
+        ("vix>=30", "raised"),
+        ("curve_inverted", "cleared"),
+    ]
+
+
+def test_daily_delta_reports_only_a_new_distribution_edge() -> None:
+    latest = _delta_run(asof=date(2026, 7, 29), revision="run-b", rows=())
+    previous = _delta_run(asof=date(2026, 7, 28), revision="run-a", rows=())
+    readings = {
+        date(2026, 7, 29): {
+            "series_id": "x",
+            "series": [
+                {"series_id": "new", "flags": [], "z_score": 3.4},
+                {"series_id": "settled", "flags": [], "z_score": 3.9},
+            ],
+        },
+        date(2026, 7, 28): {
+            "series_id": "x",
+            "series": [
+                {"series_id": "new", "flags": [], "z_score": 2.1},
+                {"series_id": "settled", "flags": [], "z_score": 3.5},
+            ],
+        },
+    }
+
+    view = build_daily_delta(
+        StubDeltaCandidates(latest, previous),
+        StubLedger(None),
+        StubResearch([]),
+        StubDeltaMarket(),
+        StubDeltaMacro(readings),
+    )
+
+    assert [item.series_id for item in view.macro_extremes] == ["new"]
+
+
+def test_daily_delta_names_the_sections_no_store_could_answer() -> None:
+    # An empty section and an unmeasured one must not read the same.
+    view = build_daily_delta(
+        StubDeltaCandidates(_delta_run(asof=date(2026, 7, 29), revision="run-b", rows=()), None),
+        StubLedger(None),
+        StubResearch([]),
+        StubDeltaMarket(),
+        StubDeltaMacro({}),
+    )
+
+    assert view.unavailable == ["candidates_previous_run", "holdings", "macro"]
+    assert view.previous_asof is None

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CircleAlert } from 'lucide-react'
 import { Pie, PieChart } from 'recharts'
 
 import { fetchJson } from '../api/client'
 import type {
+  DailyDeltaView,
   DashboardView,
   HoldingView,
   OperationSessionView,
@@ -39,6 +40,7 @@ const HINT = {
   allocation: '次の買いに動かせる資金がどれだけ残っているかと、これまでの判断が実際に効いているかを 1 か所で確かめる。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
   nextTask: '期限が最も近い未完了タスク。下の一覧の先頭と同じもので、開いて最初に目に入る位置に置いている。',
   events: '決算と予約期限は、保有の見直しと資金の解放が起きる日。判断より先に日付を押さえておくために置いている。',
+  delta: '前営業日の機械実行と比べて何が動いたか。候補プールへの出入り、機械 E[r] の変化、FV に達した保有、マクロ注記の点灯を観測として並べる。売買の指示ではなく、次にどこを見るかを決める材料。答えられなかった区分は明示するので、空欄と「計測できなかった」を混同しない。',
   operations: '判断は trigger ごとに 1 件の operation session として進み、active は常に最大 1 件。いま何が途中で、次にどこから再開するのかをここで確かめる。',
   holdings: '保有中の各銘柄の取得原価・現値・FV との乖離。売買判断そのものではなく、どの銘柄を次に見直すかを決めるための現状。',
   reservations: '発注済みで未約定の指値が押さえている現金。購入余力から差し引かれているので、次の提案の上限に効く。',
@@ -290,6 +292,113 @@ function eventCountdownLabel(daysUntil: number) {
   return `あと ${daysUntil} 日`
 }
 
+function deltaCount(delta: DailyDeltaView | null) {
+  if (delta === null) return 0
+  return (
+    delta.entered.length +
+    delta.exited.length +
+    delta.er_moves.length +
+    delta.holdings.length +
+    delta.macro_flags.length +
+    delta.macro_extremes.length
+  )
+}
+
+function DeltaRow({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-3 sm:px-6">
+      <Badge className="min-w-[6.5rem] shrink-0 justify-center font-mono text-[10px]" variant="secondary">{label}</Badge>
+      <div className="flex min-w-[13rem] flex-1 flex-wrap items-center gap-x-3 gap-y-1">{children}</div>
+    </div>
+  )
+}
+
+function DeltaSecurity({ name, ticker }: { name: string | null; ticker: string }) {
+  return (
+    <Link className="min-w-0 truncate font-medium underline-offset-4 hover:underline" to={`/securities/${ticker}`}>
+      <span className="font-mono">{ticker}</span>
+      {name !== null && name !== ticker && <span className="ml-2 text-muted-foreground">{name}</span>}
+    </Link>
+  )
+}
+
+function DailyDeltaCard({ delta }: { delta: DailyDeltaView | null }) {
+  const total = deltaCount(delta)
+  return (
+    <SectionCard
+      description={delta !== null && delta.previous_asof !== null && delta.asof !== null ? `${formatJstDateShort(delta.previous_asof)} → ${formatJstDateShort(delta.asof)}` : '前営業日との比較'}
+      hint={HINT.delta}
+      meta={<Badge variant="secondary">{total} 件</Badge>}
+      title="前営業日からの変化"
+    >
+      {delta === null ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">変化の観測がまだありません。</p>
+      ) : (
+        <div className="divide-y">
+          {delta.unavailable.length > 0 && (
+            <DeltaRow label="計測不能">
+              <span className="text-sm text-muted-foreground">{delta.unavailable.join(' / ')}</span>
+            </DeltaRow>
+          )}
+          {delta.entered.map((item) => (
+            <DeltaRow key={`entered-${item.ticker}`} label="候補入り">
+              <DeltaSecurity name={item.company_name} ticker={item.ticker} />
+              {item.er_annual_pct !== null && <span className="font-mono text-sm tabular-nums">E[r] {formatPct(item.er_annual_pct)}</span>}
+              {item.disclosed_since_previous && <Badge variant="outline">決算開示後</Badge>}
+              <span className="text-sm text-muted-foreground">{item.sector}</span>
+            </DeltaRow>
+          ))}
+          {delta.exited.map((item) => (
+            <DeltaRow key={`exited-${item.ticker}`} label="候補外れ">
+              <DeltaSecurity name={item.company_name} ticker={item.ticker} />
+              {item.disclosed_since_previous && <Badge variant="outline">決算開示後</Badge>}
+            </DeltaRow>
+          ))}
+          {delta.er_moves.map((item) => (
+            <DeltaRow key={`move-${item.ticker}`} label="E[r] 変化">
+              <DeltaSecurity name={item.company_name} ticker={item.ticker} />
+              <span className="font-mono text-sm tabular-nums">
+                {item.previous_er_annual_pct === null ? EMPTY : formatPct(item.previous_er_annual_pct)}
+                {' → '}
+                {item.er_annual_pct === null ? EMPTY : formatPct(item.er_annual_pct)}
+              </span>
+              <PctBadge value={item.change_pp} />
+            </DeltaRow>
+          ))}
+          {delta.holdings.map((item) => (
+            <DeltaRow key={`holding-${item.ticker}`} label="保有">
+              <DeltaSecurity name={item.company_name} ticker={item.ticker} />
+              {item.at_or_above_fair_value === true && <Badge variant="outline">FV 到達</Badge>}
+              {item.change_since_previous_pct !== null && <PctBadge value={item.change_since_previous_pct} />}
+              {item.days_to_next_earnings !== null && <span className="text-sm text-muted-foreground">決算まで {item.days_to_next_earnings} 日</span>}
+            </DeltaRow>
+          ))}
+          {delta.macro_flags.map((item) => (
+            <DeltaRow key={`flag-${item.series_id}-${item.flag}`} label={item.state === 'raised' ? '注記点灯' : '注記解消'}>
+              <span className="font-mono text-sm">{item.series_id}</span>
+              <span className="text-sm text-muted-foreground">{item.flag}</span>
+            </DeltaRow>
+          ))}
+          {delta.macro_extremes.map((item) => (
+            <DeltaRow key={`extreme-${item.series_id}`} label="分布の端">
+              <span className="font-mono text-sm">{item.series_id}</span>
+              <span className="font-mono text-sm tabular-nums">z {item.z_score.toFixed(2)}</span>
+            </DeltaRow>
+          ))}
+          {delta.holdings_without_fair_value > 0 && (
+            <DeltaRow label="FV 未記録">
+              <span className="text-sm text-muted-foreground">保有 {delta.holdings_without_fair_value} 件は thesis の FV が無く、到達判定ができない。</span>
+            </DeltaRow>
+          )}
+          {total === 0 && delta.unavailable.length === 0 && delta.holdings_without_fair_value === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">閾値に触れる変化はありません。</p>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
 function UpcomingEventsCard({ events }: { events: UpcomingEventView[] }) {
   return (
     <SectionCard
@@ -425,6 +534,7 @@ function dashboardValuationAsOf(data: DashboardView): string | null {
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
   const [operations, setOperations] = useState<OperationsView | null>(null)
+  const [delta, setDelta] = useState<DailyDeltaView | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -434,6 +544,10 @@ export function DashboardPage() {
     fetchJson<OperationsView>('/api/operations').then(setOperations).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : '運用状態を読み込めませんでした')
     })
+    // An extra read, not a required one: a serving generation deployed before this
+    // view existed must still render the page, so its absence leaves the card empty
+    // instead of failing the dashboard.
+    fetchJson<DailyDeltaView>('/api/daily-delta').then(setDelta).catch(() => setDelta(null))
   }, [])
 
   if (error) return <PageState message={error} title="Dashboard read error" />
@@ -462,6 +576,8 @@ export function DashboardPage() {
       <NextTaskCard task={data.next_task} />
 
       <UpcomingEventsCard events={data.upcoming_events} />
+
+      <DailyDeltaCard delta={delta} />
 
       {!data.ledger_exists && !data.ledger_error ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>

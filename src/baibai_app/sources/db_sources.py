@@ -27,6 +27,7 @@ from baibai_engine.read_api import (
     application_db_updated_at,
     application_store_stats,
     bargain_assessment_payload,
+    latest_disclosure_dates_after,
     latest_shortlist_payload,
     latest_unadjusted_closes,
     list_bargain_assessment_payloads,
@@ -51,11 +52,13 @@ from baibai_engine.read_api import (
     reconcile_portfolio,
     safe_load,
     screening_latest_asof,
+    screening_run_asof_dates,
     screening_run_payload,
     screening_selection_payloads,
     store_stats,
     task_store_exists,
     thesis_publication,
+    unadjusted_closes_on_or_before,
 )
 
 
@@ -81,6 +84,14 @@ class DbMarketPriceSource:
 
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
         return latest_unadjusted_closes(self._path, tickers)
+
+    def closes_on_or_before(
+        self, tickers: Sequence[str], *, day: date
+    ) -> Mapping[str, tuple[float, date]]:
+        return unadjusted_closes_on_or_before(self._path, tickers, day=day)
+
+    def disclosures_after(self, tickers: Sequence[str], *, after: date) -> Mapping[str, date]:
+        return latest_disclosure_dates_after(self._path, tickers, after=after)
 
     def next_earnings_dates(self, tickers: Sequence[str], *, asof: date) -> Mapping[str, date]:
         return next_earnings_dates(self._path, tickers, asof=asof)
@@ -433,6 +444,18 @@ class DbCandidatesSource:
     def run(self, run_revision_id: str) -> CandidatesRun | None:
         raw = screening_run_payload(self._runs_path, run_revision_id=run_revision_id)
         return None if raw is None else self._parse_run(raw)
+
+    def previous_run(self) -> CandidatesRun | None:
+        """Return the newest run of the greatest as-of before the latest one.
+
+        A delta needs a stated earlier side. Reading it from the retained run dates
+        keeps "no predecessor" (a fresh or pruned store) distinct from "nothing
+        changed", which the caller reports as an unavailable section.
+        """
+        dates = screening_run_asof_dates(self._runs_path, limit=2)
+        if len(dates) < 2:
+            return None
+        return self.run_as_of(dates[1])
 
     def run_as_of(self, as_of: date) -> CandidatesRun | None:
         raw = screening_run_payload(self._runs_path, as_of_date=as_of)

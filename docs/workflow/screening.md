@@ -44,7 +44,7 @@ historical backfill以外で`--allow-stale-jpx`を通常使用しない。ASOF�
 
 coverage commandは単独で実行し、後続commandのexit 0で失敗を隠さない。`run/select`はprovider APIへ暗黙fallbackせず、cache-onlyで決定論的に動く。
 
-この正規順（営業日判定 → coverage → bootstrap → run → select）とmacro series更新・read model export・run store pruneを東証営業日ごとに1コマンドで回す補助として`tools/cloud/daily_batch.py`がある。screening後段の人間reviewは含まず`select`までの機械工程をorchestrateするscriptで、安定契約は各`baibai-engine` public CLI側に置く。使い方と失敗ポリシーは[`tools/cloud/README.md`](../../tools/cloud/README.md)を正本とする。
+この正規順（営業日判定 → coverage → bootstrap → run → select）とmacro series更新・read model export・run store pruneを東証営業日ごとに1コマンドで回す補助として`tools/cloud/daily_batch.py`がある。export後の差分件数はbatch metricsへ載り、run通知にそのまま出る（通知は開かなくても読み手へ届く唯一の経路なので、その日の変化件数をそこへ置く）。screening後段の人間reviewは含まず`select`までの機械工程をorchestrateするscriptで、安定契約は各`baibai-engine` public CLI側に置く。使い方と失敗ポリシーは[`tools/cloud/README.md`](../../tools/cloud/README.md)を正本とする。
 
 | coverage result | action |
 | --- | --- |

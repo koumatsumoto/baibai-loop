@@ -227,6 +227,7 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert exit_code == 0
     views = output_dir / "views"
     expected = {
+        "daily-delta.json",
         "dashboard.json",
         "macro-reading.json",
         "screening_latest.json",

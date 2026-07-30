@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from baibai_app.readmodel.builders import (
     build_assessment_detail,
+    build_daily_delta,
     build_dashboard,
     build_macro,
     build_macro_context_detail,
@@ -28,6 +29,7 @@ from baibai_app.readmodel.builders import (
 )
 from baibai_app.readmodel.models import (
     BargainAssessmentView,
+    DailyDeltaView,
     DashboardView,
     MacroContextView,
     MacroReadingView,
@@ -94,6 +96,16 @@ def create_app(
             sources.tasks,
             sources.candidates,
             sources.market,
+        )
+
+    @app.get("/api/daily-delta", response_model=DailyDeltaView)
+    def daily_delta(sources: _SourceDependency) -> DailyDeltaView:
+        return build_daily_delta(
+            sources.candidates,
+            sources.ledger,
+            sources.research,
+            sources.market,
+            sources.macro,
         )
 
     @app.get("/api/screening/latest", response_model=ScreeningView)
