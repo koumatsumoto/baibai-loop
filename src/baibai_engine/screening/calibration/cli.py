@@ -199,6 +199,17 @@ def calibration_evaluate_command(
                     "input_range_clamped": bool(
                         meta.get("bars_window_clamped") or meta.get("fin_window_clamped")
                     ),
+                    # Survivorship belongs to the population the panel drew, so the
+                    # panel measures it and the cohort reports what the panel found.
+                    # A panel written before the measurement existed reports its
+                    # counts as null rather than zero, so "not measured" cannot be
+                    # read as "nothing missing".
+                    "survivorship_coverage_status": meta.get(
+                        "survivorship_coverage_status", "unavailable"
+                    ),
+                    "asof_priced_count": meta.get("asof_priced_count"),
+                    "asof_population_mismatch_count": meta.get("asof_population_mismatch_count"),
+                    "policy_excluded_priced_count": meta.get("policy_excluded_priced_count"),
                 }
             )
             if horizon in {"3y", "5y"}:
@@ -217,8 +228,16 @@ def calibration_evaluate_command(
                     blockers.append("input_range_clamped")
                 if not coverage.get("candidate_partition_complete"):
                     blockers.append("candidate_partition_incomplete")
-                if coverage.get("data_unresolved_count"):
-                    blockers.append("unresolved_forward_rows")
+                # Each unresolved class blocks for its own reason, and a name that
+                # was not listed at asof blocks for none of them.
+                for field, label in (
+                    ("entry_price_gap_count", "entry_price_gap"),
+                    ("unpriced_exit_count", "unpriced_exit"),
+                    ("future_horizon_count", "horizon_not_matured"),
+                ):
+                    count = coverage.get(field)
+                    if isinstance(count, int) and count:
+                        blockers.append(f"{label}:{count}")
             metric_status = (
                 "eligible" if cohort["metric_calculation_status"] == "resolved" else "unresolved"
             )

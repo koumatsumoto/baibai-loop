@@ -154,5 +154,35 @@ class ForwardReturnTest(unittest.TestCase):
         self.assertTrue(all(not row.resolved for row in rows))
 
 
+class ForwardUnresolvedReasonTest(unittest.TestCase):
+    """未解決の理由が、後段の分類が依存する形で観測に残ることを反証する。"""
+
+    def test_entry_before_first_bar_leaves_entry_date_empty(self) -> None:
+        # asof 時点で価格が 1 本も無い = 未上場。entry_date が空であることが根拠になる。
+        rows = _ticker_forward_rows(
+            "1000",
+            [_bar(date(2025, 6, 30), 100.0)],
+            asofs=[date(2025, 1, 31)],
+            horizons=(HORIZONS["3m"],),
+            eval_cap=date(2026, 6, 30),
+        )
+        row = rows[0]
+        self.assertEqual(row.status, "unresolved_missing_entry")
+        self.assertIsNone(row.entry_date)
+
+    def test_entry_gap_after_earlier_pricing_keeps_the_earlier_entry_date(self) -> None:
+        # 以前は価格が付いていたのに asof 近傍に無い = 取引可能名の取りこぼし候補。
+        rows = _ticker_forward_rows(
+            "1000",
+            [_bar(date(2024, 10, 31), 100.0), _bar(date(2025, 6, 30), 120.0)],
+            asofs=[date(2025, 1, 31)],
+            horizons=(HORIZONS["3m"],),
+            eval_cap=date(2026, 6, 30),
+        )
+        row = rows[0]
+        self.assertEqual(row.status, "unresolved_missing_entry")
+        self.assertEqual(row.entry_date, "2024-10-31")
+
+
 if __name__ == "__main__":
     unittest.main()

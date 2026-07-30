@@ -137,6 +137,21 @@ def _evaluate_cohort(
     unresolved_reasons: dict[str, int] = {}
     for row in unresolved:
         unresolved_reasons[row.status] = unresolved_reasons.get(row.status, 0) + 1
+    entry_not_listed = [
+        row
+        for row in unresolved
+        if row.status == "unresolved_missing_entry" and row.entry_date is None
+    ]
+    entry_price_gap = [
+        row
+        for row in unresolved
+        if row.status == "unresolved_missing_entry" and row.entry_date is not None
+    ]
+    unpriced_exit = [
+        row
+        for row in unresolved
+        if row.status in {"unresolved_missing_exit", "unresolved_stale_exit"}
+    ]
     population_expected = [row for row in panel if row.in_population]
     expected_tickers = {row.ticker for row in panel}
     observed_tickers = {row.ticker for row in candidate_rows}
@@ -153,15 +168,24 @@ def _evaluate_cohort(
         "resolved_count": sum(1 for row in candidate_rows if row.status == "resolved"),
         "data_unresolved_count": len(unresolved),
         "data_unresolved_reason_counts": unresolved_reasons,
+        # Unresolved rows are not one kind of defect. A name that was not listed
+        # at asof is a correct exclusion; a name priced earlier but absent at
+        # asof would be a silently dropped tradeable name; a name whose series
+        # ends inside the window is the survivorship exposure that needs an exit
+        # value. Only the last two can bias a cohort, so the authority gate
+        # reads these counts rather than the undivided total.
+        "entry_not_listed_count": len(entry_not_listed),
+        "entry_price_gap_count": len(entry_price_gap),
+        "unpriced_exit_count": len(unpriced_exit),
+        "future_horizon_count": sum(
+            1 for row in unresolved if row.status == "unresolved_future_horizon"
+        ),
         "candidate_partition_complete": observed_tickers == expected_tickers,
         "candidate_forward_missing_count": len(expected_tickers - observed_tickers),
         "candidate_forward_extra_count": len(observed_tickers - expected_tickers),
-        "survivorship_coverage_status": _coverage_status(
-            candidate_rows, "survivorship_coverage_status"
-        ),
-        "delisting_coverage_status": _coverage_status(candidate_rows, "delisting_coverage_status"),
-        "corporate_action_event_coverage_status": _coverage_status(
-            candidate_rows, "corporate_action_event_coverage_status"
+        "delisting_coverage_status": ("unpriced_exit" if unpriced_exit else "complete"),
+        "corporate_action_event_coverage_status": _corporate_action_status(
+            candidate_rows, terminated=bool(unpriced_exit)
         ),
         "adjustment_factor_coverage": _coverage_status(
             candidate_rows, "adjustment_factor_coverage"
@@ -261,9 +285,25 @@ def _coverage_status(rows: Sequence[ForwardReturnRow], name: str) -> str:
         return "unknown"
     if "unknown" in values:
         return "unknown"
-    if "not_assessed" in values:
-        return "not_assessed"
-    return "complete"
+    return "complete" if values == {"complete"} else "incomplete"
+
+
+def _corporate_action_status(rows: Sequence[ForwardReturnRow], *, terminated: bool) -> str:
+    """Say whether the price series reflects the actions that moved it.
+
+    Two things are locally checkable: that split adjustment factors accompany
+    every bar, and that no listing ended inside the window. A listing that ends
+    is the merger / exchange class, whose consideration J-Quants documents as
+    unadjusted, so it is named separately from a missing factor. Actions that
+    neither adjust the series nor end the listing (a rights offering, say) have
+    no local source at all — ``complete`` therefore means "no locally detectable
+    unsupported action", and that residual is disclosed in the reference doc
+    rather than hidden inside this value.
+    """
+    if terminated:
+        return "terminated_listing"
+    factor = _coverage_status(rows, "adjustment_factor_coverage")
+    return "complete" if factor == "complete" else "unadjusted_factor"
 
 
 def _evaluate_axis(

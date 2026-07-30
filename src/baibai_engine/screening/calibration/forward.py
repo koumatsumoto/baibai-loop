@@ -17,7 +17,6 @@ from .horizons import HORIZONS, HorizonSpec, require_horizon
 __all__ = ("HORIZONS", "ForwardReturnRow", "compute_forward_returns")
 
 ForwardStatus = str
-CoverageStatus = str
 AdjustmentCoverage = str
 
 STALE_PRICE_MAX_LAG_DAYS = 15
@@ -26,6 +25,14 @@ BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ForwardReturnRow:
+    """One (asof, ticker, horizon) price observation and why it did not resolve.
+
+    The row records what was observed; the coverage verdicts a cohort needs are
+    derived from these observations at evaluation time so that every stored
+    cohort is judged by the current contract rather than by whatever contract
+    was in force when its cache was written.
+    """
+
     asof: str
     ticker: str
     horizon: str
@@ -36,9 +43,6 @@ class ForwardReturnRow:
     entry_date: str | None
     exit_date: str | None
     status: ForwardStatus = "resolved"
-    delisting_coverage_status: CoverageStatus = "not_assessed"
-    corporate_action_event_coverage_status: CoverageStatus = "not_assessed"
-    survivorship_coverage_status: CoverageStatus = "not_assessed"
     adjustment_factor_coverage: AdjustmentCoverage = "unknown"
 
 
@@ -131,18 +135,11 @@ def _ticker_forward_rows(
                 exit_date = dates[exit_index] if exit_index is not None else None
                 exit_close = closes[exit_index] if exit_index is not None else None
                 if exit_close is None or exit_date is None:
-                    rows.append(
-                        replace(
-                            base,
-                            delisting_coverage_status="unknown",
-                            status="unresolved_missing_exit",
-                        )
-                    )
+                    rows.append(replace(base, status="unresolved_missing_exit"))
                 elif (target - exit_date).days > STALE_PRICE_MAX_LAG_DAYS:
                     rows.append(
                         replace(
                             base,
-                            delisting_coverage_status="unknown",
                             stale_price=True,
                             exit_date=exit_date.isoformat(),
                             status="unresolved_stale_exit",

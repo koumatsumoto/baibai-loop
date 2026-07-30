@@ -212,6 +212,34 @@ class CalibrationPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
                 read_forward(store_dir, ASOF)
 
+    def test_panel_counts_priced_tickers_the_master_read_omits(self) -> None:
+        # asof に価格がありながら master に居ない銘柄は、その断面が投資可能
+        # universe を再現していないことの証拠なので incomplete として数える。
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            insert_daily_bars_from_closes(
+                sqlite_path, "9003", [100.0] * 200, end_date=ASOF, turnover_value=2e8
+            )
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+
+            diagnostics = result.diagnostics
+            self.assertEqual(diagnostics.asof_priced_count, 3)
+            self.assertEqual(diagnostics.asof_population_mismatch_count, 1)
+            self.assertEqual(diagnostics.survivorship_coverage_status, "incomplete")
+            self.assertNotIn("9003", {row.ticker for row in result.rows})
+
+    def test_panel_reports_complete_coverage_when_master_holds_every_priced_ticker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+
+            diagnostics = result.diagnostics
+            self.assertEqual(diagnostics.asof_priced_count, 2)
+            self.assertEqual(diagnostics.asof_population_mismatch_count, 0)
+            self.assertEqual(diagnostics.survivorship_coverage_status, "complete")
+
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

@@ -198,9 +198,6 @@ def _forward_row_from_csv(raw: Mapping[str, str]) -> ForwardReturnRow:
         entry_date=raw["entry_date"] or None,
         exit_date=raw["exit_date"] or None,
         status=str(raw["status"]),
-        delisting_coverage_status=raw["delisting_coverage_status"],
-        corporate_action_event_coverage_status=raw["corporate_action_event_coverage_status"],
-        survivorship_coverage_status=raw["survivorship_coverage_status"],
         adjustment_factor_coverage=raw["adjustment_factor_coverage"],
     )
 
@@ -231,10 +228,15 @@ def _read_rows(
 ) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
-        expected_names = [field.name for field in fields(row_type)]
-        if reader.fieldnames != expected_names:
+        expected_names = {field.name for field in fields(row_type)}
+        # Every column the current contract reads must be present, while a column
+        # the contract no longer reads is ignored. Parsing is by name, so an extra
+        # column cannot shift a value into the wrong field, and the cache version
+        # remains the guard against a column whose meaning changed.
+        missing = sorted(expected_names.difference(reader.fieldnames or ()))
+        if missing:
             raise CalibrationCacheError(
-                "calibration cache schema is invalid; run calibration-build --force"
+                f"calibration cache is missing {', '.join(missing)}; run calibration-build --force"
             )
         return [dict(raw) for raw in reader]
 

@@ -39,6 +39,7 @@ from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
 from ..sqlite_reader import read_edinet_metrics, read_eq_master_asof, read_fin_summaries
 from ..universe import ELIGIBLE_MARKETS, build_universe, liquid_median_population
+from .forward import STALE_PRICE_MAX_LAG_DAYS
 
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
@@ -129,12 +130,25 @@ class PanelDiagnostics:
     population_per_trailing_exact: int
     master_snapshot_date: str | None = None
     master_snapshot_status: str = "unavailable"
-    survivorship_coverage_status: str = "not_assessed"
-    delisting_coverage_status: str = "not_assessed"
-    corporate_action_event_coverage_status: str = "not_assessed"
     master_population_count: int = 0
     candidate_population_count: int = 0
     policy_exclusion_reason_counts: dict[str, int] | None = None
+    # Survivorship is a property of the population, not of a single forward
+    # observation, so it is measured here. The bar store keeps rows for every
+    # ticker that traded, including ones that have since left the market, so the
+    # at-asof priced set is observable independently of the master snapshot and
+    # can be compared against it.
+    #
+    # ``asof_population_mismatch_count`` counts tickers priced at ``asof`` that
+    # the master read does not contain. A later master misses names that were
+    # listed then and have since delisted (the survivorship hole); an earlier one
+    # misses names listed after it. Either way the panel cross-section is not the
+    # investable universe of ``asof``, so both count as incomplete coverage. An
+    # exact-date master drives the count to zero by construction.
+    asof_priced_count: int = 0
+    asof_population_mismatch_count: int = 0
+    policy_excluded_priced_count: int = 0
+    survivorship_coverage_status: str = "unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +332,17 @@ def build_panel(
                 policy_exclusions.get("market_out_of_scope", 0) + 1
             )
     population_rows = [row for row in rows if row.in_population]
+    panel_tickers = {row.ticker for row in rows}
+    master_tickers = {security.code for security in securities}
+    asof_priced = {
+        ticker
+        for ticker, ticker_bars in bars_by_ticker.items()
+        if any(
+            asof_date - timedelta(days=STALE_PRICE_MAX_LAG_DAYS) <= bar.traded_at <= asof_date
+            for bar in ticker_bars
+        )
+    }
+    population_mismatch = asof_priced - master_tickers
     diagnostics = PanelDiagnostics(
         asof=asof_date.isoformat(),
         rules_hash=rules_content_hash(rules),
@@ -347,6 +372,10 @@ def build_panel(
         master_population_count=len(securities),
         candidate_population_count=len(rows),
         policy_exclusion_reason_counts=policy_exclusions,
+        asof_priced_count=len(asof_priced),
+        asof_population_mismatch_count=len(population_mismatch),
+        policy_excluded_priced_count=len((asof_priced & master_tickers) - panel_tickers),
+        survivorship_coverage_status=("complete" if not population_mismatch else "incomplete"),
     )
     return PanelBuildResult(rows=tuple(rows), diagnostics=diagnostics)
 

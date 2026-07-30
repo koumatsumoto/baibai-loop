@@ -105,7 +105,11 @@ def _forward_row(ticker: str, price_return: float) -> ForwardReturnRow:
     )
 
 
-def _panel_diagnostics() -> PanelDiagnostics:
+def _panel_diagnostics(
+    *,
+    master_snapshot_status: str = "unavailable",
+    survivorship_coverage_status: str = "unavailable",
+) -> PanelDiagnostics:
     return PanelDiagnostics(
         asof="2025-06-30",
         rules_hash="rules-hash",
@@ -122,6 +126,8 @@ def _panel_diagnostics() -> PanelDiagnostics:
         population_pbr_nonnull=0,
         population_ocf_yield_nonnull=0,
         population_per_trailing_exact=240,
+        master_snapshot_status=master_snapshot_status,
+        survivorship_coverage_status=survivorship_coverage_status,
     )
 
 
@@ -513,6 +519,121 @@ class EvaluateCohortsTest(unittest.TestCase):
                 "price_return_relative_to_population_median",
             )
             self.assertEqual(calibration["calibration_error_basis"], "realized_minus_predicted")
+
+    def _long_horizon_cohort(
+        self, extra: list[ForwardReturnRow]
+    ) -> tuple[list[PanelRow], list[ForwardReturnRow]]:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for i in range(120):
+            ticker = f"7{i:03d}"
+            panel.append(_panel_row(ticker, per_trailing=10.0 + i * 0.05))
+            forwards.append(
+                replace(
+                    _forward_row(ticker, 0.10 - i * 0.001),
+                    horizon="3y",
+                    target_date="2028-06-30",
+                    exit_date="2028-06-30",
+                    adjustment_factor_coverage="complete",
+                )
+            )
+        for row in extra:
+            panel.append(_panel_row(row.ticker, per_trailing=None))
+            forwards.append(row)
+        return panel, forwards
+
+    def _reason_counts(
+        self, panel: list[PanelRow], forwards: list[ForwardReturnRow]
+    ) -> tuple[dict[str, int], dict[str, object]]:
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            write_panel(
+                root,
+                date(2025, 6, 30),
+                tuple(panel),
+                _panel_diagnostics(
+                    master_snapshot_status="exact_date",
+                    survivorship_coverage_status="complete",
+                ),
+            )
+            write_forward(root, date(2025, 6, 30), forwards)
+            output_path = root / "evaluation.yaml"
+            exit_code = calibration_evaluate_command(
+                calibration_dir=root,
+                horizons=["3y"],
+                output_path=output_path,
+                stdout=StringIO(),
+            )
+            self.assertEqual(exit_code, 0)
+            payload = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+        assert isinstance(payload, dict)
+        authority = payload["authority_coverage"]
+        assert isinstance(authority, dict)
+        counts = authority["reason_counts"]
+        assert isinstance(counts, dict)
+        cohorts = payload["results"]["3y"]["cohorts"]
+        assert isinstance(cohorts, list)
+        coverage = cohorts[0]["coverage"]
+        assert isinstance(coverage, dict)
+        return counts, coverage
+
+    def test_not_listed_entry_is_disclosed_without_blocking_the_cohort(self) -> None:
+        # asof に未上場だった銘柄の除外は正しいので、blocker にはならず件数だけ残る。
+        not_listed = ForwardReturnRow(
+            asof="2025-06-30",
+            ticker="9100",
+            horizon="3y",
+            target_date="2028-06-30",
+            resolved=False,
+            price_return=None,
+            stale_price=False,
+            entry_date=None,
+            exit_date=None,
+            status="unresolved_missing_entry",
+        )
+        counts, coverage = self._reason_counts(*self._long_horizon_cohort([not_listed]))
+
+        self.assertEqual(coverage["entry_not_listed_count"], 1)
+        self.assertEqual(coverage["entry_price_gap_count"], 0)
+        self.assertEqual(coverage["unpriced_exit_count"], 0)
+        self.assertEqual([key for key in counts if key.startswith("entry_price_gap")], [])
+        self.assertEqual([key for key in counts if key.startswith("unpriced_exit")], [])
+
+    def test_price_gap_and_unpriced_exit_are_named_as_separate_blockers(self) -> None:
+        # 取引可能名の取りこぼしと廃止 exit value の欠落は、別々の理由として名指しする。
+        price_gap = ForwardReturnRow(
+            asof="2025-06-30",
+            ticker="9200",
+            horizon="3y",
+            target_date="2028-06-30",
+            resolved=False,
+            price_return=None,
+            stale_price=False,
+            entry_date="2024-01-31",
+            exit_date=None,
+            status="unresolved_missing_entry",
+        )
+        unpriced_exit = ForwardReturnRow(
+            asof="2025-06-30",
+            ticker="9300",
+            horizon="3y",
+            target_date="2028-06-30",
+            resolved=False,
+            price_return=None,
+            stale_price=True,
+            entry_date="2025-06-30",
+            exit_date="2026-02-27",
+            status="unresolved_stale_exit",
+        )
+        counts, coverage = self._reason_counts(
+            *self._long_horizon_cohort([price_gap, unpriced_exit])
+        )
+
+        self.assertEqual(coverage["entry_price_gap_count"], 1)
+        self.assertEqual(coverage["unpriced_exit_count"], 1)
+        self.assertEqual(counts.get("entry_price_gap:1"), 1)
+        self.assertEqual(counts.get("unpriced_exit:1"), 1)
+        self.assertEqual(coverage["delisting_coverage_status"], "unpriced_exit")
 
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:
