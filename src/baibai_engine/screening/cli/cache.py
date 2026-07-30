@@ -34,6 +34,7 @@ from baibai_engine.screening.sqlite_coverage import (
     CacheCoverageIssue,
     verify_screening_sqlite_coverage,
 )
+from baibai_engine.screening.sqlite_reader import read_eq_master_exact
 
 from .common import _date_iso
 from .providers import EDINETAdapter, ProviderBundle
@@ -338,10 +339,20 @@ def _metric_record_payload(record: EdinetMetricRecord) -> dict[str, object]:
     }
 
 
+BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT = 3
+"""連続失敗で打ち切る本数。
+
+per-date の失敗（その日の断面が無い）は残りの日付と独立だが、systemic な失敗
+（認証・plan 外・network 断）は全日付で同じように失敗する。区別せず続けると、
+非 retryable な認証エラーでもグリッド全日付ぶんの request を投げ切ってしまう。
+"""
+
+
 def backfill_master_command(
     *,
     asof_dates: Sequence[date],
     providers: ProviderBundle,
+    sqlite_path: Path,
     stdout: TextIO | None = None,
 ) -> int:
     """Store the point-in-time security master for each requested date only.
@@ -354,21 +365,38 @@ def backfill_master_command(
     instead of one expensive pass per cohort.
 
     Each date is independent: a date the provider cannot answer is reported and
-    the pass continues, and the exit code is non-zero if any date failed. The
-    store keeps requested-date snapshots append-only, so re-running a date
-    replaces only that date.
+    the pass continues, and the exit code is non-zero if any date failed. A date
+    whose exact snapshot is already stored is served from the cache and prints
+    ``cached``, so re-running a pass costs nothing; replacing a stored snapshot
+    requires ``invalidate-coverage --source jquants_master_snapshots`` first.
+    Enough consecutive failures end the pass, because a systemic failure fails
+    every remaining date the same way.
     """
     out = stdout if stdout is not None else sys.stdout
-    failures: list[tuple[date, str]] = []
-    for asof_date in asof_dates:
+    print(f"backfill-master start: {len(asof_dates)} date(s)", file=out, flush=True)
+    failures: list[date] = []
+    consecutive = 0
+    for index, asof_date in enumerate(asof_dates):
         iso = asof_date.isoformat()
+        cached = read_eq_master_exact(sqlite_path, asof_date) is not None
         try:
             securities = providers.jquants.get_eq_master(asof_date)
-        except (JQuantsProviderError, sqlite3.Error) as exc:
+        except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
             print(f"backfill-master {iso}: {type(exc).__name__}: {exc}", file=sys.stderr)
-            failures.append((asof_date, str(exc)))
+            failures.append(asof_date)
+            consecutive += 1
+            if consecutive >= BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT:
+                remaining = len(asof_dates) - index - 1
+                print(
+                    f"backfill-master: {consecutive} consecutive failures; "
+                    f"stopping with {remaining} date(s) not attempted",
+                    file=sys.stderr,
+                )
+                break
             continue
-        print(f"backfill-master {iso}: {len(securities)} row(s)", file=out, flush=True)
+        consecutive = 0
+        source = "cached" if cached else "fetched"
+        print(f"backfill-master {iso}: {source} {len(securities)} row(s)", file=out, flush=True)
     if failures:
         print(
             f"backfill-master: {len(failures)} of {len(asof_dates)} date(s) failed",

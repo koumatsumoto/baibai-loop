@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,7 +11,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.calibration.forward import (
+    STALE_PRICE_MAX_LAG_DAYS,
+    ForwardReturnRow,
+)
 from baibai_engine.screening.calibration.panel import build_panel
 from baibai_engine.screening.calibration.store import (
     CalibrationCacheError,
@@ -194,6 +197,54 @@ class CalibrationPanelTest(unittest.TestCase):
             write_forward(store_dir, ASOF, forward_rows)
             self.assertEqual(read_forward(store_dir, ASOF), forward_rows)
 
+    def test_store_reads_a_cache_that_carries_a_column_the_contract_dropped(self) -> None:
+        # 46 cohort を読み続けられることが、判定を評価時導出にした前提そのもの。
+        # 厳格一致へ戻すと既存 store が読めなくなるので、その契約を固定する。
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            rows = [
+                ForwardReturnRow(
+                    asof=ASOF.isoformat(),
+                    ticker="9001",
+                    horizon="6m",
+                    target_date="2026-12-29",
+                    resolved=False,
+                    price_return=None,
+                    stale_price=False,
+                    entry_date=ASOF.isoformat(),
+                    exit_date=None,
+                )
+            ]
+            write_forward(store_dir, ASOF, rows)
+            path = store_dir / f"forward-{ASOF.isoformat()}.csv"
+            header, body = path.read_text(encoding="utf-8").splitlines()
+            path.write_text(
+                f"{header},retired_column\n{body},not_assessed\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(read_forward(store_dir, ASOF), rows)
+
+    def test_store_rejects_a_cache_missing_a_column_the_contract_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
+            path = store_dir / f"forward-{ASOF.isoformat()}.csv"
+            header = path.read_text(encoding="utf-8").splitlines()[0]
+            kept = [name for name in header.split(",") if name != "status"]
+            path.write_text(",".join(kept) + "\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(CalibrationCacheError, "missing status"):
+                read_forward(store_dir, ASOF)
+
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store_dir = Path(tmp) / "calibration"
@@ -212,9 +263,9 @@ class CalibrationPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
                 read_forward(store_dir, ASOF)
 
-    def test_panel_counts_priced_tickers_the_master_read_omits(self) -> None:
-        # asof に価格がありながら master に居ない銘柄は、その断面が投資可能
-        # universe を再現していないことの証拠なので incomplete として数える。
+    def test_panel_counts_asof_priced_tickers_the_master_read_omits(self) -> None:
+        # asof 当日に価格がありながら master に居ない銘柄は、その断面が投資可能
+        # universe を再現していないことの証拠なので数える。
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
@@ -226,10 +277,29 @@ class CalibrationPanelTest(unittest.TestCase):
             diagnostics = result.diagnostics
             self.assertEqual(diagnostics.asof_priced_count, 3)
             self.assertEqual(diagnostics.asof_population_mismatch_count, 1)
-            self.assertEqual(diagnostics.survivorship_coverage_status, "incomplete")
             self.assertNotIn("9003", {row.ticker for row in result.rows})
 
-    def test_panel_reports_complete_coverage_when_master_holds_every_priced_ticker(self) -> None:
+    def test_panel_does_not_count_a_name_delisted_before_asof_as_a_population_hole(self) -> None:
+        # asof 前に最終売買を終えた銘柄は as-of に投資可能でないので、master が
+        # それを持たないのは正しい。entry の staleness 許容を population の定義へ
+        # 流用すると、どの master でも mismatch を 0 にできなくなる。
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            insert_daily_bars_from_closes(
+                sqlite_path,
+                "9004",
+                [100.0] * 200,
+                end_date=ASOF - timedelta(days=5),
+                turnover_value=2e8,
+            )
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+
+            diagnostics = result.diagnostics
+            self.assertEqual(diagnostics.asof_priced_count, 2)
+            self.assertEqual(diagnostics.asof_population_mismatch_count, 0)
+
+    def test_panel_reports_no_mismatch_when_master_holds_every_asof_priced_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
@@ -238,7 +308,8 @@ class CalibrationPanelTest(unittest.TestCase):
             diagnostics = result.diagnostics
             self.assertEqual(diagnostics.asof_priced_count, 2)
             self.assertEqual(diagnostics.asof_population_mismatch_count, 0)
-            self.assertEqual(diagnostics.survivorship_coverage_status, "complete")
+            self.assertEqual(diagnostics.priced_master_without_universe_count, 0)
+            self.assertEqual(diagnostics.entry_resolution_lag_days, STALE_PRICE_MAX_LAG_DAYS)
 
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

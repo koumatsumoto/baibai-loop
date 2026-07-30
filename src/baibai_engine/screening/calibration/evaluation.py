@@ -151,6 +151,7 @@ def _evaluate_cohort(
         for row in unresolved
         if row.status in {"unresolved_missing_exit", "unresolved_stale_exit"}
     ]
+    future_horizon = [row for row in unresolved if row.status == "unresolved_future_horizon"]
     population_expected = [row for row in panel if row.in_population]
     expected_tickers = {row.ticker for row in panel}
     observed_tickers = {row.ticker for row in candidate_rows}
@@ -176,19 +177,20 @@ def _evaluate_cohort(
         "entry_not_listed_count": len(entry_not_listed),
         "entry_price_gap_count": len(entry_price_gap),
         "unpriced_exit_count": len(unpriced_exit),
-        "future_horizon_count": sum(
-            1 for row in unresolved if row.status == "unresolved_future_horizon"
+        "future_horizon_count": len(future_horizon),
+        # The classes above are an allowlist, so a status none of them names would
+        # pass without a blocker. The residual makes that impossible.
+        "unclassified_unresolved_count": (
+            len(unresolved)
+            - len(entry_not_listed)
+            - len(entry_price_gap)
+            - len(unpriced_exit)
+            - len(future_horizon)
         ),
         "candidate_partition_complete": observed_tickers == expected_tickers,
         "candidate_forward_missing_count": len(expected_tickers - observed_tickers),
         "candidate_forward_extra_count": len(observed_tickers - expected_tickers),
-        "delisting_coverage_status": ("unpriced_exit" if unpriced_exit else "complete"),
-        "corporate_action_event_coverage_status": _corporate_action_status(
-            candidate_rows, terminated=bool(unpriced_exit)
-        ),
-        "adjustment_factor_coverage": _coverage_status(
-            candidate_rows, "adjustment_factor_coverage"
-        ),
+        "adjustment_factor_coverage": _adjustment_factor_status(candidate_rows),
     }
     if context is None:
         return {
@@ -278,31 +280,19 @@ def _cohort_excess_context(
     )
 
 
-def _coverage_status(rows: Sequence[ForwardReturnRow], name: str) -> str:
-    values = {str(getattr(row, name)) for row in rows}
-    if not values:
-        return "unknown"
-    if "unknown" in values:
+def _adjustment_factor_status(rows: Sequence[ForwardReturnRow]) -> str:
+    """Say whether every bar behind these rows carried a split adjustment factor.
+
+    This is the only corporate-action question the bar store can answer. Actions
+    it does not adjust — a merger's consideration, a rights offering — leave no
+    local trace, so the residual is disclosed in the reference doc instead of
+    being folded into this value. ``unknown`` means no row reported a factor at
+    all and is kept distinct from a factor that is present but incomplete.
+    """
+    values = {str(row.adjustment_factor_coverage) for row in rows}
+    if not values or "unknown" in values:
         return "unknown"
     return "complete" if values == {"complete"} else "incomplete"
-
-
-def _corporate_action_status(rows: Sequence[ForwardReturnRow], *, terminated: bool) -> str:
-    """Say whether the price series reflects the actions that moved it.
-
-    Two things are locally checkable: that split adjustment factors accompany
-    every bar, and that no listing ended inside the window. A listing that ends
-    is the merger / exchange class, whose consideration J-Quants documents as
-    unadjusted, so it is named separately from a missing factor. Actions that
-    neither adjust the series nor end the listing (a rights offering, say) have
-    no local source at all — ``complete`` therefore means "no locally detectable
-    unsupported action", and that residual is disclosed in the reference doc
-    rather than hidden inside this value.
-    """
-    if terminated:
-        return "terminated_listing"
-    factor = _coverage_status(rows, "adjustment_factor_coverage")
-    return "complete" if factor == "complete" else "unadjusted_factor"
 
 
 def _evaluate_axis(

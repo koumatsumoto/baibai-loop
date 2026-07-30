@@ -34,15 +34,23 @@ forward row は `resolved` または明示的な unresolved status を持つ。t
 
 3 つの coverage は cache された観測から評価時に導出する。cohort が書かれた時点の契約ではなく現行契約で判定するためであり、既存 cohort も再構築せずに判定し直せる。
 
-| coverage | 測るもの | `complete` の条件 |
+3y/5y の blocker は 1 観測につき 1 つだけ立てる。ある判定から導ける別の判定を並べると、同じ欠けを二重に数えて理由の内訳が読めなくなるためである。
+
+| 観測 | 測るもの | blocker が立たない条件 |
 | --- | --- | --- |
-| survivorship | panel の population が as-of の投資可能 universe を再現しているか | as-of に価格が付いていた銘柄すべてが master read に含まれる（`asof_population_mismatch_count == 0`） |
-| delisting | 窓中に価格が途切れた銘柄に exit value があるか | 窓中に系列が終わる銘柄が無い（`unpriced_exit_count == 0`） |
-| corporate action | 価格系列が価格を動かした action を反映しているか | 全 bar に分割調整 factor があり、窓中に上場終了が無い |
+| `master_snapshot_status` | population が cohort 日の断面から来ているか | `exact_date` |
+| `survivorship_coverage_status` | panel の population が as-of の投資可能 universe を再現しているか | `asof_population_mismatch_count == 0` |
+| `priced_master_without_universe_count` | as-of に価格が付き master にも在る銘柄を panel が評価できたか | `0` |
+| `adjustment_factor_coverage` | 価格系列に分割調整 factor が揃っているか | `complete` |
+| `unpriced_exit_count` | 窓中に価格が途切れた銘柄に exit value があるか | `0` |
+| `entry_price_gap_count` / `future_horizon_count` / `unclassified_unresolved_count` | 未解決 row の分類（下記） | `0` |
+| `input_range_clamped` / `candidate_partition_complete` | 入力窓が要求長を満たし、panel と forward の銘柄集合が一致するか | clamp なし / 一致 |
 
-survivorship は population の性質なので panel が測り、cohort はその結果を読む。bar store は市場から消えた銘柄の価格も保持するため、as-of に価格が付いていた集合を master snapshot と独立に観測できる。master が as-of より後なら当時上場していて現在は廃止された銘柄を欠き、前なら以降に上場した銘柄を欠く。どちらも断面が as-of の投資可能 universe ではないので incomplete とし、exact-date master は定義上 0 にする。計測前に書かれた panel は件数を null として報告する（未計測を「欠けなし」と読めないようにする）。
+survivorship は population の性質なので panel が件数を測り、verdict は読み手が件数から導く（凍結すると complete の定義を変えたときに既存 cohort へ届かない）。bar store は市場から消えた銘柄の価格も保持するため、**as-of 当日に価格が付いた集合**を master snapshot と独立に観測できる。master が as-of より後なら当時上場していて現在は廃止された銘柄を欠き、前なら以降に上場した銘柄を欠く。どちらも断面が as-of の投資可能 universe ではないので incomplete とする。当日を基準にするのは、as-of 前に最終売買を終えた銘柄を master が持たないのは正しいからで、entry の staleness 許容（15 日）をここへ流用するとどの master でも mismatch を 0 にできなくなる。計測前に書かれた panel は件数を null として報告する（未計測を「欠けなし」と読めないようにする）。
 
-corporate action の `complete` は「ローカルに検出できる未対応 action が無い」ことを意味する。系列を調整もせず上場も終えない action（株主割当増資など）はローカルに source が無く、この残余は判定に含まれない。上場終了は合併・株式交換の class にあたり、J-Quants が対価を調整しないと明示しているため `terminated_listing` として factor 欠落と区別する。
+`adjustment_factor_coverage` は bar store が答えられる唯一の corporate-action 観測である。系列を調整しない action（合併の対価、株主割当増資）はローカルに source が無いので、この残余は判定に畳まず、外部 source を要する既知の限界として扱う。
+
+`unpriced_exit` / `adjustment_factor` の verdict は、survivorship が complete な断面でのみ意味を持つ。population から既に落ちている銘柄については系列終了も factor 欠落も観測され得ないので、survivorship が incomplete な cohort でこの 2 つが `complete` に見えるのは「濾された後の集合が綺麗」という意味にすぎない。
 
 ### 未解決 row の分類
 
@@ -50,10 +58,15 @@ corporate action の `complete` は「ローカルに検出できる未対応 ac
 
 | 分類 | 意味 | gate への影響 |
 | --- | --- | --- |
-| `entry_not_listed_count` | panel も as-of の価格を持たない | block しない。投資可能でなかった銘柄の除外は正しく、bias を生まない |
+| `entry_not_listed_count` | panel も as-of の価格を持たない | block しない。production screen も同じ銘柄を universe から落とすので、較正の母集団は screen が選び得た集合と一致する |
 | `entry_price_gap_count` | panel は as-of の価格を持つのに forward が entry を持たない | block する。断面に数えた銘柄の forward 観測が無いので、population を無言で欠く |
 | `unpriced_exit_count` | 窓中に系列が終わる（廃止 exit value なし） | block する。survivorship 露出そのもの |
 | `future_horizon_count` | target が評価可能な最終取引日より先 | block する。cohort が満期に達していない |
+| `unclassified_unresolved_count` | 上のどれにも入らない未解決 status | block する。分類は allowlist なので、status が増えた日に無音で通らないための残余 |
+
+`entry_not_listed` が非 block なのは「市場に無かった」に限らないので、panel が price を持ちながら universe へ入れられなかった銘柄は `priced_master_without_universe_count` として別に数え、こちらは block する。universe の除外条件が増えても、その分が非 block の側へ黙って流れ込まない。
+
+entry は as-of の 15 日前までの close で解決するので、保有期間は名目 horizon より最大でその分長い。この許容が効く範囲まで bar の読み込み窓を広げてあり、`adjustment_factor_coverage` を判定する bar 集合も同じ窓に従う。
 
 authoritative な delisting exit value source が無い限り `unpriced_exit` は残るため、long-horizon result が blocked になるのは正しい。
 

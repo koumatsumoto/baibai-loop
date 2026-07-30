@@ -136,19 +136,35 @@ class PanelDiagnostics:
     # Survivorship is a property of the population, not of a single forward
     # observation, so it is measured here. The bar store keeps rows for every
     # ticker that traded, including ones that have since left the market, so the
-    # at-asof priced set is observable independently of the master snapshot and
-    # can be compared against it.
+    # set priced on ``asof`` is observable independently of the master snapshot
+    # and can be compared against it. Only the ``asof`` session counts: a name
+    # whose last trade was earlier had already left the market, and an exact-date
+    # master is right to omit it. Widening this to the entry tolerance would
+    # count correctly-omitted names as coverage holes, which no master could
+    # then satisfy.
     #
-    # ``asof_population_mismatch_count`` counts tickers priced at ``asof`` that
+    # ``asof_population_mismatch_count`` counts tickers priced on ``asof`` that
     # the master read does not contain. A later master misses names that were
     # listed then and have since delisted (the survivorship hole); an earlier one
     # misses names listed after it. Either way the panel cross-section is not the
-    # investable universe of ``asof``, so both count as incomplete coverage. An
-    # exact-date master drives the count to zero by construction.
+    # investable universe of ``asof``. An exact-date master drives the count to
+    # zero, because a name that traded that session was listed that session.
+    #
+    # ``priced_master_without_universe_count`` counts the opposite direction: a
+    # name priced on ``asof`` and present in the master that the panel still
+    # could not evaluate. Those rows exist in the panel without metrics, so the
+    # count keeps them from reading as names that were simply absent.
+    #
+    # The verdict is derived from these counts by the reader, not frozen here, so
+    # that changing what counts as complete reaches cohorts already on disk.
     asof_priced_count: int = 0
     asof_population_mismatch_count: int = 0
     policy_excluded_priced_count: int = 0
-    survivorship_coverage_status: str = "unavailable"
+    priced_master_without_universe_count: int = 0
+    # The lag the forward entry resolution was built with. A cohort written under
+    # a different rule carries different observations for the same inputs, so the
+    # reader needs to see which rule produced it.
+    entry_resolution_lag_days: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,11 +352,10 @@ def build_panel(
     master_tickers = {security.code for security in securities}
     # Bars arrive ordered by (ticker, traded_at) within a window ending at asof, so
     # the last bar of each ticker is its latest priced day at or before asof.
-    entry_floor = asof_date - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
     asof_priced = {
         ticker
         for ticker, ticker_bars in bars_by_ticker.items()
-        if ticker_bars and ticker_bars[-1].traded_at >= entry_floor
+        if ticker_bars and ticker_bars[-1].traded_at == asof_date
     }
     population_mismatch = asof_priced - master_tickers
     diagnostics = PanelDiagnostics(
@@ -375,7 +390,10 @@ def build_panel(
         asof_priced_count=len(asof_priced),
         asof_population_mismatch_count=len(population_mismatch),
         policy_excluded_priced_count=len((asof_priced & master_tickers) - panel_tickers),
-        survivorship_coverage_status=("complete" if not population_mismatch else "incomplete"),
+        priced_master_without_universe_count=len(
+            (asof_priced & master_tickers & panel_tickers) - set(universe_result.snapshots)
+        ),
+        entry_resolution_lag_days=STALE_PRICE_MAX_LAG_DAYS,
     )
     return PanelBuildResult(rows=tuple(rows), diagnostics=diagnostics)
 

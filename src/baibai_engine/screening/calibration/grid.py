@@ -32,7 +32,9 @@ def month_end_asof_grid(
     panel が永続化されると、forward 窓が ~96% 重複する重複 cohort として集計を
     二重計上するため。
     """
-    conn = sqlite3.connect(sqlite_path)
+    # Read-only so that a mistyped cache path fails instead of creating an empty
+    # store that the next writer would migrate into a schema-valid empty cache.
+    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         rows = conn.execute(
             "SELECT traded_at, COUNT(*) FROM jquants_daily_bars "
@@ -43,6 +45,31 @@ def month_end_asof_grid(
         conn.close()
     day_counts = [(date.fromisoformat(str(day)), int(count)) for day, count in rows]
     return complete_month_end_dates(day_counts, end=end, min_tickers=min_tickers)
+
+
+def days_with_bars(
+    sqlite_path: Path, days: Sequence[date], *, min_tickers: int = DEFAULT_MIN_TICKERS
+) -> set[date]:
+    """Return the requested days the bar store shows as trading days.
+
+    The market calendar is fetched around recent as-of dates only, so it cannot
+    answer for historical dates. The bar store can: a day the whole market
+    priced carries thousands of rows, so the same ticker floor the cohort grid
+    uses separates a trading day from a holiday or a partially ingested day.
+    """
+    if not days or not sqlite_path.exists():
+        return set()
+    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    try:
+        placeholders = ",".join("?" * len(days))
+        rows = conn.execute(
+            "SELECT traded_at, COUNT(*) FROM jquants_daily_bars "
+            f"WHERE traded_at IN ({placeholders}) GROUP BY traded_at",
+            [day.isoformat() for day in days],
+        ).fetchall()
+    finally:
+        conn.close()
+    return {date.fromisoformat(str(day)) for day, count in rows if int(count) >= min_tickers}
 
 
 def complete_month_end_dates(

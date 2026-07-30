@@ -32,7 +32,7 @@ uv run baibai-engine screening calibration-evaluate \
 | --- | --- | --- |
 | `jquants_daily_bars` | 2021-08-02〜2026-07-28 | 行データから導出（DB が SSOT） |
 | `jquants_fin_summaries` | 2021-08-02〜2026-07-28（90,427 行） | **2024-07-17〜2026-07-28（36,398 行）のみ** |
-| `jquants_master_snapshots` | 6 日分（2026-05-13, 07-15, 07-17, 07-21, 07-27, 07-28） | 日付別単日 key |
+| `jquants_master_snapshots` | 10 日分（2026-05-13 と 2026-07-15 以降の営業日） | 日付別単日 key |
 
 ```bash
 sqlite3 'file:data/screening/market.sqlite?mode=ro' \
@@ -52,19 +52,20 @@ bars 非 clamp となる最小 asof = 2021-08-02 + 1200 日 = 2024-11-14
 5y 満期済み asof の上限       = 2026-07-28 − 5 年     = 2021-07-28
 ```
 
-3y は「満期済み ≤ 2023-07-28」と「非 clamp ≥ 2024-11-14」が交差しない。5y の上限は bars 起点より前で、grid に存在し得ない。**現在の履歴では、満期と入力窓を同時に満たす cohort は 3y・5y ともに 0 件**である。非 clamp cohort で満期を迎える最短日は 3y が 2027-11-14、5y が 2029-11-14。
+3y は「満期済み ≤ 2023-07-28」と「非 clamp ≥ 2024-11-14」が交差しない。5y の上限は bars 起点より前で、grid に存在し得ない。**現在の履歴では、満期と入力窓を同時に満たす cohort は 3y・5y ともに 0 件**である。grid 上で最初の非 clamp cohort は 2024-11-29（46 cohort 中 20 件が非 clamp）なので、非 clamp cohort が満期を迎える最短日は 3y が 2027-11-29、5y が 2029-11-29 になる。
 
 ## 4. cohort ごとの blocker（満期済み 3y = 10 cohort）
 
-`reason_counts`（cohort 数）:
+`authority_coverage.reason_counts` の実出力（blocker class → cohort 数）:
 
 | blocker | 件数 | 帰着する前提 |
 | --- | ---: | --- |
-| `master_snapshot:future_snapshot` | 10 | 履歴窓（断面 master が cohort 日に無い） |
+| `master_snapshot` | 10 | 履歴窓（断面 master が cohort 日に無い） |
 | `input_range_clamped` | 10 | 履歴窓（bars/fin の入力窓が短い） |
-| `survivorship_coverage_status` | 10 | 履歴窓（計測前 panel は `not_assessed`） |
-| `entry_price_gap:N` | 10 | 既存 forward cache（§4.1 の entry 解決の欠陥） |
-| `unpriced_exit:N` | 5 | 外部 source（廃止 exit value） |
+| `survivorship` | 10 | 既存 panel が計測前に書かれ、件数が null |
+| `priced_master_without_universe` | 10 | 同上 |
+| `entry_price_gap` | 10 | 既存 forward cache（§4.1 の entry 解決の欠陥） |
+| `unpriced_exit` | 5 | 外部 source（廃止 exit value） |
 
 未解決 row の分類（本 PR で分離したもの。既存 forward cache に対する評価時導出）:
 
@@ -113,16 +114,19 @@ resolved が 64 件（1.9%）増える。落ちていたのは薄商いの銘柄
 
 計測は `bootstrap-cache` 相当の store 復旧を要するため、**live store を変更せず copy 上で検証**した（§6 の bookkeeping 問題により live store では panel を再構築できない）。
 
-2022-09-30 cohort:
+| 量 | 2022-09-30（future master） | 2026-07-28（exact-date master） |
+| --- | ---: | ---: |
+| as-of 当日に価格が付いた銘柄 | 4,042 | 4,202 |
+| master read に不在（population mismatch） | 351（8.7%） | **0** |
+| master に在るが政策除外（市場区分外） | 319 | — |
+| master に在るが universe へ入れられなかった | 8 | 3 |
+| survivorship 判定 | `incomplete` | `complete` |
 
-| 量 | 値 |
-| --- | ---: |
-| as-of に価格が付いていた銘柄 | 4,149 |
-| master read に不在（population mismatch） | 373（9.0%） |
-| master に在るが政策除外（市場区分外） | 340 |
-| 判定 | `incomplete` |
+2022-09-30 の master read は 2026-05-13 の snapshot（`future_snapshot`）なので、2022-09 に上場していて以降に廃止された銘柄が断面から落ちている。これが survivorship bias の実体である。
 
-master read は 2026-05-13 の snapshot（`future_snapshot`）なので、2022-09 に上場していて以降に廃止された銘柄が断面から落ちている。これが survivorship bias の実体で、exact-date master に置き換えると定義上 0 になる。
+母集団は **as-of 当日に価格が付いた銘柄**で定義する。as-of 前に最終売買を終えた銘柄を master が持たないのは正しいので、entry の staleness 許容（15 日）をここへ流用すると、正しく除かれた銘柄を「断面が universe を再現していない証拠」として数えてしまう。15 日窓では exact-date master の 2026-07-28 でも mismatch が 3 件残り（3271 / 5903 / 7317、いずれも as-of 前に廃止済み）、`master_snapshot == exact_date` と `survivorship == complete` が同時に成立しない。当日基準ではこの 2 条件が両立する（上表右列）。
+
+`priced_master_without_universe_count` は逆向きの欠けを数える。as-of に価格が付き master にも在るのに panel が評価できなかった銘柄で、exact-date の 2026-07-28 でも 3 件ある。これらは panel に metrics 無しの行として残るため、数えないと「市場に無かった銘柄」と同じ非 block の側へ落ちる。
 
 ## 6. panel store が再構築できない
 
@@ -156,5 +160,5 @@ calibration build: 2025-08-29 failed: fin summaries are not covered for 2023-08-
 
 ## 9. 監視事項
 
-- 断面 master は日次バッチが as-of ごとに保存するため、2026-05 以降の月末は自然に exact-date になる。2026-07-31 以降の月末 cohort で `master_snapshot` blocker が消えることを次回計測で確認する。
+- 断面 master の保存は 2026-07-15 以降の営業日しかないため、grid 上の月末（2026-05-29 / 2026-06-30）は `backfill-master` を実行しない限り exact-date にならない。日次バッチが月末を跨いだ後の cohort（2026-07-31 以降）では自然に exact-date になるので、次回計測で `master_snapshot` blocker が消えることを確認する。
 - `unpriced_exit` の件数は cohort の窓が伸びるほど増える（2023-06-30 cohort で 18 件）。廃止 exit value source の必要性はこの数列で追う。

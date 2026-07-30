@@ -109,7 +109,7 @@ def _forward_row(ticker: str, price_return: float) -> ForwardReturnRow:
 def _panel_diagnostics(
     *,
     master_snapshot_status: str = "unavailable",
-    survivorship_coverage_status: str = "unavailable",
+    asof_population_mismatch_count: int = 0,
 ) -> PanelDiagnostics:
     return PanelDiagnostics(
         asof="2025-06-30",
@@ -128,7 +128,7 @@ def _panel_diagnostics(
         population_ocf_yield_nonnull=0,
         population_per_trailing_exact=240,
         master_snapshot_status=master_snapshot_status,
-        survivorship_coverage_status=survivorship_coverage_status,
+        asof_population_mismatch_count=asof_population_mismatch_count,
     )
 
 
@@ -554,10 +554,7 @@ class EvaluateCohortsTest(unittest.TestCase):
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
-                _panel_diagnostics(
-                    master_snapshot_status="exact_date",
-                    survivorship_coverage_status="complete",
-                ),
+                _panel_diagnostics(master_snapshot_status="exact_date"),
             )
             write_forward(root, date(2025, 6, 30), forwards)
             output_path = root / "evaluation.yaml"
@@ -622,7 +619,7 @@ class EvaluateCohortsTest(unittest.TestCase):
 
         self.assertEqual(coverage["entry_not_listed_count"], 0)
         self.assertEqual(coverage["entry_price_gap_count"], 1)
-        self.assertEqual(counts.get("entry_price_gap:1"), 1)
+        self.assertEqual(counts.get("entry_price_gap"), 1)
 
     def test_price_gap_and_unpriced_exit_are_named_as_separate_blockers(self) -> None:
         # 取引可能名の取りこぼしと廃止 exit value の欠落は、別々の理由として名指しする。
@@ -656,9 +653,9 @@ class EvaluateCohortsTest(unittest.TestCase):
 
         self.assertEqual(coverage["entry_price_gap_count"], 1)
         self.assertEqual(coverage["unpriced_exit_count"], 1)
-        self.assertEqual(counts.get("entry_price_gap:1"), 1)
-        self.assertEqual(counts.get("unpriced_exit:1"), 1)
-        self.assertEqual(coverage["delisting_coverage_status"], "unpriced_exit")
+        self.assertEqual(counts.get("entry_price_gap"), 1)
+        self.assertEqual(counts.get("unpriced_exit"), 1)
+        self.assertEqual(coverage["unclassified_unresolved_count"], 0)
 
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:
