@@ -26,6 +26,7 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import (
     ProviderBundle,
+    backfill_master_command,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     run_command,
@@ -48,6 +49,7 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
+    JQuantsProviderError,
 )
 from baibai_engine.screening.render import build_output_path
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -127,6 +129,16 @@ class FakeJQuantsProvider:
                 profit=None,
             ),
         ]
+
+
+@dataclass
+class _FailingOnDateJQuantsProvider(FakeJQuantsProvider):
+    failing_date: date | None = None
+
+    def get_eq_master(self, requested_asof: date) -> list[SecurityMaster]:
+        if requested_asof == self.failing_date:
+            raise JQuantsProviderError(f"no master for {requested_asof.isoformat()}")
+        return super().get_eq_master(requested_asof)
 
 
 @dataclass
@@ -823,6 +835,40 @@ class ScreeningCliTests(unittest.TestCase):
         )
         self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
         self.assertEqual(jpx.bootstrap_calls, [asof])
+
+    def test_backfill_master_fetches_only_the_master_for_each_date(self) -> None:
+        # 1 cohort あたり 1 request だけを使うことが、この命令の存在理由である。
+        jquants = FakeJQuantsProvider()
+        buffer = io.StringIO()
+        dates = [date(2026, 4, 30), date(2026, 5, 29)]
+
+        exit_code = backfill_master_command(
+            asof_dates=dates,
+            providers=ProviderBundle(jquants=jquants, edinet=FakeEDINETProvider(), jpx=None),
+            stdout=buffer,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(jquants.calls, [("get_eq_master", day, day) for day in dates])
+        self.assertIn("backfill-master done", buffer.getvalue())
+
+    def test_backfill_master_continues_past_a_failed_date_and_fails_overall(self) -> None:
+        # 1 日の取得失敗で残りの cohort を諦めないが、成功したことにもしない。
+        jquants = _FailingOnDateJQuantsProvider(failing_date=date(2026, 4, 30))
+        buffer = io.StringIO()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            exit_code = backfill_master_command(
+                asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
+                providers=ProviderBundle(jquants=jquants, edinet=FakeEDINETProvider(), jpx=None),
+                stdout=buffer,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("1 of 2 date(s) failed", stderr.getvalue())
+        self.assertIn(("get_eq_master", date(2026, 5, 29), date(2026, 5, 29)), jquants.calls)
+        self.assertNotIn("backfill-master done", buffer.getvalue())
 
     def test_extract_edinet_metrics_command_writes_parsed_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

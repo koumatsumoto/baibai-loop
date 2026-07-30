@@ -12,6 +12,7 @@ from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
 )
+from baibai_engine.screening.calibration.grid import month_end_asof_grid
 from baibai_engine.screening.calibration.store import DEFAULT_CALIBRATION_DIR
 from baibai_engine.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
@@ -29,6 +30,7 @@ from baibai_engine.screening.sqlite_coverage import (
 
 from .cache import (
     _print_cache_coverage_issues,
+    backfill_master_command,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     invalidate_coverage_command,
@@ -87,6 +89,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--asof",
         required=True,
         help="screening target date (YYYY-MM-DD); computes each source window automatically",
+    )
+
+    backfill_master_parser = subparsers.add_parser(
+        "backfill-master",
+        help="store the point-in-time security master for one or more as-of dates",
+    )
+    backfill_master_parser.add_argument(
+        "--asof",
+        action="append",
+        dest="asofs",
+        help="master snapshot date (YYYY-MM-DD; repeatable)",
+    )
+    backfill_master_parser.add_argument(
+        "--month-end-from",
+        help="add every calendar month end from this date through --month-end-to (YYYY-MM-DD)",
+    )
+    backfill_master_parser.add_argument(
+        "--month-end-to",
+        help="last date considered for --month-end-from (YYYY-MM-DD)",
     )
 
     extract_parser = subparsers.add_parser(
@@ -525,6 +546,31 @@ def main(argv: list[str] | None = None) -> int:
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
         )
+
+    if args.command == "backfill-master":
+        asof_dates = [_parse_iso_date(value) for value in (args.asofs or [])]
+        if bool(args.month_end_from) != bool(args.month_end_to):
+            print(
+                "--month-end-from and --month-end-to must be given together",
+                file=sys.stderr,
+            )
+            return 1
+        if args.month_end_from:
+            # The grid is derived from the bar store so that the backfilled dates
+            # are the cohort dates themselves. A snapshot on any other day leaves
+            # the cohort on a non-exact-date master and buys nothing.
+            asof_dates.extend(
+                month_end_asof_grid(
+                    sqlite_path,
+                    start=_parse_iso_date(args.month_end_from),
+                    end=_parse_iso_date(args.month_end_to),
+                )
+            )
+        unique_dates = sorted(set(asof_dates))
+        if not unique_dates:
+            print("backfill-master requires --asof or --month-end-from", file=sys.stderr)
+            return 1
+        return backfill_master_command(asof_dates=unique_dates, providers=providers)
 
     if args.command == "extract-edinet-metrics":
         if args.lookback_days < 0:

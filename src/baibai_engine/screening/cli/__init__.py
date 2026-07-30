@@ -6,6 +6,7 @@ public surface; submodules group the commands by responsibility.
 
 from .app import build_parser, main
 from .cache import (
+    backfill_master_command,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     invalidate_coverage_command,
@@ -21,6 +22,7 @@ from .run import run_command
 
 __all__ = [
     "ProviderBundle",
+    "backfill_master_command",
     "bootstrap_cache_command",
     "build_parser",
     "extract_edinet_metrics_command",

@@ -338,6 +338,47 @@ def _metric_record_payload(record: EdinetMetricRecord) -> dict[str, object]:
     }
 
 
+def backfill_master_command(
+    *,
+    asof_dates: Sequence[date],
+    providers: ProviderBundle,
+    stdout: TextIO | None = None,
+) -> int:
+    """Store the point-in-time security master for each requested date only.
+
+    A calibration cohort becomes production evidence only when its population
+    comes from a master snapshot of its own date. ``bootstrap-cache`` reaches
+    that state as a side effect of also re-fetching a 1200-day bar window and a
+    730-day summary window, which costs hours per date; the snapshot itself is
+    one request. Backfilling a monthly grid is therefore one cheap pass here
+    instead of one expensive pass per cohort.
+
+    Each date is independent: a date the provider cannot answer is reported and
+    the pass continues, and the exit code is non-zero if any date failed. The
+    store keeps requested-date snapshots append-only, so re-running a date
+    replaces only that date.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    failures: list[tuple[date, str]] = []
+    for asof_date in asof_dates:
+        iso = asof_date.isoformat()
+        try:
+            securities = providers.jquants.get_eq_master(asof_date)
+        except (JQuantsProviderError, sqlite3.Error) as exc:
+            print(f"backfill-master {iso}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            failures.append((asof_date, str(exc)))
+            continue
+        print(f"backfill-master {iso}: {len(securities)} row(s)", file=out, flush=True)
+    if failures:
+        print(
+            f"backfill-master: {len(failures)} of {len(asof_dates)} date(s) failed",
+            file=sys.stderr,
+        )
+        return 1
+    print("backfill-master done", file=out, flush=True)
+    return 0
+
+
 def bootstrap_cache_command(
     *,
     asof_date: date,
