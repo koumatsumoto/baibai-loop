@@ -764,3 +764,107 @@ class BargainAssessmentView(BaseModel):
     lanes: list[AssessmentLaneView]
     purchase: AssessmentPurchaseView | None
     review: AssessmentReviewView
+
+
+type DeltaPool = Literal["longlist", "recommendations"]
+type DeltaUnavailable = Literal[
+    "candidates",
+    "candidates_pool",
+    "candidates_previous_run",
+    "holdings",
+    "holdings_fair_value",
+    "macro",
+    "market",
+]
+
+
+class CandidateEntryDeltaView(BaseModel):
+    """A ticker whose presence in the machine pool changed between two runs.
+
+    ``disclosed_since_previous`` is ``null`` when the store that holds disclosure
+    dates could not answer, which must not read as "no disclosure".
+    """
+
+    ticker: str
+    company_name: str | None
+    sector: str
+    er_annual_pct: float | None
+    disclosed_since_previous: bool | None
+
+
+class CandidateMoveDeltaView(BaseModel):
+    """A ticker in both pools whose machine E[r] moved most."""
+
+    ticker: str
+    company_name: str | None
+    er_annual_pct: float | None
+    previous_er_annual_pct: float | None
+    change_pp: float
+
+
+class HoldingDeltaView(BaseModel):
+    """One open holding whose observation crossed a threshold worth reading.
+
+    ``at_or_above_fair_value`` is the comparison of two numbers, not a decision:
+    reaching fair value is a review trigger the human owns.
+    """
+
+    ticker: str
+    company_name: str | None
+    at_or_above_fair_value: bool | None
+    change_since_previous_pct: float | None
+    days_to_next_earnings: int | None
+
+
+class MacroFlagDeltaView(BaseModel):
+    """A threshold note that appeared or disappeared between two readings."""
+
+    series_id: str
+    flag: str
+    state: Literal["raised", "cleared"]
+
+
+class MacroExtremeDeltaView(BaseModel):
+    """A series whose |z-score| arrived at the distribution edge.
+
+    ``previous_z_score`` is what it was on the earlier reading, so the reader can see
+    how far it came rather than only that it is past the line.
+    """
+
+    series_id: str
+    z_score: float
+    previous_z_score: float | None
+
+
+class DailyDeltaView(BaseModel):
+    """What changed between the latest machine run and the one before it.
+
+    Every field is an observation or a comparison of observations. The view names no
+    cause and carries no recommendation: it tells the reader where to look, and the
+    decision to start an opportunity cycle or a holding review stays human.
+
+    ``unavailable`` lists the sections no store could answer, so an empty section is
+    never read as "nothing changed". ``pool`` names which machine pool the comparison
+    used, and ``rules_changed`` marks a pair of runs built from different screening
+    rules — the pool difference is then a method change, so no rows are reported.
+    Holdings that cannot be compared are counts rather than rows: repeating the same
+    list every day would bury the day's actual changes. ``er_moves_total`` says how
+    many names cleared the threshold before the row cap, so a capped list does not
+    hide its own remainder.
+    """
+
+    generated_at: datetime
+    asof: date | None
+    previous_asof: date | None
+    pool: DeltaPool | None
+    rules_changed: bool
+    entered: list[CandidateEntryDeltaView]
+    exited: list[CandidateEntryDeltaView]
+    er_moves: list[CandidateMoveDeltaView]
+    er_moves_total: int
+    holdings: list[HoldingDeltaView]
+    holdings_without_fair_value: int
+    holdings_without_price: int
+    macro_flags: list[MacroFlagDeltaView]
+    macro_extremes: list[MacroExtremeDeltaView]
+    unavailable: list[DeltaUnavailable]

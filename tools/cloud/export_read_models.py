@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from baibai_app.readmodel.builders import (
     MacroPeriod,
     build_assessment_detail,
+    build_daily_delta,
     build_dashboard,
     build_macro,
     build_macro_context_detail,
@@ -100,6 +101,19 @@ def export_read_models(
 
     screening = build_screening(stores.candidates, stores.ledger, stores.research)
     written.append(_write_model(views_dir / "screening_latest.json", screening))
+
+    written.append(
+        _write_model(
+            views_dir / "daily-delta.json",
+            build_daily_delta(
+                stores.candidates,
+                stores.ledger,
+                stores.research,
+                stores.market,
+                stores.macro,
+            ),
+        )
+    )
 
     written.append(
         _write_model(views_dir / "operations.json", build_operations_view(stores.operations))
@@ -238,6 +252,9 @@ class _CachedLatestRunCandidates:
             self._latest = self._inner.latest_run()
             self._loaded = True
         return self._latest
+
+    def previous_run(self) -> CandidatesRun | None:
+        return self._inner.previous_run()
 
     def run(self, run_revision_id: str) -> CandidatesRun | None:
         if run_revision_id not in self._runs:

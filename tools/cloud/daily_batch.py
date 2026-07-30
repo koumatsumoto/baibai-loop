@@ -73,6 +73,8 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 # Exit 3 means the screening result was published and exported, but a deferred
 # (macro / prune) step failed afterwards.
 _EXIT_DEFERRED_FAILURE = 3
+# The OP3 review input population size the opportunity path uses.
+_SELECT_LONGLIST_TOP = 20
 
 
 class BatchStepError(RuntimeError):
@@ -282,6 +284,45 @@ def _failed_series_count(exc: BatchStepError, *, requested: int) -> int:
     if reported is None or reported > requested:
         return requested
     return reported
+
+
+def _daily_delta_metrics(path: Path) -> dict[str, object]:
+    """Read the exported delta counts so the run notification carries them.
+
+    The notification is the only channel that reaches a reader without being
+    opened, so the day's change counts belong in it. Every key is reported on every
+    run because the summary schema requires it, and ``delta_measured`` separates a
+    day with no changes from a view that could not be read — zero counts alone
+    would say the same thing for both.
+    """
+
+    absent: dict[str, object] = {
+        "delta_measured": False,
+        "delta_entered": 0,
+        "delta_exited": 0,
+        "delta_er_moves": 0,
+        "delta_holdings": 0,
+        "delta_macro_flags": 0,
+        "delta_macro_extremes": 0,
+        "delta_unavailable": "view_unreadable",
+    }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return absent
+    if not isinstance(payload, dict):
+        return absent
+    counts: dict[str, object] = {"delta_measured": True}
+    for name in ("entered", "exited", "er_moves", "holdings", "macro_flags", "macro_extremes"):
+        value = payload.get(name)
+        if not isinstance(value, list):
+            return absent
+        counts[f"delta_{name}"] = len(value)
+    unavailable = payload.get("unavailable")
+    counts["delta_unavailable"] = (
+        ",".join(str(item) for item in unavailable) if isinstance(unavailable, list) else ""
+    )
+    return counts
 
 
 def _stderr_summary(stderr: str) -> str:
@@ -664,6 +705,11 @@ def _execute_daily_batch(
         asof_arg,
         "--run-revision-id",
         run_view.run_revision_id,
+        # The longlist is the review input population, and the daily delta compares
+        # it across runs. Publishing it every day keeps that comparison on the pool a
+        # human would actually review instead of the cap-applied top-N.
+        "--longlist-top",
+        str(_SELECT_LONGLIST_TOP),
     ]
     try:
         previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)
@@ -791,7 +837,10 @@ def _execute_daily_batch(
             datasets=_BATCH_DATASETS["serving-export"],
             status=BATCH_STATUS_OK,
             duration_seconds=time.monotonic() - export_mono,
-            metrics={"local_output": recorder.local_export},
+            metrics={
+                "local_output": recorder.local_export,
+                **_daily_delta_metrics(output_dir / "views" / "daily-delta.json"),
+            },
         )
     )
 

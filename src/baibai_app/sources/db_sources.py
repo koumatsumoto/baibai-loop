@@ -27,6 +27,8 @@ from baibai_engine.read_api import (
     application_db_updated_at,
     application_store_stats,
     bargain_assessment_payload,
+    close_change_since,
+    latest_disclosure_dates_after,
     latest_shortlist_payload,
     latest_unadjusted_closes,
     list_bargain_assessment_payloads,
@@ -47,10 +49,12 @@ from baibai_engine.read_api import (
     never_attempted_series,
     next_earnings_dates,
     portfolio_ledger_document,
+    previous_business_day,
     provider_failure_streaks,
     reconcile_portfolio,
     safe_load,
     screening_latest_asof,
+    screening_run_asof_dates,
     screening_run_payload,
     screening_selection_payloads,
     store_stats,
@@ -79,8 +83,20 @@ class DbMarketPriceSource:
     def __init__(self, market_db_path: Path) -> None:
         self._path = market_db_path.resolve()
 
+    def exists(self) -> bool:
+        return self._path.is_file()
+
+    def previous_business_day(self, day: date) -> date | None:
+        return previous_business_day(self._path, day)
+
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
         return latest_unadjusted_closes(self._path, tickers)
+
+    def close_changes_since(self, tickers: Sequence[str], *, since: date) -> Mapping[str, float]:
+        return close_change_since(self._path, tickers, since=since)
+
+    def disclosures_after(self, tickers: Sequence[str], *, after: date) -> Mapping[str, date]:
+        return latest_disclosure_dates_after(self._path, tickers, after=after)
 
     def next_earnings_dates(self, tickers: Sequence[str], *, asof: date) -> Mapping[str, date]:
         return next_earnings_dates(self._path, tickers, asof=asof)
@@ -434,6 +450,18 @@ class DbCandidatesSource:
         raw = screening_run_payload(self._runs_path, run_revision_id=run_revision_id)
         return None if raw is None else self._parse_run(raw)
 
+    def previous_run(self) -> CandidatesRun | None:
+        """Return the newest run of the greatest as-of before the latest one.
+
+        A delta needs a stated earlier side. Reading it from the retained run dates
+        keeps "no predecessor" (a fresh or pruned store) distinct from "nothing
+        changed", which the caller reports as an unavailable section.
+        """
+        dates = screening_run_asof_dates(self._runs_path, limit=2)
+        if len(dates) < 2:
+            return None
+        return self.run_as_of(dates[1])
+
     def run_as_of(self, as_of: date) -> CandidatesRun | None:
         raw = screening_run_payload(self._runs_path, as_of_date=as_of)
         return None if raw is None else self._parse_run(raw)
@@ -475,6 +503,7 @@ class DbCandidatesSource:
             run_at=datetime.fromisoformat(str(raw["run_at"])),
             universe_size=int(str(raw["universe_size"])),
             run_revision_id=str(raw["run_revision_id"]),
+            rules_ref=None if raw.get("rules_ref") is None else str(raw["rules_ref"]),
             rows=tuple(candidates),
         )
 

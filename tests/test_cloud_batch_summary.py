@@ -76,7 +76,17 @@ def _export_result(**overrides) -> dict:
         "datasets": ["views", "history"],
         "status": "ok",
         "duration_seconds": 2.0,
-        "metrics": {"local_output": True},
+        "metrics": {
+            "local_output": True,
+            "delta_measured": True,
+            "delta_entered": 1,
+            "delta_exited": 0,
+            "delta_er_moves": 2,
+            "delta_holdings": 1,
+            "delta_macro_flags": 0,
+            "delta_macro_extremes": 0,
+            "delta_unavailable": "",
+        },
         "errors": [],
     }
     base.update(overrides)

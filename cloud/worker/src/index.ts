@@ -91,6 +91,8 @@ function resolveRoute(url: URL): RouteResult {
       return { kind: 'health' }
     case '/api/dashboard':
       return view('dashboard.json')
+    case '/api/daily-delta':
+      return view('daily-delta.json')
     case '/api/screening/latest':
       return view('screening_latest.json')
     case '/api/screening/history':

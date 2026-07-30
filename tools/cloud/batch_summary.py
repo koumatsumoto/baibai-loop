@@ -192,7 +192,21 @@ _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
         "selected": int,
     },
     "macro": {"target": int, "success": int, "failure": int},
-    "serving-export": {"local_output": bool},
+    # The delta counts ride the export batch because the notification is the only
+    # channel that reaches a reader without being opened. Every key is always
+    # present: ``delta_measured`` false with zero counts says "not measured", which
+    # zero counts alone could not distinguish from "nothing changed".
+    "serving-export": {
+        "local_output": bool,
+        "delta_measured": bool,
+        "delta_entered": int,
+        "delta_exited": int,
+        "delta_er_moves": int,
+        "delta_holdings": int,
+        "delta_macro_flags": int,
+        "delta_macro_extremes": int,
+        "delta_unavailable": str,
+    },
     "prune": {},
 }
 BATCH_NAMES = tuple(_BATCH_METRIC_SCHEMA)
