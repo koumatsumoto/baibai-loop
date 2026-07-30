@@ -14,7 +14,7 @@ remaining_prerequisites: 3
 blocking_reason_classes: 5
 ```
 
-3y/5y evidence は 5 つの独立した理由で成立しない。3 つは同一の外部前提（取得可能履歴の窓）に帰着し、1 つは外部 source（廃止 exit value）、1 つは本 PR で直した entry 解決の欠陥（既存 cache の再構築が必要）である。**待てば成立するものは 1 つも無い。**
+3y/5y evidence は 5 つの独立した理由で成立しない。**待てば成立するものは 1 つも無い。** うち 2 つ（断面 master の不在と survivorship）は本 PR の `backfill-master` を実行して解消済み（§5.1）。1 つは本 PR で直した entry 解決の欠陥で、既存 cache の再構築を待つ。残る 2 つは外部前提で、bars の入力窓は J-Quants plan、廃止 exit value は外部 source を要する。
 
 ## 1. 再現手順
 
@@ -128,6 +128,28 @@ resolved が 64 件（1.9%）増える。落ちていたのは薄商いの銘柄
 
 `priced_master_without_universe_count` は逆向きの欠けを数える。as-of に価格が付き master にも在るのに panel が評価できなかった銘柄で、exact-date の 2026-07-28 でも 3 件ある。これらは panel に metrics 無しの行として残るため、数えないと「市場に無かった銘柄」と同じ非 block の側へ落ちる。
 
+<a id="after-backfill"></a>
+
+### 5.1 断面 master を埋めると診断が変わる
+
+`backfill-master --month-end-from 2022-09-01 --month-end-to 2026-06-30` を実行し、grid 46 cohort すべての断面 master を取得した（失敗 0、所要は数分）。**provider は現行 plan で 2022-09-30 まで遡って `/listed/info?date=` に応答する**ので、この blocker の解消に plan 変更は要らない。
+
+fin coverage を復元した copy 上で 2022-09-30 cohort を再構築した結果（3y）:
+
+| 量 | future master | exact-date master |
+| --- | ---: | ---: |
+| forward rows | 3,744 | 3,771 |
+| resolved | 3,371 | 3,532 |
+| `entry_not_listed` | 308 | **0** |
+| `entry_price_gap` | 64 | 0 |
+| `unpriced_exit` | 1 | **239** |
+| survivorship | `incomplete`（mismatch 351） | **`complete`**（mismatch 0） |
+| 残る blocker | 5 class | **3 class** |
+
+`entry_not_listed` の 308 件は「2022 年に未上場で、2026 年 master には居る銘柄」だった。断面 master にすると母集団から消え、代わりに **2022 年に上場していて以降に廃止された 239 銘柄が `unpriced_exit` として現れる**。survivorship の欠けは断面 master で消えるのではなく、**廃止 exit value という名前の付いた要求へ変換される**。これが本 issue の中心的な発見で、外部 source の必要性を件数で確定させる。
+
+残る blocker は `input_range_clamped` / `priced_master_without_universe`（9 件）/ `unpriced_exit`（239 件）の 3 つである。
+
 ## 6. panel store が再構築できない
 
 `jquants_fin_summaries` の coverage が 2024-07-17 起点しか主張していないため、`read_fin_summaries` は 2021-08〜2024-07 の行（54,029 行、実在する）を返さない。cohort は `asof − 730 日` の fin 窓を要求するので、**再構築可能な最小 asof は 2026-07-17** となり、grid の最新 cohort（2026-06-30）を含めて **46 cohort すべてが再構築不能**である。
@@ -145,17 +167,17 @@ calibration build: 2025-08-29 failed: fin summaries are not covered for 2023-08-
 
 | 前提 | 解けるもの | 判断事項 |
 | --- | --- | --- |
-| 取得可能履歴の窓 | `master_snapshot` / `input_range_clamped` / `survivorship` | J-Quants plan。3y は bars 2020-04 起点、5y は 2018-04 起点が必要で、Light（5 年 = 2021-07 起点）では届かない。Standard（10 年）以上を要する |
-| 廃止 exit value の source | `unpriced_exit` | JPX 上場廃止一覧・統計月報 archive の採用可否。#420 の feasibility 判定を先に通す |
-| fin coverage bookkeeping | `entry_price_gap` / panel の再構築可能性 | 再取得（provider、数時間規模）か、panel meta の attestation に基づく復元か（#670） |
+| bars の入力窓 | `input_range_clamped` | J-Quants plan。3y は bars 2020-04 起点、5y は 2018-04 起点が必要で、Light（5 年 = 2021-07 起点）では届かない。Standard（10 年）以上を要する |
+| 廃止 exit value の source | `unpriced_exit`（断面 master 適用後の 2022-09-30 cohort で 239 件 / 3,771） | JPX 上場廃止一覧・統計月報 archive の採用可否。#420 の feasibility 判定を先に通す |
+| fin coverage bookkeeping | panel の再構築可能性（＝上記の適用） | 再取得（provider、数時間規模）か、panel meta の attestation に基づく復元か（#670） |
 
-`backfill-master --month-end-from/--month-end-to` は、窓の前提が満たされた時点で断面 master を 1 cohort = 1 request で埋める経路として用意した（`bootstrap-cache` は 1 日あたり数時間）。
+断面 master（`master_snapshot` / `survivorship`）は §5.1 のとおり **現行 plan で解決済み**で、判断事項ではない。plan 変更が要るのは `input_range_clamped` の 1 つだけである。
 
 ## 8. 変更していないもの
 
 - screening rules / E[r] / selection / ranking / proposal
 - horizon authority の要求（3y と 5y の双方 eligible を production 変更の関門とする契約）
-- `data/screening/market.sqlite`（read-only 参照のみ。§5 の検証は copy 上で実施）
+- `data/screening/market.sqlite` の既存行（§5.1 の `backfill-master` は断面 master を append しただけで、既存 snapshot・bars・fin・coverage は変更していない。cohort 再構築の検証は copy 上で実施）
 - calibration cache の schema version（`2` を維持）
 
 ## 9. 監視事項
