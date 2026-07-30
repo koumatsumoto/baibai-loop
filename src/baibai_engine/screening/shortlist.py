@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -55,6 +56,11 @@ class ShortlistEntry(BaseModel):
     reason: str = Field(min_length=1)
     rank: int | None = Field(default=None, ge=1)
     narrative: ShortlistNarrative | None = None
+    # The machine E[r] this judgment was made against, in annual ratio. The publisher
+    # fills it from the bound run; a draft does not carry it. The run store keeps only
+    # a few generations, so a comparison of the judgment against the ranking it
+    # started from has to hold the ranking here or lose it before the horizon matures.
+    er_annual: float | None = None
 
     @model_validator(mode="after")
     def validate_narrative_matches_decision(self) -> Self:
@@ -140,6 +146,7 @@ class SelectionBinding:
     profile: str
     macro_context_id: str | None
     candidate_tickers: frozenset[str]
+    candidate_er: Mapping[str, float]
 
 
 class ShortlistService:
@@ -175,6 +182,17 @@ class ShortlistService:
             raise ShortlistConflictError(
                 f"shortlist contains tickers outside source run: {', '.join(unknown)}"
             )
+        # Burn the machine estimate into the judgment before it is persisted, so the
+        # later comparison reads what the judgment saw rather than whatever run is
+        # still in the store.
+        shortlist = shortlist.model_copy(
+            update={
+                "entries": tuple(
+                    entry.model_copy(update={"er_annual": selection.candidate_er.get(entry.ticker)})
+                    for entry in shortlist.entries
+                )
+            }
+        )
         initialize_database(self._db_path)
         payload = canonical_json(shortlist.payload())
         with closing(connect_rw(self._db_path)) as connection:

@@ -66,6 +66,18 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
     return {str(row[0]): (float(row[2]), date.fromisoformat(str(row[1]))) for row in rows}
 
 
+def latest_market_bar_date(path: Path) -> date | None:
+    """Return the newest day the bar store has a price for, or None when it has none.
+
+    A window a caller asks for can run past the data. Reporting the requested end
+    would present a conclusion drawn from a shorter observation than it claims.
+    """
+
+    rows = read_rows(path, "SELECT MAX(traded_at) FROM jquants_daily_bars WHERE close IS NOT NULL")
+    value = rows[0][0] if rows else None
+    return None if value is None else date.fromisoformat(str(value))
+
+
 def previous_business_day(path: Path, day: date, *, max_lookback: int = 10) -> date | None:
     """Return the latest trading day strictly before ``day``, or None when unknown.
 
@@ -275,6 +287,7 @@ def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> di
 __all__ = [
     "close_change_since",
     "latest_disclosure_dates_after",
+    "latest_market_bar_date",
     "latest_unadjusted_closes",
     "market_calendar_business_day",
     "next_earnings_dates",

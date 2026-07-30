@@ -10,10 +10,11 @@ from typing import TextIO
 import yaml
 
 from baibai_engine.foundation.time import JST
-from baibai_engine.read_api import list_shortlist_payloads, worst_close_drawdown
+from baibai_engine.read_api.market import latest_market_bar_date, worst_close_drawdown
+from baibai_engine.read_api.shortlist import list_shortlist_payloads
 from baibai_engine.screening.calibration.forward import compute_forward_returns
 from baibai_engine.screening.calibration.horizons import require_horizon
-from baibai_engine.screening.run_store import ScreeningRunReader
+from baibai_engine.screening.run_store import ScreeningRunReader, run_store_path
 from baibai_engine.screening.shortlist_outcome import (
     ShortlistCohort,
     cohort_from_payload,
@@ -27,7 +28,7 @@ from baibai_engine.screening.shortlist_outcome import (
 DEFAULT_HORIZONS: tuple[str, ...] = ("3m", "6m", "1y", "3y")
 
 
-def _machine_estimates(runs_db: Path, run_revision_id: str) -> dict[str, float]:
+def _machine_estimates(runs_db: Path | None, run_revision_id: str) -> dict[str, float]:
     """Read the machine E[r] of one run, or nothing when that run is gone.
 
     The run store keeps a few generations, so an older shortlist's run is often
@@ -35,10 +36,11 @@ def _machine_estimates(runs_db: Path, run_revision_id: str) -> dict[str, float]:
     being filled from whatever run is still there.
     """
 
-    if not runs_db.is_file():
+    resolved = run_store_path(runs_db)
+    if not resolved.is_file():
         return {}
     try:
-        run = ScreeningRunReader(runs_db).get_run(run_revision_id)
+        run = ScreeningRunReader(resolved).get_run(run_revision_id)
     except (KeyError, LookupError, ValueError):
         return {}
     if run is None:
@@ -57,7 +59,7 @@ def _machine_estimates(runs_db: Path, run_revision_id: str) -> dict[str, float]:
 def shortlist_outcome_command(
     *,
     db_path: Path,
-    runs_db_path: Path,
+    runs_db_path: Path | None,
     sqlite_path: Path,
     horizons: list[str] | None = None,
     output_path: Path | None = None,
@@ -82,6 +84,7 @@ def shortlist_outcome_command(
         print("shortlist-outcome: no published shortlist to evaluate", file=sys.stderr)
         return 1
 
+    observed_end = latest_market_bar_date(sqlite_path)
     results: list[dict[str, object]] = []
     for cohort in cohorts:
         tickers = [item.ticker for item in cohort.judgments]
@@ -93,9 +96,15 @@ def shortlist_outcome_command(
         )
         for horizon in selected_horizons:
             spec = require_horizon(horizon)
-            window_end = min(spec.target_date(cohort.as_of), datetime.now(JST).date())
-            drawdowns = worst_close_drawdown(
-                sqlite_path, tickers, start=cohort.as_of, end=window_end
+            # The window ends where the data ends, not where the calendar does: a
+            # store that stopped updating would otherwise report "no fall in three
+            # months" from a few weeks of prices.
+            requested_end = min(spec.target_date(cohort.as_of), datetime.now(JST).date())
+            window_end = min(requested_end, observed_end) if observed_end else None
+            drawdowns = (
+                worst_close_drawdown(sqlite_path, tickers, start=cohort.as_of, end=window_end)
+                if window_end is not None
+                else {}
             )
             results.append(
                 evaluate_cohort(

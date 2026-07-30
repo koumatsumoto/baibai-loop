@@ -82,7 +82,7 @@ def cohort_from_payload(payload: Mapping[str, object]) -> ShortlistCohort | None
                 decision=str(entry.get("decision", "")),
                 ploss=_optional_str(narrative.get("ploss")),
                 catalyst_date=_optional_date(narrative.get("catalyst_date")),
-                er_annual=None,
+                er_annual=_optional_float(entry.get("er_annual")),
             )
         )
     if not judgments:
@@ -98,12 +98,12 @@ def cohort_from_payload(payload: Mapping[str, object]) -> ShortlistCohort | None
 def with_machine_estimates(
     cohort: ShortlistCohort, er_by_ticker: Mapping[str, float]
 ) -> ShortlistCohort:
-    """Attach the machine E[r] the judgments were made against.
+    """Fill in the machine E[r] for judgments published before it was burned in.
 
-    The estimate lives in the run the shortlist bound, and the run store keeps only
-    the newest generations. A cohort whose run has been pruned keeps ``None`` and the
-    machine comparison for it reports as unresolved rather than being computed from a
-    different run's numbers.
+    A shortlist published now carries the estimate it was judged against. An older one
+    does not, and the run it bound is usually gone by the time the horizon matures, so
+    this fallback only helps while that run survives. An estimate already on the
+    judgment always wins: it is what the judgment saw.
     """
 
     return ShortlistCohort(
@@ -116,7 +116,9 @@ def with_machine_estimates(
                 decision=item.decision,
                 ploss=item.ploss,
                 catalyst_date=item.catalyst_date,
-                er_annual=er_by_ticker.get(item.ticker, item.er_annual),
+                er_annual=item.er_annual
+                if item.er_annual is not None
+                else er_by_ticker.get(item.ticker),
             )
             for item in cohort.judgments
         ),
@@ -126,15 +128,77 @@ def with_machine_estimates(
 def _cohort_summary(
     tickers: Sequence[str], returns: Mapping[str, float], benchmark: float
 ) -> dict[str, object]:
+    """Summarise one cohort, keeping "no names" distinct from "no prices".
+
+    ``n`` is always the cohort's size. Collapsing it to zero when nothing resolved
+    would report a cohort of eight unpriced names the same as an empty one, which is
+    the coverage gap the honesty discipline requires to be counted rather than hidden.
+    """
+
     resolved = [returns[ticker] for ticker in tickers if ticker in returns]
-    if not resolved:
-        return {"n": 0, "resolved": 0, "median_return_pct": None, "median_excess_pct": None}
     return {
         "n": len(tickers),
         "resolved": len(resolved),
-        "median_return_pct": round(median(resolved) * 100, 1),
-        "median_excess_pct": round((median(resolved) - benchmark) * 100, 1),
+        "unresolved": len(tickers) - len(resolved),
+        "median_return_pct": round(median(resolved) * 100, 1) if resolved else None,
+        "median_excess_pct": (round((median(resolved) - benchmark) * 100, 1) if resolved else None),
     }
+
+
+def _machine_basis(cohort: ShortlistCohort, ranked: Sequence[str]) -> str:
+    """Say why the machine cohort is what it is, without guessing a cause.
+
+    An empty cohort has several possible causes and they send a reader somewhere
+    different: a cycle that selected nothing is a normal outcome, while a judgment
+    whose estimates are gone is a measurement gap.
+    """
+
+    if not cohort.selected:
+        return "no_selection"
+    if not ranked:
+        return "estimate_missing"
+    return "judgment_estimate"
+
+
+def _unresolved_reasons(
+    rows: Sequence[ForwardReturnRow], tickers: Sequence[str]
+) -> dict[str, object]:
+    """Count why observations are missing, split the way the calibration gate splits them.
+
+    A name that leaves the market inside the window — a buyout, a delisting — drops out
+    of both the cohort and the benchmark without saying so, and a premium buyout is a
+    good outcome that happens to selected names. Counting the classes keeps that
+    exclusion visible instead of quietly pulling the selected cohort down.
+    """
+
+    wanted = set(tickers)
+    unresolved = [row for row in rows if row.ticker in wanted and not row.resolved]
+    counts: dict[str, int] = {}
+    for row in unresolved:
+        counts[row.status] = counts.get(row.status, 0) + 1
+    observed = {row.ticker for row in rows if row.ticker in wanted}
+    return {
+        "unresolved_count": len(unresolved),
+        "unresolved_reason_counts": counts,
+        # A name the store never answered for at all is a different gap from one it
+        # answered "no price" for.
+        "not_observed_count": len(wanted - observed),
+        "unpriced_exit_count": sum(
+            1
+            for row in unresolved
+            if row.status in {"unresolved_missing_exit", "unresolved_stale_exit"}
+        ),
+        "adjustment_factor_coverage": _adjustment_coverage(
+            [row for row in rows if row.ticker in wanted]
+        ),
+    }
+
+
+def _adjustment_coverage(rows: Sequence[ForwardReturnRow]) -> str:
+    values = {str(row.adjustment_factor_coverage) for row in rows}
+    if not values or "unknown" in values:
+        return "unknown"
+    return "complete" if values == {"complete"} else "incomplete"
 
 
 def evaluate_cohort(
@@ -160,6 +224,16 @@ def evaluate_cohort(
     }
     pool = [item.ticker for item in cohort.judgments]
     pool_resolved = [resolved[ticker] for ticker in pool if ticker in resolved]
+    horizon_rows = [row for row in forward_rows if row.horizon == horizon]
+    coverage = _unresolved_reasons(horizon_rows, pool)
+    machine_ranked = [
+        item.ticker
+        for item in sorted(
+            (item for item in cohort.judgments if item.er_annual is not None),
+            key=lambda item: (-(item.er_annual or 0.0), item.ticker),
+        )
+    ]
+    machine_basis = _machine_basis(cohort, machine_ranked)
     drawdown_block: dict[str, object] = {}
     if drawdowns:
         drawdown_block = {
@@ -176,18 +250,13 @@ def evaluate_cohort(
             "status": "unresolved",
             "pool_size": len(pool),
             "resolved": 0,
+            "machine_basis": machine_basis,
+            **coverage,
             **drawdown_block,
         }
     benchmark = median(pool_resolved)
     selected = [item.ticker for item in cohort.selected]
-    machine_ranked = [
-        item.ticker
-        for item in sorted(
-            (item for item in cohort.judgments if item.er_annual is not None),
-            key=lambda item: (-(item.er_annual or 0.0), item.ticker),
-        )
-    ]
-    machine = machine_ranked[: len(selected)] if machine_ranked else []
+    machine = machine_ranked[: len(selected)]
     payload: dict[str, object] = {
         "shortlist_id": cohort.shortlist_id,
         "as_of": cohort.as_of.isoformat(),
@@ -199,12 +268,12 @@ def evaluate_cohort(
         "rejected": _cohort_summary([item.ticker for item in cohort.rejected], resolved, benchmark),
         # The machine cohort takes the same number of names the judgment took, so the
         # two are answering the same question at the same size.
-        "machine_top_n": (
-            _cohort_summary(machine, resolved, benchmark)
-            if machine
-            else {"n": 0, "resolved": 0, "median_return_pct": None, "median_excess_pct": None}
-        ),
-        "machine_basis": "run_estimate" if machine else "unresolved_pruned_run",
+        "machine_top_n": _cohort_summary(machine, resolved, benchmark),
+        "machine_basis": machine_basis,
+        # The counterfactual only answers the same question when it takes the same
+        # number of names; a short one is a different comparison, not a smaller one.
+        "machine_matches_selected_size": len(machine) == len(selected),
+        **coverage,
     }
     payload.update(drawdown_block)
     return payload
@@ -235,6 +304,12 @@ def _ploss_summary(
         }
         for name in ordered
     ]
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def _optional_str(value: object) -> str | None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -22,6 +22,20 @@ from .shortlist import (
 )
 
 _DISPOSITION_LABELS: Mapping[str, str] = {"rejected": "見送り"}
+
+
+def _machine_estimates(candidates: Sequence[Mapping[str, object]]) -> dict[str, float]:
+    """Index the run's machine E[r] by ticker so publish can burn it into the judgment."""
+
+    estimates: dict[str, float] = {}
+    for candidate in candidates:
+        metrics = candidate.get("metrics")
+        value = metrics.get("er_annual") if isinstance(metrics, Mapping) else None
+        ticker = candidate.get("ticker")
+        if ticker is None or not isinstance(value, int | float) or isinstance(value, bool):
+            continue
+        estimates[str(ticker)] = float(value)
+    return estimates
 
 
 def publish_shortlist(
@@ -49,6 +63,7 @@ def publish_shortlist(
             profile=selection.profile,
             macro_context_id=selection.macro_context_id,
             candidate_tickers=frozenset(str(item["ticker"]) for item in run.candidates),
+            candidate_er=_machine_estimates(run.candidates),
         )
         next_earnings_by_ticker = {
             str(item["ticker"]): item.get("next_earnings_date") for item in run.candidates

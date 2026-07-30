@@ -107,22 +107,77 @@ def test_machine_cohort_takes_the_same_number_of_names_the_judgment_took() -> No
 
     result = evaluate_cohort(cohort, rows, horizon="3m")
 
-    assert result["machine_basis"] == "run_estimate"
+    assert result["machine_basis"] == "judgment_estimate"
     assert result["machine_top_n"]["n"] == 1
     assert result["machine_top_n"]["median_return_pct"] == -10.0
     assert result["selected"]["median_return_pct"] == 20.0
 
 
-def test_machine_cohort_is_unresolved_when_the_bound_run_is_gone() -> None:
-    # An older shortlist's run is pruned, and filling the estimate from a different
-    # run would compare the judgment against numbers it never saw.
-    cohort = cohort_from_payload(_payload([_entry("1111", "selected"), _entry("2222", "rejected")]))
+def test_machine_basis_separates_a_missing_estimate_from_a_cycle_that_selected_nothing() -> None:
+    # A cycle that selected nothing is a normal outcome; a judgment whose estimates
+    # are gone is a measurement gap. Reporting both as one cause sends the reader to
+    # the wrong place.
+    no_estimate = cohort_from_payload(
+        _payload([_entry("1111", "selected"), _entry("2222", "rejected")])
+    )
+    no_selection = cohort_from_payload(_payload([_entry("2222", "rejected")]))
+    assert no_estimate is not None
+    assert no_selection is not None
+    rows = [_forward("1111", 0.1), _forward("2222", 0.0)]
+
+    assert evaluate_cohort(no_estimate, rows, horizon="3m")["machine_basis"] == "estimate_missing"
+    assert evaluate_cohort(no_selection, rows, horizon="3m")["machine_basis"] == "no_selection"
+
+
+def test_a_cohort_with_names_but_no_prices_keeps_its_size_and_counts_the_gap() -> None:
+    # Collapsing n to zero would report eight unpriced names the same as an empty
+    # cohort, which is the coverage gap that has to be counted rather than hidden.
+    cohort = cohort_from_payload(
+        _payload(
+            [_entry("1111", "selected"), _entry("2222", "rejected"), _entry("3333", "rejected")]
+        )
+    )
     assert cohort is not None
 
-    result = evaluate_cohort(cohort, [_forward("1111", 0.1), _forward("2222", 0.0)], horizon="3m")
+    result = evaluate_cohort(
+        cohort,
+        [_forward("1111", None), _forward("2222", 0.0), _forward("3333", 0.1)],
+        horizon="3m",
+    )
 
-    assert result["machine_basis"] == "unresolved_pruned_run"
-    assert result["machine_top_n"]["n"] == 0
+    assert result["selected"] == {
+        "n": 1,
+        "resolved": 0,
+        "unresolved": 1,
+        "median_return_pct": None,
+        "median_excess_pct": None,
+    }
+    assert result["unresolved_count"] == 1
+    assert result["unresolved_reason_counts"] == {"unresolved_future_horizon": 1}
+
+
+def test_a_name_that_left_the_market_is_counted_rather_than_dropped_silently() -> None:
+    # A premium buyout is a good outcome that happens to selected names; letting it
+    # vanish from both the cohort and the benchmark pulls the judgment down unseen.
+    cohort = cohort_from_payload(_payload([_entry("1111", "selected"), _entry("2222", "rejected")]))
+    assert cohort is not None
+    exited = ForwardReturnRow(
+        asof=AS_OF.isoformat(),
+        ticker="1111",
+        horizon="3m",
+        target_date="2026-04-30",
+        resolved=False,
+        price_return=None,
+        stale_price=True,
+        entry_date=AS_OF.isoformat(),
+        exit_date="2026-02-27",
+        status="unresolved_stale_exit",
+    )
+
+    result = evaluate_cohort(cohort, [exited, _forward("2222", 0.0)], horizon="3m")
+
+    assert result["unpriced_exit_count"] == 1
+    assert result["selected"]["unresolved"] == 1
 
 
 def test_a_horizon_that_has_not_matured_reports_unresolved_rather_than_zero() -> None:
@@ -133,6 +188,8 @@ def test_a_horizon_that_has_not_matured_reports_unresolved_rather_than_zero() ->
 
     assert result["status"] == "unresolved"
     assert result["pool_size"] == 2
+    # The coverage counts are reported on the unresolved branch too.
+    assert result["unresolved_count"] == 2
 
 
 def test_drawdown_is_reported_before_the_return_matures() -> None:

@@ -430,9 +430,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return shortlist_outcome_command(
             db_path=Path(args.db) if args.db else database_path(),
-            runs_db_path=(
-                Path(args.runs_db) if args.runs_db else DEFAULT_SQLITE_CACHE_DIR / "runs.sqlite"
-            ),
+            runs_db_path=Path(args.runs_db) if args.runs_db else None,
             sqlite_path=Path(args.sqlite_path),
             horizons=args.horizons,
             output_path=Path(args.out) if args.out else None,

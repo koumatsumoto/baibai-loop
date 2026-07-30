@@ -41,6 +41,7 @@ from .macro import (
 from .market import (
     close_change_since,
     latest_disclosure_dates_after,
+    latest_market_bar_date,
     latest_unadjusted_closes,
     market_calendar_business_day,
     next_earnings_dates,
@@ -91,6 +92,7 @@ __all__ = [
     "close_change_since",
     "latest_disclosure_dates_after",
     "latest_macro_context_payload",
+    "latest_market_bar_date",
     "latest_shortlist_payload",
     "latest_unadjusted_closes",
     "list_bargain_assessment_payloads",
