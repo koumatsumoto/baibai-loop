@@ -362,10 +362,11 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
         if not _date_imported(conn, "edinet_documents", on_date):
             return None
         rows = conn.execute(
-            "SELECT doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, "
-            "disclosure_status, withdrawal_status, submit_datetime, doc_description, "
+            "SELECT sequence_number, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, "
+            "legal_status, disclosure_status, withdrawal_status, doc_info_edit_status, "
+            "parent_doc_id, operation_datetime, submit_datetime, doc_description, "
             "period_start, period_end "
-            "FROM edinet_documents WHERE doc_date = ? ORDER BY doc_id",
+            "FROM edinet_documents WHERE doc_date = ? ORDER BY sequence_number",
             (on_date.isoformat(),),
         ).fetchall()
     except sqlite3.OperationalError:
@@ -374,6 +375,8 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
         conn.close()
     return [
         {
+            "doc_date": on_date.isoformat(),
+            "seqNumber": sequence_number,
             "docID": doc_id,
             "secCode": sec_code,
             "docTypeCode": doc_type_code,
@@ -382,12 +385,16 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             "legalStatus": legal_status,
             "disclosureStatus": disclosure_status,
             "withdrawalStatus": withdrawal_status,
+            "docInfoEditStatus": doc_info_edit_status,
+            "parentDocID": parent_doc_id,
+            "opeDateTime": operation_datetime,
             "submitDateTime": submit_datetime,
             "docDescription": doc_description,
             "periodStart": period_start,
             "periodEnd": period_end,
         }
         for (
+            sequence_number,
             doc_id,
             sec_code,
             doc_type_code,
@@ -396,12 +403,35 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             legal_status,
             disclosure_status,
             withdrawal_status,
+            doc_info_edit_status,
+            parent_doc_id,
+            operation_datetime,
             submit_datetime,
             doc_description,
             period_start,
             period_end,
         ) in rows
     ]
+
+
+def read_unfinalized_edinet_document_dates(sqlite_path: Path, *, before: date) -> tuple[date, ...]:
+    """Return fetched EDINET file dates that still require a final refresh."""
+    if not sqlite_path.exists():
+        return ()
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return ()
+    try:
+        rows = conn.execute(
+            "SELECT doc_date FROM edinet_document_lists "
+            "WHERE is_final = 0 AND doc_date < ? ORDER BY doc_date",
+            (before.isoformat(),),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return ()
+    finally:
+        conn.close()
+    return tuple(date.fromisoformat(str(row[0])) for row in rows)
 
 
 def read_edinet_metrics(

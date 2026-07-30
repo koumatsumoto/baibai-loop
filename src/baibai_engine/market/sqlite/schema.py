@@ -44,6 +44,7 @@ _REQUIRED_TABLES = (
     "jquants_earnings_calendar",
     "jquants_market_calendar",
     "edinet_documents",
+    "edinet_document_lists",
     "edinet_metrics",
     "jpx_regulation_flags",
     "jpx_regulation_sources",
@@ -104,6 +105,7 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
     "jquants_market_calendar": ("day", "is_business_day"),
     "edinet_documents": (
         "doc_date",
+        "sequence_number",
         "doc_id",
         "sec_code",
         "doc_type_code",
@@ -112,10 +114,20 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "legal_status",
         "disclosure_status",
         "withdrawal_status",
+        "doc_info_edit_status",
+        "parent_doc_id",
+        "operation_datetime",
         "submit_datetime",
         "doc_description",
         "period_start",
         "period_end",
+    ),
+    "edinet_document_lists": (
+        "doc_date",
+        "process_datetime",
+        "result_count",
+        "fetched_at_utc",
+        "is_final",
     ),
     "edinet_metrics": (
         "asof_date",
@@ -247,6 +259,7 @@ CREATE TABLE IF NOT EXISTS jquants_market_calendar(
 
 CREATE TABLE IF NOT EXISTS edinet_documents(
   doc_date TEXT NOT NULL,
+  sequence_number INTEGER NOT NULL,
   doc_id TEXT NOT NULL,
   sec_code TEXT,
   doc_type_code TEXT,
@@ -255,11 +268,22 @@ CREATE TABLE IF NOT EXISTS edinet_documents(
   legal_status TEXT,
   disclosure_status TEXT,
   withdrawal_status TEXT,
+  doc_info_edit_status TEXT,
+  parent_doc_id TEXT,
+  operation_datetime TEXT,
   submit_datetime TEXT,
   doc_description TEXT,
   period_start TEXT,
   period_end TEXT,
-  PRIMARY KEY (doc_date, doc_id)
+  PRIMARY KEY (doc_date, sequence_number)
+);
+
+CREATE TABLE IF NOT EXISTS edinet_document_lists(
+  doc_date TEXT PRIMARY KEY,
+  process_datetime TEXT,
+  result_count INTEGER NOT NULL,
+  fetched_at_utc TEXT NOT NULL,
+  is_final INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS edinet_metrics(

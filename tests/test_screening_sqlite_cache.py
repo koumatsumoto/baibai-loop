@@ -353,11 +353,21 @@ class SQLiteCacheTest(unittest.TestCase):
                     db,
                     date(2026, 5, 8),
                     [
-                        {"docID": "S100TEST", "secCode": "72030", "docTypeCode": "120"},
-                        {"docID": "S100TEST", "secCode": "72030", "docTypeCode": "120"},
+                        {
+                            "seqNumber": 1,
+                            "docID": "S100TEST",
+                            "secCode": "72030",
+                            "docTypeCode": "120",
+                        },
+                        {
+                            "seqNumber": 2,
+                            "docID": "S100TEST",
+                            "secCode": "72030",
+                            "docTypeCode": "120",
+                        },
                     ],
                 ),
-                1,
+                2,
             )
             self.assertEqual(
                 store_edinet_metrics(
@@ -400,11 +410,58 @@ class SQLiteCacheTest(unittest.TestCase):
                     "jquants_master_snapshots": 2500,
                     "jpx_earnings_calendar": 1,
                     "jquants_market_calendar": 1,
-                    "edinet_documents": 1,
+                    "edinet_documents": 2,
                     "edinet_metrics": 1,
                     "jpx_regulation_flags": 1,
                 },
             )
+
+    def test_edinet_document_store_rejects_missing_or_duplicate_sequence_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            stored = {
+                "seqNumber": 1,
+                "docID": "S100KEPT",
+                "secCode": "72030",
+                "docTypeCode": "120",
+            }
+            store_edinet_documents(db, date(2026, 5, 8), [stored])
+
+            with self.assertRaisesRegex(ValueError, "missing seqNumber"):
+                store_edinet_documents(
+                    db,
+                    date(2026, 5, 8),
+                    [{"docID": "S100MISSING"}],
+                )
+            with self.assertRaisesRegex(ValueError, "duplicate EDINET seqNumber"):
+                store_edinet_documents(
+                    db,
+                    date(2026, 5, 8),
+                    [
+                        {"seqNumber": 2, "docID": "S100A"},
+                        {"seqNumber": 2, "docID": "S100B"},
+                    ],
+                )
+            for invalid_sequence in (True, 1.0, 1.5, " 1"):
+                with (
+                    self.subTest(invalid_sequence=invalid_sequence),
+                    self.assertRaisesRegex(ValueError, "invalid EDINET seqNumber"),
+                ):
+                    store_edinet_documents(
+                        db,
+                        date(2026, 5, 8),
+                        [{"seqNumber": invalid_sequence, "docID": "S100INVALID"}],
+                    )
+
+            conn = sqlite3.connect(db)
+            try:
+                rows = conn.execute(
+                    "SELECT sequence_number, doc_id FROM edinet_documents "
+                    "WHERE doc_date = '2026-05-08'"
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(rows, [(1, "S100KEPT")])
 
     def test_direct_stores_do_not_persist_raw_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -432,6 +489,7 @@ class SQLiteCacheTest(unittest.TestCase):
                 date(2026, 5, 8),
                 [
                     {
+                        "seqNumber": 1,
                         "docID": "S100TEST",
                         "secCode": "72030",
                         "docTypeCode": "120",

@@ -67,6 +67,17 @@ check_sqlite() {
     uv run python "${repo_root}/tools/cloud/sqlite_snapshot.py" check --path "$1"
 }
 
+check_sqlite_schema() {
+  UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+    uv run python "${repo_root}/tools/cloud/sqlite_snapshot.py" check \
+      --path "$1" --schema-version "$2"
+}
+
+sqlite_schema_version() {
+  UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+    uv run python "${repo_root}/tools/cloud/sqlite_snapshot.py" version --path "$1"
+}
+
 snapshot_sqlite() {
   UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
     uv run python "${repo_root}/tools/cloud/sqlite_snapshot.py" create \
@@ -150,6 +161,65 @@ seed_keys() {
   push_keys "$@"
 }
 
+preserve_market_v13() {
+  # v14 rebuilds EDINET document rows and cannot reconstruct the discarded shape.
+  # This fixed key is write-once: later runs verify it instead of replacing it.
+  local source backup_key version uploaded_snapshot verified_snapshot
+  source="$(store_path market.sqlite)"
+  backup_key="schema-migrations/market-v13.sqlite"
+  version="$(sqlite_schema_version "${source}")"
+  if [[ ! "${version}" =~ ^[0-9]+$ ]] || (( version < 13 )); then
+    printf 'market schema preflight expected v13 or newer, got v%s\n' "${version}" >&2
+    return 2
+  fi
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  uploaded_snapshot="${transfer_staging}/market-v13-upload.sqlite"
+  verified_snapshot="${transfer_staging}/market-v13-verify.sqlite"
+  if ! remote_object_exists "${backup_key}"; then
+    if [[ "${version}" != "13" ]]; then
+      printf 'required immutable rollback object is missing: s3://%s/%s\n' \
+        "${stores_bucket}" "${backup_key}" >&2
+      return 2
+    fi
+    snapshot_sqlite "${source}" "${uploaded_snapshot}"
+    aws_s3 cp "${uploaded_snapshot}" "s3://${stores_bucket}/${backup_key}"
+  fi
+  aws_s3 cp "s3://${stores_bucket}/${backup_key}" "${verified_snapshot}"
+  if [[ ! -s "${verified_snapshot}" ]]; then
+    printf 'rollback object is empty: s3://%s/%s\n' "${stores_bucket}" "${backup_key}" >&2
+    return 2
+  fi
+  check_sqlite_schema "${verified_snapshot}" 13
+  if [[ -f "${uploaded_snapshot}" ]] && ! cmp -s "${uploaded_snapshot}" "${verified_snapshot}"; then
+    printf 'rollback object differs from the uploaded snapshot: s3://%s/%s\n' \
+      "${stores_bucket}" "${backup_key}" >&2
+    return 2
+  fi
+  cleanup_staging
+  transfer_staging=""
+}
+
+download_market_v13_rollback() {
+  local output="$1"
+  local backup_key="schema-migrations/market-v13.sqlite"
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  local verified_snapshot="${transfer_staging}/market-v13.sqlite"
+  aws_s3 cp "s3://${stores_bucket}/${backup_key}" "${verified_snapshot}"
+  if [[ ! -s "${verified_snapshot}" ]]; then
+    printf 'rollback object is empty: s3://%s/%s\n' "${stores_bucket}" "${backup_key}" >&2
+    return 2
+  fi
+  check_sqlite_schema "${verified_snapshot}" 13
+  mkdir -p "$(dirname "${output}")"
+  if [[ -e "${output}" ]]; then
+    printf 'refusing rollback download overwrite: %s\n' "${output}" >&2
+    return 2
+  fi
+  mv "${verified_snapshot}" "${output}"
+  cleanup_staging
+  transfer_staging=""
+}
+
 upload_serving() {
   local output_dir="$1"
   if [[ ! -f "${output_dir}/views/meta.json" ]]; then
@@ -180,7 +250,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|seed-all|push-machine|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -190,6 +260,13 @@ case "${1:-}" in
     ;;
   pull-machine)
     pull_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  preserve-market-v13)
+    preserve_market_v13
+    ;;
+  download-market-v13-rollback)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    download_market_v13_rollback "$2"
     ;;
   seed-all)
     seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite

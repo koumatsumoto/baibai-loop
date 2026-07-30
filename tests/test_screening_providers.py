@@ -10,6 +10,7 @@ from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
 import requests
@@ -43,7 +44,11 @@ from baibai_engine.screening.providers.jquants import (
     parse_jquants_code,
 )
 from baibai_engine.screening.schema import TTMQuality
-from baibai_engine.screening.sqlite_cache import store_edinet_metrics, store_jpx_regulations
+from baibai_engine.screening.sqlite_cache import (
+    store_edinet_documents,
+    store_edinet_metrics,
+    store_jpx_regulations,
+)
 
 
 class _FixedHtmlSession:
@@ -114,9 +119,44 @@ class _TransientThenJsonSession:
 
             @staticmethod
             def json() -> dict[str, object]:
-                return {"results": []}
+                return {
+                    "metadata": {
+                        "resultset": {"count": 0},
+                        "processDateTime": "2026-07-10 12:00",
+                    },
+                    "results": [],
+                }
 
         return _Response()
+
+
+class _DateJsonSession:
+    def __init__(
+        self,
+        payloads: dict[str, dict[str, object]],
+        *,
+        failing_dates: set[str] | None = None,
+    ) -> None:
+        self._payloads = payloads
+        self._failing_dates = failing_dates or set()
+        self.calls: list[str] = []
+
+    def get(self, url: str, timeout: int):
+        del timeout
+        requested_date = parse_qs(urlsplit(url).query)["date"][0]
+        self.calls.append(requested_date)
+
+        class _Response:
+            def __init__(self, status_code: int, payload: dict[str, object]) -> None:
+                self.status_code = status_code
+                self._payload = payload
+
+            def json(self) -> dict[str, object]:
+                return self._payload
+
+        if requested_date in self._failing_dates:
+            return _Response(400, {})
+        return _Response(200, self._payloads[requested_date])
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
@@ -370,6 +410,190 @@ class ScreeningProviderTests(unittest.TestCase):
             self.assertEqual(session.calls, 2)
             sleep.assert_called_once_with(3)
 
+    def test_refresh_document_state_fetches_target_then_all_unresolved_dates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            unresolved_dates = (
+                date(2026, 7, 4),
+                date(2026, 7, 7),
+                date(2026, 7, 8),
+            )
+            for index, unresolved in enumerate(unresolved_dates, start=1):
+                store_edinet_documents(
+                    sqlite_path,
+                    unresolved,
+                    [{"seqNumber": index, "docID": f"S100OLD{index}"}],
+                    is_final=False,
+                )
+            target = date(2026, 7, 10)
+            payloads = {
+                value.isoformat(): {
+                    "metadata": {
+                        "resultset": {"count": 0},
+                        "processDateTime": f"{value.isoformat()} 23:00",
+                    },
+                    "results": [],
+                }
+                for value in (*unresolved_dates, target)
+            }
+            session = _DateJsonSession(payloads)
+            provider = EDINETProvider(
+                "key",
+                Path(tmp),
+                session=session,
+                sqlite_path=sqlite_path,
+            )
+
+            self.assertEqual(provider.refresh_document_state(target), {"documents": 0})
+            self.assertEqual(
+                session.calls,
+                [target.isoformat(), *(value.isoformat() for value in unresolved_dates)],
+            )
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                finality = dict(
+                    conn.execute(
+                        "SELECT doc_date, is_final FROM edinet_document_lists ORDER BY doc_date"
+                    ).fetchall()
+                )
+            finally:
+                conn.close()
+            self.assertEqual(finality[target.isoformat()], 0)
+            self.assertTrue(all(finality[value.isoformat()] == 1 for value in unresolved_dates))
+
+    def test_refresh_document_state_target_failure_does_not_finalize_prior_dates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            prior = date(2026, 7, 8)
+            target = date(2026, 7, 10)
+            store_edinet_documents(
+                sqlite_path,
+                prior,
+                [{"seqNumber": 1, "docID": "S100PRIOR"}],
+                is_final=False,
+            )
+            session = _DateJsonSession({}, failing_dates={target.isoformat()})
+            provider = EDINETProvider(
+                "key",
+                Path(tmp),
+                session=session,
+                sqlite_path=sqlite_path,
+            )
+
+            with self.assertRaisesRegex(EDINETProviderError, "status 400"):
+                provider.refresh_document_state(target)
+            self.assertEqual(session.calls, [target.isoformat()])
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                finality = conn.execute(
+                    "SELECT is_final FROM edinet_document_lists WHERE doc_date = ?",
+                    (prior.isoformat(),),
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertEqual(finality, (0,))
+
+    def test_refresh_document_state_count_mismatch_preserves_target_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            target = date(2026, 7, 10)
+            store_edinet_documents(
+                sqlite_path,
+                target,
+                [{"seqNumber": 1, "docID": "S100KEPT"}],
+                is_final=False,
+            )
+            session = _DateJsonSession(
+                {
+                    target.isoformat(): {
+                        "metadata": {
+                            "resultset": {"count": 1},
+                            "processDateTime": "2026-07-10 23:00",
+                        },
+                        "results": [],
+                    }
+                }
+            )
+            provider = EDINETProvider(
+                "key",
+                Path(tmp),
+                session=session,
+                sqlite_path=sqlite_path,
+            )
+
+            with self.assertRaisesRegex(EDINETProviderError, "count mismatch"):
+                provider.refresh_document_state(target)
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                rows = conn.execute(
+                    "SELECT doc_id FROM edinet_documents WHERE doc_date = ?",
+                    (target.isoformat(),),
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(rows, [("S100KEPT",)])
+
+    def test_refresh_document_state_retry_only_keeps_unfinished_prior_dates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            completed = date(2026, 7, 7)
+            unfinished = date(2026, 7, 8)
+            target = date(2026, 7, 10)
+            for index, unresolved in enumerate((completed, unfinished), start=1):
+                store_edinet_documents(
+                    sqlite_path,
+                    unresolved,
+                    [{"seqNumber": index, "docID": f"S100PENDING{index}"}],
+                    is_final=False,
+                )
+
+            def empty_payload(value: date) -> dict[str, object]:
+                return {
+                    "metadata": {
+                        "resultset": {"count": 0},
+                        "processDateTime": f"{value.isoformat()} 23:00",
+                    },
+                    "results": [],
+                }
+
+            first_session = _DateJsonSession(
+                {
+                    target.isoformat(): empty_payload(target),
+                    completed.isoformat(): empty_payload(completed),
+                },
+                failing_dates={unfinished.isoformat()},
+            )
+            provider = EDINETProvider(
+                "key",
+                Path(tmp),
+                session=first_session,
+                sqlite_path=sqlite_path,
+            )
+            with self.assertRaisesRegex(EDINETProviderError, "status 400"):
+                provider.refresh_document_state(target)
+            self.assertEqual(
+                first_session.calls,
+                [target.isoformat(), completed.isoformat(), unfinished.isoformat()],
+            )
+
+            retry_session = _DateJsonSession(
+                {
+                    target.isoformat(): empty_payload(target),
+                    unfinished.isoformat(): empty_payload(unfinished),
+                }
+            )
+            retry_provider = EDINETProvider(
+                "key",
+                Path(tmp),
+                session=retry_session,
+                sqlite_path=sqlite_path,
+            )
+            retry_provider.refresh_document_state(target)
+            self.assertEqual(
+                retry_session.calls,
+                [target.isoformat(), unfinished.isoformat()],
+            )
+
     def test_download_csv_zip_final_connection_error_is_redacted_without_final_sleep(
         self,
     ) -> None:
@@ -452,6 +676,185 @@ class ScreeningProviderTests(unittest.TestCase):
         )
 
         self.assertEqual(selected["7203"].doc_id, "S100NEW")
+
+    def test_select_document_candidates_folds_disclosure_and_release_events(self) -> None:
+        origin = {
+            "doc_date": "2026-04-01",
+            "seqNumber": 1,
+            "docID": "S100TEST",
+            "secCode": "72030",
+            "docTypeCode": "120",
+            "csvFlag": "1",
+            "xbrlFlag": "1",
+            "legalStatus": "2",
+            "withdrawalStatus": "0",
+            "docInfoEditStatus": "0",
+            "disclosureStatus": "0",
+            "submitDateTime": "2026-04-01 10:00",
+        }
+        hidden = {
+            **origin,
+            "doc_date": "2026-04-02",
+            "opeDateTime": "2026-04-02 12:00",
+            "disclosureStatus": "1",
+        }
+        released = {
+            **origin,
+            "doc_date": "2026-04-03",
+            "opeDateTime": "2026-04-03 12:00",
+            "disclosureStatus": "3",
+        }
+
+        self.assertEqual(select_document_candidates([origin, hidden]), {})
+        selected = select_document_candidates([released, hidden, origin])
+        self.assertEqual(selected["7203"].doc_id, "S100TEST")
+
+    def test_select_document_candidates_tombstones_withdrawn_parent_and_child(self) -> None:
+        parent = {
+            "doc_date": "2026-04-01",
+            "seqNumber": 1,
+            "docID": "S100PARENT",
+            "secCode": "72030",
+            "docTypeCode": "120",
+            "csvFlag": "1",
+            "xbrlFlag": "1",
+            "legalStatus": "1",
+            "withdrawalStatus": "0",
+            "docInfoEditStatus": "0",
+            "disclosureStatus": "0",
+        }
+        child = {
+            **parent,
+            "seqNumber": 2,
+            "docID": "S100CHILD",
+            "docTypeCode": "130",
+            "parentDocID": "S100PARENT",
+        }
+        withdrawal = {
+            "doc_date": "2026-04-02",
+            "seqNumber": 1,
+            "docID": "S100WITHDRAW",
+            "parentDocID": "S100PARENT",
+            "withdrawalStatus": "1",
+            "docInfoEditStatus": "0",
+            "disclosureStatus": "0",
+            "legalStatus": "0",
+        }
+
+        self.assertEqual(select_document_candidates([child, withdrawal, parent]), {})
+
+    def test_select_document_candidates_rejects_event_without_origin(self) -> None:
+        with self.assertRaisesRegex(EDINETProviderError, "event target is missing"):
+            select_document_candidates(
+                [
+                    {
+                        "doc_date": "2026-04-02",
+                        "seqNumber": 1,
+                        "docID": "S100MISSING",
+                        "docInfoEditStatus": "1",
+                        "withdrawalStatus": "0",
+                        "disclosureStatus": "0",
+                        "opeDateTime": "2026-04-02 12:00",
+                    }
+                ]
+            )
+
+    def test_select_document_candidates_rejects_origin_outside_lookback(self) -> None:
+        origin = {
+            "doc_date": "2024-01-01",
+            "seqNumber": 1,
+            "docID": "S100OLD",
+            "secCode": "72030",
+            "docTypeCode": "120",
+            "csvFlag": "1",
+            "xbrlFlag": "1",
+            "legalStatus": "1",
+            "withdrawalStatus": "0",
+            "docInfoEditStatus": "0",
+            "disclosureStatus": "0",
+        }
+        event = {
+            **origin,
+            "doc_date": "2026-04-02",
+            "docInfoEditStatus": "1",
+            "opeDateTime": "2026-04-02 12:00",
+        }
+
+        with self.assertRaisesRegex(EDINETProviderError, "event target is missing"):
+            select_document_candidates(
+                [origin, event],
+                origin_start=date(2025, 1, 1),
+            )
+
+    def test_select_document_candidates_rejects_parent_cycle_without_withdrawal(self) -> None:
+        base = {
+            "doc_date": "2026-04-01",
+            "secCode": "72030",
+            "docTypeCode": "120",
+            "csvFlag": "1",
+            "xbrlFlag": "1",
+            "legalStatus": "1",
+            "withdrawalStatus": "0",
+            "docInfoEditStatus": "0",
+            "disclosureStatus": "0",
+        }
+        with self.assertRaisesRegex(EDINETProviderError, "parent relation cycle"):
+            select_document_candidates(
+                [
+                    {**base, "seqNumber": 1, "docID": "S100A", "parentDocID": "S100B"},
+                    {**base, "seqNumber": 2, "docID": "S100B", "parentDocID": "S100A"},
+                ]
+            )
+
+    def test_select_document_candidates_rejects_event_after_withdrawal(self) -> None:
+        origin = {
+            "doc_date": "2026-04-01",
+            "seqNumber": 1,
+            "docID": "S100ORIGIN",
+            "secCode": "72030",
+            "docTypeCode": "120",
+            "csvFlag": "1",
+            "xbrlFlag": "1",
+            "legalStatus": "1",
+            "withdrawalStatus": "0",
+            "docInfoEditStatus": "0",
+            "disclosureStatus": "0",
+        }
+        withdrawal = {
+            "doc_date": "2026-04-02",
+            "seqNumber": 1,
+            "docID": "S100WITHDRAW",
+            "parentDocID": "S100ORIGIN",
+            "withdrawalStatus": "1",
+            "docInfoEditStatus": "0",
+            "disclosureStatus": "0",
+            "legalStatus": "0",
+            "opeDateTime": "2026-04-02 10:00",
+        }
+        later_edit = {
+            **origin,
+            "doc_date": "2026-04-03",
+            "docInfoEditStatus": "1",
+            "opeDateTime": "2026-04-03 10:00",
+        }
+
+        with self.assertRaisesRegex(EDINETProviderError, "event follows withdrawal"):
+            select_document_candidates([later_edit, origin, withdrawal])
+
+    def test_select_document_candidates_rejects_unknown_status(self) -> None:
+        with self.assertRaisesRegex(EDINETProviderError, "unknown EDINET legal status"):
+            select_document_candidates(
+                [
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "72030",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "9",
+                    }
+                ]
+            )
 
     def test_select_document_candidates_prefers_same_period_annual_correction_from_description(
         self,

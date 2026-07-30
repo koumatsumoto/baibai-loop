@@ -36,6 +36,7 @@ from .cache import (
     bootstrap_cache_command,
     extract_edinet_metrics_command,
     invalidate_coverage_command,
+    refresh_edinet_documents_command,
     verify_cache_coverage_command,
 )
 from .common import _parse_iso_date
@@ -93,6 +94,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="screening target date (YYYY-MM-DD); computes each source window automatically",
     )
 
+    refresh_edinet_parser = subparsers.add_parser(
+        "refresh-edinet-documents",
+        help="refresh mutable and unresolved EDINET document-list state",
+    )
+    refresh_edinet_parser.add_argument(
+        "--asof",
+        required=True,
+        help="target date (YYYY-MM-DD); refreshes current source state, not a point-in-time view",
+    )
+
     backfill_master_parser = subparsers.add_parser(
         "backfill-master",
         help="store the point-in-time security master for one or more as-of dates",
@@ -114,9 +125,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     extract_parser = subparsers.add_parser(
         "extract-edinet-metrics",
-        help="extract EDINET type=5 CSV metrics into canonical SQLite",
+        help=(
+            "extract EDINET type=5 CSV metrics; historical cache misses use current source state"
+        ),
     )
-    extract_parser.add_argument("--asof", required=True, help="metrics as-of date (YYYY-MM-DD)")
+    extract_parser.add_argument(
+        "--asof",
+        required=True,
+        help="metrics as-of date (YYYY-MM-DD), not a point-in-time EDINET reconstruction",
+    )
     extract_parser.add_argument(
         "--lookback-days",
         type=int,
@@ -576,6 +593,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "bootstrap-cache":
         return bootstrap_cache_command(
+            asof_date=_parse_iso_date(args.asof),
+            providers=providers,
+        )
+
+    if args.command == "refresh-edinet-documents":
+        return refresh_edinet_documents_command(
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
         )

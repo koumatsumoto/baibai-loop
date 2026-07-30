@@ -51,6 +51,18 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
+EDINET の当日分 document list は日中に更新されるため、`bootstrap-cache` は対象日を
+毎回取得し、未確定のまま保存した日付を次回実行時に再取得してから確定済みにする。
+raw row は file date と `seqNumber` で保持し、書類情報修正、取下げ、不開示開始・解除を
+operation event として origin filing へ適用してから候補を選ぶ。`legalStatus="2"` は
+延長閲覧期間中であり利用可能として扱う。
+
+EDINET は過去日の origin row 自体を後日上書きするため、document cache は取得時点の
+current source state であり point-in-time ledger ではない。既存の
+`edinet_metrics(asof_date, ticker)` snapshot が過去 as-of の正本である。snapshot が
+ない過去 as-of の再抽出は実行時点の EDINET current source state を使い、観測前の
+修正前・取下げ前状態を再現するものではない。
+
 `select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) を支援する。
 
 `shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `unresolved_pruned_run` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
