@@ -247,6 +247,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
+- [ ] EDINET metric snapshotを差分再利用する場合、rowの抽出・文書状態revision必須、訂正eventを含むsource identity完全一致、target以下のbaseline選択、failed skip、hard parser failure拒否、同日失敗時の正常snapshot保持、最新ok coverageのrange/error/count矛盾時のfail-closedをnegative testで固定したか
 - [ ] provider が個別 release URL の manifest を持つ場合、scheme / host / path全体をallowlistして
       lookalike host・query・fragmentを拒否し、抽出値を妥当域で検証し、矛盾する複数候補を
       hard errorにするか。manifest が公表カレンダーに追いつかない状態を無音にせず

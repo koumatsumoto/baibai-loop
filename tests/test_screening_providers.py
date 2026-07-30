@@ -1136,7 +1136,14 @@ class ScreeningProviderTests(unittest.TestCase):
             store_edinet_metrics(
                 sqlite_path,
                 date(2026, 5, 1),
-                [{"ticker": "7203", "cash": 100.0, "debt": 10.0}],
+                [
+                    {
+                        "ticker": "7203",
+                        "cash": 100.0,
+                        "debt": 10.0,
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
             )
 
             provider = EDINETProvider(None, cache_dir, sqlite_path=sqlite_path)

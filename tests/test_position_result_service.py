@@ -55,7 +55,7 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
     snapshot = reconcile_portfolio(document)
     market = tmp_path / "market.sqlite"
     with sqlite3.connect(market) as connection:
-        connection.execute("PRAGMA user_version = 14")
+        connection.execute("PRAGMA user_version = 15")
         connection.execute(
             "CREATE TABLE jquants_daily_bars "
             "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"

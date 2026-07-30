@@ -33,6 +33,7 @@ from baibai_engine.screening.cli import (
 )
 from baibai_engine.screening.cli.run import _index_next_earnings
 from baibai_engine.screening.config import ScreeningConfig
+from baibai_engine.screening.edinet_revision import compute_extractor_revision
 from baibai_engine.screening.providers import JQuantsProvider
 from baibai_engine.screening.providers.edinet import (
     EdinetMetricRecord,
@@ -146,6 +147,7 @@ class FakeEDINETProvider:
     documents: list[dict[str, object]] | None = None
     zip_by_doc_id: dict[str, bytes] | None = None
     bootstrap_calls: list[tuple[date, date]] = field(default_factory=list)
+    download_calls: list[str] = field(default_factory=list)
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         del asof_date
@@ -171,6 +173,7 @@ class FakeEDINETProvider:
         return list(self.documents or [])
 
     def download_csv_zip(self, doc_id: str) -> bytes:
+        self.download_calls.append(doc_id)
         return (self.zip_by_doc_id or {})[doc_id]
 
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
@@ -975,7 +978,7 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
             self.assertEqual(record.source_period_start, date(2025, 4, 1))
             self.assertEqual(record.source_period_end, date(2026, 3, 31))
-            self.assertIn("1 EDINET metric records", buffer.getvalue())
+            self.assertIn("selected=1 reused=0 downloaded=1", buffer.getvalue())
 
     def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1006,7 +1009,20 @@ class ScreeningCliTests(unittest.TestCase):
             payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
             assert payload is not None
             self.assertIn("debt_assumed_zero", payload["9682"].failure_reasons)
-            self.assertIn("1 records with quality issues", buffer.getvalue())
+            self.assertIn("quality_issues=1", buffer.getvalue())
+            reuse_provider = FakeEDINETProvider(documents=list(provider.documents or []))
+            reuse_buffer = io.StringIO()
+            reuse_exit = extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 25),
+                lookback_days=0,
+                provider=reuse_provider,
+                sqlite_path=sqlite_path,
+                stdout=reuse_buffer,
+            )
+            self.assertEqual(reuse_exit, 0)
+            self.assertEqual(reuse_provider.download_calls, [])
+            self.assertIn("reused=1 downloaded=0", reuse_buffer.getvalue())
+            self.assertIn("quality_issues=1", reuse_buffer.getvalue())
 
     def test_extract_edinet_metrics_command_fails_when_no_filings_selected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1047,7 +1063,13 @@ class ScreeningCliTests(unittest.TestCase):
             store_edinet_metrics(
                 sqlite_path,
                 asof,
-                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                [
+                    {
+                        "ticker": "9682",
+                        "sales_ttm": 1_000.0,
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
                 status="ok",
             )
             stderr = io.StringIO()
@@ -1062,7 +1084,7 @@ class ScreeningCliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 1)
             self.assertIn("EDINET document listing failed", stderr.getvalue())
-            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
             row = (
                 sqlite3.connect(sqlite_path)
                 .execute(
@@ -1072,8 +1094,7 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 .fetchone()
             )
-            self.assertEqual(row[0], "failed")
-            self.assertIn("EDINET document listing failed", row[1])
+            self.assertEqual(row, ("ok", None))
 
     def test_extract_edinet_metrics_command_fails_on_invalid_document_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1082,7 +1103,13 @@ class ScreeningCliTests(unittest.TestCase):
             store_edinet_metrics(
                 sqlite_path,
                 asof,
-                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                [
+                    {
+                        "ticker": "9682",
+                        "sales_ttm": 1_000.0,
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
                 status="ok",
             )
             self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
@@ -1109,7 +1136,7 @@ class ScreeningCliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 1)
             self.assertIn("invalid EDINET secCode", stderr.getvalue())
-            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
             row = (
                 sqlite3.connect(sqlite_path)
                 .execute(
@@ -1119,8 +1146,7 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 .fetchone()
             )
-            self.assertEqual(row[0], "failed")
-            self.assertIn("EDINET document selection failed", row[1])
+            self.assertEqual(row, ("ok", None))
 
     def test_extract_edinet_metrics_command_fails_closed_on_csv_rate_limit(self) -> None:
         class RateLimitedZipProvider(FakeEDINETProvider):
@@ -1134,7 +1160,13 @@ class ScreeningCliTests(unittest.TestCase):
             store_edinet_metrics(
                 sqlite_path,
                 asof,
-                [{"ticker": "9682", "sales_ttm": 1_000.0}],
+                [
+                    {
+                        "ticker": "9682",
+                        "sales_ttm": 1_000.0,
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
                 status="ok",
             )
             provider = RateLimitedZipProvider(
@@ -1160,7 +1192,7 @@ class ScreeningCliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 1)
             self.assertIn("EDINET CSV download rate limited", stderr.getvalue())
-            self.assertIsNone(read_edinet_metrics(sqlite_path, asof))
+            self.assertIsNotNone(read_edinet_metrics(sqlite_path, asof))
             row = (
                 sqlite3.connect(sqlite_path)
                 .execute(
@@ -1170,8 +1202,363 @@ class ScreeningCliTests(unittest.TestCase):
                 )
                 .fetchone()
             )
-            self.assertEqual(row[0], "failed")
-            self.assertIn("EDINET CSV download rate limited", row[1])
+            self.assertEqual(row, ("ok", None))
+
+    def test_extract_edinet_metrics_reuses_cross_asof_and_same_asof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100STABLE")
+            first = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100STABLE": _edinet_csv_zip()},
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=first,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            first_snapshot = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+
+            cross_asof = FakeEDINETProvider(documents=[document])
+            cross_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=cross_asof,
+                    sqlite_path=sqlite_path,
+                    stdout=cross_output,
+                ),
+                0,
+            )
+            self.assertEqual(cross_asof.download_calls, [])
+            self.assertEqual(
+                read_edinet_metrics(sqlite_path, date(2026, 4, 25)),
+                first_snapshot,
+            )
+            self.assertIn(
+                "selected=1 reused=1 downloaded=0 baseline_asof=2026-04-24",
+                cross_output.getvalue(),
+            )
+
+            same_asof = FakeEDINETProvider(documents=[document])
+            same_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=same_asof,
+                    sqlite_path=sqlite_path,
+                    stdout=same_output,
+                ),
+                0,
+            )
+            self.assertEqual(same_asof.download_calls, [])
+            self.assertIn("baseline_asof=2026-04-25", same_output.getvalue())
+
+    def test_extract_edinet_metrics_mixed_delta_matches_forced_full_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            incremental_db = root / "incremental.sqlite"
+            full_db = root / "full.sqlite"
+            baseline_documents = [
+                _edinet_document(ticker="13010", doc_id="S100A"),
+                _edinet_document(ticker="72030", doc_id="S100B"),
+                _edinet_document(ticker="96820", doc_id="S100REMOVED"),
+            ]
+            baseline_provider = FakeEDINETProvider(
+                documents=baseline_documents,
+                zip_by_doc_id={
+                    document["docID"]: _edinet_csv_zip() for document in baseline_documents
+                },
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=baseline_provider,
+                    sqlite_path=incremental_db,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            current_documents = [
+                _edinet_document(ticker="13010", doc_id="S100A"),
+                _edinet_document(ticker="72030", doc_id="S100BCORR", doc_type="130"),
+                _edinet_document(ticker="67580", doc_id="S100NEW"),
+            ]
+            delta_provider = FakeEDINETProvider(
+                documents=current_documents,
+                zip_by_doc_id={
+                    "S100BCORR": _edinet_csv_zip(),
+                    "S100NEW": _edinet_csv_zip(),
+                },
+            )
+            delta_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=delta_provider,
+                    sqlite_path=incremental_db,
+                    stdout=delta_output,
+                ),
+                0,
+            )
+            self.assertEqual(
+                set(delta_provider.download_calls),
+                {"S100BCORR", "S100NEW"},
+            )
+            self.assertIn("selected=3 reused=1 downloaded=2", delta_output.getvalue())
+
+            full_provider = FakeEDINETProvider(
+                documents=current_documents,
+                zip_by_doc_id={
+                    document["docID"]: _edinet_csv_zip() for document in current_documents
+                },
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=full_provider,
+                    sqlite_path=full_db,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            incremental = read_edinet_metrics(incremental_db, date(2026, 4, 25))
+            forced_full = read_edinet_metrics(full_db, date(2026, 4, 25))
+            self.assertEqual(incremental, forced_full)
+            assert incremental is not None
+            self.assertNotIn("9682", incremental)
+
+    def test_extract_edinet_metrics_document_edit_event_forces_download(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            original = _edinet_document(ticker="96820", doc_id="S100SAME")
+            first = FakeEDINETProvider(
+                documents=[original],
+                zip_by_doc_id={"S100SAME": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            edit_event = {
+                "docID": "S100SAME",
+                "secCode": None,
+                "docTypeCode": None,
+                "csvFlag": None,
+                "xbrlFlag": None,
+                "submitDateTime": None,
+                "docDescription": None,
+                "periodStart": None,
+                "periodEnd": None,
+                "docInfoEditStatus": "1",
+                "opeDateTime": "2026-04-25 09:00",
+                "seqNumber": 2,
+            }
+            second = FakeEDINETProvider(
+                documents=[original, edit_event],
+                zip_by_doc_id={"S100SAME": _edinet_csv_zip()},
+            )
+
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=second,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            self.assertEqual(second.download_calls, ["S100SAME"])
+
+    def test_extract_edinet_metrics_empty_csv_is_failed_and_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100EMPTY")
+            empty_buffer = io.BytesIO()
+            with zipfile.ZipFile(empty_buffer, "w") as archive:
+                archive.writestr(
+                    "XBRL_TO_CSV/empty.csv",
+                    "要素ID\tコンテキストID\t値\n".encode("utf-16"),
+                )
+            first = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100EMPTY": empty_buffer.getvalue()},
+            )
+
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=first,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                1,
+            )
+            self.assertIsNone(read_edinet_metrics(sqlite_path, date(2026, 4, 24)))
+
+            second = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100EMPTY": _edinet_csv_zip()},
+            )
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=second,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            self.assertEqual(second.download_calls, ["S100EMPTY"])
+
+    def test_extract_edinet_metrics_skips_failed_baseline_and_excludes_future(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100BASE")
+            first = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            store_edinet_metrics(
+                sqlite_path,
+                date(2026, 4, 25),
+                [],
+                status="failed",
+                error="transient failure",
+            )
+            after_failure = FakeEDINETProvider(documents=[document])
+            after_failure_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 26),
+                    lookback_days=0,
+                    provider=after_failure,
+                    sqlite_path=sqlite_path,
+                    stdout=after_failure_output,
+                ),
+                0,
+            )
+            self.assertEqual(after_failure.download_calls, [])
+            self.assertIn("baseline_asof=2026-04-24", after_failure_output.getvalue())
+
+            before_all_snapshots = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            before_output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 23),
+                    lookback_days=0,
+                    provider=before_all_snapshots,
+                    sqlite_path=sqlite_path,
+                    stdout=before_output,
+                ),
+                0,
+            )
+            self.assertEqual(before_all_snapshots.download_calls, ["S100BASE"])
+            self.assertIn("baseline_asof=none", before_output.getvalue())
+
+    def test_extract_edinet_metrics_rejects_corrupt_latest_ok_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100BASE")
+            first = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            with sqlite3.connect(sqlite_path) as connection:
+                connection.execute(
+                    "UPDATE source_coverage SET record_count = 2 "
+                    "WHERE source = 'edinet_metrics' AND coverage_key = '2026-04-24'"
+                )
+            provider = FakeEDINETProvider(documents=[document])
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+            self.assertEqual(exit_code, 1)
+            self.assertEqual(provider.download_calls, [])
+            self.assertIn("baseline is corrupt", stderr.getvalue())
+            self.assertIsNone(read_edinet_metrics(sqlite_path, date(2026, 4, 25)))
+
+    def test_extract_edinet_metrics_revision_mismatch_rebuilds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            document = _edinet_document(ticker="96820", doc_id="S100BASE")
+            first = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            extract_edinet_metrics_command(
+                asof_date=date(2026, 4, 24),
+                lookback_days=0,
+                provider=first,
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+            with sqlite3.connect(sqlite_path) as connection:
+                connection.execute(
+                    "UPDATE edinet_metrics SET extractor_revision = ?",
+                    ("0" * 64,),
+                )
+            second = FakeEDINETProvider(
+                documents=[document],
+                zip_by_doc_id={"S100BASE": _edinet_csv_zip()},
+            )
+            output = io.StringIO()
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=second,
+                    sqlite_path=sqlite_path,
+                    stdout=output,
+                ),
+                0,
+            )
+            self.assertEqual(second.download_calls, ["S100BASE"])
+            self.assertIn("full_rebuild_reason=incompatible_revision", output.getvalue())
+            with sqlite3.connect(sqlite_path) as connection:
+                revision = connection.execute(
+                    "SELECT extractor_revision FROM edinet_metrics WHERE asof_date = '2026-04-25'"
+                ).fetchone()[0]
+            self.assertEqual(revision, compute_extractor_revision())
 
 
 class IndexNextEarningsTests(unittest.TestCase):
@@ -1231,3 +1618,21 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/test.csv", text.encode("utf-16"))
     return buffer.getvalue()
+
+
+def _edinet_document(
+    *,
+    ticker: str,
+    doc_id: str,
+    doc_type: str = "120",
+) -> dict[str, object]:
+    return {
+        "docID": doc_id,
+        "secCode": ticker,
+        "docTypeCode": doc_type,
+        "csvFlag": "1",
+        "xbrlFlag": "1",
+        "periodStart": "2025-04-01",
+        "periodEnd": "2026-03-31",
+        "submitDateTime": "2026-04-01 12:00",
+    }

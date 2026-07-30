@@ -19,10 +19,13 @@ from baibai_engine.screening.providers.jpx import (
 )
 from baibai_engine.screening.sqlite_cache import (
     open_connection,
+    store_edinet_metrics,
     store_jpx_earnings_calendar_snapshot,
     store_jquants_daily_bars,
 )
 from baibai_engine.screening.sqlite_reader import (
+    EDINETMetricBaselineError,
+    read_edinet_metric_baseline,
     read_eq_master,
     read_eq_master_asof,
     read_fin_summaries,
@@ -407,6 +410,114 @@ class ReadJPXEarningsCalendarTests(unittest.TestCase):
             conn.close()
 
             self.assertIsNone(read_jpx_earnings_calendar_snapshot(db, date(2026, 5, 8)))
+
+
+class ReadEDINETMetricBaselineTests(unittest.TestCase):
+    def test_skips_failed_snapshot_and_never_reads_future_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            revision = "a" * 64
+            store_edinet_metrics(
+                db,
+                date(2026, 5, 7),
+                [
+                    {
+                        "ticker": "7203",
+                        "source_doc_id": "S100PAST",
+                        "extractor_revision": revision,
+                    }
+                ],
+            )
+            store_edinet_metrics(
+                db,
+                date(2026, 5, 8),
+                [],
+                status="failed",
+                error="transient",
+            )
+            store_edinet_metrics(
+                db,
+                date(2026, 5, 9),
+                [
+                    {
+                        "ticker": "7203",
+                        "source_doc_id": "S100FUTURE",
+                        "extractor_revision": revision,
+                    }
+                ],
+            )
+
+            baseline = read_edinet_metric_baseline(db, date(2026, 5, 8))
+
+            self.assertIsNotNone(baseline)
+            assert baseline is not None
+            self.assertEqual(baseline.asof_date, date(2026, 5, 7))
+            self.assertEqual(baseline.rows["7203"].record.source_doc_id, "S100PAST")
+
+    def test_preserves_legacy_null_revision_as_ineligible_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_edinet_metrics(
+                db,
+                date(2026, 5, 8),
+                [{"ticker": "7203", "extractor_revision": "a" * 64}],
+            )
+            with sqlite3.connect(db) as connection:
+                connection.execute("UPDATE edinet_metrics SET extractor_revision = NULL")
+
+            baseline = read_edinet_metric_baseline(db, date(2026, 5, 8))
+
+            self.assertIsNotNone(baseline)
+            assert baseline is not None
+            self.assertIsNone(baseline.rows["7203"].extractor_revision)
+
+    def test_rejects_ok_baseline_with_hard_parser_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_edinet_metrics(
+                db,
+                date(2026, 5, 8),
+                [
+                    {
+                        "ticker": "7203",
+                        "failure_reasons": ["csv_parse_failed"],
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
+                status="ok",
+            )
+
+            with self.assertRaisesRegex(
+                EDINETMetricBaselineError,
+                "hard parser failure",
+            ):
+                read_edinet_metric_baseline(db, date(2026, 5, 8))
+
+    def test_rejects_latest_ok_coverage_integrity_mismatches(self) -> None:
+        corruptions = (
+            ("coverage_start", "2026-05-07"),
+            ("coverage_end", "2026-05-09"),
+            ("error", "unexpected"),
+            ("record_count", 0),
+            ("record_count", 2),
+        )
+        for column, value in corruptions:
+            with self.subTest(column=column, value=value), tempfile.TemporaryDirectory() as tmp:
+                db = Path(tmp) / "market.sqlite"
+                store_edinet_metrics(
+                    db,
+                    date(2026, 5, 8),
+                    [{"ticker": "7203", "extractor_revision": "a" * 64}],
+                )
+                with sqlite3.connect(db) as connection:
+                    connection.execute(
+                        f"UPDATE source_coverage SET {column} = ? "  # nosec B608
+                        "WHERE source = 'edinet_metrics'",
+                        (value,),
+                    )
+
+                with self.assertRaises(EDINETMetricBaselineError):
+                    read_edinet_metric_baseline(db, date(2026, 5, 8))
 
 
 if __name__ == "__main__":  # pragma: no cover

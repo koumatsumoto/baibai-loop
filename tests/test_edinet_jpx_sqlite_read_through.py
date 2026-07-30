@@ -104,6 +104,51 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             self.assertEqual(candidates["1301"].period_start, date(2025, 4, 1))
             self.assertEqual(candidates["1301"].period_end, date(2026, 3, 31))
 
+    def test_sparse_edit_event_round_trip_preserves_origin_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            store_edinet_documents(
+                sqlite_path,
+                date(2026, 4, 24),
+                [
+                    {
+                        "seqNumber": 1,
+                        "docID": "S100ABCD",
+                        "secCode": "13010",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "submitDateTime": "2026-04-24 09:00",
+                    }
+                ],
+            )
+            store_edinet_documents(
+                sqlite_path,
+                date(2026, 4, 25),
+                [
+                    {
+                        "seqNumber": 2,
+                        "docID": "S100ABCD",
+                        "docInfoEditStatus": "1",
+                        "opeDateTime": "2026-04-25 09:00",
+                    }
+                ],
+            )
+
+            origin_rows = read_edinet_documents(sqlite_path, date(2026, 4, 24))
+            event_rows = read_edinet_documents(sqlite_path, date(2026, 4, 25))
+            assert origin_rows is not None
+            assert event_rows is not None
+            original = select_document_candidates(origin_rows)["1301"]
+            edited = select_document_candidates([*origin_rows, *event_rows])["1301"]
+
+            self.assertEqual(edited.doc_id, "S100ABCD")
+            self.assertEqual(edited.doc_type_code, "120")
+            self.assertNotEqual(
+                edited.source_document_revision,
+                original.source_document_revision,
+            )
+
     def test_read_edinet_metrics_returns_keyed_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
