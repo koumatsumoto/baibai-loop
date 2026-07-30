@@ -21,6 +21,7 @@ from baibai_engine.screening.shortlist_outcome import (
     evaluate_cohort,
     with_machine_estimates,
 )
+from baibai_engine.screening.store_readiness import unreadable_store_reason
 
 # The horizons the loop already reasons in. Anything under three months is the short
 # screen performance the doctrine rules out as an optimisation target, so it is not
@@ -71,6 +72,14 @@ def shortlist_outcome_command(
     selected_horizons = list(horizons or DEFAULT_HORIZONS)
     for name in selected_horizons:
         require_horizon(name)
+    # Every price this comparison rests on comes from the market store. A store the
+    # readers cannot open yields no bar date, which drops the drawdown block out of
+    # the payload entirely -- a cohort that never fell and a cohort nobody measured
+    # would then look the same.
+    unreadable = unreadable_store_reason(sqlite_path)
+    if unreadable is not None:
+        print(f"shortlist-outcome: {unreadable}", file=sys.stderr)
+        return 1
     payloads = list_shortlist_payloads(db_path)
     cohorts: list[ShortlistCohort] = []
     for payload in payloads:

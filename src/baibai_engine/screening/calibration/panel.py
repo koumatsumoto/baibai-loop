@@ -556,7 +556,7 @@ def _rules_with_uncapped_target(rules: ScreeningRules) -> ScreeningRules:
 
 
 def _coverage_floors(sqlite_path: Path) -> tuple[date, date]:
-    conn = sqlite3.connect(sqlite_path)
+    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         bars_min = conn.execute("SELECT MIN(traded_at) FROM jquants_daily_bars").fetchone()[0]
         fin_min = conn.execute("SELECT MIN(disclosed_at) FROM jquants_fin_summaries").fetchone()[0]
