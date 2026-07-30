@@ -3,7 +3,7 @@ title: "Portfolio management"
 summary: "投資価値rankingを先に行い、資金目安、human-confirmed ledger、保有規律、年次評価を運用する方針。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-13
+last_reviewed: 2026-07-30
 related_docs:
   - "./doctrine.md"
   - "./operations/decision-cycle.md"
@@ -30,6 +30,8 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 - 目安未満でも数量を無理に増やさない。
 - 買う価値がない場合はcashに残す。
 - 月次入金triggerだけでscreeningや購入を強制しない。
+
+上限側の数値は機械にとって充填目標である。提案数量は`floor(1回あたり上限 / 1単元notional)`単元で、渡した金額まで埋まる。1単元が上限を超えれば`budget_guide_exceeded`、notionalが下限を割れば`budget_guide_under`のwarningが付き、いずれも発注を止めない。したがってこの数値を上げることは候補数を増やすことではなく1銘柄あたりの金額を増やすことであり、[Reservation and warnings](#reservation-and-warnings)のticker集中線に先に当たる。
 
 ## Ranking versus affordability
 
