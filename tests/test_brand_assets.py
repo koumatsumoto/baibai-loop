@@ -62,43 +62,51 @@ def _painted(icon):
     return Image.eval(icon.convert("L"), lambda level: 255 - level).getbbox()
 
 
-def test_generate_writes_every_asset_and_the_measurement(tmp_path):
-    source = _source(tmp_path / "brand", canvas=400, mark=200, offset=(100, 100))
-    output_dir = tmp_path / "public"
+def _span(icon):
+    """How much of an icon's width the mark takes up."""
+    painted = _painted(icon)
+    return (painted[2] - painted[0]) / icon.width
 
+
+@pytest.fixture(scope="module")
+def rendered(tmp_path_factory):
+    """One run of the generator, shared by the cases that only read what it produced."""
+    root = tmp_path_factory.mktemp("rendered")
+    source = _source(root / "brand", canvas=400, mark=200, offset=(100, 100))
+    output_dir = root / "public"
     result = _generate(source, output_dir)
-
     assert result.returncode == 0, result.stderr
+    return source, output_dir
+
+
+def test_generate_gives_each_asset_the_shape_it_is_used_at(rendered):
+    source, output_dir = rendered
+
     assert sorted(path.name for path in output_dir.iterdir()) == sorted(ASSET_NAMES)
     measured = json.loads((source.parent / "measured-colors.json").read_text(encoding="utf-8"))
     assert measured == MEASURED
-
-
-def test_generate_keeps_the_header_image_transparent_and_the_touch_icon_opaque(tmp_path):
-    source = _source(tmp_path / "brand", canvas=400, mark=200, offset=(100, 100))
-    output_dir = tmp_path / "public"
-
-    _generate(source, output_dir)
-
+    # The header image and the favicon keep their transparency; the two icons that land on a
+    # home screen are flattened, because a transparent PWA icon renders as a black square.
     header = Image.open(output_dir / "logo.png")
-    assert header.size == (HEADER_SIZE, HEADER_SIZE)
-    assert header.mode == "RGBA"
+    assert (header.size, header.mode) == ((HEADER_SIZE, HEADER_SIZE), "RGBA")
     assert header.getchannel("A").getextrema()[0] == 0
     touch = Image.open(output_dir / "apple-touch-icon.png")
     assert touch.size == (APPLE_TOUCH_SIZE, APPLE_TOUCH_SIZE)
     assert "A" not in touch.getbands()
+    with Image.open(output_dir / "favicon.ico") as icon:
+        assert sorted(icon.info["sizes"]) == [(size, size) for size in sorted(FAVICON_SIZES)]
+    # The iOS mask is a rounded square that crops far less than a launcher's, so its icon is
+    # drawn larger — and neither fills the canvas outright.
+    assert _span(Image.open(output_dir / "icon-192.png")) < _span(touch) < 0.95
 
 
-def test_generate_keeps_the_maskable_icons_inside_the_launcher_safe_area(tmp_path):
-    source = _source(tmp_path / "brand", canvas=400, mark=200, offset=(100, 100))
-    output_dir = tmp_path / "public"
+def test_generate_keeps_the_maskable_icons_inside_the_launcher_safe_area(rendered):
+    _, output_dir = rendered
 
-    _generate(source, output_dir)
-
-    # A launcher may crop the icon to any shape inscribed in the canvas, so the mark has to stay
-    # off the edges. The bounds are written out rather than derived from the inset the generator
-    # applies, so widening that inset until a circular mask clips the mark fails here: a mark
-    # drawn edge to edge across the safe area still leaves a tenth of the canvas on every side.
+    # The one shape a viewer cannot check by looking at the app: a launcher may crop the icon to
+    # any inscribed shape, and only an installed Android home screen shows the result. The bounds
+    # are written out rather than derived from the inset the generator applies, so widening that
+    # inset until a circular mask clips the mark fails here.
     for name in ("icon-192.png", "icon-512.png"):
         icon = Image.open(output_dir / name)
         painted = _painted(icon)
@@ -107,32 +115,6 @@ def test_generate_keeps_the_maskable_icons_inside_the_launcher_safe_area(tmp_pat
         assert painted[1] >= icon.height * 0.10, name
         assert painted[2] <= icon.width * 0.90, name
         assert painted[3] <= icon.height * 0.90, name
-
-
-def test_generate_fills_the_touch_icon_more_than_the_maskable_ones(tmp_path):
-    source = _source(tmp_path / "brand", canvas=400, mark=200, offset=(100, 100))
-    output_dir = tmp_path / "public"
-
-    _generate(source, output_dir)
-
-    def share(name):
-        icon = Image.open(output_dir / name)
-        painted = _painted(icon)
-        return (painted[2] - painted[0]) / icon.width
-
-    # The iOS mask is a rounded square that crops far less than a launcher's, so its icon is
-    # drawn larger — and both stay clear of filling the canvas outright.
-    assert share("icon-192.png") < share("apple-touch-icon.png") < 0.95
-
-
-def test_generate_keeps_both_favicon_frames(tmp_path):
-    source = _source(tmp_path / "brand", canvas=400, mark=200, offset=(100, 100))
-    output_dir = tmp_path / "public"
-
-    _generate(source, output_dir)
-
-    with Image.open(output_dir / "favicon.ico") as icon:
-        assert sorted(icon.info["sizes"]) == [(size, size) for size in sorted(FAVICON_SIZES)]
 
 
 def test_generate_places_the_mark_the_same_whatever_margin_the_source_was_drawn_with(tmp_path):
@@ -173,8 +155,8 @@ def test_generate_frames_the_soft_edge_around_the_mark(tmp_path):
     softened = _source(tmp_path / "softened", canvas=800, mark=200, offset=(300, 300))
     with Image.open(softened) as image:
         edged = image.convert("RGBA")
-    # Half-opaque and right against the mark: a feathered edge or a tight shadow is part of the
-    # artwork, so the frame has to reach it rather than crop it.
+    # Half-opaque: a feathered edge or a shadow is part of the artwork, so the frame reaches it
+    # rather than cropping it — the counterpart to the faint speck above, which it does not.
     edged.putpixel((280, 300), (255, 0, 0, 128))
     edged.save(softened)
 
@@ -188,22 +170,6 @@ def test_generate_frames_the_soft_edge_around_the_mark(tmp_path):
     # coverage the frame was sized to: 200px of paint on the 232px canvas that 220px of visible
     # mark asks for. Reading the constant back out would say 95% of every source ever passed.
     assert "paint spans 86.2% of it" in result.stdout
-
-
-def test_generate_refuses_a_source_reaching_far_past_its_own_paint(tmp_path):
-    # Visible, and nowhere near the mark. A threshold alone cannot tell this from a soft edge, so
-    # the reach is checked against the paint: this one is 2.5x, which no edge is.
-    source = _source(tmp_path / "brand", canvas=800, mark=200, offset=(300, 300))
-    with Image.open(source) as image:
-        strayed = image.convert("RGBA")
-    strayed.putpixel((0, 0), (255, 0, 0, 128))
-    strayed.save(source)
-
-    result = _generate(source, tmp_path / "out")
-
-    assert result.returncode == 1
-    assert "past its own paint" in result.stderr
-    assert not (tmp_path / "out").exists()
 
 
 def test_generate_leaves_the_previous_assets_alone_when_the_source_cannot_be_measured(tmp_path):
@@ -231,16 +197,6 @@ def test_generate_refuses_a_source_that_stands_on_an_opaque_ground(tmp_path):
 
     assert result.returncode == 1
     assert "stands on no transparent ground" in result.stderr
-
-
-def test_generate_refuses_to_overwrite_the_source_it_reads(tmp_path):
-    source = _source(tmp_path / "brand", canvas=400, mark=200, offset=(100, 100))
-
-    result = _generate(source, source.parent)
-
-    assert result.returncode == 1
-    assert "would overwrite the source logo" in result.stderr
-    assert not (source.parent / "icon-192.png").exists()
 
 
 def test_generate_writes_the_measurement_before_the_images(tmp_path):

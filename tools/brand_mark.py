@@ -59,12 +59,12 @@ ASSET_NAMES = (
 # a few percent is not that: it is the dust an export leaves behind — a stray guide layer, a
 # 1-px artboard overrun — and one such pixel in a corner would otherwise stretch the frame to
 # the whole canvas and shrink the mark in every asset at once, silently.
+# Dust a viewer *could* see still gets framed, because a soft edge and a stray speck cannot be
+# told apart from their alpha, and a run reports what the paint ends up spanning: the operator
+# runs this by hand and looks at the header afterwards, where a mark at a quarter of its size is
+# not subtle. A threshold that machines can apply plus a number the human reads is the whole
+# defense here; a rule guessing which faint pixels were meant would refuse real artwork.
 VISIBLE_ALPHA = 10
-# A threshold alone only narrows that window, so the reach is checked against the paint as well:
-# a soft edge stays close to what it surrounds, while dust sits wherever the export dropped it.
-# Measured on this artwork, a generous drop shadow (45px blur at 35%) reaches 1.11x past the
-# opaque mark and a single speck in the corner of an 800px canvas reaches 2.5x.
-MAX_VISIBLE_OVERREACH = 1.5
 # Measuring asks what the mark is painted in, so it counts only pixels whose color is the paint
 # rather than a blend with whatever was behind them.
 OPAQUE_ALPHA = 250
@@ -162,18 +162,11 @@ def square_frame(visible: Box | None, painted: Box | None) -> Frame:
 
     The canvas is sized from that extent's longest side and nothing else, so two sources drawn
     with different margins put the same mark at the same size. `painted` is the same mark bounded
-    at full opacity: a visible extent reaching far past it is not a soft edge but dust the export
-    left behind, and framing from it would shrink the mark in every asset at once.
+    at full opacity, and only reported: how much of the canvas the paint ends up spanning is what
+    tells an operator that something outside the mark decided the framing.
     """
     if visible is None or painted is None:
         message = "source logo has no visible pixel to frame"
-        raise BrandAssetError(message)
-    reach = _longest(visible) / _longest(painted)
-    if reach > MAX_VISIBLE_OVERREACH:
-        message = (
-            f"source logo reaches {reach:.1f}x past its own paint, over the "
-            f"{MAX_VISIBLE_OVERREACH:.1f}x a soft edge takes: erase what is left outside the mark"
-        )
         raise BrandAssetError(message)
     left, top, right, bottom = visible
     width = right - left

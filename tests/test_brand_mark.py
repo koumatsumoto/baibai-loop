@@ -36,76 +36,56 @@ def _pixels(color, count, alpha=255):
 OUTSIDE = Path("/tmp/elsewhere/logo.png")
 
 
-def test_check_destinations_accepts_the_repos_own_source_and_asset_directory():
-    check_destinations(DEFAULT_SOURCE, DEFAULT_OUTPUT_DIR)
+@pytest.mark.parametrize(
+    ("source", "output_dir", "refusal"),
+    [
+        (DEFAULT_SOURCE, DEFAULT_OUTPUT_DIR, None),
+        (OUTSIDE, OUTSIDE.parent / "out", None),
+        (DEFAULT_SOURCE, Path("/tmp/preview"), "while the measurement lands in"),
+        # The half that goes unnoticed: the repo would carry images of a mark that its own
+        # logo.png, its measurement and its palette all disagree with.
+        (OUTSIDE, DEFAULT_OUTPUT_DIR, "while the measurement lands in"),
+        (REPO_ROOT / "ui" / "public" / "logo.png", DEFAULT_OUTPUT_DIR, "would overwrite"),
+    ],
+)
+def test_check_destinations_takes_the_repos_pair_and_refuses_a_split_one(
+    source, output_dir, refusal
+):
+    if refusal is None:
+        check_destinations(source, output_dir)
+        return
+    with pytest.raises(BrandAssetError, match=refusal):
+        check_destinations(source, output_dir)
 
 
-def test_check_destinations_accepts_a_source_and_output_that_are_both_outside_the_repo():
-    check_destinations(OUTSIDE, OUTSIDE.parent / "out")
+@pytest.mark.parametrize(
+    ("visible", "size", "offset"),
+    [
+        ((0, 0, 95, 95), 100, (2, 2)),
+        # Same mark, more margin around it in the source: the frame comes out identical.
+        ((40, 300, 135, 395), 100, (2, 2)),
+        # Sized from the longest side, so the short axis takes the rest of the padding.
+        ((0, 0, 50, 95), 100, (25, 2)),
+    ],
+)
+def test_square_frame_pads_the_mark_out_to_the_coverage_share(visible, size, offset):
+    frame = square_frame(visible, (0, 0, 10, 10))
 
-
-def test_check_destinations_refuses_repo_measurement_with_images_written_elsewhere():
-    with pytest.raises(BrandAssetError, match="while the measurement lands in"):
-        check_destinations(DEFAULT_SOURCE, Path("/tmp/preview"))
-
-
-def test_check_destinations_refuses_a_foreign_source_rendered_into_the_repos_assets():
-    # The half that goes unnoticed: the repo would carry images of a mark that its own logo.png,
-    # its measurement and its palette all disagree with, and only a binary diff would show it.
-    with pytest.raises(BrandAssetError, match="while the measurement lands in"):
-        check_destinations(OUTSIDE, DEFAULT_OUTPUT_DIR)
-
-
-def test_check_destinations_refuses_an_output_directory_holding_the_source():
-    with pytest.raises(BrandAssetError, match="would overwrite the source logo"):
-        check_destinations(REPO_ROOT / "ui" / "public" / "logo.png", DEFAULT_OUTPUT_DIR)
-
-
-def test_square_frame_pads_the_mark_out_to_the_coverage_share():
-    frame = square_frame((0, 0, 95, 95), (2, 2, 93, 93))
-
-    assert frame.size == round(95 / MARK_COVERAGE)
-    assert (frame.left, frame.top) == (2, 2)
-
-
-def test_square_frame_ignores_the_margin_the_source_was_drawn_with():
-    tight = square_frame((0, 0, 95, 95), (2, 2, 93, 93))
-    roomy = square_frame((40, 300, 135, 395), (42, 302, 133, 393))
-
-    assert tight == roomy
-
-
-def test_square_frame_sizes_a_tall_mark_from_its_longest_side():
-    frame = square_frame((0, 0, 50, 95), (2, 2, 48, 93))
-
-    assert frame.size == round(95 / MARK_COVERAGE)
-    assert (frame.left, frame.top) == (25, 2)
+    assert size == round(95 / MARK_COVERAGE)
+    assert (frame.size, frame.left, frame.top) == (size, *offset)
 
 
 def test_square_frame_reports_what_the_paint_spans_rather_than_the_coverage_constant():
+    # 80px of paint on a canvas sized from the 100px visible extent, which is 105 wide. Reading
+    # MARK_COVERAGE back out would tell the operator 95% of whatever they passed.
     frame = square_frame((0, 0, 100, 100), (10, 10, 90, 90))
 
-    # 80px of paint on a canvas sized from the 100px visible extent, which is 105 wide.
     assert frame.paint_share == pytest.approx(80 / 105)
 
 
 def test_square_frame_rejects_a_source_with_nothing_visible_on_it():
     with pytest.raises(BrandAssetError, match="no visible pixel to frame"):
         square_frame(None, None)
-
-
-def test_square_frame_accepts_a_mark_with_a_soft_edge_around_it():
-    # A generous drop shadow on the mark this repo ships reaches 1.11x past the opaque paint.
-    frame = square_frame((0, 0, 111, 111), (5, 5, 105, 105))
-
-    assert frame.size == round(111 / MARK_COVERAGE)
-
-
-def test_square_frame_rejects_a_mark_whose_reach_is_dust_rather_than_a_soft_edge():
-    # A single faint speck in the corner of a canvas: the visible extent has nothing to do with
-    # where the paint is, and framing from it would shrink the mark in every asset at once.
-    with pytest.raises(BrandAssetError, match=r"reaches 2\.5x past its own paint"):
-        square_frame((0, 0, 500, 500), (300, 300, 500, 500))
 
 
 def test_measure_palette_names_each_band_after_the_palette_entry_that_claims_it():

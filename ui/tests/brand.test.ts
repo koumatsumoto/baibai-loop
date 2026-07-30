@@ -255,9 +255,12 @@ describe('brand palette', () => {
 
   // The mark's own green is the palette's record of the artwork, not a color to paint with: it
   // sits under the 3:1 a state indicator needs, and the greens that carry interaction are
-  // darkened from it instead. Since a new logo moves this value, nothing that resolves to it may
-  // reach a component — neither the token itself nor an alias, by utility or by var().
+  // darkened from it instead. Since a new logo moves this value, a component reaching for it
+  // would let the artwork decide an affordance's contrast.
   //
+  // What this holds is the reachable half — the token and the `:root` aliases that resolve to it,
+  // by utility, by var() and by the `bg-(--x)` shorthand. Tailwind accepts enough spellings that
+  // chasing the rest would cost more than the rule is worth, so the palette states it as well.
   // The threshold is asserted rather than described, so a mark whose green does clear 3:1 fails
   // here and the rule gets revisited instead of outliving its reason.
   it('leaves the mark’s own green out of the components', () => {
@@ -267,12 +270,8 @@ describe('brand palette', () => {
     for (const name of aliases) {
       expect(themeMappings.has(`--color${name.slice(1)}`), `${name} is a utility`).toBe(false)
     }
-    // Every shape a class string can name a custom property in: the arbitrary value, and the
-    // shorthand `bg-(--x)` that needs no `@theme` entry at all and so escapes the check above.
-    const reaches = (text: string, name: string): boolean =>
-      text.includes(`var(${name})`) || text.includes(`(${name})`)
     const painted = componentSources((entry) => entry !== 'styles.css').filter((text) =>
-      aliases.some((name) => reaches(text, name)),
+      aliases.some((name) => text.includes(`var(${name})`) || text.includes(`(${name})`)),
     )
     expect(painted).toEqual([])
   })
