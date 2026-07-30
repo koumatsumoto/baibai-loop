@@ -448,6 +448,7 @@ def backfill_history_command(
     start: date,
     end: date,
     providers: ProviderBundle,
+    sqlite_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     """Fill the range sources over an explicit window.
@@ -465,9 +466,16 @@ def backfill_history_command(
 
     Bars come first: the month-end grid that ``backfill-master`` fills is derived from
     the bar store, so snapshots for months without bars cannot be requested yet.
+
+    The store this writes to is named on the first line, and whether it already held
+    anything. The path comes from the working directory, so a run started from the
+    wrong one otherwise spends hours filling a store nobody reads and reports success.
     """
     out = stdout if stdout is not None else sys.stdout
     window = f"{start.isoformat()}..{end.isoformat()}"
+    if sqlite_path is not None:
+        state = "existing" if sqlite_path.exists() else "new"
+        print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
     print(f"backfill-history start: {window}", file=out, flush=True)
     sources: tuple[tuple[str, Callable[[], Sequence[object]]], ...] = (
         ("daily_bars", lambda: providers.jquants.get_eq_bars_daily_range(start, end)),

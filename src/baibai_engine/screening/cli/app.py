@@ -628,6 +628,7 @@ def main(argv: list[str] | None = None) -> int:
             start=window_start,
             end=window_end,
             providers=providers,
+            sqlite_path=sqlite_path,
         )
 
     if args.command == "backfill-master":
