@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, TextIO
@@ -441,6 +441,60 @@ def _record_edinet_extraction_failure(
         status="failed",
         error=message,
     )
+
+
+def backfill_history_command(
+    *,
+    start: date,
+    end: date,
+    providers: ProviderBundle,
+    stdout: TextIO | None = None,
+) -> int:
+    """Fill the range sources over an explicit window.
+
+    ``bootstrap-cache`` derives its windows from one as-of, which is right when the
+    question is "can this run proceed" and wrong when the question is "does the store
+    reach back far enough". Covering years that way costs one 1200-day and one 730-day
+    re-fetch per as-of; naming the window once costs one pass, and the coverage merge
+    joins it to what is already held.
+
+    Each source is fetched independently and reported on its own line, because a
+    provider that cannot answer for one of them says nothing about the others. Chunks
+    already covered are skipped, so a run interrupted after hours resumes where it
+    stopped rather than starting over.
+
+    Bars come first: the month-end grid that ``backfill-master`` fills is derived from
+    the bar store, so snapshots for months without bars cannot be requested yet.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    window = f"{start.isoformat()}..{end.isoformat()}"
+    print(f"backfill-history start: {window}", file=out, flush=True)
+    sources: tuple[tuple[str, Callable[[], Sequence[object]]], ...] = (
+        ("daily_bars", lambda: providers.jquants.get_eq_bars_daily_range(start, end)),
+        ("fin_summaries", lambda: providers.jquants.get_fin_summary_range(start, end)),
+        ("market_calendar", lambda: providers.jquants.get_mkt_calendar(start, end)),
+    )
+    failures: list[str] = []
+    for name, fetch in sources:
+        print(f"backfill-history {name}: {window} start", file=out, flush=True)
+        try:
+            rows = fetch()
+        except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
+            print(
+                f"backfill-history {name}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            failures.append(name)
+            continue
+        print(f"backfill-history {name}: {len(rows)} row(s)", file=out, flush=True)
+    if failures:
+        print(
+            f"backfill-history: {len(failures)} source(s) failed: {', '.join(failures)}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"backfill-history done: {window}", file=out, flush=True)
+    return 0
 
 
 BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT = 3

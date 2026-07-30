@@ -5003,7 +5003,7 @@ class IndicatorsServiceTests(unittest.TestCase):
             )
             self.assertEqual(result.observations[-1].value, 4.55)
 
-    def test_refresh_all_history_uses_jquants_light_window(self) -> None:
+    def test_refresh_all_history_uses_the_jquants_rolling_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             database = Path(tmp) / "macro.sqlite"
             conn = initialize_database(database)
@@ -5052,7 +5052,7 @@ class IndicatorsServiceTests(unittest.TestCase):
                     end=date(2026, 1, 1),
                 )
 
-            self.assertEqual(fetch.call_args.kwargs["start"], date(2021, 7, 20))
+            self.assertEqual(fetch.call_args.kwargs["start"], date(2016, 7, 20))
             conn = open_connection(database)
             try:
                 observed_dates = [
@@ -5065,10 +5065,10 @@ class IndicatorsServiceTests(unittest.TestCase):
                 ]
             finally:
                 conn.close()
-            self.assertEqual(
-                observed_dates,
-                ["2021-06-01", "2025-06-01", "2025-12-26"],
-            )
+            # 2025-06-01 carries a vintage later than the requested end, so the
+            # point-in-time replacement leaves it alone; the rest of the window is
+            # replaced by what the provider now returns.
+            self.assertEqual(observed_dates, ["2025-06-01", "2025-12-26"])
 
     def test_refresh_all_history_uses_boj_timeseries_floor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

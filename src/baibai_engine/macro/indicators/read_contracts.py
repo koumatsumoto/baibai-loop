@@ -12,7 +12,7 @@ from .provider_specs import ProviderSpec
 
 JQUANTS_FLOWS_SPEC = ProviderSpec(
     name="jquants_flows",
-    all_history_rolling_years=5,
+    all_history_rolling_years=10,
     range_replacement="through_end_vintage",
     point_in_time_vintage=True,
     required_env=("JQUANTS_API_KEY",),

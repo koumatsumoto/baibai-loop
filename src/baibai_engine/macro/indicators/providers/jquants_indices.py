@@ -21,9 +21,9 @@ from .base import (
 # Env var name (a credential key, not a secret value); B105 false positive.
 _API_KEY_ENV = "JQUANTS_API_KEY"  # nosec B105
 
-# provider_series_id -> ClientV2 の専用 index bars メソッド名。J-Quants Light は
-# TOPIX 専用 endpoint のみ開放し、汎用 /indices/bars/daily は 403 になるため、
-# 対応する index だけを明示登録する。他の指数は別 provider の ETF proxy 等で取る。
+# provider_series_id -> ClientV2 の index bars メソッド名。registry に series を
+# 持つ index だけを明示登録する。読む経路のない系列を store に入れないため、
+# provider が答えられる index の全量ではなくこの表が取得対象を決める。
 _INDEX_METHODS: Mapping[str, str] = {
     "topix": "get_idx_bars_daily_topix",
 }
@@ -45,7 +45,7 @@ class JQuantsIndicesProvider:
 
     spec = ProviderSpec(
         name="jquants_indices",
-        all_history_rolling_years=5,
+        all_history_rolling_years=10,
         required_env=(_API_KEY_ENV,),
     )
     name = spec.name

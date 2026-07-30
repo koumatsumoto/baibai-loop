@@ -26,6 +26,7 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import (
     ProviderBundle,
+    backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
@@ -1682,3 +1683,52 @@ def _edinet_document(
         "periodEnd": "2026-03-31",
         "submitDateTime": "2026-04-01 12:00",
     }
+
+
+class BackfillHistoryTests(unittest.TestCase):
+    def test_each_range_source_is_fetched_over_the_named_window(self) -> None:
+        # The window is stated once rather than derived from an as-of, so a decade of
+        # history costs one pass instead of one 1200-day re-fetch per cohort date.
+        provider = FakeJQuantsProvider()
+        output = io.StringIO()
+
+        code = backfill_history_command(
+            start=date(2016, 8, 1),
+            end=date(2021, 8, 1),
+            providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+            stdout=output,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            [call[0] for call in provider.calls],
+            ["get_eq_bars_daily_range", "get_fin_summary_range", "get_mkt_calendar"],
+        )
+        self.assertEqual(
+            {(call[1], call[2]) for call in provider.calls},
+            {(date(2016, 8, 1), date(2021, 8, 1))},
+        )
+        self.assertIn("backfill-history done", output.getvalue())
+
+    def test_a_source_that_fails_does_not_stop_the_others(self) -> None:
+        # A provider that cannot answer for one source says nothing about the rest,
+        # and a run of this length should not lose hours of work to one refusal.
+        class FailingBars(FakeJQuantsProvider):
+            def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+                self.calls.append(("get_eq_bars_daily_range", start, end))
+                raise JQuantsProviderError("bars unavailable")
+
+        provider = FailingBars()
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            code = backfill_history_command(
+                start=date(2016, 8, 1),
+                end=date(2016, 8, 31),
+                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("get_fin_summary_range", [call[0] for call in provider.calls])
+        self.assertIn("get_mkt_calendar", [call[0] for call in provider.calls])
+        self.assertIn("daily_bars", errors.getvalue())
