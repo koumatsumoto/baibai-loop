@@ -211,7 +211,14 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     assert "--output-path" in run_argv
 
     select_argv = runner.calls[2]
-    assert select_argv[3:] == ["--asof", "2026-07-21", "--run-revision-id", "rev-1"]
+    assert select_argv[3:] == [
+        "--asof",
+        "2026-07-21",
+        "--run-revision-id",
+        "rev-1",
+        "--longlist-top",
+        "20",
+    ]
 
     export_argv = runner.calls[7]
     assert export_argv[1].endswith("tools/cloud/export_read_models.py")
@@ -602,6 +609,7 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
         "delta_er_moves": 0,
         "delta_holdings": 0,
         "delta_macro_flags": 0,
+        "delta_macro_extremes": 0,
         "delta_unavailable": "view_unreadable",
     }
 

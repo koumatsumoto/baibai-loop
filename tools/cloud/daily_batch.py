@@ -73,6 +73,8 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 # Exit 3 means the screening result was published and exported, but a deferred
 # (macro / prune) step failed afterwards.
 _EXIT_DEFERRED_FAILURE = 3
+# The OP3 review input population size the opportunity path uses.
+_SELECT_LONGLIST_TOP = 20
 
 
 class BatchStepError(RuntimeError):
@@ -301,6 +303,7 @@ def _daily_delta_metrics(path: Path) -> dict[str, object]:
         "delta_er_moves": 0,
         "delta_holdings": 0,
         "delta_macro_flags": 0,
+        "delta_macro_extremes": 0,
         "delta_unavailable": "view_unreadable",
     }
     try:
@@ -310,7 +313,7 @@ def _daily_delta_metrics(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         return absent
     counts: dict[str, object] = {"delta_measured": True}
-    for name in ("entered", "exited", "er_moves", "holdings", "macro_flags"):
+    for name in ("entered", "exited", "er_moves", "holdings", "macro_flags", "macro_extremes"):
         value = payload.get(name)
         if not isinstance(value, list):
             return absent
@@ -702,6 +705,11 @@ def _execute_daily_batch(
         asof_arg,
         "--run-revision-id",
         run_view.run_revision_id,
+        # The longlist is the review input population, and the daily delta compares
+        # it across runs. Publishing it every day keeps that comparison on the pool a
+        # human would actually review instead of the cap-applied top-N.
+        "--longlist-top",
+        str(_SELECT_LONGLIST_TOP),
     ]
     try:
         previous_revision = previous_run_revision_id(root / _RUNS_DB_RELPATH, target)

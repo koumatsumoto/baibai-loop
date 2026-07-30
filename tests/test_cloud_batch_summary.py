@@ -84,6 +84,7 @@ def _export_result(**overrides) -> dict:
             "delta_er_moves": 2,
             "delta_holdings": 1,
             "delta_macro_flags": 0,
+            "delta_macro_extremes": 0,
             "delta_unavailable": "",
         },
         "errors": [],

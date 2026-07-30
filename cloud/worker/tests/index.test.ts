@@ -82,6 +82,7 @@ describe('API authentication', () => {
 describe('view routing', () => {
   it.each([
     ['/api/dashboard', 'views/dashboard.json'],
+    ['/api/daily-delta', 'views/daily-delta.json'],
     ['/api/screening/latest', 'views/screening_latest.json'],
     ['/api/screening/history/2026-07-23', 'history/candidate-views/2026-07-23.json'],
     ['/api/operations', 'views/operations.json'],

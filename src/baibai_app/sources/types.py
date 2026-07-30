@@ -79,6 +79,9 @@ class CandidatesRun:
     # The revision the judgment publications (selection / shortlist) bind to;
     # ``run_id`` is the public identifier shown to a reader.
     run_revision_id: str
+    # The screening rules the run was built from. A pair of runs with different
+    # rules differs by method, not by market, so a delta has to see this.
+    rules_ref: str | None
     rows: tuple[dict[str, object], ...]
 
 

@@ -39,11 +39,12 @@ from .macro import (
     macro_series_names,
 )
 from .market import (
+    close_change_since,
     latest_disclosure_dates_after,
     latest_unadjusted_closes,
     market_calendar_business_day,
     next_earnings_dates,
-    unadjusted_closes_on_or_before,
+    previous_business_day,
 )
 from .operations import list_operation_sessions, operation_session
 from .position import list_portfolio_outcome_payloads, portfolio_ledger_document
@@ -86,6 +87,7 @@ __all__ = [
     "application_db_updated_at",
     "application_store_stats",
     "bargain_assessment_payload",
+    "close_change_since",
     "latest_disclosure_dates_after",
     "latest_macro_context_payload",
     "latest_shortlist_payload",
@@ -117,6 +119,7 @@ __all__ = [
     "next_earnings_dates",
     "operation_session",
     "portfolio_ledger_document",
+    "previous_business_day",
     "previous_run_revision_id",
     "provider_failure_streaks",
     "reconcile_portfolio",
@@ -128,5 +131,4 @@ __all__ = [
     "store_stats",
     "task_store_exists",
     "thesis_publication",
-    "unadjusted_closes_on_or_before",
 ]

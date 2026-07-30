@@ -52,6 +52,8 @@ from .models import (
     CandidateRowView,
     DailyDeltaView,
     DashboardView,
+    DeltaPool,
+    DeltaUnavailable,
     HoldingDeltaView,
     HoldingReviewView,
     HoldingView,
@@ -1438,17 +1440,29 @@ def _string_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
-# How many E[r] movers to report. The reader acts on a handful; a full ranking is
-# what the Candidates table already is.
+# How many movers or pool changes to report. The reader acts on a handful; a full
+# ranking is what the Candidates table already is.
+_DELTA_ROWS_SHOWN = 10
 _DELTA_ER_MOVERS_SHOWN = 5
-# Report a machine E[r] move only past this size in percentage points. Below it the
-# move is noise against the estimate's own precision.
-_DELTA_ER_MOVE_MIN_PP = 1.0
-# Report a holding's move only past this size. Daily noise is not a change worth
-# a reader's attention; a move this large is.
+# Report a machine E[r] move only past this size in percentage points. Measured on
+# the live store, adjacent runs move 30-40 names by at least 1pp and 3-4 by at least
+# this much, so a lower bar would leave the row cap doing all the selection and drop
+# the rest without saying so.
+_DELTA_ER_MOVE_MIN_PP = 3.0
+# Report a holding's move only past this size. Daily noise is not a change worth a
+# reader's attention; a move this large is.
 _DELTA_HOLDING_MOVE_MIN_PCT = 5.0
-# The distribution edge the macro reading itself treats as the edge.
+# The distribution edge the macro reading itself treats as the edge, and the band a
+# series has to come from to count as newly arriving there. Measured on the live
+# store, 45 sessions produced 8 crossings and every one came from 2.86-2.99 — the
+# same series oscillating across a single line, not a series reaching the edge.
 _DELTA_MACRO_Z_EDGE = 3.0
+_DELTA_MACRO_Z_REENTRY = 2.7
+# The pool the delta compares, most informative first. ``longlist`` is the review
+# input population; ``recommendations`` is the cap-applied machine top-N a run always
+# publishes. The run's own candidate array is the whole evaluated universe, so
+# comparing it would report listings and delistings rather than bargains appearing.
+_DELTA_POOL_ORDER: tuple[DeltaPool, ...] = ("longlist", "recommendations")
 
 
 def build_daily_delta(
@@ -1461,10 +1475,10 @@ def build_daily_delta(
     """Compare the latest machine run with the one before it.
 
     The view exists so that a change does not wait for someone to go looking. It
-    reports observations only: which tickers entered or left the candidate pool,
-    which machine estimates moved, which holdings stand at or above their recorded
-    fair value, and which macro threshold notes appeared. Whether any of that is
-    worth an opportunity cycle or a holding review is the reader's call.
+    reports observations only: which tickers entered or left the machine pool, which
+    machine estimates moved, which holdings stand at or above their recorded fair
+    value, and which macro threshold notes appeared. Whether any of that is worth an
+    opportunity cycle or a holding review is the reader's call.
 
     Sections degrade independently. A store that cannot answer is named in
     ``unavailable`` rather than reported as an empty result, because "no store" and
@@ -1472,7 +1486,11 @@ def build_daily_delta(
     """
 
     now = datetime.now(_JST)
-    unavailable: list[str] = []
+    today = now.date()
+    unavailable: list[DeltaUnavailable] = []
+    market_ready = market.exists()
+    if not market_ready:
+        unavailable.append("market")
     latest = candidates.latest_run()
     previous = candidates.previous_run()
     if latest is None:
@@ -1480,32 +1498,60 @@ def build_daily_delta(
     elif previous is None:
         unavailable.append("candidates_previous_run")
 
+    pool: DeltaPool | None = None
+    rules_changed = False
     entered: list[CandidateEntryDeltaView] = []
     exited: list[CandidateEntryDeltaView] = []
     er_moves: list[CandidateMoveDeltaView] = []
+    er_moves_total = 0
     if latest is not None and previous is not None:
-        entered, exited, er_moves = _candidate_deltas(latest, previous, market=market)
+        rules_changed = (
+            latest.rules_ref is not None
+            and previous.rules_ref is not None
+            and latest.rules_ref != previous.rules_ref
+        )
+        pools = _delta_pools(candidates, latest, previous)
+        if pools is None:
+            unavailable.append("candidates_pool")
+        elif rules_changed:
+            # A rules revision replaces the pool wholesale, so the difference is a
+            # method change and not a market change. Naming it is the honest answer.
+            pool = pools[0]
+        else:
+            pool, current_pool, previous_pool = pools
+            entered, exited, er_moves, er_moves_total = _candidate_deltas(
+                current_pool,
+                previous_pool,
+                market=market if market_ready else None,
+                previous_asof=previous.asof_date,
+            )
 
     holdings: list[HoldingDeltaView] = []
     holdings_without_fair_value = 0
+    holdings_without_price = 0
     if not ledger.exists():
         unavailable.append("holdings")
-    elif latest is not None:
-        holdings, holdings_without_fair_value = _holding_deltas(
+    elif market_ready:
+        if research.load_errors():
+            # A thesis the store cannot read is not a holding without a fair value.
+            unavailable.append("holdings_fair_value")
+        holdings, holdings_without_fair_value, holdings_without_price = _holding_deltas(
             ledger.snapshot(),
             research=research,
             market=market,
-            asof=latest.asof_date,
+            asof=today,
             previous_asof=None if previous is None else previous.asof_date,
         )
 
     macro_flags: list[MacroFlagDeltaView] = []
     macro_extremes: list[MacroExtremeDeltaView] = []
-    if latest is None or previous is None:
+    macro_asof = today if latest is None else latest.asof_date
+    macro_previous = market.previous_business_day(macro_asof) if market_ready else None
+    if macro_previous is None:
         unavailable.append("macro")
     else:
-        current_reading = macro.reading(asof=latest.asof_date)
-        previous_reading = macro.reading(asof=previous.asof_date)
+        current_reading = macro.reading(asof=macro_asof)
+        previous_reading = macro.reading(asof=macro_previous)
         if current_reading is None or previous_reading is None:
             unavailable.append("macro")
         else:
@@ -1515,62 +1561,128 @@ def build_daily_delta(
         generated_at=now,
         asof=None if latest is None else latest.asof_date,
         previous_asof=None if previous is None else previous.asof_date,
+        pool=pool,
+        rules_changed=rules_changed,
         entered=entered,
         exited=exited,
         er_moves=er_moves,
+        er_moves_total=er_moves_total,
         holdings=holdings,
         holdings_without_fair_value=holdings_without_fair_value,
+        holdings_without_price=holdings_without_price,
         macro_flags=macro_flags,
         macro_extremes=macro_extremes,
         unavailable=sorted(dict.fromkeys(unavailable)),
     )
 
 
-def _candidate_er(row: Mapping[str, object]) -> float | None:
+def _pool_rows(
+    payloads: list[dict[str, object]], name: str
+) -> dict[str, Mapping[str, object]] | None:
+    """Index one pool of a run's machine selection by ticker, or None when absent."""
+
+    for payload in payloads:
+        if payload.get("publication_kind") != "machine":
+            continue
+        body = payload.get("payload")
+        rows = body.get(name) if isinstance(body, Mapping) else None
+        if not isinstance(rows, list):
+            continue
+        indexed = {
+            str(row.get("ticker")): row
+            for row in rows
+            if isinstance(row, Mapping) and row.get("ticker")
+        }
+        if indexed:
+            return indexed
+    return None
+
+
+def _delta_pools(
+    candidates: CandidatesSource, latest: CandidatesRun, previous: CandidatesRun
+) -> tuple[DeltaPool, dict[str, Mapping[str, object]], dict[str, Mapping[str, object]]] | None:
+    """Pick the most informative pool both runs published, or None when neither did.
+
+    What counts as a candidate is decided by ``select`` and published in its output;
+    re-deriving it here from the run's candidate array would both duplicate the screen
+    definition and compare the whole universe.
+    """
+
+    latest_payloads = candidates.selections(run_revision_id=latest.run_revision_id)
+    previous_payloads = candidates.selections(run_revision_id=previous.run_revision_id)
+    for name in _DELTA_POOL_ORDER:
+        current = _pool_rows(latest_payloads, name)
+        earlier = _pool_rows(previous_payloads, name)
+        if current is not None and earlier is not None:
+            return name, current, earlier
+    return None
+
+
+def _pool_er(row: Mapping[str, object]) -> float | None:
+    """Read the machine E[r] a selection row carries, whatever nesting it uses."""
+
+    direct = _number(row.get("er_annual"))
+    if direct is not None:
+        return direct
     metrics = row.get("metrics")
     return _number((metrics if isinstance(metrics, Mapping) else {}).get("er_annual"))
 
 
 def _candidate_entry_delta(
-    row: Mapping[str, object], *, disclosed: bool
+    row: Mapping[str, object], *, disclosed: bool | None
 ) -> CandidateEntryDeltaView:
     return CandidateEntryDeltaView(
         ticker=str(row.get("ticker", "")),
         company_name=_text(row.get("name")),
         sector=_text(row.get("sector_33")) or "",
-        er_annual_pct=_percent(_candidate_er(row)),
-        next_earnings_date=_date_or_none(_text(row.get("next_earnings_date"))),
+        er_annual_pct=_percent(_pool_er(row)),
         disclosed_since_previous=disclosed,
     )
 
 
 def _candidate_deltas(
-    latest: CandidatesRun, previous: CandidatesRun, *, market: MarketPriceSource
+    current: Mapping[str, Mapping[str, object]],
+    earlier: Mapping[str, Mapping[str, object]],
+    *,
+    market: MarketPriceSource | None,
+    previous_asof: date,
 ) -> tuple[
-    list[CandidateEntryDeltaView], list[CandidateEntryDeltaView], list[CandidateMoveDeltaView]
+    list[CandidateEntryDeltaView],
+    list[CandidateEntryDeltaView],
+    list[CandidateMoveDeltaView],
+    int,
 ]:
-    current_rows = {str(row.get("ticker", "")): row for row in latest.rows}
-    previous_rows = {str(row.get("ticker", "")): row for row in previous.rows}
-    entered_tickers = sorted(set(current_rows) - set(previous_rows))
-    exited_tickers = sorted(set(previous_rows) - set(current_rows))
-    # A name that reported between the two runs entered on new numbers, not on a
-    # price move alone. The screen output carries no disclosure date, so it is read
-    # from the market store for the tickers that actually changed side.
-    disclosed = set(
-        market.disclosures_after(entered_tickers + exited_tickers, after=previous.asof_date)
-    )
+    def by_er(tickers: set[str], rows: Mapping[str, Mapping[str, object]]) -> list[str]:
+        # Value order, so a capped list keeps the names worth reading first.
+        return sorted(tickers, key=lambda ticker: (-(_pool_er(rows[ticker]) or 0.0), ticker))
+
+    entered_tickers = by_er(set(current) - set(earlier), current)[:_DELTA_ROWS_SHOWN]
+    exited_tickers = by_er(set(earlier) - set(current), earlier)[:_DELTA_ROWS_SHOWN]
+    # A name that reported between the two runs entered on new numbers, not on a price
+    # move alone. The selection output carries no disclosure date, so it is read from
+    # the market store for the tickers that actually changed side. When that store
+    # cannot answer, the fact stays unknown instead of reading as "no disclosure".
+    disclosed: set[str] | None = None
+    if market is not None:
+        disclosed = set(
+            market.disclosures_after(entered_tickers + exited_tickers, after=previous_asof)
+        )
     entered = [
-        _candidate_entry_delta(current_rows[ticker], disclosed=ticker in disclosed)
+        _candidate_entry_delta(
+            current[ticker], disclosed=None if disclosed is None else ticker in disclosed
+        )
         for ticker in entered_tickers
     ]
     exited = [
-        _candidate_entry_delta(previous_rows[ticker], disclosed=ticker in disclosed)
+        _candidate_entry_delta(
+            earlier[ticker], disclosed=None if disclosed is None else ticker in disclosed
+        )
         for ticker in exited_tickers
     ]
     moves: list[CandidateMoveDeltaView] = []
-    for ticker in sorted(set(current_rows) & set(previous_rows)):
-        current_er = _percent(_candidate_er(current_rows[ticker]))
-        previous_er = _percent(_candidate_er(previous_rows[ticker]))
+    for ticker in sorted(set(current) & set(earlier)):
+        current_er = _percent(_pool_er(current[ticker]))
+        previous_er = _percent(_pool_er(earlier[ticker]))
         if current_er is None or previous_er is None:
             continue
         change = round(current_er - previous_er, 1)
@@ -1579,14 +1691,14 @@ def _candidate_deltas(
         moves.append(
             CandidateMoveDeltaView(
                 ticker=ticker,
-                company_name=_text(current_rows[ticker].get("name")),
+                company_name=_text(current[ticker].get("name")),
                 er_annual_pct=current_er,
                 previous_er_annual_pct=previous_er,
                 change_pp=change,
             )
         )
     moves.sort(key=lambda item: (-abs(item.change_pp), item.ticker))
-    return entered, exited, moves[:_DELTA_ER_MOVERS_SHOWN]
+    return entered, exited, moves[:_DELTA_ER_MOVERS_SHOWN], len(moves)
 
 
 def _holding_deltas(
@@ -1596,48 +1708,44 @@ def _holding_deltas(
     market: MarketPriceSource,
     asof: date,
     previous_asof: date | None,
-) -> tuple[list[HoldingDeltaView], int]:
+) -> tuple[list[HoldingDeltaView], int, int]:
     tickers = [holding.ticker for holding in snapshot.holdings]
     if not tickers:
-        return [], 0
+        return [], 0, 0
     latest_by_ticker = market.latest_closes(tickers)
-    previous_by_ticker = (
-        {} if previous_asof is None else market.closes_on_or_before(tickers, day=previous_asof)
+    # The change is asked of the market layer so both ends land on the same share
+    # basis; dividing two stored closes would report a split as a price move.
+    changes = (
+        {} if previous_asof is None else market.close_changes_since(tickers, since=previous_asof)
     )
     earnings = market.next_earnings_dates(tickers, asof=asof)
     revisions = _latest_research_by_ticker(research.revisions())
     rows: list[HoldingDeltaView] = []
     without_fair_value = 0
+    without_price = 0
     for holding in snapshot.holdings:
         revision = revisions.get(holding.ticker)
         fair_value = None if revision is None else revision.current_fair_value_yen
         close = latest_by_ticker.get(holding.ticker)
         close_value = None if close is None else close[0]
-        earlier = previous_by_ticker.get(holding.ticker)
-        change = None
-        if close_value is not None and earlier is not None and earlier[0] != 0:
-            change = round((close_value - earlier[0]) / earlier[0] * 100, 1)
-        next_earnings = earnings.get(holding.ticker)
+        if fair_value is None:
+            without_fair_value += 1
+        elif close_value is None:
+            # A holding with a fair value the store cannot price is neither compared
+            # nor absent: counting it keeps the silence from reading as "not reached".
+            without_price += 1
+        change = changes.get(holding.ticker)
         at_or_above = (
             None if fair_value is None or close_value is None else bool(close_value >= fair_value)
         )
-        if fair_value is None:
-            without_fair_value += 1
         moved = change is not None and abs(change) >= _DELTA_HOLDING_MOVE_MIN_PCT
         if at_or_above is not True and not moved:
             continue
+        next_earnings = earnings.get(holding.ticker)
         rows.append(
             HoldingDeltaView(
                 ticker=holding.ticker,
                 company_name=None if revision is None else revision.company_name,
-                close_yen=close_value,
-                close_as_of=None if close is None else close[1],
-                fair_value_yen=fair_value,
-                fv_gap_pct=(
-                    round((fair_value - close_value) / close_value * 100, 1)
-                    if fair_value is not None and close_value not in (None, 0)
-                    else None
-                ),
                 at_or_above_fair_value=at_or_above,
                 change_since_previous_pct=change,
                 days_to_next_earnings=(
@@ -1645,7 +1753,7 @@ def _holding_deltas(
                 ),
             )
         )
-    return rows, without_fair_value
+    return rows, without_fair_value, without_price
 
 
 def _reading_by_series(payload: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
@@ -1681,11 +1789,13 @@ def _macro_deltas(
         before_z = _number((previous_series.get(series_id) or {}).get("z_score"))
         if now_z is None or abs(now_z) < _DELTA_MACRO_Z_EDGE:
             continue
-        if before_z is not None and abs(before_z) >= _DELTA_MACRO_Z_EDGE:
+        if before_z is not None and abs(before_z) >= _DELTA_MACRO_Z_REENTRY:
             continue
         extremes.append(
             MacroExtremeDeltaView(
-                series_id=series_id, z_score=round(now_z, 2), previous_z_score=before_z
+                series_id=series_id,
+                z_score=round(now_z, 2),
+                previous_z_score=None if before_z is None else round(before_z, 2),
             )
         )
     return flags, extremes
@@ -1696,15 +1806,6 @@ def _flag_set(reading: Mapping[str, object] | None) -> set[str]:
         return set()
     raw = reading.get("flags")
     return {str(item) for item in raw} if isinstance(raw, list) else set()
-
-
-def _date_or_none(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        return None
 
 
 def _percent(value: float | None) -> float | None:

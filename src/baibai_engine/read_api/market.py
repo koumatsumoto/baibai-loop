@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.market.bars import JQuantsDailyBar, asof_basis_closes
+
 from .sqlite import connect_read_only, read_rows
+
+# How far before the requested start a bar may sit: the market is closed for up to
+# a week around the New Year, so a shorter window would drop the comparison端.
+_CHANGE_START_LOOKBACK_DAYS = 15
 
 
 def market_calendar_business_day(path: Path, day: date) -> bool | None:
@@ -60,15 +66,39 @@ def latest_unadjusted_closes(path: Path, tickers: Sequence[str]) -> dict[str, tu
     return {str(row[0]): (float(row[2]), date.fromisoformat(str(row[1]))) for row in rows}
 
 
-def unadjusted_closes_on_or_before(
-    path: Path, tickers: Sequence[str], *, day: date
-) -> dict[str, tuple[float, date]]:
-    """Return each ticker's most recent non-null unadjusted close at or before ``day``.
+def previous_business_day(path: Path, day: date, *, max_lookback: int = 10) -> date | None:
+    """Return the latest trading day strictly before ``day``, or None when unknown.
 
-    A change is only readable against a stated earlier session, so a caller that
-    compares two dates needs the older side pinned rather than "latest". A ticker
-    that had not traded by ``day`` yields no entry, which keeps a comparison from
-    being drawn against a price that did not exist yet.
+    A comparison against "yesterday" has to skip weekends and holidays, and the
+    calendar is the only record of which those are. This answers a view question, so
+    it degrades: a store the writer has not produced yields None and the caller
+    reports the comparison as unmeasured. ``market_calendar_business_day`` raises
+    instead because it gates whether the daily batch writes at all.
+    """
+
+    rows = read_rows(
+        path,
+        """
+            SELECT day FROM jquants_market_calendar
+            WHERE day < ? AND day >= ? AND is_business_day = 1
+            ORDER BY day DESC LIMIT 1
+        """,
+        (day.isoformat(), (day - timedelta(days=max_lookback)).isoformat()),
+    )
+    return date.fromisoformat(str(rows[0][0])) if rows else None
+
+
+def close_change_since(path: Path, tickers: Sequence[str], *, since: date) -> dict[str, float]:
+    """Return each ticker's percent close change from ``since`` to its latest close.
+
+    Both ends are put on the latest share basis before dividing. The stored close is
+    unadjusted and ``adjustment_close`` mixes vintages across an incremental cache, so
+    a split between the two dates would otherwise read as a price move of the split
+    ratio — a 1:2 split as a 50% fall. The correction uses ``adjustment_factor``,
+    which is the split event itself and does not change once published.
+
+    A ticker with no close at or before ``since`` yields no entry: there is nothing to
+    compare against, which is different from having not moved.
     """
 
     if not tickers:
@@ -79,21 +109,43 @@ def unadjusted_closes_on_or_before(
     rows = read_rows(
         path,
         f"""
-            SELECT ticker, traded_at, close FROM (
-                SELECT ticker, traded_at, close,
-                       row_number() OVER (
-                           PARTITION BY ticker ORDER BY traded_at DESC
-                       ) AS rank
-                FROM jquants_daily_bars
-                WHERE ticker IN ({placeholders})
-                  AND close IS NOT NULL
-                  AND traded_at <= ?
-            )
-            WHERE rank = 1
+            SELECT ticker, traded_at, close, adjustment_factor
+            FROM jquants_daily_bars
+            WHERE ticker IN ({placeholders})
+              AND close IS NOT NULL
+              AND traded_at >= ?
+            ORDER BY ticker, traded_at
             """,  # nosec B608
-        [*unique, day.isoformat()],
+        [*unique, (since - timedelta(days=_CHANGE_START_LOOKBACK_DAYS)).isoformat()],
     )
-    return {str(row[0]): (float(row[2]), date.fromisoformat(str(row[1]))) for row in rows}
+    by_ticker: dict[str, list[JQuantsDailyBar]] = {}
+    for ticker, traded_at, close, factor in rows:
+        by_ticker.setdefault(str(ticker), []).append(
+            JQuantsDailyBar(
+                ticker=str(ticker),
+                traded_at=date.fromisoformat(str(traded_at)),
+                close=float(close),
+                turnover_value=None,
+                adjustment_factor=None if factor is None else float(factor),
+            )
+        )
+    changes: dict[str, float] = {}
+    for ticker, bars in by_ticker.items():
+        start = _index_on_or_before(bars, since)
+        if start is None or start == len(bars) - 1:
+            continue
+        closes = asof_basis_closes(bars)
+        if closes[start] == 0:
+            continue
+        changes[ticker] = round((closes[-1] / closes[start] - 1) * 100, 1)
+    return changes
+
+
+def _index_on_or_before(bars: Sequence[JQuantsDailyBar], day: date) -> int | None:
+    for index in range(len(bars) - 1, -1, -1):
+        if bars[index].traded_at <= day:
+            return index
+    return None
 
 
 def latest_disclosure_dates_after(
@@ -157,4 +209,11 @@ def next_earnings_dates(path: Path, tickers: Sequence[str], *, asof: date) -> di
     return result
 
 
-__all__ = ["latest_unadjusted_closes", "market_calendar_business_day", "next_earnings_dates"]
+__all__ = [
+    "close_change_since",
+    "latest_disclosure_dates_after",
+    "latest_unadjusted_closes",
+    "market_calendar_business_day",
+    "next_earnings_dates",
+    "previous_business_day",
+]

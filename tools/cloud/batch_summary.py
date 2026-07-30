@@ -204,6 +204,7 @@ _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
         "delta_er_moves": int,
         "delta_holdings": int,
         "delta_macro_flags": int,
+        "delta_macro_extremes": int,
         "delta_unavailable": str,
     },
     "prune": {},

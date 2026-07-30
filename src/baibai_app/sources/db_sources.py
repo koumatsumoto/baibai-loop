@@ -27,6 +27,7 @@ from baibai_engine.read_api import (
     application_db_updated_at,
     application_store_stats,
     bargain_assessment_payload,
+    close_change_since,
     latest_disclosure_dates_after,
     latest_shortlist_payload,
     latest_unadjusted_closes,
@@ -48,6 +49,7 @@ from baibai_engine.read_api import (
     never_attempted_series,
     next_earnings_dates,
     portfolio_ledger_document,
+    previous_business_day,
     provider_failure_streaks,
     reconcile_portfolio,
     safe_load,
@@ -58,7 +60,6 @@ from baibai_engine.read_api import (
     store_stats,
     task_store_exists,
     thesis_publication,
-    unadjusted_closes_on_or_before,
 )
 
 
@@ -82,13 +83,17 @@ class DbMarketPriceSource:
     def __init__(self, market_db_path: Path) -> None:
         self._path = market_db_path.resolve()
 
+    def exists(self) -> bool:
+        return self._path.is_file()
+
+    def previous_business_day(self, day: date) -> date | None:
+        return previous_business_day(self._path, day)
+
     def latest_closes(self, tickers: Sequence[str]) -> Mapping[str, tuple[float, date]]:
         return latest_unadjusted_closes(self._path, tickers)
 
-    def closes_on_or_before(
-        self, tickers: Sequence[str], *, day: date
-    ) -> Mapping[str, tuple[float, date]]:
-        return unadjusted_closes_on_or_before(self._path, tickers, day=day)
+    def close_changes_since(self, tickers: Sequence[str], *, since: date) -> Mapping[str, float]:
+        return close_change_since(self._path, tickers, since=since)
 
     def disclosures_after(self, tickers: Sequence[str], *, after: date) -> Mapping[str, date]:
         return latest_disclosure_dates_after(self._path, tickers, after=after)
@@ -498,6 +503,7 @@ class DbCandidatesSource:
             run_at=datetime.fromisoformat(str(raw["run_at"])),
             universe_size=int(str(raw["universe_size"])),
             run_revision_id=str(raw["run_revision_id"]),
+            rules_ref=None if raw.get("rules_ref") is None else str(raw["rules_ref"]),
             rows=tuple(candidates),
         )
 
