@@ -288,25 +288,37 @@ def _daily_delta_metrics(path: Path) -> dict[str, object]:
     """Read the exported delta counts so the run notification carries them.
 
     The notification is the only channel that reaches a reader without being
-    opened, so the day's change counts belong in it. A view that could not be
-    written yields no metrics rather than zeros, because "nothing changed" and
-    "nothing measured" must not print the same.
+    opened, so the day's change counts belong in it. Every key is reported on every
+    run because the summary schema requires it, and ``delta_measured`` separates a
+    day with no changes from a view that could not be read — zero counts alone
+    would say the same thing for both.
     """
 
+    absent: dict[str, object] = {
+        "delta_measured": False,
+        "delta_entered": 0,
+        "delta_exited": 0,
+        "delta_er_moves": 0,
+        "delta_holdings": 0,
+        "delta_macro_flags": 0,
+        "delta_unavailable": "view_unreadable",
+    }
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
+        return absent
     if not isinstance(payload, dict):
-        return {}
-    counts: dict[str, object] = {
-        f"delta_{name}": len(value)
-        for name in ("entered", "exited", "er_moves", "holdings", "macro_flags")
-        if isinstance(value := payload.get(name), list)
-    }
+        return absent
+    counts: dict[str, object] = {"delta_measured": True}
+    for name in ("entered", "exited", "er_moves", "holdings", "macro_flags"):
+        value = payload.get(name)
+        if not isinstance(value, list):
+            return absent
+        counts[f"delta_{name}"] = len(value)
     unavailable = payload.get("unavailable")
-    if isinstance(unavailable, list) and unavailable:
-        counts["delta_unavailable"] = ",".join(str(item) for item in unavailable)
+    counts["delta_unavailable"] = (
+        ",".join(str(item) for item in unavailable) if isinstance(unavailable, list) else ""
+    )
     return counts
 
 

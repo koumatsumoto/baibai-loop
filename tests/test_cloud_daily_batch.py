@@ -592,7 +592,18 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
     assert macro.metrics == {"target": 5, "success": 5, "failure": 0}
     assert macro.status == "ok"
     export = summary.batches[2]
-    assert export.metrics == {"local_output": True}
+    # The delta view is absent in this fixture, so the export reports "not measured"
+    # rather than zero counts that would read as "nothing changed".
+    assert export.metrics == {
+        "local_output": True,
+        "delta_measured": False,
+        "delta_entered": 0,
+        "delta_exited": 0,
+        "delta_er_moves": 0,
+        "delta_holdings": 0,
+        "delta_macro_flags": 0,
+        "delta_unavailable": "view_unreadable",
+    }
 
 
 def test_daily_batch_writes_skipped_summary(tmp_path: Path) -> None:
