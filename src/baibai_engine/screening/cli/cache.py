@@ -443,6 +443,22 @@ def _record_edinet_extraction_failure(
     )
 
 
+def _calendar_year_spans(start: date, end: date) -> tuple[tuple[date, date], ...]:
+    """Split `[start, end]` at calendar-year boundaries.
+
+    The interior boundaries come from the calendar rather than from `start`, so runs
+    that name different first dates still request the same interior spans and reuse
+    each other's fetch chunks.
+    """
+    spans: list[tuple[date, date]] = []
+    span_start = start
+    while span_start <= end:
+        span_end = min(date(span_start.year, 12, 31), end)
+        spans.append((span_start, span_end))
+        span_start = span_end + timedelta(days=1)
+    return tuple(spans)
+
+
 def backfill_history_command(
     *,
     start: date,
@@ -477,16 +493,23 @@ def backfill_history_command(
         state = "existing" if sqlite_path.exists() else "new"
         print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
     print(f"backfill-history start: {window}", file=out, flush=True)
-    sources: tuple[tuple[str, Callable[[], Sequence[object]]], ...] = (
-        ("daily_bars", lambda: providers.jquants.get_eq_bars_daily_range(start, end)),
-        ("fin_summaries", lambda: providers.jquants.get_fin_summary_range(start, end)),
-        ("market_calendar", lambda: providers.jquants.get_mkt_calendar(start, end)),
+    sources: tuple[tuple[str, Callable[[date, date], Sequence[object]], bool], ...] = (
+        ("daily_bars", providers.jquants.get_eq_bars_daily_range, True),
+        ("fin_summaries", providers.jquants.get_fin_summary_range, True),
+        ("market_calendar", providers.jquants.get_mkt_calendar, False),
     )
     failures: list[str] = []
-    for name, fetch in sources:
+    for name, fetch, by_year in sources:
         print(f"backfill-history {name}: {window} start", file=out, flush=True)
+        # The range readers answer with every row in the window, so asking for a
+        # decade at once holds a decade of bars in memory for the sake of a count.
+        # A year at a time bounds that and reports progress on a pass that runs for
+        # hours; the calendar is one provider call and is not worth splitting.
+        spans = _calendar_year_spans(start, end) if by_year else ((start, end),)
+        count = 0
         try:
-            rows = fetch()
+            for span_start, span_end in spans:
+                count += len(fetch(span_start, span_end))
         except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
             print(
                 f"backfill-history {name}: {type(exc).__name__}: {exc}",
@@ -494,7 +517,7 @@ def backfill_history_command(
             )
             failures.append(name)
             continue
-        print(f"backfill-history {name}: {len(rows)} row(s)", file=out, flush=True)
+        print(f"backfill-history {name}: {count} row(s)", file=out, flush=True)
     if failures:
         print(
             f"backfill-history: {len(failures)} source(s) failed: {', '.join(failures)}",

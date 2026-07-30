@@ -1694,20 +1694,27 @@ class BackfillHistoryTests(unittest.TestCase):
 
         code = backfill_history_command(
             start=date(2016, 8, 1),
-            end=date(2021, 8, 1),
+            end=date(2018, 3, 1),
             providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
             stdout=output,
         )
 
         self.assertEqual(code, 0)
-        self.assertEqual(
-            [call[0] for call in provider.calls],
-            ["get_eq_bars_daily_range", "get_fin_summary_range", "get_mkt_calendar"],
-        )
-        self.assertEqual(
-            {(call[1], call[2]) for call in provider.calls},
-            {(date(2016, 8, 1), date(2021, 8, 1))},
-        )
+        # The row readers answer with the whole window, so the two of them that can
+        # span years are asked a year at a time. The interior boundaries follow the
+        # calendar, not `start`, so a run naming a different first date reuses the
+        # same fetch chunks. The calendar is one provider call and stays whole.
+        by_source: dict[str, list[tuple[date, date]]] = {}
+        for name, start, end in provider.calls:
+            by_source.setdefault(name, []).append((start, end))
+        year_spans = [
+            (date(2016, 8, 1), date(2016, 12, 31)),
+            (date(2017, 1, 1), date(2017, 12, 31)),
+            (date(2018, 1, 1), date(2018, 3, 1)),
+        ]
+        self.assertEqual(by_source["get_eq_bars_daily_range"], year_spans)
+        self.assertEqual(by_source["get_fin_summary_range"], year_spans)
+        self.assertEqual(by_source["get_mkt_calendar"], [(date(2016, 8, 1), date(2018, 3, 1))])
         self.assertIn("backfill-history done", output.getvalue())
 
     def test_a_source_that_fails_does_not_stop_the_others(self) -> None:

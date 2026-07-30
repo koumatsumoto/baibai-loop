@@ -42,7 +42,7 @@ uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 
 `select` の `--run-revision-id` は必須で、`screening run` が返した immutable revision を指す。`--macro-context-id` は published macro context の ID（省略時は as-of 以前の latest eligible）で path ではない。`--longlist-top N` は diversity/cap 切断前の上位 N 件を longlist として出す。
 
-`backfill-history` は日次足・財務サマリー・営業日カレンダを、明示した窓に対して 1 回で取得する。`bootstrap-cache` は窓を as-of から導くため、履歴を遡るには 1 日あたり 1200 日 + 730 日の再取得をcohort 日ごとに払うことになる。窓を 1 度名指しすれば 1 パスで済み、coverage の union merge が既存の窓と繋ぐ。source ごとに独立に取得して行ごとに結果を出し、1 つの失敗が残りを止めない。取得済み chunk は skip するので、中断した実行は続きから再開する。日次足を先に取るのは、`backfill-master` の月末グリッドが bar store から導出されるためで、bars の無い月の snapshot はまだ要求できない。
+`backfill-history` は日次足・財務サマリー・営業日カレンダを、明示した窓に対して 1 回で取得する。`bootstrap-cache` は窓を as-of から導くため、履歴を遡るには 1 日あたり 1200 日 + 730 日の再取得をcohort 日ごとに払うことになる。窓を 1 度名指しすれば 1 パスで済み、coverage の union merge が既存の窓と繋ぐ。source ごとに独立に取得して行ごとに結果を出し、1 つの失敗が残りを止めない。日次足と財務サマリーは暦年で区切って要求する。窓全体を 1 度に読むと 10 年分の行をメモリに載せることになるうえ、区切りを `--start` でなく暦に置けば、開始日の違う実行どうしが同じ chunk を再利用できる。取得済み chunk は skip するので、中断した実行は続きから再開する（営業日カレンダは provider 呼び出し 1 回なので分割せず、途中再開の単位にもならない）。日次足を先に取るのは、`backfill-master` の月末グリッドが bar store から導出されるためで、bars の無い月の snapshot はまだ要求できない。
 
 `backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に 1200 日の bar 窓と 730 日の summary 窓も取り直すため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
 
