@@ -27,8 +27,10 @@ cohort の metric について、exit value を持たない銘柄へ次の 2 通
 
 | metric | 向き |
 | --- | --- |
-| `recommended_rank_top5` / `recommended_rank_top10` | 推奨上位の median excess return の符号 |
-| `er_calibration` | 予測 E[r] と実現リターンの rank IC の符号 |
+| `recommended_rank_top5` / `recommended_rank_top10` | その group の `median_excess` の符号 |
+| `er_calibration` | 最上位 quintile の `median_realized_price_excess` − 最下位 quintile の同値の符号（予測の高い側が実現でも高いか） |
+
+`er_calibration` の向きは当初 rank IC と書いたが、実装が返すのは quintile 表で IC ではない。**計測を実行する前に**、実装が実際に持つ量へ定義を揃えた（この訂正自体も計測前の commit として git history に残る）。
 
 ### 採否基準
 
