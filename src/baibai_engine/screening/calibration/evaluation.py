@@ -137,16 +137,15 @@ def _evaluate_cohort(
     unresolved_reasons: dict[str, int] = {}
     for row in unresolved:
         unresolved_reasons[row.status] = unresolved_reasons.get(row.status, 0) + 1
-    entry_not_listed = [
-        row
-        for row in unresolved
-        if row.status == "unresolved_missing_entry" and row.entry_date is None
-    ]
-    entry_price_gap = [
-        row
-        for row in unresolved
-        if row.status == "unresolved_missing_entry" and row.entry_date is not None
-    ]
+    # The panel records the last close at or before asof, so it is the authority on
+    # whether a name was priced then. A forward row that found no entry for a name
+    # the panel priced is a tradeable name dropped from the measurement, not a name
+    # that was absent from the market — the two must not share a bucket, because only
+    # the first can bias the cohort.
+    priced_at_asof = {row.ticker for row in panel if row.close is not None}
+    missing_entry = [row for row in unresolved if row.status == "unresolved_missing_entry"]
+    entry_not_listed = [row for row in missing_entry if row.ticker not in priced_at_asof]
+    entry_price_gap = [row for row in missing_entry if row.ticker in priced_at_asof]
     unpriced_exit = [
         row
         for row in unresolved

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields, replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.market.bars import asof_basis_closes
@@ -60,7 +60,11 @@ def compute_forward_returns(
         return []
     specs = tuple(require_horizon(name) for name in horizons)
     unique_tickers = sorted(set(tickers) | set(BENCHMARK_TICKERS))
-    min_asof = min(asofs)
+    # Entry resolution accepts a bar up to STALE_PRICE_MAX_LAG_DAYS before asof, so
+    # the load window has to start that far ahead of the earliest asof. Loading from
+    # the asof itself makes the tolerance unusable: a name that did not trade on the
+    # asof date reads as having no entry at all, even though it traded days earlier.
+    min_asof = min(asofs) - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
     eval_cap = _latest_bar_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
     conn = sqlite3.connect(sqlite_path)

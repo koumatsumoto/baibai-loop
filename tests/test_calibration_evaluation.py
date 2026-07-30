@@ -36,6 +36,7 @@ def _panel_row(
     er_annual: float | None = None,
     er_reversion_annual: float | None = None,
     er_carry_annual: float | None = None,
+    close: float | None = 1000.0,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -45,7 +46,7 @@ def _panel_row(
         market_cap_oku=500.0,
         avg_turnover_oku=5.0,
         listing_span_days=1200,
-        close=1000.0,
+        close=close,
         per_forward=None,
         per_trailing=per_trailing,
         pbr=None,
@@ -521,7 +522,7 @@ class EvaluateCohortsTest(unittest.TestCase):
             self.assertEqual(calibration["calibration_error_basis"], "realized_minus_predicted")
 
     def _long_horizon_cohort(
-        self, extra: list[ForwardReturnRow]
+        self, extra: list[tuple[ForwardReturnRow, float | None]]
     ) -> tuple[list[PanelRow], list[ForwardReturnRow]]:
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
@@ -537,8 +538,10 @@ class EvaluateCohortsTest(unittest.TestCase):
                     adjustment_factor_coverage="complete",
                 )
             )
-        for row in extra:
-            panel.append(_panel_row(row.ticker, per_trailing=None))
+        # panel の close が「asof に価格が付いていたか」の権威なので、分類の意図は
+        # forward row ではなく panel 側の close で表す。
+        for row, panel_close in extra:
+            panel.append(_panel_row(row.ticker, per_trailing=None, close=panel_close))
             forwards.append(row)
         return panel, forwards
 
@@ -577,8 +580,9 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(coverage, dict)
         return counts, coverage
 
-    def test_not_listed_entry_is_disclosed_without_blocking_the_cohort(self) -> None:
-        # asof に未上場だった銘柄の除外は正しいので、blocker にはならず件数だけ残る。
+    def test_unpriced_entry_is_disclosed_without_blocking_the_cohort(self) -> None:
+        # panel も価格を持たない = asof に市場に無かった銘柄。除外は正しいので
+        # blocker にはならず件数だけ残る。
         not_listed = ForwardReturnRow(
             asof="2025-06-30",
             ticker="9100",
@@ -591,13 +595,34 @@ class EvaluateCohortsTest(unittest.TestCase):
             exit_date=None,
             status="unresolved_missing_entry",
         )
-        counts, coverage = self._reason_counts(*self._long_horizon_cohort([not_listed]))
+        counts, coverage = self._reason_counts(*self._long_horizon_cohort([(not_listed, None)]))
 
         self.assertEqual(coverage["entry_not_listed_count"], 1)
         self.assertEqual(coverage["entry_price_gap_count"], 0)
         self.assertEqual(coverage["unpriced_exit_count"], 0)
         self.assertEqual([key for key in counts if key.startswith("entry_price_gap")], [])
         self.assertEqual([key for key in counts if key.startswith("unpriced_exit")], [])
+
+    def test_entry_missing_for_a_priced_name_blocks_even_without_an_entry_date(self) -> None:
+        # panel が価格を持つのに forward が entry を持たない銘柄は、取引可能名を
+        # 無言で落とす経路である。entry_date が空でも未上場として扱わない。
+        dropped = ForwardReturnRow(
+            asof="2025-06-30",
+            ticker="9400",
+            horizon="3y",
+            target_date="2028-06-30",
+            resolved=False,
+            price_return=None,
+            stale_price=False,
+            entry_date=None,
+            exit_date=None,
+            status="unresolved_missing_entry",
+        )
+        counts, coverage = self._reason_counts(*self._long_horizon_cohort([(dropped, 1200.0)]))
+
+        self.assertEqual(coverage["entry_not_listed_count"], 0)
+        self.assertEqual(coverage["entry_price_gap_count"], 1)
+        self.assertEqual(counts.get("entry_price_gap:1"), 1)
 
     def test_price_gap_and_unpriced_exit_are_named_as_separate_blockers(self) -> None:
         # 取引可能名の取りこぼしと廃止 exit value の欠落は、別々の理由として名指しする。
@@ -626,7 +651,7 @@ class EvaluateCohortsTest(unittest.TestCase):
             status="unresolved_stale_exit",
         )
         counts, coverage = self._reason_counts(
-            *self._long_horizon_cohort([price_gap, unpriced_exit])
+            *self._long_horizon_cohort([(price_gap, 900.0), (unpriced_exit, 1100.0)])
         )
 
         self.assertEqual(coverage["entry_price_gap_count"], 1)
