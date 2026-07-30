@@ -718,7 +718,6 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
     def test_a_conclusion_that_survives_both_ends_is_not_produced_by_the_exclusion(self) -> None:
         # The delisted name is not among the recommendations, so the recommended
         # group stays ahead whichever value the delisting is given.
-        sensitivity = self._sensitivity(delisted_ranks=())
         panel, forwards = self._cohort(delisted_ranks=())
         panel.append(_panel_row("8300", per_trailing=10.0))
         forwards.append(
@@ -753,9 +752,24 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
         self.assertGreater(imputations["neutral"]["recommended_rank_top5"], 0)
 
+    def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
+        # Three of the five recommended names left the market. What the cohort
+        # reports is the two survivors' lead; both imputations agree the group did
+        # not lead. Comparing the two imputations to each other alone would call
+        # that stable, which is the survivorship case the rule exists to catch.
+        sensitivity = self._sensitivity(delisted_ranks=(3, 4, 5))
+
+        self.assertEqual(sensitivity["excluded_count"], 3)
+        self.assertGreater(sensitivity["as_reported"]["recommended_rank_top5"], 0)
+        imputations = sensitivity["imputations"]
+        self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
+        self.assertEqual(imputations["neutral"]["recommended_rank_top5"], 0.0)
+        self.assertFalse(sensitivity["direction_stable"])
+
     def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
         sensitivity = self._sensitivity(delisted_ranks=())
 
         self.assertEqual(sensitivity["excluded_count"], 0)
         self.assertTrue(sensitivity["direction_stable"])
+        self.assertEqual(sensitivity["as_reported"], {})
         self.assertEqual(sensitivity["imputations"], {})

@@ -39,7 +39,7 @@ grid は 2016-09〜2026-06 で 118 cohort を返すが、使えるのは **80**�
 
 ### 2.2 `master_snapshot` と `survivorship`（80/80）
 
-`get_eq_master(date=)` は Standard で歴史断面を返す（2016-09-30 で 3,813 行）。月末グリッドを 2016-09 まで埋めた結果、全 80 cohort が `master_snapshot_status: exact_date` かつ `asof_population_mismatch_count: 0`（`survivorship_coverage_status: complete`）になった。
+`get_eq_master(date=)` は Standard で歴史断面を返す（2016-09-30 で 3,812 行）。月末グリッドを 2016-09 まで埋めた結果、全 80 cohort が `master_snapshot_status: exact_date` かつ `asof_population_mismatch_count: 0`（`survivorship_coverage_status: complete`）になった。
 
 ### 2.3 `market_out_of_scope`（再編前の全 cohort）
 
@@ -54,7 +54,7 @@ grid は 2016-09〜2026-06 で 118 cohort を返すが、使えるのは **80**�
 
 ### 2.4 `unpriced_exit`
 
-事前登録した両側代入へ置き換えた。満期済み 64 cohort すべてが廃止銘柄を含む（5y では母集団の 6〜12%）が、向きが割れた cohort は 0 件。詳細と限定は `2026-07-31-delisting-exclusion-preregistration.md`。
+件数による block を、報告値と両側代入で結論の向きが一致するかの判定へ置き換えた。満期済み 64 cohort すべてが廃止銘柄を含み（5y では流動性母集団の 7.7〜9.6%）、向きが割れたのは 2 件（3y の 2020-02-28、5y の 2021-06-30）。詳細と限定、および規則を計測後に改定した経緯は `2026-07-31-delisting-exclusion-preregistration.md`。
 
 ### 2.5 `adjustment_factor`
 
@@ -66,16 +66,30 @@ grid は 2016-09〜2026-06 で 118 cohort を返すが、使えるのは **80**�
 | --- | ---: | ---: |
 | `priced_master_without_universe` | 38 | 16 |
 | `entry_price_gap` | 5 | 2 |
+| `unpriced_exit_flips_direction` | 1 | 1 |
 
 `priced_master_without_universe` は「asof に値が付き master にも居るが panel が評価できなかった」銘柄で、cohort あたり 1〜31 件（流動性母集団 1,078〜1,494 に対して）。現行契約は 1 件でもあれば cohort を落とすので、これが残る cohort の主因である。件数が母集団に対して小さいため、廃止銘柄と同じ有界バイアスの扱いが適用できる可能性があるが、それは別の事前登録を要する。
 
-## 4. この結果が意味しないこと
+## 4. macro 側の 10 年窓（実測）
+
+較正 store と同じ購読窓が macro provider にも効くので、all-history refresh の floor を 10 年へ広げた。実際に何が取れるかは endpoint ごとに違う。
+
+| endpoint | 実測 | 現 store |
+| --- | --- | --- |
+| `get_idx_bars_daily_topix` | 2016-08-01 以降を返す | `jp.topix` は 2021-07-26 起点。約 5 年分の追加余地がある |
+| `get_eq_investor_types` | 10 年窓でも 5 年窓でも同一の 227 行（2022-04-14 起点） | `jp.foreign_flows` は 2022-04-08 起点。floor 拡大の効果は無い |
+
+foreign flows の起点を決めているのは購読窓ではなく `section=TSEPrime` である。プライム市場は 2022 年の市場再編以降しか存在しないので、それ以前を取るには当時の section 名を要求する必要がある。
+
+購読窓の下限は `today − 10 年` ちょうどで、それより 1 日でも前を要求すると provider は truncate せず HTTP 400 を返す。all-history の floor は同じ式で導出するので境界に一致する。
+
+## 5. この結果が意味しないこと
 
 - **production 変更の authority を得たわけではない。** authority は `--required-asof` と `--required-metric` を事前に宣言した production_decision run が与える。ここで報告したのは「宣言できる cohort が存在するようになった」ことで、どの cohort を根拠にするかを結果を見てから選べば事前登録の意味を失う。
 - **指標の中身は評価していない。** 本記録は eligibility の状態だけを述べる。E[r] や順位付けの精度に関する主張は含まない。
 - **5y の 4 cohort は少数標本である。** forward 窓が重なる月次 cohort なので独立ではなく、cohort 数をそのまま標本数として読まない。
 
-## 5. 検算
+## 6. 検算
 
 - grid の非 clamp 数: `month_end_asof_grid(2016-09-01, 2026-06-30)` が 118、うち 2019-11-29 以降が 80。
 - 1200 日窓: 2019-11-29 − 1200 日 = 2016-08-16 > 取得下限 2016-08-01（非 clamp）、2019-10-31 − 1200 日 = 2016-07-18 < 下限（clamp）。

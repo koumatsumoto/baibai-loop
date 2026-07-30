@@ -301,12 +301,20 @@ def _cohort_excess_context(
 
 
 # Names whose series ends inside the window carry no exit value, so they leave the
-# cohort silently. Rather than block every cohort that has one, the conclusions are
-# recomputed with those names given a value from each end of the plausible range: a
-# total loss, and the return the rest of the cohort had. A conclusion that points the
-# same way under both cannot have been produced by the exclusion.
+# cohort silently, and the numbers the cohort reports are computed from the survivors
+# alone. Rather than block every cohort that has one, that reported conclusion is
+# compared against itself recomputed with the missing names given a value from each
+# end of the plausible range: a total loss, and the return the rest of the cohort had.
+# The reported value is part of the comparison because it is the one the authority
+# gate consumes: a conclusion that holds under both imputations but not as reported is
+# precisely a conclusion the exclusion produced.
 _DELISTING_IMPUTATIONS: tuple[str, ...] = ("total_loss", "neutral")
 _TOTAL_LOSS_RETURN = -1.0
+_SENSITIVITY_METRICS: tuple[str, ...] = (
+    "recommended_rank_top5",
+    "recommended_rank_top10",
+    "er_calibration",
+)
 
 
 def _direction_signs(context: _CohortExcessContext, *, horizon: str) -> dict[str, float | None]:
@@ -332,6 +340,19 @@ def _direction_signs(context: _CohortExcessContext, *, horizon: str) -> dict[str
     else:
         signs["er_calibration"] = None
     return signs
+
+
+def _signs_for_returns(
+    panel: Sequence[PanelRow],
+    price_returns: Mapping[str, float],
+    *,
+    horizon: str,
+    stale_count: int,
+) -> dict[str, float | None]:
+    context = _context_from_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
+    if context is None:
+        return dict.fromkeys(_SENSITIVITY_METRICS)
+    return _direction_signs(context, horizon=horizon)
 
 
 def delisting_exclusion_sensitivity(
@@ -360,46 +381,48 @@ def delisting_exclusion_sensitivity(
         }
     )
     if not excluded:
-        return {"excluded_count": 0, "direction_stable": True, "imputations": {}}
+        return {
+            "excluded_count": 0,
+            "direction_stable": True,
+            "as_reported": {},
+            "imputations": {},
+        }
 
     neutral = median(price_returns.values()) if price_returns else 0.0
+    as_reported = _signs_for_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
     imputed: dict[str, dict[str, float | None]] = {}
     for name in _DELISTING_IMPUTATIONS:
         value = _TOTAL_LOSS_RETURN if name == "total_loss" else neutral
         augmented = dict(price_returns)
         for ticker in excluded:
             augmented[ticker] = value
-        context = _context_from_returns(panel, augmented, horizon=horizon, stale_count=stale_count)
-        imputed[name] = (
-            _direction_signs(context, horizon=horizon)
-            if context is not None
-            else dict.fromkeys(
-                ("recommended_rank_top5", "recommended_rank_top10", "er_calibration")
-            )
+        imputed[name] = _signs_for_returns(
+            panel, augmented, horizon=horizon, stale_count=stale_count
         )
 
     stable = True
-    for metric in ("recommended_rank_top5", "recommended_rank_top10", "er_calibration"):
-        values = [imputed[name][metric] for name in _DELISTING_IMPUTATIONS]
-        if all(value is None for value in values):
-            # The metric has no conclusion under either end, so the exclusion cannot
-            # have produced one. Whether it is reportable at all is the separate
-            # question `metric_statuses` answers.
+    for metric in _SENSITIVITY_METRICS:
+        values = [as_reported[metric], *(imputed[name][metric] for name in _DELISTING_IMPUTATIONS)]
+        present = [value for value in values if value is not None]
+        if not present:
+            # The metric has no conclusion as reported or at either end, so the
+            # exclusion cannot have produced one. Whether it is reportable at all is
+            # the separate question `metric_statuses` answers.
             continue
-        if any(value is None for value in values):
-            # It has a conclusion at one end and none at the other: the exclusion
+        if len(present) != len(values):
+            # It has a conclusion in one case and none in another: the exclusion
             # decides whether the cohort says anything, which is instability too.
             stable = False
             continue
-        # A conclusion that changes sign between the two ends was produced by the
-        # exclusion, not by the cohort.
-        signs = {value > 0 for value in values if value is not None}
-        if len(signs) > 1:
+        # A conclusion whose sign is not the same as reported and at both ends was
+        # produced by the exclusion, not by the cohort.
+        if len({value > 0 for value in present}) > 1:
             stable = False
     return {
         "excluded_count": len(excluded),
         "neutral_return": round(neutral, 6),
         "direction_stable": stable,
+        "as_reported": as_reported,
         "imputations": imputed,
     }
 
