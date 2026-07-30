@@ -88,6 +88,13 @@ def _migrate_v14_edinet_document_events(conn: sqlite3.Connection) -> None:
 
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=14, transform=_migrate_v14_edinet_document_events),
+    Migration(
+        version=15,
+        statements=(
+            "ALTER TABLE edinet_metrics ADD COLUMN extractor_revision TEXT",
+            "ALTER TABLE edinet_metrics ADD COLUMN source_document_revision TEXT",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION

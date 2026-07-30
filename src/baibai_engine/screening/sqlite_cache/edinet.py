@@ -119,10 +119,11 @@ def store_edinet_metrics(
                 "ttm_quality_pcfr, operating_profit_ttm, depreciation_and_amortization_ttm, "
                 "capex_ttm, fcf_ttm, net_cash, equity, total_assets, ttm_quality_fcf, "
                 "ttm_quality_net_cash, source_doc_id, document_type, source_submit_datetime, "
-                "source_period_start, source_period_end, capex_source, failure_reasons"
+                "source_period_start, source_period_end, capex_source, failure_reasons, "
+                "extractor_revision, source_document_revision"
                 ") VALUES ("
                 "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
                 ")",
                 rows,
             )
@@ -210,6 +211,9 @@ def _edinet_metric_rows(
         ticker = normalize_ticker_or_none(first(record, "secCode", "ticker", "code", "Code"))
         if ticker is None:
             continue
+        extractor_revision = to_str_or_none(first(record, "extractor_revision"))
+        if extractor_revision is None:
+            raise ValueError(f"EDINET metric row {ticker} is missing extractor_revision")
         rows.append(
             (
                 asof_date,
@@ -239,6 +243,8 @@ def _edinet_metric_rows(
                 to_str_or_none(first(record, "source_period_end")),
                 to_str_or_none(first(record, "capex_source")),
                 json.dumps(first(record, "failure_reasons") or (), ensure_ascii=False),
+                extractor_revision,
+                to_str_or_none(first(record, "source_document_revision")),
             )
         )
     return rows

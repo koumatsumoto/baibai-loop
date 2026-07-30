@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import re
@@ -116,6 +117,7 @@ class EdinetDocumentCandidate:
     submit_datetime: str | None = None
     period_start: date | None = None
     period_end: date | None = None
+    source_document_revision: str | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod
@@ -434,11 +436,52 @@ def select_document_candidates(
             submit_datetime=_to_str_or_none(_coalesce(document, "submitDateTime")),
             period_start=period_start,
             period_end=period_end,
+            source_document_revision=_source_document_revision(document),
         )
         current = candidates.get(ticker)
         if current is None or _document_sort_key(candidate) > _document_sort_key(current):
             candidates[ticker] = candidate
     return candidates
+
+
+def _source_document_revision(document: Mapping[str, Any]) -> str:
+    """Identify the canonical EDINET document state that drives extraction."""
+    field_aliases = {
+        "doc_id": ("docID", "doc_id"),
+        "security_code": ("secCode", "sec_code"),
+        "document_type_code": ("docTypeCode", "doc_type_code"),
+        "csv_flag": ("csvFlag", "csv_flag"),
+        "xbrl_flag": ("xbrlFlag", "xbrl_flag"),
+        "legal_status": ("legalStatus", "legal_status"),
+        "disclosure_status": ("disclosureStatus", "disclosure_status"),
+        "withdrawal_status": ("withdrawalStatus", "withdrawal_status"),
+        "edit_status": ("docInfoEditStatus", "doc_info_edit_status"),
+        "parent_doc_id": ("parentDocID", "parent_doc_id"),
+        "operation_datetime": ("opeDateTime", "operation_datetime"),
+        "submit_datetime": ("submitDateTime", "submit_datetime"),
+        "description": ("docDescription", "description"),
+        "period_start": ("periodStart", "period_start"),
+        "period_end": ("periodEnd", "period_end"),
+        "sequence_number": ("seqNumber", "sequence_number"),
+    }
+    payload = {
+        name: next(
+            (
+                str(document[alias]).strip()
+                for alias in aliases
+                if document.get(alias) not in (None, "")
+            ),
+            None,
+        )
+        for name, aliases in field_aliases.items()
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _canonicalize_document_events(
@@ -511,7 +554,7 @@ def _canonicalize_document_events(
         if _to_str_or_none(_coalesce(current, "withdrawalStatus", "withdrawal_status")) == "2":
             raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
         origin_date = current.get("doc_date")
-        current.update(event)
+        current.update({key: value for key, value in event.items() if value is not None})
         if origin_date is not None:
             current["doc_date"] = origin_date
         if edit_status == "1":

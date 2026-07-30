@@ -131,11 +131,13 @@ def test_forward_migration_applies_in_place_and_validates(
         migrated.close()
 
 
-def test_v14_migration_invalidates_only_edinet_document_cache(tmp_path: Path) -> None:
+def test_v14_and_v15_migrations_preserve_metrics_with_legacy_revision(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     conn = open_connection(sqlite_path)
     _seed_bar(conn, "1301", "2024-06-28", 100.0)
     conn.execute("INSERT INTO edinet_metrics(asof_date, ticker) VALUES ('2026-04-24', '1301')")
+    conn.execute("ALTER TABLE edinet_metrics DROP COLUMN extractor_revision")
+    conn.execute("ALTER TABLE edinet_metrics DROP COLUMN source_document_revision")
     conn.execute("DROP TABLE edinet_document_lists")
     conn.execute("DROP TABLE edinet_documents")
     conn.execute(
@@ -161,7 +163,7 @@ def test_v14_migration_invalidates_only_edinet_document_cache(tmp_path: Path) ->
 
     migrated = open_connection(sqlite_path)
     try:
-        assert _user_version(migrated) == 14
+        assert _user_version(migrated) == 15
         assert migrated.execute("SELECT COUNT(*) FROM edinet_documents").fetchone()[0] == 0
         assert (
             migrated.execute(
@@ -170,6 +172,9 @@ def test_v14_migration_invalidates_only_edinet_document_cache(tmp_path: Path) ->
             == 0
         )
         assert migrated.execute("SELECT COUNT(*) FROM edinet_metrics").fetchone()[0] == 1
+        assert migrated.execute(
+            "SELECT extractor_revision, source_document_revision FROM edinet_metrics"
+        ).fetchone() == (None, None)
         assert (
             migrated.execute(
                 "SELECT close FROM jquants_daily_bars WHERE ticker = '1301'"

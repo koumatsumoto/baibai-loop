@@ -18,7 +18,12 @@ from baibai_engine.market.sqlite import (
     open_connection,
     source_coverage_sources,
 )
+from baibai_engine.screening.edinet_revision import (
+    compute_extractor_revision,
+    has_hard_metric_failure,
+)
 from baibai_engine.screening.providers.edinet import (
+    EdinetDocumentCandidate,
     EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
@@ -34,7 +39,12 @@ from baibai_engine.screening.sqlite_coverage import (
     CacheCoverageIssue,
     verify_screening_sqlite_coverage,
 )
-from baibai_engine.screening.sqlite_reader import read_eq_master_exact
+from baibai_engine.screening.sqlite_reader import (
+    EDINETMetricBaselineError,
+    EDINETMetricBaselineRow,
+    read_edinet_metric_baseline,
+    read_eq_master_exact,
+)
 
 from .common import _date_iso
 from .providers import EDINETAdapter, ProviderBundle
@@ -197,13 +207,7 @@ def extract_edinet_metrics_command(
                 )
     except EDINETProviderError as exc:
         message = f"EDINET document listing failed: {type(exc).__name__}: {exc}"
-        store_edinet_metrics(
-            sqlite_path,
-            asof_date,
-            [],
-            status="failed",
-            error=message,
-        )
+        _record_edinet_extraction_failure(sqlite_path, asof_date, message)
         print(message, file=sys.stderr)
         return 1
 
@@ -211,13 +215,7 @@ def extract_edinet_metrics_command(
         candidates = select_document_candidates(documents, origin_start=start)
     except EDINETProviderError as exc:
         message = f"EDINET document selection failed: {type(exc).__name__}: {exc}"
-        store_edinet_metrics(
-            sqlite_path,
-            asof_date,
-            [],
-            status="failed",
-            error=message,
-        )
+        _record_edinet_extraction_failure(sqlite_path, asof_date, message)
         print(message, file=sys.stderr)
         return 1
     if not candidates:
@@ -225,13 +223,7 @@ def extract_edinet_metrics_command(
             f"no EDINET filings selected for --asof {asof_date.isoformat()} "
             f"within {start.isoformat()}..{asof_date.isoformat()}"
         )
-        store_edinet_metrics(
-            sqlite_path,
-            asof_date,
-            [],
-            status="failed",
-            error=message,
-        )
+        _record_edinet_extraction_failure(sqlite_path, asof_date, message)
         print(message, file=sys.stderr)
         return 1
     print(
@@ -239,11 +231,40 @@ def extract_edinet_metrics_command(
         file=out,
         flush=True,
     )
+    extractor_revision = compute_extractor_revision()
+    try:
+        baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
+    except EDINETMetricBaselineError as exc:
+        print(f"EDINET metric baseline is corrupt: {exc}", file=sys.stderr)
+        return 1
+    baseline_asof = baseline.asof_date.isoformat() if baseline is not None else "none"
+    full_rebuild_reason = "no_baseline" if baseline is None else "none"
+    if (
+        baseline is not None
+        and baseline.rows
+        and all(row.extractor_revision != extractor_revision for row in baseline.rows.values())
+    ):
+        full_rebuild_reason = "incompatible_revision"
     records: list[EdinetMetricRecord] = []
+    reused_count = 0
+    downloaded_count = 0
     hard_failure_count = 0
     quality_issue_count = 0
     for candidate in sorted(candidates.values(), key=lambda item: item.ticker):
+        baseline_row = baseline.rows.get(candidate.ticker) if baseline is not None else None
+        if baseline_row is not None and _can_reuse_edinet_metric(
+            candidate=candidate,
+            baseline_row=baseline_row,
+            extractor_revision=extractor_revision,
+        ):
+            record = baseline_row.record
+            reused_count += 1
+            if record.failure_reasons:
+                quality_issue_count += 1
+            records.append(record)
+            continue
         parse_failed = False
+        downloaded_count += 1
         try:
             content = provider.download_csv_zip(candidate.doc_id)
             record = parse_csv_zip_metric_record(
@@ -257,13 +278,7 @@ def extract_edinet_metrics_command(
             )
         except EDINETRateLimitError as exc:
             message = f"EDINET CSV download rate limited: {type(exc).__name__}: {exc}"
-            store_edinet_metrics(
-                sqlite_path,
-                asof_date,
-                [],
-                status="failed",
-                error=message,
-            )
+            _record_edinet_extraction_failure(sqlite_path, asof_date, message)
             print(message, file=sys.stderr)
             return 1
         except (EDINETProviderError, OSError, ValueError) as exc:
@@ -279,6 +294,9 @@ def extract_edinet_metrics_command(
                 failure_reasons=(f"csv_parse_failed:{type(exc).__name__}:{error_text}",),
             )
             parse_failed = True
+        if has_hard_metric_failure(record.failure_reasons) and not parse_failed:
+            hard_failure_count += 1
+            parse_failed = True
         if record.failure_reasons and not parse_failed:
             quality_issue_count += 1
         records.append(record)
@@ -290,25 +308,57 @@ def extract_edinet_metrics_command(
                 flush=True,
             )
 
-    payload = [_metric_record_payload(record) for record in records]
+    if hard_failure_count:
+        _record_edinet_extraction_failure(
+            sqlite_path,
+            asof_date,
+            f"{hard_failure_count} EDINET CSV hard failures",
+        )
+        print(
+            "EDINET extraction summary: "
+            f"selected={len(candidates)} reused={reused_count} downloaded={downloaded_count} "
+            f"baseline_asof={baseline_asof} full_rebuild_reason={full_rebuild_reason} "
+            f"extractor_revision={extractor_revision}; hard_failures={hard_failure_count} "
+            f"quality_issues={quality_issue_count}; output=not-written",
+            file=out,
+        )
+        return 1
+
+    source_revisions = {
+        candidate.ticker: candidate.source_document_revision for candidate in candidates.values()
+    }
+    payload = [
+        _metric_record_payload(
+            record,
+            extractor_revision=extractor_revision,
+            source_document_revision=source_revisions.get(record.ticker),
+        )
+        for record in records
+    ]
     store_edinet_metrics(
         sqlite_path,
         asof_date,
         payload,
-        status="failed" if hard_failure_count else "ok",
-        error=f"{hard_failure_count} EDINET CSV hard failures" if hard_failure_count else None,
+        status="ok",
+        error=None,
     )
     print(
-        f"wrote {sqlite_path}: {len(records)} EDINET metric records "
-        f"from {len(candidates)} selected filings; "
-        f"{hard_failure_count} hard failures; "
-        f"{quality_issue_count} records with quality issues",
+        "EDINET extraction summary: "
+        f"selected={len(candidates)} reused={reused_count} downloaded={downloaded_count} "
+        f"baseline_asof={baseline_asof} full_rebuild_reason={full_rebuild_reason} "
+        f"extractor_revision={extractor_revision}; hard_failures={hard_failure_count} "
+        f"quality_issues={quality_issue_count}; output={sqlite_path}",
         file=out,
     )
-    return 1 if hard_failure_count else 0
+    return 0
 
 
-def _metric_record_payload(record: EdinetMetricRecord) -> dict[str, object]:
+def _metric_record_payload(
+    record: EdinetMetricRecord,
+    *,
+    extractor_revision: str,
+    source_document_revision: str | None,
+) -> dict[str, object]:
     return {
         "ticker": record.ticker,
         "sales_ttm": record.sales_ttm,
@@ -336,7 +386,50 @@ def _metric_record_payload(record: EdinetMetricRecord) -> dict[str, object]:
         "source_period_end": _date_iso(record.source_period_end),
         "capex_source": record.capex_source,
         "failure_reasons": list(record.failure_reasons),
+        "extractor_revision": extractor_revision,
+        "source_document_revision": source_document_revision,
     }
+
+
+def _can_reuse_edinet_metric(
+    *,
+    candidate: EdinetDocumentCandidate,
+    baseline_row: EDINETMetricBaselineRow,
+    extractor_revision: str,
+) -> bool:
+    record = baseline_row.record
+    return (
+        baseline_row.extractor_revision == extractor_revision
+        and baseline_row.source_document_revision == candidate.source_document_revision
+        and candidate.source_document_revision is not None
+        and record.ticker == candidate.ticker
+        and record.source_doc_id == candidate.doc_id
+        and record.document_type == candidate.doc_type_code
+        and record.source_submit_datetime == candidate.submit_datetime
+        and record.source_period_start == candidate.period_start
+        and record.source_period_end == candidate.period_end
+    )
+
+
+def _record_edinet_extraction_failure(
+    sqlite_path: Path,
+    asof_date: date,
+    message: str,
+) -> None:
+    """Record a failed attempt without destroying a usable target-day snapshot."""
+    try:
+        baseline = read_edinet_metric_baseline(sqlite_path, asof_date)
+    except EDINETMetricBaselineError:
+        return
+    if baseline is not None and baseline.asof_date == asof_date:
+        return
+    store_edinet_metrics(
+        sqlite_path,
+        asof_date,
+        [],
+        status="failed",
+        error=message,
+    )
 
 
 BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT = 3

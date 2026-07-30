@@ -374,8 +374,18 @@ class SQLiteCacheTest(unittest.TestCase):
                     db,
                     date(2026, 5, 8),
                     [
-                        {"ticker": "7203", "sales_ttm": 1, "failure_reasons": []},
-                        {"ticker": "7203", "sales_ttm": 2, "failure_reasons": []},
+                        {
+                            "ticker": "7203",
+                            "sales_ttm": 1,
+                            "failure_reasons": [],
+                            "extractor_revision": "a" * 64,
+                        },
+                        {
+                            "ticker": "7203",
+                            "sales_ttm": 2,
+                            "failure_reasons": [],
+                            "extractor_revision": "a" * 64,
+                        },
                     ],
                 ),
                 1,
@@ -463,6 +473,44 @@ class SQLiteCacheTest(unittest.TestCase):
                 conn.close()
             self.assertEqual(rows, [(1, "S100KEPT")])
 
+    def test_edinet_metric_store_round_trips_extraction_and_document_revisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            asof = date(2026, 5, 8)
+            revision = "a" * 64
+            source_revision = "b" * 64
+            store_edinet_metrics(
+                db,
+                asof,
+                [
+                    {
+                        "ticker": "7203",
+                        "sales_ttm": 100,
+                        "extractor_revision": revision,
+                        "source_document_revision": source_revision,
+                    }
+                ],
+            )
+
+            with self.assertRaisesRegex(ValueError, "missing extractor_revision"):
+                store_edinet_metrics(
+                    db,
+                    asof,
+                    [{"ticker": "7203", "sales_ttm": 200}],
+                )
+
+            conn = sqlite3.connect(db)
+            try:
+                row = conn.execute(
+                    "SELECT sales_ttm, extractor_revision, source_document_revision "
+                    "FROM edinet_metrics "
+                    "WHERE asof_date = ? AND ticker = '7203'",
+                    (asof.isoformat(),),
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertEqual(row, (100.0, revision, source_revision))
+
     def test_direct_stores_do_not_persist_raw_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -501,7 +549,14 @@ class SQLiteCacheTest(unittest.TestCase):
             store_edinet_metrics(
                 db,
                 date(2026, 5, 8),
-                [{"ticker": "7203", "sales_ttm": 1, "failure_reasons": []}],
+                [
+                    {
+                        "ticker": "7203",
+                        "sales_ttm": 1,
+                        "failure_reasons": [],
+                        "extractor_revision": "a" * 64,
+                    }
+                ],
             )
             store_jpx_regulations(
                 db,
