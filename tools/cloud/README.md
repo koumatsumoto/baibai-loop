@@ -5,6 +5,8 @@ script は GitHub Actions とローカル運用から呼ぶ orchestration で、
 （安定契約は `baibai-engine` / `baibai-app` 側にある）。read model の生成と日次 batch は
 ローカル単体でも実行でき、転送 script だけが R2 を使う。
 
+serving uploadの並列度計測は[`benchmark_serving_upload.md`](./benchmark_serving_upload.md)を参照する。
+
 ## Cloudflare / GitHub Actions 構成
 
 R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPublic Development URLとcustom domainを無効にする。
