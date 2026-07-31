@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.position.cli import main
 from baibai_engine.position.drafts import apply_draft, load_draft
 from baibai_engine.position.ledger import load_portfolio_ledger, reconcile_portfolio
@@ -55,7 +56,7 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
     snapshot = reconcile_portfolio(document)
     market = tmp_path / "market.sqlite"
     with sqlite3.connect(market) as connection:
-        connection.execute("PRAGMA user_version = 15")
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE jquants_daily_bars "
             "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"

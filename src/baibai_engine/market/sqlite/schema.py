@@ -43,6 +43,7 @@ _REQUIRED_TABLES = (
     "jquants_master_snapshots",
     "jquants_earnings_calendar",
     "jquants_market_calendar",
+    "jquants_weekly_margin",
     "edinet_documents",
     "edinet_document_lists",
     "edinet_metrics",
@@ -103,6 +104,17 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
     ),
     "jquants_earnings_calendar": ("announcement_date", "ticker"),
     "jquants_market_calendar": ("day", "is_business_day"),
+    "jquants_weekly_margin": (
+        "week_end",
+        "ticker",
+        "long_vol",
+        "short_vol",
+        "long_std_vol",
+        "long_neg_vol",
+        "short_std_vol",
+        "short_neg_vol",
+        "issue_type",
+    ),
     "edinet_documents": (
         "doc_date",
         "sequence_number",
@@ -258,6 +270,29 @@ CREATE TABLE IF NOT EXISTS jquants_market_calendar(
   day TEXT PRIMARY KEY,
   is_business_day INTEGER NOT NULL
 );
+
+-- Margin balances the exchange publishes once a week, as of that week's balance
+-- date. `issue_type` is kept because it decides whether a short balance is even
+-- possible: a 信用銘柄 (1) has no stock lending, so its zero short balance is a
+-- property of the instrument rather than an observation about positioning, and
+-- an axis built on the long/short ratio has to say which it is looking at.
+-- Standard and negotiable margin are stored separately because only the standard
+-- side carries a six-month settlement deadline.
+CREATE TABLE IF NOT EXISTS jquants_weekly_margin(
+  week_end TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  long_vol REAL,
+  short_vol REAL,
+  long_std_vol REAL,
+  long_neg_vol REAL,
+  short_std_vol REAL,
+  short_neg_vol REAL,
+  issue_type TEXT,
+  PRIMARY KEY (week_end, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker
+  ON jquants_weekly_margin(ticker, week_end);
 
 CREATE TABLE IF NOT EXISTS edinet_documents(
   doc_date TEXT NOT NULL,

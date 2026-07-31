@@ -53,6 +53,27 @@ from ..schema import SecurityMaster, normalize_ticker
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
+class JQuantsWeeklyMargin:
+    """One ticker's margin balances as of one weekly balance date.
+
+    ``issue_type`` says whether a short balance is possible at all: a 信用銘柄
+    carries no stock lending, so its zero short balance describes the instrument
+    rather than positioning. Standard and negotiable balances are separate
+    because only the standard side carries a six-month settlement deadline.
+    """
+
+    ticker: str
+    week_end: date
+    long_vol: float | None = None
+    short_vol: float | None = None
+    long_std_vol: float | None = None
+    long_neg_vol: float | None = None
+    short_std_vol: float | None = None
+    short_neg_vol: float | None = None
+    issue_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsFinancialSummary:
     ticker: str
     disclosed_at: date
@@ -147,6 +168,43 @@ class JQuantsProvider(JQuantsMarketProvider):
             for _, ticker, name, market, sector, is_common in validated.rows
         ]
 
+    def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
+        """Fetch every ticker's margin balance for one weekly balance date.
+
+        The endpoint answers per balance date, and not every week has one: the
+        exchange skips weeks it does not publish, so an empty answer is a fact
+        about that week rather than a failure. The coverage row records the
+        attempt either way, which is what keeps a skipped week from being asked
+        for again on every pass.
+        """
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_weekly_margin
+
+            cached = read_weekly_margin(self._sqlite_path, week_end)
+            if cached is not None:
+                return cached
+        self._raise_if_cache_only("jquants_weekly_margin", week_end.isoformat())
+        records = self._load_or_fetch(
+            "get_mkt_margin_interest",
+            store_params={"week_end": week_end},
+            date_yyyymmdd=week_end.strftime("%Y%m%d"),
+        )
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_weekly_margin
+
+            stored = read_weekly_margin(self._sqlite_path, week_end)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "SQLite cache remained incomplete after fetching jquants_weekly_margin "
+                    f"for {week_end.isoformat()}"
+                )
+            return stored
+        return [
+            margin
+            for record in records
+            if (margin := normalize_weekly_margin(record, week_end)) is not None
+        ]
+
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         if self._sqlite_path is not None:
             from ..sqlite_reader import read_fin_summaries
@@ -210,6 +268,14 @@ class JQuantsProvider(JQuantsMarketProvider):
                 requested_end=end,
             )
             return
+        if method == "get_mkt_margin_interest":
+            from ..sqlite_cache import store_jquants_weekly_margin
+
+            week_end = params.get("week_end")
+            if not isinstance(week_end, date):
+                raise JQuantsProviderError("get_mkt_margin_interest store requires week_end")
+            store_jquants_weekly_margin(self._sqlite_path, records, week_end=week_end)
+            return
         super()._store_records(method, records, params)
 
 
@@ -257,6 +323,32 @@ def normalize_security_master(record: Mapping[str, Any]) -> SecurityMaster:
         sector_33=str(sector_33),
         is_common_stock=is_common_stock,
     )
+
+
+def normalize_weekly_margin(
+    record: Mapping[str, Any], week_end: date
+) -> JQuantsWeeklyMargin | None:
+    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    if not common_code:
+        return None
+    # `coalesce_field` throughout: a zero balance is an observation, and for a
+    # 信用銘柄 the zero short balance is the normal state rather than a gap.
+    return JQuantsWeeklyMargin(
+        ticker=ticker,
+        week_end=week_end,
+        long_vol=to_float(coalesce_field(record, "LongVol", "long_vol")),
+        short_vol=to_float(coalesce_field(record, "ShrtVol", "shrt_vol")),
+        long_std_vol=to_float(coalesce_field(record, "LongStdVol", "long_std_vol")),
+        long_neg_vol=to_float(coalesce_field(record, "LongNegVol", "long_neg_vol")),
+        short_std_vol=to_float(coalesce_field(record, "ShrtStdVol", "shrt_std_vol")),
+        short_neg_vol=to_float(coalesce_field(record, "ShrtNegVol", "shrt_neg_vol")),
+        issue_type=_issue_type(coalesce_field(record, "IssType", "iss_type")),
+    )
+
+
+def _issue_type(value: Any) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
 
 
 def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSummary | None:

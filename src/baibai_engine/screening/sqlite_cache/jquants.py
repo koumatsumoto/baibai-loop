@@ -17,6 +17,7 @@ from baibai_engine.market.sqlite.convert import (
     to_str_or_none,
 )
 from baibai_engine.market.sqlite.coverage import (
+    EmptyRangeReplacementError,
     record_range_source_coverage,
     record_source_coverage,
     replace_date_range,
@@ -78,6 +79,121 @@ def store_jquants_fin_summaries(
         return persisted_count
     finally:
         conn.close()
+
+
+WEEKLY_MARGIN_SOURCE = "jquants_weekly_margin"
+WEEKLY_MARGIN_OPERATION = "get_mkt_margin_interest"
+
+
+def weekly_margin_coverage_key(week_end: date) -> str:
+    iso = week_end.isoformat()
+    return f"{WEEKLY_MARGIN_OPERATION}:{iso}..{iso}"
+
+
+def store_jquants_weekly_margin(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    week_end: date,
+) -> int:
+    """Persist one weekly balance date, including the fact that it was empty.
+
+    Not every week has a balance date; the exchange skips some, and asking for one
+    of those returns nothing. Recording the coverage row for an empty answer is
+    what tells the next pass the week was already examined, so a skipped week is
+    asked for once rather than on every run. The row set for a date is replaced
+    whole, which is how a re-fetch corrects a partially stored week.
+    """
+    normalized = _weekly_margin_rows_with_quality(records, week_end)
+    rows = normalized.rows
+    conn = open_connection(db_path)
+    try:
+        iso = week_end.isoformat()
+        conn.execute("BEGIN")
+        held = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM jquants_weekly_margin WHERE week_end = ?", (iso,)
+            ).fetchone()[0]
+            or 0
+        )
+        if not rows and held:
+            raise EmptyRangeReplacementError(
+                f"refusing to replace {held} stored jquants_weekly_margin row(s) "
+                f"for {iso} with an empty payload"
+            )
+        conn.execute("DELETE FROM jquants_weekly_margin WHERE week_end = ?", (iso,))
+        if rows:
+            conn.executemany(
+                """
+                INSERT INTO jquants_weekly_margin(
+                  week_end, ticker, long_vol, short_vol, long_std_vol, long_neg_vol,
+                  short_std_vol, short_neg_vol, issue_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+        persisted_count = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM jquants_weekly_margin WHERE week_end = ?", (iso,)
+            ).fetchone()[0]
+            or 0
+        )
+        record_source_coverage(
+            conn,
+            source=WEEKLY_MARGIN_SOURCE,
+            operation=WEEKLY_MARGIN_OPERATION,
+            coverage_key=weekly_margin_coverage_key(week_end),
+            coverage_start=iso,
+            coverage_end=iso,
+            requested_start=iso,
+            requested_end=iso,
+            params={"date": iso},
+            record_count=persisted_count,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        conn.commit()
+        return persisted_count
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _weekly_margin_rows_with_quality(
+    records: Iterable[Mapping[str, Any]], week_end: date
+) -> NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
+    seen: set[str] = set()
+    for record in records:
+        ticker, quality = code_quality(first(record, "Code", "code"))
+        if quality == "rejected":
+            rejected_count += 1
+            continue
+        if quality == "excluded" or ticker is None:
+            excluded_count += 1
+            continue
+        if ticker in seen:
+            rejected_count += 1
+            continue
+        seen.add(ticker)
+        rows.append(
+            (
+                week_end.isoformat(),
+                ticker,
+                to_float(first(record, "LongVol", "long_vol")),
+                to_float(first(record, "ShrtVol", "shrt_vol")),
+                to_float(first(record, "LongStdVol", "long_std_vol")),
+                to_float(first(record, "LongNegVol", "long_neg_vol")),
+                to_float(first(record, "ShrtStdVol", "shrt_std_vol")),
+                to_float(first(record, "ShrtNegVol", "shrt_neg_vol")),
+                to_str_or_none(first(record, "IssType", "iss_type")),
+            )
+        )
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
 
 
 def store_jquants_master(

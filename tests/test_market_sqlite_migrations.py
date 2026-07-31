@@ -163,7 +163,7 @@ def test_v14_and_v15_migrations_preserve_metrics_with_legacy_revision(tmp_path: 
 
     migrated = open_connection(sqlite_path)
     try:
-        assert _user_version(migrated) == 15
+        assert _user_version(migrated) == LATEST_VERSION
         assert migrated.execute("SELECT COUNT(*) FROM edinet_documents").fetchone()[0] == 0
         assert (
             migrated.execute(

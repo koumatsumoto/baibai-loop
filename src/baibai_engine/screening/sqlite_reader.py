@@ -38,8 +38,10 @@ from .providers.jpx import (
 from .providers.jquants import (
     JQuantsFinancialSummary,
     JQuantsProviderError,
+    JQuantsWeeklyMargin,
 )
 from .schema import SecurityMaster
+from .sqlite_cache.jquants import WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key
 
 
 class EDINETMetricBaselineError(RuntimeError):
@@ -149,6 +151,55 @@ def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
         conn.close()
 
     return _materialize_masters(rows)
+
+
+def read_weekly_margin(sqlite_path: Path, week_end: date) -> list[JQuantsWeeklyMargin] | None:
+    """Return one balance date's rows, or None when it has not been examined.
+
+    A week the exchange skipped is stored as a coverage row with no rows behind
+    it, so an empty list and None mean different things: the first says the week
+    has no balance date, the second says nobody has looked. Only the second is a
+    reason to call the provider.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    iso = week_end.isoformat()
+    try:
+        coverage = conn.execute(
+            "SELECT status FROM source_coverage WHERE source = ? AND coverage_key = ?",
+            (WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key(week_end)),
+        ).fetchone()
+        if coverage is None or coverage[0] != "ok":
+            return None
+        rows = conn.execute(
+            "SELECT ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
+            "short_std_vol, short_neg_vol, issue_type "
+            "FROM jquants_weekly_margin WHERE week_end = ? ORDER BY ticker",
+            (iso,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        JQuantsWeeklyMargin(
+            ticker=str(row[0]),
+            week_end=week_end,
+            long_vol=_opt_float_value(row[1]),
+            short_vol=_opt_float_value(row[2]),
+            long_std_vol=_opt_float_value(row[3]),
+            long_neg_vol=_opt_float_value(row[4]),
+            short_std_vol=_opt_float_value(row[5]),
+            short_neg_vol=_opt_float_value(row[6]),
+            issue_type=str(row[7]) if row[7] is not None else None,
+        )
+        for row in rows
+    ]
+
+
+def _opt_float_value(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
 
 
 def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] | None:

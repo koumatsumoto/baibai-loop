@@ -95,6 +95,29 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE edinet_metrics ADD COLUMN source_document_revision TEXT",
         ),
     ),
+    Migration(
+        version=16,
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS jquants_weekly_margin(
+              week_end TEXT NOT NULL,
+              ticker TEXT NOT NULL,
+              long_vol REAL,
+              short_vol REAL,
+              long_std_vol REAL,
+              long_neg_vol REAL,
+              short_std_vol REAL,
+              short_neg_vol REAL,
+              issue_type TEXT,
+              PRIMARY KEY (week_end, ticker)
+            )
+            """,
+            (
+                "CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker "
+                "ON jquants_weekly_margin(ticker, week_end)"
+            ),
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION

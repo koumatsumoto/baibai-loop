@@ -22,6 +22,7 @@ from .jpx import store_jpx_earnings_calendar_snapshot, store_jpx_regulations
 from .jquants import (
     store_jquants_fin_summaries,
     store_jquants_master,
+    store_jquants_weekly_margin,
 )
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "store_jquants_fin_summaries",
     "store_jquants_market_calendar",
     "store_jquants_master",
+    "store_jquants_weekly_margin",
     "validate_current_schema",
 ]
