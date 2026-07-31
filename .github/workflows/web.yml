@@ -1,0 +1,47 @@
+name: web
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            cloud/worker/package-lock.json
+
+      - name: Verify UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+          npm test
+
+      - name: Verify Worker
+        working-directory: cloud/worker
+        run: |
+          npm ci
+          npm run types:check
+          npm run typecheck
+          npm test
+          npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"

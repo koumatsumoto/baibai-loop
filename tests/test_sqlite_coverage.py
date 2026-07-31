@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import sys
 import tempfile
 import unittest
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -35,7 +38,12 @@ def _verify_screening_sqlite_coverage(*args, **kwargs):
         return verify_screening_sqlite_coverage(*args, **kwargs)
 
 
-def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
+_COMMON_COVERAGE_ASOF = date(2026, 5, 8)
+_COMPLETE_COVERAGE_TEMPLATE_DIR: tempfile.TemporaryDirectory[str] | None = None
+_COMPLETE_COVERAGE_TEMPLATE_PATH: Path | None = None
+
+
+def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     bars_start = asof - timedelta(days=1200)
     margin_week = (asof - timedelta(days=4)).isoformat()
     conn.execute(
@@ -178,7 +186,61 @@ def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     )
 
 
+def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
+    _seed_complete_coverage(conn, asof)
+
+
+def _complete_coverage_template_path() -> Path:
+    global _COMPLETE_COVERAGE_TEMPLATE_DIR, _COMPLETE_COVERAGE_TEMPLATE_PATH
+    if _COMPLETE_COVERAGE_TEMPLATE_PATH is None:
+        template_dir = tempfile.TemporaryDirectory()
+        template_path = Path(template_dir.name) / "market.sqlite"
+        conn = open_connection(template_path)
+        _seed_complete_coverage(conn, _COMMON_COVERAGE_ASOF)
+        conn.commit()
+        conn.close()
+        _COMPLETE_COVERAGE_TEMPLATE_DIR = template_dir
+        _COMPLETE_COVERAGE_TEMPLATE_PATH = template_path
+    return _COMPLETE_COVERAGE_TEMPLATE_PATH
+
+
+@contextmanager
+def _complete_coverage_database() -> Iterator[Path]:
+    with tempfile.TemporaryDirectory() as tmp:
+        sqlite_path = Path(tmp) / "market.sqlite"
+        shutil.copyfile(_complete_coverage_template_path(), sqlite_path)
+        yield sqlite_path
+
+
+def tearDownModule() -> None:
+    global _COMPLETE_COVERAGE_TEMPLATE_DIR, _COMPLETE_COVERAGE_TEMPLATE_PATH
+    if _COMPLETE_COVERAGE_TEMPLATE_DIR is not None:
+        _COMPLETE_COVERAGE_TEMPLATE_DIR.cleanup()
+        _COMPLETE_COVERAGE_TEMPLATE_DIR = None
+        _COMPLETE_COVERAGE_TEMPLATE_PATH = None
+
+
 class SQLiteCoverageTests(unittest.TestCase):
+    def test_complete_coverage_clones_are_isolated(self) -> None:
+        with _complete_coverage_database() as first_path:
+            first = sqlite3.connect(first_path)
+            first.execute("DELETE FROM jquants_master_snapshots")
+            first.commit()
+            first_count = int(
+                first.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0]
+            )
+            first.close()
+
+        with _complete_coverage_database() as second_path:
+            second = sqlite3.connect(second_path)
+            second_count = int(
+                second.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0]
+            )
+            second.close()
+
+            self.assertEqual(first_count, 0)
+            self.assertEqual(second_count, 100)
+
     def test_two_master_dates_verify_independently_through_public_coverage_gate(self) -> None:
         first = date(2026, 5, 8)
         second = date(2026, 5, 15)
@@ -289,10 +351,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_complete_required_windows_has_no_issues(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.commit()
             conn.close()
 
@@ -302,10 +362,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_missing_required_table_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DROP TABLE edinet_documents")
             conn.commit()
             conn.close()
@@ -318,10 +376,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_missing_required_column_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("ALTER TABLE edinet_documents DROP COLUMN doc_description")
             conn.commit()
             conn.close()
@@ -334,10 +390,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_required_table_without_primary_key_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DROP TABLE jquants_daily_bars")
             conn.execute(
                 """
@@ -372,10 +426,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_missing_required_index_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DROP INDEX idx_jquants_daily_bars_traded_at")
             conn.commit()
             conn.close()
@@ -390,10 +442,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_daily_bar_table_count_below_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DELETE FROM jquants_daily_bars WHERE ticker >= ?", ("1351",))
             conn.commit()
             conn.close()
@@ -410,10 +460,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_daily_bar_table_count_above_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE source_coverage SET record_count = ? WHERE source = ?",
                 (1, "jquants_daily_bars"),
@@ -435,10 +483,8 @@ class SQLiteCoverageTests(unittest.TestCase):
         self,
     ) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "INSERT INTO jquants_daily_bars(ticker, traded_at, close, turnover_value) "
                 "VALUES (?, ?, ?, ?)",
@@ -460,10 +506,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_daily_bar_required_window_count_mismatch_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "DELETE FROM jquants_daily_bars WHERE ticker = ? AND traded_at = ?",
                 ("1301", asof.isoformat()),
@@ -490,10 +534,8 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_daily_bar_reports_all_required_window_count_mismatches(self) -> None:
         asof = date(2026, 5, 8)
         previous_day = asof - timedelta(days=1)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
@@ -525,10 +567,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_fin_summary_table_count_below_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DELETE FROM jquants_fin_summaries WHERE ticker >= ?", ("1351",))
             conn.commit()
             conn.close()
@@ -545,10 +585,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_fin_summary_table_count_above_source_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE source_coverage SET record_count = ? WHERE source = ?",
                 (1, "jquants_fin_summaries"),
@@ -568,10 +606,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_fin_summary_required_window_count_mismatch_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "DELETE FROM jquants_fin_summaries WHERE ticker = ? AND disclosed_at = ?",
                 ("1301", asof.isoformat()),
@@ -596,10 +632,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_missing_daily_bars_reports_required_window(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",))
             conn.commit()
             conn.close()
@@ -610,10 +644,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_all_past_earnings_calendar_snapshot_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE jquants_earnings_calendar SET announcement_date = ?",
                 ((asof - timedelta(days=1)).isoformat(),),
@@ -641,10 +673,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_zero_row_earnings_calendar_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DELETE FROM jquants_earnings_calendar")
             conn.execute(
                 "UPDATE source_coverage SET record_count = ? WHERE source = ?",
@@ -664,10 +694,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_source_coverage_status_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.commit()
             conn.close()
             conn = open_connection(sqlite_path)
@@ -689,10 +717,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_old_non_ok_source_coverage_outside_required_window_does_not_block(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             old_start = asof - timedelta(days=1300)
             old_end = asof - timedelta(days=1270)
             conn.execute(
@@ -724,10 +750,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_zero_row_master_import_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "DELETE FROM source_coverage WHERE source = ?", ("jquants_master_snapshots",)
             )
@@ -752,10 +776,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_tiny_common_stock_master_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE jquants_master_snapshots SET is_common_stock = 0 WHERE ticker != ?",
                 ("1301",),
@@ -891,10 +913,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_required_table_without_rows_reports_incomplete_cache(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DELETE FROM jquants_daily_bars")
             conn.commit()
             conn.close()
@@ -914,10 +934,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_recent_daily_bars_sparse_history_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
                 (asof.isoformat(),),
@@ -936,10 +954,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_old_daily_bars_sparse_history_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             weak_start = (asof - timedelta(days=1200)) + timedelta(days=240)
             weak_end = weak_start + timedelta(days=119)
             conn.execute(
@@ -960,10 +976,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_fin_summary_sparse_ticker_coverage_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "DELETE FROM jquants_fin_summaries WHERE ticker >= ?",
                 ("1350",),
@@ -983,10 +997,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_overlapping_daily_source_coverage_reports_count_mismatch(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             _add_source_coverage(
                 conn,
                 source="jquants_daily_bars",
@@ -1013,10 +1025,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_market_calendar_requires_actual_asof_row(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE jquants_market_calendar SET day = ? WHERE day = ?",
                 ((asof - timedelta(days=1)).isoformat(), asof.isoformat()),
@@ -1036,10 +1046,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_required_jpx_sources_must_be_present_in_snapshot(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.commit()
             conn.close()
 
@@ -1059,10 +1067,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_stale_jpx_snapshot_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
                 ("2026-04-01T00:00:00+00:00", asof.isoformat()),
@@ -1082,10 +1088,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_jpx_source_row_without_fetched_at_reports_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE jpx_regulation_sources SET fetched_at_utc = NULL WHERE asof_date = ?",
                 (asof.isoformat(),),
@@ -1105,10 +1109,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_allow_stale_jpx_suppresses_freshness_issue(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE jpx_regulation_sources SET fetched_at_utc = ? WHERE asof_date = ?",
                 ("2026-04-01T00:00:00+00:00", asof.isoformat()),
@@ -1132,10 +1134,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_orphaned_jpx_source_rows_do_not_satisfy_source_coverage(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jpx_regulation_flags",))
             conn.execute(
                 "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
@@ -1161,10 +1161,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_required_edinet_corruption_reports_issue_without_traceback(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "UPDATE edinet_metrics SET failure_reasons = ? WHERE asof_date = ?",
                 ("not-json", asof.isoformat()),
@@ -1183,10 +1181,8 @@ class SQLiteCoverageTests(unittest.TestCase):
 
     def test_required_edinet_failed_status_reports_diagnostic_error(self) -> None:
         asof = date(2026, 5, 8)
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            conn = open_connection(sqlite_path)
-            _populate_complete_coverage(conn, asof)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
             conn.execute(
                 "INSERT OR REPLACE INTO source_coverage("
                 "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, "
