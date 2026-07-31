@@ -11,9 +11,10 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite` / `runs.sqlite` | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）|
-| `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
-| `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
+| `baibai-stores` | `market.sqlite.zst` / `runs.sqlite.zst` | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）|
+| `baibai-stores` | `macro.sqlite.zst` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
+| `baibai-stores` | `baibai.sqlite.zst` | ローカル`publish.sh`（replica） |
+| `baibai-stores` | `market.sqlite` / `runs.sqlite` / `macro.sqlite` / `baibai.sqlite` | 圧縮transport移行前の互換baseline（read-onlyで保持） |
 | `baibai-stores` | `schema-migrations/market-v13.sqlite` | `cloud-daily-batch`（write-once rollback artifact） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
@@ -37,9 +38,7 @@ provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。加え
 
 ## 初回seedとWorker deploy
 
-初回だけ、ローカル4 storeのconsistent SQLite snapshotをstores bucketへ送る。4 keyの
-いずれかが既に存在する場合は、古いローカルcopyによる正本の巻き戻しを防ぐため何も
-uploadせず停止する。
+初回だけ、ローカル4 storeのconsistent SQLite snapshotをzstd transportでstores bucketへ送る。4 storeのraw / compressed表現のいずれかが既に存在する場合は、古いローカルcopyによる正本の巻き戻しを防ぐため何もuploadせず停止する。
 
 ```bash
 tools/cloud/seed.sh
@@ -143,25 +142,50 @@ npx wrangler secret put VIEW_PASSWORD
 ## R2 transferの安全境界
 
 - `market.sqlite`のv13からv14へのmigration前に、workflowは`schema-migrations/market-v13.sqlite`を固定keyへ一度だけ保存する。既存objectは上書きせず、毎回再downloadして非空・`quick_check`・`user_version = 13`を検証してからbatchを開始する。v14 storeに対してartifactが存在しなければ処理を停止する。
-- upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（cloudが唯一のwriterである`market.sqlite` / `runs.sqlite`を古いローカルcopyで巻き戻さないため）。`macro.sqlite`はローカルからも`push-macro`でuploadできるが、cloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
-- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。`market.sqlite`は10年履歴で約1.3GBあり、3 store合計のpush（snapshot作成・`.bak`のserver-side copy・upload）は実測で約2分である。
+- upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。snapshotはzstd level 1で圧縮し、圧縮frameをその場で展開して元snapshotのSHA-256とbyte数へ一致することも検証する。
+- 複数storeのpushは全snapshotの作成・`quick_check`・圧縮round-trip検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（cloudが唯一のwriterである`market.sqlite` / `runs.sqlite`を古いローカルcopyで巻き戻さないため）。`macro.sqlite`はローカルからも`push-macro`でuploadできるが、cloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
+- compressed objectはlogical snapshot revision、公開時刻、展開後SHA-256、展開後byte数をmetadataに持つ。移行時はretained raw objectの`LastModified`とETagもanchorとして固定する。rawだけなら互換downloadし、両方ある場合はanchorとrawが同一であることを要求する。baseline revisionでは両方を実downloadしてSHA-256一致も検査する。旧writerがrawを更新した場合、時刻順を推測して片方を選ばず停止する。
+- store writer workflowはpull時のHeadObjectを`R2_PUBLISH_GUARD_DIR`へ保存し、batch/backfill後のpushでも同じremote世代が続いていることを要求する。ローカル`push-macro`もdownload/merge時の世代を同一process内で保持する。途中で別writerが更新した場合は、新しいcloud行を含まないsnapshotを公開せず停止する。
+- pushは上書き対象のcompressed objectを`<key>.zst.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。backupは取得済みsource ETagへ`CopySourceIfMatch`、正本publishは取得済みdestination ETagへ`If-Match`、新規作成は`If-None-Match: *`を要求する。競合時は再取得前のsnapshotをretryせずfail-closedにし、`push-macro`ではcloud copyの再download・mergeからやり直す。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.zst.bak`を`.zst`へcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例するため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。
 - `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
-- 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
-- pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
+- 初回seedは既存のraw / compressed store keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。HeadObjectの404だけを「不存在」と扱い、認証・通信障害は停止する。
+- pullは固定4 key以外を受け付けず、全download・zstd展開・metadata identity検査・`quick_check`完了後に置換する。raw objectは圧縮transportの安定運用と明示的なrollback確認が終わるまで削除しない。
 - servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
 - `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。
 - bucket名は`R2_STORES_BUCKET` / `R2_SERVING_BUCKET`で明示的にoverrideできるが、通常は固定defaultを使う。
 
 ### market schema v14のrollback
 
-v14 migration後にEDINET document stateの欠損または誤変換が確認された場合は、日次workflowを停止する。最初にwrite-once artifactを別pathへdownloadし、実SQLiteとして非空・`quick_check`・schema v13を満たすことをdry-run確認する。その後artifactを正本keyへserver-side copyし、`pull-machine`で取得して再検査する。復旧中にv14 codeでstoreを開くと再migrationされるため、原因修正版またはv13 codeへ切り替えるまでworkflowを再開しない。
+v14 migration後にEDINET document stateの欠損または誤変換が確認された場合は、日次workflowを停止する。最初にwrite-once artifactを別pathへdownloadし、実SQLiteとして非空・`quick_check`・schema v13を満たすことをdry-run確認する。圧縮transportの正本とHeadObject metadataもローカルへ退避してから`.zst`正本だけを外し、artifactをraw正本keyへserver-side copyする。rawとcompressedの不一致を自動選択しない契約なので、この順序を省くと`pull-machine`は意図どおりfail-closedになる。復旧に使うcodeは「schema v13のengine変更 + 現行zstd transport」を含む検証済みrevisionへ固定する。raw-only transportを持つ過去revisionへ戻すと、残る3 storeのretained raw baselineまで正本として読み込むため使わない。原因修正版へ切り替えるまでworkflowを再開しない。
 
 ```bash
 tools/cloud/r2_transfer.sh download-market-v13-rollback \
   /tmp/baibai-market-v13-rollback.sqlite
 uv run python tools/cloud/sqlite_snapshot.py check \
   --path /tmp/baibai-market-v13-rollback.sqlite --schema-version 13
+aws s3api head-object \
+  --bucket baibai-stores \
+  --key market.sqlite.zst \
+  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+  > /tmp/baibai-market-before-v13-rollback.zst.head.json
+aws s3 cp \
+  s3://baibai-stores/market.sqlite.zst \
+  /tmp/baibai-market-before-v13-rollback.zst \
+  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+transport_identity="$(uv run python tools/cloud/sqlite_transport.py identity \
+  --compressed-head /tmp/baibai-market-before-v13-rollback.zst.head.json)"
+read -r transport_sha transport_size revision <<< "${transport_identity}"
+uv run python tools/cloud/sqlite_transport.py decompress \
+  --source /tmp/baibai-market-before-v13-rollback.zst \
+  --output /tmp/baibai-market-before-v13-rollback.sqlite \
+  --sha256 "${transport_sha}" \
+  --size "${transport_size}"
+uv run python tools/cloud/sqlite_snapshot.py check \
+  --path /tmp/baibai-market-before-v13-rollback.sqlite
+aws s3api delete-object \
+  --bucket baibai-stores \
+  --key market.sqlite.zst \
+  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 aws s3api copy-object \
   --bucket baibai-stores \
   --key market.sqlite \

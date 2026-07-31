@@ -16,6 +16,7 @@ from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
+BACKFILL_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-history-backfill.yml"
 
 
 def _daily_job_env() -> dict[str, str]:
@@ -24,6 +25,19 @@ def _daily_job_env() -> dict[str, str]:
 
 
 class CloudDailyBatchWorkflowTests(unittest.TestCase):
+    def test_store_writer_workflows_persist_pull_generation_guards(self) -> None:
+        daily = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        backfill = yaml.safe_load(BACKFILL_WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            daily["jobs"]["daily"]["env"]["R2_PUBLISH_GUARD_DIR"],
+            "${{ runner.temp }}/r2-publish-guard",
+        )
+        self.assertEqual(
+            backfill["jobs"]["backfill"]["env"]["R2_PUBLISH_GUARD_DIR"],
+            "${{ runner.temp }}/r2-publish-guard",
+        )
+
     def test_daily_job_env_covers_every_required_jpx_source(self) -> None:
         # scheduled run が当日 cache 不足で bootstrap-cache に入ると、JPX 規制 provider は
         # active rules の universe.required_jpx_flags に含まれる全 source を要求する。

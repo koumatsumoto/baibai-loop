@@ -97,14 +97,14 @@ public entry point は次の2本だけである。
 local baibai.sqlite ──publish──┐
                               v
 GitHub Actions compute <──> R2 baibai-stores
-          │                    market/runs/macro正本 + baibai replica
+          │                    *.sqlite.zst正本 + raw互換baseline
           │ materialize
           v
 R2 baibai-serving ──binding──> Cloudflare Worker ──> browser
 views + machine history         Bearer認証 + static UI
 ```
 
-- `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
+- `baibai-stores` は `market.sqlite.zst`、`runs.sqlite.zst`、`macro.sqlite.zst` のクラウド正本と、ローカル正本である`baibai.sqlite`の圧縮replicaを保持する。移行前のraw `*.sqlite`は圧縮objectのmetadataが参照する互換baselineとしてread-onlyで保持する。public accessを持たない。
 - `baibai-serving` は材料化済み`views/`と`history/`だけを保持する。`history/candidate-views/`には機械runをUI用の型付きread modelへ変換した履歴を置き、R2 lifecycleで31日後に削除する。bucket自体はpublic accessを持たず、認証済みWorkerだけがCandidatesの日付一覧と日付指定履歴をread-onlyで返す。
 - WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`と日付形式を検証した`history/candidate-views/` keyへ写像する。stores と旧形式の`history/candidates/`には到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
 - Workers Assetsは`ui/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
