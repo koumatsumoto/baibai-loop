@@ -28,11 +28,18 @@ SKEW_PUT_MONEYNESS = 0.95
 # and narrow enough to stay out of the wings, where a thin quote moves the volatility
 # by points for reasons that have nothing to do with the basis.
 BASIS_BAND = 0.10
-# Put-call parity puts the same volatility on both sides of a strike, so a gap this
-# wide is the source's own inconsistency rather than a market state. Above it the
-# put and call volatilities are quoted against different underlyings and any reading
-# that subtracts one volatility from another inherits the error.
-MAX_BASIS_GAP = 15.0
+# Put-call parity puts the same volatility on both sides of a strike, so a gap at all
+# is the source's own inconsistency rather than a market state. Routine gaps of a few
+# points move the differences by less than the day-to-day noise in them, so the bound
+# sits above the range the source stays inside rather than through it: it marks a chain
+# that has left its own behaviour, and refusing every imperfect chain would empty the
+# two difference readings for a condition that changes nothing.
+MAX_BASIS_GAP = 20.0
+# What the source writes where it has no volatility to report. It is a value, not a
+# blank, and it lands on contracts deep enough in the money to carry no time value —
+# reading it as a 1% volatility would drag every average and gap it entered. Nothing
+# in this market quotes a volatility this low, so the bound doubles as a floor.
+PLACEHOLDER_VOLATILITY = 1.0
 PUT = "1"
 CALL = "2"
 
@@ -83,15 +90,26 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     assert front_volatility is not None  # `priced` holds only the expiries it priced
     second = priced[1] if len(priced) > 1 else None
     second_volatility = atm[second] if second is not None else None
+    near_days = (front - asof).days
+    far_days = (second - asof).days if second is not None else None
     consistent = _basis_is_consistent(by_expiry[front])
     return FearReadings(
         iv_30d=_constant_maturity(
-            near_days=(front - asof).days,
+            near_days=near_days,
             near_volatility=front_volatility,
-            far_days=(second - asof).days if second is not None else None,
+            far_days=far_days,
             far_volatility=second_volatility,
         ),
-        iv_skew=_skew(by_expiry[front]) if consistent else None,
+        iv_skew=(
+            _constant_maturity_skew(
+                near_days=near_days,
+                near_skew=_skew(by_expiry[front]),
+                far_days=far_days,
+                far_skew=_skew(by_expiry[second]) if second is not None else None,
+            )
+            if consistent
+            else None
+        ),
         iv_term=(
             second_volatility - front_volatility
             if consistent and second_volatility is not None
@@ -100,13 +118,45 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     )
 
 
-def _basis_is_consistent(quotes: Sequence[OptionQuote]) -> bool:
-    """Whether the put and call volatilities are quoted against the same underlying.
+def _constant_maturity_skew(
+    *,
+    near_days: int,
+    near_skew: float | None,
+    far_days: int | None,
+    far_skew: float | None,
+) -> float | None:
+    """Interpolate the asymmetry to the same 30-day maturity the level is quoted at.
 
-    A put and a call on one strike and expiry carry the same volatility, so the
-    median gap across the strikes around the money is zero when the source computed
-    both sides from one underlying price. A chain with no strike quoting both sides
-    cannot be checked and is treated as unusable rather than assumed sound.
+    The smile steepens as a contract approaches settlement, so a skew read off
+    whichever expiry happens to be in front is a different quantity every week of the
+    cycle, and a reader comparing it to a pooled quantile would find fear on the
+    calendar rather than in the market. Quoting it at one maturity takes most of that
+    out — a residue remains, since the bracket the interpolation spans is itself
+    narrower some weeks than others — at the cost of the days where the two expiries
+    do not straddle 30. Those are the same days the level cannot be quoted, so the two
+    readings appear and disappear together.
+
+    Linear in days rather than in variance: this is a difference between two
+    volatilities, and a difference does not add over time the way a variance does.
+    """
+    if near_skew is None or far_days is None or far_skew is None or far_days == near_days:
+        return None
+    if not near_days <= TARGET_DAYS <= far_days:
+        return None
+    weight = (far_days - TARGET_DAYS) / (far_days - near_days)
+    return weight * near_skew + (1 - weight) * far_skew
+
+
+def _basis_is_consistent(quotes: Sequence[OptionQuote]) -> bool:
+    """Whether the two sides of the chain are on one footing.
+
+    A put and a call on one strike and expiry carry the same volatility, so the median
+    gap across the strikes around the money is zero when both sides were computed
+    consistently. What breaks that consistency in the source is not established here
+    and the check does not need it: the gap is measurable, and a chain that shows a
+    large one cannot support a reading built by subtracting one volatility from
+    another, whatever the cause. A chain with no strike quoting both sides cannot be
+    checked and is treated as unusable rather than assumed sound.
     """
     underlying = quotes[0].underlying
     low, high = underlying * (1 - BASIS_BAND), underlying * (1 + BASIS_BAND)
@@ -133,7 +183,14 @@ def _usable_expiries(quotes: Sequence[OptionQuote], asof: date) -> dict[date, li
     for quote in quotes:
         if (quote.expiry - asof).days < MIN_DAYS_TO_EXPIRY:
             continue
-        if quote.implied_volatility <= 0 or quote.strike <= 0 or quote.underlying <= 0:
+        if quote.implied_volatility <= PLACEHOLDER_VOLATILITY:
+            continue
+        # The underlying is repeated on every row and every reading is a position
+        # relative to it, so one row carrying nothing would put the basis band at
+        # zero and empty the check. The strike needs no such guard: it is only ever
+        # selected by distance from a positive underlying, so a row without one is
+        # never the nearest.
+        if quote.underlying <= 0:
             continue
         grouped.setdefault(quote.expiry, []).append(quote)
     return grouped
