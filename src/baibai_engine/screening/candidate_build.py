@@ -69,6 +69,7 @@ def build_screened_candidate(
         price_history_coverage_750d=derived.price_history_coverage_750d,
         metrics=candidate_metrics_map(
             financial,
+            derived=derived,
             freshness_warning_count=len(freshness_warnings),
             estimate=estimate_expected_return(
                 financial, derived, close=_close_from_snapshot(financial)
@@ -84,6 +85,7 @@ def candidate_metrics_map(
     financial: FinancialSnapshot,
     *,
     freshness_warning_count: int,
+    derived: DerivedMetrics,
     estimate: ExpectedReturnEstimate | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
@@ -110,6 +112,12 @@ def candidate_metrics_map(
         "edinet_source_submit_datetime": financial.edinet_source_submit_datetime,
         "edinet_source_period_start": _date_iso(financial.edinet_source_period_start),
         "edinet_source_period_end": _date_iso(financial.edinet_source_period_end),
+        "margin_week_end": _date_iso(derived.margin_week_end),
+        "margin_issue_type": derived.margin_issue_type,
+        "margin_long_to_adv": derived.margin_long_to_adv,
+        "margin_long_share": derived.margin_long_share,
+        "margin_long_delta_26w": derived.margin_long_delta_26w,
+        "margin_std_long_share": derived.margin_std_long_share,
         "edinet_capex_source": financial.edinet_capex_source,
         "edinet_failure_reasons": financial.edinet_failure_reasons,
         "bs_carry_forward_fields": financial.bs_carry_forward_fields,

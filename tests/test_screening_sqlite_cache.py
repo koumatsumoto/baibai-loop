@@ -26,8 +26,14 @@ from baibai_engine.screening.sqlite_cache import (
     store_jquants_fin_summaries,
     store_jquants_market_calendar,
     store_jquants_master,
+    store_jquants_weekly_margin,
 )
-from baibai_engine.screening.sqlite_reader import range_covered, read_fin_summaries
+from baibai_engine.screening.sqlite_reader import (
+    published_margin_week_ends,
+    range_covered,
+    read_fin_summaries,
+    read_weekly_margin,
+)
 from tests.helpers.screening_sqlite import make_master_records
 
 
@@ -904,3 +910,117 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             finally:
                 conn.close()
             self.assertEqual(remaining, 1)
+
+
+class WeeklyMarginStoreTest(unittest.TestCase):
+    """Weekly margin balances, including the weeks the exchange does not publish."""
+
+    @staticmethod
+    def _record(code: str, **overrides: object) -> dict[str, object]:
+        record: dict[str, object] = {
+            "Code": code,
+            "LongVol": 5000.0,
+            "ShrtVol": 1000.0,
+            "LongStdVol": 3000.0,
+            "LongNegVol": 2000.0,
+            "ShrtStdVol": 800.0,
+            "ShrtNegVol": 200.0,
+            "IssType": "2",
+        }
+        record.update(overrides)
+        return record
+
+    def test_a_week_the_exchange_skipped_is_recorded_as_examined(self) -> None:
+        # The endpoint answers with nothing for a week that has no balance date.
+        # Without a coverage row the fetch would ask again on every pass, and the
+        # reader could not tell "no balance date" from "nobody has looked".
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            persisted = store_jquants_weekly_margin(db, [], week_end=date(2017, 5, 5))
+
+            self.assertEqual(persisted, 0)
+            self.assertEqual(read_weekly_margin(db, date(2017, 5, 5)), [])
+            self.assertIsNone(read_weekly_margin(db, date(2017, 5, 12)))
+
+    def test_non_common_stock_lines_are_excluded_not_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            persisted = store_jquants_weekly_margin(
+                db,
+                [self._record("72030"), self._record("72035")],
+                week_end=date(2026, 7, 24),
+            )
+
+            conn = open_connection(db)
+            try:
+                status = conn.execute(
+                    "SELECT status, error FROM source_coverage WHERE source = ?",
+                    ("jquants_weekly_margin",),
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertEqual(persisted, 1)
+            self.assertEqual(status, ("ok", None))
+
+    def test_a_zero_short_balance_is_stored_rather_than_dropped(self) -> None:
+        # A 信用銘柄 has no stock lending, so zero is the instrument's normal
+        # state. Treating it as missing would erase the distinction the axes need.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_weekly_margin(
+                db,
+                [self._record("13010", ShrtVol=0.0, ShrtStdVol=0.0, ShrtNegVol=0.0, IssType="1")],
+                week_end=date(2026, 7, 24),
+            )
+
+            rows = read_weekly_margin(db, date(2026, 7, 24))
+            self.assertIsNotNone(rows)
+            assert rows is not None
+            self.assertEqual(rows[0].short_vol, 0.0)
+            self.assertEqual(rows[0].issue_type, "1")
+
+    def test_an_empty_payload_refuses_to_replace_a_stored_week(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_weekly_margin(db, [self._record("72030")], week_end=date(2026, 7, 24))
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_weekly_margin(db, [], week_end=date(2026, 7, 24))
+
+            rows = read_weekly_margin(db, date(2026, 7, 24))
+            self.assertEqual(len(rows or []), 1)
+
+
+class MarginPublicationLagTest(unittest.TestCase):
+    @staticmethod
+    def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
+        for week_end in week_ends:
+            store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
+        conn = open_connection(db)
+        try:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jquants_daily_bars"
+                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                [("7203", d.isoformat(), 1.0, 1.0) for d in trading_days],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_a_balance_date_is_not_readable_before_its_publication(self) -> None:
+        # The exchange publishes a week's balances on the second trading day after
+        # the balance date, in the late afternoon. Joining on the balance date, or
+        # even on the publication day's close, would read positioning into a
+        # decision that could not have seen it.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            week_end = date(2026, 7, 24)  # Friday
+            trading = [date(2026, 7, 24), date(2026, 7, 27), date(2026, 7, 28), date(2026, 7, 29)]
+            self._seed(db, [week_end], trading)
+
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 24)), [])
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 27)), [])
+            # The exchange publishes late in the afternoon while a decision prices
+            # at the close, so the publication day itself is still too early.
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [])
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])

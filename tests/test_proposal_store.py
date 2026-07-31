@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.position.ledger import (
     PortfolioLedgerDocument,
     PortfolioSnapshot,
@@ -68,7 +69,7 @@ def _database(path: Path, *, with_review: bool = True) -> None:
 def _planned(path: Path) -> PlannedLimitInput:
     market = path.with_name("market.sqlite")
     with sqlite3.connect(market) as connection:
-        connection.execute("PRAGMA user_version = 15")
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE IF NOT EXISTS jquants_daily_bars "
             "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"
@@ -361,7 +362,7 @@ def test_plan_limit_output_creates_proposal_through_public_clis(
     _database(db)
     market = tmp_path / "market.sqlite"
     with sqlite3.connect(market) as connection:
-        connection.execute("PRAGMA user_version = 15")
+        connection.execute(f"PRAGMA user_version = {SQLITE_SCHEMA_VERSION}")
         connection.execute(
             "CREATE TABLE jquants_daily_bars "
             "(ticker TEXT, traded_at TEXT, close REAL, adjustment_factor REAL)"

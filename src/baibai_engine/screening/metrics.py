@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields, replace
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, timedelta
 from math import sqrt
 from statistics import mean, median
 
 from baibai_engine.market.bars import asof_basis_closes
 
+from .margin_metrics import margin_supply_demand
 from .providers.edinet import EdinetMetricRecord
-from .providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
+from .providers.jquants import (
+    JQuantsDailyBar,
+    JQuantsFinancialSummary,
+    JQuantsWeeklyMargin,
+)
 from .rule_config import ScreeningRules, TTMRules, load_screening_rules
 from .schema import (
     DerivedMetrics,
@@ -34,6 +39,10 @@ VALUATION_HISTORY_SESSIONS = 750
 # 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
 # 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
 # リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
+# 26 週の建玉変化を測る窓を立会日で表した本数。株式分割はこの窓を跨ぐと株数基準が
+# 変わるので、跨いだ銘柄は軸を答えない。
+MARGIN_DELTA_SESSIONS = 130
+
 BARS_INPUT_WINDOW_DAYS = 1200
 FIN_INPUT_WINDOW_DAYS = 730
 
@@ -59,8 +68,15 @@ def build_metrics(
     edinet_by_ticker: Mapping[str, EdinetMetricRecord],
     rules: ScreeningRules | None = None,
     median_population: frozenset[str] | None = None,
+    margin_latest: Mapping[str, JQuantsWeeklyMargin] | None = None,
+    margin_prior_26w: Mapping[str, JQuantsWeeklyMargin] | None = None,
 ) -> MetricBuildResult:
     """Build per-ticker financial and derived metrics for the screen scope.
+
+    ``margin_latest`` / ``margin_prior_26w`` carry the weekly margin balances that
+    were already published at ``asof_date``; leaving them out yields the same
+    metrics with the supply/demand axes unset, which is what a store without the
+    weekly source produces.
 
     ``median_population`` restricts the comparison population for sector / market
     medians and sector relative strength to the given tickers (the investable,
@@ -207,6 +223,20 @@ def build_metrics(
             sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
             short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
             split_adjustment_flag=_has_split_adjustment_within_sessions(ticker_bars, asof_date, 60),
+            **asdict(
+                margin_supply_demand(
+                    latest=(margin_latest or {}).get(ticker),
+                    prior_26w=(margin_prior_26w or {}).get(ticker),
+                    avg_daily_volume_shares=_avg_daily_volume(ticker_bars, asof_date),
+                    shares_outstanding=snapshot.shares_outstanding,
+                    split_within_adv_window=_has_split_adjustment_within_sessions(
+                        ticker_bars, asof_date, AVG_VOLUME_SESSIONS
+                    ),
+                    split_within_delta_window=_has_split_adjustment_within_sessions(
+                        ticker_bars, asof_date, MARGIN_DELTA_SESSIONS
+                    ),
+                )
+            ),
             price_history_sessions_750d=price_history_sessions[ticker],
             price_history_coverage_750d=(
                 price_history_sessions[ticker] / max_history_sessions
@@ -879,6 +909,38 @@ def _gap_from_low(
     if low <= 0:
         return None
     return (current / low) - 1.0
+
+
+# A trailing window must be long enough to average out one busy day, and it has to
+# tolerate the days an illiquid name simply does not report. Demanding all twenty
+# would drop the established thin names where margin overhang matters most.
+AVG_VOLUME_SESSIONS = 20
+AVG_VOLUME_MIN_OBSERVED = 15
+
+
+def _avg_daily_volume(
+    bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+    sessions: int = AVG_VOLUME_SESSIONS,
+) -> float | None:
+    """Mean traded shares over the trailing sessions, or None when too sparse.
+
+    Shares rather than yen, because it is the denominator that turns a margin
+    balance into days of trading; dividing yen turnover by the close would put the
+    close where the day's average price belongs. The window must exist in full so a
+    newly listed name cannot produce a days-of-volume figure off two sessions, but
+    within it a minority of unreported days is averaged over rather than fatal.
+    """
+    ordered = sorted(
+        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
+    )
+    window = ordered[-sessions:]
+    if len(window) < sessions:
+        return None
+    values = [float(bar.volume) for bar in window if bar.volume is not None]
+    if len(values) < AVG_VOLUME_MIN_OBSERVED:
+        return None
+    return mean(values)
 
 
 def _turnover_spike(

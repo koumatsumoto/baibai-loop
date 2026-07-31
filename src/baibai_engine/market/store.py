@@ -35,7 +35,8 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
         if not daily_bars_covered_by_data(conn, start, end):
             return None
         rows = conn.execute(
-            "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
+            "SELECT ticker, traded_at, close, turnover_value, volume, "
+            "adjustment_close, adjustment_factor "
             "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
             "ORDER BY ticker, traded_at",
             (start.isoformat(), end.isoformat()),
@@ -44,7 +45,15 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
         conn.close()
 
     bars: list[JQuantsDailyBar] = []
-    for ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor in rows:
+    for (
+        ticker,
+        traded_at,
+        close,
+        turnover_value,
+        volume,
+        adjustment_close,
+        adjustment_factor,
+    ) in rows:
         if close is None or traded_at is None:
             continue
         try:
@@ -54,6 +63,7 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
                     traded_at=date.fromisoformat(traded_at),
                     close=float(close),
                     turnover_value=optional_float(turnover_value),
+                    volume=optional_float(volume),
                     adjustment_close=optional_float(adjustment_close),
                     adjustment_factor=optional_float(adjustment_factor),
                 )
@@ -91,7 +101,8 @@ def read_daily_bars_for_tickers(
             return None
         placeholders = ", ".join("?" for _ in tickers)
         rows = conn.execute(
-            "SELECT ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor "
+            "SELECT ticker, traded_at, close, turnover_value, volume, "
+            "adjustment_close, adjustment_factor "
             "FROM jquants_daily_bars "
             # Local placeholder count; ticker values remain bound.  # nosec B608
             f"WHERE ticker IN ({placeholders}) AND traded_at BETWEEN ? AND ? "
@@ -101,7 +112,15 @@ def read_daily_bars_for_tickers(
     finally:
         conn.close()
     bars: list[JQuantsDailyBar] = []
-    for ticker, traded_at, close, turnover_value, adjustment_close, adjustment_factor in rows:
+    for (
+        ticker,
+        traded_at,
+        close,
+        turnover_value,
+        volume,
+        adjustment_close,
+        adjustment_factor,
+    ) in rows:
         if close is None or traded_at is None:
             continue
         try:
@@ -111,6 +130,7 @@ def read_daily_bars_for_tickers(
                     traded_at=date.fromisoformat(traded_at),
                     close=float(close),
                     turnover_value=optional_float(turnover_value),
+                    volume=optional_float(volume),
                     adjustment_close=optional_float(adjustment_close),
                     adjustment_factor=optional_float(adjustment_factor),
                 )

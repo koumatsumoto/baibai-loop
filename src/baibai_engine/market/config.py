@@ -13,4 +13,5 @@ JQUANTS_CLIENT_V2_METHODS = (
     "get_eq_bars_daily_range",
     "get_fin_summary_range",
     "get_mkt_calendar",
+    "get_mkt_margin_interest",
 )

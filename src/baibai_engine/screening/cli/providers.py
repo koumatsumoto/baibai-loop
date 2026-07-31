@@ -18,6 +18,7 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
+    JQuantsWeeklyMargin,
 )
 from baibai_engine.screening.schema import (
     SecurityMaster,
@@ -36,6 +37,8 @@ class JQuantsAdapter(Protocol):
         start: date,
         end: date,
     ) -> list[JQuantsFinancialSummary]: ...
+
+    def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
 
 
 class EDINETAdapter(Protocol):

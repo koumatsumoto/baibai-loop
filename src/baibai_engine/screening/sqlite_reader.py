@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -38,8 +39,10 @@ from .providers.jpx import (
 from .providers.jquants import (
     JQuantsFinancialSummary,
     JQuantsProviderError,
+    JQuantsWeeklyMargin,
 )
 from .schema import SecurityMaster
+from .sqlite_cache.jquants import WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key
 
 
 class EDINETMetricBaselineError(RuntimeError):
@@ -149,6 +152,222 @@ def read_eq_master(sqlite_path: Path) -> list[SecurityMaster] | None:
         conn.close()
 
     return _materialize_masters(rows)
+
+
+def read_weekly_margin(sqlite_path: Path, week_end: date) -> list[JQuantsWeeklyMargin] | None:
+    """Return one balance date's rows, or None when it has not been examined.
+
+    A week the exchange skipped is stored as a coverage row with no rows behind
+    it, so an empty list and None mean different things: the first says the week
+    has no balance date, the second says nobody has looked. Only the second is a
+    reason to call the provider.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    iso = week_end.isoformat()
+    try:
+        coverage = conn.execute(
+            "SELECT status FROM source_coverage WHERE source = ? AND coverage_key = ?",
+            (WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key(week_end)),
+        ).fetchone()
+        if coverage is None or coverage[0] != "ok":
+            return None
+        rows = conn.execute(
+            "SELECT ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
+            "short_std_vol, short_neg_vol, issue_type "
+            "FROM jquants_weekly_margin WHERE week_end = ? ORDER BY ticker",
+            (iso,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        JQuantsWeeklyMargin(
+            ticker=str(row[0]),
+            week_end=week_end,
+            long_vol=_opt_float_value(row[1]),
+            short_vol=_opt_float_value(row[2]),
+            long_std_vol=_opt_float_value(row[3]),
+            long_neg_vol=_opt_float_value(row[4]),
+            short_std_vol=_opt_float_value(row[5]),
+            short_neg_vol=_opt_float_value(row[6]),
+            issue_type=str(row[7]) if row[7] is not None else None,
+        )
+        for row in rows
+    ]
+
+
+def _opt_float_value(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
+
+
+# The exchange publishes a week's margin balances on the second trading day after
+# the balance date, around 16:30 JST. Counting trading days rather than adding a
+# fixed offset is what makes the rule survive the balance dates that land on a
+# Thursday or Wednesday because the week's later days were closed.
+MARGIN_PUBLICATION_TRADING_DAYS = 2
+
+
+def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
+    """Balance dates whose publication had already happened by `asof`, ascending.
+
+    A balance date is not usable on the day it describes: the exchange publishes it
+    days later, so joining on the balance date alone would read Friday's positioning
+    into Friday's decision. Trading days come from the bar rows, which are the only
+    complete record of which days the market was open across the stored history.
+    """
+    if not sqlite_path.exists():
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        # Only balance dates the reader can actually serve. `read_weekly_margin`
+        # refuses a date whose coverage is not `ok`, so listing one here would put
+        # an unreadable date at the head of the list and blank the whole cohort
+        # rather than falling back to the week before it.
+        # Selected by the reader's own predicate, the coverage key, so the two
+        # cannot disagree about which balance date a coverage row describes.
+        readable = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT coverage_key FROM source_coverage "
+                "WHERE source = ? AND status = 'ok' AND record_count > 0",
+                (WEEKLY_MARGIN_SOURCE,),
+            )
+        }
+        week_ends = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT week_end FROM jquants_weekly_margin "
+                "WHERE week_end <= ? ORDER BY week_end",
+                (asof.isoformat(),),
+            )
+            if weekly_margin_coverage_key(date.fromisoformat(str(row[0]))) in readable
+        ]
+        if not week_ends:
+            return []
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
+                (week_ends[0].isoformat(), asof.isoformat()),
+            )
+        ]
+    finally:
+        conn.close()
+    # `trading_days` stops at `asof`, so a balance date's publication day is inside
+    # the list exactly when it has already happened. The publication itself lands in
+    # the late afternoon while a decision prices at the close, so a balance date
+    # published on `asof` is not yet usable at `asof`'s price; the strict comparison
+    # costs a week of freshness on a weekly series and removes that overlap.
+    published: list[date] = []
+    for week_end in week_ends:
+        publication = bisect_right(trading_days, week_end) + MARGIN_PUBLICATION_TRADING_DAYS - 1
+        if publication < len(trading_days) and trading_days[publication] < asof:
+            published.append(week_end)
+    return published
+
+
+# Balance dates the delta axis reaches back over. They are weekly, so this is about
+# half a year — 26 to 28 calendar weeks in practice, because the exchange skips
+# some weeks and this counts stored dates rather than calendar distance.
+MARGIN_DELTA_WEEKS = 26
+
+# How stale the newest published balance date may be before the axes decline to
+# answer. The cadence is weekly and the publication lag is two trading days, so a
+# healthy store sits inside three weeks even across a long closure. Beyond this the
+# balance describes a market the as-of no longer resembles, and a silent stale join
+# is worse than an unset axis.
+MARGIN_MAX_STALE_DAYS = 35
+
+
+def weekly_margin_candidate_dates(sqlite_path: Path, start: date, end: date) -> list[date]:
+    """The last stored trading day of each week in `[start, end]`, ascending.
+
+    The exchange's balance date is that day in most weeks and an earlier one when
+    the week's later days were closed — and some weeks have no balance date at all,
+    even weeks the market traded. Rather than encode that calendar, this proposes
+    one candidate per week and lets the fetch record an empty answer as the week's
+    fact, so a week without a balance date is asked for once.
+    """
+    if not sqlite_path.exists() or start > end:
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+            "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+    last_of_week: dict[tuple[int, int], date] = {}
+    for (value,) in rows:
+        try:
+            day = date.fromisoformat(str(value))
+        except ValueError:
+            continue
+        year, week, _ = day.isocalendar()
+        last_of_week[(year, week)] = day
+    # A week that is still running has a last stored trading day that moves forward
+    # each day, so proposing it spends one call per run on a date that is not a
+    # balance date; nothing is lost by waiting, because the publication lag means a
+    # balance date is not usable until two trading days after the week closes. The
+    # week is in progress only when `end` reaches the newest day the store knows —
+    # a window that ends in the past has a complete final week and must keep it.
+    newest = max(last_of_week.values(), default=None)
+    stored_latest = _latest_stored_trading_day(conn_path=sqlite_path)
+    if (
+        newest is not None
+        and stored_latest is not None
+        and end.isocalendar()[:2] == stored_latest.isocalendar()[:2]
+    ):
+        last_of_week.pop(newest.isocalendar()[:2], None)
+    return sorted(last_of_week.values())
+
+
+def _latest_stored_trading_day(*, conn_path: Path) -> date | None:
+    conn = connect_current(conn_path)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] is None:
+        return None
+    try:
+        return date.fromisoformat(str(row[0]))
+    except ValueError:
+        return None
+
+
+def read_margin_supply_demand_inputs(
+    sqlite_path: Path, asof: date
+) -> tuple[dict[str, JQuantsWeeklyMargin], dict[str, JQuantsWeeklyMargin]]:
+    """The published balance dates a cohort at `asof` may use: latest, and 26 back.
+
+    Both are keyed by ticker. Empty mappings mean the store holds no published
+    balance date for this as-of, which is what a store without the weekly source
+    looks like and yields unset axes rather than wrong ones.
+    """
+    week_ends = published_margin_week_ends(sqlite_path, asof)
+    if not week_ends or (asof - week_ends[-1]).days > MARGIN_MAX_STALE_DAYS:
+        return {}, {}
+    latest = {row.ticker: row for row in read_weekly_margin(sqlite_path, week_ends[-1]) or ()}
+    prior: dict[str, JQuantsWeeklyMargin] = {}
+    if len(week_ends) > MARGIN_DELTA_WEEKS:
+        prior = {
+            row.ticker: row
+            for row in read_weekly_margin(sqlite_path, week_ends[-1 - MARGIN_DELTA_WEEKS]) or ()
+        }
+    return latest, prior
 
 
 def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] | None:

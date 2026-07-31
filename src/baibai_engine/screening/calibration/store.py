@@ -17,7 +17,7 @@ from .forward import ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -179,6 +179,11 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         er_reversion_annual=_opt_float(raw, "er_reversion_annual"),
         er_carry_annual=_opt_float(raw, "er_carry_annual"),
         er_upside_capped=_opt_float(raw, "er_upside_capped"),
+        margin_week_end=raw.get("margin_week_end") or None,
+        margin_long_to_adv=_opt_float(raw, "margin_long_to_adv"),
+        margin_long_share=_opt_float(raw, "margin_long_share"),
+        margin_long_delta_26w=_opt_float(raw, "margin_long_delta_26w"),
+        margin_std_long_share=_opt_float(raw, "margin_std_long_share"),
         pass_screen=raw["pass_screen"] == _BOOL_TRUE,
         evidence_playbooks=raw["evidence_playbooks"],
         selection_rank=_opt_int(raw, "selection_rank"),

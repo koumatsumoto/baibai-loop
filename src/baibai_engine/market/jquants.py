@@ -64,6 +64,7 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
         close=close,
         adjustment_close=adjustment_close,
         adjustment_factor=adjustment_factor,
+        volume=to_float(coalesce_field(record, "Volume", "volume", "Vo", "vo")),
         turnover_value=to_float(
             coalesce_field(
                 record,

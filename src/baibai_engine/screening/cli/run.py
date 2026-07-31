@@ -58,6 +58,7 @@ from baibai_engine.screening.universe import (
     liquid_median_population,
 )
 
+from ..sqlite_reader import read_margin_supply_demand_inputs
 from .providers import ProviderBundle
 
 
@@ -219,6 +220,9 @@ def run_command(
         if security.is_common_stock and security.code in universe_result.snapshots
     }
     median_population = liquid_median_population(universe_result.snapshots, rules)
+    margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(
+        config.sqlite_cache_dir / "market.sqlite", asof_date
+    )
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -227,6 +231,8 @@ def run_command(
         edinet_by_ticker=edinet_by_ticker,
         rules=rules,
         median_population=median_population,
+        margin_latest=margin_latest,
+        margin_prior_26w=margin_prior_26w,
     )
     disclosure_load_result = load_disclosure_events(
         config.cache_dir / "disclosures",
