@@ -210,6 +210,7 @@ _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
         "delta_unavailable": str,
     },
     "prune": {},
+    "task-reconcile": {},
 }
 BATCH_NAMES = tuple(_BATCH_METRIC_SCHEMA)
 

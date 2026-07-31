@@ -110,6 +110,17 @@ def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today
         )
         return 1
     results = reconcile_earnings_dates(service.list(status="open"), published, today=today)
+    # One flat line per non-confirming task, prefixed so a log filter can keep the
+    # findings without the confirmations. The command's whole product is this
+    # report; a batch that swallows it runs the step for nothing.
+    for result in results:
+        if result.outcome != "confirm":
+            drift = "" if result.drift_days is None else f" drift={result.drift_days:+d}d"
+            print(
+                f"reconcile-earnings\t{result.outcome}\t{result.ticker}\t"
+                f"{result.current_event_date} -> {result.published_event_date}{drift}",
+                file=sys.stdout,
+            )
     _emit(
         {
             "schedule_window_end": max(published.values()).isoformat() if published else None,

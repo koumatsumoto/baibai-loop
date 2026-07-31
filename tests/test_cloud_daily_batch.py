@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from tools.cloud.batch_summary import (
+    ERROR_STAGES,
     OUTCOME_DEGRADED,
     OUTCOME_FAILED,
     OUTCOME_SKIPPED,
@@ -604,6 +605,7 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
         "macro",
         "serving-export",
         "prune",
+        "task-reconcile",
     ]
     screening = summary.batches[0]
     assert screening.metrics == {
@@ -868,24 +870,109 @@ def test_every_batch_step_name_is_a_known_error_stage() -> None:
 
     `_finalize_failed_summary` classifies the error while composing the summary, so
     an unregistered stage raises there and the operator gets a validation error
-    instead of the failure that actually happened. Reading the names out of the
-    source keeps a new step from being added without registering it.
+    instead of the failure that actually happened. The call sites are read with
+    `ast` rather than a regex: several pass a call inside `argv=(...)`, which a
+    paren-counting pattern skips silently — and skipping is indistinguishable from
+    passing.
     """
-    import re
+    import ast
 
-    from tools.cloud.batch_summary import ERROR_STAGES
+    from tools.cloud.daily_batch import _normalize_stage
 
     source = (Path(__file__).resolve().parents[1] / "tools" / "cloud" / "daily_batch.py").read_text(
         encoding="utf-8"
     )
-    # Only `_run_step` names become error stages; `batch_name=` labels a section.
-    names = {
-        match.group(1)
-        for match in re.finditer(r"_run_step\((?:[^()]|\([^()]*\))*?\)", source, re.S)
-        for match in re.finditer(r'name="([^"]+)"', match.group(0))
-    }
-    unregistered = {
-        name for name in names if name.replace("(recheck)", "") not in set(ERROR_STAGES)
-    }
+    tree = ast.parse(source)
+    names: list[str] = []
+    dynamic: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        callee = node.func
+        if not (isinstance(callee, ast.Name) and callee.id == "_run_step"):
+            continue
+        keyword = next((item for item in node.keywords if item.arg == "name"), None)
+        assert keyword is not None, "every _run_step call names its step"
+        if isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
+            names.append(keyword.value.value)
+        else:
+            # An f-string name cannot be checked statically; `_normalize_stage`
+            # strips the varying part, so pin the literal prefix instead.
+            dynamic.append(ast.unparse(keyword.value))
 
+    # Guards the scan itself: a parser that silently matches nothing would make
+    # this test pass while checking no step at all.
+    assert len(names) + len(dynamic) == 12, "the scan lost or gained call sites"
+    unregistered = {name for name in names if _normalize_stage(name) not in set(ERROR_STAGES)}
     assert unregistered == set()
+    assert len(dynamic) == 1
+    assert "macro-refresh" in dynamic[0]
+    assert _normalize_stage("macro-refresh-370d") in set(ERROR_STAGES)
+
+
+def test_a_reconcile_failure_degrades_the_batch_without_losing_the_publish(
+    tmp_path: Path,
+) -> None:
+    """The step reports and writes nothing, so it must never cost the day's publish.
+
+    Pins the deferral itself: replacing the try/except with a bare `_run_step`
+    puts the step back on the critical path, and nothing else in the suite would
+    notice.
+    """
+    script = _success_script()
+    script["task reconcile-earnings"] = [CommandResult(returncode=1, stdout="", stderr="boom")]
+    runner = ScriptedRunner(
+        script, writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer}
+    )
+    summary_output = tmp_path / "summary.json"
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=runner,
+        summary_output=summary_output,
+    )
+
+    keys = runner.call_keys()
+    assert "screening select" in keys
+    assert "export" in keys
+    summary = load_batch_execution_summary(summary_output)
+    assert summary.outcome == OUTCOME_DEGRADED
+    reconcile = next(batch for batch in summary.batches if batch.batch_name == "task-reconcile")
+    assert reconcile.status == "degraded"
+    assert [error.stage for error in reconcile.errors] == ["task-reconcile-earnings"]
+    prune = next(batch for batch in summary.batches if batch.batch_name == "prune")
+    assert prune.status == "ok"
+    assert exit_code != 0
+
+
+def test_a_fatal_failure_still_writes_a_summary_when_its_stage_is_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Composing the summary must not be able to replace the failure it describes.
+
+    Classifying the error happens while composing, so an unregistered stage raises
+    there. With that work outside the guard the validation error escapes and the
+    real failure is lost; this pins it inside.
+    """
+    import tools.cloud.batch_summary as batch_summary
+
+    monkeypatch.setattr(
+        batch_summary, "ERROR_STAGES", tuple(s for s in ERROR_STAGES if s != "screening-run")
+    )
+    script = _success_script()
+    script["screening run"] = [CommandResult(returncode=1, stdout="", stderr="boom")]
+    runner = ScriptedRunner(
+        script, writers={"screening run": _run_yaml_writer("rev-1"), "export": _export_meta_writer}
+    )
+    summary_output = tmp_path / "summary.json"
+
+    with pytest.raises(BatchStepError):
+        run_daily_batch(
+            root=tmp_path,
+            output_dir=tmp_path / "serving",
+            asof=ASOF,
+            runner=runner,
+            summary_output=summary_output,
+        )

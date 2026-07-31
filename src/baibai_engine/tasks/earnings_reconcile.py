@@ -1,14 +1,12 @@
-"""Move a task's event date onto the exchange's schedule once it is published.
+"""Say where a task's event date stands against the exchange's published schedule.
 
-A follow-up task is created the day a candidate is rejected, which is months
-before the next announcement. The exchange's schedule reaches only weeks ahead, so
-the date on the task starts as an estimate and stays one until the real date
-enters that window. Nothing was watching for the moment it did, which left tasks
-carrying a guess long after the answer existed.
-
-This compares open tasks against the schedule and reports what would change. It
-decides only; applying the change is the caller's step, so a wrong reading is
-visible before it reaches the store.
+A follow-up task is created the day a candidate is rejected, months before the
+next announcement. When the schedule already reaches that far the task takes the
+published date; when it does not, a human picks the trigger date. So a task whose
+date came from the schedule keeps agreeing with it, and the ones that would move
+are the ones a human chose — which is why this reports and never writes.
+`decision-cycle.md` keeps that write boundary with the human; `task edit` applies
+what this names.
 """
 
 from __future__ import annotations
@@ -19,11 +17,11 @@ from datetime import date
 
 from .models import Task
 
-# The estimate a task starts with is a quarter-ahead guess, so a published date
-# landing a few days either side of it is the same event and only sharpens it. A
-# date far from the estimate is a different event — a schedule change, a ticker
-# reusing a code, an estimate off by a quarter — and is reported rather than
-# applied, because moving a task there silently would lose the disagreement.
+# A hand-picked date is a quarter-ahead guess, so a published date landing a few
+# days either side of it is the same event read more sharply. A date far from it is
+# a different event — a schedule change, an estimate off by a quarter — and is
+# named as a disagreement rather than a refinement, because the two call for
+# different actions from the reader.
 ESTIMATE_TOLERANCE_DAYS = 45
 
 
@@ -36,7 +34,7 @@ class EarningsReconciliation:
     current_event_date: date | None
     published_event_date: date
     outcome: str
-    """`confirm` (already right), `update` (move it), or `disagree` (report only)."""
+    """`confirm` (matches), `update` (the schedule is sharper), `disagree` (differs)."""
 
     @property
     def drift_days(self) -> int | None:

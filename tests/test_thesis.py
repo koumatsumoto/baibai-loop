@@ -4,6 +4,7 @@ import copy
 from datetime import datetime
 from decimal import Decimal, localcontext
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
@@ -53,6 +54,12 @@ def _bind_review(
     return document, IndependentReview.model_validate(review)
 
 
+# The fixtures describe a situation in early July 2026, so evidence freshness is
+# judged against that week. Left to the wall clock the same fixture changes verdict
+# as the calendar moves, and the suite fails on a date rather than on a change.
+FIXED_NOW = datetime(2026, 7, 12, 10, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+
 def _evaluate(
     raw: dict[str, object],
     review_raw: dict[str, object] | None = None,
@@ -60,7 +67,7 @@ def _evaluate(
     now: datetime | None = None,
 ) -> ThesisResult:
     document, review = _bind_review(raw, review_raw)
-    return evaluate_thesis(document, review=review, now=now)
+    return evaluate_thesis(document, review=review, now=now or FIXED_NOW)
 
 
 def _five_year_base_raw(raw: dict[str, object]) -> dict[str, object]:
@@ -97,7 +104,9 @@ def _screening_fv_bridge() -> dict[str, object]:
 
 
 def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
-    result = evaluate_thesis(load_thesis(FIXTURE), review=load_independent_review(REVIEW_FIXTURE))
+    result = evaluate_thesis(
+        load_thesis(FIXTURE), review=load_independent_review(REVIEW_FIXTURE), now=FIXED_NOW
+    )
 
     assert result.thesis_status == "ready_with_warnings"
     assert result.decision_readiness == "ready"
@@ -341,7 +350,7 @@ def test_screening_fv_revision_uses_raw_decimal_values() -> None:
 
 def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:
     document = _document()
-    result = evaluate_thesis(document)
+    result = evaluate_thesis(document, now=FIXED_NOW)
     break_even = result.five_year_base_break_even
     assert break_even is not None
     assert break_even.required_total_value_yen is not None
@@ -1200,7 +1209,7 @@ def test_buy_candidate_requires_independent_second_pass() -> None:
     raw = _raw()
     raw["independent_review_ref"] = None
 
-    result = evaluate_thesis(_document(raw))
+    result = evaluate_thesis(_document(raw), now=FIXED_NOW)
 
     assert result.thesis_status == "review_required"
     assert result.errors == ("buy recommendation requires an independent second-pass review",)
@@ -1226,7 +1235,7 @@ def test_read_only_cli_uses_domain_result(
         REVIEW_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
-    assert decision_main([str(path)]) == 0
+    assert decision_main([str(path)], now=FIXED_NOW) == 0
     output = yaml.safe_load(capsys.readouterr().out)
     assert output["thesis_status"] == "ready_with_warnings"
     assert output["decision_readiness"] == "ready"

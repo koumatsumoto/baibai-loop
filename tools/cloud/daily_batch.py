@@ -502,6 +502,7 @@ _BATCH_DATASETS: dict[str, tuple[str, ...]] = {
     "macro": ("macro-series",),
     "serving-export": ("views", "history"),
     "prune": ("runs-store",),
+    "task-reconcile": ("follow-up-tasks",),
 }
 
 
@@ -860,21 +861,6 @@ def _execute_daily_batch(
         _run_step(runner, name="screening-prune", argv=(_ENGINE, "screening", "prune"), cwd=root)
     except BatchStepError as exc:
         _record_deferred(exc, prune_errors)
-    # The exchange publishes its schedule only weeks ahead, so a follow-up task
-    # created a quarter out carries an estimate until the real date enters that
-    # window. Comparing daily is what surfaces the day it becomes knowable. It
-    # reads nothing the publish produced and writes nothing, so it runs after the
-    # publish and a failure degrades rather than blocking it.
-    try:
-        _run_step(
-            runner,
-            name="task-reconcile-earnings",
-            argv=(_ENGINE, "task", "reconcile-earnings"),
-            cwd=root,
-            echo_stdout=False,
-        )
-    except BatchStepError as exc:
-        _record_deferred(exc, prune_errors)
     recorder.batches.append(
         BatchResult(
             batch_name="prune",
@@ -883,6 +869,40 @@ def _execute_daily_batch(
             duration_seconds=time.monotonic() - prune_mono,
             metrics={},
             errors=tuple(prune_errors),
+        )
+    )
+
+    # The exchange publishes its schedule only weeks ahead, so a follow-up task
+    # created a quarter out carries an estimate until the real date enters that
+    # window. Comparing daily is what surfaces the day it becomes knowable. It
+    # reads nothing the publish produced and writes nothing, so it runs after the
+    # publish and a failure degrades rather than blocking it. It gets its own
+    # section: folding it into prune would report prune as degraded when prune
+    # succeeded, and mark the runs store degraded when the runs store is fine.
+    reconcile_mono = recorder.enter_section("task-reconcile")
+    reconcile_errors: list[BatchError] = []
+    try:
+        _run_step(
+            runner,
+            name="task-reconcile-earnings",
+            argv=(_ENGINE, "task", "reconcile-earnings"),
+            cwd=root,
+            echo_stdout=False,
+            # The report is the step's only product, so the findings have to reach
+            # the log. Confirmations are the normal case and would be ~100 lines a
+            # day of noise, so only the rows that need a human are echoed.
+            echo_stdout_prefixes=("reconcile-earnings\t",),
+        )
+    except BatchStepError as exc:
+        _record_deferred(exc, reconcile_errors)
+    recorder.batches.append(
+        BatchResult(
+            batch_name="task-reconcile",
+            datasets=_BATCH_DATASETS["task-reconcile"],
+            status=BATCH_STATUS_DEGRADED if reconcile_errors else BATCH_STATUS_OK,
+            duration_seconds=time.monotonic() - reconcile_mono,
+            metrics={},
+            errors=tuple(reconcile_errors),
         )
     )
 
