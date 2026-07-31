@@ -99,7 +99,7 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             docs = read_edinet_documents(sqlite_path, date(2026, 4, 24))
             assert docs is not None
             self.assertEqual(docs[0]["docDescription"], "有価証券報告書 2025/04/01-2026/03/31")
-            candidates = select_document_candidates(docs)
+            candidates = select_document_candidates(docs).candidates
 
             self.assertEqual(candidates["1301"].period_start, date(2025, 4, 1))
             self.assertEqual(candidates["1301"].period_end, date(2026, 3, 31))
@@ -139,8 +139,8 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             event_rows = read_edinet_documents(sqlite_path, date(2026, 4, 25))
             assert origin_rows is not None
             assert event_rows is not None
-            original = select_document_candidates(origin_rows)["1301"]
-            edited = select_document_candidates([*origin_rows, *event_rows])["1301"]
+            original = select_document_candidates(origin_rows).candidates["1301"]
+            edited = select_document_candidates([*origin_rows, *event_rows]).candidates["1301"]
 
             self.assertEqual(edited.doc_id, "S100ABCD")
             self.assertEqual(edited.doc_type_code, "120")
