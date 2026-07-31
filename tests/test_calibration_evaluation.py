@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.screening.calibration.cli import calibration_evaluate_command
 from baibai_engine.screening.calibration.evaluation import (
+    DECILES,
     MIN_AXIS_SAMPLE,
     _reversion_plus_capped_carry,
     _spearman,
@@ -778,3 +779,58 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertTrue(sensitivity["direction_stable"])
         self.assertEqual(sensitivity["as_reported"], {})
         self.assertEqual(sensitivity["imputations"], {})
+
+
+class CrowdedValueInteractionTest(unittest.TestCase):
+    """The direct test of a value trap made of positioning, not of fundamentals."""
+
+    @staticmethod
+    def _cohort(*, crowded_return: float) -> tuple[list[PanelRow], list[ForwardReturnRow]]:
+        # A cohort where the cheap end splits evenly by margin crowding. Only the
+        # crowded half's forward return varies between the two cases.
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        total = MIN_AXIS_SAMPLE + 20
+        decile = total // DECILES
+        for index in range(total):
+            ticker = f"{3000 + index}"
+            cheap = index >= total - decile
+            crowded = index >= total - decile // 2
+            row = replace(
+                _panel_row(ticker, per_trailing=10.0, er_annual=0.5 if cheap else 0.01),
+                margin_long_to_adv=20.0 if crowded else 0.5,
+            )
+            panel.append(row)
+            forwards.append(_forward_row(ticker, crowded_return if crowded else 0.0))
+        return panel, forwards
+
+    def _crowded_value(self, *, crowded_return: float) -> dict[str, object]:
+        panel, forwards = self._cohort(crowded_return=crowded_return)
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        return result["6m"]["cohorts"][0]["crowded_value"]  # type: ignore[index,return-value]
+
+    def test_a_crowded_cheap_half_that_lags_is_reported_as_a_negative_difference(self) -> None:
+        crowded_value = self._crowded_value(crowded_return=-0.20)
+
+        self.assertEqual(crowded_value["crowded"]["n"], 6)
+        self.assertEqual(crowded_value["uncrowded"]["n"], 6)
+        difference = crowded_value["crowded_minus_uncrowded"]
+        assert isinstance(difference, float)
+        self.assertLess(difference, 0.0)
+
+    def test_a_crowded_cheap_half_that_leads_is_reported_as_a_positive_difference(self) -> None:
+        # The measurement must be able to reject the hypothesis, not only confirm
+        # it: the same code path has to report the opposite sign when the data says
+        # so, or a favourable result would be an artifact of the implementation.
+        crowded_value = self._crowded_value(crowded_return=0.20)
+
+        difference = crowded_value["crowded_minus_uncrowded"]
+        assert isinstance(difference, float)
+        self.assertGreater(difference, 0.0)
+
+    def test_a_cohort_without_margin_data_reports_nothing(self) -> None:
+        panel, forwards = self._cohort(crowded_return=-0.20)
+        blank = [replace(row, margin_long_to_adv=None) for row in panel]
+        result = evaluate_cohorts({"2025-06-30": blank}, {"2025-06-30": forwards}, horizons=["6m"])
+
+        self.assertEqual(result["6m"]["cohorts"][0]["crowded_value"], {})  # type: ignore[index]

@@ -21,10 +21,8 @@ from .thesis import (
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     """Evaluate a thesis file and print the domain result.
 
-    ``now`` fixes the instant evidence freshness is judged against. Production
-    leaves it unset and gets the wall clock; a caller reproducing a dated situation
-    passes the instant that situation belongs to, so the verdict does not move with
-    the calendar.
+    ``now`` fixes the instant evidence and overrides are judged against, so a
+    caller reproducing a dated situation gets the same verdict whenever it runs.
     """
     parser = argparse.ArgumentParser(prog="baibai-engine research evaluate")
     parser.add_argument("thesis", type=Path)

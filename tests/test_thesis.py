@@ -23,6 +23,7 @@ from baibai_engine.research.thesis import (
     result_to_payload,
     thesis_core_hash,
 )
+from tests.helpers.fixed_now import FIXED_NOW
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"

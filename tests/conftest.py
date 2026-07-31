@@ -3,9 +3,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 from collections.abc import Iterator
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
@@ -18,6 +16,7 @@ from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
+from tests.helpers.fixed_now import FIXED_NOW
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -101,15 +100,8 @@ def _seed_app_method_root(root: Path) -> None:
     review = safe_load((FIXTURES / "thesis/2331-decision-review.yaml").read_text(encoding="utf-8"))
     assert isinstance(thesis, dict)
     assert isinstance(review, dict)
-    # The fixture describes a situation dated 2026-07-03, so its evidence is judged
-    # against that week rather than against whenever the suite happens to run. Left
-    # to the wall clock, the seed silently rots into "evidence too old" and every
-    # test that depends on this fixture fails on a date rather than on a change.
     ResearchStoreService(db_path).publish_thesis_with_review(
-        "thesis-20260714-2331-r1",
-        thesis,
-        review,
-        now=datetime(2026, 7, 14, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+        "thesis-20260714-2331-r1", thesis, review, now=FIXED_NOW
     )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))

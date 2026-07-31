@@ -10,10 +10,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
+from datetime import datetime, time
 from decimal import Decimal
 from pathlib import Path
 
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.time import JST
 from baibai_engine.position.holding_review import (
     HoldingReviewDocument,
     HoldingReviewError,
@@ -209,7 +211,10 @@ def _load_ready_db_thesis(connection: sqlite3.Connection, thesis_id: str) -> The
         raise HoldingReviewError("holding review requires exactly one independent review")
     thesis = ThesisDocument.model_validate(json.loads(str(thesis_row["payload"])))
     review = IndependentReview.model_validate(json.loads(str(review_rows[0]["payload"])))
-    result = evaluate_thesis(thesis, review=review)
+    # The thesis is judged at the moment it describes, not at the moment it is
+    # read back. A draft rebuilt from the same revisions has to reach the same
+    # verdict whenever it runs.
+    result = evaluate_thesis(thesis, review=review, now=_thesis_instant(thesis))
     if result.errors or result.decision_readiness != "ready":
         raise HoldingReviewError(
             "thesis is not ready for holding review: " + "; ".join(result.errors)
@@ -244,3 +249,8 @@ def _whole_yen(value: Decimal) -> int:
     if value != value.to_integral_value():
         raise HoldingReviewError("holding review requires whole-yen current price and fair value")
     return int(value)
+
+
+def _thesis_instant(thesis: ThesisDocument) -> datetime:
+    """The instant a stored thesis's own snapshot belongs to, in JST."""
+    return datetime.combine(thesis.input_snapshot.as_of, time(15, 30), tzinfo=JST)

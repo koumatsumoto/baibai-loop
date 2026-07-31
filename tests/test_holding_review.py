@@ -21,6 +21,7 @@ from baibai_engine.research.thesis import (
     thesis_core_hash,
 )
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.fixed_now import FIXED_NOW
 
 FIXTURES = Path(__file__).parent / "fixtures" / "holding-review"
 
@@ -271,7 +272,9 @@ def test_holding_review_build_cli_writes_a_validated_draft(
     thesis = yaml.safe_load(tmp_path.joinpath("theses/2331-decision.yaml").read_text())
     review = yaml.safe_load(tmp_path.joinpath("theses/2331-decision-review.yaml").read_text())
     thesis_id = "thesis-20260703-2331-r1"
-    ResearchStoreService(db_path).publish_thesis_with_review(thesis_id, thesis, review)
+    ResearchStoreService(db_path).publish_thesis_with_review(
+        thesis_id, thesis, review, now=FIXED_NOW
+    )
     ledger = load_portfolio_ledger(tmp_path / "ledger.yaml")
     seed_ledger(
         db_path,

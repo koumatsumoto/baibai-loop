@@ -22,6 +22,7 @@ from baibai_engine.research.thesis import (
     load_independent_review,
     load_thesis,
 )
+from tests.helpers.fixed_now import FIXED_NOW
 
 ROOT = Path(__file__).parents[1]
 THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"

@@ -236,6 +236,12 @@ class CandidateRowView(BaseModel):
     price_change_20d: float | None
     gap_from_52w_low: float | None
     next_earnings_date: str | None
+    # 需給。margin_std_long_share だけが採否基準を満たし flag を持つ。他は数値として
+    # 文脈に出すだけで、検証していない量に検証済みの量と同じ重みを与えない。
+    margin_long_to_adv: float | None
+    margin_long_share: float | None
+    margin_long_delta_26w: float | None
+    margin_std_long_share: float | None
     data_quality_flags: list[str]
     portfolio_state: PortfolioState
     has_research: bool

@@ -93,11 +93,10 @@ class ResearchStoreService:
     ) -> tuple[ThesisDocument, IndependentReview]:
         """Atomically publish a thesis and its independent review.
 
-        ``now`` fixes the instant the evidence freshness is judged against.
+        ``now`` fixes the instant evidence and overrides are judged against.
         Production leaves it unset and gets the wall clock; a caller reproducing a
-        fixed situation — a seeded store, a replay — passes the instant that
-        situation belongs to, so the same input does not change verdict with the
-        calendar.
+        dated situation passes the instant that situation belongs to, so the same
+        input does not change verdict as the clock moves.
         """
         publication = ThesisPublication(thesis_id, thesis_payload, supersedes_id)
         thesis, _ = _validate_thesis(publication, allow_review_required=True)

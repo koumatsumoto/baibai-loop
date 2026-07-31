@@ -20,6 +20,7 @@ from baibai_engine.proposals.store import PlannedLimitInput, ProposalStoreServic
 from baibai_engine.research.opportunity import plan_limit
 from baibai_engine.research.store import ResearchStoreService
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.fixed_now import FIXED_NOW
 
 ROOT = Path(__file__).parents[1]
 THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
@@ -37,7 +38,9 @@ def _raw(path: Path) -> dict[str, object]:
 
 def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService, str]:
     db = tmp_path / "app.sqlite"
-    ResearchStoreService(db).publish_thesis_with_review(THESIS_ID, _raw(THESIS), _raw(REVIEW))
+    ResearchStoreService(db).publish_thesis_with_review(
+        THESIS_ID, _raw(THESIS), _raw(REVIEW), now=FIXED_NOW
+    )
     ledger = LedgerStoreService(db)
     source = load_portfolio_ledger(LEDGER)
     seed_ledger(
