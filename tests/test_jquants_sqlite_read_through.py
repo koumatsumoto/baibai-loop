@@ -182,6 +182,27 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
                 conn.close()
             self.assertEqual(latest, "2024-04-18")
 
+    def test_a_window_ending_behind_the_store_does_not_refetch_its_tail(self) -> None:
+        """A historical window whose end falls on a closed market looks covered with
+        an edge gap, but nothing inside it can have been published since the last
+        fetch. Reading it live would delete and rewrite that cross-section on every
+        pass, and a provider that answered with nothing would erase it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            _insert_daily_bars(conn, [("2024-04-01", "2024-04-15"), ("2024-06-03", "2024-06-14")])
+            conn.commit()
+            conn.close()
+
+            client = _RecordingClient()
+            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+
+            bars = provider.get_eq_bars_daily_range(date(2024, 4, 1), date(2024, 4, 18))
+
+            self.assertEqual(client.bars_calls, [])
+            self.assertGreater(len(bars), 1)
+
     def test_cache_only_does_not_refetch_tail_behind_asof(self) -> None:
         """A cache-only screening run trusts the validated coverage and never
         fetches, even when the cached tail is a few days behind the asof."""

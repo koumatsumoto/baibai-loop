@@ -23,6 +23,7 @@ from .convert import (
     to_str_or_none,
 )
 from .coverage import (
+    EmptyRangeReplacementError,
     count_overlapping_source_coverage,
     count_source_coverage,
     daily_bars_covered_by_data,
@@ -57,6 +58,7 @@ __all__ = [
     "LATEST_VERSION",
     "SCHEMA_VERSION",
     "SQLITE_SCHEMA_VERSION",
+    "EmptyRangeReplacementError",
     "Migration",
     "NormalizedRows",
     "SQLiteSchemaError",

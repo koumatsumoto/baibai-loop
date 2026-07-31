@@ -15,7 +15,7 @@ from .convert import (
     to_float,
     to_str_or_none,
 )
-from .coverage import delete_date_range, record_range_source_coverage
+from .coverage import record_range_source_coverage, replace_date_range
 from .schema import open_connection
 
 
@@ -31,7 +31,14 @@ def store_jquants_daily_bars(
         records_list = list(records)
         normalized = _bars_rows_with_quality(records_list)
         rows = normalized.rows
-        delete_date_range(conn, "jquants_daily_bars", "traded_at", requested_start, requested_end)
+        replace_date_range(
+            conn,
+            "jquants_daily_bars",
+            "traded_at",
+            requested_start,
+            requested_end,
+            replacement_row_count=len(rows),
+        )
         if rows:
             conn.executemany(
                 """
@@ -72,7 +79,14 @@ def store_jquants_market_calendar(
         records_list = list(records)
         normalized = _market_calendar_rows_with_quality(records_list)
         rows = normalized.rows
-        delete_date_range(conn, "jquants_market_calendar", "day", requested_start, requested_end)
+        replace_date_range(
+            conn,
+            "jquants_market_calendar",
+            "day",
+            requested_start,
+            requested_end,
+            replacement_row_count=len(rows),
+        )
         if rows:
             conn.executemany(
                 "INSERT OR REPLACE INTO jquants_market_calendar(day, is_business_day) "

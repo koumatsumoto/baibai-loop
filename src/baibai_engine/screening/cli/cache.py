@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from baibai_engine.market.sqlite import (
+    EmptyRangeReplacementError,
     SQLiteSchemaError,
     count_overlapping_source_coverage,
     count_source_coverage,
@@ -510,7 +511,12 @@ def backfill_history_command(
         try:
             for span_start, span_end in spans:
                 count += len(fetch(span_start, span_end))
-        except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as exc:
+        except (
+            JQuantsProviderError,
+            SQLiteSchemaError,
+            EmptyRangeReplacementError,
+            sqlite3.Error,
+        ) as exc:
             print(
                 f"backfill-history {name}: {type(exc).__name__}: {exc}",
                 file=sys.stderr,

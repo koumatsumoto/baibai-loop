@@ -280,6 +280,39 @@ def delete_date_range(
     )
 
 
+class EmptyRangeReplacementError(RuntimeError):
+    """An empty payload would have deleted rows the store already holds."""
+
+
+def replace_date_range(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+    *,
+    replacement_row_count: int,
+) -> None:
+    """Clear `[start, end]` so a refetch can rewrite it.
+
+    A range fetch answers with the whole range, so replacing is how a refetch
+    corrects rows already held. An answer with nothing in it is different: these
+    sources record what the market did, and a range that once had rows does not
+    become empty afterwards. Deleting on one would let any provider hiccup that
+    reports success with no payload destroy a stored cross-section, and the
+    coverage row it writes afterwards would say the range is fine. This refuses
+    instead and leaves the store as it was.
+    """
+    if replacement_row_count == 0:
+        held = date_range_row_count(conn, table, date_column, start, end)
+        if held:
+            raise EmptyRangeReplacementError(
+                f"refusing to replace {held} stored {table} row(s) in "
+                f"{start.isoformat()}..{end.isoformat()} with an empty payload"
+            )
+    delete_date_range(conn, table, date_column, start, end)
+
+
 def date_range_row_count(
     conn: sqlite3.Connection,
     table: str,

@@ -6,7 +6,10 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.market.sqlite.coverage import daily_bars_covered_by_data
+from baibai_engine.market.sqlite.coverage import (
+    EmptyRangeReplacementError,
+    daily_bars_covered_by_data,
+)
 from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -779,3 +782,71 @@ class DailyBarsCoverageTest(unittest.TestCase):
                 conn.close()
             self.assertFalse(sparse)
             self.assertTrue(after_closure)
+
+
+class EmptyPayloadReplacementTest(unittest.TestCase):
+    """A range fetch that returns nothing must not erase what the store holds."""
+
+    @staticmethod
+    def _bar(ticker: str, day: date) -> dict[str, object]:
+        return {"Code": ticker, "Date": day.isoformat(), "Close": 1000.0, "AdjustmentClose": 1000.0}
+
+    def test_an_empty_bar_payload_refuses_to_replace_stored_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_daily_bars(
+                db,
+                [self._bar("7203", date(2020, 12, 30))],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_daily_bars(db, [], requested_start=window[0], requested_end=window[1])
+
+            conn = open_connection(db)
+            try:
+                remaining = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
+                # The refusal must leave no coverage row claiming the range is fine.
+                coverage = conn.execute(
+                    "SELECT record_count FROM source_coverage WHERE source = ?",
+                    ("jquants_daily_bars",),
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)
+            self.assertEqual([row[0] for row in coverage], [1])
+
+    def test_an_empty_payload_over_a_range_holding_nothing_is_accepted(self) -> None:
+        # A genuinely empty stretch has to stay storable, or a window the market
+        # never traded in would fail every pass.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            persisted = store_jquants_daily_bars(
+                db, [], requested_start=date(2020, 1, 1), requested_end=date(2020, 1, 3)
+            )
+            self.assertEqual(persisted, 0)
+
+    def test_an_empty_fin_payload_refuses_to_replace_stored_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_fin_summaries(
+                db,
+                [{"Code": "72030", "DiscDate": "2020-12-15", "EPS": "10"}],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_fin_summaries(
+                    db, [], requested_start=window[0], requested_end=window[1]
+                )
+
+            conn = open_connection(db)
+            try:
+                remaining = conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)
