@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import unittest
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from baibai_engine.macro.indicators.providers.option_iv import (
     CALL,
@@ -269,6 +270,17 @@ class QuoteParsingTest(unittest.TestCase):
 
     def test_an_unknown_side_is_dropped(self) -> None:
         self.assertEqual(quotes_from_records([self._record(PCDiv="9")], ASOF), [])
+
+    def test_a_timestamp_expiry_becomes_a_date_the_maturity_can_subtract(self) -> None:
+        # A timestamp passes an isinstance check against date but cannot be
+        # subtracted from one, which would surface as a crash in the maturity
+        # arithmetic rather than as an unreadable row here.
+        rows = [self._record(SQD=datetime(2026, 8, 14, 15, 0, tzinfo=ZoneInfo("Asia/Tokyo")))]
+
+        quotes = quotes_from_records(rows, ASOF)
+
+        self.assertEqual([quote.expiry for quote in quotes], [date(2026, 8, 14)])
+        self.assertEqual((quotes[0].expiry - ASOF).days, 16)
 
 
 if __name__ == "__main__":

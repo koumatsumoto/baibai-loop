@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 # A contract inside its last week prices the SQ auction rather than the market's
 # view of the next month, so the near expiry is skipped once it gets that close.
@@ -244,8 +244,16 @@ def _as_float(value: object) -> float | None:
 
 
 def _as_date(value: object) -> date | None:
+    """Reduce whatever the payload carries to a plain date.
+
+    A pandas Timestamp passes `isinstance(value, date)` but subtracting a date from
+    one raises, so a payload that typed the column as a timestamp would fail deep in
+    the maturity arithmetic instead of here. Rebuilding the date drops that path.
+    """
+    if isinstance(value, datetime):
+        return value.date()
     if isinstance(value, date):
-        return value
+        return date(value.year, value.month, value.day)
     text = str(value or "")[:10]
     try:
         return date.fromisoformat(text)
