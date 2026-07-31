@@ -21,10 +21,18 @@ from datetime import date
 MIN_DAYS_TO_EXPIRY = 7
 # The constant-maturity target the readings are quoted at.
 TARGET_DAYS = 30
-# How far from at-the-money the skew wings sit. Moneyness rather than a fixed
-# strike distance, so the measure means the same thing as the index level moves.
+# How far below at-the-money the skew's downside leg sits. Moneyness rather than a
+# fixed strike distance, so the measure means the same thing as the index level moves.
 SKEW_PUT_MONEYNESS = 0.95
-SKEW_CALL_MONEYNESS = 1.05
+# The band the basis check reads, wide enough to cover the strikes any reading uses
+# and narrow enough to stay out of the wings, where a thin quote moves the volatility
+# by points for reasons that have nothing to do with the basis.
+BASIS_BAND = 0.10
+# Put-call parity puts the same volatility on both sides of a strike, so a gap this
+# wide is the source's own inconsistency rather than a market state. Above it the
+# put and call volatilities are quoted against different underlyings and any reading
+# that subtracts one volatility from another inherits the error.
+MAX_BASIS_GAP = 15.0
 PUT = "1"
 CALL = "2"
 
@@ -53,9 +61,14 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     """Summarise one day's chain.
 
     Each reading is independent: a chain that can price the front month but has no
-    second one still yields `iv_30d` when the front month straddles the target, and
-    always yields `iv_skew`. Returning None for the rest says the chain could not
-    answer, which a zero would hide.
+    second one still yields `iv_30d` when the front month straddles the target.
+    Returning None for the rest says the chain could not answer, which a zero would
+    hide.
+
+    `iv_30d` averages the put and the call at one strike, so a basis error that
+    lifts one side and drops the other cancels and the level survives it. The other
+    two subtract one volatility from another and do not cancel, so they are withheld
+    once the chain fails the basis check.
     """
     by_expiry = _usable_expiries(quotes, asof)
     if not by_expiry:
@@ -70,6 +83,7 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     assert front_volatility is not None  # `priced` holds only the expiries it priced
     second = priced[1] if len(priced) > 1 else None
     second_volatility = atm[second] if second is not None else None
+    consistent = _basis_is_consistent(by_expiry[front])
     return FearReadings(
         iv_30d=_constant_maturity(
             near_days=(front - asof).days,
@@ -77,9 +91,41 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
             far_days=(second - asof).days if second is not None else None,
             far_volatility=second_volatility,
         ),
-        iv_skew=_skew(by_expiry[front]),
-        iv_term=(second_volatility - front_volatility if second_volatility is not None else None),
+        iv_skew=_skew(by_expiry[front]) if consistent else None,
+        iv_term=(
+            second_volatility - front_volatility
+            if consistent and second_volatility is not None
+            else None
+        ),
     )
+
+
+def _basis_is_consistent(quotes: Sequence[OptionQuote]) -> bool:
+    """Whether the put and call volatilities are quoted against the same underlying.
+
+    A put and a call on one strike and expiry carry the same volatility, so the
+    median gap across the strikes around the money is zero when the source computed
+    both sides from one underlying price. A chain with no strike quoting both sides
+    cannot be checked and is treated as unusable rather than assumed sound.
+    """
+    underlying = quotes[0].underlying
+    low, high = underlying * (1 - BASIS_BAND), underlying * (1 + BASIS_BAND)
+    sides: dict[float, dict[str, float]] = {}
+    for quote in quotes:
+        if low <= quote.strike <= high:
+            sides.setdefault(quote.strike, {})[quote.put_call] = quote.implied_volatility
+    gaps = [pair[PUT] - pair[CALL] for pair in sides.values() if PUT in pair and CALL in pair]
+    if not gaps:
+        return False
+    return abs(_median(gaps)) <= MAX_BASIS_GAP
+
+
+def _median(values: Sequence[float]) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
 
 
 def _usable_expiries(quotes: Sequence[OptionQuote], asof: date) -> dict[date, list[OptionQuote]]:
@@ -113,17 +159,19 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
 
 
 def _skew(quotes: Sequence[OptionQuote]) -> float | None:
-    """Downside protection minus upside, both a fixed distance out of the money.
+    """How much more the market charges for a fall than for the same move at the money.
 
-    A market that fears a fall pays more for the put than for the equally distant
-    call, so the gap is the asymmetry rather than the level.
+    Both legs are puts. Reading the asymmetry off one side keeps the measure on a
+    single volatility basis, so an error in the underlying price the source priced
+    against shifts both legs together and leaves the difference alone. Taking the
+    upside leg from the call side would put the whole basis error into the reading.
     """
     underlying = quotes[0].underlying
-    put = _nearest(quotes, PUT, underlying * SKEW_PUT_MONEYNESS)
-    call = _nearest(quotes, CALL, underlying * SKEW_CALL_MONEYNESS)
-    if put is None or call is None:
+    wing = _nearest(quotes, PUT, underlying * SKEW_PUT_MONEYNESS)
+    money = _nearest(quotes, PUT, underlying)
+    if wing is None or money is None:
         return None
-    return put - call
+    return wing - money
 
 
 def _nearest(quotes: Sequence[OptionQuote], put_call: str, target: float) -> float | None:

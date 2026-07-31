@@ -343,7 +343,7 @@ series:
     aliases: [TOPIX, 東証株価指数, トピックス, topix]
   - series_id: jp.n225_iv_30d
     name: 日経225オプション30日IV
-    category: valuation
+    category: volatility
     geography: japan
     frequency: daily
     unit: percent
@@ -357,7 +357,7 @@ series:
     aliases: [日経VI相当, N225 IV, オプションIV, iv30]
   - series_id: jp.n225_iv_skew
     name: 日経225オプションIVスキュー
-    category: valuation
+    category: volatility
     geography: japan
     frequency: daily
     unit: percent
@@ -367,11 +367,11 @@ series:
     provider_series_id: n225_iv_skew
     source_id: jquants-options-n225-skew
     source_url: https://jpx-jquants.com/
-    notes: 手前限月のmoneyness0.95 put IV から1.05 call IV を引いた差。下方保護が上方より高いほど正で、恐怖の非対称を測る。負になる局面もあり符号は固定しない
+    notes: 手前限月のmoneyness0.95 put IV からATM put IV を引いた差。両脚をput側に揃えるので、原資産価格の食い違いがある日でも差には残らない。下方保護が高いほど正で、恐怖の非対称を測る。負になる局面もあり符号は固定しない
     aliases: [IVスキュー, skew, オプションスキュー]
   - series_id: jp.n225_iv_term
     name: 日経225オプションIV期間構造
-    category: valuation
+    category: volatility
     geography: japan
     frequency: daily
     unit: percent
@@ -381,7 +381,7 @@ series:
     provider_series_id: n225_iv_term
     source_id: jquants-options-n225-term
     source_url: https://jpx-jquants.com/
-    notes: 第2限月ATM IV から手前限月ATM IV を引いた差。負(逆転)は目先のパニックが先物より強い状態を示す
+    notes: 第2限月ATM IV から手前限月ATM IV を引いた差。ほぼ半数の日が僅かな逆転で、水準の高低は実測分位で読む。大きな負は目先のパニックが先物より強い状態を示す
     aliases: [IV期間構造, term structure, IVターム]
   - series_id: jp.nikkei_per
     name: 日経平均PER(加重平均)
