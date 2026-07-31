@@ -685,7 +685,13 @@ def bootstrap_cache_command(
             file=out,
             flush=True,
         )
-    except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
+    except (
+        JQuantsProviderError,
+        EDINETProviderError,
+        JPXProviderError,
+        EmptyRangeReplacementError,
+        sqlite3.Error,
+    ) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print("bootstrap-cache done", file=out, flush=True)

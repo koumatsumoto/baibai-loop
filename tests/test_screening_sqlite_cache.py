@@ -828,6 +828,60 @@ class EmptyPayloadReplacementTest(unittest.TestCase):
             )
             self.assertEqual(persisted, 0)
 
+    def test_an_empty_calendar_payload_refuses_to_replace_stored_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_market_calendar(
+                db,
+                [{"Date": "2020-12-30", "HolidayDivision": "1"}],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_market_calendar(
+                    db, [], requested_start=window[0], requested_end=window[1]
+                )
+
+            conn = open_connection(db)
+            try:
+                remaining = conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[
+                    0
+                ]
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)
+
+    def test_a_non_empty_payload_still_replaces_what_the_range_held(self) -> None:
+        # The guard must not cost the replace semantics that make a refetch
+        # corrective: a name the provider no longer reports has to disappear.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_daily_bars(
+                db,
+                [self._bar("7203", date(2020, 12, 30)), self._bar("9999", date(2020, 12, 30))],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+            store_jquants_daily_bars(
+                db,
+                [self._bar("7203", date(2020, 12, 30))],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            conn = open_connection(db)
+            try:
+                tickers = [
+                    str(row[0])
+                    for row in conn.execute("SELECT ticker FROM jquants_daily_bars ORDER BY ticker")
+                ]
+            finally:
+                conn.close()
+            self.assertEqual(tickers, ["7203"])
+
     def test_an_empty_fin_payload_refuses_to_replace_stored_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

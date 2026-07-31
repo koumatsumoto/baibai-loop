@@ -215,6 +215,8 @@ J-Quants の正確なレート制限は非公開で、挙動は実運用の観�
 - `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の日次足は asof−1200 暦日、財務サマリーは asof−730 暦日を範囲に取り、`_RANGE_CHUNK_DAYS=31` で 31 日 chunk に分割して ClientV2 内部の per-day API 呼び出しに fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、1 asof の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
 - chunk は resumable。`source_coverage` に chunk 単位で `status=ok` を記録し、中断しても完了済み chunk は再取得しない。複数 asof は履歴窓が大きく重複するため、最初の 1 asof の full bootstrap が高コストで、以降の週は非重複 chunk とその週の EDINET だけで安価になる。
 - 既存 cache がある asof では長期履歴を再取得しない。日次足の coverage は行データから導出し（§11.1、DB が SSOT）、range fetch の coverage は overlapping / adjacent window と union merge する（§11.1）。chunk 境界が asof ごとにずれても、行が揃っていれば偽のギャップを作らず re-fetch しない。
+- 被覆済みと判定された窓の末尾を読み直すのは **鮮度のための機構であり、穴の修復機構ではない**。窓の終端が store の最新取引日以降のときだけ発火し、そうでない過去窓は読み直さない。したがって「端の許容（10 日）より短い、過去窓の末尾の穴」を埋める経路は無い。これは coverage 判定が休場と区別できない gap 幅と同じ範囲で、それより広い欠けは被覆判定が落として chunk 経路が取り直す。
+- range 取得の store は要求範囲を置換するので、空の応答が来たときに行を保持している範囲は置換を拒否する（`EmptyRangeReplacementError`）。日次足・財務・カレンダは市場の実績なので、一度行があった範囲が後から空になることはなく、成功扱いの空応答で断面を消さないための防御である。
 - `run` は cache-only で、coverage が揃えば provider を叩かず高速。歴史 replay の律速は `run` ではなく `bootstrap-cache` / `extract-edinet-metrics` の coverage 充足にある。
 
 過去 asof の cache 充足は「rate budget の回復を待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題として扱う。1 asof ずつ長時間バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させる。短い per-step timeout で kill するとその asof の coverage が未充足のまま `run` が fail-fast するため、kill せず完走させるか完了済み chunk から再開する。
