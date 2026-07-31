@@ -269,7 +269,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "withdrawalStatus": "0",
                 },
             ]
-        )
+        ).candidates
         self.assertEqual(selected["7203"].doc_id, "S100B")
         self.assertNotIn("6758", selected)
         self.assertNotIn("9984", selected)
@@ -315,7 +315,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "withdrawalStatus": "0",
                 },
             ]
-        )
+        ).candidates
 
         self.assertEqual(tuple(selected), ("7203",))
 
@@ -673,7 +673,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "submitDateTime": "2025-11-01 10:00",
                 },
             ]
-        )
+        ).candidates
 
         self.assertEqual(selected["7203"].doc_id, "S100NEW")
 
@@ -705,8 +705,8 @@ class ScreeningProviderTests(unittest.TestCase):
             "disclosureStatus": "3",
         }
 
-        self.assertEqual(select_document_candidates([origin, hidden]), {})
-        selected = select_document_candidates([released, hidden, origin])
+        self.assertEqual(select_document_candidates([origin, hidden]).candidates, {})
+        selected = select_document_candidates([released, hidden, origin]).candidates
         self.assertEqual(selected["7203"].doc_id, "S100TEST")
 
     def test_select_document_candidates_tombstones_withdrawn_parent_and_child(self) -> None:
@@ -741,25 +741,46 @@ class ScreeningProviderTests(unittest.TestCase):
             "legalStatus": "0",
         }
 
-        self.assertEqual(select_document_candidates([child, withdrawal, parent]), {})
+        self.assertEqual(select_document_candidates([child, withdrawal, parent]).candidates, {})
 
-    def test_select_document_candidates_rejects_event_without_origin(self) -> None:
-        with self.assertRaisesRegex(EDINETProviderError, "event target is missing"):
-            select_document_candidates(
-                [
-                    {
-                        "doc_date": "2026-04-02",
-                        "seqNumber": 1,
-                        "docID": "S100MISSING",
-                        "docInfoEditStatus": "1",
-                        "withdrawalStatus": "0",
-                        "disclosureStatus": "0",
-                        "opeDateTime": "2026-04-02 12:00",
-                    }
-                ]
-            )
+    def test_select_document_candidates_reports_an_event_without_origin(self) -> None:
+        selection = select_document_candidates(
+            [
+                {
+                    "doc_date": "2026-04-02",
+                    "seqNumber": 1,
+                    "docID": "S100MISSING",
+                    "docInfoEditStatus": "1",
+                    "withdrawalStatus": "0",
+                    "disclosureStatus": "0",
+                    "opeDateTime": "2026-04-02 12:00",
+                }
+            ]
+        )
 
-    def test_select_document_candidates_rejects_origin_outside_lookback(self) -> None:
+        self.assertEqual(selection.candidates, {})
+        self.assertEqual(selection.unresolved_event_doc_ids, ("S100MISSING",))
+
+    def test_select_document_candidates_reports_a_withdrawal_without_parent(self) -> None:
+        selection = select_document_candidates(
+            [
+                {
+                    "doc_date": "2026-04-02",
+                    "seqNumber": 1,
+                    "docID": "S100WITHDRAW",
+                    "parentDocID": "S100GONE",
+                    "withdrawalStatus": "1",
+                    "docInfoEditStatus": "0",
+                    "disclosureStatus": "0",
+                    "legalStatus": "0",
+                }
+            ]
+        )
+
+        self.assertEqual(selection.candidates, {})
+        self.assertEqual(selection.unresolved_event_doc_ids, ("S100WITHDRAW",))
+
+    def test_select_document_candidates_drops_an_event_on_an_origin_outside_lookback(self) -> None:
         origin = {
             "doc_date": "2024-01-01",
             "seqNumber": 1,
@@ -779,12 +800,20 @@ class ScreeningProviderTests(unittest.TestCase):
             "docInfoEditStatus": "1",
             "opeDateTime": "2026-04-02 12:00",
         }
+        recent = {
+            **origin,
+            "doc_date": "2026-04-03",
+            "docID": "S100NEW",
+            "secCode": "99840",
+        }
 
-        with self.assertRaisesRegex(EDINETProviderError, "event target is missing"):
-            select_document_candidates(
-                [origin, event],
-                origin_start=date(2025, 1, 1),
-            )
+        selection = select_document_candidates(
+            [origin, event, recent],
+            origin_start=date(2025, 1, 1),
+        )
+
+        self.assertEqual(selection.unresolved_event_doc_ids, ("S100OLD",))
+        self.assertEqual(sorted(selection.candidates), ["9984"])
 
     def test_select_document_candidates_rejects_parent_cycle_without_withdrawal(self) -> None:
         base = {
@@ -887,7 +916,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "submitDateTime": "2026-04-15 16:01",
                 },
             ]
-        )
+        ).candidates
 
         self.assertEqual(selected["7203"].doc_id, "S100CORR")
         self.assertEqual(selected["7203"].period_start, date(2024, 10, 1))
@@ -924,7 +953,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "submitDateTime": "2025-11-01 10:00",
                 },
             ]
-        )
+        ).candidates
 
         self.assertEqual(selected["7203"].doc_id, "S100NEW")
 
@@ -957,7 +986,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "submitDateTime": "2026-01-30 15:33",
                 },
             ]
-        )
+        ).candidates
 
         self.assertEqual(selected["7203"].doc_id, "S100CORR")
         self.assertEqual(selected["7203"].doc_type_code, "170")
@@ -991,7 +1020,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "submitDateTime": "2025-02-14 15:29",
                 },
             ]
-        )
+        ).candidates
 
         self.assertEqual(selected["7203"].doc_id, "S100CORR")
         self.assertEqual(selected["7203"].doc_type_code, "150")
@@ -1026,7 +1055,7 @@ class ScreeningProviderTests(unittest.TestCase):
                     "submitDateTime": "2026-06-02 10:00",
                 },
             ]
-        )
+        ).candidates
 
         self.assertEqual(selected["7203"].doc_id, "S100NORMAL")
 

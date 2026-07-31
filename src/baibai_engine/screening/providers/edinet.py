@@ -125,6 +125,21 @@ class EdinetDocumentCandidate:
         return normalize_ticker(value)
 
 
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+class DocumentSelection:
+    """Selected filings plus the operation rows that had no filing to fold onto.
+
+    EDINET lists an edit or withdrawal on the day it happens, so an operation on
+    a filing older than the lookback window arrives with its origin absent. Such
+    a filing is out of scope by the same age bound that excluded the origin, so
+    the operation carries no candidate; ``unresolved_event_doc_ids`` keeps the
+    exclusion visible instead of letting one stale filing end the extraction.
+    """
+
+    candidates: dict[str, EdinetDocumentCandidate]
+    unresolved_event_doc_ids: tuple[str, ...] = ()
+
+
 class EDINETProvider:
     """API v2 client. Subscription-Key is always passed as a query parameter."""
 
@@ -409,10 +424,11 @@ def select_document_candidates(
     documents: Sequence[Mapping[str, Any]],
     *,
     origin_start: date | None = None,
-) -> dict[str, EdinetDocumentCandidate]:
+) -> DocumentSelection:
     """Select the latest usable EDINET CSV-capable filing per ticker."""
     candidates: dict[str, EdinetDocumentCandidate] = {}
-    for document in _canonicalize_document_events(documents, origin_start=origin_start):
+    folded, unresolved = _canonicalize_document_events(documents, origin_start=origin_start)
+    for document in folded:
         raw_doc_id = _coalesce(document, "docID", "doc_id")
         raw_type = _to_str_or_none(_coalesce(document, "docTypeCode", "doc_type_code"))
         if raw_doc_id is None or raw_type not in TARGET_DOC_TYPE_CODES:
@@ -441,7 +457,7 @@ def select_document_candidates(
         current = candidates.get(ticker)
         if current is None or _document_sort_key(candidate) > _document_sort_key(current):
             candidates[ticker] = candidate
-    return candidates
+    return DocumentSelection(candidates=candidates, unresolved_event_doc_ids=unresolved)
 
 
 def _source_document_revision(document: Mapping[str, Any]) -> str:
@@ -488,8 +504,13 @@ def _canonicalize_document_events(
     documents: Sequence[Mapping[str, Any]],
     *,
     origin_start: date | None,
-) -> list[dict[str, Any]]:
-    """Fold EDINET operation rows onto origin filings before ticker selection."""
+) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+    """Fold EDINET operation rows onto origin filings before ticker selection.
+
+    Returns the folded filings and the doc IDs of operation rows whose origin is
+    not in scope, which happens whenever a filing older than the lookback window
+    is edited or withdrawn inside it.
+    """
     normalized = [dict(document) for document in documents]
     normalized.sort(key=_document_event_sort_key)
     origins: dict[str, dict[str, Any]] = {}
@@ -531,6 +552,7 @@ def _canonicalize_document_events(
             children.setdefault(parent, set()).add(doc_id)
     _validate_parent_graph(origins)
 
+    unresolved: set[str] = set()
     for event in events:
         doc_id = parse_doc_id(_coalesce(event, "docID", "doc_id"))
         edit_status = _to_str_or_none(_coalesce(event, "docInfoEditStatus", "doc_info_edit_status"))
@@ -543,14 +565,14 @@ def _canonicalize_document_events(
         if withdrawal_status == "1":
             parent = _to_str_or_none(_coalesce(event, "parentDocID", "parent_doc_id"))
             if parent is None or parent not in origins:
-                raise EDINETProviderError(
-                    f"EDINET withdrawal event target is missing: {_safe_error_value(parent)}"
-                )
+                unresolved.add(doc_id)
+                continue
             _tombstone_document_tree(parent, origins=origins, children=children)
             continue
         current = origins.get(doc_id)
         if current is None:
-            raise EDINETProviderError(f"EDINET document event target is missing: {doc_id}")
+            unresolved.add(doc_id)
+            continue
         if _to_str_or_none(_coalesce(current, "withdrawalStatus", "withdrawal_status")) == "2":
             raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
         origin_date = current.get("doc_date")
@@ -563,7 +585,7 @@ def _canonicalize_document_events(
             current["disclosureStatus"] = "2"
         elif disclosure_status == "3":
             current["disclosureStatus"] = "0"
-    return list(origins.values())
+    return list(origins.values()), tuple(sorted(unresolved))
 
 
 def _validate_parent_graph(origins: Mapping[str, Mapping[str, Any]]) -> None:
