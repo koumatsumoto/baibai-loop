@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -17,7 +18,12 @@ from .thesis import (
 )
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
+    """Evaluate a thesis file and print the domain result.
+
+    ``now`` fixes the instant evidence and overrides are judged against, so a
+    caller reproducing a dated situation gets the same verdict whenever it runs.
+    """
     parser = argparse.ArgumentParser(prog="baibai-engine research evaluate")
     parser.add_argument("thesis", type=Path)
     args = parser.parse_args(argv)
@@ -25,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         document = load_thesis(args.thesis)
         review_path = _review_path(args.thesis, document.independent_review_ref)
         review = load_independent_review(review_path) if review_path is not None else None
-        result = evaluate_thesis(document, review=review)
+        result = evaluate_thesis(document, review=review, now=now)
         payload = result_to_payload(result)
     except ThesisError as error:
         print(f"error: {error}", file=sys.stderr)

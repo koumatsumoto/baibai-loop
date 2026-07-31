@@ -15,6 +15,7 @@ from baibai_engine.read_api import (
 from baibai_engine.research.store import (
     ResearchStoreService,
 )
+from tests.helpers.fixed_now import FIXED_NOW
 
 THESIS = Path("tests/fixtures/thesis/2331-decision.yaml")
 REVIEW = Path("tests/fixtures/thesis/2331-decision-review.yaml")
@@ -23,7 +24,7 @@ THESIS_ID = "thesis-20260703-2331-r1"
 
 def _seed(path: Path) -> None:
     ResearchStoreService(path).publish_thesis_with_review(
-        THESIS_ID, _payload(THESIS), _payload(REVIEW)
+        THESIS_ID, _payload(THESIS), _payload(REVIEW), now=FIXED_NOW
     )
 
 
@@ -62,9 +63,7 @@ def test_atomic_thesis_review_publish_rolls_back_when_review_is_wrong(tmp_path: 
     wrong_review["reviewed_thesis_sha256"] = "0" * 64
     with pytest.raises(Exception, match=r"thesis|scenario|source"):
         ResearchStoreService(path).publish_thesis_with_review(
-            "thesis-atomic-invalid",
-            thesis,
-            wrong_review,
+            "thesis-atomic-invalid", thesis, wrong_review, now=FIXED_NOW
         )
     assert not path.exists()
 
@@ -74,8 +73,8 @@ def test_atomic_thesis_review_publish_is_idempotent(tmp_path: Path) -> None:
     service = ResearchStoreService(path)
     thesis = _payload(THESIS)
     review = _payload(REVIEW)
-    service.publish_thesis_with_review(THESIS_ID, thesis, review)
-    service.publish_thesis_with_review(THESIS_ID, thesis, review)
+    service.publish_thesis_with_review(THESIS_ID, thesis, review, now=FIXED_NOW)
+    service.publish_thesis_with_review(THESIS_ID, thesis, review, now=FIXED_NOW)
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 1

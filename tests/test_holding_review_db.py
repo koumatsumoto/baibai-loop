@@ -21,6 +21,7 @@ from baibai_engine.research.thesis import (
     thesis_core_hash,
 )
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.fixed_now import FIXED_NOW
 
 FIXTURES = Path(__file__).parent / "fixtures"
 THESIS_ID = "thesis-20260714-2331-r1"
@@ -65,7 +66,7 @@ def _database(tmp_path: Path) -> Path:
     assert isinstance(evidence_override, dict)
     evidence_override["proposal_sha256"] = core_hash
     evidence_override["review_sha256"] = review_hash
-    ResearchStoreService(db).publish_thesis_with_review(THESIS_ID, thesis, review)
+    ResearchStoreService(db).publish_thesis_with_review(THESIS_ID, thesis, review, now=FIXED_NOW)
     return db
 
 
