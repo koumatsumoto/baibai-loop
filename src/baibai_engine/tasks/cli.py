@@ -34,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("done", "drop"):
         close = commands.add_parser(command)
         close.add_argument("task_id")
+    reconcile = commands.add_parser("reconcile-earnings")
+    reconcile.add_argument("--sqlite-path", type=Path, default=Path("data/screening/market.sqlite"))
+    reconcile.add_argument(
+        "--apply",
+        action="store_true",
+        help="write the confirmed dates; without it the comparison is printed only",
+    )
     edit = commands.add_parser("edit")
     edit.add_argument("task_id")
     edit.add_argument("--title")
@@ -77,6 +84,8 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
             else:
                 task = service.close(args.task_id, status="dropped", closed_at=current_date)
             _emit(task.payload())
+        elif args.command == "reconcile-earnings":
+            return _reconcile_earnings(service, args, today=current_date)
         elif args.command == "edit":
             _emit(service.edit(args.task_id, _edit_changes(args)).payload())
         else:  # pragma: no cover
@@ -84,6 +93,60 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
     except (OSError, ValueError, ValidationError, TaskConflictError, TaskNotFoundError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today: date) -> int:
+    """Bring open task dates onto the published schedule as it reaches them.
+
+    The comparison prints by default and writes only with `--apply`, so a schedule
+    read that disagrees with the estimate is seen before it moves a task.
+    """
+    from .earnings_reconcile import reconcile_earnings_dates
+    from .earnings_schedule import read_published_earnings_dates
+
+    published = read_published_earnings_dates(args.sqlite_path, today)
+    if published is None:
+        print(
+            f"error: no earnings schedule stored in {args.sqlite_path}",
+            file=sys.stderr,
+        )
+        return 1
+    results = reconcile_earnings_dates(service.list(status="open"), published, today=today)
+    applied: list[str] = []
+    if args.apply:
+        for result in results:
+            if result.outcome != "update":
+                continue
+            service.edit(
+                result.task_id,
+                {
+                    "event_date": result.published_event_date,
+                    "due_date": result.published_event_date,
+                },
+            )
+            applied.append(result.task_id)
+    _emit(
+        {
+            "schedule_window_end": max(published.values()).isoformat() if published else None,
+            "applied": applied,
+            "reconciliations": [
+                {
+                    "task_id": result.task_id,
+                    "ticker": result.ticker,
+                    "current_event_date": (
+                        result.current_event_date.isoformat()
+                        if result.current_event_date is not None
+                        else None
+                    ),
+                    "published_event_date": result.published_event_date.isoformat(),
+                    "drift_days": result.drift_days,
+                    "outcome": result.outcome,
+                }
+                for result in results
+            ],
+        }
+    )
     return 0
 
 

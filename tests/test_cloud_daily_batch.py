@@ -141,6 +141,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [OK],
         "screening run": [RUN_OK],
+        "task reconcile-earnings": [OK],
         "screening select": [SELECT_OK],
         "macro list": [MACRO_LIST_OK],
         "macro refresh": [OK, OK, OK],
@@ -187,6 +188,14 @@ def _seed_calendar(root: Path, rows: dict[date, str]) -> None:
     )
 
 
+def _call(runner: ScriptedRunner, key: str) -> list[str]:
+    """Find a step by name so adding a step does not renumber every assertion."""
+    for argv in runner.calls:
+        if _key(argv) == key:
+            return argv
+    raise AssertionError(f"step not run: {key}")
+
+
 def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     runner = _runner()
     output_dir = tmp_path / "serving"
@@ -198,6 +207,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening run",
+        "task reconcile-earnings",
         "screening select",
         "macro list",
         "macro refresh",
@@ -207,12 +217,12 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening prune",
     ]
 
-    run_argv = runner.calls[2]
+    run_argv = _call(runner, "screening run")
     assert run_argv[:3] == ["baibai-engine", "screening", "run"]
     assert run_argv[3:5] == ["--asof", "2026-07-21"]
     assert "--output-path" in run_argv
 
-    select_argv = runner.calls[3]
+    select_argv = _call(runner, "screening select")
     assert select_argv[3:] == [
         "--asof",
         "2026-07-21",
@@ -222,7 +232,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "20",
     ]
 
-    export_argv = runner.calls[8]
+    export_argv = _call(runner, "export")
     assert export_argv[1].endswith("tools/cloud/export_read_models.py")
     assert export_argv[2:] == [
         "--output-dir",

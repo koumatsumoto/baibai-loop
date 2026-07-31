@@ -703,6 +703,18 @@ def _execute_daily_batch(
 
     run_view = _run_screening_run(runner, root=root, asof_arg=asof_arg)
 
+    # The exchange publishes its schedule only weeks ahead, so a follow-up task
+    # created a quarter out carries an estimate until the real date enters that
+    # window. Running the comparison daily is what makes the task pick the date up
+    # on the day it becomes knowable. Reporting only, never writing: a schedule
+    # read that disagrees with the estimate has to be seen before it moves a task.
+    _run_step(
+        runner,
+        name="task-reconcile-earnings",
+        argv=(_ENGINE, "task", "reconcile-earnings"),
+        cwd=root,
+    )
+
     select_argv: list[str] = [
         _ENGINE,
         "screening",
