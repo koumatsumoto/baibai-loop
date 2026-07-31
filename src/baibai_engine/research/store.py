@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import cast
 
@@ -89,19 +89,26 @@ class ResearchStoreService:
         review_payload: Mapping[str, object],
         *,
         supersedes_id: str | None = None,
+        now: datetime | None = None,
     ) -> tuple[ThesisDocument, IndependentReview]:
-        """Atomically publish a thesis and its independent review."""
+        """Atomically publish a thesis and its independent review.
+
+        ``now`` fixes the instant evidence and overrides are judged against.
+        Production leaves it unset and gets the wall clock; a caller reproducing a
+        dated situation passes the instant that situation belongs to, so the same
+        input does not change verdict as the clock moves.
+        """
         publication = ThesisPublication(thesis_id, thesis_payload, supersedes_id)
         thesis, _ = _validate_thesis(publication, allow_review_required=True)
         review = IndependentReview.model_validate(review_payload)
-        _require_valid(evaluate_thesis(thesis, review=review))
+        _require_valid(evaluate_thesis(thesis, review=review, now=now))
         review_publication = ReviewPublication(thesis_id, review_payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 _insert_thesis(connection, publication, thesis)
-                _insert_review(connection, review_publication, review)
+                _insert_review(connection, review_publication, review, now=now)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -112,6 +119,8 @@ class ResearchStoreService:
         self,
         thesis_id: str,
         payload: Mapping[str, object],
+        *,
+        now: datetime | None = None,
     ) -> IndependentReview:
         publication = ReviewPublication(thesis_id, payload)
         review = IndependentReview.model_validate(payload)
@@ -119,7 +128,7 @@ class ResearchStoreService:
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                _insert_review(connection, publication, review)
+                _insert_review(connection, publication, review, now=now)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -241,10 +250,12 @@ def _insert_review(
     connection: sqlite3.Connection,
     publication: ReviewPublication,
     review: IndependentReview,
+    *,
+    now: datetime | None = None,
 ) -> bool:
     thesis_row = _thesis_row(connection, publication.thesis_id)
     thesis = ThesisDocument.model_validate_json(str(thesis_row["payload"]))
-    _require_valid(evaluate_thesis(thesis, review=review))
+    _require_valid(evaluate_thesis(thesis, review=review, now=now))
     payload = canonical_json(publication.payload)
     expected = (publication.thesis_id, review.reviewed_at.isoformat(), payload)
     existing = connection.execute(

@@ -28,6 +28,7 @@ from baibai_engine.research.opportunity import plan_limit
 from baibai_engine.research.opportunity_cli import main as research_main
 from baibai_engine.research.store import ResearchStoreService
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.fixed_now import FIXED_NOW
 
 ROOT = Path(__file__).parents[1]
 THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
@@ -46,7 +47,7 @@ def _raw(path: Path) -> dict[str, object]:
 def _database(path: Path, *, with_review: bool = True) -> None:
     service = ResearchStoreService(path)
     if with_review:
-        service.publish_thesis_with_review(THESIS_ID, _raw(THESIS), _raw(REVIEW))
+        service.publish_thesis_with_review(THESIS_ID, _raw(THESIS), _raw(REVIEW), now=FIXED_NOW)
     else:
         thesis = _raw(THESIS)
         thesis["judgment"]["recommendation"] = "defer"  # type: ignore[index]

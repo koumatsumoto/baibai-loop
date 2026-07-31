@@ -28,6 +28,7 @@ from baibai_engine.research.thesis import (
     thesis_core_hash,
 )
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.fixed_now import FIXED_NOW
 
 ROOT = Path(__file__).parents[1]
 THESIS = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
@@ -209,6 +210,7 @@ def _run(
                 thesis_id,
                 thesis.model_dump(mode="json"),
                 review.model_dump(mode="json"),
+                now=FIXED_NOW,
             )
         document = load_portfolio_ledger(ledger)
         document = document.model_copy(
