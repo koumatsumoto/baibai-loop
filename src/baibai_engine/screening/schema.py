@@ -240,7 +240,7 @@ class DerivedMetrics:
     margin_week_end: date | None = None
     margin_issue_type: str | None = None
     margin_long_to_adv: float | None = None
-    margin_ratio: float | None = None
+    margin_long_share: float | None = None
     margin_long_delta_26w: float | None = None
     margin_std_long_share: float | None = None
 
@@ -257,7 +257,7 @@ class DerivedMetrics:
         "sector_return_4w",
         "price_history_coverage_750d",
         "margin_long_to_adv",
-        "margin_ratio",
+        "margin_long_share",
         "margin_long_delta_26w",
         "margin_std_long_share",
     )

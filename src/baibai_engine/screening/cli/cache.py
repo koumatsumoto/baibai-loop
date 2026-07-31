@@ -45,6 +45,7 @@ from baibai_engine.screening.sqlite_reader import (
     EDINETMetricBaselineRow,
     read_edinet_metric_baseline,
     read_eq_master_exact,
+    weekly_margin_candidate_dates,
 )
 from baibai_engine.screening.store_readiness import unreadable_store_reason
 
@@ -499,6 +500,7 @@ def backfill_history_command(
         ("fin_summaries", providers.jquants.get_fin_summary_range, True),
         ("market_calendar", providers.jquants.get_mkt_calendar, False),
     )
+    weekly_margin_source = "weekly_margin"
     failures: list[str] = []
     for name, fetch, by_year in sources:
         print(f"backfill-history {name}: {window} start", file=out, flush=True)
@@ -524,6 +526,29 @@ def backfill_history_command(
             failures.append(name)
             continue
         print(f"backfill-history {name}: {count} row(s)", file=out, flush=True)
+    print(f"backfill-history {weekly_margin_source}: {window} start", file=out, flush=True)
+    try:
+        weeks = weekly_margin_candidate_dates(sqlite_path, start, end) if sqlite_path else []
+        margin_rows = sum(
+            len(providers.jquants.get_mkt_margin_interest_week(week)) for week in weeks
+        )
+    except (
+        JQuantsProviderError,
+        SQLiteSchemaError,
+        EmptyRangeReplacementError,
+        sqlite3.Error,
+    ) as exc:
+        print(
+            f"backfill-history {weekly_margin_source}: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        failures.append(weekly_margin_source)
+    else:
+        print(
+            f"backfill-history {weekly_margin_source}: {len(weeks)} week(s), {margin_rows} row(s)",
+            file=out,
+            flush=True,
+        )
     if failures:
         print(
             f"backfill-history: {len(failures)} source(s) failed: {', '.join(failures)}",
@@ -533,6 +558,10 @@ def backfill_history_command(
     print(f"backfill-history done: {window}", file=out, flush=True)
     return 0
 
+
+# The delta axis reaches back 26 balance dates, so an incremental bootstrap has to
+# hold at least that many weeks. The slack absorbs the weeks the exchange skips.
+_WEEKLY_MARGIN_BOOTSTRAP_DAYS = 230
 
 BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT = 3
 """連続失敗で打ち切る本数。
@@ -606,6 +635,7 @@ def bootstrap_cache_command(
     *,
     asof_date: date,
     providers: ProviderBundle,
+    sqlite_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -655,6 +685,31 @@ def bootstrap_cache_command(
         calendar = providers.jquants.get_mkt_calendar(calendar_start, calendar_end)
         print(
             f"bootstrap-cache jquants market_calendar: {len(calendar)} row(s)",
+            file=out,
+            flush=True,
+        )
+        # Balance dates come from the stored trading calendar, so the bars fetch
+        # above has to have happened first; on a store with no bars this proposes
+        # nothing and the source stays empty rather than guessing Fridays.
+        margin_weeks = (
+            weekly_margin_candidate_dates(
+                sqlite_path,
+                asof_date - timedelta(days=_WEEKLY_MARGIN_BOOTSTRAP_DAYS),
+                asof_date,
+            )
+            if sqlite_path is not None
+            else []
+        )
+        print(
+            f"bootstrap-cache jquants weekly_margin: {len(margin_weeks)} week(s) start",
+            file=out,
+            flush=True,
+        )
+        margin_rows = 0
+        for week_end in margin_weeks:
+            margin_rows += len(providers.jquants.get_mkt_margin_interest_week(week_end))
+        print(
+            f"bootstrap-cache jquants weekly_margin: {margin_rows} row(s)",
             file=out,
             flush=True,
         )

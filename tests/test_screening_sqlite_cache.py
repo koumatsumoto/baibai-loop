@@ -1009,8 +1009,9 @@ class MarginPublicationLagTest(unittest.TestCase):
 
     def test_a_balance_date_is_not_readable_before_its_publication(self) -> None:
         # The exchange publishes a week's balances on the second trading day after
-        # the balance date. Joining on the balance date itself would read Friday's
-        # positioning into a Friday decision that could not have seen it.
+        # the balance date, in the late afternoon. Joining on the balance date, or
+        # even on the publication day's close, would read positioning into a
+        # decision that could not have seen it.
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             week_end = date(2026, 7, 24)  # Friday
@@ -1019,5 +1020,7 @@ class MarginPublicationLagTest(unittest.TestCase):
 
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 24)), [])
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 27)), [])
-            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [week_end])
+            # The exchange publishes late in the afternoon while a decision prices
+            # at the close, so the publication day itself is still too early.
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [])
             self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])

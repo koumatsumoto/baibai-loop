@@ -89,13 +89,13 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="price_change_60d", direction=-1),
     AxisSpec(name="gap_from_52w_low", direction=-1),
     # 需給軸。方向は事前登録として先に宣言する (計測結果を見てから向きを決めない)。
-    # margin_long_to_adv / margin_ratio は「買い方が混雑しているほど将来リターンは
+    # margin_long_to_adv / margin_long_share は「買い方が混雑しているほど将来リターンは
     # 劣後する」= 低いほど良い。margin_long_delta_26w は「半年で信用買いが減った
     # 後ほど良い」= 低いほど良い。margin_std_long_share は「期日を持つ overhang が
     # 多いほど劣後する」= 低いほど良い。いずれも計測前の仮説であり、採否は
     # dated report の採用基準で決める。
     AxisSpec(name="margin_long_to_adv", direction=-1),
-    AxisSpec(name="margin_ratio", direction=-1),
+    AxisSpec(name="margin_long_share", direction=-1),
     AxisSpec(name="margin_long_delta_26w", direction=-1),
     AxisSpec(name="margin_std_long_share", direction=-1),
 )

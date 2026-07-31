@@ -228,6 +228,7 @@ def verify_screening_sqlite_coverage(
                     require_rows=True,
                     enforce_record_count=False,
                 )
+            _append_weekly_margin_issue(conn, issues, asof_date=asof_date)
             jpx_source_coverage_covers_asof = _source_coverage_covers_date(
                 conn, "jpx_regulation_flags", asof_date
             )
@@ -347,3 +348,53 @@ def _schema_shape_issue(conn: sqlite3.Connection, sqlite_path: Path) -> CacheCov
             reason=f"SQLite schema validation failed: {type(exc).__name__}: {exc}",
         )
     return None
+
+
+# The supply/demand axes read the newest balance date already published at the
+# as-of. Requiring a recent one keeps a store that silently stopped fetching the
+# weekly source from producing a screen whose axes are all null without saying so.
+_WEEKLY_MARGIN_MAX_STALE_DAYS = 21
+
+
+def _append_weekly_margin_issue(
+    conn: sqlite3.Connection,
+    issues: list[CacheCoverageIssue],
+    *,
+    asof_date: date,
+) -> None:
+    row = conn.execute(
+        "SELECT MAX(week_end) FROM jquants_weekly_margin WHERE week_end <= ?",
+        (asof_date.isoformat(),),
+    ).fetchone()
+    latest = str(row[0]) if row is not None and row[0] is not None else None
+    if latest is None:
+        issues.append(
+            CacheCoverageIssue(
+                source="jquants_weekly_margin",
+                requirement=asof_date.isoformat(),
+                reason="no weekly margin balance date is stored at or before the as-of",
+            )
+        )
+        return
+    try:
+        stale_days = (asof_date - date.fromisoformat(latest)).days
+    except ValueError:
+        issues.append(
+            CacheCoverageIssue(
+                source="jquants_weekly_margin",
+                requirement=asof_date.isoformat(),
+                reason=f"stored balance date is not a date: {latest!r}",
+            )
+        )
+        return
+    if stale_days > _WEEKLY_MARGIN_MAX_STALE_DAYS:
+        issues.append(
+            CacheCoverageIssue(
+                source="jquants_weekly_margin",
+                requirement=asof_date.isoformat(),
+                reason=(
+                    f"newest balance date {latest} is {stale_days} days before the as-of "
+                    f"(limit {_WEEKLY_MARGIN_MAX_STALE_DAYS})"
+                ),
+            )
+        )

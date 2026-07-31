@@ -87,7 +87,7 @@ def _panel_row(
         er_carry_annual=er_carry_annual,
         er_upside_capped=None,
         margin_long_to_adv=None,
-        margin_ratio=None,
+        margin_long_share=None,
         margin_long_delta_26w=None,
         margin_std_long_share=None,
         pass_screen=rank is not None,

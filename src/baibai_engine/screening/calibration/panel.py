@@ -37,7 +37,12 @@ from ..rules import evaluate_screening
 from ..schema import ScreenedCandidate, TTMQuality
 from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
-from ..sqlite_reader import read_edinet_metrics, read_eq_master_asof, read_fin_summaries
+from ..sqlite_reader import (
+    read_edinet_metrics,
+    read_eq_master_asof,
+    read_fin_summaries,
+    read_margin_supply_demand_inputs,
+)
 from ..universe import ELIGIBLE_MARKETS, build_universe, liquid_median_population
 from .forward import STALE_PRICE_MAX_LAG_DAYS
 
@@ -107,7 +112,7 @@ class PanelRow:
     # axes can be measured against forward returns before any of them is allowed to
     # change a rule.
     margin_long_to_adv: float | None
-    margin_ratio: float | None
+    margin_long_share: float | None
     margin_long_delta_26w: float | None
     margin_std_long_share: float | None
     pass_screen: bool
@@ -224,6 +229,7 @@ def build_panel(
         if security.is_common_stock and security.code in universe_result.snapshots
     }
     median_population = liquid_median_population(universe_result.snapshots, rules)
+    margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(sqlite_path, asof_date)
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -232,6 +238,8 @@ def build_panel(
         edinet_by_ticker=edinet_by_ticker,
         rules=rules,
         median_population=median_population,
+        margin_latest=margin_latest,
+        margin_prior_26w=margin_prior_26w,
     )
 
     evidence_by_ticker: dict[str, tuple[str, ...]] = {}
@@ -330,7 +338,7 @@ def build_panel(
                 er_carry_annual=estimate.carry_annual if estimate else None,
                 er_upside_capped=estimate.upside_capped if estimate else None,
                 margin_long_to_adv=derived.margin_long_to_adv,
-                margin_ratio=derived.margin_ratio,
+                margin_long_share=derived.margin_long_share,
                 margin_long_delta_26w=derived.margin_long_delta_26w,
                 margin_std_long_share=derived.margin_std_long_share,
                 pass_screen=ticker in evidence_by_ticker,
@@ -459,7 +467,7 @@ def _unresolved_master_member_row(asof_date: date, ticker: str, sector_33: str) 
         er_carry_annual=None,
         er_upside_capped=None,
         margin_long_to_adv=None,
-        margin_ratio=None,
+        margin_long_share=None,
         margin_long_delta_26w=None,
         margin_std_long_share=None,
         pass_screen=False,

@@ -39,6 +39,10 @@ VALUATION_HISTORY_SESSIONS = 750
 # 1200 日、fin summaries は TTM 合成と前年同期 YoY に 730 日を要する。本番 run と
 # 較正リプレイ (calibration/panel.py) が同じ値を import する。窓がずれると
 # リプレイは本番と別物の指標を測るため、ここ以外に窓を定義しない。
+# 26 週の建玉変化を測る窓を立会日で表した本数。株式分割はこの窓を跨ぐと株数基準が
+# 変わるので、跨いだ銘柄は軸を答えない。
+MARGIN_DELTA_SESSIONS = 130
+
 BARS_INPUT_WINDOW_DAYS = 1200
 FIN_INPUT_WINDOW_DAYS = 730
 
@@ -225,6 +229,12 @@ def build_metrics(
                     prior_26w=(margin_prior_26w or {}).get(ticker),
                     avg_daily_volume_shares=_avg_daily_volume(ticker_bars, asof_date),
                     shares_outstanding=snapshot.shares_outstanding,
+                    split_within_adv_window=_has_split_adjustment_within_sessions(
+                        ticker_bars, asof_date, AVG_VOLUME_SESSIONS
+                    ),
+                    split_within_delta_window=_has_split_adjustment_within_sessions(
+                        ticker_bars, asof_date, MARGIN_DELTA_SESSIONS
+                    ),
                 )
             ),
             price_history_sessions_750d=price_history_sessions[ticker],
@@ -901,22 +911,34 @@ def _gap_from_low(
     return (current / low) - 1.0
 
 
+# A trailing window must be long enough to average out one busy day, and it has to
+# tolerate the days an illiquid name simply does not report. Demanding all twenty
+# would drop the established thin names where margin overhang matters most.
+AVG_VOLUME_SESSIONS = 20
+AVG_VOLUME_MIN_OBSERVED = 15
+
+
 def _avg_daily_volume(
     bars: Sequence[JQuantsDailyBar],
     asof_date: date,
-    sessions: int = 20,
+    sessions: int = AVG_VOLUME_SESSIONS,
 ) -> float | None:
-    """Mean traded shares over the trailing sessions, or None when short of them.
+    """Mean traded shares over the trailing sessions, or None when too sparse.
 
     Shares rather than yen, because it is the denominator that turns a margin
-    balance into days of trading. Requiring the full window keeps a name that has
-    only just listed from producing a days-of-volume figure off two sessions.
+    balance into days of trading; dividing yen turnover by the close would put the
+    close where the day's average price belongs. The window must exist in full so a
+    newly listed name cannot produce a days-of-volume figure off two sessions, but
+    within it a minority of unreported days is averaged over rather than fatal.
     """
     ordered = sorted(
         (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
     )
-    values = [bar.volume for bar in ordered[-sessions:] if bar.volume is not None]
-    if len(values) < sessions:
+    window = ordered[-sessions:]
+    if len(window) < sessions:
+        return None
+    values = [float(bar.volume) for bar in window if bar.volume is not None]
+    if len(values) < AVG_VOLUME_MIN_OBSERVED:
         return None
     return mean(values)
 

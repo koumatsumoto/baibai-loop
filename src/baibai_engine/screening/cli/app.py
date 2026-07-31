@@ -607,6 +607,7 @@ def main(argv: list[str] | None = None) -> int:
         return bootstrap_cache_command(
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
+            sqlite_path=sqlite_path,
         )
 
     if args.command == "refresh-edinet-documents":
