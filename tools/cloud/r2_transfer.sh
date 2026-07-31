@@ -250,7 +250,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|pull-market|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -260,6 +260,12 @@ case "${1:-}" in
     ;;
   pull-machine)
     pull_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  # A pass that only writes the market store round-trips the other two for nothing,
+  # and pushing them back unchanged after hours would revert whatever else wrote them
+  # meanwhile. These two move the market store alone.
+  pull-market)
+    pull_keys market.sqlite
     ;;
   preserve-market-v13)
     preserve_market_v13
@@ -277,6 +283,13 @@ case "${1:-}" in
       exit 2
     fi
     push_keys market.sqlite runs.sqlite macro.sqlite
+    ;;
+  push-market)
+    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+      printf 'refusing machine-store push outside GitHub Actions\n' >&2
+      exit 2
+    fi
+    push_keys market.sqlite
     ;;
   push-macro)
     # Deep history is fetched locally with `macro refresh --all-history`, which the

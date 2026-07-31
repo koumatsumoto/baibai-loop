@@ -23,8 +23,7 @@ class ProviderSpec:
     kind: Literal["http", "local"] = "http"
     # All-history refresh floor. ``all_history_start`` is the reproducible fixed
     # start a bulk source exposes; ``all_history_rolling_years`` derives the floor
-    # from today instead (a licensed rolling window such as J-Quants Light's 5
-    # years).
+    # from today instead (a licensed rolling window such as J-Quants' 10 years).
     all_history_start: date | None = None
     all_history_rolling_years: int | None = None
     # Store-rewrite policy for an all-history refresh. ``trim_before_first`` drops

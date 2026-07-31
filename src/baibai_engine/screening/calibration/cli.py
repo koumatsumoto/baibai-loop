@@ -256,13 +256,22 @@ def calibration_evaluate_command(
                 # residual keeps an unenumerated status from passing silently.
                 for field, label in (
                     ("entry_price_gap_count", "entry_price_gap"),
-                    ("unpriced_exit_count", "unpriced_exit"),
                     ("future_horizon_count", "horizon_not_matured"),
                     ("unclassified_unresolved_count", "unclassified_unresolved"),
                 ):
                     count = coverage.get(field)
                     if isinstance(count, int) and count:
                         blockers.append(label)
+                # A name that left the market carries no exit value, and delistings
+                # happen in every cohort, so blocking on their presence blocks
+                # forever. What matters is whether they could have produced the
+                # conclusions: the cohort blocks when the sign of a conclusion moves
+                # between giving those names a total loss and giving them what the
+                # rest of the cohort returned. Pre-registered in
+                # reports/2026-07-31-delisting-exclusion-preregistration.md.
+                sensitivity = coverage.get("delisting_exclusion")
+                if isinstance(sensitivity, dict) and not sensitivity.get("direction_stable"):
+                    blockers.append("unpriced_exit_flips_direction")
             metric_status = (
                 "eligible" if cohort["metric_calculation_status"] == "resolved" else "unresolved"
             )

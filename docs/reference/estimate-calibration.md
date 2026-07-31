@@ -42,7 +42,7 @@ forward row は `resolved` または明示的な unresolved status を持つ。t
 | `survivorship_coverage_status` | panel の population が as-of の投資可能 universe を再現しているか | `asof_population_mismatch_count == 0` |
 | `priced_master_without_universe_count` | as-of に価格が付き master にも在る銘柄を panel が評価できたか | `0` |
 | `adjustment_factor_coverage` | 価格系列に分割調整 factor が揃っているか | `complete` |
-| `unpriced_exit_count` | 窓中に価格が途切れた銘柄に exit value があるか | `0` |
+| `delisting_exclusion.direction_stable` | 窓中に価格が途切れた銘柄の除外が結論を作っていないか | `true` |
 | `entry_price_gap_count` / `future_horizon_count` / `unclassified_unresolved_count` | 未解決 row の分類（下記） | `0` |
 | `input_range_clamped` / `candidate_partition_complete` | 入力窓が要求長を満たし、panel と forward の銘柄集合が一致するか | clamp なし / 一致 |
 
@@ -60,7 +60,7 @@ survivorship は population の性質なので panel が件数を測り、verdic
 | --- | --- | --- |
 | `entry_not_listed_count` | panel も as-of の価格を持たない | block しない。production screen も同じ銘柄を universe から落とすので、較正の母集団は screen が選び得た集合と一致する |
 | `entry_price_gap_count` | panel は as-of の価格を持つのに forward が entry を持たない | block する。断面に数えた銘柄の forward 観測が無いので、population を無言で欠く |
-| `unpriced_exit_count` | 窓中に系列が終わる（廃止 exit value なし） | block する。survivorship 露出そのもの |
+| `unpriced_exit_count` | 窓中に系列が終わる（廃止 exit value なし） | 件数では block しない。`delisting_exclusion` が結論の頑健性で判定する（下記） |
 | `future_horizon_count` | target が評価可能な最終取引日より先 | block する。cohort が満期に達していない |
 | `unclassified_unresolved_count` | 上のどれにも入らない未解決 status | block する。分類は allowlist なので、status が増えた日に無音で通らないための残余 |
 
@@ -68,7 +68,20 @@ survivorship は population の性質なので panel が件数を測り、verdic
 
 entry は as-of の 15 日前までの close で解決するので、保有期間は名目 horizon より最大でその分長い。この許容が効く範囲まで bar の読み込み窓を広げてあり、`adjustment_factor_coverage` を判定する bar 集合も同じ窓に従う。
 
-authoritative な delisting exit value source が無い限り `unpriced_exit` は残るため、long-horizon result が blocked になるのは正しい。
+### 廃止銘柄の除外（`delisting_exclusion`）
+
+authoritative な delisting exit value source が無い限り、窓中に系列が終わる銘柄は exit value を持たないまま cohort から落ちる。満期済み cohort は例外なくこれを含むので、件数で block すると 3y/5y の evidence は原理的に成立しない。代わりに、その除外が結論を作ったかどうかを cohort ごとに判定する。
+
+除外された銘柄へ範囲の両端を代入して結論を再計算し、**cohort が報告した値と両方の代入とで向きが一致するときだけ** `direction_stable` を立てる。
+
+| 代入 | 値 |
+| --- | --- |
+| 全損 | `price_return = -1.0` |
+| 中立 | 同 cohort の resolved 銘柄の中央値 |
+
+報告値を比較に含めるのは、それが authority gate の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは `recommended_rank_top5` / `recommended_rank_top10` が group の `median_excess` の符号、`er_calibration` が最上位 quintile の `median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
+
+この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。exit value そのものを外部 source から取る道は別に残る。
 
 `er_calibration` は価格収束成分 `er_reversion_annual` だけを price-only 実現値へ較正する。予測値は cohort 内の `er_reversion_annual` 中央値、実現値は同じ cohort の price return 中央値をそれぞれ引き、quintile ごとに median の相対値を比較する。`calibration_error` は `realized - predicted` である。配当と buyback の carry は price-only 実現値と同じ basis で観測できないため、この座標で絶対水準を較正しない。carry の妥当性は source と算出 contract を検証し、実現配当を備えた total-return dataset が利用できる場合に別の較正座標で扱う。
 

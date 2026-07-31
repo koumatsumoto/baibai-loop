@@ -3,9 +3,13 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.market.sqlite.coverage import (
+    EmptyRangeReplacementError,
+    daily_bars_covered_by_data,
+)
 from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -709,3 +713,194 @@ class SQLiteCacheTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DailyBarsCoverageTest(unittest.TestCase):
+    def test_the_ten_day_imperial_transition_closure_is_not_a_missing_window(self) -> None:
+        # The market was shut for the ten consecutive days of the 2019 imperial
+        # transition, leaving eleven days between two trading days. Treating that as
+        # a hole makes the bar store read as incomplete for every window covering it
+        # and sends the fetch back for data it already holds.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            try:
+                days = [
+                    *(date(2019, 4, 22) + timedelta(days=offset) for offset in range(5)),
+                    *(date(2019, 5, 7) + timedelta(days=offset) for offset in range(5)),
+                ]
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close) "
+                    "VALUES (?, ?, ?, ?)",
+                    [("7203", day.isoformat(), 1000.0, 1000.0) for day in days],
+                )
+                conn.commit()
+                covered = daily_bars_covered_by_data(conn, date(2019, 4, 22), date(2019, 5, 11))
+                # A whole fetch chunk missing still has to read as incomplete.
+                conn.execute("DELETE FROM jquants_daily_bars WHERE traded_at > '2019-04-26'")
+                conn.commit()
+                after_deletion = daily_bars_covered_by_data(
+                    conn, date(2019, 4, 22), date(2019, 6, 30)
+                )
+            finally:
+                conn.close()
+            self.assertTrue(covered)
+            self.assertFalse(after_deletion)
+
+    def test_a_fetch_chunk_holding_one_trading_day_is_not_covered(self) -> None:
+        # The edge tolerances apply at both ends, so if they are wide enough to meet
+        # in the middle of a 31-day fetch chunk, a chunk holding a single day reads as
+        # covered and the rest is never fetched. Nothing downstream catches a hole
+        # that small: the density check works in 120-day buckets.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            try:
+                start, end = date(2024, 4, 1), date(2024, 5, 1)
+                conn.execute(
+                    "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_close) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("7203", (start + timedelta(days=15)).isoformat(), 1000.0, 1000.0),
+                )
+                conn.commit()
+                sparse = daily_bars_covered_by_data(conn, start, end)
+                # The closure that forced the gap threshold up still has to be
+                # reachable from a boundary that lands on its first day.
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars"
+                    "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                    [
+                        ("7203", (date(2019, 5, 7) + timedelta(days=offset)).isoformat(), 1.0, 1.0)
+                        for offset in range(8)
+                    ],
+                )
+                conn.commit()
+                after_closure = daily_bars_covered_by_data(
+                    conn, date(2019, 4, 27), date(2019, 5, 14)
+                )
+            finally:
+                conn.close()
+            self.assertFalse(sparse)
+            self.assertTrue(after_closure)
+
+
+class EmptyPayloadReplacementTest(unittest.TestCase):
+    """A range fetch that returns nothing must not erase what the store holds."""
+
+    @staticmethod
+    def _bar(ticker: str, day: date) -> dict[str, object]:
+        return {"Code": ticker, "Date": day.isoformat(), "Close": 1000.0, "AdjustmentClose": 1000.0}
+
+    def test_an_empty_bar_payload_refuses_to_replace_stored_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_daily_bars(
+                db,
+                [self._bar("7203", date(2020, 12, 30))],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_daily_bars(db, [], requested_start=window[0], requested_end=window[1])
+
+            conn = open_connection(db)
+            try:
+                remaining = conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
+                # The refusal must leave no coverage row claiming the range is fine.
+                coverage = conn.execute(
+                    "SELECT record_count FROM source_coverage WHERE source = ?",
+                    ("jquants_daily_bars",),
+                ).fetchall()
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)
+            self.assertEqual([row[0] for row in coverage], [1])
+
+    def test_an_empty_payload_over_a_range_holding_nothing_is_accepted(self) -> None:
+        # A genuinely empty stretch has to stay storable, or a window the market
+        # never traded in would fail every pass.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            persisted = store_jquants_daily_bars(
+                db, [], requested_start=date(2020, 1, 1), requested_end=date(2020, 1, 3)
+            )
+            self.assertEqual(persisted, 0)
+
+    def test_an_empty_calendar_payload_refuses_to_replace_stored_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_market_calendar(
+                db,
+                [{"Date": "2020-12-30", "HolidayDivision": "1"}],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_market_calendar(
+                    db, [], requested_start=window[0], requested_end=window[1]
+                )
+
+            conn = open_connection(db)
+            try:
+                remaining = conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[
+                    0
+                ]
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)
+
+    def test_a_non_empty_payload_still_replaces_what_the_range_held(self) -> None:
+        # The guard must not cost the replace semantics that make a refetch
+        # corrective: a name the provider no longer reports has to disappear.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_daily_bars(
+                db,
+                [self._bar("7203", date(2020, 12, 30)), self._bar("9999", date(2020, 12, 30))],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+            store_jquants_daily_bars(
+                db,
+                [self._bar("7203", date(2020, 12, 30))],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            conn = open_connection(db)
+            try:
+                tickers = [
+                    str(row[0])
+                    for row in conn.execute("SELECT ticker FROM jquants_daily_bars ORDER BY ticker")
+                ]
+            finally:
+                conn.close()
+            self.assertEqual(tickers, ["7203"])
+
+    def test_an_empty_fin_payload_refuses_to_replace_stored_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            window = (date(2020, 12, 1), date(2020, 12, 31))
+            store_jquants_fin_summaries(
+                db,
+                [{"Code": "72030", "DiscDate": "2020-12-15", "EPS": "10"}],
+                requested_start=window[0],
+                requested_end=window[1],
+            )
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_fin_summaries(
+                    db, [], requested_start=window[0], requested_end=window[1]
+                )
+
+            conn = open_connection(db)
+            try:
+                remaining = conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(remaining, 1)

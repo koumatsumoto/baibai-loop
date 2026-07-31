@@ -280,6 +280,39 @@ def delete_date_range(
     )
 
 
+class EmptyRangeReplacementError(RuntimeError):
+    """An empty payload would have deleted rows the store already holds."""
+
+
+def replace_date_range(
+    conn: sqlite3.Connection,
+    table: str,
+    date_column: str,
+    start: date,
+    end: date,
+    *,
+    replacement_row_count: int,
+) -> None:
+    """Clear `[start, end]` so a refetch can rewrite it.
+
+    A range fetch answers with the whole range, so replacing is how a refetch
+    corrects rows already held. An answer with nothing in it is different: these
+    sources record what the market did, and a range that once had rows does not
+    become empty afterwards. Deleting on one would let any provider hiccup that
+    reports success with no payload destroy a stored cross-section, and the
+    coverage row it writes afterwards would say the range is fine. This refuses
+    instead and leaves the store as it was.
+    """
+    if replacement_row_count == 0:
+        held = date_range_row_count(conn, table, date_column, start, end)
+        if held:
+            raise EmptyRangeReplacementError(
+                f"refusing to replace {held} stored {table} row(s) in "
+                f"{start.isoformat()}..{end.isoformat()} with an empty payload"
+            )
+    delete_date_range(conn, table, date_column, start, end)
+
+
 def date_range_row_count(
     conn: sqlite3.Connection,
     table: str,
@@ -401,10 +434,17 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
 # truth), not source_coverage. Every trading day carries a full-market row set,
 # so a genuinely missing window shows up as a gap between present dates, while an
 # interrupted fetch that left source_coverage holes but already wrote the rows
-# must not trigger a re-fetch of data we hold. The only natural gaps are weekends
-# and the Golden Week / New Year closures (observed max 7d), so a 10-day
-# threshold separates complete history from a missing 31-day fetch chunk.
-_DAILY_BARS_MAX_GAP_DAYS = 10
+# must not trigger a re-fetch of data we hold. The natural gaps are weekends, the
+# Golden Week / New Year closures, and the ten consecutive closed days of the 2019
+# imperial transition, which puts eleven days between two trading days.
+#
+# The two thresholds answer different questions and are deliberately not equal. The
+# gap threshold has to clear that eleven-day run with margin for another exceptional
+# closure. The edge tolerance only has to reach from a requested boundary to the
+# nearest trading day, so ten days covers the longest closure exactly; raising it
+# further would let a 31-day chunk holding a single trading day near its middle read
+# as covered, because the two tolerances would then span the whole chunk between them.
+_DAILY_BARS_MAX_GAP_DAYS = 15
 _DAILY_BARS_EDGE_TOLERANCE_DAYS = 10
 _DAILY_BARS_COVERAGE_QUERY = (
     "SELECT DISTINCT traded_at FROM jquants_daily_bars "

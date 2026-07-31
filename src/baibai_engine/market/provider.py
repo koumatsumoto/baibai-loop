@@ -33,7 +33,12 @@ from baibai_engine.market.sqlite import (
     store_jquants_daily_bars,
     store_jquants_market_calendar,
 )
-from baibai_engine.market.store import latest_daily_bar_date, read_daily_bars, read_market_calendar
+from baibai_engine.market.store import (
+    latest_daily_bar_date,
+    latest_stored_daily_bar_date,
+    read_daily_bars,
+    read_market_calendar,
+)
 
 
 class JQuantsMarketProvider:
@@ -75,6 +80,13 @@ class JQuantsMarketProvider:
             if cached is not None:
                 latest = latest_daily_bar_date(self._sqlite_path, start, end)
                 if self._cache_only or latest is None or latest >= end:
+                    return cached
+                stored_latest = latest_stored_daily_bar_date(self._sqlite_path)
+                if stored_latest is not None and end < stored_latest:
+                    # The window ends before days the store already holds, so the
+                    # edge gap is a closed market rather than a tail the provider
+                    # has since published. Reading it live would delete and rewrite
+                    # a historical cross-section on every pass over a past window.
                     return cached
                 # `read_daily_bars` tolerates a holiday-sized edge gap, so an
                 # incremental asof can look covered while its own bar is not yet

@@ -8,7 +8,7 @@ last_reviewed: 2026-07-23
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
 
-`data/screening/runs.sqlite` のtransactionalなrun cache publicationを担う screening CLI の実装正本。週次 screening の入力と実行条件、依存、失敗時の扱いを定義する。
+`data/screening/runs.sqlite` のtransactionalなrun cache publicationを担う screening CLI の実装正本。screening の入力と実行条件、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
@@ -27,6 +27,7 @@ last_reviewed: 2026-07-23
 uv run baibai-engine screening run --asof YYYY-MM-DD
 uv run baibai-engine screening run --asof YYYY-MM-DD --allow-stale-jpx
 uv run baibai-engine screening bootstrap-cache --asof YYYY-MM-DD
+uv run baibai-engine screening backfill-history --start YYYY-MM-DD --end YYYY-MM-DD
 uv run baibai-engine screening backfill-master --asof YYYY-MM-DD [--asof YYYY-MM-DD ...]
 uv run baibai-engine screening backfill-master --month-end-from YYYY-MM-DD --month-end-to YYYY-MM-DD
 uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id ID [--macro-context-id ID] [--top N] [--profile PROFILE] [--detail summary|full] [--longlist-top N]
@@ -40,6 +41,8 @@ uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 ```
 
 `select` の `--run-revision-id` は必須で、`screening run` が返した immutable revision を指す。`--macro-context-id` は published macro context の ID（省略時は as-of 以前の latest eligible）で path ではない。`--longlist-top N` は diversity/cap 切断前の上位 N 件を longlist として出す。
+
+`backfill-history` は日次足・財務サマリー・営業日カレンダを、明示した窓に対して 1 回で取得する。`bootstrap-cache` は窓を as-of から導くため、履歴を遡るには 1 日あたり 1200 日 + 730 日の再取得をcohort 日ごとに払うことになる。窓を 1 度名指しすれば 1 パスで済み、coverage の union merge が既存の窓と繋ぐ。source ごとに独立に取得して行ごとに結果を出し、1 つの失敗が残りを止めない。日次足と財務サマリーは暦年で区切って要求する。窓全体を 1 度に読むと 10 年分の行をメモリに載せることになるうえ、区切りを `--start` でなく暦に置けば、開始日の違う実行どうしが同じ chunk を再利用できる。日次足・財務サマリーとも被覆済みの chunk は skip するので、中断した実行は chunk 単位で再開する。被覆の判定材料は違い、日次足は保存行そのもの（DB が SSOT、後述 §11.1）、財務サマリーは `source_coverage` の窓を読む。行を書いたあとに記録を残せず中断した財務取得が取り直されるのはこのためである。営業日カレンダは provider 呼び出し 1 回なので分割せず、再開の単位にもならない。日次足を先に取るのは、`backfill-master` の月末グリッドが bar store から導出されるためで、bars の無い月の snapshot はまだ要求できない。
 
 `backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に 1200 日の bar 窓と 730 日の summary 窓も取り直すため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
 
@@ -65,7 +68,7 @@ current source state であり point-in-time ledger ではない。既存の
 
 `select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) を支援する。
 
-`shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `unresolved_pruned_run` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
+`shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `estimate_missing` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
 
 `prune --keep N` は as-of、run timestamp、revision ID の新しい順に N 世代を残し、対象 run のcandidateとmachine selectionをtransaction内で削除してから`VACUUM`する。既定は3世代。run storeは再生成可能なcacheであり、canonicalなshortlist、research、proposal、holding reviewはapplication DBのsnapshotを読む。
 
@@ -207,11 +210,13 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 
 ## 12. J-Quants rate limit と bootstrap コスト
 
-J-Quants Light プランの正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_engine/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
+J-Quants の正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_engine/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
 
 - `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の日次足は asof−1200 暦日、財務サマリーは asof−730 暦日を範囲に取り、`_RANGE_CHUNK_DAYS=31` で 31 日 chunk に分割して ClientV2 内部の per-day API 呼び出しに fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、1 asof の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
 - chunk は resumable。`source_coverage` に chunk 単位で `status=ok` を記録し、中断しても完了済み chunk は再取得しない。複数 asof は履歴窓が大きく重複するため、最初の 1 asof の full bootstrap が高コストで、以降の週は非重複 chunk とその週の EDINET だけで安価になる。
 - 既存 cache がある asof では長期履歴を再取得しない。日次足の coverage は行データから導出し（§11.1、DB が SSOT）、range fetch の coverage は overlapping / adjacent window と union merge する（§11.1）。chunk 境界が asof ごとにずれても、行が揃っていれば偽のギャップを作らず re-fetch しない。
+- 被覆済みと判定された窓の末尾を読み直すのは **鮮度のための機構であり、穴の修復機構ではない**。窓の終端が store の最新取引日以降のときだけ発火し、そうでない過去窓は読み直さない。したがって「端の許容（10 日）より短い、過去窓の末尾の穴」を埋める経路は無い。これは coverage 判定が休場と区別できない gap 幅と同じ範囲で、それより広い欠けは被覆判定が落として chunk 経路が取り直す。
+- range 取得の store は要求範囲を置換するので、空の応答が来たときに行を保持している範囲は置換を拒否する（`EmptyRangeReplacementError`）。日次足・財務・カレンダは市場の実績なので、一度行があった範囲が後から空になることはなく、成功扱いの空応答で断面を消さないための防御である。
 - `run` は cache-only で、coverage が揃えば provider を叩かず高速。歴史 replay の律速は `run` ではなく `bootstrap-cache` / `extract-edinet-metrics` の coverage 充足にある。
 
 過去 asof の cache 充足は「rate budget の回復を待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題として扱う。1 asof ずつ長時間バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させる。短い per-step timeout で kill するとその asof の coverage が未充足のまま `run` が fail-fast するため、kill せず完走させるか完了済み chunk から再開する。

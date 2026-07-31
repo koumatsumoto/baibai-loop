@@ -17,9 +17,9 @@ from baibai_engine.market.sqlite.convert import (
     to_str_or_none,
 )
 from baibai_engine.market.sqlite.coverage import (
-    delete_date_range,
     record_range_source_coverage,
     record_source_coverage,
+    replace_date_range,
 )
 from baibai_engine.market.sqlite.schema import open_connection
 from baibai_engine.screening.master_snapshot import (
@@ -42,8 +42,13 @@ def store_jquants_fin_summaries(
         records_list = list(records)
         normalized = _fin_summary_rows_with_quality(records_list)
         rows = normalized.rows
-        delete_date_range(
-            conn, "jquants_fin_summaries", "disclosed_at", requested_start, requested_end
+        replace_date_range(
+            conn,
+            "jquants_fin_summaries",
+            "disclosed_at",
+            requested_start,
+            requested_end,
+            replacement_row_count=len(rows),
         )
         if rows:
             conn.executemany(

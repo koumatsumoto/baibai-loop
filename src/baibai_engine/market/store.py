@@ -122,6 +122,30 @@ def read_daily_bars_for_tickers(
     return bars
 
 
+def latest_stored_daily_bar_date(sqlite_path: Path) -> date | None:
+    """Return the most recent ``traded_at`` anywhere in the store, or None.
+
+    Separates "this window ends before what the store already knows" from "this
+    window reaches the present". Only the second can hold days the provider has
+    published since the last fetch, so only the second is worth a live tail read.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] is None:
+        return None
+    try:
+        return date.fromisoformat(str(row[0]))
+    except ValueError:
+        return None
+
+
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:
     """Return the most recent ``traded_at`` stored within ``[start, end]``, or None.
 

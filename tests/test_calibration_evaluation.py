@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.screening.calibration.cli import calibration_evaluate_command
 from baibai_engine.screening.calibration.evaluation import (
+    MIN_AXIS_SAMPLE,
     _reversion_plus_capped_carry,
     _spearman,
     evaluate_cohorts,
@@ -654,8 +655,10 @@ class EvaluateCohortsTest(unittest.TestCase):
         self.assertEqual(coverage["entry_price_gap_count"], 1)
         self.assertEqual(coverage["unpriced_exit_count"], 1)
         self.assertEqual(counts.get("entry_price_gap"), 1)
-        self.assertEqual(counts.get("unpriced_exit"), 1)
         self.assertEqual(coverage["unclassified_unresolved_count"], 0)
+        # A name that left the market is counted on its own, but it blocks only when
+        # giving it a value changes what the cohort concludes.
+        self.assertIsNone(counts.get("unpriced_exit"))
 
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -669,3 +672,104 @@ class EvaluateCohortsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DelistingExclusionSensitivityTests(unittest.TestCase):
+    """Whether the names that left the market could have produced the conclusions."""
+
+    @staticmethod
+    def _cohort(
+        *, delisted_ranks: tuple[int, ...]
+    ) -> tuple[list[PanelRow], list[ForwardReturnRow]]:
+        # A cohort where the recommended names beat the rest, plus names that left
+        # the market inside the window and so carry no exit value.
+        panel = [
+            _panel_row(f"{9000 + index}", per_trailing=10.0) for index in range(MIN_AXIS_SAMPLE)
+        ]
+        forwards = [_forward_row(row.ticker, 0.0) for row in panel]
+        for rank in (1, 2):
+            panel.append(_panel_row(f"81{rank:02d}", per_trailing=10.0, rank=rank))
+            forwards.append(_forward_row(f"81{rank:02d}", 0.30))
+        for rank in delisted_ranks:
+            ticker = f"82{rank:02d}"
+            panel.append(_panel_row(ticker, per_trailing=10.0, rank=rank))
+            forwards.append(
+                ForwardReturnRow(
+                    asof="2025-06-30",
+                    ticker=ticker,
+                    horizon="6m",
+                    target_date="2025-12-29",
+                    resolved=False,
+                    price_return=None,
+                    stale_price=False,
+                    entry_date="2025-06-30",
+                    exit_date=None,
+                    status="unresolved_missing_exit",
+                )
+            )
+        return panel, forwards
+
+    def _sensitivity(self, *, delisted_ranks: tuple[int, ...]) -> dict[str, object]:
+        panel, forwards = self._cohort(delisted_ranks=delisted_ranks)
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]  # type: ignore[index]
+        return cohort["coverage"]["delisting_exclusion"]  # type: ignore[index]
+
+    def test_a_conclusion_that_survives_both_ends_is_not_produced_by_the_exclusion(self) -> None:
+        # The delisted name is not among the recommendations, so the recommended
+        # group stays ahead whichever value the delisting is given.
+        panel, forwards = self._cohort(delisted_ranks=())
+        panel.append(_panel_row("8300", per_trailing=10.0))
+        forwards.append(
+            ForwardReturnRow(
+                asof="2025-06-30",
+                ticker="8300",
+                horizon="6m",
+                target_date="2025-12-29",
+                resolved=False,
+                price_return=None,
+                stale_price=False,
+                entry_date="2025-06-30",
+                exit_date=None,
+                status="unresolved_missing_exit",
+            )
+        )
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        sensitivity = result["6m"]["cohorts"][0]["coverage"]["delisting_exclusion"]  # type: ignore[index]
+
+        self.assertEqual(sensitivity["excluded_count"], 1)
+        self.assertTrue(sensitivity["direction_stable"])
+
+    def test_a_conclusion_that_moves_between_the_ends_blocks_the_cohort(self) -> None:
+        # Half the recommended group left the market. Called total losses they drag
+        # the group below the rest of the cohort; called neutral they do not. The
+        # cohort cannot say which happened, so it does not get to conclude.
+        sensitivity = self._sensitivity(delisted_ranks=(3, 4))
+
+        self.assertEqual(sensitivity["excluded_count"], 2)
+        self.assertFalse(sensitivity["direction_stable"])
+        imputations = sensitivity["imputations"]
+        self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
+        self.assertGreater(imputations["neutral"]["recommended_rank_top5"], 0)
+
+    def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
+        # Three of the five recommended names left the market. What the cohort
+        # reports is the two survivors' lead; both imputations agree the group did
+        # not lead. Comparing the two imputations to each other alone would call
+        # that stable, which is the survivorship case the rule exists to catch.
+        sensitivity = self._sensitivity(delisted_ranks=(3, 4, 5))
+
+        self.assertEqual(sensitivity["excluded_count"], 3)
+        self.assertGreater(sensitivity["as_reported"]["recommended_rank_top5"], 0)
+        imputations = sensitivity["imputations"]
+        self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
+        self.assertEqual(imputations["neutral"]["recommended_rank_top5"], 0.0)
+        self.assertFalse(sensitivity["direction_stable"])
+
+    def test_a_cohort_without_delistings_needs_no_imputation(self) -> None:
+        sensitivity = self._sensitivity(delisted_ranks=())
+
+        self.assertEqual(sensitivity["excluded_count"], 0)
+        self.assertTrue(sensitivity["direction_stable"])
+        self.assertEqual(sensitivity["as_reported"], {})
+        self.assertEqual(sensitivity["imputations"], {})

@@ -32,6 +32,7 @@ from baibai_engine.screening.sqlite_coverage import (
 
 from .cache import (
     _print_cache_coverage_issues,
+    backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
     extract_edinet_metrics_command,
@@ -102,6 +103,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--asof",
         required=True,
         help="target date (YYYY-MM-DD); refreshes current source state, not a point-in-time view",
+    )
+
+    backfill_history_parser = subparsers.add_parser(
+        "backfill-history",
+        help="fetch bars, financial summaries and the calendar over an explicit window",
+    )
+    backfill_history_parser.add_argument(
+        "--start", required=True, help="first date the window covers (YYYY-MM-DD)"
+    )
+    backfill_history_parser.add_argument(
+        "--end", required=True, help="last date the window covers (YYYY-MM-DD)"
     )
 
     backfill_master_parser = subparsers.add_parser(
@@ -601,6 +613,22 @@ def main(argv: list[str] | None = None) -> int:
         return refresh_edinet_documents_command(
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
+        )
+
+    if args.command == "backfill-history":
+        window_start = _parse_iso_date(args.start)
+        window_end = _parse_iso_date(args.end)
+        if window_start > window_end:
+            print(
+                f"--start {window_start.isoformat()} is after --end {window_end.isoformat()}",
+                file=sys.stderr,
+            )
+            return 1
+        return backfill_history_command(
+            start=window_start,
+            end=window_end,
+            providers=providers,
+            sqlite_path=sqlite_path,
         )
 
     if args.command == "backfill-master":

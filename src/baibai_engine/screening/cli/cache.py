@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, TextIO
 
 from baibai_engine.market.sqlite import (
+    EmptyRangeReplacementError,
     SQLiteSchemaError,
     count_overlapping_source_coverage,
     count_source_coverage,
@@ -443,6 +444,96 @@ def _record_edinet_extraction_failure(
     )
 
 
+def _calendar_year_spans(start: date, end: date) -> tuple[tuple[date, date], ...]:
+    """Split `[start, end]` at calendar-year boundaries.
+
+    The interior boundaries come from the calendar rather than from `start`, so runs
+    that name different first dates still request the same interior spans and reuse
+    each other's fetch chunks.
+    """
+    spans: list[tuple[date, date]] = []
+    span_start = start
+    while span_start <= end:
+        span_end = min(date(span_start.year, 12, 31), end)
+        spans.append((span_start, span_end))
+        span_start = span_end + timedelta(days=1)
+    return tuple(spans)
+
+
+def backfill_history_command(
+    *,
+    start: date,
+    end: date,
+    providers: ProviderBundle,
+    sqlite_path: Path | None = None,
+    stdout: TextIO | None = None,
+) -> int:
+    """Fill the range sources over an explicit window.
+
+    ``bootstrap-cache`` derives its windows from one as-of, which is right when the
+    question is "can this run proceed" and wrong when the question is "does the store
+    reach back far enough". Covering years that way costs one 1200-day and one 730-day
+    re-fetch per as-of; naming the window once costs one pass, and the coverage merge
+    joins it to what is already held.
+
+    Each source is fetched independently and reported on its own line, because a
+    provider that cannot answer for one of them says nothing about the others. Chunks
+    already covered are skipped, so a run interrupted after hours resumes where it
+    stopped rather than starting over.
+
+    Bars come first: the month-end grid that ``backfill-master`` fills is derived from
+    the bar store, so snapshots for months without bars cannot be requested yet.
+
+    The store this writes to is named on the first line, and whether it already held
+    anything. The path comes from the working directory, so a run started from the
+    wrong one otherwise spends hours filling a store nobody reads and reports success.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    window = f"{start.isoformat()}..{end.isoformat()}"
+    if sqlite_path is not None:
+        state = "existing" if sqlite_path.exists() else "new"
+        print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
+    print(f"backfill-history start: {window}", file=out, flush=True)
+    sources: tuple[tuple[str, Callable[[date, date], Sequence[object]], bool], ...] = (
+        ("daily_bars", providers.jquants.get_eq_bars_daily_range, True),
+        ("fin_summaries", providers.jquants.get_fin_summary_range, True),
+        ("market_calendar", providers.jquants.get_mkt_calendar, False),
+    )
+    failures: list[str] = []
+    for name, fetch, by_year in sources:
+        print(f"backfill-history {name}: {window} start", file=out, flush=True)
+        # The range readers answer with every row in the window, so asking for a
+        # decade at once holds a decade of bars in memory for the sake of a count.
+        # A year at a time bounds that and reports progress on a pass that runs for
+        # hours; the calendar is one provider call and is not worth splitting.
+        spans = _calendar_year_spans(start, end) if by_year else ((start, end),)
+        count = 0
+        try:
+            for span_start, span_end in spans:
+                count += len(fetch(span_start, span_end))
+        except (
+            JQuantsProviderError,
+            SQLiteSchemaError,
+            EmptyRangeReplacementError,
+            sqlite3.Error,
+        ) as exc:
+            print(
+                f"backfill-history {name}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            failures.append(name)
+            continue
+        print(f"backfill-history {name}: {count} row(s)", file=out, flush=True)
+    if failures:
+        print(
+            f"backfill-history: {len(failures)} source(s) failed: {', '.join(failures)}",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"backfill-history done: {window}", file=out, flush=True)
+    return 0
+
+
 BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT = 3
 """連続失敗で打ち切る本数。
 
@@ -594,7 +685,13 @@ def bootstrap_cache_command(
             file=out,
             flush=True,
         )
-    except (JQuantsProviderError, EDINETProviderError, JPXProviderError, sqlite3.Error) as exc:
+    except (
+        JQuantsProviderError,
+        EDINETProviderError,
+        JPXProviderError,
+        EmptyRangeReplacementError,
+        sqlite3.Error,
+    ) as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print("bootstrap-cache done", file=out, flush=True)

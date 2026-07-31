@@ -1,0 +1,105 @@
+name: cloud-history-backfill
+
+# Extends the canonical market store back over a named window. Manual only: the
+# window is a decision about how far the evidence has to reach, and the pass costs
+# hours, so it does not belong on the daily schedule.
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First date the window covers (YYYY-MM-DD)"
+        required: true
+        type: string
+      end:
+        description: "Last date the window covers (YYYY-MM-DD)"
+        required: true
+        type: string
+      master_month_end_from:
+        description: "Optional YYYY-MM-DD; also backfill month-end master snapshots from here"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# The daily batch is the other writer of the machine stores. Sharing its group is
+# what keeps the two from pushing over each other: R2 is last-write-wins, so a
+# concurrent pass would silently drop whichever finished first.
+#
+# The cost is that this pass holds the group for as long as it runs, and GitHub keeps
+# only one run waiting behind it: a third run entering the group cancels the one
+# already queued. So while a backfill is in flight, dispatching another cloud workflow
+# can drop a queued daily batch. Run backfills outside the hours around 18:30 JST, or
+# re-dispatch the daily batch afterwards.
+concurrency:
+  group: cloud-publish
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # A decade of bars is roughly an hour of provider calls, and 429 backoff can
+    # add to that. The ceiling leaves room for one bad stretch without expiring
+    # the job, which GitHub reports as a cancellation with no cause attached.
+    timeout-minutes: 300
+    env:
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Sync Python environment
+        run: uv sync --locked
+
+      - name: Pull the market store
+        run: tools/cloud/r2_transfer.sh pull-market
+
+      # Writing to the store migrates it, so the rollback object has to be present
+      # and verified first, exactly as the daily batch does before its own writes.
+      - name: Preserve and verify market schema v13 rollback
+        run: tools/cloud/r2_transfer.sh preserve-market-v13
+
+      - name: Record the window the store already covers
+        run: |
+          sqlite3 "file:data/screening/market.sqlite?mode=ro" \
+            "SELECT 'bars ' || MIN(traded_at) || '..' || MAX(traded_at) || ' (' || COUNT(*) || ')' \
+             FROM jquants_daily_bars;
+             SELECT 'fin  ' || MIN(disclosed_at) || '..' || MAX(disclosed_at) || ' (' || COUNT(*) || ')' \
+             FROM jquants_fin_summaries;"
+
+      - name: Backfill the range sources
+        run: |
+          uv run baibai-engine screening backfill-history \
+            --start "${{ inputs.start }}" --end "${{ inputs.end }}"
+
+      # The month-end grid is derived from the bar store, so the snapshots for the
+      # newly covered months can only be requested once their bars are present.
+      - name: Backfill month-end master snapshots
+        if: inputs.master_month_end_from != ''
+        run: |
+          uv run baibai-engine screening backfill-master \
+            --month-end-from "${{ inputs.master_month_end_from }}" \
+            --month-end-to "${{ inputs.end }}"
+
+      - name: Record the window the store covers now
+        run: |
+          sqlite3 "file:data/screening/market.sqlite?mode=ro" \
+            "SELECT 'bars ' || MIN(traded_at) || '..' || MAX(traded_at) || ' (' || COUNT(*) || ')' \
+             FROM jquants_daily_bars;
+             SELECT 'fin  ' || MIN(disclosed_at) || '..' || MAX(disclosed_at) || ' (' || COUNT(*) || ')' \
+             FROM jquants_fin_summaries;
+             SELECT 'master snapshots ' || COUNT(DISTINCT snapshot_date) FROM jquants_master_snapshots;"
+
+      - name: Upload the market store
+        run: tools/cloud/r2_transfer.sh push-market

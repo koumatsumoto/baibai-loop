@@ -11,7 +11,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite` / `runs.sqlite` | `cloud-daily-batch` |
+| `baibai-stores` | `market.sqlite` / `runs.sqlite` | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）|
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-stores` | `schema-migrations/market-v13.sqlite` | `cloud-daily-batch`（write-once rollback artifact） |
@@ -145,7 +145,7 @@ npx wrangler secret put VIEW_PASSWORD
 - `market.sqlite`のv13からv14へのmigration前に、workflowは`schema-migrations/market-v13.sqlite`を固定keyへ一度だけ保存する。既存objectは上書きせず、毎回再downloadして非空・`quick_check`・`user_version = 13`を検証してからbatchを開始する。v14 storeに対してartifactが存在しなければ処理を停止する。
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（cloudが唯一のwriterである`market.sqlite` / `runs.sqlite`を古いローカルcopyで巻き戻さないため）。`macro.sqlite`はローカルからも`push-macro`でuploadできるが、cloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
-- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例して数百MBのstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。
+- pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。`market.sqlite`は10年履歴で約1.3GBあり、3 store合計のpush（snapshot作成・`.bak`のserver-side copy・upload）は実測で約2分である。
 - `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
