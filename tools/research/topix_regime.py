@@ -1,10 +1,10 @@
-"""Label a cohort's as-of with the market state the index was in.
+"""Label an as-of with the market state the TOPIX close series was in.
 
-The calibration question is whether E[r] realises differently depending on what
-the market was doing, which needs one label per cohort and nothing else. The label
-is derived at evaluation time from the index close series rather than stored on
-the panel, so a change to the definition re-labels existing cohorts instead of
-requiring a rebuild — the same shape the coverage verdicts use.
+Written for one measurement — whether E[r] realises differently depending on what
+the market was doing — and kept here rather than in the engine because nothing
+reads it. It is not a successor to `screening.regime`, which answers a different
+question with a different vocabulary and is wired into the snapshot commands; the
+two are unrelated.
 
 Definitions and thresholds are fixed in
 reports/2026-07-31-market-regime-v2-preregistration.md and are not tuned here.

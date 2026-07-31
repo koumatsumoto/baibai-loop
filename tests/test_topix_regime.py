@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 
-from baibai_engine.screening.calibration.regime_tag import (
+from tools.research.topix_regime import (
     DRAWDOWN_WINDOW_BARS,
     regime_at,
 )
@@ -80,6 +80,44 @@ class RegimeAtTest(unittest.TestCase):
 
     def test_an_empty_series_is_unknown(self) -> None:
         self.assertEqual(regime_at([], date(2026, 6, 30)).regime, "unknown")
+
+    def test_each_pre_registered_threshold_sits_where_the_report_put_it(self) -> None:
+        # The report says the thresholds and the branch order are part of the
+        # definition and are not to be moved. Fixtures built from the constants
+        # would pass for any constant, so the boundaries are written out.
+        def label(drawdown_pct: float, up: bool) -> str:
+            # `up` controls the 60-bar return only: the close 61 bars back sits
+            # below the last close when rising and above it when falling, while the
+            # peak stays at 100 so the drawdown is exactly `drawdown_pct`.
+            last = 100.0 * (1 + drawdown_pct)
+            start = last * (0.98 if up else 1.02)
+            values = [100.0] * DRAWDOWN_WINDOW_BARS + [start] + [last] * 60
+            return regime_at(_series(values), _asof(values)).regime
+
+        # The comparisons sit either side of each threshold rather than exactly on
+        # it: a close constructed to land on -0.15 lands a rounding step off, so an
+        # exact-boundary assertion would measure floating point, not the rule.
+        self.assertEqual(label(-0.16, up=False), "stress")
+        self.assertNotEqual(label(-0.14, up=False), "stress")
+        # recovery needs both the depth and a rising 60 bars
+        self.assertEqual(label(-0.09, up=True), "recovery")
+        self.assertNotEqual(label(-0.07, up=True), "recovery")
+        self.assertNotEqual(label(-0.09, up=False), "recovery")
+
+    def test_stress_is_evaluated_before_recovery(self) -> None:
+        # A deep drawdown that is also rising satisfies both clauses. The report
+        # fixes the order, so it must read as stress.
+        values = [100.0] * DRAWDOWN_WINDOW_BARS + [79.0] * 60 + [84.0]
+        self.assertEqual(regime_at(_series(values), _asof(values)).regime, "stress")
+
+    def test_the_drawdown_window_is_252_bars(self) -> None:
+        # A peak one bar outside the window must not count. 251 bars of 100 then a
+        # 90 close: the peak is inside at 252 and gone at 253.
+        inside = [100.0] * (DRAWDOWN_WINDOW_BARS - 1) + [80.0]
+        outside = [100.0] + [80.0] * (DRAWDOWN_WINDOW_BARS - 1) + [80.0]
+
+        self.assertEqual(regime_at(_series(inside), _asof(inside)).regime, "stress")
+        self.assertNotEqual(regime_at(_series(outside), _asof(outside)).regime, "stress")
 
 
 if __name__ == "__main__":
