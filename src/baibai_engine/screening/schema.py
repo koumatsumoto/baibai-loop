@@ -232,6 +232,17 @@ class DerivedMetrics:
     split_adjustment_flag: bool = False
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
+    # Supply/demand read from the exchange's weekly margin balances. Definitions and
+    # the reason each one is shaped this way live in `margin_metrics`. `week_end`
+    # names the balance date behind the numbers, which is what makes their age
+    # readable: the balances are weekly and published days later, so an asof in the
+    # middle of a week is looking at data up to nine days old by construction.
+    margin_week_end: date | None = None
+    margin_issue_type: str | None = None
+    margin_long_to_adv: float | None = None
+    margin_ratio: float | None = None
+    margin_long_delta_26w: float | None = None
+    margin_std_long_share: float | None = None
 
     @field_validator(
         "price_change_1d",
@@ -245,6 +256,10 @@ class DerivedMetrics:
         "ticker_return_4w",
         "sector_return_4w",
         "price_history_coverage_750d",
+        "margin_long_to_adv",
+        "margin_ratio",
+        "margin_long_delta_26w",
+        "margin_std_long_share",
     )
     @classmethod
     def _finite_optional_float(cls, value: float | None) -> float | None:

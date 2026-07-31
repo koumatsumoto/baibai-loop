@@ -29,6 +29,7 @@ from baibai_engine.screening.sqlite_cache import (
     store_jquants_weekly_margin,
 )
 from baibai_engine.screening.sqlite_reader import (
+    published_margin_week_ends,
     range_covered,
     read_fin_summaries,
     read_weekly_margin,
@@ -988,3 +989,35 @@ class WeeklyMarginStoreTest(unittest.TestCase):
 
             rows = read_weekly_margin(db, date(2026, 7, 24))
             self.assertEqual(len(rows or []), 1)
+
+
+class MarginPublicationLagTest(unittest.TestCase):
+    @staticmethod
+    def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
+        for week_end in week_ends:
+            store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
+        conn = open_connection(db)
+        try:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jquants_daily_bars"
+                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                [("7203", d.isoformat(), 1.0, 1.0) for d in trading_days],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_a_balance_date_is_not_readable_before_its_publication(self) -> None:
+        # The exchange publishes a week's balances on the second trading day after
+        # the balance date. Joining on the balance date itself would read Friday's
+        # positioning into a Friday decision that could not have seen it.
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            week_end = date(2026, 7, 24)  # Friday
+            trading = [date(2026, 7, 24), date(2026, 7, 27), date(2026, 7, 28), date(2026, 7, 29)]
+            self._seed(db, [week_end], trading)
+
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 24)), [])
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 27)), [])
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 28)), [week_end])
+            self.assertEqual(published_margin_week_ends(db, date(2026, 7, 29)), [week_end])

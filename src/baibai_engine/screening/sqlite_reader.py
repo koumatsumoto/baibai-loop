@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -200,6 +201,57 @@ def read_weekly_margin(sqlite_path: Path, week_end: date) -> list[JQuantsWeeklyM
 
 def _opt_float_value(value: object) -> float | None:
     return float(value) if isinstance(value, int | float) else None
+
+
+# The exchange publishes a week's margin balances on the second trading day after
+# the balance date, around 16:30 JST. Counting trading days rather than adding a
+# fixed offset is what makes the rule survive the balance dates that land on a
+# Thursday or Wednesday because the week's later days were closed.
+MARGIN_PUBLICATION_TRADING_DAYS = 2
+
+
+def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
+    """Balance dates whose publication had already happened by `asof`, ascending.
+
+    A balance date is not usable on the day it describes: the exchange publishes it
+    days later, so joining on the balance date alone would read Friday's positioning
+    into Friday's decision. Trading days come from the bar rows, which are the only
+    complete record of which days the market was open across the stored history.
+    """
+    if not sqlite_path.exists():
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        week_ends = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT week_end FROM jquants_weekly_margin "
+                "WHERE week_end <= ? ORDER BY week_end",
+                (asof.isoformat(),),
+            )
+        ]
+        if not week_ends:
+            return []
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
+                (week_ends[0].isoformat(), asof.isoformat()),
+            )
+        ]
+    finally:
+        conn.close()
+    # `trading_days` stops at `asof`, so a balance date is published exactly when its
+    # publication day is still inside the list.
+    published: list[date] = []
+    for week_end in week_ends:
+        publication = bisect_right(trading_days, week_end) + MARGIN_PUBLICATION_TRADING_DAYS - 1
+        if publication < len(trading_days):
+            published.append(week_end)
+    return published
 
 
 def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] | None:
