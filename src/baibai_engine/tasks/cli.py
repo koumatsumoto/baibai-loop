@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("done", "drop"):
         close = commands.add_parser(command)
         close.add_argument("task_id")
+    reconcile = commands.add_parser("reconcile-earnings")
+    reconcile.add_argument("--sqlite-path", type=Path, default=Path("data/screening/market.sqlite"))
     edit = commands.add_parser("edit")
     edit.add_argument("task_id")
     edit.add_argument("--title")
@@ -77,6 +79,8 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
             else:
                 task = service.close(args.task_id, status="dropped", closed_at=current_date)
             _emit(task.payload())
+        elif args.command == "reconcile-earnings":
+            return _reconcile_earnings(service, args, today=current_date)
         elif args.command == "edit":
             _emit(service.edit(args.task_id, _edit_changes(args)).payload())
         else:  # pragma: no cover
@@ -84,6 +88,59 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
     except (OSError, ValueError, ValidationError, TaskConflictError, TaskNotFoundError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today: date) -> int:
+    """Report where open task dates stand against the published schedule.
+
+    This never writes. A task's date is machine-set when the schedule could supply
+    one and hand-set when it could not, so the only dates that would ever change
+    here are the ones a human chose — and `decision-cycle.md` keeps that write
+    boundary with the human. The comparison names what moved; `task edit` applies it.
+    """
+    from .earnings_reconcile import reconcile_earnings_dates
+    from .earnings_schedule import read_published_earnings_dates
+
+    published = read_published_earnings_dates(args.sqlite_path, today)
+    if published is None:
+        print(
+            f"error: no earnings schedule stored in {args.sqlite_path}",
+            file=sys.stderr,
+        )
+        return 1
+    results = reconcile_earnings_dates(service.list(status="open"), published, today=today)
+    # One flat line per non-confirming task, prefixed so a log filter can keep the
+    # findings without the confirmations. The command's whole product is this
+    # report; a batch that swallows it runs the step for nothing.
+    for result in results:
+        if result.outcome != "confirm":
+            drift = "" if result.drift_days is None else f" drift={result.drift_days:+d}d"
+            print(
+                f"reconcile-earnings\t{result.outcome}\t{result.ticker}\t"
+                f"{result.current_event_date} -> {result.published_event_date}{drift}",
+                file=sys.stdout,
+            )
+    _emit(
+        {
+            "schedule_window_end": max(published.values()).isoformat() if published else None,
+            "reconciliations": [
+                {
+                    "task_id": result.task_id,
+                    "ticker": result.ticker,
+                    "current_event_date": (
+                        result.current_event_date.isoformat()
+                        if result.current_event_date is not None
+                        else None
+                    ),
+                    "published_event_date": result.published_event_date.isoformat(),
+                    "drift_days": result.drift_days,
+                    "outcome": result.outcome,
+                }
+                for result in results
+            ],
+        }
+    )
     return 0
 
 

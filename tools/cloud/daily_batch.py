@@ -502,6 +502,7 @@ _BATCH_DATASETS: dict[str, tuple[str, ...]] = {
     "macro": ("macro-series",),
     "serving-export": ("views", "history"),
     "prune": ("runs-store",),
+    "task-reconcile": ("follow-up-tasks",),
 }
 
 
@@ -568,19 +569,22 @@ def _finalize_failed_summary(
 ) -> None:
     if summary_output is None:
         return
-    recorder.batches.append(
-        BatchResult(
-            batch_name=recorder.section,
-            datasets=_BATCH_DATASETS[recorder.section],
-            status=BATCH_STATUS_FAILED,
-            duration_seconds=time.monotonic() - recorder.section_mono,
-            metrics={},
-            errors=(_typed_error(exc),),
-        )
-    )
     # A fatal batch failure must stay fatal even if the summary cannot be composed;
-    # the original exception is what the caller reports.
+    # the original exception is what the caller reports. Classifying the error is
+    # part of composing the summary — a stage the schema does not know raises there,
+    # so it has to sit inside the guard or an unregistered stage would replace the
+    # real failure with a validation error and lose the summary entirely.
     with contextlib.suppress(SummaryValidationError):
+        recorder.batches.append(
+            BatchResult(
+                batch_name=recorder.section,
+                datasets=_BATCH_DATASETS[recorder.section],
+                status=BATCH_STATUS_FAILED,
+                duration_seconds=time.monotonic() - recorder.section_mono,
+                metrics={},
+                errors=(_typed_error(exc),),
+            )
+        )
         _finalize_summary(
             summary_output,
             recorder=recorder,
@@ -865,6 +869,40 @@ def _execute_daily_batch(
             duration_seconds=time.monotonic() - prune_mono,
             metrics={},
             errors=tuple(prune_errors),
+        )
+    )
+
+    # The exchange publishes its schedule only weeks ahead, so a follow-up task
+    # created a quarter out carries an estimate until the real date enters that
+    # window. Comparing daily is what surfaces the day it becomes knowable. It
+    # reads nothing the publish produced and writes nothing, so it runs after the
+    # publish and a failure degrades rather than blocking it. It gets its own
+    # section: folding it into prune would report prune as degraded when prune
+    # succeeded, and mark the runs store degraded when the runs store is fine.
+    reconcile_mono = recorder.enter_section("task-reconcile")
+    reconcile_errors: list[BatchError] = []
+    try:
+        _run_step(
+            runner,
+            name="task-reconcile-earnings",
+            argv=(_ENGINE, "task", "reconcile-earnings"),
+            cwd=root,
+            echo_stdout=False,
+            # The report is the step's only product, so the findings have to reach
+            # the log. Confirmations are the normal case and would be ~100 lines a
+            # day of noise, so only the rows that need a human are echoed.
+            echo_stdout_prefixes=("reconcile-earnings\t",),
+        )
+    except BatchStepError as exc:
+        _record_deferred(exc, reconcile_errors)
+    recorder.batches.append(
+        BatchResult(
+            batch_name="task-reconcile",
+            datasets=_BATCH_DATASETS["task-reconcile"],
+            status=BATCH_STATUS_DEGRADED if reconcile_errors else BATCH_STATUS_OK,
+            duration_seconds=time.monotonic() - reconcile_mono,
+            metrics={},
+            errors=tuple(reconcile_errors),
         )
     )
 
