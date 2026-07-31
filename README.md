@@ -118,7 +118,7 @@ UV_CACHE_DIR=/tmp/uv-cache uv run pytest
 UV_CACHE_DIR=/tmp/uv-cache uv run lint-imports
 ```
 
-これはローカル用の subset です。Python gate の完全形は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9、UI・Worker・security（bandit / pip-audit）を含む全 CI job は `.github/workflows/`（`ci.yml` / `web.yml` / `security.yml`）を正本とします。
+これはローカル用の subset です。Python gate の完全形は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9、UI・Worker・security（Bandit / pip-audit / npm audit）を含む全 CI job は `.github/workflows/`（`ci.yml` / `web.yml` / `security.yml`）を正本とします。
 
 ## Issues
 
