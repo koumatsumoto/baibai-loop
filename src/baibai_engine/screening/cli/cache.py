@@ -528,6 +528,14 @@ def backfill_history_command(
     print(f"backfill-history {weekly_margin_source}: {window} start", file=out, flush=True)
     try:
         weeks = weekly_margin_candidate_dates(sqlite_path, start, end)
+        if not weeks:
+            # A window with no candidate week fetched nothing. Reporting that as
+            # success is how a backfill silently leaves a hole, so it is a failure
+            # of this source rather than a quiet zero.
+            raise JQuantsProviderError(
+                f"no weekly margin balance date candidates in {window}; "
+                "the window holds no complete week of stored trading days"
+            )
         margin_rows = sum(
             len(providers.jquants.get_mkt_margin_interest_week(week)) for week in weeks
         )

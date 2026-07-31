@@ -228,10 +228,12 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
         # refuses a date whose coverage is not `ok`, so listing one here would put
         # an unreadable date at the head of the list and blank the whole cohort
         # rather than falling back to the week before it.
+        # Selected by the reader's own predicate, the coverage key, so the two
+        # cannot disagree about which balance date a coverage row describes.
         readable = {
             str(row[0])
             for row in conn.execute(
-                "SELECT coverage_start FROM source_coverage "
+                "SELECT coverage_key FROM source_coverage "
                 "WHERE source = ? AND status = 'ok' AND record_count > 0",
                 (WEEKLY_MARGIN_SOURCE,),
             )
@@ -243,7 +245,7 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
                 "WHERE week_end <= ? ORDER BY week_end",
                 (asof.isoformat(),),
             )
-            if str(row[0]) in readable
+            if weekly_margin_coverage_key(date.fromisoformat(str(row[0]))) in readable
         ]
         if not week_ends:
             return []
@@ -313,13 +315,37 @@ def weekly_margin_candidate_dates(sqlite_path: Path, start: date, end: date) -> 
             continue
         year, week, _ = day.isocalendar()
         last_of_week[(year, week)] = day
-    # The week `end` falls in is still running, so its last stored trading day moves
-    # forward each day and proposing it spends one call per run on a date that is
-    # not a balance date. Nothing is lost by waiting: the publication lag means a
-    # balance date is not usable until two trading days after the week closes.
-    end_year, end_week, _ = end.isocalendar()
-    last_of_week.pop((end_year, end_week), None)
+    # A week that is still running has a last stored trading day that moves forward
+    # each day, so proposing it spends one call per run on a date that is not a
+    # balance date; nothing is lost by waiting, because the publication lag means a
+    # balance date is not usable until two trading days after the week closes. The
+    # week is in progress only when `end` reaches the newest day the store knows —
+    # a window that ends in the past has a complete final week and must keep it.
+    newest = max(last_of_week.values(), default=None)
+    stored_latest = _latest_stored_trading_day(conn_path=sqlite_path)
+    if (
+        newest is not None
+        and stored_latest is not None
+        and end.isocalendar()[:2] == stored_latest.isocalendar()[:2]
+    ):
+        last_of_week.pop(newest.isocalendar()[:2], None)
     return sorted(last_of_week.values())
+
+
+def _latest_stored_trading_day(*, conn_path: Path) -> date | None:
+    conn = connect_current(conn_path)
+    if conn is None:
+        return None
+    try:
+        row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] is None:
+        return None
+    try:
+        return date.fromisoformat(str(row[0]))
+    except ValueError:
+        return None
 
 
 def read_margin_supply_demand_inputs(

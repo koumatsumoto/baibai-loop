@@ -1705,6 +1705,28 @@ def _edinet_document(
     }
 
 
+def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
+    """Weekday rows so the weekly-margin candidates have a calendar to derive from."""
+    from baibai_engine.screening.sqlite_cache import open_connection
+
+    conn = open_connection(sqlite_path)
+    try:
+        day = start
+        rows = []
+        while day <= end:
+            if day.weekday() < 5:
+                rows.append(("7203", day.isoformat(), 1.0, 1.0))
+            day += timedelta(days=1)
+        conn.executemany(
+            "INSERT OR REPLACE INTO jquants_daily_bars"
+            "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 class BackfillHistoryTests(unittest.TestCase):
     def test_each_range_source_is_fetched_over_the_named_window(self) -> None:
         # The window is stated once rather than derived from an as-of, so a decade of
@@ -1712,13 +1734,16 @@ class BackfillHistoryTests(unittest.TestCase):
         provider = FakeJQuantsProvider()
         output = io.StringIO()
 
-        code = backfill_history_command(
-            start=date(2016, 8, 1),
-            end=date(2018, 3, 1),
-            providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
-            sqlite_path=Path("data/screening/market.sqlite"),
-            stdout=output,
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2016, 8, 1), date(2018, 3, 1))
+            code = backfill_history_command(
+                start=date(2016, 8, 1),
+                end=date(2018, 3, 1),
+                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                sqlite_path=sqlite_path,
+                stdout=output,
+            )
 
         self.assertEqual(code, 0)
         # The row readers answer with the whole window, so the two of them that can
@@ -1737,6 +1762,47 @@ class BackfillHistoryTests(unittest.TestCase):
         self.assertEqual(by_source["get_fin_summary_range"], year_spans)
         self.assertEqual(by_source["get_mkt_calendar"], [(date(2016, 8, 1), date(2018, 3, 1))])
         self.assertIn("backfill-history done", output.getvalue())
+
+    def test_a_historical_window_keeps_its_own_final_week(self) -> None:
+        # `end` here is a named past boundary, not today, so its week is complete
+        # and holds a real balance date. Treating it as in-progress would drop the
+        # only candidate and report a backfill that fetched nothing as success.
+        provider = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 31))
+            output = io.StringIO()
+            code = backfill_history_command(
+                start=date(2026, 7, 20),
+                end=date(2026, 7, 24),
+                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                sqlite_path=sqlite_path,
+                stdout=output,
+            )
+
+        self.assertEqual(code, 0)
+        weeks = [
+            start for name, start, _ in provider.calls if name == "get_mkt_margin_interest_week"
+        ]
+        self.assertEqual(weeks, [date(2026, 7, 24)])
+
+    def test_a_window_with_no_complete_week_fails_rather_than_reporting_success(self) -> None:
+        provider = FakeJQuantsProvider()
+        errors = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 31))
+            with contextlib.redirect_stderr(errors):
+                code = backfill_history_command(
+                    start=date(2026, 7, 25),
+                    end=date(2026, 7, 26),
+                    providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                )
+
+        self.assertEqual(code, 1)
+        self.assertIn("no weekly margin balance date candidates", errors.getvalue())
 
     def test_a_source_that_fails_does_not_stop_the_others(self) -> None:
         # A provider that cannot answer for one source says nothing about the rest,
