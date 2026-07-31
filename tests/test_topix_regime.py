@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from tools.research.topix_regime import (
     DRAWDOWN_WINDOW_BARS,
+    _classify,
     regime_at,
 )
 
@@ -111,13 +112,23 @@ class RegimeAtTest(unittest.TestCase):
         self.assertEqual(regime_at(_series(values), _asof(values)).regime, "stress")
 
     def test_the_drawdown_window_is_252_bars(self) -> None:
-        # A peak one bar outside the window must not count. 251 bars of 100 then a
-        # 90 close: the peak is inside at 252 and gone at 253.
-        inside = [100.0] * (DRAWDOWN_WINDOW_BARS - 1) + [80.0]
-        outside = [100.0] + [80.0] * (DRAWDOWN_WINDOW_BARS - 1) + [80.0]
+        # Written with literals, not with the constant: a fixture built from
+        # DRAWDOWN_WINDOW_BARS moves with it and passes for any window length.
+        # 251 highs then a low keeps the peak inside a 252-bar window; one high
+        # followed by 252 lows pushes it out.
+        inside = [100.0] * 251 + [80.0]
+        outside = [100.0] + [80.0] * 252
 
         self.assertEqual(regime_at(_series(inside), _asof(inside)).regime, "stress")
         self.assertNotEqual(regime_at(_series(outside), _asof(outside)).regime, "stress")
+
+    def test_the_extended_thresholds_sit_where_the_report_put_them(self) -> None:
+        # `_classify` is called directly so the comparison is tested rather than
+        # the arithmetic that feeds it — a close constructed to land exactly on a
+        # threshold measures floating point instead of the rule.
+        self.assertEqual(_classify(-0.02, 0.0, 0.4), "extended")
+        self.assertEqual(_classify(-0.04, 0.0, 0.4), "normal")
+        self.assertEqual(_classify(-0.02, 0.0, 0.6), "normal")
 
 
 if __name__ == "__main__":
