@@ -256,6 +256,7 @@ def _evaluate_cohort(
         "selection": selection,
         "gates": _evaluate_gates(population, excess),
         "reversion": _evaluate_reversion(population, excess),
+        "crowded_value": _evaluate_crowded_value(population, excess),
         "er_calibration": er_calibration,
     }
 
@@ -600,6 +601,51 @@ def _evaluate_gates(
             "gate_blocked": _group_stats(blocked),
         }
     return result
+
+
+def _evaluate_crowded_value(
+    population: Sequence[PanelRow],
+    excess: Mapping[str, float],
+) -> dict[str, object]:
+    """Split the cheap end of the cohort by how crowded the margin long side is.
+
+    A valuation screen cannot see who is already positioned, so a name can look
+    cheap while the buyers who made it cheap are still holding it. This is the
+    direct test of that: inside the best E[r] decile, the names with the largest
+    margin long balance relative to their trading volume are compared against the
+    rest of that decile. The crowded half underperforming is what a value trap
+    made of positioning looks like, and it is a separate question from whether the
+    axis ranks the whole cross-section.
+    """
+    ranked = [
+        (row.er_annual, row)
+        for row in population
+        if row.er_annual is not None and row.margin_long_to_adv is not None
+    ]
+    if len(ranked) < MIN_AXIS_SAMPLE:
+        return {}
+    ranked.sort(key=lambda item: item[0])
+    cheap = [row for _, row in ranked[len(ranked) - len(ranked) // DECILES :]]
+    if len(cheap) < 2:
+        return {}
+    crowding = sorted(cheap, key=lambda row: row.margin_long_to_adv or 0.0)
+    midpoint = len(crowding) // 2
+    uncrowded = [excess[row.ticker] for row in crowding[:midpoint]]
+    crowded = [excess[row.ticker] for row in crowding[midpoint:]]
+    stats_uncrowded = _group_stats(uncrowded)
+    stats_crowded = _group_stats(crowded)
+    crowded_median = stats_crowded.get("median_excess")
+    uncrowded_median = stats_uncrowded.get("median_excess")
+    return {
+        "crowded": stats_crowded,
+        "uncrowded": stats_uncrowded,
+        "crowded_minus_uncrowded": (
+            round(crowded_median - uncrowded_median, 6)
+            if isinstance(crowded_median, int | float)
+            and isinstance(uncrowded_median, int | float)
+            else None
+        ),
+    }
 
 
 def _evaluate_reversion(
