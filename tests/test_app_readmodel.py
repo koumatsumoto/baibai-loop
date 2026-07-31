@@ -374,6 +374,44 @@ def test_data_quality_flags_omit_forecast_special_gain_when_false() -> None:
     assert "一時益予想" not in view.data_quality_flags
 
 
+def test_supply_demand_flags_raise_on_a_crowded_margin_long() -> None:
+    view = _candidate_row({"ticker": "4849", "metrics": {"margin_long_to_adv": 6.0}})
+
+    assert "信用買い混雑" in view.data_quality_flags
+
+
+def test_supply_demand_flags_stay_quiet_below_the_measured_decile() -> None:
+    view = _candidate_row({"ticker": "4849", "metrics": {"margin_long_to_adv": 1.4}})
+
+    assert "信用買い混雑" not in view.data_quality_flags
+
+
+def test_supply_demand_flags_raise_on_a_deadline_heavy_long_balance() -> None:
+    view = _candidate_row({"ticker": "4849", "metrics": {"margin_std_long_share": 0.9}})
+
+    assert "制度期日偏重" in view.data_quality_flags
+
+
+def test_a_rejected_axis_is_shown_as_a_number_and_never_raises_a_flag() -> None:
+    # `margin_long_delta_26w` and `margin_long_share` failed the acceptance
+    # criteria, so they are context for the reader rather than a warning. A flag
+    # built on them would give an untested rule the weight of a tested one.
+    view = _candidate_row(
+        {
+            "ticker": "4849",
+            "metrics": {"margin_long_delta_26w": -0.9, "margin_long_share": 1.0},
+        }
+    )
+
+    assert view.data_quality_flags == []
+
+
+def test_an_unobserved_margin_balance_raises_nothing() -> None:
+    view = _candidate_row({"ticker": "4849", "metrics": {}})
+
+    assert view.data_quality_flags == []
+
+
 def test_holding_uses_market_close_when_strictly_newer_than_ledger() -> None:
     view = build_dashboard(
         StubLedger(_snapshot()),

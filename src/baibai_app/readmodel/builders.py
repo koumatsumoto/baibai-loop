@@ -149,7 +149,20 @@ _METRIC_FIELDS = (
     "equity_ratio",
     "sales_yoy",
     "operating_profit_yoy",
+    "margin_long_to_adv",
+    "margin_long_share",
+    "margin_std_long_share",
 )
+
+# Supply/demand thresholds, taken from where the axis actually sits in the panel
+# rather than chosen. Across the last two years of month-end cohorts the ninth
+# decile of `margin_long_to_adv` ranges 3.7 to 5.2 days of volume and of
+# `margin_std_long_share` 0.71 to 0.78, so a fixed cut near the middle of each band
+# tracks the top decile without recomputing a quantile per run. Both axes met the
+# acceptance criteria in reports/2026-07-31-margin-supply-demand-preregistration.md;
+# the two that did not are shown as numbers and never raise a flag.
+_CROWDED_MARGIN_LONG_DAYS = 4.5
+_MARGIN_DEADLINE_SHARE = 0.75
 _STALE_RUN_AGE = timedelta(days=7)
 
 
@@ -1339,7 +1352,31 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("分割補正")
     if metrics.get("forecast_special_gain_flag") is True:
         flags.append("一時益予想")
+    flags.extend(_supply_demand_flags(metrics))
     return flags
+
+
+def _supply_demand_flags(metrics: Mapping[str, object]) -> list[str]:
+    """Say when the margin long side is crowded or sitting on a settlement clock.
+
+    Positioning is a different question from valuation, so these read as their own
+    warnings rather than as data quality: a name can be cheap and correctly priced
+    while the buyers who made it cheap are still holding it.
+    """
+    flags: list[str] = []
+    days = _numeric(metrics.get("margin_long_to_adv"))
+    if days is not None and days >= _CROWDED_MARGIN_LONG_DAYS:
+        flags.append("信用買い混雑")
+    share = _numeric(metrics.get("margin_std_long_share"))
+    if share is not None and share >= _MARGIN_DEADLINE_SHARE:
+        flags.append("制度期日偏重")
+    return flags
+
+
+def _numeric(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def _screening_run_view(run: CandidatesRun, *, today: date) -> ScreeningRunView:
