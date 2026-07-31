@@ -22,6 +22,46 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # PR merge commits expose base/head as their two parents at this depth.
+          # Multi-commit pushes that exceed it fail closed into running the audit.
+          fetch-depth: 2
+
+      - name: Detect Node audit scope
+        id: node-audit-scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            BASE_SHA="$PR_BASE_SHA"
+            HEAD_SHA="$PR_HEAD_SHA"
+          else
+            BASE_SHA="$PUSH_BEFORE_SHA"
+            HEAD_SHA="$CURRENT_SHA"
+          fi
+
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null ||
+            ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
+            ui/package-lock.json cloud/worker/package-lock.json; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-python@v7
         with:
@@ -59,3 +99,20 @@ jobs:
             --output-file /tmp/baibai-loop-requirements.txt
           uv run pip-audit \
             -r /tmp/baibai-loop-requirements.txt
+
+      # Keep Node audits after the Python scanners and use an explicit status
+      # function so one ecosystem's finding does not hide the other reports.
+      - uses: actions/setup-node@v7
+        if: ${{ !cancelled() && steps.node-audit-scope.outputs.run == 'true' }}
+        with:
+          node-version: 24
+
+      - name: UI dependency audit
+        if: ${{ !cancelled() && steps.node-audit-scope.outputs.run == 'true' }}
+        working-directory: ui
+        run: npm audit --package-lock-only --audit-level=high
+
+      - name: Worker dependency audit
+        if: ${{ !cancelled() && steps.node-audit-scope.outputs.run == 'true' }}
+        working-directory: cloud/worker
+        run: npm audit --package-lock-only --audit-level=high

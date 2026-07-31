@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { ArrowDown, ArrowRight, ArrowUp, CircleAlert, Minus, Search } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 

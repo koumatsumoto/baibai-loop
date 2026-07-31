@@ -152,12 +152,13 @@ coverage gate は現在 80%。これは理想値ではなく、既存 suite の�
 
 ## 8. Security checks
 
-CI では Bandit と pip-audit を分ける。
+CI では Bandit、pip-audit、npm audit を分ける。
 
 - Bandit: source code の危険な構文や API を見る。
 - pip-audit: lock 由来の依存を requirements に export して監査する。
+- npm audit: UI / Worker の各 lockfile を監査し、high / critical advisory を拒否する。
 
-CodeQL は採用しない。GitHub の Code scanning は private repository では Advanced Security ライセンス（Organization 限定の有償機能）が必須で、個人 plan の private repo では SARIF の取り込み先がない。SARIF を artifact として保存する形でも結果の検査体験が貧弱で運用価値が薄いため、CodeQL ジョブは置かず、代替として上記 2 ツールに集中する。
+CodeQL は採用しない。GitHub の Code scanning は private repository では Advanced Security ライセンス（Organization 限定の有償機能）が必須で、個人 plan の private repo では SARIF の取り込み先がない。SARIF を artifact として保存する形でも結果の検査体験が貧弱で運用価値が薄いため、CodeQL ジョブは置かず、代替として上記 3 ツールに集中する。
 
 `pip-audit --locked .` は uv の `uv.lock` を直接拾えないため、CI では以下の順にする。
 
@@ -165,6 +166,12 @@ CodeQL は採用しない。GitHub の Code scanning は private repository で�
 2. `pip-audit -r <exported requirements>`
 
 `pip-audit --local` は実行環境の `pip` 自体も監査対象に含めるため、project dependency ではない pip の CVE で CI が落ちることがある。repo の依存監査としては lockfile export を正とする。
+
+Node audit はいずれかの lockfile の変更時と週次 schedule に既存 security job 内で実行する。変更判定に
+必要な commit が shallow checkout に無い場合は audit を省略せず実行する。workflow-level path
+filterや専用jobを増やさず、gateのfail-closed性とjob単位課金の抑制を両立する。security jobは
+`--package-lock-only`でinstallを重複させず、lockfileの再現性と実動互換性はweb jobの`npm ci`
+以降で検証する。
 
 参考:
 
@@ -189,6 +196,15 @@ uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel
 ```
 
+Node dependency gate は各 lockfile を直接監査する。
+
+```bash
+cd ui
+npm audit --package-lock-only --audit-level=high
+cd ../cloud/worker
+npm audit --package-lock-only --audit-level=high
+```
+
 UI（`ui/`）と Cloudflare Worker（`cloud/worker/`）は、同じ web job で次の順に検証する。UI は依存を 1 回だけ install して lint / build / test を通し、その build artifact を含む checkout のまま Worker の型生成・型検査・test・dry-run bundle を検証する。
 
 ```bash
@@ -205,7 +221,7 @@ npm test
 npx wrangler deploy --dry-run --outdir /tmp/baibai-worker-bundle
 ```
 
-この §9 は gate の唯一の正本で、Python quality と notification script の stdlib-only import contract は `.github/workflows/ci.yml`、UI / Worker は `.github/workflows/web.yml`、security（bandit / pip-audit）は `.github/workflows/security.yml` を正本とする。3 workflowはpull request / main pushで常に実行し、securityは週次にも実行する。GitHubのworkflow-level path filterは変更fileの評価上限によりgateを無音でskipし得るため使わない。pull request の同一 workflow は新しい commit が来たら旧 run を cancel し、main push と schedule は互いに cancel しない。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
+この §9 は gate の唯一の正本で、Python quality と notification script の stdlib-only import contract は `.github/workflows/ci.yml`、UI / Worker は `.github/workflows/web.yml`、security（Bandit / pip-audit / npm audit）は `.github/workflows/security.yml` を正本とする。3 workflowはpull request / main pushで常に実行し、securityは週次にも実行する。Node auditはlockfile変更時と週次だけ実行し、変更判定不能時はfail closedで実行する。GitHubのworkflow-level path filterは変更fileの評価上限によりgateを無音でskipし得るため使わない。pull request の同一 workflow は新しい commit が来たら旧 run を cancel し、main push と schedule は互いに cancel しない。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
 
 参考:
 

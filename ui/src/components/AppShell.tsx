@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router'
 import { Activity, ExternalLink, Settings } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
