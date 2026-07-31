@@ -16,6 +16,7 @@ from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.tasks.models import Task
 from tests.helpers.db_seed import seed_ledger, seed_tasks
+from tests.helpers.fixed_now import FIXED_NOW
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -100,7 +101,7 @@ def _seed_app_method_root(root: Path) -> None:
     assert isinstance(thesis, dict)
     assert isinstance(review, dict)
     ResearchStoreService(db_path).publish_thesis_with_review(
-        "thesis-20260714-2331-r1", thesis, review
+        "thesis-20260714-2331-r1", thesis, review, now=FIXED_NOW
     )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))

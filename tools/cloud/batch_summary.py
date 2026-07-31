@@ -121,8 +121,10 @@ ERROR_STAGES = (
     "verify-cache-coverage",
     "bootstrap-cache",
     "extract-edinet-metrics",
+    "refresh-edinet-documents",
     "screening-run",
     "screening-select",
+    "task-reconcile-earnings",
     "macro-list",
     "macro-refresh",
     "export-read-models",
@@ -208,6 +210,7 @@ _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
         "delta_unavailable": str,
     },
     "prune": {},
+    "task-reconcile": {},
 }
 BATCH_NAMES = tuple(_BATCH_METRIC_SCHEMA)
 

@@ -200,7 +200,10 @@ class ProposalStoreService:
         ):
             connection.execute("BEGIN IMMEDIATE")
             try:
-                thesis, review = _ready_thesis_and_review(connection, thesis_id)
+                # The proposal's own instant is what its evidence is judged against,
+                # so the verdict is a property of the proposal rather than of when
+                # someone happens to re-read it.
+                thesis, review = _ready_thesis_and_review(connection, thesis_id, now=created_at)
                 _validate_planned_limit(
                     connection,
                     planned_limit,
@@ -353,6 +356,7 @@ def _ready_thesis_and_review(
     thesis_id: str,
     *,
     review_id: str | None = None,
+    now: datetime | None = None,
 ) -> tuple[ThesisDocument, IndependentReview]:
     thesis_row = connection.execute(
         "SELECT payload FROM thesis WHERE thesis_id = ?",
@@ -386,7 +390,7 @@ def _ready_thesis_and_review(
         if review_row is None:
             raise ProposalConflictError("proposal review no longer matches its thesis")
     review = IndependentReview.model_validate_json(str(review_row["payload"]))
-    result = evaluate_thesis(thesis, review=review)
+    result = evaluate_thesis(thesis, review=review, now=now)
     if result.decision_readiness != "ready" or result.errors:
         detail = "; ".join(result.errors) or result.decision_readiness
         raise ProposalValidationError(f"research thesis is not decision-ready: {detail}")
@@ -414,6 +418,9 @@ def _revalidate_approval(
         connection,
         str(row["thesis_id"]),
         review_id=str(row["review_id"]),
+        # Re-validation judges the evidence at the moment the decision is made,
+        # not at the moment the row is read back.
+        now=decided_at,
     )
     _validate_planned_limit(
         connection,

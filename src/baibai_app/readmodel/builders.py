@@ -149,7 +149,21 @@ _METRIC_FIELDS = (
     "equity_ratio",
     "sales_yoy",
     "operating_profit_yoy",
+    "margin_long_to_adv",
+    "margin_long_share",
+    "margin_long_delta_26w",
+    "margin_std_long_share",
 )
+
+# The one supply/demand axis that met the acceptance criteria in
+# reports/2026-07-31-margin-supply-demand-preregistration.md and survived holding
+# size fixed. The cut is taken from where the axis sits rather than chosen: its
+# ninth decile lands at 0.93-0.94 of the candidate rows this runs on as well as of
+# the liquid population it was measured on, so one fixed value tracks the top
+# decile in both. The other three axes are shown as numbers and never raise a flag
+# — `margin_long_to_adv` in particular reads as a micro-cap label once size is held
+# fixed, and a flag built on it would put an untested rule beside tested ones.
+_MARGIN_DEADLINE_SHARE = 0.75
 _STALE_RUN_AGE = timedelta(days=7)
 
 
@@ -1339,6 +1353,22 @@ def _data_quality_flags(row: Mapping[str, object], metrics: Mapping[str, object]
         flags.append("分割補正")
     if metrics.get("forecast_special_gain_flag") is True:
         flags.append("一時益予想")
+    flags.extend(_supply_demand_flags(metrics))
+    return flags
+
+
+def _supply_demand_flags(metrics: Mapping[str, object]) -> list[str]:
+    """Say when the margin long balance is sitting on a settlement clock.
+
+    Positioning is a different question from data quality, but both answer the same
+    reader question — what should make me distrust this row at a glance — so they
+    share the badge list rather than adding a second one to scan. The label carries
+    the distinction.
+    """
+    flags: list[str] = []
+    share = _number(metrics.get("margin_std_long_share"))
+    if share is not None and share >= _MARGIN_DEADLINE_SHARE:
+        flags.append("制度期日偏重")
     return flags
 
 

@@ -19,6 +19,7 @@ from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.cli.app import build_parser as screening_parser
 from baibai_engine.screening.run_store import ScreeningRunStore
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.fixed_now import FIXED_NOW
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION_FIXTURE = ROOT / "tests/fixtures/thesis/2331-decision.yaml"
@@ -312,7 +313,7 @@ def test_outcome_cli_emits_stable_market_unavailable_shape(
 
 
 def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]) -> None:
-    assert decision_main([str(DECISION_FIXTURE)]) == 0
+    assert decision_main([str(DECISION_FIXTURE)], now=FIXED_NOW) == 0
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {
@@ -360,7 +361,7 @@ def test_decision_cli_emits_stable_yaml_shape(capsys: pytest.CaptureFixture[str]
 def test_decision_cli_emits_the_thesis_evaluation_shape(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert decision_main([str(DECISION_FIXTURE)]) == 0
+    assert decision_main([str(DECISION_FIXTURE)], now=FIXED_NOW) == 0
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {
