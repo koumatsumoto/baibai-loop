@@ -114,10 +114,11 @@ class RegimeAtTest(unittest.TestCase):
     def test_the_drawdown_window_is_252_bars(self) -> None:
         # Written with literals, not with the constant: a fixture built from
         # DRAWDOWN_WINDOW_BARS moves with it and passes for any window length.
-        # 251 highs then a low keeps the peak inside a 252-bar window; one high
-        # followed by 252 lows pushes it out.
-        inside = [100.0] * 251 + [80.0]
-        outside = [100.0] + [80.0] * 252
+        # A single peak bar at the window edge pins the length from both sides. A
+        # fixture where every pre-low bar is the peak only pins it from above: any
+        # shorter window still contains one.
+        inside = [100.0] + [90.0] * 250 + [80.0]
+        outside = [100.0] + [90.0] * 251 + [80.0]
 
         self.assertEqual(regime_at(_series(inside), _asof(inside)).regime, "stress")
         self.assertNotEqual(regime_at(_series(outside), _asof(outside)).regime, "stress")
@@ -129,6 +130,12 @@ class RegimeAtTest(unittest.TestCase):
         self.assertEqual(_classify(-0.02, 0.0, 0.4), "extended")
         self.assertEqual(_classify(-0.04, 0.0, 0.4), "normal")
         self.assertEqual(_classify(-0.02, 0.0, 0.6), "normal")
+        # The thresholds themselves, passed through unchanged, pin the operators:
+        # identical bit patterns with no arithmetic, so no rounding is involved.
+        self.assertEqual(_classify(-0.03, 0.0, 0.4), "normal")
+        self.assertEqual(_classify(-0.02, 0.0, 0.5), "normal")
+        self.assertEqual(_classify(-0.15, 0.0, 0.9), "stress")
+        self.assertEqual(_classify(-0.08, 0.0, 0.9), "normal")
 
 
 if __name__ == "__main__":
