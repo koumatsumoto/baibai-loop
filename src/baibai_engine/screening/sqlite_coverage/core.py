@@ -353,7 +353,10 @@ def _schema_shape_issue(conn: sqlite3.Connection, sqlite_path: Path) -> CacheCov
 # The supply/demand axes read the newest balance date already published at the
 # as-of. Requiring a recent one keeps a store that silently stopped fetching the
 # weekly source from producing a screen whose axes are all null without saying so.
-_WEEKLY_MARGIN_MAX_STALE_DAYS = 21
+# Three weeks of cadence plus a long closure, with room for one skipped week: the
+# 2020 Golden Week already produced twenty days between balance dates, so a tighter
+# bound would fail the batch on a state the exchange itself created.
+_WEEKLY_MARGIN_MAX_STALE_DAYS = 28
 
 
 def _append_weekly_margin_issue(
@@ -362,8 +365,13 @@ def _append_weekly_margin_issue(
     *,
     asof_date: date,
 ) -> None:
+    # The join reads a balance date only when its coverage is `ok` and it has rows,
+    # so the gate has to measure the same quantity. Reading the table alone would
+    # report fresh while the join comes back blank.
     row = conn.execute(
-        "SELECT MAX(week_end) FROM jquants_weekly_margin WHERE week_end <= ?",
+        "SELECT MAX(coverage_start) FROM source_coverage "
+        "WHERE source = 'jquants_weekly_margin' AND status = 'ok' "
+        "AND record_count > 0 AND coverage_start <= ?",
         (asof_date.isoformat(),),
     ).fetchone()
     latest = str(row[0]) if row is not None and row[0] is not None else None
@@ -372,7 +380,7 @@ def _append_weekly_margin_issue(
             CacheCoverageIssue(
                 source="jquants_weekly_margin",
                 requirement=asof_date.isoformat(),
-                reason="no weekly margin balance date is stored at or before the as-of",
+                reason="no readable weekly margin balance date at or before the as-of",
             )
         )
         return

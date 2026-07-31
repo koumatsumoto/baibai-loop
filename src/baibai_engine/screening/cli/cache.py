@@ -466,7 +466,7 @@ def backfill_history_command(
     start: date,
     end: date,
     providers: ProviderBundle,
-    sqlite_path: Path | None = None,
+    sqlite_path: Path,
     stdout: TextIO | None = None,
 ) -> int:
     """Fill the range sources over an explicit window.
@@ -491,9 +491,8 @@ def backfill_history_command(
     """
     out = stdout if stdout is not None else sys.stdout
     window = f"{start.isoformat()}..{end.isoformat()}"
-    if sqlite_path is not None:
-        state = "existing" if sqlite_path.exists() else "new"
-        print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
+    state = "existing" if sqlite_path.exists() else "new"
+    print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
     print(f"backfill-history start: {window}", file=out, flush=True)
     sources: tuple[tuple[str, Callable[[date, date], Sequence[object]], bool], ...] = (
         ("daily_bars", providers.jquants.get_eq_bars_daily_range, True),
@@ -528,7 +527,7 @@ def backfill_history_command(
         print(f"backfill-history {name}: {count} row(s)", file=out, flush=True)
     print(f"backfill-history {weekly_margin_source}: {window} start", file=out, flush=True)
     try:
-        weeks = weekly_margin_candidate_dates(sqlite_path, start, end) if sqlite_path else []
+        weeks = weekly_margin_candidate_dates(sqlite_path, start, end)
         margin_rows = sum(
             len(providers.jquants.get_mkt_margin_interest_week(week)) for week in weeks
         )
@@ -635,7 +634,7 @@ def bootstrap_cache_command(
     *,
     asof_date: date,
     providers: ProviderBundle,
-    sqlite_path: Path | None = None,
+    sqlite_path: Path,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -691,14 +690,10 @@ def bootstrap_cache_command(
         # Balance dates come from the stored trading calendar, so the bars fetch
         # above has to have happened first; on a store with no bars this proposes
         # nothing and the source stays empty rather than guessing Fridays.
-        margin_weeks = (
-            weekly_margin_candidate_dates(
-                sqlite_path,
-                asof_date - timedelta(days=_WEEKLY_MARGIN_BOOTSTRAP_DAYS),
-                asof_date,
-            )
-            if sqlite_path is not None
-            else []
+        margin_weeks = weekly_margin_candidate_dates(
+            sqlite_path,
+            asof_date - timedelta(days=_WEEKLY_MARGIN_BOOTSTRAP_DAYS),
+            asof_date,
         )
         print(
             f"bootstrap-cache jquants weekly_margin: {len(margin_weeks)} week(s) start",

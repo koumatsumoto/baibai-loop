@@ -144,5 +144,80 @@ class CalibrationCacheVersionTest(unittest.TestCase):
             self.assertIn("cache version is incompatible", str(caught.exception))
 
 
+class PublishedWeekReadabilityTest(unittest.TestCase):
+    """The list of published balance dates must only hold dates the join can read."""
+
+    @staticmethod
+    def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
+        from baibai_engine.screening.sqlite_cache import (
+            open_connection,
+            store_jquants_weekly_margin,
+        )
+
+        for week_end in week_ends:
+            store_jquants_weekly_margin(db, [{"Code": "72030", "LongVol": 1.0}], week_end=week_end)
+        conn = open_connection(db)
+        try:
+            conn.executemany(
+                "INSERT OR REPLACE INTO jquants_daily_bars"
+                "(ticker, traded_at, close, adjustment_close) VALUES (?, ?, ?, ?)",
+                [("7203", day.isoformat(), 1.0, 1.0) for day in trading_days],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_a_partial_week_falls_back_instead_of_blanking_the_cohort(self) -> None:
+        # One malformed code in one weekly payload marks that week `partial`, which
+        # the reader refuses. If the published list still named it, the newest entry
+        # would read back empty and every axis would be None for the whole cohort
+        # even though every earlier week is intact.
+        from baibai_engine.screening.sqlite_cache import open_connection
+        from baibai_engine.screening.sqlite_reader import (
+            published_margin_week_ends,
+            read_margin_supply_demand_inputs,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            weeks = [date(2026, 7, 17), date(2026, 7, 24)]
+            trading = [
+                date(2026, 7, 17),
+                *(date(2026, 7, day) for day in (20, 21, 22, 23, 24, 27, 28, 29, 30)),
+            ]
+            self._seed(db, weeks, trading)
+            asof = date(2026, 7, 30)
+            self.assertEqual(published_margin_week_ends(db, asof), weeks)
+
+            conn = open_connection(db)
+            try:
+                conn.execute(
+                    "UPDATE source_coverage SET status = 'partial' "
+                    "WHERE source = 'jquants_weekly_margin' AND coverage_start = '2026-07-24'"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            self.assertEqual(published_margin_week_ends(db, asof), [date(2026, 7, 17)])
+            latest, _ = read_margin_supply_demand_inputs(db, asof)
+            self.assertEqual(sorted(latest), ["7203"])
+
+    def test_a_balance_date_too_old_to_describe_the_asof_is_refused(self) -> None:
+        from baibai_engine.screening.sqlite_reader import read_margin_supply_demand_inputs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            week = date(2026, 1, 30)
+            trading = [week, date(2026, 2, 2), date(2026, 2, 3), date(2026, 2, 4)]
+            self._seed(db, [week], [*trading, date(2026, 7, 30)])
+
+            fresh, _ = read_margin_supply_demand_inputs(db, date(2026, 2, 4))
+            stale, _ = read_margin_supply_demand_inputs(db, date(2026, 7, 30))
+
+            self.assertEqual(sorted(fresh), ["7203"])
+            self.assertEqual(stale, {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -37,11 +37,20 @@ def _verify_screening_sqlite_coverage(*args, **kwargs):
 
 def _populate_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
     bars_start = asof - timedelta(days=1200)
+    margin_week = (asof - timedelta(days=4)).isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO jquants_weekly_margin("
         "week_end, ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
         "short_std_vol, short_neg_vol, issue_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ((asof - timedelta(days=4)).isoformat(), "1301", 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, "2"),
+        (margin_week, "1301", 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, "2"),
+    )
+    _add_source_coverage(
+        conn,
+        source="jquants_weekly_margin",
+        coverage_key=f"get_mkt_margin_interest:{margin_week}..{margin_week}",
+        record_count=1,
+        min_date=margin_week,
+        max_date=margin_week,
     )
     fin_start = asof - timedelta(days=730)
     earnings_date = asof + timedelta(days=7)

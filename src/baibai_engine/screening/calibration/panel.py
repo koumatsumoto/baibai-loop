@@ -111,6 +111,11 @@ class PanelRow:
     # (see `sqlite_reader.published_margin_week_ends`). Carried on the panel so the
     # axes can be measured against forward returns before any of them is allowed to
     # change a rule.
+    # The balance date behind the four numbers. Carried so a panel row states how
+    # old its positioning read is: the balances are weekly and published days
+    # later, and a store with a gap would otherwise show plausible axes with no
+    # trace of which week they came from.
+    margin_week_end: str | None
     margin_long_to_adv: float | None
     margin_long_share: float | None
     margin_long_delta_26w: float | None
@@ -337,6 +342,9 @@ def build_panel(
                 er_reversion_annual=estimate.reversion_annual if estimate else None,
                 er_carry_annual=estimate.carry_annual if estimate else None,
                 er_upside_capped=estimate.upside_capped if estimate else None,
+                margin_week_end=(
+                    derived.margin_week_end.isoformat() if derived.margin_week_end else None
+                ),
                 margin_long_to_adv=derived.margin_long_to_adv,
                 margin_long_share=derived.margin_long_share,
                 margin_long_delta_26w=derived.margin_long_delta_26w,
@@ -466,6 +474,7 @@ def _unresolved_master_member_row(asof_date: date, ticker: str, sector_33: str) 
         er_reversion_annual=None,
         er_carry_annual=None,
         er_upside_capped=None,
+        margin_week_end=None,
         margin_long_to_adv=None,
         margin_long_share=None,
         margin_long_delta_26w=None,

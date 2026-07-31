@@ -52,6 +52,7 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
     JQuantsProviderError,
+    JQuantsWeeklyMargin,
 )
 from baibai_engine.screening.render import build_output_path
 from baibai_engine.screening.rule_config import load_screening_rules
@@ -78,6 +79,22 @@ class FakeJQuantsProvider:
                 market_segment="Prime",
                 sector_33="情報・通信業",
                 is_common_stock=True,
+            )
+        ]
+
+    def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
+        self.calls.append(("get_mkt_margin_interest_week", week_end, week_end))
+        return [
+            JQuantsWeeklyMargin(
+                ticker="130A",
+                week_end=week_end,
+                long_vol=1000.0,
+                short_vol=250.0,
+                long_std_vol=800.0,
+                long_neg_vol=200.0,
+                short_std_vol=200.0,
+                short_neg_vol=50.0,
+                issue_type="2",
             )
         ]
 
@@ -791,6 +808,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(fail_bootstrap=True),
                 ),
+                sqlite_path=Path("data/screening/market.sqlite"),
             )
 
         self.assertEqual(exit_code, 1)
@@ -806,6 +824,7 @@ class ScreeningCliTests(unittest.TestCase):
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 ),
+                sqlite_path=Path("data/screening/market.sqlite"),
             )
 
         self.assertEqual(exit_code, 1)
@@ -821,6 +840,7 @@ class ScreeningCliTests(unittest.TestCase):
         exit_code = bootstrap_cache_command(
             asof_date=asof,
             providers=ProviderBundle(jquants=jquants, edinet=edinet, jpx=jpx),
+            sqlite_path=Path("data/screening/market.sqlite"),
             stdout=buffer,
         )
 
@@ -1696,6 +1716,7 @@ class BackfillHistoryTests(unittest.TestCase):
             start=date(2016, 8, 1),
             end=date(2018, 3, 1),
             providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+            sqlite_path=Path("data/screening/market.sqlite"),
             stdout=output,
         )
 
@@ -1732,6 +1753,7 @@ class BackfillHistoryTests(unittest.TestCase):
                 start=date(2016, 8, 1),
                 end=date(2016, 8, 31),
                 providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                sqlite_path=Path("data/screening/market.sqlite"),
                 stdout=io.StringIO(),
             )
 

@@ -493,6 +493,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                     bootstrap_cache_command(
                         asof_date=asof,
                         providers=bundle,
+                        sqlite_path=db,
                         stdout=io.StringIO(),
                     ),
                     0,

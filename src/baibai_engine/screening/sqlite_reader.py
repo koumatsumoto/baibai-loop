@@ -224,6 +224,18 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
     if conn is None:
         return []
     try:
+        # Only balance dates the reader can actually serve. `read_weekly_margin`
+        # refuses a date whose coverage is not `ok`, so listing one here would put
+        # an unreadable date at the head of the list and blank the whole cohort
+        # rather than falling back to the week before it.
+        readable = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT coverage_start FROM source_coverage "
+                "WHERE source = ? AND status = 'ok' AND record_count > 0",
+                (WEEKLY_MARGIN_SOURCE,),
+            )
+        }
         week_ends = [
             date.fromisoformat(str(row[0]))
             for row in conn.execute(
@@ -231,6 +243,7 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
                 "WHERE week_end <= ? ORDER BY week_end",
                 (asof.isoformat(),),
             )
+            if str(row[0]) in readable
         ]
         if not week_ends:
             return []
@@ -257,8 +270,17 @@ def published_margin_week_ends(sqlite_path: Path, asof: date) -> list[date]:
     return published
 
 
-# Balance dates are weekly, so 26 of them is the half year the delta axis measures.
+# Balance dates the delta axis reaches back over. They are weekly, so this is about
+# half a year — 26 to 28 calendar weeks in practice, because the exchange skips
+# some weeks and this counts stored dates rather than calendar distance.
 MARGIN_DELTA_WEEKS = 26
+
+# How stale the newest published balance date may be before the axes decline to
+# answer. The cadence is weekly and the publication lag is two trading days, so a
+# healthy store sits inside three weeks even across a long closure. Beyond this the
+# balance describes a market the as-of no longer resembles, and a silent stale join
+# is worse than an unset axis.
+MARGIN_MAX_STALE_DAYS = 35
 
 
 def weekly_margin_candidate_dates(sqlite_path: Path, start: date, end: date) -> list[date]:
@@ -291,6 +313,12 @@ def weekly_margin_candidate_dates(sqlite_path: Path, start: date, end: date) -> 
             continue
         year, week, _ = day.isocalendar()
         last_of_week[(year, week)] = day
+    # The week `end` falls in is still running, so its last stored trading day moves
+    # forward each day and proposing it spends one call per run on a date that is
+    # not a balance date. Nothing is lost by waiting: the publication lag means a
+    # balance date is not usable until two trading days after the week closes.
+    end_year, end_week, _ = end.isocalendar()
+    last_of_week.pop((end_year, end_week), None)
     return sorted(last_of_week.values())
 
 
@@ -304,7 +332,7 @@ def read_margin_supply_demand_inputs(
     looks like and yields unset axes rather than wrong ones.
     """
     week_ends = published_margin_week_ends(sqlite_path, asof)
-    if not week_ends:
+    if not week_ends or (asof - week_ends[-1]).days > MARGIN_MAX_STALE_DAYS:
         return {}, {}
     latest = {row.ticker: row for row in read_weekly_margin(sqlite_path, week_ends[-1]) or ()}
     prior: dict[str, JQuantsWeeklyMargin] = {}

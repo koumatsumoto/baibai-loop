@@ -86,6 +86,7 @@ def _panel_row(
         er_reversion_annual=er_reversion_annual,
         er_carry_annual=er_carry_annual,
         er_upside_capped=None,
+        margin_week_end=None,
         margin_long_to_adv=None,
         margin_long_share=None,
         margin_long_delta_26w=None,
