@@ -217,6 +217,7 @@ def _evaluate_cohort(
             "selection": {},
             "gates": {},
             "reversion": {},
+            "crowded_value": {},
             "er_calibration": {},
         }
     population = context.population
