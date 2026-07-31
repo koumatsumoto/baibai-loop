@@ -102,6 +102,14 @@ class PanelRow:
     er_reversion_annual: float | None
     er_carry_annual: float | None
     er_upside_capped: float | None
+    # Supply/demand from the weekly margin balances, joined at the publication lag
+    # (see `sqlite_reader.published_margin_week_ends`). Carried on the panel so the
+    # axes can be measured against forward returns before any of them is allowed to
+    # change a rule.
+    margin_long_to_adv: float | None
+    margin_ratio: float | None
+    margin_long_delta_26w: float | None
+    margin_std_long_share: float | None
     pass_screen: bool
     evidence_playbooks: str
     selection_rank: int | None
@@ -321,6 +329,10 @@ def build_panel(
                 er_reversion_annual=estimate.reversion_annual if estimate else None,
                 er_carry_annual=estimate.carry_annual if estimate else None,
                 er_upside_capped=estimate.upside_capped if estimate else None,
+                margin_long_to_adv=derived.margin_long_to_adv,
+                margin_ratio=derived.margin_ratio,
+                margin_long_delta_26w=derived.margin_long_delta_26w,
+                margin_std_long_share=derived.margin_std_long_share,
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
@@ -446,6 +458,10 @@ def _unresolved_master_member_row(asof_date: date, ticker: str, sector_33: str) 
         er_reversion_annual=None,
         er_carry_annual=None,
         er_upside_capped=None,
+        margin_long_to_adv=None,
+        margin_ratio=None,
+        margin_long_delta_26w=None,
+        margin_std_long_share=None,
         pass_screen=False,
         evidence_playbooks="",
         selection_rank=None,

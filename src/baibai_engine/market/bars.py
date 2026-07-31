@@ -45,6 +45,11 @@ class JQuantsDailyBar:
     traded_at: date
     close: float
     turnover_value: float | None
+    # Traded shares. Separate from `turnover_value` because a balance expressed in
+    # shares (margin interest) can only be turned into days of trading by a share
+    # count; dividing yen turnover by the close would substitute the close for the
+    # day's average price.
+    volume: float | None = None
     adjustment_close: float | None = None
     adjustment_factor: float | None = None
 
@@ -53,7 +58,7 @@ class JQuantsDailyBar:
     def _normalize_ticker_field(cls, value: str) -> str:
         return normalize_ticker(value)
 
-    @field_validator("close", "turnover_value", "adjustment_close", "adjustment_factor")
+    @field_validator("close", "turnover_value", "volume", "adjustment_close", "adjustment_factor")
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
         return validate_finite(value)

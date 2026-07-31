@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields, replace
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, timedelta
 from math import sqrt
 from statistics import mean, median
 
 from baibai_engine.market.bars import asof_basis_closes
 
+from .margin_metrics import margin_supply_demand
 from .providers.edinet import EdinetMetricRecord
-from .providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
+from .providers.jquants import (
+    JQuantsDailyBar,
+    JQuantsFinancialSummary,
+    JQuantsWeeklyMargin,
+)
 from .rule_config import ScreeningRules, TTMRules, load_screening_rules
 from .schema import (
     DerivedMetrics,
@@ -59,8 +64,15 @@ def build_metrics(
     edinet_by_ticker: Mapping[str, EdinetMetricRecord],
     rules: ScreeningRules | None = None,
     median_population: frozenset[str] | None = None,
+    margin_latest: Mapping[str, JQuantsWeeklyMargin] | None = None,
+    margin_prior_26w: Mapping[str, JQuantsWeeklyMargin] | None = None,
 ) -> MetricBuildResult:
     """Build per-ticker financial and derived metrics for the screen scope.
+
+    ``margin_latest`` / ``margin_prior_26w`` carry the weekly margin balances that
+    were already published at ``asof_date``; leaving them out yields the same
+    metrics with the supply/demand axes unset, which is what a store without the
+    weekly source produces.
 
     ``median_population`` restricts the comparison population for sector / market
     medians and sector relative strength to the given tickers (the investable,
@@ -207,6 +219,14 @@ def build_metrics(
             sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
             short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
             split_adjustment_flag=_has_split_adjustment_within_sessions(ticker_bars, asof_date, 60),
+            **asdict(
+                margin_supply_demand(
+                    latest=(margin_latest or {}).get(ticker),
+                    prior_26w=(margin_prior_26w or {}).get(ticker),
+                    avg_daily_volume_shares=_avg_daily_volume(ticker_bars, asof_date),
+                    shares_outstanding=snapshot.shares_outstanding,
+                )
+            ),
             price_history_sessions_750d=price_history_sessions[ticker],
             price_history_coverage_750d=(
                 price_history_sessions[ticker] / max_history_sessions
@@ -879,6 +899,26 @@ def _gap_from_low(
     if low <= 0:
         return None
     return (current / low) - 1.0
+
+
+def _avg_daily_volume(
+    bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+    sessions: int = 20,
+) -> float | None:
+    """Mean traded shares over the trailing sessions, or None when short of them.
+
+    Shares rather than yen, because it is the denominator that turns a margin
+    balance into days of trading. Requiring the full window keeps a name that has
+    only just listed from producing a days-of-volume figure off two sessions.
+    """
+    ordered = sorted(
+        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
+    )
+    values = [bar.volume for bar in ordered[-sessions:] if bar.volume is not None]
+    if len(values) < sessions:
+        return None
+    return mean(values)
 
 
 def _turnover_spike(

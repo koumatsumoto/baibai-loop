@@ -87,8 +87,6 @@ def margin_supply_demand(
             else None
         ),
         margin_std_long_share=(
-            latest.long_std_vol / long_vol
-            if latest.long_std_vol is not None and long_vol
-            else None
+            latest.long_std_vol / long_vol if latest.long_std_vol is not None and long_vol else None
         ),
     )
