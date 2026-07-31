@@ -17,6 +17,7 @@ from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screeni
 
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
 BACKFILL_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-history-backfill.yml"
+MATERIALIZE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-materialize.yml"
 
 
 def _daily_job_env() -> dict[str, str]:
@@ -52,6 +53,15 @@ class CloudDailyBatchWorkflowTests(unittest.TestCase):
         self.assertTrue(required_sources)
         missing = required_sources - set(config.jpx_regulation_urls)
         self.assertEqual(missing, set())
+
+
+@pytest.mark.parametrize("workflow_path", [WORKFLOW_PATH, MATERIALIZE_WORKFLOW_PATH])
+def test_serving_workflows_wire_the_reviewed_concurrency_variable(workflow_path: Path) -> None:
+    document = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    job = next(iter(document["jobs"].values()))
+    assert job["env"]["R2_SERVING_UPLOAD_CONCURRENCY"] == (
+        "${{ vars.R2_SERVING_UPLOAD_CONCURRENCY || '10' }}"
+    )
 
 
 # --- notification wiring contract -----------------------------------------

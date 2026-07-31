@@ -12,7 +12,7 @@ import secrets
 import shutil
 import stat
 import statistics
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 import time
@@ -384,9 +384,13 @@ class AwsRunner:
             raise BenchmarkError(f"invalid R2 serving bucket: {bucket}")
         if not ACCOUNT_PATTERN.fullmatch(account_id):
             raise BenchmarkError("invalid R2 account id")
+        aws_executable = shutil.which("aws", path=base_env.get("PATH"))
+        if aws_executable is None:
+            raise BenchmarkError("aws CLI is required")
         self.bucket = bucket
         self.endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
         self.base_env = base_env
+        self.aws_executable = aws_executable
 
     def command(self, config: Path, *arguments: str) -> None:
         environment = {
@@ -396,9 +400,11 @@ class AwsRunner:
             "AWS_DEFAULT_REGION": "auto",
             "AWS_EC2_METADATA_DISABLED": "true",
         }
-        completed = subprocess.run(
+        # All variable arguments are validated local paths or fixed benchmark prefixes;
+        # an argv list keeps them out of shell interpretation.
+        completed = subprocess.run(  # nosec B603
             [
-                "aws",
+                self.aws_executable,
                 "s3",
                 *arguments,
                 "--endpoint-url",
@@ -417,8 +423,9 @@ class AwsRunner:
             )
 
     def api(self, *arguments: str) -> None:
-        completed = subprocess.run(
-            ["aws", "s3api", *arguments, "--endpoint-url", self.endpoint],
+        # The validated benchmark arguments stay in argv and never enter a shell.
+        completed = subprocess.run(  # nosec B603
+            [self.aws_executable, "s3api", *arguments, "--endpoint-url", self.endpoint],
             env={
                 **self.base_env,
                 "AWS_DEFAULT_REGION": "auto",
@@ -434,8 +441,9 @@ class AwsRunner:
             )
 
     def version(self) -> str:
-        completed = subprocess.run(
-            ["aws", "--version"],
+        # This fixed argv only identifies the exact CLI recorded in the report.
+        completed = subprocess.run(  # nosec B603
+            [self.aws_executable, "--version"],
             env=self.base_env,
             check=False,
             capture_output=True,
@@ -697,6 +705,15 @@ def evaluate_durations(
     return p50_seconds, threshold, min(eligible) if eligible else None
 
 
+def _production_config_fields(recommended: int | None) -> dict[str, str | int | bool | None]:
+    return {
+        "production_config_variable": "R2_SERVING_UPLOAD_CONCURRENCY",
+        "default_production_value": ARMS[0],
+        "recommended_production_value": recommended,
+        "production_config_changed": False,
+    }
+
+
 def run_benchmark(
     *,
     before_dir: Path,
@@ -853,7 +870,7 @@ def run_benchmark(
         "claim_digest": hashlib.sha256(
             json.dumps(_claim_document(claim), separators=(",", ":"), sort_keys=True).encode()
         ).hexdigest(),
-        "production_config_changed": False,
+        **_production_config_fields(recommended),
         "prefix_cleaned": cleaned,
     }
     _write_json(output, report)

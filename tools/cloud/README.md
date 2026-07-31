@@ -6,6 +6,8 @@ script は GitHub Actions とローカル運用から呼ぶ orchestration で、
 ローカル単体でも実行でき、転送 script だけが R2 を使う。
 
 serving uploadの並列度計測は[`benchmark_serving_upload.md`](./benchmark_serving_upload.md)を参照する。
+productionの並列度はGitHub repository variable `R2_SERVING_UPLOAD_CONCURRENCY`で10 / 20 / 40を
+選ぶ。未設定時はAWS CLI既定相当の10を使い、隔離benchmarkが採用条件を満たしたarmだけを設定する。
 
 ## Cloudflare / GitHub Actions 構成
 
@@ -158,42 +160,36 @@ npx wrangler secret put VIEW_PASSWORD
 
 ### market schema v14のrollback
 
-v14 migration後にEDINET document stateの欠損または誤変換が確認された場合は、日次workflowを停止する。最初にwrite-once artifactを別pathへdownloadし、実SQLiteとして非空・`quick_check`・schema v13を満たすことをdry-run確認する。圧縮transportの正本とHeadObject metadataもローカルへ退避してから`.zst`正本だけを外し、artifactをraw正本keyへserver-side copyする。rawとcompressedの不一致を自動選択しない契約なので、この順序を省くと`pull-machine`は意図どおりfail-closedになる。復旧に使うcodeは「schema v13のengine変更 + 現行zstd transport」を含む検証済みrevisionへ固定する。raw-only transportを持つ過去revisionへ戻すと、残る3 storeのretained raw baselineまで正本として読み込むため使わない。原因修正版へ切り替えるまでworkflowを再開しない。
+v14 migration後にEDINET document stateの欠損または誤変換が確認された場合は、market writerである
+`cloud-daily-batch`と`cloud-history-backfill`の両方を無効化し、実行中・待機中runが無いことを
+確認する。`rollback-market-v13`は両workflowを止めたことを個別flagで明示しない限り拒否し、
+GitHub Actions内でも実行しない。
+
+subcommandはwrite-once artifactの非空・`quick_check`・schema v13と、現行transportの
+metadata・展開SHA-256/size・`quick_check`・schema v14をremote mutation前に検査する。
+現行raw / compressed objectは検証済みETagをsource conditionにして
+`schema-rollbacks/market-v13/<compressed-etag>/`へcopyし、そのcopyを再download・検証する。
+canonical rawは互換baselineとして変更せず、v13 artifactを次のcompressed logical revisionとして
+開始時compressed ETagへの`If-Match` 1回でpublishする。compressed keyを削除する時間帯は作らず、
+途中でwriterが更新した場合は`PreconditionFailed`で停止してcanonical 2 keyを変えない。
+commit後にclientがresponseを失った場合は、同じcommandの再実行がartifactと現行SQLiteの一致を
+検証して成功へ収束する。content-addressed recovery copyはどちらの場合も残る。
+
+復旧に使うcodeは「schema v13のengine変更 + 現行zstd transport」を含む検証済みrevisionへ
+固定する。raw-only transportを持つrevisionは、残る3 storeのretained raw baselineを正本として
+読むため使わない。原因修正版へ切り替えるまで両workflowを再開しない。
 
 ```bash
-tools/cloud/r2_transfer.sh download-market-v13-rollback \
-  /tmp/baibai-market-v13-rollback.sqlite
-uv run python tools/cloud/sqlite_snapshot.py check \
-  --path /tmp/baibai-market-v13-rollback.sqlite --schema-version 13
-aws s3api head-object \
-  --bucket baibai-stores \
-  --key market.sqlite.zst \
-  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-  > /tmp/baibai-market-before-v13-rollback.zst.head.json
-aws s3 cp \
-  s3://baibai-stores/market.sqlite.zst \
-  /tmp/baibai-market-before-v13-rollback.zst \
-  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-transport_identity="$(uv run python tools/cloud/sqlite_transport.py identity \
-  --compressed-head /tmp/baibai-market-before-v13-rollback.zst.head.json)"
-read -r transport_sha transport_size revision <<< "${transport_identity}"
-uv run python tools/cloud/sqlite_transport.py decompress \
-  --source /tmp/baibai-market-before-v13-rollback.zst \
-  --output /tmp/baibai-market-before-v13-rollback.sqlite \
-  --sha256 "${transport_sha}" \
-  --size "${transport_size}"
-uv run python tools/cloud/sqlite_snapshot.py check \
-  --path /tmp/baibai-market-before-v13-rollback.sqlite
-aws s3api delete-object \
-  --bucket baibai-stores \
-  --key market.sqlite.zst \
-  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-aws s3api copy-object \
-  --bucket baibai-stores \
-  --key market.sqlite \
-  --copy-source baibai-stores/schema-migrations/market-v13.sqlite \
-  --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-  --cli-read-timeout 300
+gh workflow disable cloud-daily-batch.yml
+gh workflow disable cloud-history-backfill.yml
+gh run list --workflow cloud-daily-batch.yml --limit 100 \
+  --json databaseId,status,url --jq '.[] | select(.status != "completed")'
+gh run list --workflow cloud-history-backfill.yml --limit 100 \
+  --json databaseId,status,url --jq '.[] | select(.status != "completed")'
+# 上の2 commandがどちらも何も出力しないことを確認する。
+tools/cloud/r2_transfer.sh rollback-market-v13 \
+  --confirm-cloud-daily-batch-disabled \
+  --confirm-cloud-history-backfill-disabled
 tools/cloud/r2_transfer.sh pull-machine
 uv run python tools/cloud/sqlite_snapshot.py check \
   --path data/screening/market.sqlite --schema-version 13

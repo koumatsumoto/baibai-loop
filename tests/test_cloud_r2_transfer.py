@@ -42,6 +42,9 @@ def _fake_aws(tmp_path: Path) -> tuple[Path, Path]:
     executable.write_text(
         """#!/usr/bin/env bash
 printf "%s\\n" "$*" >> "$AWS_LOG"
+if [[ -n "${AWS_CONFIG_CAPTURE:-}" && -n "${AWS_CONFIG_FILE:-}" ]]; then
+  cp "${AWS_CONFIG_FILE}" "${AWS_CONFIG_CAPTURE}"
+fi
 head_for_key() {
   local key="$1"
   local stored="${AWS_FAKE_STATE_DIR}/${key}.head"
@@ -97,7 +100,7 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
     shift
   done
   if [[ -n "${AWS_FAKE_HEAD_ERROR_KEY:-}" && "${key}" == "$AWS_FAKE_HEAD_ERROR_KEY" ]]; then
-    printf 'An error occurred (AccessDenied) when calling the HeadObject operation\n' >&2
+    printf '%s\n' "${AWS_FAKE_HEAD_ERROR_MESSAGE:-An error occurred (AccessDenied) when calling the HeadObject operation}" >&2
     exit 254
   fi
   if head_for_key "${key}"; then
@@ -297,6 +300,36 @@ def _isolated_transfer_script(tmp_path: Path) -> tuple[Path, Path]:
     return repo_root, cloud_tools / "r2_transfer.sh"
 
 
+def _market_rollback_fixture(
+    tmp_path: Path,
+) -> tuple[Path, Path, Path, dict[str, str], bytes]:
+    bin_dir, log = _fake_aws(tmp_path)
+    repo_root, script = _isolated_transfer_script(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["SQLITE_FAKE_SNAPSHOT_CONTENT"] = "v13"
+    subprocess.run(
+        [script, "preserve-market-v13"],
+        cwd=repo_root,
+        env=environment,
+        check=True,
+    )
+    state = tmp_path / "aws-state"
+    artifact = state / "schema-migrations/market-v13.sqlite"
+    for suffix in ("object", "head", "etag"):
+        shutil.copy2(
+            Path(f"{artifact}.{suffix}"),
+            state / f"market.sqlite.{suffix}",
+        )
+    environment["SQLITE_FAKE_SNAPSHOT_CONTENT"] = "v14"
+    environment["GITHUB_ACTIONS"] = "true"
+    subprocess.run([script, "push-market"], cwd=repo_root, env=environment, check=True)
+    environment.pop("GITHUB_ACTIONS")
+    current = tmp_path / "aws-state/market.sqlite.zst.object"
+    compressed_before = current.read_bytes()
+    log.unlink()
+    return repo_root, script, log, environment, compressed_before
+
+
 def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     tmp_path: Path,
 ) -> None:
@@ -308,10 +341,13 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     (output / "history/candidate-views").mkdir(parents=True)
     (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
 
+    environment = _environment(bin_dir, log)
+    config_capture = tmp_path / "aws-config"
+    environment["AWS_CONFIG_CAPTURE"] = str(config_capture)
     subprocess.run(
         [TRANSFER_SCRIPT, "upload-serving", output],
         cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
+        env=environment,
         check=True,
     )
 
@@ -327,6 +363,53 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
         "s3://baibai-serving/views/meta.json --endpoint-url "
         "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
     )
+    assert "max_concurrent_requests = 10" in config_capture.read_text(encoding="utf-8")
+
+
+def test_upload_serving_uses_reviewed_concurrency_from_environment(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = tmp_path / "serving"
+    (output / "views").mkdir(parents=True)
+    (output / "views/meta.json").write_text("{}", encoding="utf-8")
+    environment = _environment(bin_dir, log)
+    config_capture = tmp_path / "aws-config"
+    environment.update(
+        {
+            "AWS_CONFIG_CAPTURE": str(config_capture),
+            "R2_SERVING_UPLOAD_CONCURRENCY": "20",
+        }
+    )
+
+    subprocess.run(
+        [TRANSFER_SCRIPT, "upload-serving", output],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=True,
+    )
+
+    assert "max_concurrent_requests = 20" in config_capture.read_text(encoding="utf-8")
+
+
+def test_upload_serving_rejects_unreviewed_concurrency_before_upload(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = tmp_path / "serving"
+    (output / "views").mkdir(parents=True)
+    (output / "views/meta.json").write_text("{}", encoding="utf-8")
+    environment = _environment(bin_dir, log)
+    environment["R2_SERVING_UPLOAD_CONCURRENCY"] = "80"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "upload-serving", output],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "must be one of 10, 20, or 40" in completed.stderr
+    assert not log.exists()
 
 
 def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
@@ -511,6 +594,217 @@ def test_download_market_v13_rollback_is_read_only_and_refuses_overwrite(
     )
 
 
+def test_market_v13_rollback_requires_both_writer_confirmations(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+
+    completed = subprocess.run(
+        [
+            TRANSFER_SCRIPT,
+            "rollback-market-v13",
+            "--confirm-cloud-daily-batch-disabled",
+            "--backfill-is-still-enabled",
+        ],
+        cwd=REPO_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "both market writers are disabled" in completed.stderr
+    assert not log.exists()
+
+
+def test_market_v13_rollback_does_not_accept_raw_only_v13_as_already_published(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    repo_root, script = _isolated_transfer_script(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["SQLITE_FAKE_SNAPSHOT_CONTENT"] = "v13"
+    subprocess.run([script, "preserve-market-v13"], cwd=repo_root, env=environment, check=True)
+    state = tmp_path / "aws-state"
+    artifact = state / "schema-migrations/market-v13.sqlite"
+    for suffix in ("object", "head", "etag"):
+        shutil.copy2(Path(f"{artifact}.{suffix}"), state / f"market.sqlite.{suffix}")
+    log.unlink()
+
+    completed = subprocess.run(
+        [
+            script,
+            "rollback-market-v13",
+            "--confirm-cloud-daily-batch-disabled",
+            "--confirm-cloud-history-backfill-disabled",
+        ],
+        cwd=repo_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires the compressed transport object" in completed.stderr
+    assert _remote_writes(log.read_text(encoding="utf-8").splitlines()) == []
+
+
+def test_market_v13_rollback_preserves_current_generation_and_publishes_v13(
+    tmp_path: Path,
+) -> None:
+    repo_root, script, log, environment, compressed_before = _market_rollback_fixture(tmp_path)
+
+    completed = subprocess.run(
+        [
+            script,
+            "rollback-market-v13",
+            "--confirm-cloud-daily-batch-disabled",
+            "--confirm-cloud-history-backfill-disabled",
+        ],
+        cwd=repo_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert all("delete-object" not in command for command in commands)
+    assert any(
+        command.startswith("s3api copy-object ")
+        and "--copy-source baibai-stores/market.sqlite.zst" in command
+        and "--copy-source-if-match" in command
+        for command in commands
+    )
+    assert any(
+        command.startswith("s3api put-object ")
+        and "--key market.sqlite.zst" in command
+        and "--if-match" in command
+        for command in commands
+    )
+    assert not any(
+        command.startswith("s3api put-object ") and "--key market.sqlite " in command
+        for command in commands
+    )
+    recovery_objects = list(
+        (tmp_path / "aws-state/schema-rollbacks/market-v13").glob(
+            "*/pre-rollback-market.sqlite.zst.object"
+        )
+    )
+    assert len(recovery_objects) == 1
+    assert recovery_objects[0].read_bytes() == compressed_before
+    raw_recovery_objects = list(
+        (tmp_path / "aws-state/schema-rollbacks/market-v13").glob(
+            "*/pre-rollback-market-*.sqlite.object"
+        )
+    )
+    assert len(raw_recovery_objects) == 1
+    assert raw_recovery_objects[0].read_bytes() == b"v13"
+
+    subprocess.run([script, "pull-market"], cwd=repo_root, env=environment, check=True)
+    assert (repo_root / "data/screening/market.sqlite").read_bytes() == b"v13"
+
+
+def test_market_v13_rollback_validates_current_transport_before_remote_writes(
+    tmp_path: Path,
+) -> None:
+    repo_root, script, log, environment, _compressed_before = _market_rollback_fixture(tmp_path)
+    (tmp_path / "aws-state/market.sqlite.zst.object").write_bytes(b"corrupt")
+
+    completed = subprocess.run(
+        [
+            script,
+            "rollback-market-v13",
+            "--confirm-cloud-daily-batch-disabled",
+            "--confirm-cloud-history-backfill-disabled",
+        ],
+        cwd=repo_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert _remote_writes(commands) == []
+
+
+def test_market_v13_rollback_fails_closed_if_compressed_generation_changes(
+    tmp_path: Path,
+) -> None:
+    repo_root, script, _log, environment, compressed_before = _market_rollback_fixture(tmp_path)
+    environment["AWS_FAKE_CONFLICT_PUT_KEY"] = "market.sqlite.zst"
+
+    completed = subprocess.run(
+        [
+            script,
+            "rollback-market-v13",
+            "--confirm-cloud-daily-batch-disabled",
+            "--confirm-cloud-history-backfill-disabled",
+        ],
+        cwd=repo_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert completed.stderr == (
+        "R2 put-object failed for key market.sqlite.zst (reason=precondition_failed, exit=254)\n"
+    )
+    assert "account-for-test" not in completed.stderr
+    assert "secret-for-test" not in completed.stderr
+    assert (tmp_path / "aws-state/market.sqlite.zst.object").read_bytes() == compressed_before
+    recovery_objects = list(
+        (tmp_path / "aws-state/schema-rollbacks/market-v13").glob(
+            "*/pre-rollback-market.sqlite.zst.object"
+        )
+    )
+    assert len(recovery_objects) == 1
+    assert recovery_objects[0].read_bytes() == compressed_before
+
+
+def test_market_v13_rollback_retry_converges_after_ambiguous_committed_put(
+    tmp_path: Path,
+) -> None:
+    repo_root, script, _log, environment, _compressed_before = _market_rollback_fixture(tmp_path)
+    environment["AWS_FAKE_FAIL_AFTER_COMMIT_KEY"] = "market.sqlite.zst"
+    command = [
+        script,
+        "rollback-market-v13",
+        "--confirm-cloud-daily-batch-disabled",
+        "--confirm-cloud-history-backfill-disabled",
+    ]
+
+    first = subprocess.run(
+        command,
+        cwd=repo_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    second = subprocess.run(
+        command,
+        cwd=repo_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert first.returncode != 0
+    assert "reason=api_error" in first.stderr
+    assert second.returncode == 0, second.stderr
+    assert second.stdout == "market v13 rollback is already published\n"
+    subprocess.run([script, "pull-market"], cwd=repo_root, env=environment, check=True)
+    assert (repo_root / "data/screening/market.sqlite").read_bytes() == b"v13"
+
+
 def test_pull_market_accepts_a_raw_only_compatibility_object(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     repo_root, script = _isolated_transfer_script(tmp_path)
@@ -677,6 +971,9 @@ def test_initial_seed_does_not_treat_head_access_failure_as_absence(
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["AWS_FAKE_HEAD_ERROR_KEY"] = "runs.sqlite"
+    env["AWS_FAKE_HEAD_ERROR_MESSAGE"] = (
+        "AccessDenied at https://account-for-test.r2.cloudflarestorage.com secret-for-test"
+    )
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "seed-all"],
@@ -688,7 +985,11 @@ def test_initial_seed_does_not_treat_head_access_failure_as_absence(
     )
 
     assert completed.returncode != 0
-    assert "AccessDenied" in completed.stderr
+    assert completed.stderr == (
+        "R2 head-object failed for key runs.sqlite (reason=access_denied, exit=254)\n"
+    )
+    assert "account-for-test" not in completed.stderr
+    assert "secret-for-test" not in completed.stderr
     assert _remote_writes(log.read_text(encoding="utf-8").splitlines()) == []
 
 

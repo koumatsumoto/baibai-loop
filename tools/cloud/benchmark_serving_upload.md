@@ -3,7 +3,7 @@
 `benchmark_serving_upload.py`は、productionと同じ`views`同期 → history追記 →
 `views/meta.json`最終uploadを、Workerから到達しない
 `benchmarks/serving-upload/<run-id>/`だけで比較する。production keyや
-`r2_transfer.sh`の並列度は変更しない。
+`r2_transfer.sh`の実行中の並列度は変更しない。
 
 固定したbefore / after exportを、credentialを使わない`plan`で先に検査する。入力は
 current userが所有して他userから書けないregular file / directoryだけを受理し、
@@ -43,8 +43,11 @@ uv run python tools/cloud/benchmark_serving_upload.py run \
 
 reportはreview済みplan digest、upload contract version、AWS CLI version、実行環境、
 15試行、各armのp50、planned workload digest、reset / 最終manifest検証、cleanup結果を
-保持する。concurrency 10比でp50が30%以上短縮する最小armだけを推奨するが、production設定は
-変更しない。productionと同種のrunnerで得たreportをreviewし、設定変更は別の変更として行う。
+保持する。concurrency 10比でp50が30%以上短縮する最小armだけを推奨する。
+production uploadはGitHub repository variable `R2_SERVING_UPLOAD_CONCURRENCY`を読み、
+未設定時は現行値10を使う。reportをreviewして推奨armがある場合だけvariableを10 / 20 / 40の
+いずれかへ設定する。推奨がなければ未設定のままにする。これによりクラウド計測後の採否は
+repository variableの設定だけで完了し、codeやpublic object layoutは変わらない。
 
 claim fileは中断時の所有権確認に使うため保持する。手動cleanupはclaimとrun IDが一致する
 prefix以外を削除しない。

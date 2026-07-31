@@ -35,6 +35,7 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_PUBLISH_GUARD_DIR: ${{ runner.temp }}/r2-publish-guard
+      R2_SERVING_UPLOAD_CONCURRENCY: ${{ vars.R2_SERVING_UPLOAD_CONCURRENCY || '10' }}
       JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
       ESTAT_APP_ID: ${{ secrets.ESTAT_APP_ID }}
       EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}

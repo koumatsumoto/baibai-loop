@@ -445,6 +445,17 @@ def test_duration_evaluation_uses_p50_and_exact_thirty_percent_boundary() -> Non
     _p50, _threshold, smallest = evaluate_durations({10: [10.0] * 5, 20: [7.0] * 5, 40: [6.0] * 5})
     assert smallest == 20
 
+    _p50, _threshold, no_adoption = evaluate_durations(
+        {10: [10.0] * 5, 20: [7.0001] * 5, 40: [8.0] * 5}
+    )
+    assert no_adoption is None
+    assert benchmark_module._production_config_fields(no_adoption) == {
+        "production_config_variable": "R2_SERVING_UPLOAD_CONCURRENCY",
+        "default_production_value": 10,
+        "recommended_production_value": None,
+        "production_config_changed": False,
+    }
+
 
 def test_full_fifteen_trial_run_is_isolated_verified_and_cleaned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -504,6 +515,9 @@ def test_full_fifteen_trial_run_is_isolated_verified_and_cleaned(
     assert report["aws_cli_version"] == "aws-cli/test"
     assert claim_file.is_file()
     assert report["recommended_concurrency"] == 20
+    assert report["production_config_variable"] == "R2_SERVING_UPLOAD_CONCURRENCY"
+    assert report["default_production_value"] == 10
+    assert report["recommended_production_value"] == 20
     assert report["production_config_changed"] is False
     assert report["prefix_cleaned"] is True
     assert not (remote_root / "benchmarks/serving-upload/20260731-local-a1").exists()

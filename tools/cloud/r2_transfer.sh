@@ -41,8 +41,57 @@ load_credentials() {
   endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 }
 
+r2_error_reason() {
+  case "$1" in
+    *PreconditionFailed* | *"(412)"*) printf 'precondition_failed\n' ;;
+    *AccessDenied* | *InvalidAccessKeyId* | *SignatureDoesNotMatch* | *ExpiredToken* | *"(403)"*)
+      printf 'access_denied\n'
+      ;;
+    *[Tt]imeout* | *"Could not connect"* | *"endpoint URL"* | *"Connection was closed"*)
+      printf 'transport_error\n'
+      ;;
+    *) printf 'api_error\n' ;;
+  esac
+}
+
 aws_s3() {
-  aws s3 "$@" --endpoint-url "${endpoint}" --only-show-errors --no-progress
+  local operation="${1:-unknown}"
+  local error status reason remote="unknown"
+  local argument
+  for argument in "$@"; do
+    if [[ "${argument}" == s3://* ]]; then
+      remote="${argument#s3://}"
+      break
+    fi
+  done
+  if error="$(aws s3 "$@" \
+    --endpoint-url "${endpoint}" --only-show-errors --no-progress \
+    2>&1 >/dev/null)"; then
+    return 0
+  else
+    status=$?
+  fi
+  reason="$(r2_error_reason "${error}")"
+  printf 'R2 s3 %s failed for %s (reason=%s, exit=%s)\n' \
+    "${operation}" "${remote}" "${reason}" "${status}" >&2
+  return "${status}"
+}
+
+r2_s3api_mutation() {
+  local operation="$1"
+  local key="$2"
+  shift 2
+  local error status reason
+  if error="$(aws s3api "${operation}" "$@" --endpoint-url "${endpoint}" \
+    2>&1 >/dev/null)"; then
+    return 0
+  else
+    status=$?
+  fi
+  reason="$(r2_error_reason "${error}")"
+  printf 'R2 %s failed for key %s (reason=%s, exit=%s)\n' \
+    "${operation}" "${key}" "${reason}" "${status}" >&2
+  return "${status}"
 }
 
 sqlite_transport() {
@@ -67,7 +116,10 @@ remote_object_exists() {
   if [[ "${error}" =~ \(404\)|NoSuchKey|NotFound|Not\ Found ]]; then
     return 1
   fi
-  printf '%s\n' "${error}" >&2
+  local reason
+  reason="$(r2_error_reason "${error}")"
+  printf 'R2 head-object failed for key %s (reason=%s, exit=%s)\n' \
+    "$1" "${reason}" "${status}" >&2
   return "${status}"
 }
 
@@ -90,7 +142,11 @@ head_remote_key() {
     rm -f -- "${output}" "${error}"
     return 1
   fi
-  cat "${error}" >&2
+  local error_text reason
+  error_text="$(<"${error}")"
+  reason="$(r2_error_reason "${error_text}")"
+  printf 'R2 head-object failed for key %s (reason=%s, exit=%s)\n' \
+    "${key}" "${reason}" "${status}" >&2
   rm -f -- "${output}" "${error}"
   return "${status}"
 }
@@ -178,18 +234,21 @@ backup_remote_key() {
   # timeout, which surfaces as `Read timeout on endpoint URL` and aborts the whole push.
   # The wider limit below is a ceiling, not a delay — retries stay at the CLI default so a
   # copy that is genuinely stuck still fails the step inside the job's time budget.
-  local key="$1"
-  local expected_head="$2"
+  copy_remote_key "$1" "$1.bak" "$2"
+}
+
+copy_remote_key() {
+  local source_key="$1"
+  local destination_key="$2"
+  local expected_head="$3"
   local expected_etag
   expected_etag="$(sqlite_transport head-etag --head "${expected_head}")"
-  aws s3api copy-object \
+  r2_s3api_mutation copy-object "${destination_key}" \
     --bucket "${stores_bucket}" \
-    --key "${key}.bak" \
-    --copy-source "${stores_bucket}/${key}" \
+    --key "${destination_key}" \
+    --copy-source "${stores_bucket}/${source_key}" \
     --copy-source-if-match "${expected_etag}" \
-    --endpoint-url "${endpoint}" \
-    --cli-read-timeout "${copy_read_timeout}" \
-    >/dev/null
+    --cli-read-timeout "${copy_read_timeout}"
 }
 
 conditional_upload_compressed() {
@@ -205,15 +264,13 @@ conditional_upload_compressed() {
   else
     condition_args=(--if-none-match '*')
   fi
-  aws s3api put-object \
+  r2_s3api_mutation put-object "${key}" \
     --bucket "${stores_bucket}" \
     --key "${key}" \
     --body "${source}" \
     --content-type application/zstd \
     --metadata "${metadata}" \
-    "${condition_args[@]}" \
-    --endpoint-url "${endpoint}" \
-    >/dev/null
+    "${condition_args[@]}"
 }
 
 assert_publish_guard() {
@@ -607,20 +664,173 @@ download_market_v13_rollback() {
   transfer_staging=""
 }
 
+rollback_market_v13() {
+  local daily_confirmation="$1"
+  local backfill_confirmation="$2"
+  if [[ "${daily_confirmation}" != "--confirm-cloud-daily-batch-disabled" \
+    || "${backfill_confirmation}" != "--confirm-cloud-history-backfill-disabled" ]]; then
+    printf 'rollback requires explicit confirmation that both market writers are disabled\n' >&2
+    return 2
+  fi
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    printf 'refusing market rollback inside GitHub Actions\n' >&2
+    return 2
+  fi
+
+  local artifact_key="schema-migrations/market-v13.sqlite"
+  local compressed_key="market.sqlite.zst"
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  chmod 700 "${transfer_staging}"
+  local artifact="${transfer_staging}/market-v13.sqlite"
+  local artifact_head="${transfer_staging}/market-v13.head"
+  local current="${transfer_staging}/market-before-rollback.sqlite"
+
+  # Nothing remote changes until the immutable artifact, current transport, and
+  # content-addressed recovery copies have all been downloaded and validated.
+  head_remote_key "${artifact_key}" "${artifact_head}"
+  aws_s3 cp "s3://${stores_bucket}/${artifact_key}" "${artifact}"
+  [[ -s "${artifact}" ]] || {
+    printf 'rollback artifact is empty: %s\n' "${artifact_key}" >&2
+    return 2
+  }
+  check_sqlite_schema "${artifact}" 13
+  assert_remote_head_unchanged "${artifact_key}" "${artifact_head}"
+  stage_remote_store market.sqlite "${current}"
+  local compressed_head="${current}.zst.head"
+  if [[ ! -f "${compressed_head}" ]]; then
+    printf 'market v14 rollback requires the compressed transport object\n' >&2
+    return 2
+  fi
+  if cmp -s "${artifact}" "${current}"; then
+    check_sqlite_schema "${current}" 13
+    printf 'market v13 rollback is already published\n'
+    cleanup_staging
+    transfer_staging=""
+    return 0
+  fi
+  check_sqlite_schema "${current}" 14
+
+  local current_identity current_sha current_size compressed_etag
+  current_identity="$(sqlite_transport identity --compressed-head "${compressed_head}")"
+  read -r current_sha current_size _ <<<"${current_identity}"
+  compressed_etag="$(sqlite_transport head-etag --head "${compressed_head}")"
+  local recovery_prefix="schema-rollbacks/market-v13/${compressed_etag}"
+  local recovery_compressed_key="${recovery_prefix}/pre-rollback-market.sqlite.zst"
+  copy_remote_key "${compressed_key}" "${recovery_compressed_key}" "${compressed_head}"
+  assert_remote_head_unchanged "${compressed_key}" "${compressed_head}"
+
+  local recovery_compressed_head="${transfer_staging}/recovery.zst.head"
+  local recovery_compressed_etag recovery_identity
+  head_remote_key "${recovery_compressed_key}" "${recovery_compressed_head}"
+  recovery_compressed_etag="$(sqlite_transport head-etag --head "${recovery_compressed_head}")"
+  if [[ "${recovery_compressed_etag}" != "${compressed_etag}" ]]; then
+    printf 'compressed recovery copy has a different ETag\n' >&2
+    return 2
+  fi
+  recovery_identity="$(sqlite_transport identity --compressed-head "${recovery_compressed_head}")"
+  if [[ "${recovery_identity}" != "${current_identity}" ]]; then
+    printf 'compressed recovery copy has different transport metadata\n' >&2
+    return 2
+  fi
+  local recovery_compressed="${transfer_staging}/recovery.zst"
+  local recovery_sqlite="${transfer_staging}/recovery.sqlite"
+  aws_s3 cp "s3://${stores_bucket}/${recovery_compressed_key}" "${recovery_compressed}"
+  sqlite_transport decompress \
+    --source "${recovery_compressed}" \
+    --output "${recovery_sqlite}" \
+    --sha256 "${current_sha}" \
+    --size "${current_size}"
+  check_sqlite_schema "${recovery_sqlite}" 14
+
+  local raw_head="${current}.raw.head"
+  local raw_before="${transfer_staging}/raw-before.sqlite"
+  if [[ -f "${raw_head}" ]]; then
+    local raw_etag recovery_raw_key recovery_raw
+    raw_etag="$(sqlite_transport head-etag --head "${raw_head}")"
+    recovery_raw_key="${recovery_prefix}/pre-rollback-market-${raw_etag}.sqlite"
+    aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${raw_before}"
+    check_sqlite "${raw_before}"
+    assert_remote_head_unchanged market.sqlite "${raw_head}"
+    copy_remote_key market.sqlite "${recovery_raw_key}" "${raw_head}"
+    assert_remote_head_unchanged market.sqlite "${raw_head}"
+    recovery_raw="${transfer_staging}/recovery-raw.sqlite"
+    aws_s3 cp "s3://${stores_bucket}/${recovery_raw_key}" "${recovery_raw}"
+    check_sqlite "${recovery_raw}"
+    cmp -s "${raw_before}" "${recovery_raw}" || {
+      printf 'raw recovery copy differs from its source\n' >&2
+      return 2
+    }
+  fi
+
+  local rollback_compressed="${transfer_staging}/rollback.sqlite.zst"
+  local rollback_identity rollback_sha rollback_size rollback_metadata
+  rollback_identity="$(sqlite_transport compress \
+    --source "${artifact}" \
+    --output "${rollback_compressed}" \
+    --level "${transport_compression_level}")"
+  read -r rollback_sha rollback_size <<<"${rollback_identity}"
+  local rollback_metadata_args=(
+    metadata --mode publish
+    --sha256 "${rollback_sha}"
+    --size "${rollback_size}"
+    --previous-head "${compressed_head}"
+  )
+  [[ -f "${raw_head}" ]] && rollback_metadata_args+=(--raw-head "${raw_head}")
+  rollback_metadata="$(sqlite_transport "${rollback_metadata_args[@]}")"
+  assert_remote_head_unchanged "${artifact_key}" "${artifact_head}"
+  [[ -f "${raw_head}" ]] && assert_remote_head_unchanged market.sqlite "${raw_head}"
+  assert_remote_head_unchanged "${compressed_key}" "${compressed_head}"
+  conditional_upload_compressed \
+    "${rollback_compressed}" "${compressed_key}" "${rollback_metadata}" "${compressed_head}"
+  [[ -f "${raw_head}" ]] && assert_remote_head_unchanged market.sqlite "${raw_head}"
+
+  local verified="${transfer_staging}/market-v13-verified.sqlite"
+  stage_remote_store market.sqlite "${verified}"
+  check_sqlite_schema "${verified}" 13
+  printf 'market v13 rollback published; recovery prefix: s3://%s/%s/\n' \
+    "${stores_bucket}" "${recovery_prefix}"
+  cleanup_staging
+  transfer_staging=""
+}
+
 upload_serving() {
   local output_dir="$1"
+  local concurrency="${R2_SERVING_UPLOAD_CONCURRENCY:-10}"
+  local aws_config
   if [[ ! -f "${output_dir}/views/meta.json" ]]; then
     printf 'serving export is incomplete: %s/views/meta.json is missing\n' "${output_dir}" >&2
     return 2
   fi
-  aws_s3 sync "${output_dir}/views/" "s3://${serving_bucket}/views/" \
+  case "${concurrency}" in
+    10 | 20 | 40) ;;
+    *)
+      printf 'R2_SERVING_UPLOAD_CONCURRENCY must be one of 10, 20, or 40; got %s\n' \
+        "${concurrency}" >&2
+      return 2
+      ;;
+  esac
+
+  # Keep the default at the AWS CLI baseline until the isolated benchmark selects
+  # an arm. A repository variable can then adopt or roll back the measured value
+  # without changing the upload contract or requiring another code change.
+  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+  aws_config="${transfer_staging}/aws-config"
+  printf '[default]\nregion = auto\ns3 =\n    max_concurrent_requests = %s\n' \
+    "${concurrency}" >"${aws_config}"
+
+  AWS_CONFIG_FILE="${aws_config}" aws_s3 \
+    sync "${output_dir}/views/" "s3://${serving_bucket}/views/" \
     --delete --exclude meta.json
   if [[ -d "${output_dir}/history/candidate-views" ]]; then
-    aws_s3 sync "${output_dir}/history/candidate-views/" \
+    AWS_CONFIG_FILE="${aws_config}" aws_s3 \
+      sync "${output_dir}/history/candidate-views/" \
       "s3://${serving_bucket}/history/candidate-views/"
   fi
   # Freshness is published only after every view and history upload succeeds.
-  aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
+  AWS_CONFIG_FILE="${aws_config}" aws_s3 \
+    cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
+  cleanup_staging
+  transfer_staging=""
 }
 
 upload_run_summary() {
@@ -637,7 +847,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|pull-market|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|pull-market|preserve-market-v13|download-market-v13-rollback FILE|rollback-market-v13 --confirm-cloud-daily-batch-disabled --confirm-cloud-history-backfill-disabled|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -660,6 +870,10 @@ case "${1:-}" in
   download-market-v13-rollback)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     download_market_v13_rollback "$2"
+    ;;
+  rollback-market-v13)
+    [[ $# -eq 3 ]] || { usage; exit 2; }
+    rollback_market_v13 "$2" "$3"
     ;;
   seed-all)
     seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
