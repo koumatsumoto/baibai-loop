@@ -189,11 +189,16 @@ def _seed_calendar(root: Path, rows: dict[date, str]) -> None:
 
 
 def _call(runner: ScriptedRunner, key: str) -> list[str]:
-    """Find a step by name so adding a step does not renumber every assertion."""
-    for argv in runner.calls:
-        if _key(argv) == key:
-            return argv
-    raise AssertionError(f"step not run: {key}")
+    """The one call with this key, so adding a step does not renumber assertions.
+
+    Refuses a key that ran more than once rather than returning the first: a step
+    that repeats (macro refresh, the coverage recheck) needs the caller to say
+    which occurrence it means.
+    """
+    matches = [argv for argv in runner.calls if _key(argv) == key]
+    if len(matches) != 1:
+        raise AssertionError(f"expected exactly one {key!r} call, got {len(matches)}")
+    return matches[0]
 
 
 def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
@@ -207,7 +212,6 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening run",
-        "task reconcile-earnings",
         "screening select",
         "macro list",
         "macro refresh",
@@ -215,6 +219,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "macro refresh",
         "export",
         "screening prune",
+        "task reconcile-earnings",
     ]
 
     run_argv = _call(runner, "screening run")
@@ -507,7 +512,7 @@ def test_daily_batch_proceeds_on_business_day(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert runner.calls[0][3:] == ["--asof", today.isoformat()]
-    assert runner.call_keys()[-1] == "screening prune"
+    assert runner.call_keys()[-1] == "task reconcile-earnings"
 
 
 def test_daily_batch_errors_when_calendar_does_not_cover_the_date(tmp_path: Path) -> None:
@@ -856,3 +861,31 @@ def test_macro_refresh_groups_orders_derived_after_base() -> None:
         (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["us.10y", "gold"]),
         (LATEST_FETCH_LOOKBACK_DAYS["daily"], ["gold_copper_ratio"]),
     ]
+
+
+def test_every_batch_step_name_is_a_known_error_stage() -> None:
+    """A step whose name the summary schema does not know replaces the real failure.
+
+    `_finalize_failed_summary` classifies the error while composing the summary, so
+    an unregistered stage raises there and the operator gets a validation error
+    instead of the failure that actually happened. Reading the names out of the
+    source keeps a new step from being added without registering it.
+    """
+    import re
+
+    from tools.cloud.batch_summary import ERROR_STAGES
+
+    source = (Path(__file__).resolve().parents[1] / "tools" / "cloud" / "daily_batch.py").read_text(
+        encoding="utf-8"
+    )
+    # Only `_run_step` names become error stages; `batch_name=` labels a section.
+    names = {
+        match.group(1)
+        for match in re.finditer(r"_run_step\((?:[^()]|\([^()]*\))*?\)", source, re.S)
+        for match in re.finditer(r'name="([^"]+)"', match.group(0))
+    }
+    unregistered = {
+        name for name in names if name.replace("(recheck)", "") not in set(ERROR_STAGES)
+    }
+
+    assert unregistered == set()

@@ -36,11 +36,6 @@ def build_parser() -> argparse.ArgumentParser:
         close.add_argument("task_id")
     reconcile = commands.add_parser("reconcile-earnings")
     reconcile.add_argument("--sqlite-path", type=Path, default=Path("data/screening/market.sqlite"))
-    reconcile.add_argument(
-        "--apply",
-        action="store_true",
-        help="write the confirmed dates; without it the comparison is printed only",
-    )
     edit = commands.add_parser("edit")
     edit.add_argument("task_id")
     edit.add_argument("--title")
@@ -97,10 +92,12 @@ def main(argv: list[str] | None = None, *, today: date | None = None) -> int:
 
 
 def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today: date) -> int:
-    """Bring open task dates onto the published schedule as it reaches them.
+    """Report where open task dates stand against the published schedule.
 
-    The comparison prints by default and writes only with `--apply`, so a schedule
-    read that disagrees with the estimate is seen before it moves a task.
+    This never writes. A task's date is machine-set when the schedule could supply
+    one and hand-set when it could not, so the only dates that would ever change
+    here are the ones a human chose — and `decision-cycle.md` keeps that write
+    boundary with the human. The comparison names what moved; `task edit` applies it.
     """
     from .earnings_reconcile import reconcile_earnings_dates
     from .earnings_schedule import read_published_earnings_dates
@@ -113,23 +110,9 @@ def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today
         )
         return 1
     results = reconcile_earnings_dates(service.list(status="open"), published, today=today)
-    applied: list[str] = []
-    if args.apply:
-        for result in results:
-            if result.outcome != "update":
-                continue
-            service.edit(
-                result.task_id,
-                {
-                    "event_date": result.published_event_date,
-                    "due_date": result.published_event_date,
-                },
-            )
-            applied.append(result.task_id)
     _emit(
         {
             "schedule_window_end": max(published.values()).isoformat() if published else None,
-            "applied": applied,
             "reconciliations": [
                 {
                     "task_id": result.task_id,

@@ -568,19 +568,22 @@ def _finalize_failed_summary(
 ) -> None:
     if summary_output is None:
         return
-    recorder.batches.append(
-        BatchResult(
-            batch_name=recorder.section,
-            datasets=_BATCH_DATASETS[recorder.section],
-            status=BATCH_STATUS_FAILED,
-            duration_seconds=time.monotonic() - recorder.section_mono,
-            metrics={},
-            errors=(_typed_error(exc),),
-        )
-    )
     # A fatal batch failure must stay fatal even if the summary cannot be composed;
-    # the original exception is what the caller reports.
+    # the original exception is what the caller reports. Classifying the error is
+    # part of composing the summary — a stage the schema does not know raises there,
+    # so it has to sit inside the guard or an unregistered stage would replace the
+    # real failure with a validation error and lose the summary entirely.
     with contextlib.suppress(SummaryValidationError):
+        recorder.batches.append(
+            BatchResult(
+                batch_name=recorder.section,
+                datasets=_BATCH_DATASETS[recorder.section],
+                status=BATCH_STATUS_FAILED,
+                duration_seconds=time.monotonic() - recorder.section_mono,
+                metrics={},
+                errors=(_typed_error(exc),),
+            )
+        )
         _finalize_summary(
             summary_output,
             recorder=recorder,
@@ -702,18 +705,6 @@ def _execute_daily_batch(
         _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
 
     run_view = _run_screening_run(runner, root=root, asof_arg=asof_arg)
-
-    # The exchange publishes its schedule only weeks ahead, so a follow-up task
-    # created a quarter out carries an estimate until the real date enters that
-    # window. Running the comparison daily is what makes the task pick the date up
-    # on the day it becomes knowable. Reporting only, never writing: a schedule
-    # read that disagrees with the estimate has to be seen before it moves a task.
-    _run_step(
-        runner,
-        name="task-reconcile-earnings",
-        argv=(_ENGINE, "task", "reconcile-earnings"),
-        cwd=root,
-    )
 
     select_argv: list[str] = [
         _ENGINE,
@@ -867,6 +858,21 @@ def _execute_daily_batch(
     prune_errors: list[BatchError] = []
     try:
         _run_step(runner, name="screening-prune", argv=(_ENGINE, "screening", "prune"), cwd=root)
+    except BatchStepError as exc:
+        _record_deferred(exc, prune_errors)
+    # The exchange publishes its schedule only weeks ahead, so a follow-up task
+    # created a quarter out carries an estimate until the real date enters that
+    # window. Comparing daily is what surfaces the day it becomes knowable. It
+    # reads nothing the publish produced and writes nothing, so it runs after the
+    # publish and a failure degrades rather than blocking it.
+    try:
+        _run_step(
+            runner,
+            name="task-reconcile-earnings",
+            argv=(_ENGINE, "task", "reconcile-earnings"),
+            cwd=root,
+            echo_stdout=False,
+        )
     except BatchStepError as exc:
         _record_deferred(exc, prune_errors)
     recorder.batches.append(
