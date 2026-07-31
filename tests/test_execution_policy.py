@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-# See tests/test_thesis.py: fixtures are judged against the week they describe.
-FIXED_NOW = datetime(2026, 7, 12, 10, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
-
 from decimal import Decimal
 from pathlib import Path
 

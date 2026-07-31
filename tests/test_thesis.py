@@ -4,7 +4,6 @@ import copy
 from datetime import datetime
 from decimal import Decimal, localcontext
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 import yaml
@@ -53,12 +52,6 @@ def _bind_review(
     review = review_raw or _review_raw()
     review["reviewed_thesis_sha256"] = thesis_core_hash(document)
     return document, IndependentReview.model_validate(review)
-
-
-# The fixtures describe a situation in early July 2026, so evidence freshness is
-# judged against that week. Left to the wall clock the same fixture changes verdict
-# as the calendar moves, and the suite fails on a date rather than on a change.
-FIXED_NOW = datetime(2026, 7, 12, 10, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
 
 
 def _evaluate(
