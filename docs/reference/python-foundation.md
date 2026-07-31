@@ -189,11 +189,28 @@ uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel
 ```
 
-UI（`ui/`）と Cloudflare Worker（`cloud/worker/`）は別 job で npm build / test / 型チェック（Worker は `wrangler deploy --dry-run` を含む）を実行する。この §9 は Python gate の唯一の正本で、job 全体（quality / frontend / cloud-worker）は `.github/workflows/ci.yml`、security（bandit / pip-audit）は `.github/workflows/security.yml` を正本とする。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
+UI（`ui/`）と Cloudflare Worker（`cloud/worker/`）は、同じ web job で次の順に検証する。UI は依存を 1 回だけ install して lint / build / test を通し、その build artifact を含む checkout のまま Worker の型生成・型検査・test・dry-run bundle を検証する。
+
+```bash
+cd ui
+npm ci
+npm run lint
+npm run build
+npm test
+cd ../cloud/worker
+npm ci
+npm run types:check
+npm run typecheck
+npm test
+npx wrangler deploy --dry-run --outdir /tmp/baibai-worker-bundle
+```
+
+この §9 は gate の唯一の正本で、Python quality と notification script の stdlib-only import contract は `.github/workflows/ci.yml`、UI / Worker は `.github/workflows/web.yml`、security（bandit / pip-audit）は `.github/workflows/security.yml` を正本とする。3 workflowはpull request / main pushで常に実行し、securityは週次にも実行する。GitHubのworkflow-level path filterは変更fileの評価上限によりgateを無音でskipし得るため使わない。pull request の同一 workflow は新しい commit が来たら旧 run を cancel し、main push と schedule は互いに cancel しない。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actions では `astral-sh/setup-uv` を使う。`python -m pip install uv` より CI の intent が明確で、uv cache も扱いやすい。
 
 参考:
 
 - https://docs.astral.sh/uv/guides/integration/github/
+- https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#filtering-and-diff-limits
 
 ## 10. Review rule
 

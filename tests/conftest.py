@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -67,9 +69,7 @@ def _guard_real_databases() -> Iterator[None]:
         raise AssertionError("tests mutated real operational database(s): " + ", ".join(mutated))
 
 
-@pytest.fixture
-def app_method_root(tmp_path: Path) -> Path:
-    root = tmp_path / "repo"
+def _seed_app_method_root(root: Path) -> None:
     config_dir = root / "method"
     config_dir.mkdir(parents=True)
     (config_dir / "macro-panel.yaml").write_text(
@@ -114,6 +114,33 @@ def app_method_root(tmp_path: Path) -> Path:
         payload = yaml.safe_load(text)
         assert isinstance(payload, dict)
         run_store.publish_run(payload)
+
+
+def _tree_fingerprint(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+@pytest.fixture(scope="session")
+def _app_method_root_template(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """Build the immutable application-store seed once for per-test clones."""
+    root = tmp_path_factory.mktemp("app-method-root-template") / "repo"
+    _seed_app_method_root(root)
+    fingerprint = _tree_fingerprint(root)
+    yield root
+    assert _tree_fingerprint(root) == fingerprint, "app_method_root template was mutated"
+
+
+@pytest.fixture
+def app_method_root(tmp_path: Path, _app_method_root_template: Path) -> Path:
+    root = tmp_path / "repo"
+    shutil.copytree(_app_method_root_template, root)
+    template_db = _app_method_root_template / "data/app/baibai.sqlite"
+    assert root != _app_method_root_template
+    assert not (root / "data/app/baibai.sqlite").samefile(template_db)
     return root
 
 

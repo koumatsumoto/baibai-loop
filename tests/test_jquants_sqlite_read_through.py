@@ -8,6 +8,7 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -340,12 +341,14 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             client = _RecordingClient()
             provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
 
-            bars = provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 5, 20))
+            with patch("baibai_engine.market.provider.time.sleep") as sleep:
+                bars = provider.get_eq_bars_daily_range(date(2024, 3, 19), date(2024, 5, 20))
 
             self.assertNotIn(("2024-03-19", "2024-04-18"), client.bars_calls)
             self.assertIn(("2024-04-19", "2024-05-19"), client.bars_calls)
             self.assertIn(("2024-05-20", "2024-05-20"), client.bars_calls)
             self.assertGreaterEqual(len(bars), 3)
+            sleep.assert_called_once_with(3.0)
 
     def test_provider_works_when_sqlite_path_is_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
