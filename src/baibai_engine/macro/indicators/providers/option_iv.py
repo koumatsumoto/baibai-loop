@@ -78,9 +78,7 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
             far_volatility=second_volatility,
         ),
         iv_skew=_skew(by_expiry[front]),
-        iv_term=(
-            second_volatility - front_volatility if second_volatility is not None else None
-        ),
+        iv_term=(second_volatility - front_volatility if second_volatility is not None else None),
     )
 
 

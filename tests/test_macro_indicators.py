@@ -4191,7 +4191,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         )
 
     def test_canonical_registry_membership_has_a_known_generation(self) -> None:
-        self.assertEqual(load_definitions().generation, 4)
+        self.assertEqual(load_definitions().generation, 5)
         with (
             patch(
                 "baibai_engine.macro.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",

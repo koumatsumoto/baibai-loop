@@ -341,6 +341,48 @@ series:
     tradingview_symbol: TVC:TOPIX
     notes: J-Quants専用endpointから取得するTOPIX日次終値。時価総額加重で市場全体を代表し、値がさ株偏重の日経225より広い代表性を持つ。日本株の基準ベンチマーク
     aliases: [TOPIX, 東証株価指数, トピックス, topix]
+  - series_id: jp.n225_iv_30d
+    name: 日経225オプション30日IV
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: 3
+    plausible_max: 200
+    provider: jquants_options
+    provider_series_id: n225_iv_30d
+    source_id: jquants-options-n225-iv30
+    source_url: https://jpx-jquants.com/
+    notes: 日経225オプションのATM IVを分散線形補間で30日定数満期化したもの。保護の値段であり、恐怖の水準を指数の値動きとは別に観測する。判断材料であって機械的なtiming入力ではない
+    aliases: [日経VI相当, N225 IV, オプションIV, iv30]
+  - series_id: jp.n225_iv_skew
+    name: 日経225オプションIVスキュー
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -100
+    plausible_max: 100
+    provider: jquants_options
+    provider_series_id: n225_iv_skew
+    source_id: jquants-options-n225-skew
+    source_url: https://jpx-jquants.com/
+    notes: 手前限月のmoneyness0.95 put IV から1.05 call IV を引いた差。下方保護が上方より高いほど正で、恐怖の非対称を測る。負になる局面もあり符号は固定しない
+    aliases: [IVスキュー, skew, オプションスキュー]
+  - series_id: jp.n225_iv_term
+    name: 日経225オプションIV期間構造
+    category: valuation
+    geography: japan
+    frequency: daily
+    unit: percent
+    plausible_min: -100
+    plausible_max: 100
+    provider: jquants_options
+    provider_series_id: n225_iv_term
+    source_id: jquants-options-n225-term
+    source_url: https://jpx-jquants.com/
+    notes: 第2限月ATM IV から手前限月ATM IV を引いた差。負(逆転)は目先のパニックが先物より強い状態を示す
+    aliases: [IV期間構造, term structure, IVターム]
   - series_id: jp.nikkei_per
     name: 日経平均PER(加重平均)
     category: valuation

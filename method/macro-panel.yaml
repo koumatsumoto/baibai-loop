@@ -118,6 +118,9 @@ groups:
   - title: 株式・バリュエーション
     series:
       - id: jp.topix
+      - id: jp.n225_iv_30d
+      - id: jp.n225_iv_skew
+      - id: jp.n225_iv_term
       - id: jp.nikkei225
       - id: us.sp500
       - id: us.nasdaq
