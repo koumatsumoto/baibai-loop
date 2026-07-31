@@ -215,12 +215,21 @@ def extract_edinet_metrics_command(
         return 1
 
     try:
-        candidates = select_document_candidates(documents, origin_start=start)
+        selection = select_document_candidates(documents, origin_start=start)
     except EDINETProviderError as exc:
         message = f"EDINET document selection failed: {type(exc).__name__}: {exc}"
         _record_edinet_extraction_failure(sqlite_path, asof_date, message)
         print(message, file=sys.stderr)
         return 1
+    candidates = selection.candidates
+    if selection.unresolved_event_doc_ids:
+        sample = ", ".join(selection.unresolved_event_doc_ids[:5])
+        print(
+            f"skipped {len(selection.unresolved_event_doc_ids)} EDINET operation row(s) "
+            f"whose filing predates {start.isoformat()}: {sample}",
+            file=out,
+            flush=True,
+        )
     if not candidates:
         message = (
             f"no EDINET filings selected for --asof {asof_date.isoformat()} "

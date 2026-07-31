@@ -702,6 +702,7 @@ def _execute_daily_batch(
             name="extract-edinet-metrics",
             argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
             cwd=root,
+            echo_stdout_prefixes=("skipped ",),
         )
         _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
 
