@@ -641,8 +641,7 @@ def _evaluate_crowded_value(
         "uncrowded": stats_uncrowded,
         "crowded_minus_uncrowded": (
             round(crowded_median - uncrowded_median, 6)
-            if isinstance(crowded_median, int | float)
-            and isinstance(uncrowded_median, int | float)
+            if isinstance(crowded_median, int | float) and isinstance(uncrowded_median, int | float)
             else None
         ),
     }
