@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 
 import { ApiError, fetchJson } from '../api/client'
 import type { CandidateRowView, SecurityDetailView } from '../api/types'

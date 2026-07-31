@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from 'lucide-react'
 
 import { fetchJson } from '../api/client'
