@@ -15,6 +15,7 @@ from baibai_engine.market.sqlite import (
     validate_current_schema,
 )
 
+from ..sqlite_cache.jquants import WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key
 from .edinet import _append_edinet_metrics_coverage_issues
 from .jpx import (
     _append_jpx_earnings_calendar_issues,
@@ -365,16 +366,21 @@ def _append_weekly_margin_issue(
     *,
     asof_date: date,
 ) -> None:
-    # The join reads a balance date only when its coverage is `ok` and it has rows,
-    # so the gate has to measure the same quantity. Reading the table alone would
-    # report fresh while the join comes back blank.
-    row = conn.execute(
-        "SELECT MAX(coverage_start) FROM source_coverage "
-        "WHERE source = 'jquants_weekly_margin' AND status = 'ok' "
-        "AND record_count > 0 AND coverage_start <= ?",
-        (asof_date.isoformat(),),
-    ).fetchone()
-    latest = str(row[0]) if row is not None and row[0] is not None else None
+    # The join reads a balance date only when its coverage is `ok`, has rows, and is
+    # keyed the way the reader looks it up. The gate has to measure that same
+    # quantity through the same predicate; reading the table, or matching on a
+    # different column, would report fresh while the join comes back blank.
+    readable_dates = [
+        parsed
+        for coverage_start, coverage_key in conn.execute(
+            "SELECT coverage_start, coverage_key FROM source_coverage "
+            "WHERE source = ? AND status = 'ok' AND record_count > 0 AND coverage_start <= ?",
+            (WEEKLY_MARGIN_SOURCE, asof_date.isoformat()),
+        )
+        if (parsed := _parsed_date(coverage_start)) is not None
+        and str(coverage_key) == weekly_margin_coverage_key(parsed)
+    ]
+    latest = max(readable_dates).isoformat() if readable_dates else None
     if latest is None:
         issues.append(
             CacheCoverageIssue(
@@ -406,3 +412,10 @@ def _append_weekly_margin_issue(
                 ),
             )
         )
+
+
+def _parsed_date(value: object) -> date | None:
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
