@@ -691,7 +691,7 @@ def read_edinet_metrics(
             "operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, "
             "net_cash, equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
             "source_doc_id, document_type, source_submit_datetime, source_period_start, "
-            "source_period_end, capex_source, failure_reasons "
+            "source_period_end, capex_source, failure_reasons, investment_securities "
             "FROM edinet_metrics WHERE asof_date = ?",
             (asof_date.isoformat(),),
         ).fetchall()
@@ -768,7 +768,7 @@ def read_edinet_metric_baseline(
                 "equity, total_assets, ttm_quality_fcf, ttm_quality_net_cash, "
                 "source_doc_id, document_type, source_submit_datetime, "
                 "source_period_start, source_period_end, capex_source, failure_reasons, "
-                "extractor_revision, source_document_revision "
+                "investment_securities, extractor_revision, source_document_revision "
                 "FROM edinet_metrics WHERE asof_date = ? ORDER BY ticker",
                 (key,),
             ).fetchall()
@@ -788,8 +788,8 @@ def read_edinet_metric_baseline(
                         )
                     baseline_rows[record.ticker] = EDINETMetricBaselineRow(
                         record=record,
-                        extractor_revision=str(row[26]) if row[26] is not None else None,
-                        source_document_revision=(str(row[27]) if row[27] is not None else None),
+                        extractor_revision=str(row[27]) if row[27] is not None else None,
+                        source_document_revision=(str(row[28]) if row[28] is not None else None),
                     )
             except (TypeError, ValueError, json.JSONDecodeError) as exc:
                 raise EDINETMetricBaselineError(
@@ -835,6 +835,7 @@ def _normalize_edinet_metric_sql_row(row: Sequence[Any]) -> EdinetMetricRecord:
         "source_period_end": row[23],
         "capex_source": row[24],
         "failure_reasons": json.loads(row[25]) if row[25] else [],
+        "investment_securities": row[26],
     }
     return normalize_metric_record(payload)
 

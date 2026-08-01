@@ -51,6 +51,11 @@ def _panel_row(
     market_cap_oku: float | None = 500.0,
     avg_turnover_oku: float | None = 5.0,
     pbr: float | None = None,
+    net_cash_to_market_cap: float | None = None,
+    investment_securities: float | None = None,
+    asset_backed_ratio: float | None = None,
+    equity_ratio: float | None = None,
+    shareholder_return_change: bool | None = None,
     price_change_60d: float | None = None,
     quality_signal_count: int | None = None,
 ) -> PanelRow:
@@ -71,9 +76,11 @@ def _panel_row(
         pcfr=None,
         ocf_yield=None,
         fcf_yield=None,
-        net_cash_to_market_cap=None,
+        net_cash_to_market_cap=net_cash_to_market_cap,
         cash_to_market_cap=None,
-        equity_ratio=None,
+        investment_securities=investment_securities,
+        asset_backed_ratio=asset_backed_ratio,
+        equity_ratio=equity_ratio,
         price_to_equity=None,
         dividend_yield=dividend_yield,
         eps_yoy=None,
@@ -120,6 +127,7 @@ def _panel_row(
         evidence_playbooks="",
         selection_rank=rank,
         recommended_rank=rank,
+        shareholder_return_change=shareholder_return_change,
     )
 
 
@@ -325,6 +333,45 @@ class EvaluateCohortsTest(unittest.TestCase):
         self.assertEqual(cycle["flagged_n"], 6)
         self.assertEqual(cycle["unflagged_n"], 6)
         self.assertGreater(cycle["mean_median_excess_delta"], 0)
+
+    def test_asset_backed_axis_reports_fixed_interaction_and_controls(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        group_values = (
+            (0.5, True, 0.2),
+            (0.5, False, 0.0),
+            (0.2, True, 0.1),
+            (0.2, False, 0.0),
+        )
+        for group_index, (ratio, return_change, realized) in enumerate(group_values):
+            for index in range(25):
+                ticker = f"{group_index + 6}{index:03d}"
+                panel.append(
+                    _panel_row(
+                        ticker,
+                        per_trailing=10.0 + index / 10,
+                        pbr=0.8 + index / 100,
+                        market_cap_oku=500.0,
+                        net_cash_to_market_cap=ratio - 0.1,
+                        investment_securities=5_000_000_000.0,
+                        asset_backed_ratio=ratio,
+                        equity_ratio=0.5 + index / 1000,
+                        shareholder_return_change=return_change,
+                    )
+                )
+                forwards.append(_forward_row(ticker, realized))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]["asset_backed_hypotheses"]
+        aggregate = result["6m"]["aggregate"]["asset_backed_hypotheses"]
+
+        self.assertEqual(cohort["asset_backed_ratio_coverage"], 1.0)
+        self.assertEqual(set(cohort["controls"]), {"pbr", "market_cap_oku", "equity_ratio"})
+        self.assertAlmostEqual(cohort["thick_change_minus_no_change_median_excess"], 0.2)
+        self.assertAlmostEqual(cohort["difference_in_differences_median_excess"], 0.1)
+        self.assertEqual(aggregate["comparable_cohorts"], 1)
+        self.assertEqual(aggregate["difference_in_differences_cohorts"], 1)
+        self.assertAlmostEqual(aggregate["mean_difference_in_differences_median_excess"], 0.1)
 
 
 class MarginSizeNormalizationTest(unittest.TestCase):

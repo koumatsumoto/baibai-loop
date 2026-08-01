@@ -819,6 +819,7 @@ def _build_financial_snapshot(
     ebitda_ttm = edinet.ebitda_ttm if edinet else None
     fcf_ttm = edinet.fcf_ttm if edinet else None
     net_cash = edinet.net_cash if edinet else None
+    investment_securities = edinet.investment_securities if edinet else None
     edinet_failure_reasons = ",".join(edinet.failure_reasons) if edinet else None
     if net_cash is None and cash is not None and debt is not None:
         net_cash = cash - debt
@@ -878,6 +879,15 @@ def _build_financial_snapshot(
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
         net_cash=net_cash,
         net_cash_to_market_cap=_safe_ratio(net_cash, latest_market_cap),
+        investment_securities=investment_securities,
+        asset_backed_ratio=_safe_ratio(
+            (
+                net_cash + investment_securities
+                if net_cash is not None and investment_securities is not None
+                else None
+            ),
+            latest_market_cap,
+        ),
         fcf_ttm=fcf_ttm,
         fcf_yield=_safe_ratio(fcf_ttm, latest_market_cap),
         capex_ttm=edinet.capex_ttm if edinet else None,

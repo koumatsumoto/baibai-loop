@@ -424,6 +424,7 @@ class ReadEDINETMetricBaselineTests(unittest.TestCase):
                     {
                         "ticker": "7203",
                         "source_doc_id": "S100PAST",
+                        "investment_securities": 250,
                         "extractor_revision": revision,
                     }
                 ],
@@ -453,6 +454,7 @@ class ReadEDINETMetricBaselineTests(unittest.TestCase):
             assert baseline is not None
             self.assertEqual(baseline.asof_date, date(2026, 5, 7))
             self.assertEqual(baseline.rows["7203"].record.source_doc_id, "S100PAST")
+            self.assertEqual(baseline.rows["7203"].record.investment_securities, 250.0)
 
     def test_preserves_legacy_null_revision_as_ineligible_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

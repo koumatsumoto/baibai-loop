@@ -3,7 +3,7 @@ title: "Valuation metrics"
 summary: "screeningで使うvaluation指標の定義、単位、欠損、算出仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-23
+last_reviewed: 2026-08-02
 ---
 
 # valuation-metrics — valuation 指標の算出仕様
@@ -21,6 +21,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 | P/S | 株価 / 1 株売上高 | 株価、直近 4Q 売上 |
 | PCFR | 株価 / 1 株営業 CF | 株価、直近 4Q 営業 CF |
 | Net cash ratio | (現金 - 有利子負債) / 時価総額 | EDINET CSV-derived cash / debt、時価総額 |
+| Asset-backed ratio | (Net cash + 投資有価証券) / 時価総額 | EDINET CSV-derived cash / debt / 投資有価証券、時価総額 |
 | FCF yield | (営業 CF - 設備投資支出) / 時価総額 | EDINET CSV-derived CFO / capex、時価総額 |
 
 ## 2. Forward PER の取得方針（重要）
@@ -79,16 +80,20 @@ EV がゼロ以下、または EBITDA がゼロ以下の場合、EV/EBITDA は `
 - 直近 4 四半期の営業 CF 合算
 - 営業 CF マイナスの企業は `null` を採用（割安検出に意味を持たない）
 
-## 7.1 Net cash ratio / FCF yield
+## 7.1 Net cash ratio / Asset-backed ratio / FCF yield
 
 EDINET `type=5` CSV-derived metrics から以下を抽出する。
 
 - `cash`: 現金及び現金同等物 / 現金及び預金
 - `debt`: 短期借入金、1 年内返済予定長期借入金、社債、長期借入金、リース債務等の合算
+- `investment_securities`: BS の `InvestmentSecurities` exact local name だけを連結優先・単体 fallback で抽出する帳簿価額。関係会社株式、営業投資有価証券、包括的な `Securities`、売却損益・CF、text block は合算しない。表示値が `－` 等の明示的な zero-like の場合だけ 0 とする
 - `edinet_ocf_ttm`: EDINET CSV から抽出した営業活動によるキャッシュ・フロー
 - `capex_ttm`: 有形固定資産・無形固定資産の取得支出。符号は絶対値に正規化する
 - `net_cash = cash - debt`
+- `asset_backed_ratio = (net_cash + investment_securities) / market_cap`
 - `fcf_ttm = edinet_ocf_ttm - capex_ttm`
+
+`asset_backed_ratio` は投資有価証券の帳簿価額を加えた gross proxy である。上場株式だけでなく非上場・低流動性の保有を含み得て、含み損益、売却税、持合い・契約上の売却制約、事業上必要な保有を反映しない。このため marketable / liquid / fair value の指標とは呼ばず、candidate context と較正 panel の調査入口に限定する。`net_cash`、`investment_securities`、正の時価総額のいずれかが欠ける場合は `null` とし、net debt が投資有価証券を上回る場合の負値はそのまま保持する。screening rule、E[r]、FV、ranking、warning は変更しない。
 
 J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。
 
@@ -162,7 +167,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - **J-Quants Light / ClientV2**: 使用 method（`get_eq_master` / `get_eq_bars_daily_range` / `get_fin_summary_range` / `get_mkt_calendar`）の用途と検証は [`./screening-runtime.md`](./screening-runtime.md) §4 を正本とする
 - **EDINET API v2**:
   - documents list (`type=2`): CSV 取得可能な提出書類の選定
-  - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / FCF 関連項目を抽出
+  - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / Asset-backed / FCF 関連項目を抽出
   - raw XBRL (`type=1`) の直接 parser は将来拡張。CSV-derived metrics の coverage / precision が不十分な場合に検討する
 - **JPX**:
   - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程
@@ -180,7 +185,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 2024 年以降、EDINET 単体では旧来の四半期報告書に依存した TTM 再構成ができない期間がある
 - TTM 品質を `exact` / `approximated` / `unavailable` で明示する
 - `EV/EBITDA` は `ttm_quality_ev_ebitda = exact` かつ EV / EBITDA がどちらも正のときのみ valuation-reversion 判定に使用する
-- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ evidence pattern が要求する品質条件を満たすときのみ mechanical 判定に使う
+- `P/S` / `PCFR` / `OCF yield` / `FCF yield` / `Net cash` は、それぞれ evidence pattern が要求する品質条件を満たすときのみ mechanical 判定に使う。`Asset-backed ratio` は mechanical 判定に使わない
 
 ## 12. 営業利益相当の fallback
 

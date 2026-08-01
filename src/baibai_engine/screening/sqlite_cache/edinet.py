@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -120,10 +121,10 @@ def store_edinet_metrics(
                 "capex_ttm, fcf_ttm, net_cash, equity, total_assets, ttm_quality_fcf, "
                 "ttm_quality_net_cash, source_doc_id, document_type, source_submit_datetime, "
                 "source_period_start, source_period_end, capex_source, failure_reasons, "
-                "extractor_revision, source_document_revision"
+                "extractor_revision, source_document_revision, investment_securities"
                 ") VALUES ("
                 "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
+                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?"
                 ")",
                 rows,
             )
@@ -214,6 +215,14 @@ def _edinet_metric_rows(
         extractor_revision = to_str_or_none(first(record, "extractor_revision"))
         if extractor_revision is None:
             raise ValueError(f"EDINET metric row {ticker} is missing extractor_revision")
+        raw_investment_securities = first(record, "investment_securities", "InvestmentSecurities")
+        investment_securities = to_float(raw_investment_securities)
+        if raw_investment_securities is not None and (
+            investment_securities is None
+            or not isfinite(investment_securities)
+            or investment_securities < 0
+        ):
+            raise ValueError(f"EDINET metric row {ticker} has invalid investment_securities")
         rows.append(
             (
                 asof_date,
@@ -245,6 +254,7 @@ def _edinet_metric_rows(
                 json.dumps(first(record, "failure_reasons") or (), ensure_ascii=False),
                 extractor_revision,
                 to_str_or_none(first(record, "source_document_revision")),
+                investment_securities,
             )
         )
     return rows

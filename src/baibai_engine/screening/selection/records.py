@@ -92,9 +92,11 @@ def candidate_record_from_mapping(raw: Mapping[str, object]) -> CandidateRecord:
 _EXPECTED_NUMERIC_METRICS = frozenset(
     {
         "cash_to_market_cap",
+        "asset_backed_ratio",
         "equity_ratio",
         "fcf_yield",
         "net_cash_to_market_cap",
+        "investment_securities",
         "ocf_yield",
         "operating_profit",
         "price_to_equity",

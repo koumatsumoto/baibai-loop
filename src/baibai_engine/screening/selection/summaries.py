@@ -123,6 +123,8 @@ def _selection_candidate_summary(
         # downside protection: net-net / cash-rich の下値判断に使う財務指標
         "cash_to_market_cap": metrics.get("cash_to_market_cap"),
         "net_cash_to_market_cap": metrics.get("net_cash_to_market_cap"),
+        "investment_securities": metrics.get("investment_securities"),
+        "asset_backed_ratio": metrics.get("asset_backed_ratio"),
         "equity_ratio": metrics.get("equity_ratio"),
         "ocf_yield": metrics.get("ocf_yield"),
         # earnings momentum + cash conversion: 割安な trailing PER が減益・低 cash 変換を

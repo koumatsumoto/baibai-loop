@@ -131,6 +131,30 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
             min_date="2026-05-10",
             max_date="2026-06-30",
         )
+        conn.execute(
+            "INSERT INTO edinet_metrics("
+            "asof_date, ticker, debt, cash, net_cash, investment_securities, "
+            "failure_reasons, extractor_revision"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                ASOF.isoformat(),
+                "9001",
+                1e9,
+                4e9,
+                3e9,
+                2e9,
+                "[]",
+                "a" * 64,
+            ),
+        )
+        add_source_coverage(
+            conn,
+            source="edinet_metrics",
+            coverage_key=ASOF.isoformat(),
+            record_count=1,
+            min_date=ASOF.isoformat(),
+            max_date=ASOF.isoformat(),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -167,6 +191,8 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertAlmostEqual(cheap.pbr, 0.5)
             assert cheap.cash_to_market_cap is not None
             self.assertAlmostEqual(cheap.cash_to_market_cap, 0.4)
+            self.assertEqual(cheap.investment_securities, 2e9)
+            self.assertAlmostEqual(cheap.asset_backed_ratio or 0.0, 0.5)
             # carry 用配当利回りは予想 DPS (4.5) を実績 (4.0) より優先する。
             assert cheap.dividend_yield is not None
             self.assertAlmostEqual(cheap.dividend_yield, 0.045)
@@ -517,6 +543,32 @@ class CalibrationPanelTest(unittest.TestCase):
                     rows = list(csv.DictReader(handle))
                     fieldnames = list(rows[0])
                 rows[0][field] = invalid
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                    read_panel(store_dir, ASOF)
+
+    def test_store_rejects_invalid_asset_backed_fields(self) -> None:
+        invalid_updates = (
+            {"investment_securities": "-1"},
+            {"asset_backed_ratio": "nan"},
+            {"asset_backed_ratio": "0.6"},
+        )
+        for updates in invalid_updates:
+            with self.subTest(updates=updates), tempfile.TemporaryDirectory() as tmp:
+                sqlite_path = Path(tmp) / "market.sqlite"
+                _build_fixture_sqlite(sqlite_path)
+                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+                store_dir = Path(tmp) / "calibration"
+                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+                with path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                    fieldnames = list(rows[0])
+                rows[0].update(updates)
                 with path.open("w", encoding="utf-8", newline="") as handle:
                     writer = csv.DictWriter(handle, fieldnames=fieldnames)
                     writer.writeheader()

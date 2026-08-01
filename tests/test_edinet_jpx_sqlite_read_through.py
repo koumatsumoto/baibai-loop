@@ -157,8 +157,9 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
                 "INSERT INTO edinet_metrics("
                 "asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, ebitda_ttm, "
                 "consolidation_basis, ttm_quality_ev_ebitda, ttm_quality_p_s, ttm_quality_pcfr, "
-                "source_submit_datetime, source_period_start, source_period_end"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "source_submit_datetime, source_period_start, source_period_end, "
+                "investment_securities"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     "2026-04-24",
                     "1301",
@@ -174,6 +175,7 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
                     "2026-04-01 12:00",
                     "2025-04-01",
                     "2026-03-31",
+                    250_000.0,
                 ),
             )
             _add_source_coverage(conn, source="edinet_metrics", date_iso="2026-04-24")
@@ -188,6 +190,7 @@ class EDINETSQLiteReaderTests(unittest.TestCase):
             self.assertEqual(records["1301"].source_submit_datetime, "2026-04-01 12:00")
             self.assertEqual(records["1301"].source_period_start, date(2025, 4, 1))
             self.assertEqual(records["1301"].source_period_end, date(2026, 3, 31))
+            self.assertEqual(records["1301"].investment_securities, 250_000.0)
 
 
 class JPXSQLiteReaderTests(unittest.TestCase):
