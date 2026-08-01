@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.coerce import int_or, string_or_none
-from baibai_engine.market.store import read_daily_bars
+from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
 
 from ..candidate_build import build_screened_candidate
 from ..estimates import estimate_expected_return
@@ -311,13 +311,21 @@ def build_panel(
         asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS),
     )
     history_start = min(return_history_start, normalized_profit_start)
-    bars_read_start = min(bars_start, history_start)
+    bars_read_start = min(bars_start, return_history_start)
     history_bars = read_daily_bars(sqlite_path, bars_read_start, asof_date)
     if history_bars is None:
         raise CalibrationError(
             f"daily bars are not covered for {bars_read_start.isoformat()}..{asof_date.isoformat()}"
         )
     bars = [bar for bar in history_bars if bar.traded_at >= bars_start]
+    normalized_profit_split_bars = read_adjustment_factor_bars(
+        sqlite_path, normalized_profit_start, asof_date
+    )
+    if normalized_profit_split_bars is None:
+        raise CalibrationError(
+            "daily bars are not covered for normalized EPS split events "
+            f"{normalized_profit_start.isoformat()}..{asof_date.isoformat()}"
+        )
     history_summaries = read_fin_summaries(sqlite_path, history_start, asof_date)
     if history_summaries is None:
         raise CalibrationError(
@@ -330,6 +338,7 @@ def build_panel(
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
     history_bars_by_ticker = group_bars_by_ticker(history_bars)
+    normalized_profit_split_bars_by_ticker = group_bars_by_ticker(normalized_profit_split_bars)
     history_summaries_by_ticker = group_summaries_by_ticker(history_summaries)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
@@ -408,7 +417,7 @@ def build_panel(
         )
         return_change = build_shareholder_return_change_signals(
             history_summaries_by_ticker.get(ticker, ()),
-            history_bars_by_ticker.get(ticker, ()),
+            normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
         )
         normalized_profit = build_normalized_profit_signals(

@@ -75,6 +75,48 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     return bars
 
 
+def read_adjustment_factor_bars(
+    sqlite_path: Path, start: date, end: date
+) -> list[JQuantsDailyBar] | None:
+    """Read only split events over a covered range for long-horizon normalization."""
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        if not daily_bars_covered_by_data(conn, start, end):
+            return None
+        rows = conn.execute(
+            "SELECT ticker, traded_at, close, adjustment_factor "
+            "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
+            "AND adjustment_factor IS NOT NULL AND adjustment_factor NOT IN (0.0, 1.0) "
+            "ORDER BY ticker, traded_at",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+    bars: list[JQuantsDailyBar] = []
+    for ticker, traded_at, close, adjustment_factor in rows:
+        if close is None or traded_at is None:
+            continue
+        try:
+            bars.append(
+                JQuantsDailyBar(
+                    ticker=str(ticker),
+                    traded_at=date.fromisoformat(traded_at),
+                    close=float(close),
+                    turnover_value=None,
+                    adjustment_factor=optional_float(adjustment_factor),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise JQuantsProviderError(
+                f"corrupt adjustment factor row for {ticker} on {traded_at}: {exc}"
+            ) from exc
+    return bars
+
+
 def read_daily_bars_for_tickers(
     sqlite_path: Path,
     tickers: tuple[str, ...],
