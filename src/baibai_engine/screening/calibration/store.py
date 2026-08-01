@@ -337,15 +337,26 @@ def _validate_asset_backed(row: PanelRow) -> None:
         return
     if not isfinite(ratio):
         raise ValueError("asset-backed ratio must be finite")
-    if (
-        investment is None
-        or row.net_cash_to_market_cap is None
-        or row.market_cap_oku is None
-        or row.market_cap_oku <= 0
-    ):
+    if investment is None or row.net_cash_to_market_cap is None:
         raise ValueError("asset-backed ratio requires its source fields")
-    expected = row.net_cash_to_market_cap + investment / (row.market_cap_oku * 100_000_000)
-    if not abs(ratio - expected) <= 1e-9 * max(1.0, abs(ratio), abs(expected)):
+    if row.market_cap_oku is None:
+        if row.in_population:
+            raise ValueError("population asset-backed ratio requires market cap")
+        if ratio < row.net_cash_to_market_cap - 1e-12:
+            raise ValueError("asset-backed ratio is inconsistent with non-negative investment")
+        return
+    if row.market_cap_oku <= 0:
+        raise ValueError("asset-backed ratio requires positive market cap")
+    # market_cap_oku is the liquidity snapshot rounded to whole oku, while both
+    # ratios use the exact close * shares market cap. Validate the investment
+    # component against the exact-value interval represented by that rounded fact.
+    component = ratio - row.net_cash_to_market_cap
+    lower_market_cap = max((row.market_cap_oku - 0.5) * 100_000_000, 1.0)
+    upper_market_cap = (row.market_cap_oku + 0.5) * 100_000_000
+    component_min = investment / upper_market_cap
+    component_max = investment / lower_market_cap
+    tolerance = 1e-12 * max(1.0, abs(component), abs(component_max))
+    if component < component_min - tolerance or component > component_max + tolerance:
         raise ValueError("asset-backed ratio is inconsistent with its source fields")
 
 

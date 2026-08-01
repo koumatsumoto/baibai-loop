@@ -373,6 +373,43 @@ class CalibrationPanelTest(unittest.TestCase):
             write_forward(store_dir, ASOF, forward_rows)
             self.assertEqual(read_forward(store_dir, ASOF), forward_rows)
 
+    def test_store_accepts_ratio_built_from_exact_market_cap_behind_rounded_oku(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            rounded_row = replace(
+                result.rows[0],
+                market_cap_oku=528.0,
+                net_cash_to_market_cap=-1.156717974570965,
+                investment_securities=21_269_000_000.0,
+                asset_backed_ratio=-0.7537593706932526,
+            )
+            store_dir = Path(tmp) / "calibration"
+
+            write_panel(store_dir, ASOF, (rounded_row,), result.diagnostics)
+
+            self.assertEqual(read_panel(store_dir, ASOF), [rounded_row])
+
+    def test_store_accepts_non_population_ratio_without_liquidity_market_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            excluded_row = replace(
+                result.rows[0],
+                in_population=False,
+                market_cap_oku=None,
+                net_cash_to_market_cap=-0.6,
+                investment_securities=2_000_000_000.0,
+                asset_backed_ratio=-0.4,
+            )
+            store_dir = Path(tmp) / "calibration"
+
+            write_panel(store_dir, ASOF, (excluded_row,), result.diagnostics)
+
+            self.assertEqual(read_panel(store_dir, ASOF), [excluded_row])
+
     def test_store_reads_a_cache_that_carries_a_column_the_contract_dropped(self) -> None:
         # 46 cohort を読み続けられることが、判定を評価時導出にした前提そのもの。
         # 厳格一致へ戻すと既存 store が読めなくなるので、その契約を固定する。
