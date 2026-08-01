@@ -13,6 +13,7 @@ operationは「いつ・どの順で完了するか」を持つ。各工程のin
 | trigger / situation | runbook | 完了 |
 | --- | --- | --- |
 | 候補、指値、人間からの注文結果、月次入金、決算、保有、年次結果 | [`decision-cycle.md`](./decision-cycle.md) | trigger固有のproposal/draft/review/outcome |
+| 前営業日からの候補・E[r]・FV到達・macro reading差分 | Baibai App Dashboardの`daily-delta` → [`decision-cycle.md`](./decision-cycle.md) | materialな差分だけを対応するtriggerへ接続 |
 | screening/FV/E[r]/macro読み等の方法変更 | [`improvement-loop.md`](./improvement-loop.md) | preregistration、評価、PR、運用テスト |
 | 将来の決算・event後に再確認 | [`task-runbook.md`](./task-runbook.md) | application DBのopen taskからcanonical entityへ反映 |
 | source/coverage/validator/CLI failure | [`incident-runbook.md`](./incident-runbook.md) | safe stop、復旧条件、escalation |

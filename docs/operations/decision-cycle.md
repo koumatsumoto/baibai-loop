@@ -61,6 +61,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id RUN_REVISION_ID --longlist-top 20 --output-path /tmp/selection.yaml
 uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml
 uv run baibai-engine research prepare --asof YYYY-MM-DD --selection-output /tmp/selection.yaml --db data/app/baibai.sqlite --workspace .cache/opportunity/YYYY-MM-DD
+uv run baibai-engine research evaluate .cache/opportunity/YYYY-MM-DD/XXXX/thesis-draft.yaml
 uv run baibai-engine research promote --workspace .cache/opportunity/YYYY-MM-DD --ticker XXXX --db data/app/baibai.sqlite
 uv run baibai-engine research plan-limit --thesis .cache/opportunity/YYYY-MM-DD/XXXX/thesis-draft.yaml --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --target-session YYYY-MM-DD --output /tmp/proposal-input.yaml
 uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite create --thesis-id THESIS_ID --input /tmp/proposal-input.yaml
@@ -103,7 +104,7 @@ shortlistは「安く見える」候補ではなく「非対称が買いに値�
 - **再評価triggerの接続**: `screening shortlist publish`は成功時、selected以外（rejected）の各entryについて、束縛したrun candidatesの`next_earnings_date`から`baibai-engine task add --kind follow-up --event-date <決算日> ...`をそのまま実行できる形でstderrへ印字する（決算日が未公表なら手動でtrigger日を決める注記）。stdoutはmachine-readableな公開payloadのままにする。「今は買わない」割安候補のdated re-entry triggerは、この提案からfollow-up taskを起票し、Baibai App Dashboardのタスク一覧へ期限順で載せる。write境界は人間に残し、taskをtrigger発火の正本にする。
 - **開示スキャン**: narrativeを書く前に、新規候補（前回shortlistを確認できないfull reviewでは全候補）について会社IR・TDnetの直近開示をタイトルレベルで確認し、screeningのas-of財務に反映されないmaterial開示（業績修正、資本政策、TOB/MBO、不祥事等）をnarrativeの`why` / `counter`へ反映する。
 - **macro hintの消化**: shortlist作成の前提となるmacro contextは[深度契約](../workflow/macro.md#depth-contract)を満たすものを使う。head の`as_of`が古い、または深度契約を満たさないと判断したら、shortlist作成の前に書き直す。selected銘柄のnarrative `macro`は、published contextのconnectionセクションにあるresearch優先度ヒント / sizing caution / **estimate caveats（機械見積りの歪み注意。該当componentのFV・E[r]を無批判に使わず、caveatが指す検算を行う）**のうち当該銘柄に該当するものを明示的に消化する（該当なしならその判断を書く）。バーゲン地形（`bargain_topography`）が指す局面と、この候補がその地形のどこに位置するかも同じfieldで扱う。hintを黙って落とさない。
-- **差分確認**: 直近の前回shortlist（application DB）がある週次runでは、今回とticker集合を`new / continued / exited`で比較する。`continued`は前回narrativeを自動継承せず、longlist順位差・価格・最新開示・最強countercaseを再確認したうえでmaterial changeがなければ再利用する。前回を確認できないrunは差分を推定せず全候補を確認する。
+- **差分確認**: 直近の前回shortlist（application DB）がある日次runでは、今回とticker集合を`new / continued / exited`で比較する。`continued`は前回narrativeを自動継承せず、longlist順位差・価格・最新開示・最強countercaseを再確認したうえでmaterial changeがなければ再利用する。前回を確認できないrunは差分を推定せず全候補を確認する。
 - **primary-research set**: `/stocks/shortlist`レビュー面（暫定順位順の横比較表と、narrative・selection longlistのFVアンカー・現値・乖離、candidateのE[r]分解・YoY・流動性・品質flag・portfolio状態を機械join表示）を提示し、人間が深掘り銘柄を選ぶ。推奨2〜4件（hard ruleではない）、上限はselection outputの`research_selection_target_max`。暫定順位は着手順の提案であって選択の代行ではない。買う候補が無ければこの段階で`no actionable bargain`終了できる。
 
 <a id="human-result-path"></a>
