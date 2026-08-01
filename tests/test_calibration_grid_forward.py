@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.screening.calibration.forward import (
     HORIZONS,
+    _FYDividendObservation,
     _ticker_forward_rows,
     compute_forward_returns,
 )
@@ -23,9 +24,11 @@ from baibai_engine.screening.sqlite_cache import open_connection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 
-def _bar(day: date, close: float, factor: float | None = None) -> JQuantsDailyBar:
+def _bar(
+    day: date, close: float, factor: float | None = None, *, ticker: str = "1000"
+) -> JQuantsDailyBar:
     return JQuantsDailyBar(
-        ticker="1000",
+        ticker=ticker,
         traded_at=day,
         close=close,
         turnover_value=None,
@@ -157,6 +160,121 @@ class ForwardReturnTest(unittest.TestCase):
         )
         self.assertEqual(len(rows), len(HORIZONS))
         self.assertTrue(all(not row.resolved for row in rows))
+
+    def test_total_return_sums_latest_actual_dps_once_per_fiscal_year(self) -> None:
+        bars = [
+            _bar(date(2020, 1, 31), 2500.0, 1.0, ticker="7203"),
+            _bar(date(2023, 1, 31), 3000.0, 1.0, ticker="7203"),
+        ]
+        dividends = [
+            _FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0),
+            _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 55.0),
+            # 同じ FY の訂正は最新 non-null だけを使い、55+60 と二重加算しない。
+            _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), 60.0),
+            _FYDividendObservation(date(2022, 3, 31), date(2022, 5, 11), 70.0),
+            # exit 後の FY は対象外。
+            _FYDividendObservation(date(2023, 3, 31), date(2023, 5, 10), 75.0),
+        ]
+
+        row = _ticker_forward_rows(
+            "7203",
+            bars,
+            fy_dividends=dividends,
+            asofs=[date(2020, 1, 31)],
+            horizons=(HORIZONS["3y"],),
+            eval_cap=date(2023, 6, 30),
+        )[0]
+
+        self.assertEqual(row.total_return_status, "resolved")
+        self.assertEqual(row.realized_dividend_fy_count, 3)
+        self.assertEqual(row.realized_dividend_sum, 180.0)
+        self.assertAlmostEqual(row.price_return or 0.0, 3000.0 / 2500.0 - 1)
+        self.assertAlmostEqual(row.total_return or 0.0, 3000.0 / 2500.0 - 1 + 180 / 2500)
+
+    def test_total_return_normalizes_dps_to_adjusted_entry_basis(self) -> None:
+        bars = [
+            _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
+            _bar(date(2022, 1, 31), 120.0, 1.0, ticker="7203"),
+            # exit 後の 1:2 split も store の最終 bar basis へ entry/exit/DPS を揃える。
+            _bar(date(2022, 3, 1), 60.0, 0.5, ticker="7203"),
+        ]
+        row = _ticker_forward_rows(
+            "7203",
+            bars,
+            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0)],
+            asofs=[date(2021, 1, 31)],
+            horizons=(HORIZONS["1y"],),
+            eval_cap=date(2022, 3, 1),
+        )[0]
+
+        self.assertEqual(row.total_return_status, "resolved")
+        self.assertEqual(row.realized_dividend_sum, 20.0)
+        self.assertAlmostEqual(row.price_return or 0.0, 60.0 / 50.0 - 1)
+        self.assertAlmostEqual(row.total_return or 0.0, 60.0 / 50.0 - 1 + 20.0 / 50.0)
+
+    def test_total_return_keeps_absent_null_zero_and_negative_dividends_distinct(self) -> None:
+        bars = [
+            _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
+            _bar(date(2022, 1, 31), 110.0, 1.0, ticker="7203"),
+        ]
+        cases = (
+            ((), "unresolved_no_fy_observation", None),
+            (
+                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), None),),
+                "unresolved_missing_dividend",
+                None,
+            ),
+            (
+                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), -1.0),),
+                "unresolved_invalid_dividend",
+                None,
+            ),
+            (
+                (_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 0.0),),
+                "resolved",
+                0.1,
+            ),
+        )
+        for dividends, expected_status, expected_total in cases:
+            with self.subTest(status=expected_status, dividends=dividends):
+                row = _ticker_forward_rows(
+                    "7203",
+                    bars,
+                    fy_dividends=dividends,
+                    asofs=[date(2021, 1, 31)],
+                    horizons=(HORIZONS["1y"],),
+                    eval_cap=date(2022, 1, 31),
+                )[0]
+                self.assertEqual(row.total_return_status, expected_status)
+                if expected_total is None:
+                    self.assertIsNone(row.realized_dividend_sum)
+                    self.assertIsNone(row.total_return)
+                else:
+                    self.assertEqual(row.realized_dividend_sum, 0.0)
+                    self.assertAlmostEqual(row.total_return or 0.0, expected_total)
+
+    def test_total_return_rejects_latest_invalid_correction_instead_of_using_old_dps(self) -> None:
+        bars = [
+            _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
+            _bar(date(2022, 1, 31), 110.0, 1.0, ticker="7203"),
+        ]
+        for invalid in (-1.0, float("inf")):
+            with self.subTest(invalid=invalid):
+                row = _ticker_forward_rows(
+                    "7203",
+                    bars,
+                    fy_dividends=[
+                        _FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 50.0),
+                        _FYDividendObservation(date(2021, 3, 31), date(2021, 6, 1), invalid),
+                    ],
+                    asofs=[date(2021, 1, 31)],
+                    horizons=(HORIZONS["1y"],),
+                    eval_cap=date(2022, 1, 31),
+                )[0]
+
+                self.assertEqual(row.total_return_status, "unresolved_invalid_dividend")
+                self.assertIsNone(row.realized_dividend_sum)
+                self.assertIsNone(row.total_return)
 
 
 class ForwardUnresolvedReasonTest(unittest.TestCase):

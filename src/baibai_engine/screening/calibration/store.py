@@ -6,6 +6,7 @@ import csv
 from collections.abc import Mapping
 from dataclasses import asdict, fields
 from datetime import date
+from math import isfinite
 from pathlib import Path
 from typing import cast
 
@@ -14,11 +15,11 @@ import yaml
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 
-from .forward import ForwardReturnRow
+from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 4
+CACHE_SCHEMA_VERSION = 5
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -200,7 +201,7 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
 
 
 def _forward_row_from_csv(raw: Mapping[str, str]) -> ForwardReturnRow:
-    return ForwardReturnRow(
+    row = ForwardReturnRow(
         asof=raw["asof"],
         ticker=raw["ticker"],
         horizon=raw["horizon"],
@@ -212,7 +213,38 @@ def _forward_row_from_csv(raw: Mapping[str, str]) -> ForwardReturnRow:
         exit_date=raw["exit_date"] or None,
         status=str(raw["status"]),
         adjustment_factor_coverage=raw["adjustment_factor_coverage"],
+        realized_dividend_sum=_opt_float(raw, "realized_dividend_sum"),
+        realized_dividend_fy_count=_opt_int(raw, "realized_dividend_fy_count") or 0,
+        total_return=_opt_float(raw, "total_return"),
+        total_return_status=raw["total_return_status"],
+        total_return_basis=raw["total_return_basis"],
     )
+    _validate_total_return_contract(row)
+    return row
+
+
+def _validate_total_return_contract(row: ForwardReturnRow) -> None:
+    if row.total_return_basis != TOTAL_RETURN_BASIS:
+        raise ValueError(f"invalid total return basis: {row.total_return_basis!r}")
+    if row.total_return_status not in TOTAL_RETURN_STATUSES:
+        raise ValueError(f"invalid total return status: {row.total_return_status!r}")
+    if row.total_return_status == "resolved":
+        values = (row.price_return, row.realized_dividend_sum, row.total_return)
+        if (
+            row.status != "resolved"
+            or row.realized_dividend_fy_count <= 0
+            or any(value is None or not isfinite(value) for value in values)
+            or (row.realized_dividend_sum or 0.0) < 0
+            or (row.total_return or 0.0) < -1
+            or (row.total_return or 0.0) < (row.price_return or 0.0)
+        ):
+            raise ValueError("resolved total return fields are inconsistent")
+    elif (
+        row.realized_dividend_sum is not None
+        or row.realized_dividend_fy_count != 0
+        or row.total_return is not None
+    ):
+        raise ValueError("unresolved total return carries resolved values")
 
 
 def _opt_float(raw: Mapping[str, str], key: str) -> float | None:

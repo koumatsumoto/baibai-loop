@@ -155,6 +155,21 @@ def _survivorship_status(mismatch: int | None) -> str:
     return "complete" if mismatch == 0 else "incomplete"
 
 
+def _required_metric_statuses(
+    reported: object, required_metrics: tuple[str, ...]
+) -> dict[str, str]:
+    """Missing or unknown per-metric evidence cannot inherit cohort eligibility."""
+    statuses = reported if isinstance(reported, dict) else {}
+    return {
+        metric: (
+            str(statuses[metric])
+            if statuses.get(metric) in {"eligible", "unresolved"}
+            else "unresolved"
+        )
+        for metric in required_metrics
+    }
+
+
 def calibration_evaluate_command(
     *,
     calibration_dir: Path,
@@ -331,21 +346,14 @@ def calibration_evaluate_command(
             metric_status = (
                 "eligible" if cohort["metric_calculation_status"] == "resolved" else "unresolved"
             )
-            reported_metric_statuses = cohort.get("metric_statuses")
-            metric_statuses = (
-                cast(dict[str, str], reported_metric_statuses)
-                if isinstance(reported_metric_statuses, dict)
-                else {}
-            )
             integrity.append(
                 CohortIntegrity(
                     asof=str(cohort["asof"]),
                     horizon=horizon,
                     integrity_status=("blocked" if blockers else metric_status),
-                    metric_statuses={
-                        metric: metric_statuses.get(metric, metric_status)
-                        for metric in scope.required_metrics
-                    },
+                    metric_statuses=_required_metric_statuses(
+                        cohort.get("metric_statuses"), scope.required_metrics
+                    ),
                     blocking_reasons=tuple(blockers),
                 )
             )
@@ -377,6 +385,7 @@ def calibration_evaluate_command(
         "kind": "estimate-calibration-evaluation",
         "cache_schema_version": CACHE_SCHEMA_VERSION,
         "metric_basis": "price_return_only",
+        "metric_bases": ["price_return_only", "fy_actual_dividend_total_return"],
         "scope": {
             "run_purpose": scope.run_purpose,
             "requested_horizons": list(scope.requested_horizons),

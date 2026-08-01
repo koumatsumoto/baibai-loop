@@ -202,11 +202,15 @@ class CalibrationPanelTest(unittest.TestCase):
                     ticker="9001",
                     horizon="6m",
                     target_date="2026-12-29",
-                    resolved=False,
-                    price_return=None,
+                    resolved=True,
+                    price_return=0.10,
                     stale_price=False,
                     entry_date=ASOF.isoformat(),
-                    exit_date=None,
+                    exit_date="2026-12-29",
+                    realized_dividend_sum=12.5,
+                    realized_dividend_fy_count=1,
+                    total_return=0.125,
+                    total_return_status="resolved",
                 )
             ]
             write_forward(store_dir, ASOF, forward_rows)
@@ -259,6 +263,46 @@ class CalibrationPanelTest(unittest.TestCase):
 
             with self.assertRaisesRegex(CalibrationCacheError, "missing status"):
                 read_forward(store_dir, ASOF)
+
+    def test_store_rejects_total_return_basis_or_status_bypass(self) -> None:
+        for field, invalid in (
+            ("total_return_basis", "price_return_only"),
+            ("total_return_status", "resolved_by_claim"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                sqlite_path = Path(tmp) / "market.sqlite"
+                _build_fixture_sqlite(sqlite_path)
+                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+                store_dir = Path(tmp) / "calibration"
+                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+                row = ForwardReturnRow(
+                    asof=ASOF.isoformat(),
+                    ticker="9001",
+                    horizon="1y",
+                    target_date="2027-06-30",
+                    resolved=True,
+                    price_return=0.10,
+                    stale_price=False,
+                    entry_date=ASOF.isoformat(),
+                    exit_date="2027-06-30",
+                    realized_dividend_sum=10.0,
+                    realized_dividend_fy_count=1,
+                    total_return=0.12,
+                    total_return_status="resolved",
+                )
+                write_forward(store_dir, ASOF, [row])
+                path = store_dir / f"forward-{ASOF.isoformat()}.csv"
+                with path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                    fieldnames = list(rows[0])
+                rows[0][field] = invalid
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                with self.assertRaisesRegex(CalibrationCacheError, "forward cache is invalid"):
+                    read_forward(store_dir, ASOF)
 
     def test_store_rejects_an_unknown_population_coverage_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
