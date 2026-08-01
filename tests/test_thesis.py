@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, localcontext
 from pathlib import Path
 
@@ -1014,6 +1014,20 @@ def test_override_is_invalid_at_exact_expiry() -> None:
     result = _evaluate(_raw(), now=datetime.fromisoformat("2026-07-31T15:30:00+09:00"))
 
     assert any("requires a human override" in error for error in result.errors)
+
+
+def test_evaluation_clock_requires_timezone_and_is_instant_equivalent() -> None:
+    document, review = _bind_review(_raw())
+    jst_now = datetime.fromisoformat("2026-07-03T00:25:00+09:00")
+    utc_now = jst_now.astimezone(UTC)
+
+    assert jst_now.date() != utc_now.date()
+    jst_result = evaluate_thesis(document, review=review, now=jst_now)
+    utc_result = evaluate_thesis(document, review=review, now=utc_now)
+
+    assert utc_result == jst_result
+    with pytest.raises(ThesisError, match="timezone"):
+        evaluate_thesis(document, review=review, now=jst_now.replace(tzinfo=None))
 
 
 def test_human_override_is_bound_to_exact_review_artifact() -> None:

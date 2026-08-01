@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
+import baibai_engine.research.opportunity as opportunity_module
+import baibai_engine.research.store as research_store_module
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import open_connection
@@ -27,10 +30,12 @@ from baibai_engine.research.close_source import (
     resolve_previous_business_day_close,
 )
 from baibai_engine.research.opportunity_cli import main as opportunity_main
+from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
     IndependentReview,
     ScreeningEstimate,
     ThesisDocument,
+    ThesisResult,
     evaluate_thesis,
     thesis_core_hash,
 )
@@ -1848,13 +1853,56 @@ def test_promote_rejects_thesis_identity_tampering(
 
 
 def test_promote_ready_publishes_atomic_thesis_and_review(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
     _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
     workspace = _prepared_workspace(tmp_path, sqlite_path)
     _fill_ready_workspace(workspace)
     db_path = tmp_path / "app.sqlite"
+    operation_instants: list[datetime] = []
+    validation_instants: list[datetime | None] = []
+    real_service = opportunity_module.ResearchStoreService
+    real_pre_store_evaluate = opportunity_module.evaluate_thesis
+    real_store_evaluate = research_store_module.evaluate_thesis
+
+    def recording_pre_store_evaluate(
+        document: ThesisDocument,
+        *,
+        review: IndependentReview | None = None,
+        now: datetime | None = None,
+    ) -> ThesisResult:
+        validation_instants.append(now)
+        return real_pre_store_evaluate(document, review=review, now=now)
+
+    def recording_store_evaluate(
+        document: ThesisDocument,
+        *,
+        review: IndependentReview | None = None,
+        now: datetime | None = None,
+    ) -> ThesisResult:
+        validation_instants.append(now)
+        return real_store_evaluate(document, review=review, now=now)
+
+    def service_factory(
+        path: Path | None,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> ResearchStoreService:
+        assert clock is not None
+
+        def recording_clock() -> datetime:
+            operation_now = clock()
+            operation_instants.append(operation_now)
+            return operation_now
+
+        return real_service(path, clock=recording_clock)
+
+    monkeypatch.setattr(opportunity_module, "ResearchStoreService", service_factory)
+    monkeypatch.setattr(opportunity_module, "evaluate_thesis", recording_pre_store_evaluate)
+    monkeypatch.setattr(research_store_module, "evaluate_thesis", recording_store_evaluate)
 
     code, _ = _run(
         [
@@ -1869,6 +1917,9 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
         capsys,
     )
     assert code == 0
+    assert operation_instants == [FIXED_NOW]
+    assert validation_instants
+    assert set(validation_instants) == {FIXED_NOW}
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT count(*) FROM thesis").fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM thesis_review").fetchone()[0] == 1

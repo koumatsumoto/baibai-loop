@@ -36,6 +36,15 @@ _SCENARIO_KEYS = frozenset(
     (horizon, name) for horizon in (3, 5) for name in ("bear", "base", "bull")
 )
 _SCENARIO_ORDER = {"bear": 0, "base": 1, "bull": 2}
+_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED = (
+    "buy with incomplete or adverse evidence requires a human override and reduced sizing"
+)
+_PRIMARY_REVIEW_OVERRIDE_REQUIRED = (
+    "buy without fully verified primary review requires an active override and reduced sizing"
+)
+_EXPIRY_ONLY_ERRORS = frozenset(
+    {_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED, _PRIMARY_REVIEW_OVERRIDE_REQUIRED}
+)
 RiskAxis = Literal[
     "funding_liquidity",
     "debt_repayment",
@@ -631,6 +640,12 @@ class ThesisResult:
     screening_fv_revision_pct: Decimal | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _CurrentThesisEligibility:
+    status: Literal["current_ready", "expired_override_only", "invalid"]
+    result: ThesisResult
+
+
 def load_thesis(path: Path) -> ThesisDocument:
     """Load a strict YAML thesis."""
 
@@ -671,7 +686,7 @@ def evaluate_thesis(
 
     errors: list[str] = []
     warnings: list[str] = []
-    evaluated_at = now or datetime.now(tz=ZoneInfo("Asia/Tokyo"))
+    evaluated_at = _evaluation_instant(now)
     if document.input_snapshot.as_of > evaluated_at.date():
         errors.append("thesis as_of cannot be in the future")
     if document.judgment.proposed_at.date() < document.input_snapshot.as_of:
@@ -792,15 +807,9 @@ def evaluate_thesis(
                 document, review=review, evaluated_at=evaluated_at
             )
             if exception_axes and not valid_evidence_override:
-                errors.append(
-                    "buy with incomplete or adverse evidence requires a human override "
-                    "and reduced sizing"
-                )
+                errors.append(_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED)
             if review.primary_source_check != "verified" and not valid_evidence_override:
-                errors.append(
-                    "buy without fully verified primary review requires an active override "
-                    "and reduced sizing"
-                )
+                errors.append(_PRIMARY_REVIEW_OVERRIDE_REQUIRED)
     elif review is not None:
         _check_review(
             review,
@@ -850,6 +859,38 @@ def evaluate_thesis(
         ),
         screening_fv_revision_pct=_calculate_screening_fv_revision_pct(document),
     )
+
+
+def _classify_current_thesis_eligibility(
+    document: ThesisDocument,
+    *,
+    review: IndependentReview,
+    now: datetime,
+) -> _CurrentThesisEligibility:
+    """Classify current readiness without exposing override policy to consumers."""
+    evaluated_at = _evaluation_instant(now)
+    result = evaluate_thesis(document, review=review, now=evaluated_at)
+    if not result.errors and result.decision_readiness == "ready":
+        return _CurrentThesisEligibility("current_ready", result)
+    override_status = _evidence_override_status(
+        document,
+        review=review,
+        evaluated_at=evaluated_at,
+    )
+    if (
+        override_status == "expired"
+        and result.errors
+        and set(result.errors).issubset(_EXPIRY_ONLY_ERRORS)
+    ):
+        return _CurrentThesisEligibility("expired_override_only", result)
+    return _CurrentThesisEligibility("invalid", result)
+
+
+def _evaluation_instant(now: datetime | None) -> datetime:
+    evaluated_at = now or datetime.now(tz=ZoneInfo("Asia/Tokyo"))
+    if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
+        raise ThesisError("evaluation instant must include a timezone")
+    return evaluated_at.astimezone(ZoneInfo("Asia/Tokyo"))
 
 
 def thesis_core_hash(document: ThesisDocument) -> str:
@@ -1466,17 +1507,37 @@ def _has_valid_evidence_override(
     review: IndependentReview,
     evaluated_at: datetime,
 ) -> bool:
+    return (
+        _evidence_override_status(
+            document,
+            review=review,
+            evaluated_at=evaluated_at,
+        )
+        == "active"
+    )
+
+
+def _evidence_override_status(
+    document: ThesisDocument,
+    *,
+    review: IndependentReview,
+    evaluated_at: datetime,
+) -> Literal["absent", "invalid", "active", "expired"]:
     override = document.human_evidence_override
     if override is None:
-        return False
-    return (
+        return "absent"
+    bindings_valid = (
         document.judgment.proposed_at <= review.reviewed_at <= override.approved_at
-        and override.approved_at <= evaluated_at < override.expires_at
         and override.proposal_sha256 == thesis_core_hash(document)
         and override.review_id == review.review_id
         and override.review_sha256 == independent_review_hash(review)
         and document.judgment.sizing_action == "reduced"
     )
+    if not bindings_valid or evaluated_at < override.approved_at:
+        return "invalid"
+    if evaluated_at >= override.expires_at:
+        return "expired"
+    return "active"
 
 
 def _check_review(

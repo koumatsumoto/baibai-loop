@@ -288,12 +288,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            return _run_holding_review_publish(args)
+            return _run_holding_review_publish(args, now=now)
         if args.input is None:
             print("error: holding-review validation requires --input", file=sys.stderr)
             return 2
         input_path = args.input if args.input.is_absolute() else args.root / args.input
-        return _run_holding_review(input_path, db_path=args.db)
+        return _run_holding_review(input_path, db_path=args.db, now=now)
     if args.command == "holding-review-build":
         return _run_holding_review_build_db(
             db_path=args.db,
@@ -302,6 +302,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             position_id=args.position_id,
             root=args.root,
             out=args.out,
+            now=now,
         )
     if args.command == "market-price-draft":
         return _run_market_price_draft(
@@ -607,14 +608,24 @@ def _market_data_fingerprint(bars: list[JQuantsDailyBar]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _run_holding_review(path: Path, *, db_path: Path | None) -> int:
+def _run_holding_review(
+    path: Path,
+    *,
+    db_path: Path | None,
+    now: datetime | None,
+) -> int:
     try:
         document = load_holding_review(path)
     except HoldingReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     try:
-        validate_holding_review_scalars_from_db(document, db_path=db_path)
+        operation_now = _holding_review_instant(now)
+        validate_holding_review_scalars_from_db(
+            document,
+            db_path=db_path,
+            now=operation_now,
+        )
     except HoldingReviewError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -633,7 +644,11 @@ def _run_holding_review(path: Path, *, db_path: Path | None) -> int:
     return 2 if result.errors else 0
 
 
-def _run_holding_review_publish(args: argparse.Namespace) -> int:
+def _run_holding_review_publish(
+    args: argparse.Namespace,
+    *,
+    now: datetime | None,
+) -> int:
     from baibai_engine.foundation.yaml_io import safe_load
     from baibai_engine.research.store import ResearchStoreService, ResearchValidationError
 
@@ -646,7 +661,8 @@ def _run_holding_review_publish(args: argparse.Namespace) -> int:
         holding_review_id = args.holding_review_id or (
             f"holding-review-{document.as_of:%Y%m%d}-{document.ticker}-{document.position_id}"
         )
-        ResearchStoreService(args.db).publish_holding_review(
+        operation_now = _holding_review_instant(now)
+        ResearchStoreService(args.db, clock=lambda: operation_now).publish_holding_review(
             holding_review_id,
             args.thesis_id,
             raw,
@@ -676,6 +692,7 @@ def _run_holding_review_build_db(
     position_id: str,
     root: Path,
     out: Path,
+    now: datetime | None,
 ) -> int:
     try:
         output_path = _draft_output_path(root, out, label="holding review")
@@ -684,6 +701,7 @@ def _run_holding_review_build_db(
             holding_thesis_id=thesis_id,
             candidate_thesis_id=candidate_thesis_id,
             position_id=position_id,
+            now=_holding_review_instant(now),
         )
         result = evaluate_holding_review(document)
         if result.errors:
@@ -695,6 +713,13 @@ def _run_holding_review_build_db(
         return 2
     yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
     return 0
+
+
+def _holding_review_instant(now: datetime | None) -> datetime:
+    resolved = now or datetime.now(JST)
+    if resolved.tzinfo is None or resolved.utcoffset() is None:
+        raise HoldingReviewError("operation clock must be timezone-aware")
+    return resolved
 
 
 def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int:

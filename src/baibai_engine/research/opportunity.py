@@ -1175,7 +1175,7 @@ def promote(
         f"thesis-{document.input_snapshot.as_of:%Y%m%d}-{ticker}-{review.review_id}"
     )
     try:
-        ResearchStoreService(db_path).publish_thesis_with_review(
+        ResearchStoreService(db_path, clock=lambda: now).publish_thesis_with_review(
             resolved_thesis_id,
             _load_mapping(thesis_path, label="thesis"),
             _load_mapping(review_path, label="independent review"),

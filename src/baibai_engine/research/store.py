@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -12,11 +12,14 @@ from typing import cast
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.time import JST
 from baibai_engine.position.holding_review import (
     HoldingReviewDocument,
     evaluate_holding_review,
 )
-from baibai_engine.research.holding_review_builder import validate_holding_review_scalars_from_db
+from baibai_engine.research.holding_review_builder import (
+    _validate_holding_review_scalars_in_transaction,
+)
 from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
@@ -59,8 +62,14 @@ class HoldingReviewPublication:
 class ResearchStoreService:
     """Validate revision bindings before writing immutable research rows."""
 
-    def __init__(self, db_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._db_path = db_path
+        self._clock = clock or (lambda: datetime.now(JST))
 
     def publish_thesis(
         self,
@@ -69,8 +78,9 @@ class ResearchStoreService:
         *,
         supersedes_id: str | None = None,
     ) -> ThesisDocument:
+        operation_now = self._operation_now()
         publication = ThesisPublication(thesis_id, payload, supersedes_id)
-        thesis, _ = _validate_thesis(publication)
+        thesis, _ = _validate_thesis(publication, now=operation_now)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -89,26 +99,29 @@ class ResearchStoreService:
         review_payload: Mapping[str, object],
         *,
         supersedes_id: str | None = None,
-        now: datetime | None = None,
     ) -> tuple[ThesisDocument, IndependentReview]:
         """Atomically publish a thesis and its independent review.
 
-        ``now`` fixes the instant evidence and overrides are judged against.
-        Production leaves it unset and gets the wall clock; a caller reproducing a
-        dated situation passes the instant that situation belongs to, so the same
-        input does not change verdict as the clock moves.
+        One operation clock reading judges every evidence and override check in the
+        transaction. Tests inject the service clock; production uses the JST wall
+        clock and does not expose a backdated CLI argument.
         """
+        operation_now = self._operation_now()
         publication = ThesisPublication(thesis_id, thesis_payload, supersedes_id)
-        thesis, _ = _validate_thesis(publication, allow_review_required=True)
+        thesis, _ = _validate_thesis(
+            publication,
+            allow_review_required=True,
+            now=operation_now,
+        )
         review = IndependentReview.model_validate(review_payload)
-        _require_valid(evaluate_thesis(thesis, review=review, now=now))
+        _require_valid(evaluate_thesis(thesis, review=review, now=operation_now))
         review_publication = ReviewPublication(thesis_id, review_payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 _insert_thesis(connection, publication, thesis)
-                _insert_review(connection, review_publication, review, now=now)
+                _insert_review(connection, review_publication, review, now=operation_now)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -119,16 +132,15 @@ class ResearchStoreService:
         self,
         thesis_id: str,
         payload: Mapping[str, object],
-        *,
-        now: datetime | None = None,
     ) -> IndependentReview:
+        operation_now = self._operation_now()
         publication = ReviewPublication(thesis_id, payload)
         review = IndependentReview.model_validate(payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                _insert_review(connection, publication, review, now=now)
+                _insert_review(connection, publication, review, now=operation_now)
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -144,15 +156,20 @@ class ResearchStoreService:
         candidate_thesis_id: str | None = None,
     ) -> HoldingReviewDocument:
         """Recheck canonical DB revision bindings inside the write transaction."""
+        operation_now = self._operation_now()
         publication = HoldingReviewPublication(
             holding_review_id, thesis_id, payload, candidate_thesis_id
         )
         document = _validate_holding_document(payload)
-        validate_holding_review_scalars_from_db(document, db_path=self._db_path)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                _validate_holding_review_scalars_in_transaction(
+                    document,
+                    connection=connection,
+                    now=operation_now,
+                )
                 _validate_canonical_holding_sources(connection, publication, document)
                 _insert_holding_review(connection, publication, document)
                 connection.commit()
@@ -161,16 +178,23 @@ class ResearchStoreService:
                 raise
         return document
 
+    def _operation_now(self) -> datetime:
+        resolved = self._clock()
+        if resolved.tzinfo is None or resolved.utcoffset() is None:
+            raise ResearchValidationError("operation clock must return a timezone-aware datetime")
+        return resolved
+
 
 def _validate_thesis(
     publication: ThesisPublication,
     *,
     allow_review_required: bool = False,
+    now: datetime,
 ) -> tuple[ThesisDocument, ThesisResult]:
     if not publication.thesis_id.strip():
         raise ResearchValidationError("thesis_id must not be empty")
     thesis = ThesisDocument.model_validate(publication.payload)
-    result = evaluate_thesis(thesis)
+    result = evaluate_thesis(thesis, now=now)
     if result.errors and not (allow_review_required and result.errors == (_REVIEW_REQUIRED,)):
         _require_valid(result)
     return thesis, result
@@ -251,7 +275,7 @@ def _insert_review(
     publication: ReviewPublication,
     review: IndependentReview,
     *,
-    now: datetime | None = None,
+    now: datetime,
 ) -> bool:
     thesis_row = _thesis_row(connection, publication.thesis_id)
     thesis = ThesisDocument.model_validate_json(str(thesis_row["payload"]))

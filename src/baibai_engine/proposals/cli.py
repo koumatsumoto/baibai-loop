@@ -49,9 +49,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
-    service = ProposalStoreService(args.db, market_db_path=args.market_db)
-    current_time = now or datetime.now(JST)
     try:
+        current_time = _operation_instant(now)
+        service = ProposalStoreService(
+            args.db,
+            market_db_path=args.market_db,
+            clock=lambda: current_time,
+        )
         if args.command == "create":
             raw_input = safe_load(args.input.read_text(encoding="utf-8"))
             planned_limit = PlannedLimitInput.model_validate(raw_input)
@@ -105,6 +109,13 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
+
+
+def _operation_instant(now: datetime | None) -> datetime:
+    resolved = now or datetime.now(JST)
+    if resolved.tzinfo is None or resolved.utcoffset() is None:
+        raise ProposalValidationError("operation clock must be timezone-aware")
+    return resolved
 
 
 def _public(record: ProposalRecord) -> dict[str, object]:
