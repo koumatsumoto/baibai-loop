@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 8
+CACHE_SCHEMA_VERSION = 9
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -222,10 +222,16 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
             raw, "margin_long_to_adv_mcap_quintile_percentile"
         ),
         realized_volatility_60d=_opt_float(raw, "realized_volatility_60d"),
+        normalized_per_3fy=_opt_float(raw, "normalized_per_3fy"),
+        normalized_per_5fy=_opt_float(raw, "normalized_per_5fy"),
+        eps_cycle_percentile_3fy=_opt_float(raw, "eps_cycle_percentile_3fy"),
+        eps_cycle_peak_3fy=_opt_bool(raw, "eps_cycle_peak_3fy"),
+        self_range_observed_sessions=int(raw["self_range_observed_sessions"]),
     )
     _validate_quality_signals(row)
     _validate_shareholder_return_change(row)
     _validate_margin_supply_demand(row)
+    _validate_normalized_profit(row)
     return row
 
 
@@ -364,6 +370,21 @@ def _validate_margin_supply_demand(row: PanelRow) -> None:
     volatility = row.realized_volatility_60d
     if volatility is not None and (not isfinite(volatility) or volatility < 0):
         raise ValueError("realized volatility must be finite and non-negative")
+
+
+def _validate_normalized_profit(row: PanelRow) -> None:
+    for value in (row.normalized_per_3fy, row.normalized_per_5fy):
+        if value is not None and (not isfinite(value) or value <= 0):
+            raise ValueError("normalized PER must be finite and positive")
+    percentile = row.eps_cycle_percentile_3fy
+    peak = row.eps_cycle_peak_3fy
+    if percentile is None:
+        if peak is not None:
+            raise ValueError("cycle peak flag requires a percentile")
+    elif not isfinite(percentile) or not 0 <= percentile <= 1 or peak is not (percentile >= 0.8):
+        raise ValueError("cycle peak flag is inconsistent with its percentile")
+    if row.self_range_observed_sessions < 0:
+        raise ValueError("self-range observed sessions must be non-negative")
 
 
 def _population_coverage_status(value: str) -> PopulationCoverageStatus:

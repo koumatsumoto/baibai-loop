@@ -26,6 +26,8 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.calibration.panel import (
     PRE2019_SELF_RANGE_POLICY,
+    SELF_RANGE_1250_POLICY,
+    SELF_RANGE_2500_POLICY,
     build_panel,
     rules_content_hash,
 )
@@ -252,6 +254,65 @@ class CalibrationPanelTest(unittest.TestCase):
                 result.diagnostics.effective_fin_start,
                 (ASOF - timedelta(days=730)).isoformat(),
             )
+
+    def test_panel_normalizes_old_fy_eps_for_split_before_recent_bar_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            old_history_start = date(2022, 5, 10)
+            insert_daily_bars_from_closes(
+                sqlite_path,
+                "9001",
+                [100.0] * ((ASOF - old_history_start).days + 1),
+                end_date=ASOF,
+                turnover_value=2e8,
+            )
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end, "
+                    "period_start, period_end"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (
+                            "9001",
+                            f"{year}-05-10",
+                            eps,
+                            "FY",
+                            f"{year}-03-31",
+                            f"{year - 1}-04-01",
+                            f"{year}-03-31",
+                        )
+                        for year, eps in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0))
+                    ],
+                )
+                conn.executemany(
+                    "INSERT OR REPLACE INTO jquants_daily_bars("
+                    "ticker, traded_at, close, adjustment_close, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    [
+                        ("9001", "2022-05-10", 50.0, 50.0, 1.0),
+                        ("9001", "2022-10-03", 50.0, 100.0, 0.5),
+                    ],
+                )
+                add_source_coverage(
+                    conn,
+                    source="jquants_fin_summaries",
+                    coverage_key="normalized-profit-history",
+                    record_count=6,
+                    min_date=old_history_start.isoformat(),
+                    max_date=ASOF.isoformat(),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            row = {item.ticker: item for item in result.rows}["9001"]
+
+            # 2022 FY EPS 40 is adjusted to 20 by a split outside the recent bar window.
+            self.assertAlmostEqual(row.normalized_per_5fy or 0.0, 100.0 / 18.0)
 
     def test_panel_and_forward_store_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -489,6 +550,34 @@ class CalibrationPanelTest(unittest.TestCase):
                 with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
                     read_panel(store_dir, ASOF)
 
+    def test_store_rejects_invalid_normalized_profit_fields(self) -> None:
+        invalid_updates = (
+            {"normalized_per_3fy": "-1"},
+            {"eps_cycle_percentile_3fy": "1.1", "eps_cycle_peak_3fy": "true"},
+            {"eps_cycle_percentile_3fy": "0.5", "eps_cycle_peak_3fy": "true"},
+            {"eps_cycle_percentile_3fy": "0.5", "eps_cycle_peak_3fy": "claimed"},
+            {"self_range_observed_sessions": "-1"},
+        )
+        for updates in invalid_updates:
+            with self.subTest(updates=updates), tempfile.TemporaryDirectory() as tmp:
+                sqlite_path = Path(tmp) / "market.sqlite"
+                _build_fixture_sqlite(sqlite_path)
+                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+                store_dir = Path(tmp) / "calibration"
+                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+                with path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                    fieldnames = list(rows[0])
+                rows[0].update(updates)
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                    read_panel(store_dir, ASOF)
+
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store_dir = Path(tmp) / "calibration"
@@ -620,6 +709,20 @@ class CalibrationPanelTest(unittest.TestCase):
                 result.diagnostics.rules_hash,
                 rules_content_hash(rules),
             )
+
+    def test_long_self_range_variants_have_distinct_diagnostic_contracts(self) -> None:
+        rules = load_screening_rules()
+
+        self.assertEqual(SELF_RANGE_1250_POLICY.valuation_history_sessions, 1250)
+        self.assertEqual(SELF_RANGE_1250_POLICY.bars_input_window_days, 2000)
+        self.assertEqual(SELF_RANGE_2500_POLICY.valuation_history_sessions, 2500)
+        self.assertEqual(SELF_RANGE_2500_POLICY.bars_input_window_days, 4000)
+        self.assertFalse(SELF_RANGE_1250_POLICY.production_authority)
+        self.assertFalse(SELF_RANGE_2500_POLICY.production_authority)
+        self.assertNotEqual(
+            rules_content_hash(rules, SELF_RANGE_1250_POLICY),
+            rules_content_hash(rules, SELF_RANGE_2500_POLICY),
+        )
 
     def test_pre2019_variant_cannot_use_the_production_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from baibai_engine.screening.metrics import (
     _quality_signal_counts,
     _resolve_dividend_carry,
     build_metrics,
+    build_normalized_profit_signals,
     build_shareholder_return_change_signals,
 )
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
@@ -38,7 +40,7 @@ def _summary(
     code: str,
     disclosed_at: date,
     *,
-    eps_ttm: float = 18.0,
+    eps_ttm: float | None = 18.0,
     sales: float = 1_000_000_000.0,
     cfo: float | None = 100_000_000.0,
     operating_profit: float = 100_000_000.0,
@@ -158,6 +160,104 @@ def _edinet_metric_record(
 
 
 class ScreeningMetricsTests(unittest.TestCase):
+    def test_normalized_profit_includes_losses_and_marks_cycle_peak(self) -> None:
+        asof = date(2026, 6, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(year + 1, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(year + 1, 3, 31),
+                eps_ttm=eps,
+            )
+            for year, eps in zip(range(2021, 2026), (10.0, 20.0, -10.0, 20.0, 50.0), strict=True)
+        ]
+
+        result = build_normalized_profit_signals(summaries, (), asof, close=200.0, current_eps=60.0)
+
+        self.assertAlmostEqual(result.normalized_per_3fy or 0.0, 10.0)
+        self.assertAlmostEqual(result.normalized_per_5fy or 0.0, 200.0 / 18.0)
+        self.assertEqual(result.eps_cycle_percentile_3fy, 1.0)
+        self.assertTrue(result.eps_cycle_peak_3fy)
+
+    def test_normalized_profit_does_not_fallback_from_null_revision(self) -> None:
+        asof = date(2026, 6, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(year + 1, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(year + 1, 3, 31),
+                eps_ttm=20.0,
+            )
+            for year in range(2023, 2026)
+        ]
+        summaries.append(
+            _summary(
+                "130A",
+                date(2026, 5, 20),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                eps_ttm=None,
+            )
+        )
+
+        result = build_normalized_profit_signals(summaries, (), asof, close=200.0, current_eps=30.0)
+
+        self.assertIsNone(result.normalized_per_3fy)
+        self.assertIsNone(result.eps_cycle_peak_3fy)
+
+    def test_normalized_profit_uses_split_basis_and_rejects_nonpositive_mean(self) -> None:
+        asof = date(2026, 6, 30)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=date(2024, 1, 10),
+                close=50.0,
+                turnover_value=1_000_000.0,
+                adjustment_factor=0.5,
+            )
+        ]
+        summaries = [
+            _summary(
+                "130A",
+                date(2023, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2023, 3, 31),
+                eps_ttm=40.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                eps_ttm=20.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                eps_ttm=20.0,
+            ),
+        ]
+        split_safe = build_normalized_profit_signals(
+            summaries, bars, asof, close=100.0, current_eps=20.0
+        )
+        loss_mean = build_normalized_profit_signals(
+            [
+                replace(summary, eps_ttm=value)
+                for summary, value in zip(summaries, (-40.0, 0.0, 10.0), strict=True)
+            ],
+            (),
+            asof,
+            close=100.0,
+            current_eps=10.0,
+        )
+
+        self.assertAlmostEqual(split_safe.normalized_per_3fy or 0.0, 5.0)
+        self.assertIsNone(loss_mean.normalized_per_3fy)
+
     def test_shareholder_return_change_builds_preregistered_components(self) -> None:
         asof = date(2026, 6, 30)
         summaries = [

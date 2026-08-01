@@ -79,6 +79,12 @@ MARGIN_CONTROL_FIELDS: tuple[str, ...] = (
     "realized_volatility_60d",
     "sector_33",
 )
+PROFIT_NORMALIZATION_CONTROL_FIELDS: tuple[str, ...] = (
+    "per_trailing",
+    "pbr",
+    "market_cap_oku",
+    "sector_33",
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -162,6 +168,8 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="margin_long_delta_26w", direction=-1),
     AxisSpec(name="margin_std_long_share", direction=-1),
     AxisSpec(name="margin_long_to_adv_mcap_quintile_percentile", direction=-1),
+    AxisSpec(name="normalized_per_3fy", direction=-1),
+    AxisSpec(name="normalized_per_5fy", direction=-1),
 )
 
 # gate 条件付き評価を行う「割安軸」 (この軸の best decile 内で gate を比較する) 。
@@ -296,6 +304,7 @@ def _evaluate_cohort(
             "shareholder_return_change": {},
             "margin_deadline_gate": {},
             "margin_supply_demand_hypotheses": {},
+            "profit_normalization_hypotheses": {},
             "er_calibration": {},
             "er_level_calibration": {},
         }
@@ -310,6 +319,7 @@ def _evaluate_cohort(
     selection = _evaluate_selection(population, excess)
     margin_deadline_gate = _evaluate_margin_deadline_gate(panel, excess)
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
+    profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
     quality_interaction = _evaluate_quality_interaction(population, excess)
     return_change = _evaluate_shareholder_return_change(population, excess)
     er_calibration = _evaluate_er_calibration(
@@ -365,6 +375,7 @@ def _evaluate_cohort(
         "shareholder_return_change": return_change,
         "margin_deadline_gate": margin_deadline_gate,
         "margin_supply_demand_hypotheses": margin_hypotheses,
+        "profit_normalization_hypotheses": profit_hypotheses,
         "er_calibration": er_calibration,
         "er_level_calibration": er_level_calibration,
     }
@@ -998,6 +1009,70 @@ def _evaluate_margin_supply_demand_hypotheses(
     return result
 
 
+def _evaluate_profit_normalization_hypotheses(
+    population: Sequence[PanelRow], excess: Mapping[str, float]
+) -> dict[str, object]:
+    controls = {
+        control_name: _stratified_axis_control(
+            population,
+            excess,
+            axis_name="normalized_per_3fy",
+            direction=-1,
+            control_name=control_name,
+        )
+        for control_name in PROFIT_NORMALIZATION_CONTROL_FIELDS
+    }
+    er_rows = sorted(
+        (row for row in population if row.er_annual is not None),
+        key=lambda row: (row.er_annual or 0.0, row.ticker),
+    )
+    top_start = int((DECILES - 1) * len(er_rows) / DECILES) if er_rows else 0
+    eligible = [row for row in er_rows[top_start:] if row.eps_cycle_peak_3fy is not None]
+    flagged = [excess[row.ticker] for row in eligible if row.eps_cycle_peak_3fy is True]
+    unflagged = [excess[row.ticker] for row in eligible if row.eps_cycle_peak_3fy is False]
+    flagged_stats = _group_stats(flagged)
+    unflagged_stats = _group_stats(unflagged)
+    population_n = len(population)
+
+    def coverage(field_name: str) -> float | None:
+        if not population_n:
+            return None
+        return round(
+            sum(getattr(row, field_name) is not None for row in population) / population_n,
+            4,
+        )
+
+    return {
+        "population_n": population_n,
+        "normalized_per_3fy_coverage": coverage("normalized_per_3fy"),
+        "normalized_per_5fy_coverage": coverage("normalized_per_5fy"),
+        "normalized_per_3fy_controls": controls,
+        "cycle_peak_top_er_decile": {
+            "eligible_n": len(eligible),
+            "flagged": flagged_stats,
+            "unflagged": unflagged_stats,
+            "median_excess_delta": _rounded_delta(
+                unflagged_stats.get("median_excess"), flagged_stats.get("median_excess")
+            ),
+            "trap_rate_delta": _rounded_delta(
+                unflagged_stats.get("trap_rate"), flagged_stats.get("trap_rate")
+            ),
+        },
+        "self_range_coverage": {
+            f"at_least_{sessions}": (
+                round(
+                    sum(row.self_range_observed_sessions >= sessions for row in population)
+                    / population_n,
+                    4,
+                )
+                if population_n
+                else None
+            )
+            for sessions in (750, 1250, 2500)
+        },
+    }
+
+
 def _stratified_axis_control(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
@@ -1513,6 +1588,8 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
         "margin_deadline_gate": _aggregate_margin_deadline_gate(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
+        "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
+        "er_calibration": _aggregate_er_calibration(cohorts),
     }
 
 
@@ -1613,6 +1690,140 @@ def _aggregate_margin_hypotheses(
             "controls": controls_summary,
         }
     return result
+
+
+def _aggregate_profit_normalization(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    controls = {
+        name: _QualityControlAccumulator(median_deltas=[], trap_deltas=[])
+        for name in PROFIT_NORMALIZATION_CONTROL_FIELDS
+    }
+    coverage_3fy: list[float] = []
+    coverage_5fy: list[float] = []
+    self_coverage: dict[int, list[float]] = {750: [], 1250: [], 2500: []}
+    cycle_medians: list[float] = []
+    cycle_traps: list[float] = []
+    eligible_n = 0
+    flagged_n = 0
+    unflagged_n = 0
+    for cohort in cohorts:
+        hypotheses = cohort.get("profit_normalization_hypotheses")
+        if not isinstance(hypotheses, dict):
+            continue
+        _append_numeric(hypotheses.get("normalized_per_3fy_coverage"), coverage_3fy)
+        _append_numeric(hypotheses.get("normalized_per_5fy_coverage"), coverage_5fy)
+        range_coverage = hypotheses.get("self_range_coverage")
+        if isinstance(range_coverage, dict):
+            for sessions, values in self_coverage.items():
+                _append_numeric(range_coverage.get(f"at_least_{sessions}"), values)
+        cohort_controls = hypotheses.get("normalized_per_3fy_controls")
+        if isinstance(cohort_controls, dict):
+            for name, accumulator in controls.items():
+                control = cohort_controls.get(name)
+                if not isinstance(control, dict):
+                    continue
+                median_value = control.get("stratified_median_excess_spread")
+                trap_value = control.get("stratified_trap_rate_delta")
+                if not isinstance(median_value, int | float) or not isinstance(
+                    trap_value, int | float
+                ):
+                    continue
+                accumulator.median_deltas.append(float(median_value))
+                accumulator.trap_deltas.append(float(trap_value))
+                accumulator.cohorts += 1
+                weight = control.get("matched_weight")
+                if isinstance(weight, int):
+                    accumulator.matched_weight += weight
+        cycle = hypotheses.get("cycle_peak_top_er_decile")
+        if not isinstance(cycle, dict):
+            continue
+        flagged = cycle.get("flagged")
+        unflagged = cycle.get("unflagged")
+        if not isinstance(flagged, dict) or not isinstance(unflagged, dict):
+            continue
+        cohort_flagged_n = flagged.get("n")
+        cohort_unflagged_n = unflagged.get("n")
+        if not isinstance(cohort_flagged_n, int) or not isinstance(cohort_unflagged_n, int):
+            continue
+        if cohort_flagged_n < 5 or cohort_unflagged_n < 5:
+            continue
+        flagged_n += cohort_flagged_n
+        unflagged_n += cohort_unflagged_n
+        eligible_n += cohort_flagged_n + cohort_unflagged_n
+        _append_numeric(cycle.get("median_excess_delta"), cycle_medians)
+        _append_numeric(cycle.get("trap_rate_delta"), cycle_traps)
+
+    return {
+        "mean_normalized_per_3fy_coverage": (
+            round(fmean(coverage_3fy), 4) if coverage_3fy else None
+        ),
+        "mean_normalized_per_5fy_coverage": (
+            round(fmean(coverage_5fy), 4) if coverage_5fy else None
+        ),
+        "normalized_per_3fy_controls": _control_summaries(controls),
+        "cycle_peak_top_er_decile": {
+            "comparable_cohorts": len(cycle_medians),
+            "eligible_n": eligible_n,
+            "flagged_n": flagged_n,
+            "unflagged_n": unflagged_n,
+            "mean_median_excess_delta": (round(fmean(cycle_medians), 6) if cycle_medians else None),
+            "median_delta_positive_share": (
+                round(sum(value > 0 for value in cycle_medians) / len(cycle_medians), 4)
+                if cycle_medians
+                else None
+            ),
+            "mean_trap_rate_delta": (round(fmean(cycle_traps), 6) if cycle_traps else None),
+        },
+        "mean_self_range_coverage": {
+            f"at_least_{sessions}": round(fmean(values), 4) if values else None
+            for sessions, values in self_coverage.items()
+        },
+    }
+
+
+def _aggregate_er_calibration(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    absolute_errors: list[float] = []
+    realized_spreads: list[float] = []
+    total_n = 0
+    for cohort in cohorts:
+        calibration = cohort.get("er_calibration")
+        if not isinstance(calibration, dict):
+            continue
+        if isinstance(calibration.get("n"), int):
+            total_n += int(calibration["n"])
+        quintiles = calibration.get("er_quintiles")
+        if not isinstance(quintiles, list) or len(quintiles) < 2:
+            continue
+        errors = [
+            abs(float(item["calibration_error"]))
+            for item in quintiles
+            if isinstance(item, dict) and isinstance(item.get("calibration_error"), int | float)
+        ]
+        if errors:
+            absolute_errors.append(fmean(errors))
+        first = quintiles[0]
+        last = quintiles[-1]
+        if isinstance(first, dict) and isinstance(last, dict):
+            bottom = first.get("median_realized_price_excess")
+            top = last.get("median_realized_price_excess")
+            if isinstance(bottom, int | float) and isinstance(top, int | float):
+                realized_spreads.append(float(top) - float(bottom))
+    return {
+        "cohorts": len(absolute_errors),
+        "total_n": total_n,
+        "mean_absolute_calibration_error": (
+            round(fmean(absolute_errors), 6) if absolute_errors else None
+        ),
+        "mean_realized_top_bottom_spread": (
+            round(fmean(realized_spreads), 6) if realized_spreads else None
+        ),
+        "spread_positive_share": (
+            round(sum(value > 0 for value in realized_spreads) / len(realized_spreads), 4)
+            if realized_spreads
+            else None
+        ),
+    }
 
 
 def _aggregate_quality_interaction(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:

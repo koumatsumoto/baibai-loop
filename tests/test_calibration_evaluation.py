@@ -289,6 +289,43 @@ class EvaluateCohortsTest(unittest.TestCase):
         ]
         self.assertEqual(normalized, {"normalized_in_axis": True})
 
+    def test_profit_normalization_reports_controls_cycle_flag_and_history_coverage(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for index in range(120):
+            ticker = f"5{index:03d}"
+            panel.append(
+                replace(
+                    _panel_row(
+                        ticker,
+                        per_trailing=5.0 + index,
+                        pbr=1.0 + index / 100,
+                        market_cap_oku=100.0 + index,
+                        er_annual=index / 100,
+                        er_reversion_annual=index / 200,
+                    ),
+                    normalized_per_3fy=1.0 + index,
+                    normalized_per_5fy=2.0 + index,
+                    eps_cycle_percentile_3fy=1.0 if index >= 114 else 0.5,
+                    eps_cycle_peak_3fy=index >= 114,
+                    self_range_observed_sessions=1300,
+                )
+            )
+            forwards.append(_forward_row(ticker, -index / 100))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]
+        hypotheses = cohort["profit_normalization_hypotheses"]
+        aggregate = result["6m"]["aggregate"]["profit_normalization_hypotheses"]
+
+        self.assertGreater(cohort["axes"]["normalized_per_3fy"]["decile_spread_median"], 0)
+        self.assertEqual(hypotheses["normalized_per_3fy_coverage"], 1.0)
+        self.assertEqual(hypotheses["self_range_coverage"]["at_least_1250"], 1.0)
+        cycle = aggregate["cycle_peak_top_er_decile"]
+        self.assertEqual(cycle["flagged_n"], 6)
+        self.assertEqual(cycle["unflagged_n"], 6)
+        self.assertGreater(cycle["mean_median_excess_delta"], 0)
+
 
 class MarginSizeNormalizationTest(unittest.TestCase):
     def test_rank_is_tie_aware_within_stable_market_cap_quintiles(self) -> None:

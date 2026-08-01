@@ -19,16 +19,18 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.foundation.coerce import int_or, string_or_none
-from baibai_engine.market.store import read_daily_bars
+from baibai_engine.market.store import read_adjustment_factor_bars, read_daily_bars
 
 from ..candidate_build import build_screened_candidate
 from ..estimates import estimate_expected_return
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
     VALUATION_HISTORY_SESSIONS,
     build_metrics,
+    build_normalized_profit_signals,
     build_shareholder_return_change_signals,
     build_shares_outstanding_index,
     group_bars_by_ticker,
@@ -52,7 +54,12 @@ from .forward import STALE_PRICE_MAX_LAG_DAYS
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
 
-PanelVariant = Literal["production", "pre2019_self_range_375"]
+PanelVariant = Literal[
+    "production",
+    "pre2019_self_range_375",
+    "self_range_1250",
+    "self_range_2500",
+]
 PopulationCoverageStatus = Literal[
     "evaluated", "priced_master_without_universe", "master_without_universe_unpriced"
 ]
@@ -80,8 +87,26 @@ PRE2019_SELF_RANGE_POLICY = PanelBuildPolicy(
     bars_input_window_days=600,
     production_authority=False,
 )
+SELF_RANGE_1250_POLICY = PanelBuildPolicy(
+    variant="self_range_1250",
+    valuation_history_sessions=1250,
+    bars_input_window_days=2000,
+    production_authority=False,
+)
+SELF_RANGE_2500_POLICY = PanelBuildPolicy(
+    variant="self_range_2500",
+    valuation_history_sessions=2500,
+    bars_input_window_days=4000,
+    production_authority=False,
+)
 PANEL_BUILD_POLICIES: dict[PanelVariant, PanelBuildPolicy] = {
-    policy.variant: policy for policy in (PRODUCTION_PANEL_POLICY, PRE2019_SELF_RANGE_POLICY)
+    policy.variant: policy
+    for policy in (
+        PRODUCTION_PANEL_POLICY,
+        PRE2019_SELF_RANGE_POLICY,
+        SELF_RANGE_1250_POLICY,
+        SELF_RANGE_2500_POLICY,
+    )
 }
 
 
@@ -187,6 +212,11 @@ class PanelRow:
     margin_short_to_adv: float | None = None
     margin_long_to_adv_mcap_quintile_percentile: float | None = None
     realized_volatility_60d: float | None = None
+    normalized_per_3fy: float | None = None
+    normalized_per_5fy: float | None = None
+    eps_cycle_percentile_3fy: float | None = None
+    eps_cycle_peak_3fy: bool | None = None
+    self_range_observed_sessions: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -276,6 +306,11 @@ def build_panel(
         fin_floor,
         asof_date - timedelta(days=SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS),
     )
+    normalized_profit_start = max(
+        fin_floor,
+        asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS),
+    )
+    history_start = min(return_history_start, normalized_profit_start)
     bars_read_start = min(bars_start, return_history_start)
     history_bars = read_daily_bars(sqlite_path, bars_read_start, asof_date)
     if history_bars is None:
@@ -283,11 +318,19 @@ def build_panel(
             f"daily bars are not covered for {bars_read_start.isoformat()}..{asof_date.isoformat()}"
         )
     bars = [bar for bar in history_bars if bar.traded_at >= bars_start]
-    history_summaries = read_fin_summaries(sqlite_path, return_history_start, asof_date)
+    normalized_profit_split_bars = read_adjustment_factor_bars(
+        sqlite_path, normalized_profit_start, asof_date
+    )
+    if normalized_profit_split_bars is None:
+        raise CalibrationError(
+            "daily bars are not covered for normalized EPS split events "
+            f"{normalized_profit_start.isoformat()}..{asof_date.isoformat()}"
+        )
+    history_summaries = read_fin_summaries(sqlite_path, history_start, asof_date)
     if history_summaries is None:
         raise CalibrationError(
             "fin summaries are not covered for "
-            f"{return_history_start.isoformat()}..{asof_date.isoformat()}"
+            f"{history_start.isoformat()}..{asof_date.isoformat()}"
         )
     summaries = [summary for summary in history_summaries if summary.disclosed_at >= fin_start]
     edinet_by_ticker = read_edinet_metrics(sqlite_path, asof_date) or {}
@@ -295,6 +338,7 @@ def build_panel(
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
     history_bars_by_ticker = group_bars_by_ticker(history_bars)
+    normalized_profit_split_bars_by_ticker = group_bars_by_ticker(normalized_profit_split_bars)
     history_summaries_by_ticker = group_summaries_by_ticker(history_summaries)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
@@ -376,6 +420,13 @@ def build_panel(
             history_bars_by_ticker.get(ticker, ()),
             asof_date,
         )
+        normalized_profit = build_normalized_profit_signals(
+            history_summaries_by_ticker.get(ticker, ()),
+            normalized_profit_split_bars_by_ticker.get(ticker, ()),
+            asof_date,
+            close=latest_close_by_ticker.get(ticker),
+            current_eps=financial.eps,
+        )
         rows.append(
             PanelRow(
                 asof=asof_date.isoformat(),
@@ -450,6 +501,13 @@ def build_panel(
                 margin_std_long_share=derived.margin_std_long_share,
                 margin_long_to_adv_mcap_quintile_percentile=None,
                 realized_volatility_60d=derived.realized_volatility_60d,
+                normalized_per_3fy=normalized_profit.normalized_per_3fy,
+                normalized_per_5fy=normalized_profit.normalized_per_5fy,
+                eps_cycle_percentile_3fy=normalized_profit.eps_cycle_percentile_3fy,
+                eps_cycle_peak_3fy=normalized_profit.eps_cycle_peak_3fy,
+                self_range_observed_sessions=sum(
+                    bar.traded_at <= asof_date for bar in bars_by_ticker.get(ticker, ())
+                ),
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
