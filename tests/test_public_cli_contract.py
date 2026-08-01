@@ -12,6 +12,7 @@ from baibai_engine.position.cli import build_parser as position_parser
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.ledger import PortfolioLedgerDocument, load_portfolio_ledger
 from baibai_engine.position.outcome_store import PortfolioOutcomeStore
+from baibai_engine.proposals.cli import build_parser as proposal_parser
 from baibai_engine.research.decision_cli import main as decision_main
 from baibai_engine.research.opportunity_cli import build_parser as opportunity_parser
 from baibai_engine.research.opportunity_cli import main as opportunity_main
@@ -468,6 +469,25 @@ def test_position_human_boundary_subcommand_help_is_public(command: str) -> None
     with pytest.raises(SystemExit) as excinfo:
         position_main([command, "--help"])
     assert excinfo.value.code == 0
+
+
+@pytest.mark.parametrize(
+    "parser_factory",
+    [opportunity_parser, position_parser, proposal_parser],
+)
+def test_current_decision_clis_do_not_expose_backdated_clock(
+    parser_factory: Callable[[], argparse.ArgumentParser],
+) -> None:
+    pending = [parser_factory()]
+    option_strings: set[str] = set()
+    while pending:
+        parser = pending.pop()
+        for action in parser._actions:
+            option_strings.update(action.option_strings)
+            if isinstance(action, argparse._SubParsersAction):
+                pending.extend(action.choices.values())
+
+    assert "--now" not in option_strings
 
 
 @pytest.mark.parametrize(

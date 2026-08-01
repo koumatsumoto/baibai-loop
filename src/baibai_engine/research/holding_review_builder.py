@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime, time
+from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -22,10 +23,11 @@ from baibai_engine.position.holding_review import (
     evaluate_holding_review,
 )
 from baibai_engine.position.ledger import PortfolioLedgerDocument, reconcile_portfolio
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
+    _classify_current_thesis_eligibility,
     evaluate_thesis,
 )
 
@@ -36,23 +38,58 @@ def build_holding_review_from_db(
     holding_thesis_id: str,
     position_id: str,
     candidate_thesis_id: str | None = None,
+    now: datetime | None = None,
 ) -> HoldingReviewDocument:
     """Build a draft from canonical thesis revisions and the current ledger head."""
+    operation_now = _operation_instant(now)
     initialize_database(db_path)
-    ledger_service = LedgerStoreService(db_path)
-    ledger, ledger_append_head = ledger_service.load_with_head()
     with closing(connect_rw(db_path)) as connection:
-        thesis = _load_ready_db_thesis(connection, holding_thesis_id)
-        candidate = (
-            None
-            if candidate_thesis_id is None
-            else _load_ready_db_thesis(connection, candidate_thesis_id)
+        connection.execute("BEGIN")
+        return _build_holding_review_in_transaction(
+            connection,
+            holding_thesis_id=holding_thesis_id,
+            candidate_thesis_id=candidate_thesis_id,
+            position_id=position_id,
+            now=operation_now,
+        )
+
+
+def _build_holding_review_in_transaction(
+    connection: sqlite3.Connection,
+    *,
+    holding_thesis_id: str,
+    position_id: str,
+    candidate_thesis_id: str | None,
+    now: datetime,
+) -> HoldingReviewDocument:
+    ledger, ledger_append_head = load_ledger_in_transaction(connection)
+    holding_thesis = _load_db_thesis(
+        connection,
+        holding_thesis_id,
+        now=now,
+        allow_expired_override=True,
+    )
+    candidate_thesis = (
+        None
+        if candidate_thesis_id is None
+        else _load_db_thesis(
+            connection,
+            candidate_thesis_id,
+            now=now,
+            allow_expired_override=False,
+        )
+    )
+    if not holding_thesis.current_ready and candidate_thesis is not None:
+        raise HoldingReviewError(
+            "expired holding thesis cannot be compared with a replacement candidate"
         )
     return _compose_holding_review(
         ledger=ledger,
-        thesis=thesis,
-        candidate=candidate,
+        thesis=holding_thesis.document,
+        holding_current_ready=holding_thesis.current_ready,
+        candidate=(None if candidate_thesis is None else candidate_thesis.document),
         position_id=position_id,
+        now=now,
         sources={
             "ledger": {
                 "entity_id": "portfolio-ledger",
@@ -72,8 +109,10 @@ def _compose_holding_review(
     *,
     ledger: PortfolioLedgerDocument,
     thesis: ThesisDocument,
+    holding_current_ready: bool,
     candidate: ThesisDocument | None,
     position_id: str,
+    now: datetime,
     sources: dict[str, object],
 ) -> HoldingReviewDocument:
     snapshot = reconcile_portfolio(ledger)
@@ -93,7 +132,7 @@ def _compose_holding_review(
         raise HoldingReviewError(
             "holding thesis market price does not match ledger unadjusted close"
         )
-    current_cagr = _base_5y_cagr(thesis)
+    current_cagr = _base_5y_cagr(thesis, now=now) if holding_current_ready else None
     replacement: dict[str, object] = {"status": "no_candidate"}
     if candidate is not None:
         if candidate.input_snapshot.as_of != as_of:
@@ -120,7 +159,7 @@ def _compose_holding_review(
             },
             "candidate": {
                 "ticker": candidate.input_snapshot.ticker,
-                "forward_5y_cagr_pct": _base_5y_cagr(candidate),
+                "forward_5y_cagr_pct": _base_5y_cagr(candidate, now=now),
             },
             "exit_tax": exit_tax,
         }
@@ -148,16 +187,22 @@ def _compose_holding_review(
                 "age_days": (as_of - latest_evidence).days,
             },
             "current_5y_estimate": {
-                "status": "resolved",
-                "forward_5y_cagr_pct": current_cagr,
+                "status": "resolved" if holding_current_ready else "unresolved",
+                **({"forward_5y_cagr_pct": current_cagr} if holding_current_ready else {}),
             },
         },
-        "valuation_review": {
-            "status": "resolved",
-            "current_price_yen": _whole_yen(holding.market_price_yen),
-            "fair_value_yen": _whole_yen(thesis.estimates.current_fair_value_yen),
-            "review_trigger": holding.market_price_yen >= thesis.estimates.current_fair_value_yen,
-        },
+        "valuation_review": (
+            {
+                "status": "resolved",
+                "current_price_yen": _whole_yen(holding.market_price_yen),
+                "fair_value_yen": _whole_yen(thesis.estimates.current_fair_value_yen),
+                "review_trigger": (
+                    holding.market_price_yen >= thesis.estimates.current_fair_value_yen
+                ),
+            }
+            if holding_current_ready
+            else {"status": "unresolved"}
+        ),
         "replacement_comparison": replacement,
         "action": "hold",
     }
@@ -169,20 +214,40 @@ def validate_holding_review_scalars_from_db(
     document: HoldingReviewDocument,
     *,
     db_path: Path | None,
+    now: datetime,
 ) -> None:
+    operation_now = _operation_instant(now)
+    initialize_database(db_path)
+    with closing(connect_rw(db_path)) as connection:
+        connection.execute("BEGIN")
+        _validate_holding_review_scalars_in_transaction(
+            document,
+            connection=connection,
+            now=operation_now,
+        )
+
+
+def _validate_holding_review_scalars_in_transaction(
+    document: HoldingReviewDocument,
+    *,
+    connection: sqlite3.Connection,
+    now: datetime,
+) -> None:
+    operation_now = _operation_instant(now)
     ledger_source = document.sources.ledger
     thesis_source = document.sources.holding_thesis
     candidate_source = document.sources.candidate_thesis
     if ledger_source.entity_id != "portfolio-ledger" or ledger_source.append_head is None:
         raise HoldingReviewError("holding review ledger binding is incomplete")
-    if LedgerStoreService(db_path).append_head() != ledger_source.append_head:
-        raise HoldingReviewError("holding review ledger source changed after draft build")
-    rebuilt = build_holding_review_from_db(
-        db_path=db_path,
+    rebuilt = _build_holding_review_in_transaction(
+        connection,
         holding_thesis_id=thesis_source.entity_id,
         candidate_thesis_id=(None if candidate_source is None else candidate_source.entity_id),
         position_id=document.position_id,
+        now=operation_now,
     )
+    if rebuilt.sources.ledger.append_head != ledger_source.append_head:
+        raise HoldingReviewError("holding review ledger source changed after draft build")
     fields = {
         "as_of",
         "ticker",
@@ -197,7 +262,19 @@ def validate_holding_review_scalars_from_db(
         raise HoldingReviewError("holding review load-bearing values differ from DB rebuild")
 
 
-def _load_ready_db_thesis(connection: sqlite3.Connection, thesis_id: str) -> ThesisDocument:
+@dataclass(frozen=True, slots=True)
+class _LoadedThesis:
+    document: ThesisDocument
+    current_ready: bool
+
+
+def _load_db_thesis(
+    connection: sqlite3.Connection,
+    thesis_id: str,
+    *,
+    now: datetime,
+    allow_expired_override: bool,
+) -> _LoadedThesis:
     thesis_row = connection.execute(
         "SELECT payload FROM thesis WHERE thesis_id = ?", (thesis_id,)
     ).fetchone()
@@ -211,15 +288,13 @@ def _load_ready_db_thesis(connection: sqlite3.Connection, thesis_id: str) -> The
         raise HoldingReviewError("holding review requires exactly one independent review")
     thesis = ThesisDocument.model_validate(json.loads(str(thesis_row["payload"])))
     review = IndependentReview.model_validate(json.loads(str(review_rows[0]["payload"])))
-    # The thesis is judged at the moment it describes, not at the moment it is
-    # read back. A draft rebuilt from the same revisions has to reach the same
-    # verdict whenever it runs.
-    result = evaluate_thesis(thesis, review=review, now=_thesis_instant(thesis))
-    if result.errors or result.decision_readiness != "ready":
-        raise HoldingReviewError(
-            "thesis is not ready for holding review: " + "; ".join(result.errors)
-        )
-    return thesis
+    eligibility = _classify_current_thesis_eligibility(thesis, review=review, now=now)
+    if eligibility.status == "current_ready":
+        return _LoadedThesis(thesis, current_ready=True)
+    if allow_expired_override and eligibility.status == "expired_override_only":
+        return _LoadedThesis(thesis, current_ready=False)
+    detail = "; ".join(eligibility.result.errors) or eligibility.result.decision_readiness
+    raise HoldingReviewError(f"thesis is not ready for holding review: {detail}")
 
 
 def _thesis_market_price(thesis: ThesisDocument) -> Decimal:
@@ -235,8 +310,8 @@ def _thesis_market_price(thesis: ThesisDocument) -> Decimal:
     return Decimal(str(fact.value))
 
 
-def _base_5y_cagr(thesis: ThesisDocument) -> float:
-    result = evaluate_thesis(thesis)
+def _base_5y_cagr(thesis: ThesisDocument, *, now: datetime) -> float:
+    result = evaluate_thesis(thesis, now=now)
     scenario = next(
         (item for item in result.scenarios if item.horizon_years == 5 and item.name == "base"), None
     )
@@ -251,6 +326,8 @@ def _whole_yen(value: Decimal) -> int:
     return int(value)
 
 
-def _thesis_instant(thesis: ThesisDocument) -> datetime:
-    """The instant a stored thesis's own snapshot belongs to, in JST."""
-    return datetime.combine(thesis.input_snapshot.as_of, time(15, 30), tzinfo=JST)
+def _operation_instant(now: datetime | None) -> datetime:
+    resolved = now or datetime.now(JST)
+    if resolved.tzinfo is None or resolved.utcoffset() is None:
+        raise HoldingReviewError("operation clock must be timezone-aware")
+    return resolved

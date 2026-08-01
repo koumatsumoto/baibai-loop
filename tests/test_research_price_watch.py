@@ -194,7 +194,7 @@ def _run(
         thesis_id = (
             f"thesis-{thesis.input_snapshot.as_of:%Y%m%d}-{thesis.input_snapshot.ticker}-test"
         )
-        service = ResearchStoreService(db_path)
+        service = ResearchStoreService(db_path, clock=lambda: FIXED_NOW)
         if thesis.independent_review_ref is None:
             service.publish_thesis(thesis_id, thesis.model_dump(mode="json"))
             review_path = thesis_path.with_name(
@@ -210,7 +210,6 @@ def _run(
                 thesis_id,
                 thesis.model_dump(mode="json"),
                 review.model_dump(mode="json"),
-                now=FIXED_NOW,
             )
         document = load_portfolio_ledger(ledger)
         document = document.model_copy(

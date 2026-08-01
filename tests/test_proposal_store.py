@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import baibai_engine.proposals.store as proposal_store_module
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
 from baibai_engine.position.ledger import (
@@ -27,6 +28,7 @@ from baibai_engine.proposals.store import (
 from baibai_engine.research.opportunity import plan_limit
 from baibai_engine.research.opportunity_cli import main as research_main
 from baibai_engine.research.store import ResearchStoreService
+from baibai_engine.research.thesis import IndependentReview, ThesisDocument, ThesisResult
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
 
@@ -45,9 +47,9 @@ def _raw(path: Path) -> dict[str, object]:
 
 
 def _database(path: Path, *, with_review: bool = True) -> None:
-    service = ResearchStoreService(path)
+    service = ResearchStoreService(path, clock=lambda: FIXED_NOW)
     if with_review:
-        service.publish_thesis_with_review(THESIS_ID, _raw(THESIS), _raw(REVIEW), now=FIXED_NOW)
+        service.publish_thesis_with_review(THESIS_ID, _raw(THESIS), _raw(REVIEW))
     else:
         thesis = _raw(THESIS)
         thesis["judgment"]["recommendation"] = "defer"  # type: ignore[index]
@@ -99,7 +101,11 @@ def _current_snapshot(path: Path) -> PortfolioSnapshot:
 
 
 def _service(path: Path) -> ProposalStoreService:
-    return ProposalStoreService(path, market_db_path=path.with_name("market.sqlite"))
+    return ProposalStoreService(
+        path,
+        market_db_path=path.with_name("market.sqlite"),
+        clock=lambda: CREATED_AT + timedelta(hours=1),
+    )
 
 
 def _create(service: ProposalStoreService, path: Path) -> ProposalRecord:
@@ -130,6 +136,158 @@ def test_create_uses_db_thesis_review_and_current_planning_limit(tmp_path: Path)
     generated = proposal.payload["execution_proposal"]
     assert isinstance(generated, dict)
     assert generated["orders"]
+
+
+def test_create_and_decide_use_operation_clock_not_record_timestamps(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "app.sqlite"
+    _database(path)
+    operation_now = CREATED_AT + timedelta(minutes=5)
+    clock_reads: list[datetime] = []
+    validation_instants: list[datetime | None] = []
+    real_evaluate = proposal_store_module.evaluate_thesis
+
+    def clock() -> datetime:
+        clock_reads.append(operation_now)
+        return operation_now
+
+    def recording_evaluate(
+        document: ThesisDocument,
+        *,
+        review: IndependentReview | None = None,
+        now: datetime | None = None,
+    ) -> ThesisResult:
+        validation_instants.append(now)
+        return real_evaluate(document, review=review, now=now)
+
+    monkeypatch.setattr(proposal_store_module, "evaluate_thesis", recording_evaluate)
+    service = ProposalStoreService(
+        path,
+        market_db_path=path.with_name("market.sqlite"),
+        clock=clock,
+    )
+
+    proposal = _create(service, path)
+    service.decide(
+        proposal.proposal_id,
+        "approve",
+        decided_at=CREATED_AT + timedelta(minutes=1),
+        snapshot=_current_snapshot(path),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
+    )
+
+    assert clock_reads == [operation_now, operation_now]
+    assert validation_instants
+    assert set(validation_instants) == {operation_now}
+
+
+def test_proposal_write_rejects_naive_operation_clock_before_insert(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _database(path)
+    service = ProposalStoreService(
+        path,
+        market_db_path=path.with_name("market.sqlite"),
+        clock=lambda: CREATED_AT.replace(tzinfo=None),
+    )
+
+    with pytest.raises(ProposalValidationError, match="timezone"):
+        _create(service, path)
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM proposal").fetchone()[0] == 0
+
+
+def test_proposal_cli_rejects_naive_clock_before_database_creation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = tmp_path / "must-not-exist.sqlite"
+
+    assert (
+        proposal_main(
+            [
+                "--db",
+                str(path),
+                "create",
+                "--thesis-id",
+                THESIS_ID,
+                "--input",
+                str(tmp_path / "unused.yaml"),
+            ],
+            now=CREATED_AT.replace(tzinfo=None),
+        )
+        == 1
+    )
+
+    assert "timezone-aware" in capsys.readouterr().err
+    assert not path.exists()
+
+
+def test_proposal_write_rejects_future_event_timestamp_before_insert(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _database(path)
+    service = ProposalStoreService(
+        path,
+        market_db_path=path.with_name("market.sqlite"),
+        clock=lambda: CREATED_AT,
+    )
+
+    with pytest.raises(ProposalValidationError, match="after the operation clock"):
+        service.create(
+            THESIS_ID,
+            _planned(path),
+            _current_snapshot(path),
+            snapshot_append_head=LedgerStoreService(path).append_head(),
+            created_at=CREATED_AT + timedelta(seconds=1),
+        )
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM proposal").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("operation_now", "decided_at"),
+    [
+        (CREATED_AT + timedelta(minutes=5), CREATED_AT + timedelta(minutes=5, seconds=1)),
+        (CREATED_AT.replace(tzinfo=None), CREATED_AT + timedelta(minutes=1)),
+    ],
+)
+def test_proposal_decide_rejects_invalid_clock_without_updating_pending_row(
+    tmp_path: Path,
+    operation_now: datetime,
+    decided_at: datetime,
+) -> None:
+    path = tmp_path / "app.sqlite"
+    _database(path)
+    proposal = _create(_service(path), path)
+    with sqlite3.connect(path) as connection:
+        before = connection.execute(
+            "SELECT status, decided_at, payload FROM proposal WHERE proposal_id = ?",
+            (proposal.proposal_id,),
+        ).fetchone()
+
+    service = ProposalStoreService(
+        path,
+        market_db_path=path.with_name("market.sqlite"),
+        clock=lambda: operation_now,
+    )
+    with pytest.raises(ProposalValidationError, match=r"timezone|operation clock"):
+        service.decide(
+            proposal.proposal_id,
+            "approve",
+            decided_at=decided_at,
+            snapshot=_current_snapshot(path),
+            snapshot_append_head=LedgerStoreService(path).append_head(),
+        )
+
+    with sqlite3.connect(path) as connection:
+        after = connection.execute(
+            "SELECT status, decided_at, payload FROM proposal WHERE proposal_id = ?",
+            (proposal.proposal_id,),
+        ).fetchone()
+    assert before == after
 
 
 def test_internal_ids_are_allocated_without_collision_under_write_lock(tmp_path: Path) -> None:

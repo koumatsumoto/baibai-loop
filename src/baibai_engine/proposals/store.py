@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import closing, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime, time
@@ -178,9 +178,11 @@ class ProposalStoreService:
         db_path: Path | None = None,
         *,
         market_db_path: Path = Path("data/screening/market.sqlite"),
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._db_path = db_path
         self._market_db_path = market_db_path
+        self._clock = clock or (lambda: datetime.now(JST))
 
     def create(
         self,
@@ -192,7 +194,10 @@ class ProposalStoreService:
         created_at: datetime,
     ) -> ProposalRecord:
         """Create one pending proposal from an immutable ready thesis and current ledger."""
+        operation_now = self._operation_now()
         _require_aware(created_at, "created_at")
+        if created_at > operation_now:
+            raise ProposalValidationError("created_at cannot be after the operation clock")
         initialize_database(self._db_path)
         with (
             closing(_open_market_snapshot(self._market_db_path)) as market_connection,
@@ -200,10 +205,11 @@ class ProposalStoreService:
         ):
             connection.execute("BEGIN IMMEDIATE")
             try:
-                # The proposal's own instant is what its evidence is judged against,
-                # so the verdict is a property of the proposal rather than of when
-                # someone happens to re-read it.
-                thesis, review = _ready_thesis_and_review(connection, thesis_id, now=created_at)
+                thesis, review = _ready_thesis_and_review(
+                    connection,
+                    thesis_id,
+                    now=operation_now,
+                )
                 _validate_planned_limit(
                     connection,
                     planned_limit,
@@ -211,7 +217,7 @@ class ProposalStoreService:
                     review=review,
                     snapshot=snapshot,
                     snapshot_append_head=snapshot_append_head,
-                    now=created_at,
+                    now=operation_now,
                     market_db_path=self._market_db_path,
                     market_connection=market_connection,
                     claimed_source_ref=planned_limit.source_ref,
@@ -264,7 +270,10 @@ class ProposalStoreService:
         snapshot_append_head: int | None = None,
     ) -> ProposalRecord:
         """Record a human report, revalidating an approval against current DB state."""
+        operation_now = self._operation_now()
         _require_aware(decided_at, "decided_at")
+        if decided_at > operation_now:
+            raise ProposalValidationError("decided_at cannot be after the operation clock")
         target = _decision_status(decision)
         initialize_database(self._db_path)
         market_context = (
@@ -310,6 +319,7 @@ class ProposalStoreService:
                         snapshot=snapshot,
                         snapshot_append_head=snapshot_append_head,
                         decided_at=decided_at,
+                        now=operation_now,
                         market_db_path=self._market_db_path,
                         market_connection=market_connection,
                     )
@@ -326,6 +336,11 @@ class ProposalStoreService:
                 connection.rollback()
                 raise
         return _record(updated)
+
+    def _operation_now(self) -> datetime:
+        resolved = self._clock()
+        _require_aware(resolved, "operation clock")
+        return resolved
 
     def get(self, proposal_id: str) -> ProposalRecord:
         initialize_database(self._db_path)
@@ -406,6 +421,7 @@ def _revalidate_approval(
     snapshot: PortfolioSnapshot,
     snapshot_append_head: int,
     decided_at: datetime,
+    now: datetime,
     market_db_path: Path,
     market_connection: sqlite3.Connection,
 ) -> None:
@@ -418,9 +434,7 @@ def _revalidate_approval(
         connection,
         str(row["thesis_id"]),
         review_id=str(row["review_id"]),
-        # Re-validation judges the evidence at the moment the decision is made,
-        # not at the moment the row is read back.
-        now=decided_at,
+        now=now,
     )
     _validate_planned_limit(
         connection,
@@ -429,7 +443,7 @@ def _revalidate_approval(
         review=review,
         snapshot=snapshot,
         snapshot_append_head=snapshot_append_head,
-        now=decided_at,
+        now=now,
         market_db_path=market_db_path,
         market_connection=market_connection,
     )

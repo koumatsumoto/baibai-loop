@@ -38,8 +38,8 @@ def _raw(path: Path) -> dict[str, object]:
 
 def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService, str]:
     db = tmp_path / "app.sqlite"
-    ResearchStoreService(db).publish_thesis_with_review(
-        THESIS_ID, _raw(THESIS), _raw(REVIEW), now=FIXED_NOW
+    ResearchStoreService(db, clock=lambda: FIXED_NOW).publish_thesis_with_review(
+        THESIS_ID, _raw(THESIS), _raw(REVIEW)
     )
     ledger = LedgerStoreService(db)
     source = load_portfolio_ledger(LEDGER)
@@ -54,7 +54,11 @@ def _approved(tmp_path: Path) -> tuple[LedgerStoreService, ProposalStoreService,
             }
         ),
     )
-    proposals = ProposalStoreService(db, market_db_path=tmp_path / "market.sqlite")
+    proposals = ProposalStoreService(
+        db,
+        market_db_path=tmp_path / "market.sqlite",
+        clock=lambda: CREATED_AT + timedelta(minutes=1),
+    )
     document, append_head = ledger.load_with_head()
     snapshot = reconcile_portfolio(document)
     market = tmp_path / "market.sqlite"

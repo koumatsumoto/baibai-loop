@@ -100,8 +100,8 @@ def _seed_app_method_root(root: Path) -> None:
     review = safe_load((FIXTURES / "thesis/2331-decision-review.yaml").read_text(encoding="utf-8"))
     assert isinstance(thesis, dict)
     assert isinstance(review, dict)
-    ResearchStoreService(db_path).publish_thesis_with_review(
-        "thesis-20260714-2331-r1", thesis, review, now=FIXED_NOW
+    ResearchStoreService(db_path, clock=lambda: FIXED_NOW).publish_thesis_with_review(
+        "thesis-20260714-2331-r1", thesis, review
     )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
