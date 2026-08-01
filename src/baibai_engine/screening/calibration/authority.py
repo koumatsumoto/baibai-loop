@@ -14,7 +14,12 @@ PRODUCTION_REQUIRED_METRICS = (
     "er_calibration",
 )
 KNOWN_METRICS = frozenset(
-    (*PRODUCTION_REQUIRED_METRICS, "selection_rank_top5", "selection_rank_top10")
+    (
+        *PRODUCTION_REQUIRED_METRICS,
+        "er_level_calibration",
+        "selection_rank_top5",
+        "selection_rank_top10",
+    )
 )
 
 

@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields, replace
 from datetime import date, timedelta
+from math import isfinite
 from pathlib import Path
 
 from baibai_engine.market.bars import asof_basis_closes
@@ -18,6 +19,19 @@ __all__ = ("HORIZONS", "ForwardReturnRow", "compute_forward_returns")
 
 ForwardStatus = str
 AdjustmentCoverage = str
+TotalReturnStatus = str
+TOTAL_RETURN_BASIS = "fy_actual_dividend_fiscal_year_end_window"
+TOTAL_RETURN_STATUSES = frozenset(
+    {
+        "resolved",
+        "unresolved_price_return",
+        "unresolved_adjustment_factor",
+        "unresolved_no_fy_observation",
+        "unresolved_missing_dividend",
+        "unresolved_invalid_dividend",
+        "unresolved_invalid_total_return",
+    }
+)
 
 STALE_PRICE_MAX_LAG_DAYS = 15
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
@@ -44,6 +58,18 @@ class ForwardReturnRow:
     exit_date: str | None
     status: ForwardStatus = "resolved"
     adjustment_factor_coverage: AdjustmentCoverage = "unknown"
+    realized_dividend_sum: float | None = None
+    realized_dividend_fy_count: int = 0
+    total_return: float | None = None
+    total_return_status: TotalReturnStatus = "unresolved_price_return"
+    total_return_basis: str = TOTAL_RETURN_BASIS
+
+
+@dataclass(frozen=True, slots=True)
+class _FYDividendObservation:
+    fiscal_year_end: date
+    disclosed_at: date
+    dps_actual_annual: float | None
 
 
 FORWARD_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(ForwardReturnRow))
@@ -74,6 +100,7 @@ def compute_forward_returns(
                 _ticker_forward_rows(
                     ticker,
                     _load_ticker_bars(conn, ticker, start=min_asof),
+                    fy_dividends=_load_fy_dividends(conn, ticker, cutoff=eval_cap),
                     asofs=asofs,
                     horizons=specs,
                     eval_cap=eval_cap,
@@ -88,6 +115,7 @@ def _ticker_forward_rows(
     ticker: str,
     bars: Sequence[JQuantsDailyBar],
     *,
+    fy_dividends: Sequence[_FYDividendObservation] = (),
     asofs: Sequence[date],
     horizons: Sequence[HorizonSpec],
     eval_cap: date | None,
@@ -150,13 +178,30 @@ def _ticker_forward_rows(
                         )
                     )
                 else:
+                    assert entry_date is not None
+                    price_return = exit_close / float(entry_close or 0.0) - 1
+                    dividend_sum, dividend_count, total_return, total_status = (
+                        _resolve_total_return(
+                            bars,
+                            fy_dividends,
+                            entry_date=entry_date,
+                            exit_date=exit_date,
+                            entry_close=float(entry_close or 0.0),
+                            price_return=price_return,
+                            adjustment_coverage=adjustment,
+                        )
+                    )
                     rows.append(
                         replace(
                             base,
                             resolved=True,
-                            price_return=exit_close / float(entry_close or 0.0) - 1,
+                            price_return=price_return,
                             exit_date=exit_date.isoformat(),
                             status="resolved",
+                            realized_dividend_sum=dividend_sum,
+                            realized_dividend_fy_count=dividend_count,
+                            total_return=total_return,
+                            total_return_status=total_status,
                         )
                     )
     return rows
@@ -191,6 +236,94 @@ def _load_ticker_bars(
         )
         for day, close, factor in rows
     ]
+
+
+def _load_fy_dividends(
+    conn: sqlite3.Connection, ticker: str, *, cutoff: date | None
+) -> list[_FYDividendObservation]:
+    if cutoff is None:
+        return []
+    rows = conn.execute(
+        "SELECT fiscal_year_end, disclosed_at, dps_actual_annual "
+        "FROM jquants_fin_summaries "
+        "WHERE ticker = ? AND fiscal_period = 'FY' AND fiscal_year_end IS NOT NULL "
+        "AND disclosed_at <= ? ORDER BY fiscal_year_end, disclosed_at",
+        (ticker, cutoff.isoformat()),
+    ).fetchall()
+    return [
+        _FYDividendObservation(
+            fiscal_year_end=date.fromisoformat(str(fiscal_year_end)),
+            disclosed_at=date.fromisoformat(str(disclosed_at)),
+            dps_actual_annual=(float(dps) if dps is not None else None),
+        )
+        for fiscal_year_end, disclosed_at, dps in rows
+    ]
+
+
+def _resolve_total_return(
+    bars: Sequence[JQuantsDailyBar],
+    observations: Sequence[_FYDividendObservation],
+    *,
+    entry_date: date,
+    exit_date: date,
+    entry_close: float,
+    price_return: float,
+    adjustment_coverage: AdjustmentCoverage,
+) -> tuple[float | None, int, float | None, TotalReturnStatus]:
+    """Resolve retrospective FY dividends without treating absent data as zero."""
+    if adjustment_coverage != "complete":
+        return None, 0, None, "unresolved_adjustment_factor"
+    by_fiscal_year_end: dict[date, list[_FYDividendObservation]] = {}
+    for observation in observations:
+        if entry_date < observation.fiscal_year_end <= exit_date:
+            by_fiscal_year_end.setdefault(observation.fiscal_year_end, []).append(observation)
+    if not by_fiscal_year_end:
+        return None, 0, None, "unresolved_no_fy_observation"
+
+    selected: list[_FYDividendObservation] = []
+    for fiscal_year_end in sorted(by_fiscal_year_end):
+        disclosed = [
+            observation
+            for observation in by_fiscal_year_end[fiscal_year_end]
+            if observation.dps_actual_annual is not None
+        ]
+        if not disclosed:
+            return None, 0, None, "unresolved_missing_dividend"
+        latest = max(disclosed, key=lambda observation: observation.disclosed_at)
+        assert latest.dps_actual_annual is not None
+        if not isfinite(latest.dps_actual_annual) or latest.dps_actual_annual < 0:
+            return None, 0, None, "unresolved_invalid_dividend"
+        selected.append(latest)
+
+    basis_date = bars[-1].traded_at
+    dividend_sum = sum(
+        float(observation.dps_actual_annual or 0.0)
+        * _cumulative_adjustment_factor_after(
+            bars, after=observation.disclosed_at, asof_date=basis_date
+        )
+        for observation in selected
+    )
+    if not isfinite(dividend_sum) or entry_close <= 0:
+        return None, 0, None, "unresolved_invalid_dividend"
+    total_return = price_return + dividend_sum / entry_close
+    if not isfinite(total_return) or total_return < -1:
+        return None, 0, None, "unresolved_invalid_total_return"
+    return dividend_sum, len(selected), total_return, "resolved"
+
+
+def _cumulative_adjustment_factor_after(
+    bars: Sequence[JQuantsDailyBar], *, after: date, asof_date: date
+) -> float:
+    """Match per-share facts to the final share basis used by asof_basis_closes."""
+    factor = 1.0
+    for bar in bars:
+        if bar.traded_at <= after or bar.traded_at > asof_date:
+            continue
+        if bar.adjustment_factor in (None, 0.0, 1.0):
+            continue
+        assert bar.adjustment_factor is not None
+        factor *= bar.adjustment_factor
+    return factor
 
 
 def _latest_bar_date(sqlite_path: Path) -> date | None:

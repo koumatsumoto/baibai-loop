@@ -82,6 +82,72 @@ def test_required_metric_must_be_resolved_for_each_long_cohort() -> None:
     assert "metric_unresolved:er_calibration" in decision.blocking_reasons
 
 
+def test_missing_required_metric_status_is_unresolved() -> None:
+    missing_level = CohortIntegrity(
+        asof="2020-01-31",
+        horizon="5y",
+        integrity_status="eligible",
+        metric_statuses={
+            "recommended_rank_top5": "eligible",
+            "recommended_rank_top10": "eligible",
+            "er_calibration": "eligible",
+        },
+    )
+    required = (
+        "recommended_rank_top5",
+        "recommended_rank_top10",
+        "er_calibration",
+        "er_level_calibration",
+    )
+    scope = EvaluationScope(
+        run_purpose="production_decision",
+        requested_horizons=("3y", "5y"),
+        cohort_window={"start": None, "end": None},
+        required_asofs=("2020-01-31",),
+        required_metrics=required,
+    )
+    complete = CohortIntegrity(
+        asof="2020-01-31",
+        horizon="3y",
+        integrity_status="eligible",
+        metric_statuses=dict.fromkeys(required, "eligible"),
+    )
+
+    decision = decide_authority(scope, (complete, missing_level))
+
+    assert decision.production_change_allowed is False
+    assert "metric_unresolved:er_level_calibration" in decision.blocking_reasons
+
+
+def test_optional_er_level_metric_can_be_explicitly_required() -> None:
+    required = (
+        "recommended_rank_top5",
+        "recommended_rank_top10",
+        "er_calibration",
+        "er_level_calibration",
+    )
+    scope = EvaluationScope(
+        run_purpose="production_decision",
+        requested_horizons=("3y", "5y"),
+        cohort_window={"start": None, "end": None},
+        required_asofs=("2020-01-31",),
+        required_metrics=required,
+    )
+    cohorts = tuple(
+        CohortIntegrity(
+            asof="2020-01-31",
+            horizon=horizon,
+            integrity_status="eligible",
+            metric_statuses=dict.fromkeys(required, "eligible"),
+        )
+        for horizon in ("3y", "5y")
+    )
+
+    decision = decide_authority(scope, cohorts)
+
+    assert decision.production_change_allowed is True
+
+
 def test_blocking_reasons_stay_bounded_as_the_panel_count_grows() -> None:
     # One reason per cohort would grow with the panel count and bury the few causes a
     # reader can act on, and the same growth would turn the histogram into ones.

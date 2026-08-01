@@ -15,7 +15,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.screening.calibration.cli import calibration_evaluate_command
+from baibai_engine.screening.calibration.cli import (
+    _required_metric_statuses,
+    calibration_evaluate_command,
+)
 from baibai_engine.screening.calibration.evaluation import (
     DECILES,
     MIN_AXIS_SAMPLE,
@@ -99,17 +102,29 @@ def _panel_row(
     )
 
 
-def _forward_row(ticker: str, price_return: float) -> ForwardReturnRow:
+def _forward_row(
+    ticker: str,
+    price_return: float,
+    *,
+    total_return: float | None = None,
+    horizon: str = "6m",
+) -> ForwardReturnRow:
     return ForwardReturnRow(
         asof="2025-06-30",
         ticker=ticker,
-        horizon="6m",
+        horizon=horizon,
         target_date="2025-12-29",
         resolved=True,
         price_return=price_return,
         stale_price=False,
         entry_date="2025-06-30",
         exit_date="2025-12-29",
+        realized_dividend_sum=(10.0 if total_return is not None else None),
+        realized_dividend_fy_count=(1 if total_return is not None else 0),
+        total_return=total_return,
+        total_return_status=(
+            "resolved" if total_return is not None else "unresolved_missing_dividend"
+        ),
     )
 
 
@@ -156,6 +171,25 @@ class SpearmanTest(unittest.TestCase):
 
     def test_spearman_below_min_sample_is_none(self) -> None:
         self.assertIsNone(_spearman([(1.0, 1.0)] * 10))
+
+
+class RequiredMetricStatusTest(unittest.TestCase):
+    def test_missing_non_mapping_and_unknown_statuses_fail_closed(self) -> None:
+        required = ("er_calibration", "er_level_calibration")
+        self.assertEqual(
+            _required_metric_statuses({"er_calibration": "eligible"}, required),
+            {"er_calibration": "eligible", "er_level_calibration": "unresolved"},
+        )
+        self.assertEqual(
+            _required_metric_statuses(None, required),
+            {"er_calibration": "unresolved", "er_level_calibration": "unresolved"},
+        )
+        self.assertEqual(
+            _required_metric_statuses(
+                {"er_calibration": "eligible", "er_level_calibration": "claimed"}, required
+            ),
+            {"er_calibration": "eligible", "er_level_calibration": "unresolved"},
+        )
 
 
 class EvaluateCohortsTest(unittest.TestCase):
@@ -385,6 +419,71 @@ class EvaluateCohortsTest(unittest.TestCase):
             low_carry["6m"]["cohorts"][0]["er_calibration"],
             high_carry["6m"]["cohorts"][0]["er_calibration"],
         )
+
+    def test_er_level_calibration_compares_absolute_annual_total_return(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for i in range(100):
+            ticker = f"37{i:02d}"
+            reversion = i / 1000
+            panel.append(
+                _panel_row(
+                    ticker,
+                    per_trailing=10.0,
+                    er_annual=reversion + 0.02,
+                    er_reversion_annual=reversion,
+                    er_carry_annual=0.02,
+                )
+            )
+            forwards.append(
+                _forward_row(
+                    ticker,
+                    reversion,
+                    total_return=reversion + 0.04,
+                    horizon="1y",
+                )
+            )
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["1y"])
+
+        cohort = result["1y"]["cohorts"][0]
+        level = cohort["er_level_calibration"]
+        assert isinstance(level, dict)
+        self.assertEqual(level["prediction_basis"], "er_annual_absolute")
+        self.assertEqual(
+            level["realized_basis"],
+            "fy_actual_dividend_total_return_annualized_absolute",
+        )
+        quintiles = level["er_quintiles"]
+        assert isinstance(quintiles, list)
+        first = quintiles[0]
+        self.assertEqual(first["median_predicted_er_annual"], 0.0295)
+        self.assertEqual(first["median_realized_total_return_annual"], 0.0495)
+        self.assertEqual(first["calibration_error_annual"], 0.02)
+        self.assertEqual(first["median_predicted_reversion_annual"], 0.0095)
+        self.assertEqual(first["median_predicted_carry_annual"], 0.02)
+        self.assertEqual(first["median_realized_price_return_annual"], 0.0095)
+        self.assertEqual(first["median_realized_dividend_contribution_annual"], 0.04)
+        self.assertEqual(cohort["metric_statuses"]["er_level_calibration"], "eligible")
+
+    def test_er_level_calibration_does_not_treat_missing_total_return_as_zero(self) -> None:
+        panel = [
+            _panel_row(
+                f"38{i:02d}",
+                per_trailing=10.0,
+                er_annual=0.05,
+                er_reversion_annual=0.02,
+                er_carry_annual=0.03,
+            )
+            for i in range(100)
+        ]
+        forwards = [_forward_row(f"38{i:02d}", 0.10, horizon="1y") for i in range(100)]
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["1y"])
+
+        cohort = result["1y"]["cohorts"][0]
+        self.assertEqual(cohort["er_level_calibration"], {})
+        self.assertEqual(cohort["metric_statuses"]["er_level_calibration"], "unresolved")
 
     def test_cohort_with_insufficient_sample_remains_explicitly_unresolved(self) -> None:
         panel = [_panel_row("1000", per_trailing=10.0)]

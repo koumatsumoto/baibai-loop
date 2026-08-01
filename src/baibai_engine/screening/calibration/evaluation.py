@@ -10,14 +10,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from math import sqrt
+from math import isfinite, sqrt
 from statistics import fmean, median
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
-from .forward import ForwardReturnRow
+from .forward import TOTAL_RETURN_BASIS, ForwardReturnRow
 from .horizons import require_horizon
 from .panel import PanelRow
 
@@ -208,12 +208,19 @@ def _evaluate_cohort(
         "candidate_forward_missing_count": len(expected_tickers - observed_tickers),
         "candidate_forward_extra_count": len(observed_tickers - expected_tickers),
         "adjustment_factor_coverage": _adjustment_factor_status(candidate_rows),
+        "total_return_resolved_count": sum(
+            1 for row in candidate_rows if row.total_return_status == "resolved"
+        ),
+        "total_return_status_counts": _status_counts(
+            row.total_return_status for row in candidate_rows
+        ),
     }
     if context is None:
         return {
             "asof": asof,
             "horizon": horizon,
             "metric_basis": "price_return_only",
+            "metric_bases": ["price_return_only", "fy_actual_dividend_total_return"],
             "coverage": coverage,
             "metric_calculation_status": "unresolved",
             "axes": {},
@@ -222,6 +229,7 @@ def _evaluate_cohort(
             "reversion": {},
             "crowded_value": {},
             "er_calibration": {},
+            "er_level_calibration": {},
         }
     population = context.population
     excess = context.excess
@@ -235,17 +243,20 @@ def _evaluate_cohort(
     er_calibration = _evaluate_er_calibration(
         population, excess, years=require_horizon(horizon).months / 12
     )
+    er_level_calibration = _evaluate_er_level_calibration(population, forward_rows, horizon=horizon)
     metric_statuses = {
         key: ("eligible" if isinstance(value, dict) and value.get("n", 0) else "unresolved")
         for key, value in selection.items()
     }
     metric_statuses["er_calibration"] = "eligible" if er_calibration else "unresolved"
+    metric_statuses["er_level_calibration"] = "eligible" if er_level_calibration else "unresolved"
 
     return {
         "asof": asof,
         "horizon": horizon,
         "population_resolved": len(population),
         "metric_basis": "price_return_only",
+        "metric_bases": ["price_return_only", "fy_actual_dividend_total_return"],
         "coverage": coverage,
         "metric_calculation_status": "resolved",
         "metric_statuses": metric_statuses,
@@ -262,7 +273,15 @@ def _evaluate_cohort(
         "reversion": _evaluate_reversion(population, excess),
         "crowded_value": _evaluate_crowded_value(population, excess),
         "er_calibration": er_calibration,
+        "er_level_calibration": er_level_calibration,
     }
+
+
+def _status_counts(statuses: Iterable[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for status in statuses:
+        counts[status] = counts.get(status, 0) + 1
+    return counts
 
 
 def _resolved_price_returns(
@@ -796,6 +815,99 @@ def _evaluate_er_calibration(
         "population_median_reversion_annual": round(population_median_reversion, 6),
         "er_quintiles": quintiles,
     }
+
+
+def _evaluate_er_level_calibration(
+    population: Sequence[PanelRow],
+    forward_rows: Sequence[ForwardReturnRow],
+    *,
+    horizon: str,
+) -> dict[str, object]:
+    """Compare absolute annual E[r] with FY-dividend total return by quintile."""
+    years = require_horizon(horizon).months / 12
+    total_rows = {
+        row.ticker: row
+        for row in forward_rows
+        if row.horizon == horizon
+        and row.status == "resolved"
+        and row.total_return_status == "resolved"
+        and row.total_return_basis == TOTAL_RETURN_BASIS
+        and row.realized_dividend_sum is not None
+        and row.realized_dividend_fy_count > 0
+        and row.price_return is not None
+        and row.total_return is not None
+    }
+    entries: list[tuple[PanelRow, float, float]] = []
+    for row in population:
+        forward = total_rows.get(row.ticker)
+        if (
+            forward is None
+            or row.er_annual is None
+            or row.er_reversion_annual is None
+            or row.er_carry_annual is None
+        ):
+            continue
+        assert forward.price_return is not None
+        assert forward.total_return is not None
+        price_annual = _annualize_return(forward.price_return, years=years)
+        total_annual = _annualize_return(forward.total_return, years=years)
+        if price_annual is None or total_annual is None:
+            continue
+        entries.append((row, price_annual, total_annual))
+    if len(entries) < MIN_AXIS_SAMPLE:
+        return {}
+
+    entries.sort(key=lambda item: float(item[0].er_annual or 0.0))
+    quintiles: list[dict[str, object]] = []
+    step = len(entries) / 5
+    for index in range(5):
+        chunk = entries[int(index * step) : int((index + 1) * step)]
+        if not chunk:
+            continue
+        predicted = median(float(row.er_annual or 0.0) for row, _, _ in chunk)
+        realized_total = median(total for _, _, total in chunk)
+        quintiles.append(
+            {
+                "median_predicted_er_annual": round(predicted, 6),
+                "median_realized_total_return_annual": round(realized_total, 6),
+                "calibration_error_annual": round(realized_total - predicted, 6),
+                "median_predicted_reversion_annual": round(
+                    median(float(row.er_reversion_annual or 0.0) for row, _, _ in chunk),
+                    6,
+                ),
+                "median_predicted_carry_annual": round(
+                    median(float(row.er_carry_annual or 0.0) for row, _, _ in chunk), 6
+                ),
+                "median_realized_price_return_annual": round(
+                    median(price for _, price, _ in chunk), 6
+                ),
+                "median_realized_dividend_contribution_annual": round(
+                    median(total - price for _, price, total in chunk), 6
+                ),
+                "n": len(chunk),
+            }
+        )
+    return {
+        "n": len(entries),
+        "horizon_years": years,
+        "prediction_basis": "er_annual_absolute",
+        "realized_basis": "fy_actual_dividend_total_return_annualized_absolute",
+        "calibration_error_basis": "realized_minus_predicted",
+        "component_basis": {
+            "predicted_reversion": "er_reversion_annual",
+            "predicted_carry": "er_carry_annual_dividend_plus_buyback",
+            "realized_price": "adjusted_close_price_return_annualized",
+            "realized_dividend": "annualized_total_minus_annualized_price",
+        },
+        "er_quintiles": quintiles,
+    }
+
+
+def _annualize_return(value: float, *, years: float) -> float | None:
+    if years <= 0 or value < -1:
+        return None
+    annualized = (1 + value) ** (1 / years) - 1
+    return float(annualized) if isfinite(annualized) else None
 
 
 def _group_stats(values: Sequence[float]) -> dict[str, object]:

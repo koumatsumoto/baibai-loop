@@ -93,7 +93,13 @@ authoritative な delisting exit value source が無い限り、窓中に系列�
 
 `er_calibration` は価格収束成分 `er_reversion_annual` だけを price-only 実現値へ較正する。予測値は cohort 内の `er_reversion_annual` 中央値、実現値は同じ cohort の price return 中央値をそれぞれ引き、quintile ごとに median の相対値を比較する。`calibration_error` は `realized - predicted` である。配当と buyback の carry は price-only 実現値と同じ basis で観測できないため、この座標で絶対水準を較正しない。carry の妥当性は source と算出 contract を検証し、実現配当を備えた total-return dataset が利用できる場合に別の較正座標で扱う。
 
-cache schema version は `4`。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+`er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
+
+forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
+
+`er_level_calibration` は production core metric ではなく optional な既知 metric である。E[r] 水準 parameter の判断では、事前登録した run が core 3 metric と併せて `--required-metric er_level_calibration` を明示する。
+
+cache schema version は `5`。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
 
 ### pre-2019 診断 panel
 
@@ -123,4 +129,6 @@ uv run baibai-engine screening calibration-evaluate \
   --required-metric er_calibration
 ```
 
-The retained diagnostics are selection top-5/top-10 median excess and trap rate, price-reversion E[r] predicted-versus-realized calibration, axis/gate/reversion regression diagnostics, and cohort coverage/integrity. They do not establish a track record or statistical significance.
+E[r] 水準 parameter を判断する事前登録済み run では、上の core 3 metric に加えて `--required-metric er_level_calibration` を指定する。
+
+The retained diagnostics are selection top-5/top-10 median excess and trap rate, price-reversion E[r] relative calibration, FY-dividend total-return E[r] level calibration, axis/gate/reversion regression diagnostics, and cohort coverage/integrity. They do not establish a track record or statistical significance.
