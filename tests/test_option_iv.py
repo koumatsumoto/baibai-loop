@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import RetryError, Timeout
 from tools.research.option_iv_sample import business_days, quantiles
+from tools.research.option_iv_sample import main as sample_main
 
 from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.indicators.providers import jquants_options
@@ -657,6 +658,16 @@ class SampleWindowTest(unittest.TestCase):
         # be one of them: p99 of ten readings is the tenth, and of one is that one.
         self.assertEqual(quantiles([float(n) for n in range(10)])["p99"], 9.0)
         self.assertEqual(quantiles([7.0])["p99"], 7.0)
+
+    def test_an_output_path_that_is_not_a_csv_is_refused_before_any_fetch(self) -> None:
+        # The write lands after hours of fetching, so a mistyped path would truncate
+        # whatever is there and throw away the run at the same time.
+        self.assertEqual(
+            sample_main(
+                ["--start", "2026-07-01", "--end", "2026-07-02", "--out", "data/store.sqlite"]
+            ),
+            2,
+        )
 
     def test_the_step_counts_business_days_not_calendar_days(self) -> None:
         # Counting calendar days would skip a different number of sessions depending

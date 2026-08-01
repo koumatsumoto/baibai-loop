@@ -114,6 +114,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
+    if args.out.suffix != ".csv":
+        # The write lands after hours of fetching, and a mistyped --out would truncate
+        # whatever is there — data/indicators/macro.sqlite is one tab-completion away.
+        print(f"--out must name a .csv file, got {args.out}", file=sys.stderr)
+        return 2
+
     load_project_env()
     api_key = os.environ.get("JQUANTS_API_KEY")
     if not api_key:
