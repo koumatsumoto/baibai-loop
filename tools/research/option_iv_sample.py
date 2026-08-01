@@ -26,21 +26,24 @@ from pathlib import Path
 
 from baibai_engine.foundation.env import load_project_env
 from baibai_engine.macro.indicators.providers.option_iv import (
+    MIN_DAYS_TO_EXPIRY,
     FearReadings,
     fear_readings,
     quotes_from_records,
 )
 
 _QUANTILES = (0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99)
+_COLUMNS = ("day", "iv_30d", "iv_skew", "iv_term", "near_days", "far_days")
 
 
 def business_days(start: date, end: date, step: int) -> Iterator[date]:
     """Every `step`-th weekday, so the sample tracks the calendar, not the news.
 
-    A step that divides the five-day week lands on one weekday forever, and option
-    volatility is not the same on every weekday: a Monday contract has carried the
-    weekend. Steps that share a factor with five are rejected rather than silently
-    producing a one-weekday sample.
+    A step that divides the five-day week lands on one weekday forever. The weekday
+    premium measured here is small — a Monday `iv_30d` runs 0.9 points above the rest
+    at the median — but a one-weekday sample cannot be checked for it at all, and a
+    reader has no way to tell a small bias from a large one. Such steps are refused
+    rather than silently producing a sample that cannot be audited.
     """
     if step % 5 == 0:
         raise ValueError(f"step {step} is a multiple of the trading week and fixes the weekday")
@@ -53,7 +56,15 @@ def business_days(start: date, end: date, step: int) -> Iterator[date]:
         cursor += timedelta(days=1)
 
 
-def read_day(client: object, day: date) -> FearReadings | None:
+def read_day(client: object, day: date) -> tuple[FearReadings, list[int]] | None:
+    """The day's readings, with the maturities they were read off.
+
+    The maturities are recorded because the two difference readings depend on which
+    contracts were in front: a quantile pooled across the settlement cycle mixes
+    maturities unless the sample says which ones it drew. They are derived here from
+    the expiry cutoff rather than reported by the readings, which carry only what the
+    series store keeps.
+    """
     method = getattr(client, "get_drv_bars_daily_opt_225", None)
     if not callable(method):
         raise RuntimeError("jquantsapi.ClientV2 has no callable get_drv_bars_daily_opt_225")
@@ -61,15 +72,23 @@ def read_day(client: object, day: date) -> FearReadings | None:
     if frame is None or frame.empty:
         return None
     records = [row for row in frame.to_dict(orient="records") if isinstance(row, dict)]
-    return fear_readings(quotes_from_records(records, day), day)
+    quotes = quotes_from_records(records, day)
+    maturities = sorted(
+        {days for quote in quotes if (days := (quote.expiry - day).days) >= MIN_DAYS_TO_EXPIRY}
+    )
+    return fear_readings(quotes, day), maturities
 
 
 def quantiles(values: Sequence[float]) -> dict[str, float]:
+    """The order statistic at rank floor(q·n), counting from zero.
+
+    Every value the reading rules quote comes out of here, so the convention is
+    stated rather than assumed: each quantile is a reading the market actually made,
+    never an average of two and never extrapolated past the largest one. Every
+    fraction is below 1, so floor(q·n) is an index into any non-empty series.
+    """
     ordered = sorted(values)
-    return {
-        f"p{int(q * 100):02d}": ordered[min(int(q * len(ordered)), len(ordered) - 1)]
-        for q in _QUANTILES
-    }
+    return {f"p{int(q * 100):02d}": ordered[int(q * len(ordered))] for q in _QUANTILES}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -90,23 +109,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     client = jquantsapi.ClientV2(api_key=api_key)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    rows: list[dict[str, str | float | None]] = []
+    rows: list[dict[str, str | float | int | None]] = []
     for day in business_days(args.start, args.end, args.step):
-        reading = read_day(client, day)
-        if reading is None:
+        read = read_day(client, day)
+        if read is None:
             continue
+        reading, maturities = read
         rows.append(
             {
                 "day": day.isoformat(),
                 "iv_30d": reading.iv_30d,
                 "iv_skew": reading.iv_skew,
                 "iv_term": reading.iv_term,
+                "near_days": maturities[0] if maturities else None,
+                "far_days": maturities[1] if len(maturities) > 1 else None,
             }
         )
-        print(f"{day} {reading.iv_30d} {reading.iv_skew} {reading.iv_term}", flush=True)
+        print(
+            f"{day} {reading.iv_30d} {reading.iv_skew} {reading.iv_term} {maturities[:2]}",
+            flush=True,
+        )
 
     with args.out.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["day", "iv_30d", "iv_skew", "iv_term"])
+        # csv writes CRLF by default; the sample is committed, and a file whose line
+        # endings git normalises comes back changed every time it is regenerated.
+        writer = csv.DictWriter(handle, fieldnames=list(_COLUMNS), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
