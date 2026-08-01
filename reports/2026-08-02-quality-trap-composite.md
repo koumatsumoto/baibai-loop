@@ -14,7 +14,7 @@ date: 2026-08-02
 
 **判定は `negative`。quality composite を gate / ranking / E[r] / candidate annotation へ参入させない。**
 
-1y の標本条件は満たしたが、high quality（5本以上）− low quality（3本以下）の median excess は design −5.18pt、confirm −9.71pt で、事前登録した +3pt の下限と逆方向だった。design の trap rate も +3.94pt 悪化した。3y design は median excess −28.81pt、trap rate +0.54ptで、同じく仮説を支持しない。3y confirm は authority blocker により `insufficient` だが、1y の再現した逆方向だけで採用条件は成立しない。
+1y design は標本条件を満たしたが、high quality（5本以上）− low quality（3本以下）の median excess は −5.18ptで、事前登録した +3pt の下限と逆方向だった。trap rate も +3.94pt 悪化した。3y design も標本条件を満たしたうえで median excess −28.81pt、trap rate +0.54ptとなり、仮説を支持しない。1y confirm は low 85件、3y confirm は authority blocker のため、ともに `insufficient` である。eligible な design が1y/3yとも方向条件を外したため、総合判定は `negative` とする。
 
 個別成分と composite は再現可能な計測証跡として calibration panel に残す。production candidate metrics には出さず、research 表示へも格下げしない。#722 が個別成分を条件候補として参照する場合も、本 composite の予測力を前提にしない。採用 issue は起票しない。
 
@@ -74,13 +74,13 @@ authority/coverage は現行 calibration 判定を適用した。1y は leading 
 | window | requested / integrity eligible | delta cohorts | high n / low n | mean median excess delta | positive cohort share | mean trap delta | mean axis decile spread | 判定 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | 1y design | 38 / 38 | 27 | 679 / 209 | **−5.18pt** | 37.04% | **+3.94pt** | −1.86pt | negative |
-| 1y confirm | 18 / 18 | 16 | 546 / 85 | **−9.71pt** | 43.75% | −9.18pt | +10.75pt | negative |
+| 1y confirm | 18 / 18 | 16 | 546 / 85 | −9.71pt | 43.75% | −9.18pt | +10.75pt | insufficient |
 | 3y design | 7 / 4 | 3 | 57 / 25 | **−28.81pt** | 33.33% | **+0.54pt** | −21.94pt | negative |
 | 3y confirm | 1 / 0 | 0 | 0 / 0 | — | — | — | — | insufficient |
 
-1y は両窓とも high/low 各100件以上、delta cohort 6以上を満たす。3y design は各群15件以上、delta cohort 3を満たす。3y confirm の `2023-06-30` は `priced_master_without_universe_return_unresolved` で authority 対象外だった。3y design の除外理由は `entry_price_gap`、`priced_master_without_universe_flips_direction`、`priced_master_without_universe_return_unresolved`、`unpriced_exit_flips_direction` 各1件で、一部 cohort は複数理由を持つ。
+1y design は high/low 各100件以上、delta cohort 6以上を満たす。1y confirm は low 85件で事前登録した100件を下回るため、数値を diagnostic として開示するが採否根拠には使わない。3y design は各群15件以上、delta cohort 3を満たす。3y confirm の `2023-06-30` は `priced_master_without_universe_return_unresolved` で authority 対象外だった。3y design の除外理由は `entry_price_gap`、`priced_master_without_universe_flips_direction`、`priced_master_without_universe_return_unresolved`、`unpriced_exit_flips_direction` 各1件で、一部 cohort は複数理由を持つ。
 
-confirm の quality-count axis decile spread と trap delta だけは仮説方向だが、主統計量の median excess delta が −9.71ptであり、単独の良い列へ採否を切り替えない。
+1y confirm の quality-count axis decile spread と trap delta だけは仮説方向だが、標本不足の窓から良い列だけを採用根拠へ切り替えない。
 
 ## 4. 交絡確認
 
@@ -95,7 +95,7 @@ confirm の quality-count axis decile spread と trap delta だけは仮説方�
 | `dividend_yield` | 9 / 130 | −1.70pt / +1.56pt | 3 / 45 | +7.58pt / −2.55pt |
 | `price_change_60d` | 9 / 128 | −6.24pt / +3.63pt | 3 / 43 | +5.33pt / +1.25pt |
 
-design は6 control中4つで median delta が負、5つで trap delta が正だった。confirm も PER と momentum の trap delta が正で、全 control が両窓で仮説方向という採否条件を満たさない。control ごとの有効 cohort は3〜11と疎であり、良い方向の一部 control だけを因果効果とはみなさない。
+design は6 control中4つで median delta が負、5つで trap delta が正だった。confirm は主検定の標本条件を満たさず、control も PER と momentum の trap delta が正だった。control ごとの有効 cohort は3〜11と疎であり、良い方向の一部 control だけを因果効果とはみなさない。
 
 ## 5. 検算
 
@@ -108,17 +108,17 @@ design は6 control中4つで median delta が負、5つで trap delta が正だ
 | 事前登録条件 | 観測 | 判定 |
 | --- | --- | --- |
 | 1y / 3y axis decile spread が正 | 1y design −1.86pt、3y design −21.94pt | fail |
-| 1y design / confirm median delta ≥ +3pt | −5.18pt / −9.71pt | fail |
-| 1y design / confirm trap delta < 0 | +3.94pt / −9.18pt | fail |
+| 1y design / confirm median delta ≥ +3pt | design −5.18pt、confirm は low 85件で標本不足（diagnostic −9.71pt） | fail / insufficient |
+| 1y design / confirm trap delta < 0 | design +3.94pt、confirm は標本不足（diagnostic −9.18pt） | fail / insufficient |
 | 3y design / confirm median > 0、trap < 0 | design は −28.81pt / +0.54pt、confirm は authority 不足 | fail / insufficient |
-| 1yの全6 controlで median > 0、trap ≤ 0 | design・confirm とも複数不通過 | fail |
-| 標本・authority | 1yと3y designは標本充足、3y confirmは blocker | partial |
+| 1yの全6 controlで median > 0、trap ≤ 0 | design は複数不通過、confirm diagnostic も複数不通過 | fail |
+| 標本・authority | 1yと3y designは標本充足、1y confirmは low 85件、3y confirmは blocker | partial |
 
-総合判定は `negative`。3y confirm の不足は残るが、十分な1y標本で主効果が両窓とも逆方向なので、追加満期だけで採用候補へ戻さない。
+総合判定は `negative`。事前登録は方向・効果量条件が1つでも外れれば negative としており、標本を満たす1y/3y design がともに外れた。confirm 2窓は `insufficient` であり、再現性を主張しない。追加満期だけで採用候補へ戻さない。
 
 ## 7. 監視事項
 
 - quality component は panel 診断に限る。候補表示、rank、gate、E[r]、research checklistへ接続しない。
 - #722 では「急落×質」を別の事前登録仮説として検定できるが、本 report の count 閾値や符号を有効と仮定しない。
 - TTM delta の coverage が将来大きく改善しても、本検定の閾値を変更して同じ仮説を救済しない。再検定するなら新しいデータ契約と独立した事前登録を要求する。
-- 3y confirm blocker が解消しても、1y negative を覆す production 参入判断には使わない。長期診断の補足としてのみ更新する。
+- 3y confirm blocker が解消しても、1y design の negative を覆す production 参入判断には使わない。長期診断の補足としてのみ更新する。
