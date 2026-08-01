@@ -84,10 +84,25 @@ snapshot_sqlite() {
       --source "$1" --output "$2"
 }
 
+# The merges share their core, so they are imported as modules rather than run as
+# scripts: a script run puts its own directory on the path instead of the repository
+# root, and the shared module is then unreachable.
+merge_store() {
+  local module="$1"
+  shift
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python -m "${module}" --source "$1" --target "$2"
+  )
+}
+
 merge_indicator_store() {
-  UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-    uv run python "${repo_root}/tools/cloud/merge_indicator_store.py" \
-      --source "$1" --target "$2"
+  merge_store tools.cloud.merge_indicator_store "$1" "$2"
+}
+
+merge_market_store() {
+  merge_store tools.cloud.merge_market_store "$1" "$2"
 }
 
 pull_keys() {
@@ -285,10 +300,18 @@ case "${1:-}" in
     push_keys market.sqlite runs.sqlite macro.sqlite
     ;;
   push-market)
-    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-      printf 'refusing machine-store push outside GitHub Actions\n' >&2
-      exit 2
-    fi
+    # Deep history is fetched where there is time for it — hours of provider calls for a
+    # decade of bars — while the daily batch keeps adding recent days the deep copy has
+    # never seen. So the local store is only publishable once it contains the cloud copy:
+    # pull it, merge it in, and let the merge refuse the upload if any cloud row would be
+    # left behind. That check is what makes this safe to run outside GitHub Actions,
+    # where an unconditional upload would roll the daily batch back.
+    transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+    aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
+    check_sqlite "${transfer_staging}/market.sqlite"
+    merge_market_store "${transfer_staging}/market.sqlite" "$(store_path market.sqlite)"
+    cleanup_staging
+    transfer_staging=""
     push_keys market.sqlite
     ;;
   push-macro)
