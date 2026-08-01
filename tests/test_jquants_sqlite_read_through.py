@@ -19,6 +19,7 @@ from baibai_engine.screening.providers.jquants import JQuantsProvider, JQuantsPr
 from baibai_engine.screening.sqlite_cache import (
     open_connection,
     store_jquants_daily_bars,
+    store_jquants_fin_summaries,
     store_jquants_master,
 )
 from tests.helpers.screening_sqlite import add_source_coverage, make_master_records
@@ -95,6 +96,47 @@ def _insert_daily_bars(
 
 
 class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
+    def test_retry_waits_between_calls_and_not_after_final_failure(self) -> None:
+        events: list[object] = []
+
+        def always_retryable(**_params: object) -> object:
+            events.append("call")
+            raise RuntimeError("Too Many Requests")
+
+        provider = JQuantsProvider("token", Path(".cache"), client=object())
+        with (
+            patch(
+                "baibai_engine.market.provider.time.sleep",
+                side_effect=lambda seconds: events.append(seconds),
+            ),
+            self.assertRaises(JQuantsProviderError),
+        ):
+            provider._call_with_retry("get_eq_master", always_retryable, date="2026-08-01")
+
+        expected: list[object] = []
+        for delay in provider._RATE_LIMIT_BACKOFF_SECONDS:
+            expected.extend(("call", delay))
+        expected.append("call")
+        self.assertEqual(events, expected)
+
+    def test_non_retryable_failure_returns_without_sleep(self) -> None:
+        calls = 0
+
+        def fail_once(**_params: object) -> object:
+            nonlocal calls
+            calls += 1
+            raise ValueError("invalid request")
+
+        provider = JQuantsProvider("token", Path(".cache"), client=object())
+        with (
+            patch("baibai_engine.market.provider.time.sleep") as sleep,
+            self.assertRaises(JQuantsProviderError),
+        ):
+            provider._call_with_retry("get_eq_master", fail_once, date="2026-08-01")
+
+        self.assertEqual(calls, 1)
+        sleep.assert_not_called()
+
     def test_get_eq_master_uses_sqlite_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp) / "raw"
@@ -156,6 +198,26 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             self.assertEqual(client.bars_calls, [])
             self.assertGreater(len(bars), 1)
             self.assertEqual(bars[0].close, 3790.0)
+
+    def test_get_fin_summaries_uses_persisted_chunk_without_refetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            disclosed = date(2024, 4, 18)
+            store_jquants_fin_summaries(
+                sqlite_path,
+                [{"Code": "13010", "DisclosedDate": disclosed.isoformat(), "NetSales": 100}],
+                requested_start=disclosed,
+                requested_end=disclosed,
+            )
+
+            client = _RecordingClient()
+            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+
+            summaries = provider.get_fin_summary_range(disclosed, disclosed)
+
+            self.assertEqual(client.fin_calls, [])
+            self.assertEqual(len(summaries), 1)
 
     def test_get_bars_refetches_recent_tail_when_asof_ahead_of_cache(self) -> None:
         """An incremental asof a few days ahead of the cached tail looks covered

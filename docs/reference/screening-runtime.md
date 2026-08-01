@@ -46,6 +46,8 @@ uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 
 `backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に 1200 日の bar 窓と 730 日の summary 窓も取り直すため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
 
+`cloud-history-backfill` は pull 直後と backfill 終了後の `market.sqlite` SHA-256 を比較する。source failure があっても commit 済み chunk が増えた場合は `PRAGMA quick_check` 後に `push-market` で R2へ保存し、その後に元の非0を返す。storeが変わらないfailureはGB級objectを再uploadしない。再dispatchはR2へ保存済みのcoverage/rowsをpullするため、既存chunkを再取得しない。
+
 `bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
 
 J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の response だけを受理する。response 全行の `Date`、必須 field、normalized ticker の一意性、普通株 population を SQLite transaction 前に検証し、空・部分・別日 response は保存しない。snapshot は `(snapshot_date, ticker)` の日付別履歴として保持し、同日再取得だけを原子的に置換する。coverage は `get_eq_master:YYYY-MM-DD..YYYY-MM-DD`、`coverage_start == coverage_end == asof`、同日 persisted row count を正本とする。

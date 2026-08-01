@@ -233,16 +233,17 @@ class JQuantsMarketProvider:
     def _call_with_retry(self, method: str, call: Any, **params: Any) -> Any:
         last_exc: Exception | None = None
         attempts = 0
-        for attempt, delay_seconds in enumerate((0, *self._RATE_LIMIT_BACKOFF_SECONDS), start=1):
+        for attempt in range(1, len(self._RATE_LIMIT_BACKOFF_SECONDS) + 2):
             attempts = attempt
             try:
                 return call(**_stringify_dates(params))
             except Exception as exc:
                 last_exc = exc
-                if not _is_retryable_jquants_error(exc):
+                if not _is_retryable_jquants_error(exc) or attempt > len(
+                    self._RATE_LIMIT_BACKOFF_SECONDS
+                ):
                     break
-                if delay_seconds:
-                    time.sleep(delay_seconds)
+                time.sleep(self._RATE_LIMIT_BACKOFF_SECONDS[attempt - 1])
         # api_key / id_token 等の secret が exception 文字列に含まれる可能性に備えて
         # sanitize、さらに `from None` で原因チェーンを切って traceback 漏洩も遮断する。
         sanitized = self._sanitize_secret(str(last_exc)) if last_exc else ""
