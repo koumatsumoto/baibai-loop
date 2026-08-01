@@ -49,6 +49,19 @@ QUALITY_CONTROL_FIELDS: tuple[str, ...] = (
     "dividend_yield",
     "price_change_60d",
 )
+RETURN_CHANGE_CONTROL_FIELDS: tuple[str, ...] = (
+    "dividend_yield",
+    "per_trailing",
+    "pbr",
+    "market_cap_oku",
+    "avg_turnover_oku",
+    "price_change_60d",
+)
+RETURN_CHANGE_COMPONENT_FIELDS: tuple[str, ...] = (
+    "dps_streak_up",
+    "dps_guidance_up",
+    "dividend_initiation",
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -76,6 +89,15 @@ class _QualityControlAccumulator:
     trap_deltas: list[float]
     matched_weight: int = 0
     cohorts: int = 0
+
+
+@dataclass(slots=True)
+class _ComponentAccumulator:
+    median_deltas: list[float]
+    mean_deltas: list[float]
+    trap_deltas: list[float]
+    true_n: int = 0
+    false_n: int = 0
 
 
 AXES: tuple[AxisSpec, ...] = (
@@ -107,6 +129,8 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="net_share_change_yoy", direction=-1),
     AxisSpec(name="accruals_to_assets", direction=-1),
     AxisSpec(name="quality_signal_count", direction=1),
+    AxisSpec(name="dps_yoy_latest", direction=1),
+    AxisSpec(name="share_count_reduction_streak", direction=1),
     AxisSpec(name="price_change_60d", direction=-1),
     AxisSpec(name="gap_from_52w_low", direction=-1),
     # 需給軸。方向は事前登録として先に宣言する (計測結果を見てから向きを決めない)。
@@ -250,6 +274,7 @@ def _evaluate_cohort(
             "reversion": {},
             "crowded_value": {},
             "quality_interaction": {},
+            "shareholder_return_change": {},
             "er_calibration": {},
             "er_level_calibration": {},
         }
@@ -263,6 +288,7 @@ def _evaluate_cohort(
             axes[spec.name] = axes_result
     selection = _evaluate_selection(population, excess)
     quality_interaction = _evaluate_quality_interaction(population, excess)
+    return_change = _evaluate_shareholder_return_change(population, excess)
     er_calibration = _evaluate_er_calibration(
         population, excess, years=require_horizon(horizon).months / 12
     )
@@ -275,6 +301,9 @@ def _evaluate_cohort(
     metric_statuses["er_level_calibration"] = "eligible" if er_level_calibration else "unresolved"
     metric_statuses["quality_interaction"] = (
         "eligible" if quality_interaction.get("eligible_n", 0) else "unresolved"
+    )
+    metric_statuses["shareholder_return_change"] = (
+        "eligible" if return_change.get("eligible_n", 0) else "unresolved"
     )
 
     return {
@@ -299,6 +328,7 @@ def _evaluate_cohort(
         "reversion": _evaluate_reversion(population, excess),
         "crowded_value": _evaluate_crowded_value(population, excess),
         "quality_interaction": quality_interaction,
+        "shareholder_return_change": return_change,
         "er_calibration": er_calibration,
         "er_level_calibration": er_level_calibration,
     }
@@ -730,6 +760,53 @@ def _stratified_quality_control(
         "stratified_trap_rate_delta": (
             round(weighted_trap_delta / matched_weight, 6) if matched_weight else None
         ),
+    }
+
+
+def _evaluate_shareholder_return_change(
+    population: Sequence[PanelRow], excess: Mapping[str, float]
+) -> dict[str, object]:
+    per_rows = sorted(
+        (row for row in population if row.per_trailing is not None and row.per_trailing > 0),
+        key=lambda row: (row.per_trailing or 0.0, row.ticker),
+    )
+    band_end = int(2 * len(per_rows) / DECILES)
+    low_valuation = per_rows[:band_end]
+    eligible = [row for row in low_valuation if row.shareholder_return_change is not None]
+    change = [row for row in eligible if row.shareholder_return_change is True]
+    no_change = [row for row in eligible if row.shareholder_return_change is False]
+    change_stats = _group_stats([excess[row.ticker] for row in change])
+    no_change_stats = _group_stats([excess[row.ticker] for row in no_change])
+    controls = {
+        field_name: _stratified_quality_control(
+            change,
+            no_change,
+            excess,
+            field_name=field_name,
+        )
+        for field_name in RETURN_CHANGE_CONTROL_FIELDS
+    }
+    components: dict[str, object] = {}
+    for field_name in RETURN_CHANGE_COMPONENT_FIELDS:
+        observed = [row for row in low_valuation if getattr(row, field_name) is not None]
+        positive = [row for row in observed if getattr(row, field_name) is True]
+        negative = [row for row in observed if getattr(row, field_name) is False]
+        positive_stats = _group_stats([excess[row.ticker] for row in positive])
+        negative_stats = _group_stats([excess[row.ticker] for row in negative])
+        components[field_name] = {
+            "eligible_n": len(observed),
+            "true": positive_stats,
+            "false": negative_stats,
+            **_quality_group_deltas(positive_stats, negative_stats),
+        }
+    return {
+        "low_valuation_n": len(low_valuation),
+        "eligible_n": len(eligible),
+        "change": change_stats,
+        "no_change": no_change_stats,
+        **_quality_group_deltas(change_stats, no_change_stats),
+        "controls": controls,
+        "components": components,
     }
 
 
@@ -1209,6 +1286,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "axes": axis_summary,
         "selection": selection_summary,
         "quality_interaction": _aggregate_quality_interaction(cohorts),
+        "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
     }
 
 
@@ -1279,6 +1357,136 @@ def _aggregate_quality_interaction(cohorts: Sequence[dict[str, object]]) -> dict
         "mean_trap_rate_delta": round(fmean(trap_deltas), 6) if trap_deltas else None,
         "controls": controls_summary,
     }
+
+
+def _aggregate_shareholder_return_change(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    median_deltas: list[float] = []
+    mean_deltas: list[float] = []
+    trap_deltas: list[float] = []
+    change_n = 0
+    no_change_n = 0
+    control_values = {
+        field_name: _QualityControlAccumulator(median_deltas=[], trap_deltas=[])
+        for field_name in RETURN_CHANGE_CONTROL_FIELDS
+    }
+    component_values = {
+        field_name: _ComponentAccumulator(median_deltas=[], mean_deltas=[], trap_deltas=[])
+        for field_name in RETURN_CHANGE_COMPONENT_FIELDS
+    }
+    for cohort in cohorts:
+        interaction = cohort.get("shareholder_return_change")
+        if not isinstance(interaction, dict):
+            continue
+        change = interaction.get("change")
+        no_change = interaction.get("no_change")
+        if isinstance(change, dict) and isinstance(change.get("n"), int):
+            change_n += int(change["n"])
+        if isinstance(no_change, dict) and isinstance(no_change.get("n"), int):
+            no_change_n += int(no_change["n"])
+        _append_numeric(interaction.get("median_excess_delta"), median_deltas)
+        _append_numeric(interaction.get("mean_excess_delta"), mean_deltas)
+        _append_numeric(interaction.get("trap_rate_delta"), trap_deltas)
+        controls = interaction.get("controls")
+        if isinstance(controls, dict):
+            _collect_control_values(controls, control_values)
+        components = interaction.get("components")
+        if isinstance(components, dict):
+            _collect_component_values(components, component_values)
+
+    return {
+        "cohorts": len(median_deltas),
+        "change_n": change_n,
+        "no_change_n": no_change_n,
+        "mean_median_excess_delta": (round(fmean(median_deltas), 6) if median_deltas else None),
+        "median_delta_positive_share": (
+            round(sum(1 for value in median_deltas if value > 0) / len(median_deltas), 4)
+            if median_deltas
+            else None
+        ),
+        "mean_mean_excess_delta": round(fmean(mean_deltas), 6) if mean_deltas else None,
+        "mean_trap_rate_delta": round(fmean(trap_deltas), 6) if trap_deltas else None,
+        "controls": _control_summaries(control_values),
+        "components": _component_summaries(component_values),
+    }
+
+
+def _collect_control_values(
+    controls: Mapping[str, object],
+    target: Mapping[str, _QualityControlAccumulator],
+) -> None:
+    for field_name, summary in target.items():
+        control = controls.get(field_name)
+        if not isinstance(control, dict):
+            continue
+        median_value = control.get("stratified_median_excess_delta")
+        trap_value = control.get("stratified_trap_rate_delta")
+        if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
+            continue
+        summary.median_deltas.append(float(median_value))
+        summary.trap_deltas.append(float(trap_value))
+        summary.cohorts += 1
+        weight = control.get("matched_weight")
+        if isinstance(weight, int):
+            summary.matched_weight += weight
+
+
+def _control_summaries(
+    values: Mapping[str, _QualityControlAccumulator],
+) -> dict[str, object]:
+    return {
+        field_name: {
+            "cohorts": summary.cohorts,
+            "matched_weight": summary.matched_weight,
+            "mean_stratified_median_excess_delta": (
+                round(fmean(summary.median_deltas), 6) if summary.median_deltas else None
+            ),
+            "mean_stratified_trap_rate_delta": (
+                round(fmean(summary.trap_deltas), 6) if summary.trap_deltas else None
+            ),
+        }
+        for field_name, summary in values.items()
+    }
+
+
+def _collect_component_values(
+    components: Mapping[str, object],
+    target: Mapping[str, _ComponentAccumulator],
+) -> None:
+    for field_name, summary in target.items():
+        component = components.get(field_name)
+        if not isinstance(component, dict):
+            continue
+        _append_numeric(component.get("median_excess_delta"), summary.median_deltas)
+        _append_numeric(component.get("mean_excess_delta"), summary.mean_deltas)
+        _append_numeric(component.get("trap_rate_delta"), summary.trap_deltas)
+        true_group = component.get("true")
+        if isinstance(true_group, dict) and isinstance(true_group.get("n"), int):
+            summary.true_n += int(true_group["n"])
+        false_group = component.get("false")
+        if isinstance(false_group, dict) and isinstance(false_group.get("n"), int):
+            summary.false_n += int(false_group["n"])
+
+
+def _component_summaries(values: Mapping[str, _ComponentAccumulator]) -> dict[str, object]:
+    summaries: dict[str, object] = {}
+    for field_name, value in values.items():
+        summaries[field_name] = {
+            "cohorts": len(value.median_deltas),
+            "true_n": value.true_n,
+            "false_n": value.false_n,
+            "mean_median_excess_delta": (
+                round(fmean(value.median_deltas), 6) if value.median_deltas else None
+            ),
+            "mean_mean_excess_delta": (
+                round(fmean(value.mean_deltas), 6) if value.mean_deltas else None
+            ),
+            "mean_trap_rate_delta": (
+                round(fmean(value.trap_deltas), 6) if value.trap_deltas else None
+            ),
+        }
+    return summaries
 
 
 def _append_numeric(value: object, target: list[float]) -> None:

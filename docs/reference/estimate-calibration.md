@@ -99,7 +99,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `er_level_calibration` は production core metric ではなく optional な既知 metric である。E[r] 水準 parameter の判断では、事前登録した run が core 3 metric と併せて `--required-metric er_level_calibration` を明示する。
 
-cache schema version は `6`。panel は8つの point-in-time quality condition、6成分以上を観測できる行だけの `quality_signal_count`、E[r] top-decile 内の high/low interaction を持つ。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+cache schema version は `7`。panel は8つの point-in-time quality condition、6成分以上を観測できる行だけの `quality_signal_count`、E[r] top-decile 内の high/low interaction を持つ。さらに、production の730日財務入力を変えずに1200日の補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite を記録する。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
 
 ### pre-2019 診断 panel
 

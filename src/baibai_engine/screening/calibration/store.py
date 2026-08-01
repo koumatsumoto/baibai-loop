@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 6
+CACHE_SCHEMA_VERSION = 7
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -211,8 +211,15 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         recommended_rank=_opt_int(raw, "recommended_rank"),
         population_coverage_status=_population_coverage_status(raw["population_coverage_status"]),
         self_range_degraded=raw["self_range_degraded"] == _BOOL_TRUE,
+        dps_streak_up=_opt_bool(raw, "dps_streak_up"),
+        dps_yoy_latest=_opt_float(raw, "dps_yoy_latest"),
+        dps_guidance_up=_opt_bool(raw, "dps_guidance_up"),
+        dividend_initiation=_opt_bool(raw, "dividend_initiation"),
+        share_count_reduction_streak=_opt_int(raw, "share_count_reduction_streak"),
+        shareholder_return_change=_opt_bool(raw, "shareholder_return_change"),
     )
     _validate_quality_signals(row)
+    _validate_shareholder_return_change(row)
     return row
 
 
@@ -304,6 +311,31 @@ def _validate_quality_signals(row: PanelRow) -> None:
             raise ValueError("quality signal count requires six available components")
     elif row.quality_signal_count != expected_count:
         raise ValueError("quality signal count is inconsistent")
+
+
+def _validate_shareholder_return_change(row: PanelRow) -> None:
+    if row.dps_yoy_latest is not None and not isfinite(row.dps_yoy_latest):
+        raise ValueError("DPS YoY must be finite")
+    streak = row.share_count_reduction_streak
+    if streak is not None and streak not in {0, 1, 2}:
+        raise ValueError("share count reduction streak must be between zero and two")
+
+    observed_positive = (
+        (row.dps_yoy_latest is not None and row.dps_yoy_latest > 0)
+        or row.dps_guidance_up is True
+        or row.dividend_initiation is True
+        or (streak is not None and streak >= 1)
+    )
+    all_observed_negative = (
+        row.dps_yoy_latest is not None
+        and row.dps_yoy_latest <= 0
+        and row.dps_guidance_up is False
+        and row.dividend_initiation is False
+        and streak == 0
+    )
+    expected = True if observed_positive else False if all_observed_negative else None
+    if row.shareholder_return_change is not expected:
+        raise ValueError("shareholder return change is inconsistent with its components")
 
 
 def _population_coverage_status(value: str) -> PopulationCoverageStatus:

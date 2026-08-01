@@ -184,6 +184,75 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(diagnostics.evidence_candidates, 1)
             self.assertEqual(diagnostics.population_per_trailing_nonnull, 2)
 
+    def test_panel_reads_three_fy_return_history_without_widening_metric_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, shares_outstanding, fiscal_period, fiscal_year_end, "
+                    "period_start, period_end, dps_actual_annual, dps_forecast_annual"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (
+                            "9001",
+                            "2024-05-10",
+                            102_000_000.0,
+                            "FY",
+                            "2024-03-31",
+                            "2023-04-01",
+                            "2024-03-31",
+                            3.0,
+                            3.0,
+                        ),
+                        (
+                            "9001",
+                            "2025-05-10",
+                            101_000_000.0,
+                            "FY",
+                            "2025-03-31",
+                            "2024-04-01",
+                            "2025-03-31",
+                            3.5,
+                            3.5,
+                        ),
+                    ],
+                )
+                add_source_coverage(
+                    conn,
+                    source="jquants_fin_summaries",
+                    coverage_key="return-history",
+                    record_count=4,
+                    min_date="2024-05-10",
+                    max_date=ASOF.isoformat(),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            for ticker in ("9001", "9002"):
+                insert_daily_bars_from_closes(
+                    sqlite_path,
+                    ticker,
+                    [100.0] * 800,
+                    end_date=ASOF,
+                    turnover_value=2e8,
+                )
+
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            row = {item.ticker: item for item in result.rows}["9001"]
+
+            self.assertTrue(row.dps_streak_up)
+            self.assertAlmostEqual(row.dps_yoy_latest or 0.0, (4.0 / 3.5) - 1.0)
+            self.assertTrue(row.dps_guidance_up)
+            self.assertEqual(row.share_count_reduction_streak, 2)
+            self.assertTrue(row.shareholder_return_change)
+            self.assertEqual(
+                result.diagnostics.effective_fin_start,
+                (ASOF - timedelta(days=730)).isoformat(),
+            )
+
     def test_panel_and_forward_store_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -368,6 +437,32 @@ class CalibrationPanelTest(unittest.TestCase):
                 with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
                     read_panel(store_dir, ASOF)
 
+    def test_store_rejects_invalid_shareholder_return_change_fields(self) -> None:
+        for field, invalid in (
+            ("dps_guidance_up", "claimed_true"),
+            ("dps_yoy_latest", "nan"),
+            ("share_count_reduction_streak", "3"),
+            ("shareholder_return_change", "false"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                sqlite_path = Path(tmp) / "market.sqlite"
+                _build_fixture_sqlite(sqlite_path)
+                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+                store_dir = Path(tmp) / "calibration"
+                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+                with path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                    fieldnames = list(rows[0])
+                rows[0][field] = invalid
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                    read_panel(store_dir, ASOF)
+
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store_dir = Path(tmp) / "calibration"
@@ -384,7 +479,7 @@ class CalibrationPanelTest(unittest.TestCase):
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             (store_dir / "calibration.meta.yaml").write_text(
-                "cache_schema_version: 5\n", encoding="utf-8"
+                "cache_schema_version: 6\n", encoding="utf-8"
             )
 
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
