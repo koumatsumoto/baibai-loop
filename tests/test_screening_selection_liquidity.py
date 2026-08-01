@@ -292,6 +292,50 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         )
         self.assertEqual(self._tickers(payload), {"2222"})
 
+    def test_supply_demand_gate_only_changes_recommendations_and_passes_missing(self) -> None:
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=tuple(
+                candidate_record_from_mapping(item)
+                for item in [
+                    _candidate(
+                        "1111",
+                        metrics={"er_annual": 0.12, "margin_std_long_share": 0.75},
+                    ),
+                    _candidate(
+                        "2222",
+                        sector_33="化学",
+                        metrics={"er_annual": 0.10, "margin_std_long_share": 0.74},
+                    ),
+                    _candidate(
+                        "3333",
+                        sector_33="小売業",
+                        metrics={"er_annual": 0.08, "margin_std_long_share": None},
+                    ),
+                ]
+            ),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            longlist_top=3,
+            profile_overrides={
+                "balanced": {
+                    "supply_demand": {
+                        "margin_std_long_share_exclude_at_or_above": 0.75,
+                    }
+                }
+            },
+        )
+
+        self.assertEqual(self._tickers(payload), {"2222", "3333"})
+        longlist = payload["longlist"]
+        assert isinstance(longlist, list)
+        self.assertEqual([item["ticker"] for item in longlist], ["1111", "2222", "3333"])
+        self.assertEqual(self._diag(payload)["supply_demand_excluded_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

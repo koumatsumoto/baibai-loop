@@ -254,6 +254,7 @@ def build_metrics(
             price_change_5d=_price_change(ticker_bars, 5, asof_date),
             price_change_20d=_price_change(ticker_bars, 20, asof_date),
             price_change_60d=_price_change(ticker_bars, 60, asof_date),
+            realized_volatility_60d=_realized_volatility(ticker_bars, 60, asof_date),
             gap_from_52w_low=_gap_from_low(ticker_bars, 252, asof_date),
             turnover_spike_5d=_turnover_spike(ticker_bars, asof_date),
             sigma_gap=sigma_gaps,
@@ -1146,6 +1147,28 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
     if base == 0:
         return None
     return (prices[-1] / base) - 1.0
+
+
+def _realized_volatility(
+    bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: date
+) -> float | None:
+    """Annualized close-to-close volatility on one as-of-consistent share basis."""
+    ordered = sorted(
+        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
+    )
+    if len(ordered) <= sessions:
+        return None
+    prices = asof_basis_closes(ordered[-(sessions + 1) :])
+    returns = [
+        prices[index] / prices[index - 1] - 1.0
+        for index in range(1, len(prices))
+        if prices[index - 1] > 0
+    ]
+    if len(returns) != sessions or len(returns) < 2:
+        return None
+    mean_return = mean(returns)
+    variance = sum((value - mean_return) ** 2 for value in returns) / (len(returns) - 1)
+    return sqrt(variance * 252)
 
 
 def _gap_from_low(

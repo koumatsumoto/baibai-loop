@@ -253,9 +253,13 @@ class DerivedMetrics:
     margin_week_end: date | None = None
     margin_issue_type: str | None = None
     margin_long_to_adv: float | None = None
+    margin_short_to_adv: float | None = None
     margin_long_share: float | None = None
     margin_long_delta_26w: float | None = None
     margin_std_long_share: float | None = None
+    # Annualized 60-session realized volatility is a calibration control. It is
+    # kept out of candidate output until a separately tested decision use exists.
+    realized_volatility_60d: float | None = None
 
     @field_validator(
         "price_change_1d",
@@ -270,9 +274,11 @@ class DerivedMetrics:
         "sector_return_4w",
         "price_history_coverage_750d",
         "margin_long_to_adv",
+        "margin_short_to_adv",
         "margin_long_share",
         "margin_long_delta_26w",
         "margin_std_long_share",
+        "realized_volatility_60d",
     )
     @classmethod
     def _finite_optional_float(cls, value: float | None) -> float | None:

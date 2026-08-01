@@ -54,6 +54,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
 
         self.assertEqual(axes.margin_week_end, WEEK)
         self.assertEqual(axes.margin_long_to_adv, 2.0)
+        self.assertEqual(axes.margin_short_to_adv, 0.5)
         self.assertEqual(axes.margin_long_share, 0.8)
         self.assertEqual(axes.margin_long_delta_26w, -0.005)
         self.assertEqual(axes.margin_std_long_share, 0.8)
@@ -64,6 +65,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
         axes = _axes(latest=_margin(short_vol=0.0, short_std_vol=0.0, short_neg_vol=0.0))
 
         self.assertEqual(axes.margin_long_share, 1.0)
+        self.assertEqual(axes.margin_short_to_adv, 0.0)
 
     def test_a_lending_ineligible_name_has_no_long_share(self) -> None:
         # A 信用銘柄 carries no stock lending, so its zero short balance is the
@@ -71,6 +73,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
         axes = _axes(latest=_margin(issue_type="1", short_vol=0.0))
 
         self.assertIsNone(axes.margin_long_share)
+        self.assertIsNone(axes.margin_short_to_adv)
         self.assertIsNotNone(axes.margin_long_to_adv)
 
     def test_a_split_inside_a_window_declines_that_axis(self) -> None:
@@ -80,6 +83,7 @@ class MarginSupplyDemandTest(unittest.TestCase):
         delta = _axes(split_within_delta_window=True)
 
         self.assertIsNone(adv.margin_long_to_adv)
+        self.assertIsNone(adv.margin_short_to_adv)
         self.assertIsNotNone(adv.margin_long_delta_26w)
         self.assertIsNone(delta.margin_long_delta_26w)
         self.assertIsNotNone(delta.margin_long_to_adv)
@@ -116,6 +120,7 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         derived = DerivedMetrics(**asdict(_axes()))
 
         self.assertEqual(derived.margin_long_to_adv, 2.0)
+        self.assertEqual(derived.margin_short_to_adv, 0.5)
         self.assertEqual(derived.margin_long_share, 0.8)
         self.assertEqual(derived.margin_long_delta_26w, -0.005)
         self.assertEqual(derived.margin_std_long_share, 0.8)

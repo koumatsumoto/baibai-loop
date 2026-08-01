@@ -85,6 +85,17 @@ function FactRow({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
+function SupplyDemandCompact({ row }: { row: CandidateRowView | null }) {
+  return (
+    <span className="grid gap-0.5 whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground">
+      <span>買/ADV {row?.margin_long_to_adv === null || row?.margin_long_to_adv === undefined ? EMPTY : `${plain(row.margin_long_to_adv, 2)}日`}</span>
+      <span>買率 <PctBadge fraction value={row?.margin_long_share ?? null} /></span>
+      <span>26w <PctBadge fraction value={row?.margin_long_delta_26w ?? null} /></span>
+      <span>制度 <PctBadge fraction value={row?.margin_std_long_share ?? null} /></span>
+    </span>
+  )
+}
+
 function MachineFacts({ longlistEntry, row }: { longlistEntry: SelectionLonglistEntryView | null; row: CandidateRowView | null }) {
   if (longlistEntry === null && row === null) {
     return (
@@ -124,6 +135,14 @@ function MachineFacts({ longlistEntry, row }: { longlistEntry: SelectionLonglist
         <span className="mx-1 text-muted-foreground">/</span>
         <PctBadge fraction value={row?.gap_from_52w_low ?? null} />
       </FactRow>
+      <FactRow label="信用買残 / ADV">
+        {row?.margin_long_to_adv === null || row?.margin_long_to_adv === undefined
+          ? EMPTY
+          : `${plain(row.margin_long_to_adv, 2)} 日分`}
+      </FactRow>
+      <FactRow label="信用買残比率"><PctBadge fraction value={row?.margin_long_share ?? null} /></FactRow>
+      <FactRow label="信用買残 26w変化"><PctBadge fraction value={row?.margin_long_delta_26w ?? null} /></FactRow>
+      <FactRow label="制度信用買残比率"><PctBadge fraction value={row?.margin_std_long_share ?? null} /></FactRow>
       <FactRow label="売買代金">{row?.avg_turnover_oku === null || row?.avg_turnover_oku === undefined ? '—' : `${plain(row.avg_turnover_oku)} 億円/日`}</FactRow>
       <FactRow label="次回決算予定"><span className="text-right">{row?.next_earnings_date ?? LABEL.earningsTbd}</span></FactRow>
       <FactRow label="データ品質">
@@ -168,6 +187,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
               <TableHead className="w-20 text-right">E[r]</TableHead>
               <TableHead className="w-28 text-right">rev / carry</TableHead>
               <TableHead className="w-20 text-right">FV乖離</TableHead>
+              <TableHead className="w-24">信用需給</TableHead>
               <TableHead className="min-w-56">RR が成立する理由</TableHead>
               <TableHead className="w-28">catalyst</TableHead>
               <TableHead className="w-24">永久損失</TableHead>
@@ -189,6 +209,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
                   <PctBadge fraction value={row.erCarryAnnual} />
                 </TableCell>
                 <TableCell className="text-right"><PctBadge value={row.fairValueGapPct} /></TableCell>
+                <TableCell><SupplyDemandCompact row={row.row} /></TableCell>
                 <TableCell className="text-muted-foreground" title={row.rr ?? undefined}>{summarize(row.rr) ?? EMPTY}</TableCell>
                 <TableCell className="font-mono text-xs tabular-nums" title={row.catalyst ?? undefined}>
                   {row.catalystDate ?? <span className="text-muted-foreground">日付なし</span>}

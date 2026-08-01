@@ -264,6 +264,7 @@ class CalibrationPanelTest(unittest.TestCase):
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             loaded = read_panel(store_dir, ASOF)
             self.assertEqual(list(result.rows), loaded)
+            self.assertEqual(result.rows[0].realized_volatility_60d, 0.0)
 
             forward_rows = [
                 ForwardReturnRow(
@@ -443,6 +444,31 @@ class CalibrationPanelTest(unittest.TestCase):
             ("dps_yoy_latest", "nan"),
             ("share_count_reduction_streak", "3"),
             ("shareholder_return_change", "false"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                sqlite_path = Path(tmp) / "market.sqlite"
+                _build_fixture_sqlite(sqlite_path)
+                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+                store_dir = Path(tmp) / "calibration"
+                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+                with path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                    fieldnames = list(rows[0])
+                rows[0][field] = invalid
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                    read_panel(store_dir, ASOF)
+
+    def test_store_rejects_invalid_margin_hypothesis_fields(self) -> None:
+        for field, invalid in (
+            ("margin_short_to_adv", "-0.1"),
+            ("margin_long_to_adv_mcap_quintile_percentile", "1.1"),
+            ("realized_volatility_60d", "-0.1"),
         ):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
                 sqlite_path = Path(tmp) / "market.sqlite"

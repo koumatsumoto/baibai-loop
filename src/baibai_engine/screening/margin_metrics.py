@@ -39,6 +39,10 @@ class MarginSupplyDemand:
     # the way up regardless of the absolute share count, and it is comparable
     # across names of different sizes.
     margin_long_to_adv: float | None = None
+    # Short balance in days of trading. This is deliberately not expressed as a
+    # share of the two-sided balance: that would be the exact complement of
+    # `margin_long_share` and would only relabel an already observed result.
+    margin_short_to_adv: float | None = None
     # Long share of the two-sided margin balance, in [0, 1]. The classic ratio
     # (long / short) is undefined exactly where crowding is most extreme — a
     # 貸借銘柄 with longs and no shorts — which would drop its own tail out of the
@@ -89,6 +93,14 @@ def margin_supply_demand(
         margin_long_to_adv=(
             long_vol / avg_daily_volume_shares
             if long_vol is not None and avg_daily_volume_shares and not split_within_adv_window
+            else None
+        ),
+        margin_short_to_adv=(
+            short_vol / avg_daily_volume_shares
+            if latest.issue_type == ISSUE_TYPE_LENDING_ELIGIBLE
+            and short_vol is not None
+            and avg_daily_volume_shares
+            and not split_within_adv_window
             else None
         ),
         margin_long_share=(long_vol / two_sided if two_sided and long_vol is not None else None),

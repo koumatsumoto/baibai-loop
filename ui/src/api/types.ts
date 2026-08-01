@@ -260,6 +260,10 @@ export interface CandidateRowView {
   sector_relative_strength_percentile: number | null
   price_change_20d: number | null
   gap_from_52w_low: number | null
+  margin_long_to_adv: number | null
+  margin_long_share: number | null
+  margin_long_delta_26w: number | null
+  margin_std_long_share: number | null
   next_earnings_date: string | null
   data_quality_flags: string[]
   portfolio_state: PortfolioState
