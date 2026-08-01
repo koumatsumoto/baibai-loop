@@ -76,8 +76,12 @@ def test_node_audit_is_fail_closed_and_reuses_the_security_job() -> None:
     workflow = _workflow()
     steps = workflow["jobs"]["audit"]["steps"]
     by_name = {step.get("name"): step for step in steps if "name" in step}
-    checkout = next(step for step in steps if step.get("uses") == "actions/checkout@v7")
-    setup_node = next(step for step in steps if step.get("uses") == "actions/setup-node@v7")
+    checkout = next(
+        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    setup_node = next(
+        step for step in steps if str(step.get("uses", "")).startswith("actions/setup-node@")
+    )
     detector = by_name["Detect Node audit scope"]
 
     assert set(workflow["jobs"]) == {"audit"}
