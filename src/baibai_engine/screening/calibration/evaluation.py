@@ -70,6 +70,14 @@ class _CohortExcessContext:
     horizon_years: float
 
 
+@dataclass(slots=True)
+class _QualityControlAccumulator:
+    median_deltas: list[float]
+    trap_deltas: list[float]
+    matched_weight: int = 0
+    cohorts: int = 0
+
+
 AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="per_forward", direction=-1),
     AxisSpec(name="per_trailing", direction=-1),
@@ -617,16 +625,15 @@ def _evaluate_quality_interaction(
     low = [row for row in eligible if (row.quality_signal_count or 0) <= QUALITY_LOW_MAX_COUNT]
     high_stats = _group_stats([excess[row.ticker] for row in high])
     low_stats = _group_stats([excess[row.ticker] for row in low])
+    controls: dict[str, object] = {}
     result: dict[str, object] = {
         "er_top_decile_n": len(er_top_decile),
         "eligible_n": len(eligible),
         "high": high_stats,
         "low": low_stats,
         **_quality_group_deltas(high_stats, low_stats),
-        "controls": {},
+        "controls": controls,
     }
-    controls = result["controls"]
-    assert isinstance(controls, dict)
     for field_name in QUALITY_CONTROL_FIELDS:
         controls[field_name] = _stratified_quality_control(high, low, excess, field_name=field_name)
     return result
@@ -1211,8 +1218,8 @@ def _aggregate_quality_interaction(cohorts: Sequence[dict[str, object]]) -> dict
     trap_deltas: list[float] = []
     high_n = 0
     low_n = 0
-    control_values: dict[str, dict[str, object]] = {
-        field_name: {"median": [], "trap": [], "matched_weight": 0, "cohorts": 0}
+    control_values = {
+        field_name: _QualityControlAccumulator(median_deltas=[], trap_deltas=[])
         for field_name in QUALITY_CONTROL_FIELDS
     }
     for cohort in cohorts:
@@ -1236,38 +1243,26 @@ def _aggregate_quality_interaction(cohorts: Sequence[dict[str, object]]) -> dict
             if not isinstance(control, dict):
                 continue
             summary = control_values[field_name]
-            median_values = summary["median"]
-            trap_values = summary["trap"]
-            assert isinstance(median_values, list)
-            assert isinstance(trap_values, list)
             median_value = control.get("stratified_median_excess_delta")
             trap_value = control.get("stratified_trap_rate_delta")
             if isinstance(median_value, int | float) and isinstance(trap_value, int | float):
-                median_values.append(float(median_value))
-                trap_values.append(float(trap_value))
-                cohort_count = summary["cohorts"]
-                assert isinstance(cohort_count, int)
-                summary["cohorts"] = cohort_count + 1
+                summary.median_deltas.append(float(median_value))
+                summary.trap_deltas.append(float(trap_value))
+                summary.cohorts += 1
                 weight = control.get("matched_weight")
                 if isinstance(weight, int):
-                    matched_weight = summary["matched_weight"]
-                    assert isinstance(matched_weight, int)
-                    summary["matched_weight"] = matched_weight + weight
+                    summary.matched_weight += weight
 
     controls_summary: dict[str, object] = {}
     for field_name, values in control_values.items():
-        median_values = values["median"]
-        trap_values = values["trap"]
-        assert isinstance(median_values, list)
-        assert isinstance(trap_values, list)
         controls_summary[field_name] = {
-            "cohorts": values["cohorts"],
-            "matched_weight": values["matched_weight"],
+            "cohorts": values.cohorts,
+            "matched_weight": values.matched_weight,
             "mean_stratified_median_excess_delta": (
-                round(fmean(median_values), 6) if median_values else None
+                round(fmean(values.median_deltas), 6) if values.median_deltas else None
             ),
             "mean_stratified_trap_rate_delta": (
-                round(fmean(trap_values), 6) if trap_values else None
+                round(fmean(values.trap_deltas), 6) if values.trap_deltas else None
             ),
         }
     return {
