@@ -417,12 +417,12 @@ def build_panel(
         )
         return_change = build_shareholder_return_change_signals(
             history_summaries_by_ticker.get(ticker, ()),
-            normalized_profit_split_bars_by_ticker.get(ticker, ()),
+            history_bars_by_ticker.get(ticker, ()),
             asof_date,
         )
         normalized_profit = build_normalized_profit_signals(
             history_summaries_by_ticker.get(ticker, ()),
-            history_bars_by_ticker.get(ticker, ()),
+            normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=latest_close_by_ticker.get(ticker),
             current_eps=financial.eps,

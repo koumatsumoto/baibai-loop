@@ -255,6 +255,65 @@ class CalibrationPanelTest(unittest.TestCase):
                 (ASOF - timedelta(days=730)).isoformat(),
             )
 
+    def test_panel_normalizes_old_fy_eps_for_split_before_recent_bar_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            old_history_start = date(2022, 5, 10)
+            insert_daily_bars_from_closes(
+                sqlite_path,
+                "9001",
+                [100.0] * ((ASOF - old_history_start).days + 1),
+                end_date=ASOF,
+                turnover_value=2e8,
+            )
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end, "
+                    "period_start, period_end"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (
+                            "9001",
+                            f"{year}-05-10",
+                            eps,
+                            "FY",
+                            f"{year}-03-31",
+                            f"{year - 1}-04-01",
+                            f"{year}-03-31",
+                        )
+                        for year, eps in ((2022, 40.0), (2023, 20.0), (2024, 20.0), (2025, 20.0))
+                    ],
+                )
+                conn.executemany(
+                    "INSERT OR REPLACE INTO jquants_daily_bars("
+                    "ticker, traded_at, close, adjustment_close, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    [
+                        ("9001", "2022-05-10", 50.0, 50.0, 1.0),
+                        ("9001", "2022-10-03", 50.0, 100.0, 0.5),
+                    ],
+                )
+                add_source_coverage(
+                    conn,
+                    source="jquants_fin_summaries",
+                    coverage_key="normalized-profit-history",
+                    record_count=6,
+                    min_date=old_history_start.isoformat(),
+                    max_date=ASOF.isoformat(),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            row = {item.ticker: item for item in result.rows}["9001"]
+
+            # 2022 FY EPS 40 is adjusted to 20 by a split outside the recent bar window.
+            self.assertAlmostEqual(row.normalized_per_5fy or 0.0, 100.0 / 18.0)
+
     def test_panel_and_forward_store_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
