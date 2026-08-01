@@ -16,7 +16,12 @@ from baibai_engine.foundation.coerce import (
 from baibai_engine.macro.context import MacroContext
 
 from ..regime import MarketRegimeSnapshot
-from ..rule_config import ScreeningRules, SelectionDiversityRules, SelectionLiquidityRules
+from ..rule_config import (
+    ScreeningRules,
+    SelectionDiversityRules,
+    SelectionLiquidityRules,
+    SelectionRules,
+)
 from ..tiers import position_tier
 from .lenses import _candidate_lenses
 from .macro_fit import (
@@ -137,8 +142,13 @@ def build_selection_payload(
 
     ranked_entries.sort(key=lambda item: item[0])
     ranked_candidates = [candidate for _, candidate in ranked_entries]
+    recommendation_candidates = [
+        candidate
+        for candidate in ranked_candidates
+        if _passes_supply_demand(candidate, selection_rules)
+    ]
     recommended = _recommended_research_candidates(
-        ranked_candidates=ranked_candidates,
+        ranked_candidates=recommendation_candidates,
         diversity_rules=selection_rules.diversity,
         limit=recommendation_limit,
     )
@@ -151,6 +161,7 @@ def build_selection_payload(
         market_regime=market_regime,
         liquidity_excluded_count=liquidity_excluded_count,
         liquidity_fact_missing_count=liquidity_fact_missing_count,
+        supply_demand_excluded_count=len(ranked_candidates) - len(recommendation_candidates),
     )
     recommendations = (
         recommended
@@ -415,6 +426,15 @@ def _passes_liquidity(
     return passes, facts_missing
 
 
+def _passes_supply_demand(candidate: Mapping[str, object], rules: SelectionRules) -> bool:
+    threshold = rules.supply_demand.margin_std_long_share_exclude_at_or_above
+    if threshold is None:
+        return True
+    metrics = mapping_or_empty(candidate.get("metrics"))
+    value = optional_float(metrics.get("margin_std_long_share"))
+    return value is None or value < threshold
+
+
 def _diagnostics(
     *,
     recommended: Sequence[dict[str, object]],
@@ -425,6 +445,7 @@ def _diagnostics(
     market_regime: MarketRegimeSnapshot | None = None,
     liquidity_excluded_count: int = 0,
     liquidity_fact_missing_count: int = 0,
+    supply_demand_excluded_count: int = 0,
 ) -> dict[str, object]:
     recommended_tickers = {
         ticker for item in recommended if (ticker := string_or_none(item.get("ticker"))) is not None
@@ -446,6 +467,7 @@ def _diagnostics(
         "market_regime": market_regime.to_dict() if market_regime is not None else None,
         "liquidity_excluded_count": liquidity_excluded_count,
         "liquidity_fact_missing_count": liquidity_fact_missing_count,
+        "supply_demand_excluded_count": supply_demand_excluded_count,
         "previous_overlap": {
             "previous_candidates_ref": previous_candidates.ref_path,
             "overlap_count": len(overlap_tickers),

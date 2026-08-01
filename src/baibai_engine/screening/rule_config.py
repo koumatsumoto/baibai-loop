@@ -205,11 +205,24 @@ class SelectionLiquidityRules(BaseModel):
         )
 
 
+class SelectionSupplyDemandRules(BaseModel):
+    """Optional recommendation-only positioning gate.
+
+    None keeps the gate disabled. Missing candidate facts pass because absence is
+    not evidence that a name sits in the excluded tail.
+    """
+
+    model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
+
+    margin_std_long_share_exclude_at_or_above: float | None = Field(default=None, ge=0, le=1)
+
+
 class SelectionRules(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
     default_profile: str = "balanced"
     liquidity: SelectionLiquidityRules = Field(default_factory=SelectionLiquidityRules)
+    supply_demand: SelectionSupplyDemandRules = Field(default_factory=SelectionSupplyDemandRules)
     durability: DurabilityRules = Field(default_factory=DurabilityRules)
     diversity: SelectionDiversityRules = Field(default_factory=SelectionDiversityRules)
 

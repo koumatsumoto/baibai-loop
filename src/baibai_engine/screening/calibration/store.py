@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 7
+CACHE_SCHEMA_VERSION = 8
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -217,9 +217,15 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         dividend_initiation=_opt_bool(raw, "dividend_initiation"),
         share_count_reduction_streak=_opt_int(raw, "share_count_reduction_streak"),
         shareholder_return_change=_opt_bool(raw, "shareholder_return_change"),
+        margin_short_to_adv=_opt_float(raw, "margin_short_to_adv"),
+        margin_long_to_adv_mcap_quintile_percentile=_opt_float(
+            raw, "margin_long_to_adv_mcap_quintile_percentile"
+        ),
+        realized_volatility_60d=_opt_float(raw, "realized_volatility_60d"),
     )
     _validate_quality_signals(row)
     _validate_shareholder_return_change(row)
+    _validate_margin_supply_demand(row)
     return row
 
 
@@ -336,6 +342,28 @@ def _validate_shareholder_return_change(row: PanelRow) -> None:
     expected = True if observed_positive else False if all_observed_negative else None
     if row.shareholder_return_change is not expected:
         raise ValueError("shareholder return change is inconsistent with its components")
+
+
+def _validate_margin_supply_demand(row: PanelRow) -> None:
+    short_to_adv = row.margin_short_to_adv
+    if short_to_adv is not None and (
+        not isfinite(short_to_adv) or short_to_adv < 0 or row.margin_week_end is None
+    ):
+        raise ValueError("margin short to ADV requires a dated non-negative value")
+
+    percentile = row.margin_long_to_adv_mcap_quintile_percentile
+    if percentile is not None and (
+        not isfinite(percentile)
+        or not 0 <= percentile <= 1
+        or not row.in_population
+        or row.market_cap_oku is None
+        or row.margin_long_to_adv is None
+    ):
+        raise ValueError("size-normalized margin percentile is inconsistent")
+
+    volatility = row.realized_volatility_60d
+    if volatility is not None and (not isfinite(volatility) or volatility < 0):
+        raise ValueError("realized volatility must be finite and non-negative")
 
 
 def _population_coverage_status(value: str) -> PopulationCoverageStatus:

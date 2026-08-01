@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from datetime import date, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -184,6 +184,9 @@ class PanelRow:
     dividend_initiation: bool | None = None
     share_count_reduction_streak: int | None = None
     shareholder_return_change: bool | None = None
+    margin_short_to_adv: float | None = None
+    margin_long_to_adv_mcap_quintile_percentile: float | None = None
+    realized_volatility_60d: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -441,9 +444,12 @@ def build_panel(
                     derived.margin_week_end.isoformat() if derived.margin_week_end else None
                 ),
                 margin_long_to_adv=derived.margin_long_to_adv,
+                margin_short_to_adv=derived.margin_short_to_adv,
                 margin_long_share=derived.margin_long_share,
                 margin_long_delta_26w=derived.margin_long_delta_26w,
                 margin_std_long_share=derived.margin_std_long_share,
+                margin_long_to_adv_mcap_quintile_percentile=None,
+                realized_volatility_60d=derived.realized_volatility_60d,
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
@@ -457,6 +463,8 @@ def build_panel(
                 shareholder_return_change=return_change.shareholder_return_change,
             )
         )
+
+    rows = _with_mcap_quintile_percentiles(rows)
 
     asof_priced = {
         ticker
@@ -605,9 +613,12 @@ def _unresolved_master_member_row(
         er_upside_capped=None,
         margin_week_end=None,
         margin_long_to_adv=None,
+        margin_short_to_adv=None,
         margin_long_share=None,
         margin_long_delta_26w=None,
         margin_std_long_share=None,
+        margin_long_to_adv_mcap_quintile_percentile=None,
+        realized_volatility_60d=None,
         pass_screen=False,
         evidence_playbooks="",
         selection_rank=None,
@@ -619,6 +630,51 @@ def _unresolved_master_member_row(
         ),
         self_range_degraded=self_range_degraded,
     )
+
+
+def _with_mcap_quintile_percentiles(rows: list[PanelRow]) -> list[PanelRow]:
+    """Rank long/ADV only against names in the same cohort size quintile."""
+    eligible = sorted(
+        (
+            row
+            for row in rows
+            if row.in_population
+            and row.market_cap_oku is not None
+            and row.margin_long_to_adv is not None
+        ),
+        key=lambda row: (row.market_cap_oku or 0.0, row.ticker),
+    )
+    if not eligible:
+        return rows
+    quintiles: list[list[PanelRow]] = [[] for _ in range(5)]
+    for index, row in enumerate(eligible):
+        quintiles[min(index * 5 // len(eligible), 4)].append(row)
+
+    percentiles: dict[str, float] = {}
+    for group in quintiles:
+        ordered = sorted(group, key=lambda row: (row.margin_long_to_adv or 0.0, row.ticker))
+        if len(ordered) == 1:
+            percentiles[ordered[0].ticker] = 0.5
+            continue
+        index = 0
+        while index < len(ordered):
+            tie_end = index + 1
+            value = ordered[index].margin_long_to_adv
+            while tie_end < len(ordered) and ordered[tie_end].margin_long_to_adv == value:
+                tie_end += 1
+            average_zero_based_rank = (index + tie_end - 1) / 2
+            percentile = average_zero_based_rank / (len(ordered) - 1)
+            for tied in ordered[index:tie_end]:
+                percentiles[tied.ticker] = percentile
+            index = tie_end
+
+    return [
+        replace(
+            row,
+            margin_long_to_adv_mcap_quintile_percentile=percentiles.get(row.ticker),
+        )
+        for row in rows
+    ]
 
 
 def _unavailable_master_panel(
@@ -683,11 +739,14 @@ def _replay_ranks(
     if mode == "full_ranking":
         profile_overrides = {
             profile: {
+                "supply_demand": {
+                    "margin_std_long_share_exclude_at_or_above": None,
+                },
                 "diversity": {
                     "max_recommended_per_sector": 10**9,
                     "max_recommended_per_playbook": 10**9,
                     "max_previous_candidates_in_recommended": None,
-                }
+                },
             }
         }
     payload = build_selection_payload(

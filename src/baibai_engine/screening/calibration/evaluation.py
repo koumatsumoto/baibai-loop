@@ -14,6 +14,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
 from statistics import fmean, median
+from typing import cast
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
@@ -61,6 +62,22 @@ RETURN_CHANGE_COMPONENT_FIELDS: tuple[str, ...] = (
     "dps_streak_up",
     "dps_guidance_up",
     "dividend_initiation",
+)
+MARGIN_DEADLINE_SHARE_EXCLUDE_AT_OR_ABOVE = 0.75
+MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR = -0.01
+MARGIN_HYPOTHESIS_AXES: tuple[str, ...] = (
+    "margin_short_to_adv",
+    "margin_long_to_adv_mcap_quintile_percentile",
+)
+MARGIN_CONTROL_FIELDS: tuple[str, ...] = (
+    "market_cap_oku",
+    "avg_turnover_oku",
+    "per_trailing",
+    "dividend_yield",
+    "close",
+    "price_change_60d",
+    "realized_volatility_60d",
+    "sector_33",
 )
 
 
@@ -140,9 +157,11 @@ AXES: tuple[AxisSpec, ...] = (
     # 多いほど劣後する」= 低いほど良い。いずれも計測前の仮説であり、採否は
     # dated report の採用基準で決める。
     AxisSpec(name="margin_long_to_adv", direction=-1),
+    AxisSpec(name="margin_short_to_adv", direction=-1),
     AxisSpec(name="margin_long_share", direction=-1),
     AxisSpec(name="margin_long_delta_26w", direction=-1),
     AxisSpec(name="margin_std_long_share", direction=-1),
+    AxisSpec(name="margin_long_to_adv_mcap_quintile_percentile", direction=-1),
 )
 
 # gate 条件付き評価を行う「割安軸」 (この軸の best decile 内で gate を比較する) 。
@@ -275,6 +294,8 @@ def _evaluate_cohort(
             "crowded_value": {},
             "quality_interaction": {},
             "shareholder_return_change": {},
+            "margin_deadline_gate": {},
+            "margin_supply_demand_hypotheses": {},
             "er_calibration": {},
             "er_level_calibration": {},
         }
@@ -287,6 +308,8 @@ def _evaluate_cohort(
         if axes_result is not None:
             axes[spec.name] = axes_result
     selection = _evaluate_selection(population, excess)
+    margin_deadline_gate = _evaluate_margin_deadline_gate(panel, excess)
+    margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     quality_interaction = _evaluate_quality_interaction(population, excess)
     return_change = _evaluate_shareholder_return_change(population, excess)
     er_calibration = _evaluate_er_calibration(
@@ -304,6 +327,17 @@ def _evaluate_cohort(
     )
     metric_statuses["shareholder_return_change"] = (
         "eligible" if return_change.get("eligible_n", 0) else "unresolved"
+    )
+    gate_top10 = margin_deadline_gate.get("top10")
+    metric_statuses["margin_deadline_gate_top10"] = (
+        "eligible"
+        if isinstance(gate_top10, dict)
+        and gate_top10.get("complete") is True
+        and isinstance(gate_top10.get("baseline"), dict)
+        and gate_top10["baseline"].get("n", 0)
+        and isinstance(gate_top10.get("variant"), dict)
+        and gate_top10["variant"].get("n", 0)
+        else "unresolved"
     )
 
     return {
@@ -329,6 +363,8 @@ def _evaluate_cohort(
         "crowded_value": _evaluate_crowded_value(population, excess),
         "quality_interaction": quality_interaction,
         "shareholder_return_change": return_change,
+        "margin_deadline_gate": margin_deadline_gate,
+        "margin_supply_demand_hypotheses": margin_hypotheses,
         "er_calibration": er_calibration,
         "er_level_calibration": er_level_calibration,
     }
@@ -406,9 +442,27 @@ _SENSITIVITY_METRICS: tuple[str, ...] = (
     "recommended_rank_top10",
     "er_calibration",
 )
+OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = ("margin_deadline_gate_top10",)
+_ALL_SENSITIVITY_METRICS = (*_SENSITIVITY_METRICS, *OPTIONAL_SENSITIVITY_METRICS)
 
 
-def _direction_signs(context: _CohortExcessContext, *, horizon: str) -> dict[str, float | None]:
+def _margin_deadline_gate_adoption_sign(value: object) -> float | None:
+    """Encode whether a gate result meets both conditions read by authority."""
+    if not isinstance(value, dict):
+        return None
+    median_delta = value.get("median_excess_delta")
+    trap_delta = value.get("trap_rate_delta")
+    if not isinstance(median_delta, int | float) or not isinstance(trap_delta, int | float):
+        return None
+    return float(median_delta >= MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR and trap_delta <= 0)
+
+
+def _direction_signs(
+    context: _CohortExcessContext,
+    panel: Sequence[PanelRow],
+    *,
+    horizon: str,
+) -> dict[str, float | None]:
     """The sign-bearing quantity of each conclusion the authority gate reads."""
     selection = _evaluate_selection(context.population, context.excess)
     signs: dict[str, float | None] = {}
@@ -430,6 +484,9 @@ def _direction_signs(context: _CohortExcessContext, *, horizon: str) -> dict[str
         )
     else:
         signs["er_calibration"] = None
+    signs["margin_deadline_gate_top10"] = _margin_deadline_gate_adoption_sign(
+        _evaluate_margin_deadline_gate(panel, context.excess).get("top10")
+    )
     return signs
 
 
@@ -442,8 +499,8 @@ def _signs_for_returns(
 ) -> dict[str, float | None]:
     context = _context_from_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
     if context is None:
-        return dict.fromkeys(_SENSITIVITY_METRICS)
-    return _direction_signs(context, horizon=horizon)
+        return dict.fromkeys(_ALL_SENSITIVITY_METRICS)
+    return _direction_signs(context, panel, horizon=horizon)
 
 
 def delisting_exclusion_sensitivity(
@@ -475,6 +532,7 @@ def delisting_exclusion_sensitivity(
         return {
             "excluded_count": 0,
             "direction_stable": True,
+            "metric_direction_stable": dict.fromkeys(_ALL_SENSITIVITY_METRICS, True),
             "as_reported": {},
             "imputations": {},
         }
@@ -491,28 +549,13 @@ def delisting_exclusion_sensitivity(
             panel, augmented, horizon=horizon, stale_count=stale_count
         )
 
-    stable = True
-    for metric in _SENSITIVITY_METRICS:
-        values = [as_reported[metric], *(imputed[name][metric] for name in _DELISTING_IMPUTATIONS)]
-        present = [value for value in values if value is not None]
-        if not present:
-            # The metric has no conclusion as reported or at either end, so the
-            # exclusion cannot have produced one. Whether it is reportable at all is
-            # the separate question `metric_statuses` answers.
-            continue
-        if len(present) != len(values):
-            # It has a conclusion in one case and none in another: the exclusion
-            # decides whether the cohort says anything, which is instability too.
-            stable = False
-            continue
-        # A conclusion whose sign is not the same as reported and at both ends was
-        # produced by the exclusion, not by the cohort.
-        if len({value > 0 for value in present}) > 1:
-            stable = False
+    metric_stability = _metric_direction_stability(as_reported, imputed)
+    stable = all(metric_stability[metric] for metric in _SENSITIVITY_METRICS)
     return {
         "excluded_count": len(excluded),
         "neutral_return": round(neutral, 6),
         "direction_stable": stable,
+        "metric_direction_stable": metric_stability,
         "as_reported": as_reported,
         "imputations": imputed,
     }
@@ -541,6 +584,7 @@ def priced_master_without_universe_sensitivity(
             "resolved_target_count": 0,
             "resolution_complete": True,
             "direction_stable": True,
+            "metric_direction_stable": dict.fromkeys(_ALL_SENSITIVITY_METRICS, True),
             "as_reported": {},
             "imputations": {},
         }
@@ -562,23 +606,39 @@ def priced_master_without_universe_sensitivity(
             panel, augmented, horizon=horizon, stale_count=stale_count
         )
 
-    stable = len(resolved_targets) == len(targets)
-    for metric in _SENSITIVITY_METRICS:
-        values = [as_reported[metric], *(imputed[name][metric] for name in _DELISTING_IMPUTATIONS)]
-        present = [value for value in values if value is not None]
-        if not present:
-            continue
-        if len(present) != len(values) or len({value > 0 for value in present}) > 1:
-            stable = False
+    metric_stability = _metric_direction_stability(as_reported, imputed)
+    stable = len(resolved_targets) == len(targets) and all(
+        metric_stability[metric] for metric in _SENSITIVITY_METRICS
+    )
     return {
         "excluded_count": len(targets),
         "resolved_target_count": len(resolved_targets),
         "resolution_complete": len(resolved_targets) == len(targets),
         "neutral_return": round(neutral, 6),
         "direction_stable": stable,
+        "metric_direction_stable": metric_stability,
         "as_reported": as_reported,
         "imputations": imputed,
     }
+
+
+def _metric_direction_stability(
+    as_reported: Mapping[str, float | None],
+    imputed: Mapping[str, Mapping[str, float | None]],
+) -> dict[str, bool]:
+    stability: dict[str, bool] = {}
+    for metric in _ALL_SENSITIVITY_METRICS:
+        values = [
+            as_reported[metric],
+            *(imputed[name][metric] for name in _DELISTING_IMPUTATIONS),
+        ]
+        present = [value for value in values if value is not None]
+        # No conclusion under any case cannot have been produced by the exclusion;
+        # whether the metric is reportable is handled by metric_statuses.
+        stability[metric] = not present or (
+            len(present) == len(values) and len({value > 0 for value in present}) == 1
+        )
+    return stability
 
 
 def _adjustment_factor_status(rows: Sequence[ForwardReturnRow]) -> str:
@@ -866,6 +926,157 @@ def _evaluate_selection(
             [excess[row.ticker] for row in reversion_carry_passers[:top_n]]
         )
     return result
+
+
+def _evaluate_margin_deadline_gate(
+    panel: Sequence[PanelRow], excess: Mapping[str, float]
+) -> dict[str, object]:
+    """Replay the fixed deadline-heavy exclusion without changing candidate facts."""
+    ranked = sorted(
+        (row for row in panel if row.in_population and row.recommended_rank is not None),
+        key=lambda row: (row.recommended_rank or 0, row.ticker),
+    )
+    variant = [
+        row
+        for row in ranked
+        if row.margin_std_long_share is None
+        or row.margin_std_long_share < MARGIN_DEADLINE_SHARE_EXCLUDE_AT_OR_ABOVE
+    ]
+    result: dict[str, object] = {
+        "excluded_count": len(ranked) - len(variant),
+    }
+    for top_n in (5, 10):
+        baseline_rows = ranked[:top_n]
+        variant_rows = variant[:top_n]
+        baseline = _group_stats(
+            [excess[row.ticker] for row in baseline_rows if row.ticker in excess]
+        )
+        gated = _group_stats([excess[row.ticker] for row in variant_rows if row.ticker in excess])
+        baseline_median = baseline.get("median_excess")
+        gated_median = gated.get("median_excess")
+        baseline_trap = baseline.get("trap_rate")
+        gated_trap = gated.get("trap_rate")
+        result[f"top{top_n}"] = {
+            "complete": len(baseline_rows) == top_n and len(variant_rows) == top_n,
+            "changed": tuple(row.ticker for row in baseline_rows)
+            != tuple(row.ticker for row in variant_rows),
+            "baseline": baseline,
+            "variant": gated,
+            "median_excess_delta": _rounded_delta(gated_median, baseline_median),
+            "trap_rate_delta": _rounded_delta(gated_trap, baseline_trap),
+        }
+    result["top5_changed"] = bool(cast(dict[str, object], result["top5"])["changed"])
+    result["top10_changed"] = bool(cast(dict[str, object], result["top10"])["changed"])
+    return result
+
+
+def _evaluate_margin_supply_demand_hypotheses(
+    population: Sequence[PanelRow], excess: Mapping[str, float]
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for axis_name in MARGIN_HYPOTHESIS_AXES:
+        spec = next(spec for spec in AXES if spec.name == axis_name)
+        controls: dict[str, object] = {}
+        for control_name in MARGIN_CONTROL_FIELDS:
+            if (
+                axis_name == "margin_long_to_adv_mcap_quintile_percentile"
+                and control_name == "market_cap_oku"
+            ):
+                controls[control_name] = {"normalized_in_axis": True}
+                continue
+            controls[control_name] = _stratified_axis_control(
+                population,
+                excess,
+                axis_name=axis_name,
+                direction=spec.direction,
+                control_name=control_name,
+            )
+        result[axis_name] = {
+            "eligible_n": sum(1 for row in population if getattr(row, axis_name) is not None),
+            "controls": controls,
+        }
+    return result
+
+
+def _stratified_axis_control(
+    population: Sequence[PanelRow],
+    excess: Mapping[str, float],
+    *,
+    axis_name: str,
+    direction: int,
+    control_name: str,
+) -> dict[str, object]:
+    rows = [
+        row
+        for row in population
+        if getattr(row, axis_name) is not None and getattr(row, control_name) is not None
+    ]
+    if not rows:
+        return _empty_axis_control()
+    strata: list[list[PanelRow]]
+    if control_name == "sector_33":
+        by_sector: dict[str, list[PanelRow]] = {}
+        for row in rows:
+            by_sector.setdefault(row.sector_33, []).append(row)
+        strata = [by_sector[key] for key in sorted(by_sector)]
+    else:
+        ordered = sorted(rows, key=lambda row: (getattr(row, control_name), row.ticker))
+        strata = [[] for _ in range(5)]
+        for index, row in enumerate(ordered):
+            strata[min(index * 5 // len(ordered), 4)].append(row)
+
+    median_spreads: list[tuple[float, int]] = []
+    trap_deltas: list[tuple[float, int]] = []
+    for stratum in strata:
+        ordered_axis = sorted(
+            stratum,
+            key=lambda row: (getattr(row, axis_name) * direction, row.ticker),
+        )
+        midpoint = len(ordered_axis) // 2
+        worst = ordered_axis[:midpoint]
+        best = ordered_axis[midpoint:]
+        if len(best) < 5 or len(worst) < 5:
+            continue
+        best_stats = _group_stats([excess[row.ticker] for row in best])
+        worst_stats = _group_stats([excess[row.ticker] for row in worst])
+        median_delta = _rounded_delta(
+            best_stats.get("median_excess"), worst_stats.get("median_excess")
+        )
+        trap_delta = _rounded_delta(best_stats.get("trap_rate"), worst_stats.get("trap_rate"))
+        if median_delta is None or trap_delta is None:
+            continue
+        weight = min(len(best), len(worst))
+        median_spreads.append((median_delta, weight))
+        trap_deltas.append((trap_delta, weight))
+    matched_weight = sum(weight for _, weight in median_spreads)
+    return {
+        "strata_used": len(median_spreads),
+        "matched_weight": matched_weight,
+        "stratified_median_excess_spread": _weighted_mean(median_spreads),
+        "stratified_trap_rate_delta": _weighted_mean(trap_deltas),
+    }
+
+
+def _empty_axis_control() -> dict[str, object]:
+    return {
+        "strata_used": 0,
+        "matched_weight": 0,
+        "stratified_median_excess_spread": None,
+        "stratified_trap_rate_delta": None,
+    }
+
+
+def _weighted_mean(values: Sequence[tuple[float, int]]) -> float | None:
+    weight = sum(item_weight for _, item_weight in values)
+    if not weight:
+        return None
+    return round(sum(value * item_weight for value, item_weight in values) / weight, 6)
+
+
+def _rounded_delta(left: object, right: object) -> float | None:
+    if not isinstance(left, int | float) or not isinstance(right, int | float):
+        return None
+    return round(float(left) - float(right), 6)
 
 
 def _reversion_plus_capped_carry(row: PanelRow) -> float:
@@ -1201,6 +1412,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         best_medians: list[float] = []
         trap_rates: list[float] = []
         decile_spreads: list[float] = []
+        total_n = 0
         for cohort in cohorts:
             axes = cohort.get("axes")
             if not isinstance(axes, dict):
@@ -1208,6 +1420,9 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             axis = axes.get(spec.name)
             if not isinstance(axis, dict):
                 continue
+            axis_n = axis.get("n")
+            if isinstance(axis_n, int):
+                total_n += axis_n
             ic = axis.get("rank_ic")
             if isinstance(ic, int | float):
                 ics.append(float(ic))
@@ -1224,6 +1439,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             continue
         axis_summary[spec.name] = {
             "cohorts": len(ics),
+            "total_n": total_n,
             "mean_rank_ic": round(fmean(ics), 4) if ics else None,
             "ic_positive_share": (
                 round(sum(1 for ic in ics if ic > 0) / len(ics), 4) if ics else None
@@ -1239,6 +1455,14 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             "mean_best_decile_trap_rate": (round(fmean(trap_rates), 4) if trap_rates else None),
             "mean_decile_spread_median": (
                 round(fmean(decile_spreads), 6) if decile_spreads else None
+            ),
+            "decile_spread_positive_share": (
+                round(
+                    sum(1 for value in decile_spreads if value > 0) / len(decile_spreads),
+                    4,
+                )
+                if decile_spreads
+                else None
             ),
         }
 
@@ -1287,7 +1511,108 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "selection": selection_summary,
         "quality_interaction": _aggregate_quality_interaction(cohorts),
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
+        "margin_deadline_gate": _aggregate_margin_deadline_gate(cohorts),
+        "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
     }
+
+
+def _aggregate_margin_deadline_gate(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    total_excluded = 0
+    for cohort in cohorts:
+        gate = cohort.get("margin_deadline_gate")
+        if isinstance(gate, dict) and isinstance(gate.get("excluded_count"), int):
+            total_excluded += int(gate["excluded_count"])
+    result["excluded_count"] = total_excluded
+    for top_n in (5, 10):
+        median_deltas: list[float] = []
+        trap_deltas: list[float] = []
+        baseline_n = 0
+        variant_n = 0
+        changed = 0
+        complete = 0
+        for cohort in cohorts:
+            gate = cohort.get("margin_deadline_gate")
+            if not isinstance(gate, dict):
+                continue
+            comparison = gate.get(f"top{top_n}")
+            if not isinstance(comparison, dict):
+                continue
+            if comparison.get("complete") is True:
+                complete += 1
+            if comparison.get("changed") is True:
+                changed += 1
+            baseline = comparison.get("baseline")
+            variant = comparison.get("variant")
+            if isinstance(baseline, dict) and isinstance(baseline.get("n"), int):
+                baseline_n += int(baseline["n"])
+            if isinstance(variant, dict) and isinstance(variant.get("n"), int):
+                variant_n += int(variant["n"])
+            _append_numeric(comparison.get("median_excess_delta"), median_deltas)
+            _append_numeric(comparison.get("trap_rate_delta"), trap_deltas)
+        result[f"top{top_n}"] = {
+            "paired_cohorts": len(median_deltas),
+            "complete_cohorts": complete,
+            "baseline_n": baseline_n,
+            "variant_n": variant_n,
+            "changed_cohorts": changed,
+            "changed_cohort_share": (
+                round(changed / len(median_deltas), 4) if median_deltas else None
+            ),
+            "mean_median_excess_delta": (round(fmean(median_deltas), 6) if median_deltas else None),
+            "mean_trap_rate_delta": (round(fmean(trap_deltas), 6) if trap_deltas else None),
+        }
+    return result
+
+
+def _aggregate_margin_hypotheses(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for axis_name in MARGIN_HYPOTHESIS_AXES:
+        control_values = {
+            field_name: _QualityControlAccumulator(median_deltas=[], trap_deltas=[])
+            for field_name in MARGIN_CONTROL_FIELDS
+        }
+        eligible_n = 0
+        for cohort in cohorts:
+            hypotheses = cohort.get("margin_supply_demand_hypotheses")
+            if not isinstance(hypotheses, dict):
+                continue
+            axis = hypotheses.get(axis_name)
+            if not isinstance(axis, dict):
+                continue
+            if isinstance(axis.get("eligible_n"), int):
+                eligible_n += int(axis["eligible_n"])
+            controls = axis.get("controls")
+            if not isinstance(controls, dict):
+                continue
+            for field_name, accumulator in control_values.items():
+                control = controls.get(field_name)
+                if not isinstance(control, dict) or control.get("normalized_in_axis") is True:
+                    continue
+                median_value = control.get("stratified_median_excess_spread")
+                trap_value = control.get("stratified_trap_rate_delta")
+                if not isinstance(median_value, int | float) or not isinstance(
+                    trap_value, int | float
+                ):
+                    continue
+                accumulator.median_deltas.append(float(median_value))
+                accumulator.trap_deltas.append(float(trap_value))
+                accumulator.cohorts += 1
+                weight = control.get("matched_weight")
+                if isinstance(weight, int):
+                    accumulator.matched_weight += weight
+        controls_summary = _control_summaries(control_values)
+        if axis_name == "margin_long_to_adv_mcap_quintile_percentile":
+            cast(dict[str, object], controls_summary["market_cap_oku"])["normalized_in_axis"] = True
+        result[axis_name] = {
+            "eligible_n": eligible_n,
+            "controls": controls_summary,
+        }
+    return result
 
 
 def _aggregate_quality_interaction(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:

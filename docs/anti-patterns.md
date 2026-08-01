@@ -317,6 +317,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       対で持つか
 - [ ] 整合チェック (cross-field consistency) は片方の欠損で skip しないよう、依存 field を
       required 化する
+- [ ] calibration panel の信用需給列は、`margin_short_to_adv` を公表週つき非負値、
+      規模帯内 percentile を `[0,1]` かつ `in_population`・時価総額・元軸つき、
+      realized volatility を有限非負として read 時に検証し、列追加時は cache schema を更新する
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
 - [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える**:

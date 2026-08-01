@@ -19,7 +19,7 @@ from .authority import (
     EvaluationScope,
     decide_authority,
 )
-from .evaluation import evaluate_cohorts
+from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
 from .forward import HORIZONS, ForwardReturnRow, compute_forward_returns
 from .grid import month_end_asof_grid
 from .panel import (
@@ -343,6 +343,25 @@ def calibration_evaluate_command(
                 sensitivity = coverage.get("delisting_exclusion")
                 if isinstance(sensitivity, dict) and not sensitivity.get("direction_stable"):
                     blockers.append("unpriced_exit_flips_direction")
+                optional_required = set(scope.required_metrics).intersection(
+                    OPTIONAL_SENSITIVITY_METRICS
+                )
+                for coverage_key, reason_prefix in (
+                    ("delisting_exclusion", "unpriced_exit_flips"),
+                    ("priced_master_without_universe", "priced_master_without_universe_flips"),
+                ):
+                    sensitivity = coverage.get(coverage_key)
+                    metric_stability = (
+                        sensitivity.get("metric_direction_stable")
+                        if isinstance(sensitivity, dict)
+                        else None
+                    )
+                    for metric in sorted(optional_required):
+                        if (
+                            not isinstance(metric_stability, dict)
+                            or metric_stability.get(metric) is not True
+                        ):
+                            blockers.append(f"{reason_prefix}:{metric}")
             metric_status = (
                 "eligible" if cohort["metric_calculation_status"] == "resolved" else "unresolved"
             )

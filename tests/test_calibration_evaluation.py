@@ -22,12 +22,18 @@ from baibai_engine.screening.calibration.cli import (
 from baibai_engine.screening.calibration.evaluation import (
     DECILES,
     MIN_AXIS_SAMPLE,
+    _margin_deadline_gate_adoption_sign,
+    _metric_direction_stability,
     _reversion_plus_capped_carry,
     _spearman,
     evaluate_cohorts,
 )
 from baibai_engine.screening.calibration.forward import ForwardReturnRow
-from baibai_engine.screening.calibration.panel import PanelDiagnostics, PanelRow
+from baibai_engine.screening.calibration.panel import (
+    PanelDiagnostics,
+    PanelRow,
+    _with_mcap_quintile_percentiles,
+)
 from baibai_engine.screening.calibration.store import write_forward, write_panel
 
 
@@ -208,6 +214,117 @@ class RequiredMetricStatusTest(unittest.TestCase):
 
 
 class EvaluateCohortsTest(unittest.TestCase):
+    def test_margin_deadline_gate_recompacts_the_rank_and_improves_traps(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for index in range(120):
+            ticker = f"{3000 + index}"
+            rank = index + 1 if index < 20 else None
+            panel.append(
+                replace(
+                    _panel_row(ticker, per_trailing=10.0, rank=rank),
+                    margin_std_long_share=0.9 if index < 2 else 0.5,
+                )
+            )
+            realized = -0.5 if index < 2 else 0.2 if index in {10, 11} else 0.0
+            forwards.append(_forward_row(ticker, realized))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]
+        gate = cohort["margin_deadline_gate"]
+        top10 = gate["top10"]
+
+        self.assertTrue(top10["complete"])
+        self.assertTrue(top10["changed"])
+        self.assertEqual(gate["excluded_count"], 2)
+        self.assertLess(top10["trap_rate_delta"], 0)
+        self.assertEqual(cohort["metric_statuses"]["margin_deadline_gate_top10"], "eligible")
+
+    def test_new_margin_axes_and_every_registered_control_are_reported(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for index in range(150):
+            ticker = f"{4000 + index}"
+            axis = float(index + 1)
+            panel.append(
+                replace(
+                    _panel_row(
+                        ticker,
+                        per_trailing=5.0 + index / 10,
+                        dividend_yield=index / 1000,
+                        sector_33=f"sector-{index % 5}",
+                        close=100.0 + index,
+                        market_cap_oku=100.0 + index,
+                        avg_turnover_oku=1.0 + index / 10,
+                        price_change_60d=index / 1000,
+                    ),
+                    margin_short_to_adv=axis,
+                    margin_long_to_adv_mcap_quintile_percentile=index / 149,
+                    realized_volatility_60d=0.1 + index / 1000,
+                )
+            )
+            forwards.append(_forward_row(ticker, -index / 100))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]
+        axes = cohort["axes"]
+        self.assertGreater(axes["margin_short_to_adv"]["decile_spread_median"], 0)
+        hypotheses = cohort["margin_supply_demand_hypotheses"]
+        short_controls = hypotheses["margin_short_to_adv"]["controls"]
+        self.assertEqual(
+            set(short_controls),
+            {
+                "market_cap_oku",
+                "avg_turnover_oku",
+                "per_trailing",
+                "dividend_yield",
+                "close",
+                "price_change_60d",
+                "realized_volatility_60d",
+                "sector_33",
+            },
+        )
+        normalized = hypotheses["margin_long_to_adv_mcap_quintile_percentile"]["controls"][
+            "market_cap_oku"
+        ]
+        self.assertEqual(normalized, {"normalized_in_axis": True})
+
+
+class MarginSizeNormalizationTest(unittest.TestCase):
+    def test_rank_is_tie_aware_within_stable_market_cap_quintiles(self) -> None:
+        rows = [
+            replace(
+                _panel_row(
+                    f"{5000 + index}",
+                    per_trailing=10.0,
+                    market_cap_oku=float(index + 1),
+                ),
+                margin_long_to_adv=(1.0 if index % 3 < 2 else 2.0),
+            )
+            for index in range(15)
+        ]
+
+        normalized = _with_mcap_quintile_percentiles(rows)
+
+        self.assertEqual(
+            [row.margin_long_to_adv_mcap_quintile_percentile for row in normalized[:3]],
+            [0.25, 0.25, 1.0],
+        )
+
+    def test_missing_and_out_of_population_rows_are_not_normalized(self) -> None:
+        missing = replace(_panel_row("6000", per_trailing=10.0), margin_long_to_adv=None)
+        excluded = replace(
+            _panel_row("6001", per_trailing=10.0),
+            in_population=False,
+            margin_long_to_adv=2.0,
+        )
+
+        normalized = _with_mcap_quintile_percentiles([missing, excluded])
+
+        self.assertTrue(
+            all(row.margin_long_to_adv_mcap_quintile_percentile is None for row in normalized)
+        )
+
     def test_cheap_per_trailing_outperformance_yields_positive_ic(self) -> None:
         # 150 銘柄: PER が低いほど forward return が高い設計 (direction=-1 で
         # 正の IC・best decile 正の超過になるべき) 。上位 10 銘柄を select 順に見立てる。
@@ -1052,6 +1169,31 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         imputations = sensitivity["imputations"]
         self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
         self.assertGreater(imputations["neutral"]["recommended_rank_top5"], 0)
+
+    def test_margin_gate_trap_regression_blocks_optional_authority(self) -> None:
+        passing = {
+            "median_excess_delta": -0.005,
+            "trap_rate_delta": 0.0,
+        }
+        trap_regression = {
+            "median_excess_delta": -0.005,
+            "trap_rate_delta": 0.01,
+        }
+        self.assertEqual(_margin_deadline_gate_adoption_sign(passing), 1.0)
+        self.assertEqual(_margin_deadline_gate_adoption_sign(trap_regression), 0.0)
+
+        as_reported = {
+            "recommended_rank_top5": None,
+            "recommended_rank_top10": None,
+            "er_calibration": None,
+            "margin_deadline_gate_top10": 1.0,
+        }
+        imputed = {
+            "total_loss": as_reported,
+            "neutral": {**as_reported, "margin_deadline_gate_top10": 0.0},
+        }
+        stability = _metric_direction_stability(as_reported, imputed)
+        self.assertFalse(stability["margin_deadline_gate_top10"])
 
     def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
         # Three of the five recommended names left the market. What the cohort
