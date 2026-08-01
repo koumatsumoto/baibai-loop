@@ -156,6 +156,19 @@ class FinancialSnapshot:
     # Positive = dilution, negative = buyback. None if prior-year share count
     # is missing or zero.
     net_share_change_yoy: float | None = None
+    # Point-in-time F-score-style components. Missing inputs remain None so a
+    # component cannot silently count as either support or failure. The count is
+    # exposed only when at least six of the eight components are observable.
+    quality_roa_positive: bool | None = None
+    quality_delta_roa_positive: bool | None = None
+    quality_cfo_positive: bool | None = None
+    quality_accrual_healthy: bool | None = None
+    quality_delta_operating_margin_positive: bool | None = None
+    quality_delta_equity_ratio_positive: bool | None = None
+    quality_no_dilution: bool | None = None
+    quality_delta_asset_turnover_positive: bool | None = None
+    quality_signal_available_count: int = 0
+    quality_signal_count: int | None = None
     # 会社予想で純利益>経常となる行の data-quality flag。税負担が通常正である以上、
     # 純利益>経常は特別益の存在をほぼ確定する。forward PER / 予想配当 / E[r] carry が
     # 一時益で嵩上げされた value trap を判断前に表面化させる warning (rank・E[r] は変えない)。

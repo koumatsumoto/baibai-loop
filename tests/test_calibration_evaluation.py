@@ -42,19 +42,24 @@ def _panel_row(
     er_reversion_annual: float | None = None,
     er_carry_annual: float | None = None,
     close: float | None = 1000.0,
+    market_cap_oku: float | None = 500.0,
+    avg_turnover_oku: float | None = 5.0,
+    pbr: float | None = None,
+    price_change_60d: float | None = None,
+    quality_signal_count: int | None = None,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
         ticker=ticker,
         sector_33=sector_33,
         in_population=True,
-        market_cap_oku=500.0,
-        avg_turnover_oku=5.0,
+        market_cap_oku=market_cap_oku,
+        avg_turnover_oku=avg_turnover_oku,
         listing_span_days=1200,
         close=close,
         per_forward=None,
         per_trailing=per_trailing,
-        pbr=None,
+        pbr=pbr,
         ev_ebitda=None,
         p_s=None,
         pcfr=None,
@@ -71,9 +76,19 @@ def _panel_row(
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
+        quality_roa_positive=None,
+        quality_delta_roa_positive=None,
+        quality_cfo_positive=None,
+        quality_accrual_healthy=None,
+        quality_delta_operating_margin_positive=None,
+        quality_delta_equity_ratio_positive=None,
+        quality_no_dilution=None,
+        quality_delta_asset_turnover_positive=None,
+        quality_signal_available_count=8 if quality_signal_count is not None else 0,
+        quality_signal_count=quality_signal_count,
         ttm_quality_per_trailing="exact",
         ttm_quality_ocf_yield="exact",
-        price_change_60d=None,
+        price_change_60d=price_change_60d,
         gap_from_52w_low=None,
         price_history_coverage_750d=1.0,
         smg_per_forward=None,
@@ -266,6 +281,65 @@ class EvaluateCohortsTest(unittest.TestCase):
         mean_excess = best["mean_excess"]
         assert isinstance(mean_excess, float)
         self.assertEqual(mean_excess, 0.0)
+
+    def test_quality_interaction_compares_er_top_decile_and_applies_all_controls(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for i in range(400):
+            ticker = f"{4000 + i}"
+            in_er_top = i >= 360
+            high_quality = 360 <= i < 380
+            control = float(i % 20 + 1)
+            quality_count = 6 if high_quality else (2 if in_er_top else 4)
+            panel.append(
+                _panel_row(
+                    ticker,
+                    per_trailing=control,
+                    dividend_yield=control / 1_000,
+                    er_annual=float(i),
+                    market_cap_oku=control * 100,
+                    avg_turnover_oku=control,
+                    pbr=control / 10,
+                    price_change_60d=control / 100,
+                    quality_signal_count=quality_count,
+                )
+            )
+            realized = 0.10 if high_quality else (-0.30 if in_er_top else 0.0)
+            forwards.append(_forward_row(ticker, realized, horizon="1y"))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["1y"])
+        horizon = result["1y"]
+        assert isinstance(horizon, dict)
+        cohorts = horizon["cohorts"]
+        assert isinstance(cohorts, list)
+        interaction = cohorts[0]["quality_interaction"]
+        assert isinstance(interaction, dict)
+        self.assertEqual(interaction["er_top_decile_n"], 40)
+        self.assertEqual(interaction["eligible_n"], 40)
+        self.assertEqual(interaction["median_excess_delta"], 0.4)
+        self.assertEqual(interaction["trap_rate_delta"], -1.0)
+        controls = interaction["controls"]
+        assert isinstance(controls, dict)
+        for field_name in (
+            "market_cap_oku",
+            "avg_turnover_oku",
+            "pbr",
+            "per_trailing",
+            "dividend_yield",
+            "price_change_60d",
+        ):
+            with self.subTest(field_name=field_name):
+                control_result = controls[field_name]
+                assert isinstance(control_result, dict)
+                self.assertEqual(control_result["strata_used"], 2)
+                self.assertEqual(control_result["matched_weight"], 20)
+                self.assertEqual(control_result["stratified_median_excess_delta"], 0.4)
+                self.assertEqual(control_result["stratified_trap_rate_delta"], -1.0)
+        axes = cohorts[0]["axes"]
+        assert isinstance(axes, dict)
+        quality_axis = axes["quality_signal_count"]
+        assert isinstance(quality_axis, dict)
+        self.assertGreater(float(quality_axis["decile_spread_median"]), 0.0)
 
     def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
         # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を

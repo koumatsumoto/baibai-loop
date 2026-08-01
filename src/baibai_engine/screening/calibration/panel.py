@@ -128,6 +128,16 @@ class PanelRow:
     cfo_yoy: float | None
     accruals_to_assets: float | None
     net_share_change_yoy: float | None
+    quality_roa_positive: bool | None
+    quality_delta_roa_positive: bool | None
+    quality_cfo_positive: bool | None
+    quality_accrual_healthy: bool | None
+    quality_delta_operating_margin_positive: bool | None
+    quality_delta_equity_ratio_positive: bool | None
+    quality_no_dilution: bool | None
+    quality_delta_asset_turnover_positive: bool | None
+    quality_signal_available_count: int
+    quality_signal_count: int | None
     ttm_quality_per_trailing: str
     ttm_quality_ocf_yield: str
     price_change_60d: float | None
@@ -371,6 +381,20 @@ def build_panel(
                 cfo_yoy=financial.cfo_yoy,
                 accruals_to_assets=financial.accruals_to_assets,
                 net_share_change_yoy=financial.net_share_change_yoy,
+                quality_roa_positive=financial.quality_roa_positive,
+                quality_delta_roa_positive=financial.quality_delta_roa_positive,
+                quality_cfo_positive=financial.quality_cfo_positive,
+                quality_accrual_healthy=financial.quality_accrual_healthy,
+                quality_delta_operating_margin_positive=(
+                    financial.quality_delta_operating_margin_positive
+                ),
+                quality_delta_equity_ratio_positive=(financial.quality_delta_equity_ratio_positive),
+                quality_no_dilution=financial.quality_no_dilution,
+                quality_delta_asset_turnover_positive=(
+                    financial.quality_delta_asset_turnover_positive
+                ),
+                quality_signal_available_count=financial.quality_signal_available_count,
+                quality_signal_count=financial.quality_signal_count,
                 ttm_quality_per_trailing=financial.ttm_quality_per_trailing.value,
                 ttm_quality_ocf_yield=financial.ttm_quality_ocf_yield.value,
                 price_change_60d=derived.price_change_60d,
@@ -521,6 +545,16 @@ def _unresolved_master_member_row(
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
+        quality_roa_positive=None,
+        quality_delta_roa_positive=None,
+        quality_cfo_positive=None,
+        quality_accrual_healthy=None,
+        quality_delta_operating_margin_positive=None,
+        quality_delta_equity_ratio_positive=None,
+        quality_no_dilution=None,
+        quality_delta_asset_turnover_positive=None,
+        quality_signal_available_count=0,
+        quality_signal_count=None,
         ttm_quality_per_trailing="unavailable",
         ttm_quality_ocf_yield="unavailable",
         price_change_60d=None,

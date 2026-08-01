@@ -249,6 +249,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
 - [ ] calibration coverage の対象 row は diagnostics の件数だけでなく row identity も保存し、件数不一致・未知 status・対象 return 欠損を fail closed にするか。diagnostic-only panel は directory と provenance hash を production から分け、`production_decision` では authority flag 単独でなく variant・入力窓・全 row の quality を固定 tuple として照合する negative test を持つか
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
+- [ ] calibration quality condition は current/prior の開示時点を混ぜず、欠損を不充足へ補完していないか。6成分未満の composite を null にし、cache の optional boolean が空欄 / `true` / `false` 以外なら fail closed にする negative test があるか
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
 - [ ] EDINET metric snapshotを差分再利用する場合、rowの抽出・文書状態revision必須、訂正eventを含むsource identity完全一致、target以下のbaseline選択、failed skip、hard parser failure拒否、同日失敗時の正常snapshot保持、最新ok coverageのrange/error/count矛盾時のfail-closedをnegative testで固定したか
 - [ ] provider が個別 release URL の manifest を持つ場合、scheme / host / path全体をallowlistして
