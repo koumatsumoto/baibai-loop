@@ -60,6 +60,23 @@ class MetricBuildResult:
     yoy_missing_count: int
 
 
+QUALITY_SIGNAL_MIN_AVAILABLE = 6
+
+
+@dataclass(frozen=True, slots=True)
+class _QualitySignals:
+    roa_positive: bool | None
+    delta_roa_positive: bool | None
+    cfo_positive: bool | None
+    accrual_healthy: bool | None
+    delta_operating_margin_positive: bool | None
+    delta_equity_ratio_positive: bool | None
+    no_dilution: bool | None
+    delta_asset_turnover_positive: bool | None
+    available_count: int
+    count: int | None
+
+
 def build_metrics(
     asof_date: date,
     securities_by_ticker: Mapping[str, SecurityMaster],
@@ -545,6 +562,26 @@ def _build_financial_snapshot(
         else None
     )
     ev_ebitda = _safe_positive_ratio(latest_enterprise_value, ebitda_ttm)
+    accruals_to_assets = _accruals_to_assets(
+        eps_ttm=eps_ttm,
+        shares=shares_outstanding,
+        ocf_ttm=ocf_ttm,
+        total_assets=total_assets,
+        prior_total_assets=prior_year.total_assets if prior_year else None,
+    )
+    net_share_change_yoy = _yoy_ratio(
+        shares_outstanding,
+        prior_year.shares_outstanding if prior_year else None,
+    )
+    quality = _build_quality_signals(
+        summaries,
+        prior_year=prior_year,
+        ttm_rules=rules.ttm,
+        total_assets=total_assets,
+        equity=equity,
+        accruals_to_assets=accruals_to_assets,
+        net_share_change_yoy=net_share_change_yoy,
+    )
 
     return FinancialSnapshot(
         per_forward=per_forward,
@@ -612,17 +649,18 @@ def _build_financial_snapshot(
         ttm_quality_fcf_yield=edinet.ttm_quality_fcf if edinet else TTMQuality.UNAVAILABLE,
         ttm_quality_net_cash=edinet.ttm_quality_net_cash if edinet else TTMQuality.UNAVAILABLE,
         shares_outstanding=shares_outstanding,
-        accruals_to_assets=_accruals_to_assets(
-            eps_ttm=eps_ttm,
-            shares=shares_outstanding,
-            ocf_ttm=ocf_ttm,
-            total_assets=total_assets,
-            prior_total_assets=prior_year.total_assets if prior_year else None,
-        ),
-        net_share_change_yoy=_yoy_ratio(
-            shares_outstanding,
-            prior_year.shares_outstanding if prior_year else None,
-        ),
+        accruals_to_assets=accruals_to_assets,
+        net_share_change_yoy=net_share_change_yoy,
+        quality_roa_positive=quality.roa_positive,
+        quality_delta_roa_positive=quality.delta_roa_positive,
+        quality_cfo_positive=quality.cfo_positive,
+        quality_accrual_healthy=quality.accrual_healthy,
+        quality_delta_operating_margin_positive=quality.delta_operating_margin_positive,
+        quality_delta_equity_ratio_positive=quality.delta_equity_ratio_positive,
+        quality_no_dilution=quality.no_dilution,
+        quality_delta_asset_turnover_positive=quality.delta_asset_turnover_positive,
+        quality_signal_available_count=quality.available_count,
+        quality_signal_count=quality.count,
         bs_carry_forward_fields=bs_carry_forward_fields or None,
         bs_carry_forward_lag_days=bs_carry_forward_lag_days,
         forecast_special_gain_flag=forecast_special_gain_flag,
@@ -1078,6 +1116,130 @@ def _accruals_to_assets(
     if denominator <= 0:
         return None
     return (net_income - ocf_ttm) / denominator
+
+
+def _build_quality_signals(
+    summaries: Sequence[JQuantsFinancialSummary],
+    *,
+    prior_year: JQuantsFinancialSummary | None,
+    ttm_rules: TTMRules,
+    total_assets: float | None,
+    equity: float | None,
+    accruals_to_assets: float | None,
+    net_share_change_yoy: float | None,
+) -> _QualitySignals:
+    """Build eight unweighted, point-in-time quality conditions.
+
+    The prior snapshot is rebuilt only from rows available through the matched
+    prior-period disclosure. This keeps every delta on the same as-of boundary
+    and prevents a later revision from leaking into the older side.
+    """
+    prior_summaries = _summaries_through(summaries, prior_year)
+    profit_current, profit_prior = _common_ttm_pair(
+        summaries,
+        prior_summaries,
+        fields=("operating_profit", "ordinary_profit", "profit"),
+        ttm_rules=ttm_rules,
+    )
+    operating_current, operating_prior = _ttm_pair(
+        summaries, prior_summaries, field="operating_profit", ttm_rules=ttm_rules
+    )
+    sales_current, sales_prior = _ttm_pair(
+        summaries, prior_summaries, field="sales", ttm_rules=ttm_rules
+    )
+    cfo_current, _cfo_prior = _ttm_pair(
+        summaries, prior_summaries, field="cfo", ttm_rules=ttm_rules
+    )
+    prior_total_assets, _ = _carry_forward(prior_summaries, "total_assets", prior_year)
+    prior_equity, _ = _carry_forward(prior_summaries, "equity", prior_year)
+
+    roa_current = _ratio_with_positive_denominator(profit_current, total_assets)
+    roa_prior = _ratio_with_positive_denominator(profit_prior, prior_total_assets)
+    operating_margin_current = _ratio_with_positive_denominator(operating_current, sales_current)
+    operating_margin_prior = _ratio_with_positive_denominator(operating_prior, sales_prior)
+    equity_ratio_current = _ratio_with_positive_denominator(equity, total_assets)
+    equity_ratio_prior = _ratio_with_positive_denominator(prior_equity, prior_total_assets)
+    asset_turnover_current = _ratio_with_positive_denominator(sales_current, total_assets)
+    asset_turnover_prior = _ratio_with_positive_denominator(sales_prior, prior_total_assets)
+
+    components = (
+        _positive(roa_current),
+        _increased(roa_current, roa_prior),
+        _positive(cfo_current),
+        None if accruals_to_assets is None else accruals_to_assets < 0,
+        _increased(operating_margin_current, operating_margin_prior),
+        _increased(equity_ratio_current, equity_ratio_prior),
+        None if net_share_change_yoy is None else net_share_change_yoy <= 0,
+        _increased(asset_turnover_current, asset_turnover_prior),
+    )
+    available_count, count = _quality_signal_counts(components)
+    return _QualitySignals(*components, available_count=available_count, count=count)
+
+
+def _summaries_through(
+    summaries: Sequence[JQuantsFinancialSummary],
+    target: JQuantsFinancialSummary | None,
+) -> Sequence[JQuantsFinancialSummary]:
+    if target is None:
+        return ()
+    for index in range(len(summaries) - 1, -1, -1):
+        if summaries[index] is target:
+            return summaries[: index + 1]
+    return ()
+
+
+def _ttm_pair(
+    current_summaries: Sequence[JQuantsFinancialSummary],
+    prior_summaries: Sequence[JQuantsFinancialSummary],
+    *,
+    field: str,
+    ttm_rules: TTMRules,
+) -> tuple[float | None, float | None]:
+    current, _ = _ttm_value(current_summaries, field, ttm_rules)
+    prior, _ = _ttm_value(prior_summaries, field, ttm_rules)
+    return current, prior
+
+
+def _common_ttm_pair(
+    current_summaries: Sequence[JQuantsFinancialSummary],
+    prior_summaries: Sequence[JQuantsFinancialSummary],
+    *,
+    fields: Sequence[str],
+    ttm_rules: TTMRules,
+) -> tuple[float | None, float | None]:
+    for field in fields:
+        current, prior = _ttm_pair(
+            current_summaries, prior_summaries, field=field, ttm_rules=ttm_rules
+        )
+        if current is not None and prior is not None:
+            return current, prior
+    return None, None
+
+
+def _ratio_with_positive_denominator(
+    numerator: float | None, denominator: float | None
+) -> float | None:
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _positive(value: float | None) -> bool | None:
+    return None if value is None else value > 0
+
+
+def _increased(current: float | None, prior: float | None) -> bool | None:
+    return None if current is None or prior is None else current > prior
+
+
+def _quality_signal_counts(components: Sequence[bool | None]) -> tuple[int, int | None]:
+    available_count = sum(value is not None for value in components)
+    count = (
+        sum(value is True for value in components)
+        if available_count >= QUALITY_SIGNAL_MIN_AVAILABLE
+        else None
+    )
+    return available_count, count
 
 
 def _loss_narrowing(current: float | None, previous: float | None) -> bool | None:

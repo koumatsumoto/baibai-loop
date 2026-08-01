@@ -38,6 +38,18 @@ SELECTION_TOP_NS: tuple[int, ...] = (5, 10, 20)
 # threshold と同じ -0.3 を事前固定で用いる) 。
 DETERIORATION_THRESHOLD = -0.3
 
+QUALITY_HIGH_MIN_COUNT = 5
+QUALITY_LOW_MAX_COUNT = 3
+MIN_QUALITY_CONTROL_GROUP = 5
+QUALITY_CONTROL_FIELDS: tuple[str, ...] = (
+    "market_cap_oku",
+    "avg_turnover_oku",
+    "pbr",
+    "per_trailing",
+    "dividend_yield",
+    "price_change_60d",
+)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AxisSpec:
@@ -86,6 +98,7 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="srp_p_s", direction=-1),
     AxisSpec(name="net_share_change_yoy", direction=-1),
     AxisSpec(name="accruals_to_assets", direction=-1),
+    AxisSpec(name="quality_signal_count", direction=1),
     AxisSpec(name="price_change_60d", direction=-1),
     AxisSpec(name="gap_from_52w_low", direction=-1),
     # 需給軸。方向は事前登録として先に宣言する (計測結果を見てから向きを決めない)。
@@ -228,6 +241,7 @@ def _evaluate_cohort(
             "gates": {},
             "reversion": {},
             "crowded_value": {},
+            "quality_interaction": {},
             "er_calibration": {},
             "er_level_calibration": {},
         }
@@ -240,6 +254,7 @@ def _evaluate_cohort(
         if axes_result is not None:
             axes[spec.name] = axes_result
     selection = _evaluate_selection(population, excess)
+    quality_interaction = _evaluate_quality_interaction(population, excess)
     er_calibration = _evaluate_er_calibration(
         population, excess, years=require_horizon(horizon).months / 12
     )
@@ -250,6 +265,9 @@ def _evaluate_cohort(
     }
     metric_statuses["er_calibration"] = "eligible" if er_calibration else "unresolved"
     metric_statuses["er_level_calibration"] = "eligible" if er_level_calibration else "unresolved"
+    metric_statuses["quality_interaction"] = (
+        "eligible" if quality_interaction.get("eligible_n", 0) else "unresolved"
+    )
 
     return {
         "asof": asof,
@@ -272,6 +290,7 @@ def _evaluate_cohort(
         "gates": _evaluate_gates(population, excess),
         "reversion": _evaluate_reversion(population, excess),
         "crowded_value": _evaluate_crowded_value(population, excess),
+        "quality_interaction": quality_interaction,
         "er_calibration": er_calibration,
         "er_level_calibration": er_level_calibration,
     }
@@ -579,6 +598,131 @@ def _evaluate_axis(
             else None
         ),
         "deciles": deciles,
+    }
+
+
+def _evaluate_quality_interaction(
+    population: Sequence[PanelRow], excess: Mapping[str, float]
+) -> dict[str, object]:
+    er_rows = sorted(
+        (row for row in population if row.er_annual is not None),
+        key=lambda row: (row.er_annual or 0.0, row.ticker),
+    )
+    if not er_rows:
+        return _empty_quality_interaction()
+    top_start = int((DECILES - 1) * len(er_rows) / DECILES)
+    er_top_decile = er_rows[top_start:]
+    eligible = [row for row in er_top_decile if row.quality_signal_count is not None]
+    high = [row for row in eligible if (row.quality_signal_count or 0) >= QUALITY_HIGH_MIN_COUNT]
+    low = [row for row in eligible if (row.quality_signal_count or 0) <= QUALITY_LOW_MAX_COUNT]
+    high_stats = _group_stats([excess[row.ticker] for row in high])
+    low_stats = _group_stats([excess[row.ticker] for row in low])
+    result: dict[str, object] = {
+        "er_top_decile_n": len(er_top_decile),
+        "eligible_n": len(eligible),
+        "high": high_stats,
+        "low": low_stats,
+        **_quality_group_deltas(high_stats, low_stats),
+        "controls": {},
+    }
+    controls = result["controls"]
+    assert isinstance(controls, dict)
+    for field_name in QUALITY_CONTROL_FIELDS:
+        controls[field_name] = _stratified_quality_control(high, low, excess, field_name=field_name)
+    return result
+
+
+def _empty_quality_interaction() -> dict[str, object]:
+    empty = _group_stats(())
+    return {
+        "er_top_decile_n": 0,
+        "eligible_n": 0,
+        "high": empty,
+        "low": empty,
+        "median_excess_delta": None,
+        "mean_excess_delta": None,
+        "trap_rate_delta": None,
+        "controls": {
+            field_name: {
+                "strata_used": 0,
+                "matched_weight": 0,
+                "stratified_median_excess_delta": None,
+                "stratified_trap_rate_delta": None,
+            }
+            for field_name in QUALITY_CONTROL_FIELDS
+        },
+    }
+
+
+def _quality_group_deltas(
+    high: Mapping[str, object], low: Mapping[str, object]
+) -> dict[str, float | None]:
+    return {
+        "median_excess_delta": _rounded_difference(
+            high.get("median_excess"), low.get("median_excess")
+        ),
+        "mean_excess_delta": _rounded_difference(high.get("mean_excess"), low.get("mean_excess")),
+        "trap_rate_delta": _rounded_difference(high.get("trap_rate"), low.get("trap_rate")),
+    }
+
+
+def _rounded_difference(high: object, low: object) -> float | None:
+    if not isinstance(high, int | float) or not isinstance(low, int | float):
+        return None
+    return round(float(high) - float(low), 6)
+
+
+def _stratified_quality_control(
+    high: Sequence[PanelRow],
+    low: Sequence[PanelRow],
+    excess: Mapping[str, float],
+    *,
+    field_name: str,
+) -> dict[str, object]:
+    rows = [row for row in (*high, *low) if getattr(row, field_name) is not None]
+    if not rows:
+        return {
+            "strata_used": 0,
+            "matched_weight": 0,
+            "stratified_median_excess_delta": None,
+            "stratified_trap_rate_delta": None,
+        }
+    split = median(float(getattr(row, field_name)) for row in rows)
+    weighted_median_delta = 0.0
+    weighted_trap_delta = 0.0
+    matched_weight = 0
+    strata_used = 0
+    high_tickers = {row.ticker for row in high}
+    for lower_side in (True, False):
+        stratum = [row for row in rows if (float(getattr(row, field_name)) <= split) is lower_side]
+        high_values = [excess[row.ticker] for row in stratum if row.ticker in high_tickers]
+        low_values = [excess[row.ticker] for row in stratum if row.ticker not in high_tickers]
+        if (
+            len(high_values) < MIN_QUALITY_CONTROL_GROUP
+            or len(low_values) < MIN_QUALITY_CONTROL_GROUP
+        ):
+            continue
+        high_stats = _group_stats(high_values)
+        low_stats = _group_stats(low_values)
+        deltas = _quality_group_deltas(high_stats, low_stats)
+        median_delta = deltas["median_excess_delta"]
+        trap_delta = deltas["trap_rate_delta"]
+        if median_delta is None or trap_delta is None:
+            continue
+        weight = min(len(high_values), len(low_values))
+        matched_weight += weight
+        strata_used += 1
+        weighted_median_delta += weight * median_delta
+        weighted_trap_delta += weight * trap_delta
+    return {
+        "strata_used": strata_used,
+        "matched_weight": matched_weight,
+        "stratified_median_excess_delta": (
+            round(weighted_median_delta / matched_weight, 6) if matched_weight else None
+        ),
+        "stratified_trap_rate_delta": (
+            round(weighted_trap_delta / matched_weight, 6) if matched_weight else None
+        ),
     }
 
 
@@ -972,6 +1116,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         ics: list[float] = []
         best_medians: list[float] = []
         trap_rates: list[float] = []
+        decile_spreads: list[float] = []
         for cohort in cohorts:
             axes = cohort.get("axes")
             if not isinstance(axes, dict):
@@ -988,6 +1133,9 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             trap = axis.get("best_decile_trap_rate")
             if isinstance(trap, int | float):
                 trap_rates.append(float(trap))
+            spread = axis.get("decile_spread_median")
+            if isinstance(spread, int | float):
+                decile_spreads.append(float(spread))
         if not ics and not best_medians:
             continue
         axis_summary[spec.name] = {
@@ -1005,6 +1153,9 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
                 else None
             ),
             "mean_best_decile_trap_rate": (round(fmean(trap_rates), 4) if trap_rates else None),
+            "mean_decile_spread_median": (
+                round(fmean(decile_spreads), 6) if decile_spreads else None
+            ),
         }
 
     selection_summary: dict[str, object] = {}
@@ -1050,4 +1201,91 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "cohort_count": len(cohorts),
         "axes": axis_summary,
         "selection": selection_summary,
+        "quality_interaction": _aggregate_quality_interaction(cohorts),
     }
+
+
+def _aggregate_quality_interaction(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    median_deltas: list[float] = []
+    mean_deltas: list[float] = []
+    trap_deltas: list[float] = []
+    high_n = 0
+    low_n = 0
+    control_values: dict[str, dict[str, object]] = {
+        field_name: {"median": [], "trap": [], "matched_weight": 0, "cohorts": 0}
+        for field_name in QUALITY_CONTROL_FIELDS
+    }
+    for cohort in cohorts:
+        interaction = cohort.get("quality_interaction")
+        if not isinstance(interaction, dict):
+            continue
+        high = interaction.get("high")
+        low = interaction.get("low")
+        if isinstance(high, dict) and isinstance(high.get("n"), int):
+            high_n += int(high["n"])
+        if isinstance(low, dict) and isinstance(low.get("n"), int):
+            low_n += int(low["n"])
+        _append_numeric(interaction.get("median_excess_delta"), median_deltas)
+        _append_numeric(interaction.get("mean_excess_delta"), mean_deltas)
+        _append_numeric(interaction.get("trap_rate_delta"), trap_deltas)
+        controls = interaction.get("controls")
+        if not isinstance(controls, dict):
+            continue
+        for field_name in QUALITY_CONTROL_FIELDS:
+            control = controls.get(field_name)
+            if not isinstance(control, dict):
+                continue
+            summary = control_values[field_name]
+            median_values = summary["median"]
+            trap_values = summary["trap"]
+            assert isinstance(median_values, list)
+            assert isinstance(trap_values, list)
+            median_value = control.get("stratified_median_excess_delta")
+            trap_value = control.get("stratified_trap_rate_delta")
+            if isinstance(median_value, int | float) and isinstance(trap_value, int | float):
+                median_values.append(float(median_value))
+                trap_values.append(float(trap_value))
+                cohort_count = summary["cohorts"]
+                assert isinstance(cohort_count, int)
+                summary["cohorts"] = cohort_count + 1
+                weight = control.get("matched_weight")
+                if isinstance(weight, int):
+                    matched_weight = summary["matched_weight"]
+                    assert isinstance(matched_weight, int)
+                    summary["matched_weight"] = matched_weight + weight
+
+    controls_summary: dict[str, object] = {}
+    for field_name, values in control_values.items():
+        median_values = values["median"]
+        trap_values = values["trap"]
+        assert isinstance(median_values, list)
+        assert isinstance(trap_values, list)
+        controls_summary[field_name] = {
+            "cohorts": values["cohorts"],
+            "matched_weight": values["matched_weight"],
+            "mean_stratified_median_excess_delta": (
+                round(fmean(median_values), 6) if median_values else None
+            ),
+            "mean_stratified_trap_rate_delta": (
+                round(fmean(trap_values), 6) if trap_values else None
+            ),
+        }
+    return {
+        "cohorts": len(median_deltas),
+        "high_n": high_n,
+        "low_n": low_n,
+        "mean_median_excess_delta": (round(fmean(median_deltas), 6) if median_deltas else None),
+        "median_delta_positive_share": (
+            round(sum(1 for value in median_deltas if value > 0) / len(median_deltas), 4)
+            if median_deltas
+            else None
+        ),
+        "mean_mean_excess_delta": round(fmean(mean_deltas), 6) if mean_deltas else None,
+        "mean_trap_rate_delta": round(fmean(trap_deltas), 6) if trap_deltas else None,
+        "controls": controls_summary,
+    }
+
+
+def _append_numeric(value: object, target: list[float]) -> None:
+    if isinstance(value, int | float):
+        target.append(float(value))

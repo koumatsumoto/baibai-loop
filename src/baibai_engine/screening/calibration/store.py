@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 5
+CACHE_SCHEMA_VERSION = 6
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -139,7 +139,7 @@ def read_forward(root: Path, asof: date) -> list[ForwardReturnRow]:
 
 
 def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
-    return PanelRow(
+    row = PanelRow(
         asof=raw["asof"],
         ticker=raw["ticker"],
         sector_33=raw["sector_33"],
@@ -167,6 +167,20 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         cfo_yoy=_opt_float(raw, "cfo_yoy"),
         accruals_to_assets=_opt_float(raw, "accruals_to_assets"),
         net_share_change_yoy=_opt_float(raw, "net_share_change_yoy"),
+        quality_roa_positive=_opt_bool(raw, "quality_roa_positive"),
+        quality_delta_roa_positive=_opt_bool(raw, "quality_delta_roa_positive"),
+        quality_cfo_positive=_opt_bool(raw, "quality_cfo_positive"),
+        quality_accrual_healthy=_opt_bool(raw, "quality_accrual_healthy"),
+        quality_delta_operating_margin_positive=_opt_bool(
+            raw, "quality_delta_operating_margin_positive"
+        ),
+        quality_delta_equity_ratio_positive=_opt_bool(raw, "quality_delta_equity_ratio_positive"),
+        quality_no_dilution=_opt_bool(raw, "quality_no_dilution"),
+        quality_delta_asset_turnover_positive=_opt_bool(
+            raw, "quality_delta_asset_turnover_positive"
+        ),
+        quality_signal_available_count=int(raw["quality_signal_available_count"]),
+        quality_signal_count=_opt_int(raw, "quality_signal_count"),
         ttm_quality_per_trailing=raw["ttm_quality_per_trailing"],
         ttm_quality_ocf_yield=raw["ttm_quality_ocf_yield"],
         price_change_60d=_opt_float(raw, "price_change_60d"),
@@ -198,6 +212,8 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         population_coverage_status=_population_coverage_status(raw["population_coverage_status"]),
         self_range_degraded=raw["self_range_degraded"] == _BOOL_TRUE,
     )
+    _validate_quality_signals(row)
+    return row
 
 
 def _forward_row_from_csv(raw: Mapping[str, str]) -> ForwardReturnRow:
@@ -255,6 +271,39 @@ def _opt_float(raw: Mapping[str, str], key: str) -> float | None:
 def _opt_int(raw: Mapping[str, str], key: str) -> int | None:
     text = raw.get(key, "")
     return int(text) if text else None
+
+
+def _opt_bool(raw: Mapping[str, str], key: str) -> bool | None:
+    text = raw.get(key, "")
+    if not text:
+        return None
+    if text == _BOOL_TRUE:
+        return True
+    if text == _BOOL_FALSE:
+        return False
+    raise ValueError(f"invalid boolean value for {key}: {text!r}")
+
+
+def _validate_quality_signals(row: PanelRow) -> None:
+    components = (
+        row.quality_roa_positive,
+        row.quality_delta_roa_positive,
+        row.quality_cfo_positive,
+        row.quality_accrual_healthy,
+        row.quality_delta_operating_margin_positive,
+        row.quality_delta_equity_ratio_positive,
+        row.quality_no_dilution,
+        row.quality_delta_asset_turnover_positive,
+    )
+    available_count = sum(value is not None for value in components)
+    expected_count = sum(value is True for value in components)
+    if row.quality_signal_available_count != available_count:
+        raise ValueError("quality signal available count is inconsistent")
+    if available_count < 6:
+        if row.quality_signal_count is not None:
+            raise ValueError("quality signal count requires six available components")
+    elif row.quality_signal_count != expected_count:
+        raise ValueError("quality signal count is inconsistent")
 
 
 def _population_coverage_status(value: str) -> PopulationCoverageStatus:

@@ -324,6 +324,50 @@ class CalibrationPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
                 read_panel(store_dir, ASOF)
 
+    def test_store_rejects_an_unknown_quality_boolean(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+            with path.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+                fieldnames = list(rows[0])
+            rows[0]["quality_roa_positive"] = "claimed_true"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+
+            with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                read_panel(store_dir, ASOF)
+
+    def test_store_rejects_inconsistent_quality_counts(self) -> None:
+        for field, invalid in (
+            ("quality_signal_available_count", "9"),
+            ("quality_signal_count", "8"),
+        ):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                sqlite_path = Path(tmp) / "market.sqlite"
+                _build_fixture_sqlite(sqlite_path)
+                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+                store_dir = Path(tmp) / "calibration"
+                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+                with path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                    fieldnames = list(rows[0])
+                rows[0][field] = invalid
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                    read_panel(store_dir, ASOF)
+
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store_dir = Path(tmp) / "calibration"

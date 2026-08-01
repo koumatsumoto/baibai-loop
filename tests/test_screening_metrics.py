@@ -10,7 +10,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.screening.metrics import _resolve_dividend_carry, build_metrics
+from baibai_engine.screening.metrics import (
+    _quality_signal_counts,
+    _resolve_dividend_carry,
+    build_metrics,
+)
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
 from baibai_engine.screening.schema import FinancialSnapshot, SecurityMaster, TTMQuality
@@ -80,6 +84,43 @@ def _security(code: str = "130A") -> SecurityMaster:
     )
 
 
+def _quality_summary(
+    *,
+    disclosed_at: date,
+    fiscal_year_end: date,
+    period_start: date,
+    period_end: date,
+    eps: float,
+    shares: float,
+    sales: float,
+    cfo: float,
+    operating_profit: float | None,
+    ordinary_profit: float | None = None,
+    profit: float | None = None,
+    total_assets: float,
+    equity: float,
+) -> JQuantsFinancialSummary:
+    return JQuantsFinancialSummary(
+        ticker="130A",
+        disclosed_at=disclosed_at,
+        forecast_eps=eps,
+        eps_ttm=eps,
+        bps=equity / shares,
+        shares_outstanding=shares,
+        sales=sales,
+        cfo=cfo,
+        total_assets=total_assets,
+        equity=equity,
+        operating_profit=operating_profit,
+        ordinary_profit=ordinary_profit,
+        profit=profit,
+        fiscal_period="FY",
+        fiscal_year_end=fiscal_year_end,
+        period_start=period_start,
+        period_end=period_end,
+    )
+
+
 def _edinet_metric_record(
     code: str = "130A",
     *,
@@ -116,6 +157,108 @@ def _edinet_metric_record(
 
 
 class ScreeningMetricsTests(unittest.TestCase):
+    def test_quality_components_use_point_in_time_current_and_prior_full_years(self) -> None:
+        asof = date(2026, 6, 30)
+        prior = _quality_summary(
+            disclosed_at=date(2025, 5, 15),
+            fiscal_year_end=date(2025, 3, 31),
+            period_start=date(2024, 4, 1),
+            period_end=date(2025, 3, 31),
+            eps=1.0,
+            shares=100.0,
+            sales=800.0,
+            cfo=40.0,
+            operating_profit=80.0,
+            total_assets=1_000.0,
+            equity=400.0,
+        )
+        current = _quality_summary(
+            disclosed_at=date(2026, 5, 15),
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
+            eps=1.0,
+            shares=95.0,
+            sales=1_000.0,
+            cfo=150.0,
+            operating_profit=120.0,
+            total_assets=1_100.0,
+            equity=500.0,
+        )
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 40)},
+            summaries_by_ticker={"130A": [prior, current]},
+            edinet_by_ticker={},
+        )
+
+        financial = result.financials["130A"]
+        self.assertEqual(
+            (
+                financial.quality_roa_positive,
+                financial.quality_delta_roa_positive,
+                financial.quality_cfo_positive,
+                financial.quality_accrual_healthy,
+                financial.quality_delta_operating_margin_positive,
+                financial.quality_delta_equity_ratio_positive,
+                financial.quality_no_dilution,
+                financial.quality_delta_asset_turnover_positive,
+            ),
+            (True,) * 8,
+        )
+        self.assertEqual(financial.quality_signal_available_count, 8)
+        self.assertEqual(financial.quality_signal_count, 8)
+
+    def test_quality_roa_delta_does_not_compare_different_profit_fallbacks(self) -> None:
+        asof = date(2026, 6, 30)
+        prior = _quality_summary(
+            disclosed_at=date(2025, 5, 15),
+            fiscal_year_end=date(2025, 3, 31),
+            period_start=date(2024, 4, 1),
+            period_end=date(2025, 3, 31),
+            eps=1.0,
+            shares=100.0,
+            sales=800.0,
+            cfo=40.0,
+            operating_profit=None,
+            ordinary_profit=80.0,
+            total_assets=1_000.0,
+            equity=400.0,
+        )
+        current = _quality_summary(
+            disclosed_at=date(2026, 5, 15),
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
+            eps=1.0,
+            shares=95.0,
+            sales=1_000.0,
+            cfo=150.0,
+            operating_profit=120.0,
+            total_assets=1_100.0,
+            equity=500.0,
+        )
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 40)},
+            summaries_by_ticker={"130A": [prior, current]},
+            edinet_by_ticker={},
+        )
+
+        financial = result.financials["130A"]
+        self.assertIsNone(financial.quality_roa_positive)
+        self.assertIsNone(financial.quality_delta_roa_positive)
+
+    def test_quality_count_distinguishes_missing_from_zero_support(self) -> None:
+        self.assertEqual(
+            _quality_signal_counts((True, False, True, False, True, None, None, None)), (5, None)
+        )
+        self.assertEqual(
+            _quality_signal_counts((False, False, False, False, False, False, None, None)), (6, 0)
+        )
+
     def test_build_metrics_excludes_future_bars_from_history(self) -> None:
         """look-ahead bias regression guard: bars after asof must not influence derived metrics."""
         asof = date(2026, 4, 24)
