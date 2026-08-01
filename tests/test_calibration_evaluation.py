@@ -117,6 +117,7 @@ def _panel_diagnostics(
     *,
     master_snapshot_status: str = "unavailable",
     asof_population_mismatch_count: int = 0,
+    priced_master_without_universe_count: int = 0,
 ) -> PanelDiagnostics:
     return PanelDiagnostics(
         asof="2025-06-30",
@@ -136,6 +137,7 @@ def _panel_diagnostics(
         population_per_trailing_exact=240,
         master_snapshot_status=master_snapshot_status,
         asof_population_mismatch_count=asof_population_mismatch_count,
+        priced_master_without_universe_count=priced_master_without_universe_count,
     )
 
 
@@ -553,7 +555,11 @@ class EvaluateCohortsTest(unittest.TestCase):
         return panel, forwards
 
     def _reason_counts(
-        self, panel: list[PanelRow], forwards: list[ForwardReturnRow]
+        self,
+        panel: list[PanelRow],
+        forwards: list[ForwardReturnRow],
+        *,
+        priced_master_without_universe_count: int = 0,
     ) -> tuple[dict[str, int], dict[str, object]]:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -561,7 +567,10 @@ class EvaluateCohortsTest(unittest.TestCase):
                 root,
                 date(2025, 6, 30),
                 tuple(panel),
-                _panel_diagnostics(master_snapshot_status="exact_date"),
+                _panel_diagnostics(
+                    master_snapshot_status="exact_date",
+                    priced_master_without_universe_count=priced_master_without_universe_count,
+                ),
             )
             write_forward(root, date(2025, 6, 30), forwards)
             output_path = root / "evaluation.yaml"
@@ -665,6 +674,45 @@ class EvaluateCohortsTest(unittest.TestCase):
         # A name that left the market is counted on its own, but it blocks only when
         # giving it a value changes what the cohort concludes.
         self.assertIsNone(counts.get("unpriced_exit"))
+
+    def test_priced_master_row_count_mismatch_blocks_fail_closed(self) -> None:
+        panel, forwards = self._long_horizon_cohort([])
+        panel[0] = replace(panel[0], population_coverage_status="priced_master_without_universe")
+
+        counts, coverage = self._reason_counts(
+            panel,
+            forwards,
+            priced_master_without_universe_count=0,
+        )
+
+        sensitivity = coverage["priced_master_without_universe"]
+        assert isinstance(sensitivity, dict)
+        self.assertEqual(sensitivity["excluded_count"], 1)
+        self.assertEqual(counts.get("priced_master_without_universe_unmeasured"), 1)
+
+    def test_priced_master_row_without_return_has_a_distinct_blocker(self) -> None:
+        missing = ForwardReturnRow(
+            asof="2025-06-30",
+            ticker="9400",
+            horizon="3y",
+            target_date="2028-06-30",
+            resolved=False,
+            price_return=None,
+            stale_price=False,
+            entry_date="2025-06-30",
+            exit_date=None,
+            status="unresolved_future_horizon",
+        )
+        panel, forwards = self._long_horizon_cohort([(missing, None)])
+        panel[-1] = replace(panel[-1], population_coverage_status="priced_master_without_universe")
+
+        counts, _ = self._reason_counts(
+            panel,
+            forwards,
+            priced_master_without_universe_count=1,
+        )
+
+        self.assertEqual(counts.get("priced_master_without_universe_return_unresolved"), 1)
 
     def test_production_decision_requires_explicit_core_scope(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -779,6 +827,81 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         self.assertTrue(sensitivity["direction_stable"])
         self.assertEqual(sensitivity["as_reported"], {})
         self.assertEqual(sensitivity["imputations"], {})
+
+
+class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
+    def test_a_direction_split_keeps_the_cohort_blocked(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for index in range(100):
+            ticker = f"6{index:03d}"
+            panel.append(_panel_row(ticker, per_trailing=10.0))
+            forwards.append(_forward_row(ticker, index / 100))
+        for index in range(5):
+            ticker = f"7{index:03d}"
+            panel.append(_panel_row(ticker, per_trailing=10.0, rank=index + 1))
+            forwards.append(_forward_row(ticker, 0.52))
+        for index in range(2):
+            ticker = f"8{index:03d}"
+            panel.append(
+                replace(
+                    _panel_row(ticker, per_trailing=None),
+                    population_coverage_status="priced_master_without_universe",
+                )
+            )
+            forwards.append(_forward_row(ticker, 1.0))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        sensitivity = result["6m"]["cohorts"][0]["coverage"][  # type: ignore[index]
+            "priced_master_without_universe"
+        ]
+
+        self.assertEqual(sensitivity["excluded_count"], 2)
+        self.assertEqual(sensitivity["resolved_target_count"], 2)
+        self.assertTrue(sensitivity["resolution_complete"])
+        self.assertEqual(sensitivity["as_reported"]["recommended_rank_top5"], 0.0)
+        self.assertGreater(sensitivity["imputations"]["total_loss"]["recommended_rank_top5"], 0)
+        self.assertFalse(sensitivity["direction_stable"])
+
+    def test_a_target_without_an_observed_return_is_not_stable(self) -> None:
+        panel = [
+            _panel_row(
+                f"6{index:03d}",
+                per_trailing=10.0,
+                rank=index + 1 if index < 10 else None,
+                er_reversion_annual=index / 1000,
+            )
+            for index in range(MIN_AXIS_SAMPLE)
+        ]
+        missing = replace(
+            _panel_row("8999", per_trailing=None),
+            population_coverage_status="priced_master_without_universe",
+        )
+        panel.append(missing)
+        forwards = [_forward_row(row.ticker, 0.1) for row in panel[:-1]]
+        forwards.append(
+            ForwardReturnRow(
+                asof="2025-06-30",
+                ticker="8999",
+                horizon="6m",
+                target_date="2025-12-29",
+                resolved=False,
+                price_return=None,
+                stale_price=False,
+                entry_date="2025-06-30",
+                exit_date=None,
+                status="unresolved_future_horizon",
+            )
+        )
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        sensitivity = result["6m"]["cohorts"][0]["coverage"][  # type: ignore[index]
+            "priced_master_without_universe"
+        ]
+
+        self.assertEqual(sensitivity["resolved_target_count"], 0)
+        self.assertFalse(sensitivity["resolution_complete"])
+        self.assertFalse(sensitivity["direction_stable"])
 
 
 class CrowdedValueInteractionTest(unittest.TestCase):

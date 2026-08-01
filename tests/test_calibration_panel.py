@@ -1,25 +1,36 @@
 from __future__ import annotations
 
 import contextlib
+import csv
 import io
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.screening.calibration.cli import calibration_build_command
+from baibai_engine.screening.calibration.cli import (
+    calibration_build_command,
+    calibration_evaluate_command,
+)
 from baibai_engine.screening.calibration.forward import (
     STALE_PRICE_MAX_LAG_DAYS,
     ForwardReturnRow,
 )
-from baibai_engine.screening.calibration.panel import build_panel
+from baibai_engine.screening.calibration.panel import (
+    PRE2019_SELF_RANGE_POLICY,
+    build_panel,
+    rules_content_hash,
+)
 from baibai_engine.screening.calibration.store import (
+    DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     read_forward,
     read_panel,
@@ -249,6 +260,26 @@ class CalibrationPanelTest(unittest.TestCase):
             with self.assertRaisesRegex(CalibrationCacheError, "missing status"):
                 read_forward(store_dir, ASOF)
 
+    def test_store_rejects_an_unknown_population_coverage_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+            with path.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+                fieldnames = list(rows[0])
+            rows[0]["population_coverage_status"] = "unknown"
+            with path.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+
+            with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                read_panel(store_dir, ASOF)
+
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store_dir = Path(tmp) / "calibration"
@@ -314,6 +345,168 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(diagnostics.asof_population_mismatch_count, 0)
             self.assertEqual(diagnostics.priced_master_without_universe_count, 0)
             self.assertEqual(diagnostics.entry_resolution_lag_days, STALE_PRICE_MAX_LAG_DAYS)
+
+    def test_panel_marks_priced_master_member_that_cannot_enter_the_universe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "INSERT INTO jquants_master_snapshots("
+                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                    ") VALUES (?, ?, ?, ?, ?, ?)",
+                    ("2026-06-01", "9003", "履歴不足", "プライム", "サービス業", 1),
+                )
+                conn.execute(
+                    "UPDATE source_coverage SET record_count = 3 "
+                    "WHERE source = 'jquants_master_snapshots'"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            insert_daily_bars_from_closes(
+                sqlite_path, "9003", [100.0], end_date=ASOF, turnover_value=2e8
+            )
+
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            row = next(row for row in result.rows if row.ticker == "9003")
+
+            self.assertEqual(row.population_coverage_status, "priced_master_without_universe")
+            self.assertEqual(result.diagnostics.priced_master_without_universe_count, 1)
+
+    def test_pre2019_variant_is_degraded_and_has_distinct_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            rules = load_screening_rules()
+
+            result = build_panel(
+                ASOF,
+                sqlite_path=sqlite_path,
+                rules=rules,
+                policy=PRE2019_SELF_RANGE_POLICY,
+            )
+
+            self.assertFalse(result.diagnostics.production_authority)
+            self.assertEqual(result.diagnostics.panel_variant, "pre2019_self_range_375")
+            self.assertEqual(result.diagnostics.self_range_history_sessions, 375)
+            self.assertEqual(result.diagnostics.bars_input_window_days, 600)
+            self.assertTrue(all(row.self_range_degraded for row in result.rows))
+            self.assertNotEqual(
+                result.diagnostics.rules_hash,
+                rules_content_hash(rules),
+            )
+
+    def test_pre2019_variant_cannot_use_the_production_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            errors = io.StringIO()
+
+            with contextlib.redirect_stderr(errors):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=DEFAULT_CALIBRATION_DIR,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    panel_variant="pre2019_self_range_375",
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("separate --calibration-dir", errors.getvalue())
+
+    def test_pre2019_variant_is_rejected_for_production_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(
+                ASOF,
+                sqlite_path=sqlite_path,
+                rules=load_screening_rules(),
+                policy=PRE2019_SELF_RANGE_POLICY,
+            )
+            store_dir = Path(tmp) / "calibration-pre2019"
+            write_panel(
+                store_dir,
+                ASOF,
+                result.rows,
+                replace(result.diagnostics, production_authority=True),
+            )
+            write_forward(store_dir, ASOF, [])
+            errors = io.StringIO()
+
+            with contextlib.redirect_stderr(errors):
+                code = calibration_evaluate_command(
+                    calibration_dir=store_dir,
+                    horizons=["3y", "5y"],
+                    run_purpose="production_decision",
+                    required_asofs=[ASOF.isoformat()],
+                    required_metrics=[
+                        "recommended_rank_top5",
+                        "recommended_rank_top10",
+                        "er_calibration",
+                    ],
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("no production authority", errors.getvalue())
+
+    def test_degraded_row_is_rejected_even_with_production_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            degraded_rows = (replace(result.rows[0], self_range_degraded=True), *result.rows[1:])
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, degraded_rows, result.diagnostics)
+            write_forward(store_dir, ASOF, [])
+            errors = io.StringIO()
+
+            with contextlib.redirect_stderr(errors):
+                code = calibration_evaluate_command(
+                    calibration_dir=store_dir,
+                    horizons=["3y", "5y"],
+                    run_purpose="production_decision",
+                    required_asofs=[ASOF.isoformat()],
+                    required_metrics=[
+                        "recommended_rank_top5",
+                        "recommended_rank_top10",
+                        "er_calibration",
+                    ],
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("no production authority", errors.getvalue())
+
+    def test_build_requires_force_when_existing_panel_contract_differs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration-custom"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            errors = io.StringIO()
+
+            with (
+                contextlib.redirect_stderr(errors),
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF],
+                ),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    panel_variant="pre2019_self_range_375",
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("contract differs", errors.getvalue())
 
     def test_missing_master_snapshot_becomes_unresolved_panel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

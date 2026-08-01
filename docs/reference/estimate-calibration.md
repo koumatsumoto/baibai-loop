@@ -40,7 +40,7 @@ forward row は `resolved` または明示的な unresolved status を持つ。t
 | --- | --- | --- |
 | `master_snapshot_status` | population が cohort 日の断面から来ているか | `exact_date` |
 | `survivorship_coverage_status` | panel の population が as-of の投資可能 universe を再現しているか | `asof_population_mismatch_count == 0` |
-| `priced_master_without_universe_count` | as-of に価格が付き master にも在る銘柄を panel が評価できたか | `0` |
+| `priced_master_without_universe.direction_stable` | as-of に価格が付き master にも在るが panel が評価できなかった銘柄が結論を作っていないか | diagnostics 件数と row 同定数が一致し、全対象に実現 return があり、`true` |
 | `adjustment_factor_coverage` | 価格系列に分割調整 factor が揃っているか | `complete` |
 | `delisting_exclusion.direction_stable` | 窓中に価格が途切れた銘柄の除外が結論を作っていないか | `true` |
 | `entry_price_gap_count` / `future_horizon_count` / `unclassified_unresolved_count` | 未解決 row の分類（下記） | `0` |
@@ -64,9 +64,17 @@ survivorship は population の性質なので panel が件数を測り、verdic
 | `future_horizon_count` | target が評価可能な最終取引日より先 | block する。cohort が満期に達していない |
 | `unclassified_unresolved_count` | 上のどれにも入らない未解決 status | block する。分類は allowlist なので、status が増えた日に無音で通らないための残余 |
 
-`entry_not_listed` が非 block なのは「市場に無かった」に限らないので、panel が price を持ちながら universe へ入れられなかった銘柄は `priced_master_without_universe_count` として別に数え、こちらは block する。universe の除外条件が増えても、その分が非 block の側へ黙って流れ込まない。
+`entry_not_listed` が非 block なのは「市場に無かった」に限らないので、panel が price を持ちながら universe へ入れられなかった銘柄は row の `population_coverage_status` と `priced_master_without_universe_count` で別に同定する。universe の除外条件が増えても、その分が非 block の側へ黙って流れ込まない。
 
 entry は as-of の 15 日前までの close で解決するので、保有期間は名目 horizon より最大でその分長い。この許容が効く範囲まで bar の読み込み窓を広げてあり、`adjustment_factor_coverage` を判定する bar 集合も同じ窓に従う。
+
+### universe 未評価銘柄（`priced_master_without_universe`）
+
+該当 row は実現 forward return を持つ一方、必要な入力履歴を欠くため valuation metrics、rank、E[r] を持たない。現行 method で選抜対象にならない row へ所属を後付けせず、実現 return が母集団中央値を通じて production 結論の向きを作っていないかを有界バイアスで判定する。
+
+報告値では観測済み return を使い、感度計算では該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。`recommended_rank_top5` / `top10` と `er_calibration` の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。
+
+cache が対象 row を同定できない、diagnostics 件数と row 数が一致しない、対象に resolved return が無い場合は fail closed で block する。この判定は欠けた metrics や rank を復元せず、未評価銘柄が無かったことにもならない。
 
 ### 廃止銘柄の除外（`delisting_exclusion`）
 
@@ -85,7 +93,21 @@ authoritative な delisting exit value source が無い限り、窓中に系列�
 
 `er_calibration` は価格収束成分 `er_reversion_annual` だけを price-only 実現値へ較正する。予測値は cohort 内の `er_reversion_annual` 中央値、実現値は同じ cohort の price return 中央値をそれぞれ引き、quintile ごとに median の相対値を比較する。`calibration_error` は `realized - predicted` である。配当と buyback の carry は price-only 実現値と同じ basis で観測できないため、この座標で絶対水準を較正しない。carry の妥当性は source と算出 contract を検証し、実現配当を備えた total-return dataset が利用できる場合に別の較正座標で扱う。
 
-cache schema version は `2`。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+cache schema version は `4`。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+
+### pre-2019 診断 panel
+
+`--panel-variant pre2019_self_range_375` は self-range を 375 sessions、bar 入力を 600 暦日に固定する診断専用 contract である。通常 store と異なる `--calibration-dir` が必須で、variant と窓は `rules_hash` に含まれ、全 row が `self_range_degraded: true` を持つ。この store を `--run-purpose production_decision` で評価すると拒否する。production panel の既定窓、screening rules、authority 条件は変わらない。
+
+```bash
+uv run baibai-engine screening calibration-build \
+  --start 2018-03-01 --end 2019-10-31 \
+  --calibration-dir data/screening/calibration-pre2019 \
+  --panel-variant pre2019_self_range_375 --force
+uv run baibai-engine screening calibration-evaluate \
+  --calibration-dir data/screening/calibration-pre2019 \
+  --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
+```
 
 ## Commands
 

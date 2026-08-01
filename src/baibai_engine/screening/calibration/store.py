@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, fields
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import yaml
 
@@ -14,13 +15,18 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
 
 from .forward import ForwardReturnRow
-from .panel import PanelDiagnostics, PanelRow
+from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 3
+CACHE_SCHEMA_VERSION = 4
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
+_POPULATION_COVERAGE_STATUSES = {
+    "evaluated",
+    "priced_master_without_universe",
+    "master_without_universe_unpriced",
+}
 
 
 class CalibrationCacheError(RuntimeError):
@@ -188,6 +194,8 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         evidence_playbooks=raw["evidence_playbooks"],
         selection_rank=_opt_int(raw, "selection_rank"),
         recommended_rank=_opt_int(raw, "recommended_rank"),
+        population_coverage_status=_population_coverage_status(raw["population_coverage_status"]),
+        self_range_degraded=raw["self_range_degraded"] == _BOOL_TRUE,
     )
 
 
@@ -215,6 +223,12 @@ def _opt_float(raw: Mapping[str, str], key: str) -> float | None:
 def _opt_int(raw: Mapping[str, str], key: str) -> int | None:
     text = raw.get(key, "")
     return int(text) if text else None
+
+
+def _population_coverage_status(value: str) -> PopulationCoverageStatus:
+    if value not in _POPULATION_COVERAGE_STATUSES:
+        raise ValueError(f"invalid population coverage status: {value!r}")
+    return cast(PopulationCoverageStatus, value)
 
 
 def _write_rows(
