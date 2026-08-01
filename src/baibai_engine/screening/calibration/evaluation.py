@@ -64,6 +64,7 @@ RETURN_CHANGE_COMPONENT_FIELDS: tuple[str, ...] = (
     "dividend_initiation",
 )
 MARGIN_DEADLINE_SHARE_EXCLUDE_AT_OR_ABOVE = 0.75
+MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR = -0.01
 MARGIN_HYPOTHESIS_AXES: tuple[str, ...] = (
     "margin_short_to_adv",
     "margin_long_to_adv_mcap_quintile_percentile",
@@ -445,6 +446,17 @@ OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = ("margin_deadline_gate_top10",)
 _ALL_SENSITIVITY_METRICS = (*_SENSITIVITY_METRICS, *OPTIONAL_SENSITIVITY_METRICS)
 
 
+def _margin_deadline_gate_adoption_sign(value: object) -> float | None:
+    """Encode whether a gate result meets both conditions read by authority."""
+    if not isinstance(value, dict):
+        return None
+    median_delta = value.get("median_excess_delta")
+    trap_delta = value.get("trap_rate_delta")
+    if not isinstance(median_delta, int | float) or not isinstance(trap_delta, int | float):
+        return None
+    return float(median_delta >= MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR and trap_delta <= 0)
+
+
 def _direction_signs(
     context: _CohortExcessContext,
     panel: Sequence[PanelRow],
@@ -472,10 +484,8 @@ def _direction_signs(
         )
     else:
         signs["er_calibration"] = None
-    gate = _evaluate_margin_deadline_gate(panel, context.excess).get("top10")
-    gate_delta = gate.get("median_excess_delta") if isinstance(gate, dict) else None
-    signs["margin_deadline_gate_top10"] = (
-        float(gate_delta) if isinstance(gate_delta, int | float) else None
+    signs["margin_deadline_gate_top10"] = _margin_deadline_gate_adoption_sign(
+        _evaluate_margin_deadline_gate(panel, context.excess).get("top10")
     )
     return signs
 

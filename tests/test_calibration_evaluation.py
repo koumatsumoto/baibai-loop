@@ -22,6 +22,8 @@ from baibai_engine.screening.calibration.cli import (
 from baibai_engine.screening.calibration.evaluation import (
     DECILES,
     MIN_AXIS_SAMPLE,
+    _margin_deadline_gate_adoption_sign,
+    _metric_direction_stability,
     _reversion_plus_capped_carry,
     _spearman,
     evaluate_cohorts,
@@ -1167,6 +1169,31 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         imputations = sensitivity["imputations"]
         self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
         self.assertGreater(imputations["neutral"]["recommended_rank_top5"], 0)
+
+    def test_margin_gate_trap_regression_blocks_optional_authority(self) -> None:
+        passing = {
+            "median_excess_delta": -0.005,
+            "trap_rate_delta": 0.0,
+        }
+        trap_regression = {
+            "median_excess_delta": -0.005,
+            "trap_rate_delta": 0.01,
+        }
+        self.assertEqual(_margin_deadline_gate_adoption_sign(passing), 1.0)
+        self.assertEqual(_margin_deadline_gate_adoption_sign(trap_regression), 0.0)
+
+        as_reported = {
+            "recommended_rank_top5": None,
+            "recommended_rank_top10": None,
+            "er_calibration": None,
+            "margin_deadline_gate_top10": 1.0,
+        }
+        imputed = {
+            "total_loss": as_reported,
+            "neutral": {**as_reported, "margin_deadline_gate_top10": 0.0},
+        }
+        stability = _metric_direction_stability(as_reported, imputed)
+        self.assertFalse(stability["margin_deadline_gate_top10"])
 
     def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
         # Three of the five recommended names left the market. What the cohort
