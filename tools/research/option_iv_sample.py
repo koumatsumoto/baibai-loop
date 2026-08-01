@@ -76,8 +76,9 @@ def read_day(
     contracts were in front: a quantile pooled across the settlement cycle mixes
     maturities unless the sample says which ones it drew. The gaps are recorded because
     the bound that withholds those readings is the one threshold whose justification is
-    not otherwise in the sample. Both come from the same grouping the readings use, so
-    a filter that changes moves the sample with it.
+    not otherwise in the sample. Both come from the grouping the readings use, and from
+    its first two expiries — which are the two the readings take, because the
+    at-the-money strike is chosen from the group's own strikes and so always prices.
     """
     method = getattr(client, "get_drv_bars_daily_opt_225", None)
     if not callable(method):

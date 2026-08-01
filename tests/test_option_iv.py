@@ -21,51 +21,10 @@ from baibai_engine.macro.indicators.providers.option_iv import (
     PUT,
     FearReadings,
     OptionQuote,
+    as_date,
     fear_readings,
     quotes_from_records,
 )
-
-
-def _registered(series_id: str) -> SeriesDefinition:
-    """The series exactly as the shipped registry declares it."""
-    return load_definitions().by_id()[series_id]
-
-
-def RuntimeError_with(response: object, message: str = "boom") -> Exception:
-    """An exception shaped the way jquantsapi raises one: the response is attached."""
-    error = RuntimeError(message)
-    error.response = response  # type: ignore[attr-defined]  # mirrors requests.HTTPError
-    return error
-
-
-class _FakeFrame:
-    """Only the two members the provider reads off a DataFrame."""
-
-    def __init__(self, records: list[dict[str, object]]) -> None:
-        self._records = records
-
-    def to_dict(self, orient: str) -> list[dict[str, object]]:
-        assert orient == "records"
-        return list(self._records)
-
-
-def _records(quotes: Sequence[OptionQuote]) -> list[dict[str, object]]:
-    """Quotes in the shape the provider payload carries them."""
-    return [
-        {
-            "SQD": quote.expiry.isoformat(),
-            "Strike": quote.strike,
-            "IV": quote.implied_volatility,
-            "UnderPx": quote.underlying,
-            "PCDiv": quote.put_call,
-        }
-        for quote in quotes
-    ]
-
-
-def _chain_records() -> list[dict[str, object]]:
-    return _records([*_chain(NEAR), *_chain(FAR, level=1.0)])
-
 
 ASOF = date(2026, 7, 29)
 NEAR = date(2026, 8, 14)  # 16 days out
@@ -92,6 +51,53 @@ _LADDER: dict[float, float] = {
     1.05: 17.0,
     1.10: 15.0,
 }
+
+
+def _registered(series_id: str) -> SeriesDefinition:
+    """The series exactly as the shipped registry declares it."""
+    return load_definitions().by_id()[series_id]
+
+
+def RuntimeError_with(response: object, message: str = "boom") -> Exception:
+    """An exception shaped the way jquantsapi raises one: the response is attached."""
+    error = RuntimeError(message)
+    error.response = response  # type: ignore[attr-defined]  # mirrors requests.HTTPError
+    return error
+
+
+class _FakeFrame:
+    """Only the two members the provider reads off a DataFrame."""
+
+    def __init__(self, records: list[dict[str, object]]) -> None:
+        self._records = records
+
+    def to_dict(self, orient: str) -> list[dict[str, object]]:
+        assert orient == "records"
+        return list(self._records)
+
+
+def _records(quotes: Sequence[OptionQuote], day: date = ASOF) -> list[dict[str, object]]:
+    """Quotes in the shape the provider payload carries them.
+
+    `Date` is the day the chain answers for, and the provider checks it, so every
+    fixture carries it — a payload without it would exercise only the branch that
+    has nothing to compare.
+    """
+    return [
+        {
+            "Date": day,
+            "SQD": quote.expiry.isoformat(),
+            "Strike": quote.strike,
+            "IV": quote.implied_volatility,
+            "UnderPx": quote.underlying,
+            "PCDiv": quote.put_call,
+        }
+        for quote in quotes
+    ]
+
+
+def _chain_records(day: date = ASOF) -> list[dict[str, object]]:
+    return _records([*_chain(NEAR), *_chain(FAR, level=1.0)], day)
 
 
 def _chain(
@@ -783,23 +789,30 @@ class OptionProviderTest(unittest.TestCase):
 
         self.assertEqual(budget.remaining_seconds, 0.0)
 
-    def test_a_level_outside_the_plausible_band_is_refused(self) -> None:
-        # A column mix-up or a ratio-versus-percent slip has to fail loudly rather
-        # than enter the store as a volatility. The band comes from the registry the
-        # store ships, so this exercises the numbers actually in force.
-        series = _registered("jp.n225_iv_30d")
+    def test_the_registry_bands_hold_every_reading_and_catch_an_inflated_one(self) -> None:
+        # The service refuses observations outside the registry's plausible range for
+        # every provider, so what this provider owes is bands that fit: wide enough
+        # that 8.5 years of readings sit inside with room for a deeper crash, narrow
+        # enough that a value inflated by a scale mistake lands outside. A band that
+        # spans zero cannot catch the opposite mistake, and the two difference series
+        # need one that does — their sign is the reading.
+        for series_id, sampled_low, sampled_high in (
+            ("jp.n225_iv_30d", 11.51, 65.95),
+            ("jp.n225_iv_skew", 0.24, 6.73),
+            ("jp.n225_iv_term", -14.84, 4.03),
+        ):
+            series = _registered(series_id)
+            low, high = series.plausible_min, series.plausible_max
+            assert low is not None
+            assert high is not None
+            with self.subTest(series=series_id):
+                self.assertLess(low, sampled_low)
+                self.assertGreater(high, sampled_high)
+                self.assertGreater(sampled_high * 100, high)  # a percent read as a ratio
 
-        jquants_options._require_plausible(series, 19.0)
-        for wrong_scale in (0.19, 1900.0):
-            with self.subTest(value=wrong_scale), self.assertRaises(IndicatorsProviderError):
-                jquants_options._require_plausible(series, wrong_scale)
-
-    def test_a_spread_may_be_negative_but_not_unbounded(self) -> None:
-        series = _registered("jp.n225_iv_term")
-
-        jquants_options._require_plausible(series, -4.0)
-        with self.assertRaises(IndicatorsProviderError):
-            jquants_options._require_plausible(series, -400.0)
+        level = _registered("jp.n225_iv_30d")
+        assert level.plausible_min is not None
+        self.assertGreater(level.plausible_min, 0.19)  # and a ratio read as a percent
 
     def test_the_three_series_read_one_chain_per_day(self) -> None:
         # Without sharing, a ten-year backfill makes three times the calls it needs.
@@ -809,7 +822,7 @@ class OptionProviderTest(unittest.TestCase):
             fetched.append(
                 date.fromisoformat(f"{date_yyyymmdd[:4]}-{date_yyyymmdd[4:6]}-{date_yyyymmdd[6:]}")
             )
-            return _FakeFrame(_chain_records())
+            return _FakeFrame(_chain_records(fetched[-1]))
 
         provider = jquants_options.JQuantsOptionsProvider()
         client = SimpleNamespace(get_drv_bars_daily_opt_225=one_chain)
@@ -860,22 +873,6 @@ class OptionProviderTest(unittest.TestCase):
                     )
                 )
 
-    def test_the_plausible_band_admits_its_own_edges(self) -> None:
-        # The band exists to catch a column mix-up, not to trim the market: a reading
-        # landing on the edge is inside it, and one step outside is not. Every sampled
-        # reading over 8.5 years sits well inside, so an edge that fires is a defect.
-        for series_id in ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term"):
-            series = _registered(series_id)
-            low, high = series.plausible_min, series.plausible_max
-            assert low is not None
-            assert high is not None
-            with self.subTest(series=series_id):
-                jquants_options._require_plausible(series, low)
-                jquants_options._require_plausible(series, high)
-                for outside in (low - 0.1, high + 0.1):
-                    with self.assertRaises(IndicatorsProviderError):
-                        jquants_options._require_plausible(series, outside)
-
     def test_a_missing_key_is_named_rather_than_failing_at_the_endpoint(self) -> None:
         # Without this the run reaches the API and comes back with an auth error that
         # says nothing about which credential the operator forgot.
@@ -887,6 +884,76 @@ class OptionProviderTest(unittest.TestCase):
             jquants_options._read_api_key()
 
         self.assertIn("JQUANTS_API_KEY", str(caught.exception))
+
+    def test_a_chain_answering_for_another_day_is_refused(self) -> None:
+        # The observation is stamped with the requested date, so a session served the
+        # previous day's chain would carry the previous day's fear under today's date.
+        provider = jquants_options.JQuantsOptionsProvider()
+        stale = SimpleNamespace(
+            get_drv_bars_daily_opt_225=lambda **_: _FakeFrame(_chain_records(ASOF - timedelta(1)))
+        )
+        with (
+            mock.patch.object(jquants_options, "_client", return_value=stale),
+            mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
+            self.assertRaises(IndicatorsProviderError) as caught,
+        ):
+            provider.fetch(
+                self._series("n225_iv_30d"),
+                start=ASOF,
+                end=ASOF,
+                session=cast(HttpSession, None),
+            )
+
+        self.assertIn("2026-07-28", str(caught.exception))
+        self.assertIn("2026-07-29", str(caught.exception))
+
+    def test_a_row_whose_day_the_source_could_not_parse_does_not_escape(self) -> None:
+        # The frame parses that column with errors coerced, so one bad row of ten
+        # thousand arrives as a not-a-time sentinel. It passes the timestamp check and
+        # its own date() is another sentinel, which sorts against nothing — the guard
+        # has to read it as an absent day rather than raise past its own caller. The
+        # real sentinel is used rather than an imitation: a stand-in that inherits
+        # datetime's inequality is not the thing being defended against.
+        import pandas
+
+        self.assertIsInstance(pandas.NaT, datetime)
+        self.assertIsNone(as_date(pandas.NaT))
+
+        rows = _chain_records()
+        rows[0]["Date"] = pandas.NaT
+
+        jquants_options._require_requested_day(rows, ASOF)
+
+        with self.assertRaises(IndicatorsProviderError):
+            jquants_options._require_requested_day(rows, ASOF + timedelta(1))
+
+    def test_the_backoff_budget_is_shared_by_every_series_of_one_run(self) -> None:
+        # A pass is three series and the service retries each fetch, so a budget held
+        # per fetch would bound six of them separately — long enough for the job that
+        # scheduled it to be killed, which loses the whole day's publish.
+        provider = jquants_options.JQuantsOptionsProvider()
+        spent: list[float] = []
+
+        def always_limited(**_: object) -> object:
+            raise RetryError("max retries")
+
+        client = SimpleNamespace(get_drv_bars_daily_opt_225=always_limited)
+        with (
+            mock.patch.object(jquants_options, "_client", return_value=client),
+            mock.patch.object(jquants_options, "_read_api_key", return_value="k"),
+            mock.patch.object(jquants_options.time, "sleep", side_effect=spent.append),
+        ):
+            for provider_series_id in ("n225_iv_30d", "n225_iv_skew", "n225_iv_term"):
+                for _ in range(2):  # the service tries each fetch twice
+                    with self.assertRaises(IndicatorsProviderError):
+                        provider.fetch(
+                            self._series(provider_series_id),
+                            start=ASOF,
+                            end=ASOF,
+                            session=cast(HttpSession, None),
+                        )
+
+        self.assertLessEqual(sum(spent), jquants_options._BACKOFF_BUDGET_SECONDS)
 
     def test_a_day_the_chain_cannot_answer_produces_no_observation(self) -> None:
         # A closed market and a reading the chain could not compute are both facts
@@ -903,8 +970,8 @@ class OptionProviderTest(unittest.TestCase):
             if day == closed:
                 return _FakeFrame([])
             if day == no_straddle:
-                return _FakeFrame(_records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)]))
-            return _FakeFrame(_chain_records())
+                return _FakeFrame(_records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)], day))
+            return _FakeFrame(_chain_records(day))
 
         provider = jquants_options.JQuantsOptionsProvider()
         client = SimpleNamespace(get_drv_bars_daily_opt_225=chain)

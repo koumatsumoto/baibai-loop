@@ -38,20 +38,17 @@ _READING_FIELDS: Mapping[str, str] = {
 # rate window は数分に及ぶことがあるため末尾は 10 分まで伸ばす。
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
-# 1 回の fetch が待避に費やせる総時間。これが無いと、拒否が続く日が並んだとき 1 日
-# あたり 18.5 分の待避が日数分積み上がり、日次 batch の GHA timeout を超えて job ごと
-# cancel される——macro の失敗でなく、その日の screening publish ごと失われる。
+# 1 process が待避に費やせる総時間。日次 batch の 1 pass は 3 系列 x service の 2 回
+# 再試行 = 6 fetch を回すので、fetch ごとの予算では上限が 6 倍になり、拒否が続けば
+# 111 分眠って job timeout を超える——cancel は macro の失敗でなく、その日の
+# screening publish ごと失われることを意味する。予算は provider が持ち、pass 全体で
+# 1 つとする。使い切ったあとは待たずに落ちる: 数時間待っても拒否は明けない。
 _BACKOFF_BUDGET_SECONDS = 20 * 60
 
 
 @dataclass(slots=True)
 class _BackoffBudget:
-    """How much waiting one fetch may still spend.
-
-    The budget belongs to the fetch rather than to the provider so a long backfill
-    and the daily batch get the same bound, and so a run that used it up does not
-    leave the next one unable to wait at all.
-    """
+    """How much waiting this process may still spend on rate limits."""
 
     remaining_seconds: float
 
@@ -85,6 +82,9 @@ class JQuantsOptionsProvider:
         # ので memo でよい。休場日 (年 16 日ほど) の None も憶える——憶えないと 3 系列
         # がそれぞれ空のチェーンを取りに行く。
         self._readings: dict[date, FearReadings | None] = {}
+        # 待避の予算は series でも fetch でもなく provider が持つ。service は fetch を
+        # 2 回試み、1 pass は 3 系列を回すので、fetch ごとに配ると上限が 6 倍になる。
+        self._budget = _BackoffBudget(_BACKOFF_BUDGET_SECONDS)
 
     def fetch(
         self,
@@ -99,10 +99,9 @@ class JQuantsOptionsProvider:
         field = _reading_field(series.provider_series_id)
         api_key = _read_api_key()
         client = _client(api_key)
-        budget = _BackoffBudget(_BACKOFF_BUDGET_SECONDS)
         observations: list[ObservationRecord] = []
         for day in _days(start, end):
-            reading = self._day_reading(client, day, api_key=api_key, budget=budget)
+            reading = self._day_reading(client, day, api_key=api_key)
             if reading is None:
                 # A closed market returns nothing; that is the day's fact, not a
                 # failure, and skipping keeps the series free of invented points.
@@ -110,16 +109,13 @@ class JQuantsOptionsProvider:
             value = getattr(reading, field)
             if value is None:
                 continue
-            _require_plausible(series, value)
             observations.append(record_observation(series, observed_at=day, value=value))
         return observations
 
-    def _day_reading(
-        self, client: object, day: date, *, api_key: str, budget: _BackoffBudget
-    ) -> FearReadings | None:
+    def _day_reading(self, client: object, day: date, *, api_key: str) -> FearReadings | None:
         if day in self._readings:
             return self._readings[day]
-        rows = _fetch_chain(client, day, api_key=api_key, budget=budget)
+        rows = _fetch_chain(client, day, api_key=api_key, budget=self._budget)
         reading = _reading(rows, day) if rows else None
         self._readings[day] = reading
         return reading
@@ -137,23 +133,6 @@ def _reading_field(provider_series_id: str) -> str:
             f"unsupported jquants_options series {provider_series_id!r}; supported: {supported}"
         )
     return field
-
-
-def _require_plausible(series: SeriesDefinition, value: float) -> None:
-    """Refuse a reading the registry says this series cannot take.
-
-    The bounds come from the series rather than from a copy kept here: a level and a
-    difference have different ones, and a second copy is a second thing to keep in
-    step. A column read off the wrong field, or a ratio taken for a percentage, lands
-    outside them either way.
-    """
-    low, high = series.plausible_min, series.plausible_max
-    too_low = low is not None and value < low
-    too_high = high is not None and value > high
-    if too_low or too_high:
-        raise IndicatorsProviderError(
-            f"jquants_options {series.series_id} value {value} outside plausible [{low}, {high}]"
-        )
 
 
 def _days(start: date, end: date) -> list[date]:
@@ -230,8 +209,8 @@ def _call_with_backoff(
     Without this a single 429 discards every day already fetched, and a range long
     enough to be worth fetching is long enough to meet one. Errors that will not
     change on a retry (auth, a bad date) fail on the first attempt, and the waiting
-    stops once the fetch has spent its budget — a range where every day waits the
-    full ladder would otherwise outlast any job that scheduled it.
+    stops once the run has spent its budget — a pass where every day waits the full
+    ladder would otherwise outlast any job that scheduled it.
     """
     assert callable(method)
     last: Exception | None = None

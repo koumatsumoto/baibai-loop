@@ -29,12 +29,12 @@ SKEW_PUT_MONEYNESS = 0.95
 # by points for reasons that have nothing to do with the basis.
 BASIS_BAND = 0.10
 # Put-call parity puts the same volatility on both sides of a strike, so a gap at all
-# is the source's own inconsistency rather than a market state. Two measurements put
-# the bound here and they agree: the gap the source routinely stays inside reaches 12.4
-# at its 99th percentile, and a skew compared against its own neighbouring sessions
-# only starts to drift once the gap passes about 12. Below that, refusing a chain would
-# empty the two difference readings for a condition that moves them by less than their
-# own noise.
+# is the source's own inconsistency rather than a market state. The bound is the top of
+# the range the source routinely stays inside — its 99th percentile over the sampled
+# sessions is 12.4 — rather than a point where anything changes character: a skew
+# compared against its own neighbouring sessions drifts further the wider the gap gets,
+# continuously, with no knee to cut at. Drawing the line lower would empty the two
+# difference readings on days the source is behaving normally.
 MAX_BASIS_GAP = 12.0
 # A median over two strikes is the mean of two numbers, so one broken strike would set
 # the verdict; the chains seen here carry twenty or more, and a day that does not is
@@ -142,17 +142,21 @@ def _constant_maturity_skew(
     The smile steepens as a contract approaches settlement, so a skew read off
     whichever expiry happens to be in front is a different quantity every week of the
     cycle, and a reader comparing it to a pooled quantile would find fear on the
-    calendar rather than in the market. Quoting it at one maturity removes that, at the
-    cost of the days where the two expiries do not straddle 30 — the same days the
-    level cannot be quoted, so the two readings appear and disappear together.
+    calendar rather than in the market. Quoting it at one maturity takes nearly all of
+    that out, at the cost of the days where the two expiries do not straddle 30 — the
+    same days the level cannot be quoted, so the two readings appear and disappear
+    together.
 
     The skew falls away roughly as the inverse root of maturity, so the two readings
     are placed on that axis and the target read off the line between them. Walking the
     days instead bends a curve with a straight line, and the resulting bias is largest
     where the bracket is widest — which is most of the settlement cycle. Measured over
-    the same sessions, the days-linear reading still runs 4.03 a week out against 3.67
-    a month out (correlation -0.17 with the front maturity); this one runs
-    3.49 / 3.56 / 3.60 / 3.63, which is no longer a gradient (-0.02).
+    the sampled sessions, the days-linear reading runs 4.03 a week out against 3.67 a
+    month out (correlation -0.17 with the front maturity); this one runs
+    3.43 / 3.54 / 3.60 / 3.58, no longer a gradient (-0.03). A residue is still there:
+    the 0.17 spread across those buckets is an eighth of the reading's own
+    interquartile range, so a difference that small between two sessions a fortnight
+    apart is not necessarily the market.
 
     Interpolating along the axis rather than rescaling onto it keeps the answer a
     weighted average of the two readings, so it can never land outside them: the
@@ -238,11 +242,14 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
     A single side carries its own directional bias — the put is bid for protection
     and the call is offered against holdings — so the average is closer to what the
     market charges for movement itself. It is also what survives the source's own
-    inconsistency: at the money the two sides move a like amount for a given error in
-    the price they were quoted against, so an error pushes them apart and leaves the
-    average where it was. On the one sampled session whose sides disagreed by 20
-    points the two legs read 46.5 and 28.0, and their average, 37.3, sat between the
-    36.7 and 36.3 of the sessions either side of it.
+    inconsistency: at the money a put and a call carry the same sensitivity to the
+    price they were quoted against, so an error in it pushes them apart and leaves
+    their average where it was. Across 437 sampled sessions the signed disagreement
+    and this reading's departure from its own neighbourhood correlate at +0.07 — a
+    one-sided error would drag the average with it and show a systematic sign, and
+    none is there. Which is why the basis check does not withhold the level: the days
+    it fires on are volatile days, and on those the level moves for the market's
+    reasons, not the source's.
     """
     underlying = _underlying(quotes)
     strikes = {quote.strike for quote in quotes}
@@ -349,14 +356,20 @@ def _as_float(value: object) -> float | None:
 
 
 def as_date(value: object) -> date | None:
-    """Reduce whatever the payload carries to a plain date.
+    """Reduce whatever the payload carries to a plain date, or None where it carries none.
 
     A pandas Timestamp passes `isinstance(value, date)` but subtracting a date from
     one raises, so a payload that typed the column as a timestamp would fail deep in
     the maturity arithmetic instead of here. Rebuilding the date drops that path.
+
+    The frame's date column is parsed with errors coerced, so a row the source left
+    unparseable arrives as a not-a-time sentinel — which also passes the timestamp
+    check, and whose own `date()` is another sentinel rather than a date. It compares
+    unequal to itself, exactly as a NaN does, and that is what identifies it without
+    naming the library that produced it.
     """
     if isinstance(value, datetime):
-        return value.date()
+        return None if value != value else value.date()
     if isinstance(value, date):
         return date(value.year, value.month, value.day)
     text = str(value or "")[:10]
