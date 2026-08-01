@@ -53,16 +53,19 @@ fi
     )
     executable.chmod(0o755)
     uv = bin_dir / "uv"
-    # Stands in for the two Python helpers the script shells out to: the snapshot tool
-    # (create writes the file, check only validates) and the indicator-store merge, whose
-    # invocation is logged so a test can assert it precedes the upload.
+    # Stands in for the Python helpers the script shells out to: the snapshot tool
+    # (create writes the file, check only validates) and the two store merges, whose
+    # invocations are logged so a test can assert they precede the upload. The merges are
+    # matched as modules because the script runs them with `-m`; a file suffix would stop
+    # matching the moment they are invoked the way the shared core requires.
     uv.write_text(
         """#!/usr/bin/env bash
 script=""
 for argument in "$@"; do
   case "${argument}" in
     *sqlite_snapshot.py) script=snapshot ;;
-    *merge_indicator_store.py) script=merge ;;
+    tools.cloud.merge_indicator_store) script=merge ;;
+    tools.cloud.merge_market_store) script=merge ;;
   esac
 done
 case "${script}" in
@@ -544,6 +547,72 @@ def test_macro_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> No
     assert all(
         not command.rstrip().endswith(
             "s3://baibai-stores/macro.sqlite --endpoint-url "
+            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
+        )
+        for command in commands
+    )
+
+
+def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> None:
+    # Runs outside GitHub Actions on purpose. The deep history this publishes is fetched
+    # where there is time for it, and the merge — not the caller's environment — is what
+    # keeps the daily batch's recent rows from being rolled back.
+    bin_dir, log = _fake_aws(tmp_path)
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-market"],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    downloads = [
+        index
+        for index, command in enumerate(commands)
+        if command.startswith("s3 cp s3://baibai-stores/market.sqlite ")
+    ]
+    merges = [index for index, command in enumerate(commands) if command.startswith("merge ")]
+    uploads = [
+        index
+        for index, command in enumerate(commands)
+        if command.rstrip().endswith(
+            "s3://baibai-stores/market.sqlite --endpoint-url "
+            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
+        )
+    ]
+    assert len(downloads) == 1
+    assert len(merges) == 1
+    assert len(uploads) == 1
+    assert downloads[0] < merges[0] < uploads[0]
+    assert "data/screening/market.sqlite" in commands[merges[0]]
+    # Only the market store is published; runs and the indicator store are untouched.
+    assert all("runs.sqlite" not in command for command in commands)
+    assert all("macro.sqlite" not in command for command in commands)
+
+
+def test_market_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["MERGE_FAKE_EXIT"] = "1"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-market"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert all(
+        not command.rstrip().endswith(
+            "s3://baibai-stores/market.sqlite --endpoint-url "
             "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
         )
         for command in commands

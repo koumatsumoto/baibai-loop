@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import argparse
 import math
-import re
 import sqlite3
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +33,22 @@ from baibai_engine.macro.indicators.db import (
     IndicatorsSchemaError,
     validate_current_schema,
     validate_schema_contract,
+)
+from tools.cloud.store_merge import (
+    MergeError,
+    MergeReport,
+    RowFilter,
+    merge_fact_tables,
+    require_identical_columns,
+)
+from tools.cloud.store_merge import (
+    count as _count,
+)
+from tools.cloud.store_merge import (
+    internal_name as _internal_name,
+)
+from tools.cloud.store_merge import (
+    schema_name as _schema_name,
 )
 
 # The tables that accumulate facts, with the key that decides whether a row is the same row.
@@ -49,84 +64,28 @@ REGISTRY_TABLES: tuple[str, ...] = (
     "registry_prune_authorizations",
 )
 
+
 # A row is only carried when the target store retains its series metadata. Only
 # an explicit refresh may remove that metadata and make the series ineligible.
-_REGISTERED = 'series_id IN (SELECT series_id FROM main."series")'
-
-# SQLite cannot bind a table, column or schema name, so every statement below interpolates
-# the ones it needs. Two guards keep that interpolation from carrying anything but a plain
-# identifier: names this module chooses go through `_internal_name`, and names read out of a
-# store's own schema go through `_store_column`.
-_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_SCHEMAS = frozenset({"main", "source"})
-
-
-class MergeError(RuntimeError):
-    """The stores cannot be merged, so the target is left untouched."""
-
-
-def _internal_name(name: str) -> str:
-    """Check a name this module supplies itself; a rejection here is a bug, not bad data."""
-
-    if _IDENTIFIER.match(name) is None:
-        raise ValueError(f"invalid SQL identifier: {name!r}")
-    return name
-
-
-def _schema_name(schema: str) -> str:
-    """Only the two schemas this merge attaches may name a statement's tables."""
-
-    if schema not in _SCHEMAS:
-        raise ValueError(f"unsupported SQLite schema name: {schema!r}")
-    return schema
-
-
-def _store_column(name: str) -> str:
-    """Check a column name read from a store's schema; a strange one means a broken store."""
-
-    if _IDENTIFIER.match(name) is None:
-        raise MergeError(f"indicator store column name is not a plain identifier: {name!r}")
-    return name
+_REGISTERED = RowFilter(
+    unaliased='series_id IN (SELECT series_id FROM main."series")',
+    aliased='s.series_id IN (SELECT series_id FROM main."series")',
+)
 
 
 @dataclass(frozen=True, slots=True)
-class TableMerge:
-    table: str
-    source_rows: int
-    target_rows_before: int
-    inserted: int
-    skipped: int
-    target_rows_after: int
+class IndicatorMergeReport(MergeReport):
+    """The merge result, plus the series whose facts the target no longer defines."""
 
-
-@dataclass(frozen=True, slots=True)
-class MergeReport:
-    tables: tuple[TableMerge, ...]
     retired_series: tuple[str, ...] = ()
 
-    @property
-    def inserted(self) -> int:
-        return sum(item.inserted for item in self.tables)
-
-    @property
-    def skipped(self) -> int:
-        return sum(item.skipped for item in self.tables)
-
-    def render(self) -> str:
-        lines = [
-            f"{'table':16}{'source':>10}{'target':>10}{'inserted':>10}{'skipped':>9}{'result':>10}"
-        ]
-        for item in self.tables:
-            lines.append(
-                f"{item.table:16}{item.source_rows:>10}{item.target_rows_before:>10}"
-                f"{item.inserted:>10}{item.skipped:>9}{item.target_rows_after:>10}"
-            )
-        if self.retired_series:
-            lines.append(
-                "skipped rows belong to series the registry no longer defines: "
-                + ", ".join(self.retired_series)
-            )
-        return "\n".join(lines)
+    def notes(self) -> tuple[str, ...]:
+        if not self.retired_series:
+            return ()
+        return (
+            "skipped rows belong to series the registry no longer defines: "
+            + ", ".join(self.retired_series),
+        )
 
 
 def merge_stores(source: Path, target: Path) -> MergeReport:
@@ -146,7 +105,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 schema="source",
                 allow_previous_read_only=True,
             )
-            _require_identical_columns(connection)
+            require_identical_columns(connection, (*FACT_KEYS, *REGISTRY_TABLES))
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -167,25 +126,9 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 _validate_observations(connection, schema="main")
                 _validate_observations(connection, schema="source")
                 retired = _retired_series(connection)
-                for table in FACT_KEYS:
-                    _require_matching_payloads(connection, table)
-                tables = tuple(_merge_table(connection, table) for table in FACT_KEYS)
-                for table in FACT_KEYS:
-                    _require_matching_payloads(connection, table)
-                violations = connection.execute("PRAGMA foreign_key_check").fetchall()
-                if violations:
-                    raise MergeError(f"merge would break foreign keys: {violations[:3]}")
-                left_behind = {
-                    table: remaining
-                    for table in FACT_KEYS
-                    if (remaining := _source_only_rows(connection, table))
-                }
-                if left_behind:
-                    raise MergeError(
-                        f"source rows are still missing after the merge: {left_behind}"
-                    )
+                tables = merge_fact_tables(connection, FACT_KEYS, eligible=_REGISTERED)
                 connection.commit()
-                return MergeReport(tables=tables, retired_series=retired)
+                return IndicatorMergeReport(tables=tables, retired_series=retired)
             except BaseException:
                 connection.rollback()
                 raise
@@ -264,71 +207,12 @@ def _validate_observations(
     )
 
 
-def _merge_table(connection: sqlite3.Connection, table: str) -> TableMerge:
-    name = _internal_name(table)
-    source_rows = _count(connection, f'SELECT count(*) FROM source."{name}"')  # nosec B608
-    before = _count(connection, f'SELECT count(*) FROM main."{name}"')  # nosec B608
-    skipped = _count(
-        connection,
-        f'SELECT count(*) FROM source."{name}" WHERE NOT {_REGISTERED}',  # nosec B608
-    )
-    columns = _columns(connection, table, schema="main")
-    target_columns = ", ".join(f'"{column}"' for column in columns)
-    source_columns = ", ".join(f'source."{name}"."{column}"' for column in columns)
-    connection.execute(
-        f'INSERT OR IGNORE INTO main."{name}" ({target_columns}) '  # nosec B608
-        f'SELECT {source_columns} FROM source."{name}" WHERE {_REGISTERED}'
-    )
-    after = _count(connection, f'SELECT count(*) FROM main."{name}"')  # nosec B608
-    return TableMerge(
-        table=table,
-        source_rows=source_rows,
-        target_rows_before=before,
-        inserted=after - before,
-        skipped=skipped,
-        target_rows_after=after,
-    )
-
-
-def _require_matching_payloads(connection: sqlite3.Connection, table: str) -> None:
-    name = _internal_name(table)
-    columns = _columns(connection, table, schema="main")
-    keys = tuple(_internal_name(key) for key in FACT_KEYS[table])
-    payload = tuple(column for column in columns if column not in keys)
-    key_match = " AND ".join(f't."{key}" = s."{key}"' for key in keys)
-    payload_differs = " OR ".join(f't."{column}" IS NOT s."{column}"' for column in payload)
-    row = connection.execute(
-        f"SELECT {', '.join(f's.{key}' for key in keys)} "  # nosec B608
-        f'FROM source."{name}" s '
-        f'JOIN main."{name}" t ON {key_match} '
-        "WHERE s.series_id IN (SELECT series_id FROM main.series) "
-        f"AND ({payload_differs}) "
-        f"ORDER BY {', '.join(f's.{key}' for key in keys)} LIMIT 1"
-    ).fetchone()
-    if row is not None:
-        raise MergeError(
-            f"{table} payload disagrees for shared key: " + ", ".join(repr(value) for value in row)
-        )
-
-
-def _source_only_rows(connection: sqlite3.Connection, table: str) -> int:
-    name = _internal_name(table)
-    match = " AND ".join(
-        f'main."{name}".{key} = source."{name}".{key}'
-        for key in map(_internal_name, FACT_KEYS[table])
-    )
-    return _count(
-        connection,
-        f'SELECT count(*) FROM source."{name}" WHERE {_REGISTERED} AND NOT EXISTS ('  # nosec B608
-        f'SELECT 1 FROM main."{name}" WHERE {match})',
-    )
-
-
 def _retired_series(connection: sqlite3.Connection) -> tuple[str, ...]:
     """Series the source carries facts for that the target's registry does not define."""
 
     union = " UNION ".join(
-        f'SELECT DISTINCT series_id FROM source."{table}" WHERE NOT {_REGISTERED}'  # nosec B608
+        f'SELECT DISTINCT series_id FROM source."{table}" '  # nosec B608
+        f"WHERE NOT {_REGISTERED.unaliased}"
         for table in map(_internal_name, FACT_KEYS)
     )
     return tuple(str(row[0]) for row in connection.execute(f"{union} ORDER BY series_id"))
@@ -381,34 +265,12 @@ def _require_schema(
     return version
 
 
-def _require_identical_columns(connection: sqlite3.Connection) -> None:
-    """The merge selects whole rows, so column order must match on both sides."""
-
-    for table in (*FACT_KEYS, *REGISTRY_TABLES):
-        if _columns(connection, table, schema="main") != _columns(
-            connection, table, schema="source"
-        ):
-            raise MergeError(f"indicator stores disagree on the columns of {table}")
-
-
 def _registry_generation(connection: sqlite3.Connection, *, schema: str) -> int:
     return _count(
         connection,
         f'SELECT generation FROM {_schema_name(schema)}."registry_state" '  # nosec B608
         "WHERE singleton = 1",
     )
-
-
-def _columns(connection: sqlite3.Connection, table: str, *, schema: str) -> Sequence[str]:
-    statement = f'PRAGMA {_schema_name(schema)}.table_info("{_internal_name(table)}")'
-    return [_store_column(str(row[1])) for row in connection.execute(statement)]
-
-
-def _count(connection: sqlite3.Connection, sql: str) -> int:
-    row = connection.execute(sql).fetchone()
-    if row is None:
-        raise MergeError(f"query returned no row: {sql}")
-    return int(row[0])
 
 
 def build_parser() -> argparse.ArgumentParser:

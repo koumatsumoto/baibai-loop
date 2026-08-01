@@ -11,7 +11,8 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 
 | bucket | object | owner |
 | --- | --- | --- |
-| `baibai-stores` | `market.sqlite` / `runs.sqlite` | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）|
+| `baibai-stores` | `market.sqlite` | `cloud-daily-batch` + `cloud-history-backfill`（手動 dispatch。窓を名指しして履歴を遡る）+ ローカル`push-market`（cloud copyのmerge後だけupload） |
+| `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
 | `baibai-stores` | `schema-migrations/market-v13.sqlite` | `cloud-daily-batch`（write-once rollback artifact） |
@@ -92,7 +93,19 @@ tools/cloud/r2_transfer.sh push-macro
 gh workflow run cloud-materialize.yml --ref main
 ```
 
-`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeの対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。schema v5 rollout中はread-only source v4も同じ構造契約を検査して受理し、`jp.foreign_flows`のlegacy unit `jpy`を値非rescaleで`jpy-thousand`へ正規化して挿入する。targetは必ず現行schemaでなければならない。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`はcloudが唯一のwriterなので`push-macro`は触らない。
+market storeの履歴を深くしてクラウドへ載せる。日次batchは前へしか伸ばさないので、過去へ伸ばす経路は2つある。**ローカルに既にその履歴があるなら取り直さない** — `push-market`がcloud copyをmergeしてからuploadするので、providerを一度も呼ばずに数分で載る。ローカルにも無い履歴だけ`cloud-history-backfill`をdispatchして取る。
+
+```bash
+tools/cloud/r2_transfer.sh push-market                # ローカルに履歴がある場合
+gh workflow run cloud-history-backfill.yml --ref main \
+  -f start=YYYY-MM-DD -f end=YYYY-MM-DD               # ローカルにも無い場合
+```
+
+`cloud-history-backfill`は財務サマリーが律速で、実測は3.4年で2時間32分（うち財務2時間05分）である。job上限は5時間なので、初回のような大量欠損は3〜4年ずつに分けてdispatchする。coverageのmergeが繋ぐので分割しても結果は同じになる。
+
+`push-market`はcloud copyをstagingへdownloadし、`merge_market_store.py`でローカルstoreへmergeしてからuploadする。storeの全12 tableが事実tableで、`source_coverage`も1日1行の粒度（`coverage_key`が日付）なので範囲のunion演算は要らない。主キーで`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証する。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い行をuploadで失わない。source / targetとも現行schemaでなければ停止する——cloud copyが古いときの復旧はcloud側でstoreを開かせることであって、こちらでmigrateしてcloudが書いたことのない形を publish することではない。mergeの対象tableは`merge_market_store.py`の`FACT_KEYS`に列挙してあり、storeのtable一覧とずれたらtestが落ちる。
+
+`push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeの対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。schema v5 rollout中はread-only source v4も同じ構造契約を検査して受理し、`jp.foreign_flows`のlegacy unit `jpy`を値非rescaleで`jpy-thousand`へ正規化して挿入する。targetは必ず現行schemaでなければならない。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
 
 ### indicator storeのschemaがcloudとcodeでずれているとき
 
@@ -144,7 +157,7 @@ npx wrangler secret put VIEW_PASSWORD
 
 - `market.sqlite`のv13からv14へのmigration前に、workflowは`schema-migrations/market-v13.sqlite`を固定keyへ一度だけ保存する。既存objectは上書きせず、毎回再downloadして非空・`quick_check`・`user_version = 13`を検証してからbatchを開始する。v14 storeに対してartifactが存在しなければ処理を停止する。
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
-- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（cloudが唯一のwriterである`market.sqlite` / `runs.sqlite`を古いローカルcopyで巻き戻さないため）。`macro.sqlite`はローカルからも`push-macro`でuploadできるが、cloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
+- 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（`runs.sqlite`はcloudが唯一のwriterで、無条件uploadが古いローカルcopyで巻き戻すため）。`macro.sqlite` / `market.sqlite`はローカルからも`push-macro` / `push-market`でuploadできるが、いずれもcloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
 - pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。`market.sqlite`は10年履歴で約1.3GBあり、3 store合計のpush（snapshot作成・`.bak`のserver-side copy・upload）は実測で約2分である。
 - `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。

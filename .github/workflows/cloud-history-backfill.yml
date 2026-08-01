@@ -3,6 +3,15 @@ name: cloud-history-backfill
 # Extends the canonical market store back over a named window. Manual only: the
 # window is a decision about how far the evidence has to reach, and the pass costs
 # hours, so it does not belong on the daily schedule.
+#
+# This is for history no machine holds yet. When a local store already covers the
+# window, `r2_transfer.sh push-market` merges it into the cloud copy in minutes
+# without calling the provider at all, and that is the path to take.
+#
+# Financial summaries are the slow part: 3.4 years took 2h32m of which 2h05m was
+# theirs. The job ceiling is 5 hours, so a first pass over a decade has to be split
+# into windows of three or four years. Coverage merges, so splitting changes nothing
+# about the result.
 on:
   workflow_dispatch:
     inputs:
