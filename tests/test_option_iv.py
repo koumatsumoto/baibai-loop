@@ -108,6 +108,7 @@ def _chain(
     basis_gap: float = 0.0,
     gaps: dict[float, float] | None = None,
     ladder: dict[float, float] | None = None,
+    one_sided: bool = False,
 ) -> list[OptionQuote]:
     """One expiry's quotes.
 
@@ -119,15 +120,22 @@ def _chain(
     move that average by half the gap and make every reading built on it look fragile
     for a reason the source does not produce. `gaps` sets it per moneyness so a test
     can put the disagreement where it wants it; `basis_gap` applies one everywhere.
+
+    `one_sided` puts the whole gap on the put instead of splitting it. That is not the
+    shape the source produces, and a suite that could only build the split form would
+    be checking its own fixture rather than the readings — so both are available and
+    the difference between them is asserted.
     """
     rungs = _LADDER if ladder is None else ladder
     quotes: list[OptionQuote] = []
     for moneyness, volatility in rungs.items():
         strike = underlying * moneyness
         gap = basis_gap if gaps is None else gaps.get(moneyness, 0.0)
+        put_share = gap if one_sided else gap / 2
+        call_share = 0.0 if one_sided else gap / 2
         for side, vol in (
-            (PUT, volatility + level + gap / 2),
-            (CALL, volatility + level - gap / 2),
+            (PUT, volatility + level + put_share),
+            (CALL, volatility + level - call_share),
         ):
             quotes.append(
                 OptionQuote(
@@ -159,6 +167,52 @@ class FearReadingsTest(unittest.TestCase):
                 assert clean.iv_30d is not None
                 self.assertAlmostEqual(readings.iv_30d, clean.iv_30d, places=9)
                 self.assertAlmostEqual(readings.iv_30d, _LADDER[1.00], places=9)
+
+    def test_a_disagreement_carried_by_one_side_would_move_the_average(self) -> None:
+        # The reading survives the source's disagreement because that disagreement is
+        # two-sided — measured over 437 sessions, a departure regressed on the signed
+        # gap has slope +0.04 where one-sidedness predicts 0.5. A suite that could only
+        # build the two-sided form would prove nothing about which shape it survives,
+        # so the other shape is built here and the difference is what is asserted.
+        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        split = fear_readings([*_chain(NEAR, basis_gap=8.0), *_chain(FAR, basis_gap=8.0)], ASOF)
+        lopsided = fear_readings(
+            [
+                *_chain(NEAR, basis_gap=8.0, one_sided=True),
+                *_chain(FAR, basis_gap=8.0, one_sided=True),
+            ],
+            ASOF,
+        )
+
+        assert clean.iv_30d is not None
+        assert split.iv_30d is not None
+        assert lopsided.iv_30d is not None
+        self.assertAlmostEqual(split.iv_30d, clean.iv_30d, places=9)
+        self.assertAlmostEqual(lopsided.iv_30d - clean.iv_30d, 4.0, places=9)
+
+    def test_the_at_the_money_average_reaches_for_a_strike_quoting_both_sides(self) -> None:
+        # The average is the whole reason the level survives the source's
+        # disagreement, so a chain missing one side at the nearest strike has to be
+        # read one strike further rather than reported from a single side.
+        unpaired = {UNDERLYING, UNDERLYING * 1.025}
+        half_quoted = [
+            quote
+            for quote in _chain(NEAR)
+            if not (quote.strike in unpaired and quote.put_call == CALL)
+        ]
+
+        readings = fear_readings([*half_quoted, *_chain(FAR)], ASOF)
+        put_only = fear_readings(
+            [quote for quote in (*_chain(NEAR), *_chain(FAR)) if quote.put_call == PUT], ASOF
+        )
+
+        # 0.975 is now the nearest rung quoting both, so the near leg reads 25.0 rather
+        # than the 20.0 a put-only read of the money would have given.
+        weight = (44 - 30) / (44 - 16)
+        expected = (weight * _LADDER[0.975] ** 2 + (1 - weight) * _LADDER[1.00] ** 2) ** 0.5
+        assert readings.iv_30d is not None
+        self.assertAlmostEqual(readings.iv_30d, expected, places=9)
+        self.assertEqual(put_only, FearReadings())
 
     def test_the_skew_is_the_downside_put_minus_the_at_the_money_put(self) -> None:
         readings = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
@@ -884,6 +938,20 @@ class OptionProviderTest(unittest.TestCase):
             jquants_options._read_api_key()
 
         self.assertIn("JQUANTS_API_KEY", str(caught.exception))
+
+    def test_a_contract_the_chain_carries_twice_is_refused(self) -> None:
+        # Every reading resolves a strike to one volatility through a dict, so a second
+        # row for the same contract wins on arrival order with nothing downstream able
+        # to see it — and the basis median does not move for one duplicated strike.
+        rows = _chain_records()
+        clean = list(rows)
+        rows.append(dict(rows[0]))
+
+        jquants_options._require_one_row_per_contract(clean, ASOF)
+
+        with self.assertRaises(IndicatorsProviderError) as caught:
+            jquants_options._require_one_row_per_contract(rows, ASOF)
+        self.assertIn("same contract", str(caught.exception))
 
     def test_a_chain_answering_for_another_day_is_refused(self) -> None:
         # The observation is stamped with the requested date, so a session served the

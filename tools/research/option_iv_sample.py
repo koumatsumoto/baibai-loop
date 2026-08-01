@@ -132,13 +132,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, str | float | int | None]] = []
-    for day in business_days(args.start, args.end, args.step):
-        read = read_day(client, day)
-        if read is None:
-            continue
-        reading, maturities, gaps = read
-        rows.append(
-            {
+    # The window is hundreds of sequential calls over hours and one refusal ends the
+    # run, so each day is written and flushed as it arrives: an interrupted run leaves
+    # the days it did reach instead of nothing. csv writes CRLF by default, and a
+    # committed file whose line endings git normalises comes back changed every time
+    # it is regenerated.
+    with args.out.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(_COLUMNS), lineterminator="\n")
+        writer.writeheader()
+        for day in business_days(args.start, args.end, args.step):
+            read = read_day(client, day)
+            if read is None:
+                continue
+            reading, maturities, gaps = read
+            row: dict[str, str | float | int | None] = {
                 "day": day.isoformat(),
                 "iv_30d": reading.iv_30d,
                 "iv_skew": reading.iv_skew,
@@ -148,18 +155,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "near_gap": gaps[0] if gaps else None,
                 "far_gap": gaps[1] if len(gaps) > 1 else None,
             }
-        )
-        print(
-            f"{day} {reading.iv_30d} {reading.iv_skew} {reading.iv_term} {maturities} {gaps}",
-            flush=True,
-        )
-
-    with args.out.open("w", newline="", encoding="utf-8") as handle:
-        # csv writes CRLF by default; the sample is committed, and a file whose line
-        # endings git normalises comes back changed every time it is regenerated.
-        writer = csv.DictWriter(handle, fieldnames=list(_COLUMNS), lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
+            rows.append(row)
+            writer.writerow(row)
+            handle.flush()
+            print(
+                f"{day} {reading.iv_30d} {reading.iv_skew} {reading.iv_term} {maturities} {gaps}",
+                flush=True,
+            )
 
     print(f"\nsampled {len(rows)} trading day(s) every {args.step} business day(s)")
     for field in ("iv_30d", "iv_skew", "iv_term"):

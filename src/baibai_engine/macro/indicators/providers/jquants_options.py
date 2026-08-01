@@ -182,7 +182,29 @@ def _fetch_chain(
         raise IndicatorsProviderError("unexpected jquants_options payload: records is not a list")
     rows = [record for record in records if isinstance(record, Mapping)]
     _require_requested_day(rows, day)
+    _require_one_row_per_contract(rows, day)
     return rows
+
+
+def _require_one_row_per_contract(rows: Sequence[Mapping[str, object]], day: date) -> None:
+    """Refuse a chain that carries a contract twice.
+
+    Every reading resolves a strike to one volatility by writing into a dict, so a
+    second row for the same contract wins on arrival order and nothing downstream can
+    see it happened — the basis check takes a median and a single duplicated strike
+    does not move it. The endpoint has returned one row per contract on every day
+    examined, so a day that does not is the source doing something this code has not
+    been shown, and guessing which block to keep is worse than stopping.
+    """
+    seen: set[tuple[str, str, str]] = set()
+    for row in rows:
+        key = (str(row.get("SQD")), str(row.get("Strike")), str(row.get("PCDiv")))
+        if key in seen:
+            raise IndicatorsProviderError(
+                f"jquants_options returned {day.isoformat()} twice for the same contract "
+                f"(expiry {key[0]}, strike {key[1]}, side {key[2]})"
+            )
+        seen.add(key)
 
 
 def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> None:

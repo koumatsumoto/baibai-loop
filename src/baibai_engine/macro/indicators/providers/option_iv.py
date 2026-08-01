@@ -30,11 +30,12 @@ SKEW_PUT_MONEYNESS = 0.95
 BASIS_BAND = 0.10
 # Put-call parity puts the same volatility on both sides of a strike, so a gap at all
 # is the source's own inconsistency rather than a market state. The bound is the top of
-# the range the source routinely stays inside — its 99th percentile over the sampled
-# sessions is 12.4 — rather than a point where anything changes character: a skew
-# compared against its own neighbouring sessions drifts further the wider the gap gets,
-# continuously, with no knee to cut at. Drawing the line lower would empty the two
-# difference readings on days the source is behaving normally.
+# the range the source routinely stays inside — the front expiry's gap reaches 12.4 at
+# its 99th percentile over the sampled sessions — and nothing more: a skew compared
+# against its own neighbouring sessions drifts further the wider the gap gets,
+# continuously, with no knee to cut at. So the bound buys a stated limit, not a natural
+# one, and drawing it lower would empty the two difference readings on days the source
+# is behaving normally.
 MAX_BASIS_GAP = 12.0
 # A median over two strikes is the mean of two numbers, so one broken strike would set
 # the verdict; the chains seen here carry twenty or more, and a day that does not is
@@ -151,9 +152,11 @@ def _constant_maturity_skew(
     are placed on that axis and the target read off the line between them. Walking the
     days instead bends a curve with a straight line, and the resulting bias is largest
     where the bracket is widest — which is most of the settlement cycle. Measured over
-    the sampled sessions, the days-linear reading runs 4.03 a week out against 3.67 a
-    month out (correlation -0.17 with the front maturity); this one runs
-    3.43 / 3.54 / 3.60 / 3.58, no longer a gradient (-0.03). A residue is still there:
+    the same window with both rules computed side by side, the days-linear reading runs
+    4.03 a week out against 3.57 a month out (correlation -0.21 with the front
+    maturity); this one runs 3.43 / 3.54 / 3.60 / 3.58, no longer a gradient (-0.03).
+    Only the second set is reproducible from the committed sample, which holds the
+    reading this rule produces. A residue is still there:
     the 0.17 spread across those buckets is an eighth of the reading's own
     interquartile range, so a difference that small between two sessions a fortnight
     apart is not necessarily the market.
@@ -244,23 +247,28 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
     market charges for movement itself. It is also what survives the source's own
     inconsistency: at the money a put and a call carry the same sensitivity to the
     price they were quoted against, so an error in it pushes them apart and leaves
-    their average where it was. Across 437 sampled sessions the signed disagreement
-    and this reading's departure from its own neighbourhood correlate at +0.07 — a
-    one-sided error would drag the average with it and show a systematic sign, and
-    none is there. Which is why the basis check does not withhold the level: the days
-    it fires on are volatile days, and on those the level moves for the market's
-    reasons, not the source's.
+    their average where it was. Regressing this reading's departure from its own
+    neighbourhood on the signed disagreement over 437 sampled sessions gives a slope
+    of +0.04 (standard error 0.04): a disagreement carried by one side alone would
+    move the average by half of itself, and 0.5 is twelve standard errors away. Which
+    is why the basis check does not withhold the level.
+
+    Both sides are required, so the strike is chosen among those quoting both rather
+    than by distance alone: a single side carries the directional bias the average
+    exists to remove, and returning it under the same name would be a different
+    reading wearing this one's quantiles. Reaching one strike further for a pair keeps
+    the reading available; on every sampled session the nearest strike already quoted
+    both, so the reach only ever costs distance on a chain missing a quote.
     """
     underlying = _underlying(quotes)
-    strikes = {quote.strike for quote in quotes}
-    atm_strike = min(strikes, key=lambda strike: abs(strike - underlying))
-    sides = {
-        quote.put_call: quote.implied_volatility for quote in quotes if quote.strike == atm_strike
-    }
-    values = [sides[side] for side in (PUT, CALL) if side in sides]
-    if not values:
+    sides: dict[float, dict[str, float]] = {}
+    for quote in quotes:
+        sides.setdefault(quote.strike, {})[quote.put_call] = quote.implied_volatility
+    paired = [strike for strike, pair in sides.items() if PUT in pair and CALL in pair]
+    if not paired:
         return None
-    return sum(values) / len(values)
+    pair = sides[min(paired, key=lambda strike: abs(strike - underlying))]
+    return (pair[PUT] + pair[CALL]) / 2
 
 
 def _skew(quotes: Sequence[OptionQuote]) -> float | None:
