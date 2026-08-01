@@ -26,24 +26,35 @@ from pathlib import Path
 
 from baibai_engine.foundation.env import load_project_env
 from baibai_engine.macro.indicators.providers.option_iv import (
-    MIN_DAYS_TO_EXPIRY,
     FearReadings,
+    basis_gap,
     fear_readings,
     quotes_from_records,
+    usable_expiries,
 )
 
 _QUANTILES = (0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99)
-_COLUMNS = ("day", "iv_30d", "iv_skew", "iv_term", "near_days", "far_days")
+_COLUMNS = (
+    "day",
+    "iv_30d",
+    "iv_skew",
+    "iv_term",
+    "near_days",
+    "far_days",
+    "near_gap",
+    "far_gap",
+)
 
 
 def business_days(start: date, end: date, step: int) -> Iterator[date]:
     """Every `step`-th weekday, so the sample tracks the calendar, not the news.
 
-    A step that divides the five-day week lands on one weekday forever. The weekday
-    premium measured here is small — a Monday `iv_30d` runs 0.9 points above the rest
-    at the median — but a one-weekday sample cannot be checked for it at all, and a
-    reader has no way to tell a small bias from a large one. Such steps are refused
-    rather than silently producing a sample that cannot be audited.
+    A step that divides the five-day week lands on one weekday forever, and for these
+    readings that is worse than it sounds: monthly expiries put the maturity on a
+    seven-day cycle, so a fixed weekday under a four-day step fixes the position in
+    the settlement cycle too — the sampled maturities become one residue class rather
+    than the whole month. Such steps are refused rather than silently producing a
+    sample that cannot be checked for the bias it carries.
     """
     if step % 5 == 0:
         raise ValueError(f"step {step} is a multiple of the trading week and fixes the weekday")
@@ -56,14 +67,17 @@ def business_days(start: date, end: date, step: int) -> Iterator[date]:
         cursor += timedelta(days=1)
 
 
-def read_day(client: object, day: date) -> tuple[FearReadings, list[int]] | None:
-    """The day's readings, with the maturities they were read off.
+def read_day(
+    client: object, day: date
+) -> tuple[FearReadings, list[int], list[float | None]] | None:
+    """The day's readings, with the maturities and basis gaps behind them.
 
     The maturities are recorded because the two difference readings depend on which
     contracts were in front: a quantile pooled across the settlement cycle mixes
-    maturities unless the sample says which ones it drew. They are derived here from
-    the expiry cutoff rather than reported by the readings, which carry only what the
-    series store keeps.
+    maturities unless the sample says which ones it drew. The gaps are recorded because
+    the bound that withholds those readings is the one threshold whose justification is
+    not otherwise in the sample. Both come from the same grouping the readings use, so
+    a filter that changes moves the sample with it.
     """
     method = getattr(client, "get_drv_bars_daily_opt_225", None)
     if not callable(method):
@@ -73,10 +87,11 @@ def read_day(client: object, day: date) -> tuple[FearReadings, list[int]] | None
         return None
     records = [row for row in frame.to_dict(orient="records") if isinstance(row, dict)]
     quotes = quotes_from_records(records, day)
-    maturities = sorted(
-        {days for quote in quotes if (days := (quote.expiry - day).days) >= MIN_DAYS_TO_EXPIRY}
-    )
-    return fear_readings(quotes, day), maturities
+    by_expiry = usable_expiries(quotes, day)
+    expiries = sorted(by_expiry)[:2]
+    maturities = [(expiry - day).days for expiry in expiries]
+    gaps = [basis_gap(by_expiry[expiry]) for expiry in expiries]
+    return fear_readings(quotes, day), maturities, gaps
 
 
 def quantiles(values: Sequence[float]) -> dict[str, float]:
@@ -114,7 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         read = read_day(client, day)
         if read is None:
             continue
-        reading, maturities = read
+        reading, maturities, gaps = read
         rows.append(
             {
                 "day": day.isoformat(),
@@ -123,10 +138,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "iv_term": reading.iv_term,
                 "near_days": maturities[0] if maturities else None,
                 "far_days": maturities[1] if len(maturities) > 1 else None,
+                "near_gap": gaps[0] if gaps else None,
+                "far_gap": gaps[1] if len(gaps) > 1 else None,
             }
         )
         print(
-            f"{day} {reading.iv_30d} {reading.iv_skew} {reading.iv_term} {maturities[:2]}",
+            f"{day} {reading.iv_30d} {reading.iv_skew} {reading.iv_term} {maturities} {gaps}",
             flush=True,
         )
 

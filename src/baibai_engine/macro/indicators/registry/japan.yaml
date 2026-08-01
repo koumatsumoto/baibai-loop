@@ -354,7 +354,7 @@ series:
     source_id: jquants-options-n225-iv30
     source_url: https://jpx-jquants.com/
     notes: 日経225オプションのATM IVを分散線形補間で30日定数満期化したもの。保護の値段であり、恐怖の水準を指数の値動きとは別に観測する。判断材料であって機械的なtiming入力ではない
-    aliases: [日経VI相当, N225 IV, オプションIV, iv30]
+    aliases: [日経225 IV, N225 IV, オプションIV, iv30]
   - series_id: jp.n225_iv_skew
     name: 日経225オプションIVスキュー
     category: volatility
@@ -367,7 +367,7 @@ series:
     provider_series_id: n225_iv_skew
     source_id: jquants-options-n225-skew
     source_url: https://jpx-jquants.com/
-    notes: moneyness0.95 put IV から ATM put IV を引いた差を、30日定数満期に日数線形補間したもの。両脚をput側に揃えるので、出所側のput/call基準ずれが差に残らない。定数満期化はSQ周期で満期が入れ替わる分の変動を除く。下方保護が高いほど正で、恐怖の非対称を測る。水準は実測分位で読む
+    notes: moneyness0.95 put IV から ATM put IV を引いた差を、満期の逆平方根軸上で30日へ補間したもの。スキューは満期の逆平方根でほぼ減衰するので、この軸で補間するとSQ周期による変動が残らない。両脚をput側に揃えるので出所側のput/call基準ずれが差に乗りにくいが、その基準は行使価格の選択にも効くので基準不整合日は出さない。下方保護が高いほど正で、恐怖の非対称を測る。水準は実測分位で読む
     aliases: [IVスキュー, skew, オプションスキュー]
   - series_id: jp.n225_iv_term
     name: 日経225オプションIV期間構造
