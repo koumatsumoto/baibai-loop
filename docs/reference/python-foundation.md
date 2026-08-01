@@ -228,6 +228,8 @@ npx wrangler deploy --dry-run --outdir /tmp/baibai-worker-bundle
 - https://docs.astral.sh/uv/guides/integration/github/
 - https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#filtering-and-diff-limits
 
+全workflowの外部Actionは上流releaseのfull commit SHAへ固定し、同じ行のコメントにrelease tagを残す。repository Actions設定のSHA pin enforcementと`tools/drift/check_workflow_trust.py`を併用し、tag/branch参照、`run:`へのdispatch input直接展開、credentialのjob scope化を拒否する。Dependabotの更新でも、上流releaseとcommitの対応を確認してgateのallowlistとworkflowを同時に更新する。
+
 ## 10. Review rule
 
 Python 基盤を変える PR は、ツール設定だけを見て終わらせない。最低限、次を見る。

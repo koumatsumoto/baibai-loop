@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # PR merge commits expose base/head as their two parents at this depth.
           # Multi-commit pushes that exceed it fail closed into running the audit.
@@ -63,11 +63,11 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
 
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
 
@@ -102,7 +102,7 @@ jobs:
 
       # Keep Node audits after the Python scanners and use an explicit status
       # function so one ecosystem's finding does not hide the other reports.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: ${{ !cancelled() && steps.node-audit-scope.outputs.run == 'true' }}
         with:
           node-version: 24

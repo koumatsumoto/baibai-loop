@@ -18,19 +18,20 @@ from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screeni
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
 
 
-def _daily_job_env() -> dict[str, str]:
+def _daily_batch_env() -> dict[str, str]:
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
-    return {str(name): str(value) for name, value in workflow["jobs"]["daily"]["env"].items()}
+    batch = next(step for step in workflow["jobs"]["daily"]["steps"] if step.get("id") == "batch")
+    return {str(name): str(value) for name, value in batch["env"].items()}
 
 
 class CloudDailyBatchWorkflowTests(unittest.TestCase):
-    def test_daily_job_env_covers_every_required_jpx_source(self) -> None:
+    def test_daily_batch_step_env_covers_every_required_jpx_source(self) -> None:
         # scheduled run が当日 cache 不足で bootstrap-cache に入ると、JPX 規制 provider は
         # active rules の universe.required_jpx_flags に含まれる全 source を要求する。
-        # workflow job env がその実ゲートを ScreeningConfig 経由で満たせることを機械的に
+        # batch step env がその実ゲートを ScreeningConfig 経由で満たせることを機械的に
         # 検査する (外部 HTTP へは接続せず、source 名の網羅だけを確認する。URL 値の到達性は
         # マージ後の実接続再検証が担う)。
-        env = _daily_job_env()
+        env = _daily_batch_env()
         config = ScreeningConfig.from_env(env)
         rules = load_screening_rules(ROOT / DEFAULT_RULES_PATH)
 
@@ -67,6 +68,7 @@ def steps_by_id(steps: list[dict]) -> dict[str, dict]:
 def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
     for step_id in (
         "smoke",
+        "validate-input",
         "setup",
         "sync",
         "pull",
@@ -92,6 +94,17 @@ def test_smoke_check_runs_before_setup_python_on_system_python(
     assert "import tools.cloud.batch_summary" in smoke_run
     assert "import tools.cloud.notify_discord" in smoke_run
     assert "started_at=" in smoke_run
+
+
+def test_dispatch_input_is_validated_after_smoke_and_before_setup(
+    steps: list[dict], steps_by_id: dict[str, dict]
+) -> None:
+    ids = [step.get("id") for step in steps]
+    assert ids.index("smoke") < ids.index("validate-input") < ids.index("setup")
+    validation = steps_by_id["validate-input"]
+    assert validation["env"] == {"MANUAL_ASOF": "${{ inputs.asof }}"}
+    assert '--asof "$MANUAL_ASOF"' in validation["run"]
+    assert 'echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"' in validation["run"]
 
 
 def test_batch_step_invokes_daily_batch_as_a_module(steps_by_id: dict[str, dict]) -> None:
@@ -170,7 +183,7 @@ def test_run_summary_upload_publishes_the_file_notify_wrote_without_changing_the
     assert ids.index("notify") < ids.index("upload-run-summary")
     upload = steps_by_id["upload-run-summary"]
     # Same reason as notify: a timed-out run must still publish its record.
-    assert upload["if"] == "${{ always() }}"
+    assert upload["if"] == "${{ always() && steps.validate-input.outcome == 'success' }}"
     # Best-effort: publishing the record must not turn a delivered notification
     # or a successful publish into a failed run.
     assert upload["continue-on-error"] is True
@@ -190,6 +203,41 @@ def test_webhook_secret_is_scoped_to_the_notify_step_alone(
 
     holders = [step.get("id") for step in steps if "DISCORD_WEBHOOK_URL" in step.get("env", {})]
     assert holders == ["notify"]
+
+
+def test_data_credentials_are_absent_from_job_and_setup_steps(
+    workflow: dict, steps: list[dict]
+) -> None:
+    restricted = {
+        "R2_ACCOUNT_ID",
+        "R2_ACCESS_KEY_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "JQUANTS_API_KEY",
+        "ESTAT_APP_ID",
+        "EDINET_API_KEY",
+    }
+    assert "env" not in workflow["jobs"]["daily"]
+    holders = {
+        step.get("id", step.get("name")): restricted.intersection(step.get("env", {}))
+        for step in steps
+        if restricted.intersection(step.get("env", {}))
+    }
+    assert holders == {
+        "pull": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "preserve-market-v13": {
+            "R2_ACCOUNT_ID",
+            "R2_ACCESS_KEY_ID",
+            "R2_SECRET_ACCESS_KEY",
+        },
+        "batch": {"JQUANTS_API_KEY", "ESTAT_APP_ID", "EDINET_API_KEY"},
+        "upload-machine": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "upload-serving": {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"},
+        "upload-run-summary": {
+            "R2_ACCOUNT_ID",
+            "R2_ACCESS_KEY_ID",
+            "R2_SECRET_ACCESS_KEY",
+        },
+    }
 
 
 def test_notify_step_receives_summary_and_step_outcomes(steps_by_id: dict[str, dict]) -> None:

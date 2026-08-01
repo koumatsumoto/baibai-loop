@@ -28,26 +28,9 @@ jobs:
     # — with its error in the Discord notification — instead of expiring the job,
     # which GitHub reports as a cancellation with no cause attached.
     timeout-minutes: 60
-    # Job-level env carries only the data-pipeline credentials. The Discord
-    # webhook secret is intentionally NOT here: it is passed to the single
-    # notification step alone (see "Notify Discord #batch-runs").
-    env:
-      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
-      ESTAT_APP_ID: ${{ secrets.ESTAT_APP_ID }}
-      EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
-      # Public JPX regulation pages (not secrets). bootstrap-cache は
-      # universe.required_jpx_flags の 4 source を取得するためこれらを要求する。
-      JPX_SPECIAL_CAUTION_INDEX_URL: https://www.jpx.co.jp/markets/statistics-equities/margin/index.html
-      JPX_REORGANIZATION_URL: https://www.jpx.co.jp/listing/market-alerts/supervision/
-      JPX_TRADING_HALT_URL: https://www.jpx.co.jp/markets/equities/suspended/
-      JPX_DELISTING_WARNING_URL: https://www.jpx.co.jp/listing/stocks/delisted/
-      MANUAL_ASOF: ${{ inputs.asof }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Dependency-free notification scripts must import on the runner's system
       # python3 (before setup-python), so the final notification step can run
@@ -60,12 +43,22 @@ jobs:
           python3 -c "import tools.cloud.batch_summary; import tools.cloud.notify_discord"
           echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-python@v7
+      # Validate the untrusted dispatch value before any credential-bearing step.
+      # The scheduled event supplies an empty value, which is valid.
+      - name: Validate dispatch input
+        id: validate-input
+        env:
+          MANUAL_ASOF: ${{ inputs.asof }}
+        run: |
+          python3 -m tools.cloud.validate_workflow_inputs daily --asof "$MANUAL_ASOF"
+          echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         id: setup
         with:
           python-version-file: .python-version
 
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         id: setup-uv
         with:
           enable-cache: true
@@ -87,7 +80,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
@@ -98,15 +91,34 @@ jobs:
 
       - name: Pull stores
         id: pull
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh pull-all
 
       - name: Preserve and verify market schema v13 rollback
         id: preserve-market-v13
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh preserve-market-v13
 
       - name: Run daily batch
         id: batch
         shell: bash
+        env:
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+          ESTAT_APP_ID: ${{ secrets.ESTAT_APP_ID }}
+          EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
+          # Public JPX regulation pages (not secrets). bootstrap-cache requires
+          # all four sources named by universe.required_jpx_flags.
+          JPX_SPECIAL_CAUTION_INDEX_URL: https://www.jpx.co.jp/markets/statistics-equities/margin/index.html
+          JPX_REORGANIZATION_URL: https://www.jpx.co.jp/listing/market-alerts/supervision/
+          JPX_TRADING_HALT_URL: https://www.jpx.co.jp/markets/equities/suspended/
+          JPX_DELISTING_WARNING_URL: https://www.jpx.co.jp/listing/stocks/delisted/
+          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
         run: |
           args=(--output-dir "$RUNNER_TEMP/serving" --summary-output "$RUNNER_TEMP/batch-summary.json")
           if [[ -n "$MANUAL_ASOF" ]]; then
@@ -135,11 +147,19 @@ jobs:
       - name: Upload updated machine stores
         id: upload-machine
         if: steps.batch.outputs.published == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh push-machine
 
       - name: Upload serving objects
         id: upload-serving
         if: steps.batch.outputs.published == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh upload-serving "$RUNNER_TEMP/serving"
 
       - name: Report deferred batch failure
@@ -168,8 +188,9 @@ jobs:
         if: ${{ always() }}
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
         run: |
-          # $MANUAL_ASOF (job env) carries the dispatch input safely as a variable;
+          # $MANUAL_ASOF carries the dispatch input safely as a variable;
           # never interpolate inputs.* into this run block (script injection).
           python3 -m tools.cloud.notify_discord \
             --summary-path "$RUNNER_TEMP/batch-summary.json" \
@@ -192,6 +213,10 @@ jobs:
       # the failure policy above already decided.
       - name: Upload run summary
         id: upload-run-summary
-        if: ${{ always() }}
+        if: ${{ always() && steps.validate-input.outcome == 'success' }}
         continue-on-error: true
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh upload-run-summary "$RUNNER_TEMP/workflow-run-summary.json"

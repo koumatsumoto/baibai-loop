@@ -195,7 +195,9 @@ def test_manual_non_main_dispatch_cannot_enable_deploy() -> None:
 
 def test_deploy_scope_uses_full_history_and_fails_closed() -> None:
     steps = _steps(_workflow("web.yml"), "scope")
-    checkout = next(step for step in steps if step.get("uses") == "actions/checkout@v7")
+    checkout = next(
+        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
     scope = next(step for step in steps if step.get("id") == "deploy-scope")
 
     assert checkout["with"] == {"fetch-depth": "0"}
@@ -308,7 +310,7 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
         for job in jobs.values():
             assert isinstance(job, dict)
             for step in job["steps"]:
-                if step.get("uses") == "astral-sh/setup-uv@v9.0.0":
+                if str(step.get("uses", "")).startswith("astral-sh/setup-uv@"):
                     setup_steps.append(step)
 
     assert required == "==0.12.1"

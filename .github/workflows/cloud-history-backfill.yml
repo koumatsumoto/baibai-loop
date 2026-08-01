@@ -50,20 +50,30 @@ jobs:
     # add to that. The ceiling leaves room for one bad stretch without expiring
     # the job, which GitHub reports as a cancellation with no cause attached.
     timeout-minutes: 300
-    env:
-      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@v7
+      - name: Validate dispatch inputs
+        id: validate-input
+        env:
+          BACKFILL_START: ${{ inputs.start }}
+          BACKFILL_END: ${{ inputs.end }}
+          MASTER_MONTH_END_FROM: ${{ inputs.master_month_end_from }}
+        run: |
+          python3 -m tools.cloud.validate_workflow_inputs backfill \
+            --start "$BACKFILL_START" \
+            --end "$BACKFILL_END" \
+            --master-month-end-from "$MASTER_MONTH_END_FROM"
+          echo "start=$BACKFILL_START" >> "$GITHUB_OUTPUT"
+          echo "end=$BACKFILL_END" >> "$GITHUB_OUTPUT"
+          echo "master_month_end_from=$MASTER_MONTH_END_FROM" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
 
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
 
@@ -71,11 +81,19 @@ jobs:
         run: uv sync --locked
 
       - name: Pull the market store
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh pull-market
 
       # Writing to the store migrates it, so the rollback object has to be present
       # and verified first, exactly as the daily batch does before its own writes.
       - name: Preserve and verify market schema v13 rollback
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh preserve-market-v13
 
       - name: Record the window the store already covers
@@ -87,9 +105,17 @@ jobs:
              FROM jquants_fin_summaries;"
 
       - name: Backfill and publish committed progress
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+          BACKFILL_START: ${{ steps.validate-input.outputs.start }}
+          BACKFILL_END: ${{ steps.validate-input.outputs.end }}
+          MASTER_MONTH_END_FROM: ${{ steps.validate-input.outputs.master_month_end_from }}
         run: |
-          args=(--start "${{ inputs.start }}" --end "${{ inputs.end }}")
-          if [[ -n "${{ inputs.master_month_end_from }}" ]]; then
-            args+=(--master-month-end-from "${{ inputs.master_month_end_from }}")
+          args=(--start "$BACKFILL_START" --end "$BACKFILL_END")
+          if [[ -n "$MASTER_MONTH_END_FROM" ]]; then
+            args+=(--master-month-end-from "$MASTER_MONTH_END_FROM")
           fi
           uv run python -m tools.cloud.history_backfill "${args[@]}"
