@@ -191,6 +191,9 @@ def _evaluate_cohort(
         "delisting_exclusion": delisting_exclusion_sensitivity(
             panel, forward_rows, horizon=horizon
         ),
+        "priced_master_without_universe": priced_master_without_universe_sensitivity(
+            panel, forward_rows, horizon=horizon
+        ),
         "future_horizon_count": len(future_horizon),
         # The classes above are an allowlist, so a status none of them names would
         # pass without a blocker. The residual makes that impossible.
@@ -432,6 +435,69 @@ def delisting_exclusion_sensitivity(
             stable = False
     return {
         "excluded_count": len(excluded),
+        "neutral_return": round(neutral, 6),
+        "direction_stable": stable,
+        "as_reported": as_reported,
+        "imputations": imputed,
+    }
+
+
+def priced_master_without_universe_sensitivity(
+    panel: Sequence[PanelRow],
+    forward_rows: Sequence[ForwardReturnRow],
+    *,
+    horizon: str,
+) -> dict[str, object]:
+    """Bound the conclusions' sensitivity to priced rows the screen could not evaluate.
+
+    These rows have observed forward returns but no valuation metrics or rank. They
+    already contribute to the reported population median. The two imputations alter
+    only that return contribution; they do not invent a rank or E[r] value.
+    """
+    targets = sorted(
+        row.ticker
+        for row in panel
+        if row.population_coverage_status == "priced_master_without_universe"
+    )
+    if not targets:
+        return {
+            "excluded_count": 0,
+            "resolved_target_count": 0,
+            "resolution_complete": True,
+            "direction_stable": True,
+            "as_reported": {},
+            "imputations": {},
+        }
+
+    price_returns, stale_count = _resolved_price_returns(forward_rows, horizon=horizon)
+    resolved_targets = [ticker for ticker in targets if ticker in price_returns]
+    population_tickers = {row.ticker for row in panel if row.in_population}
+    population_returns = [
+        value for ticker, value in price_returns.items() if ticker in population_tickers
+    ]
+    neutral = median(population_returns) if population_returns else 0.0
+    as_reported = _signs_for_returns(panel, price_returns, horizon=horizon, stale_count=stale_count)
+    imputed: dict[str, dict[str, float | None]] = {}
+    for name, value in (("total_loss", _TOTAL_LOSS_RETURN), ("neutral", neutral)):
+        augmented = dict(price_returns)
+        for ticker in targets:
+            augmented[ticker] = value
+        imputed[name] = _signs_for_returns(
+            panel, augmented, horizon=horizon, stale_count=stale_count
+        )
+
+    stable = len(resolved_targets) == len(targets)
+    for metric in _SENSITIVITY_METRICS:
+        values = [as_reported[metric], *(imputed[name][metric] for name in _DELISTING_IMPUTATIONS)]
+        present = [value for value in values if value is not None]
+        if not present:
+            continue
+        if len(present) != len(values) or len({value > 0 for value in present}) > 1:
+            stable = False
+    return {
+        "excluded_count": len(targets),
+        "resolved_target_count": len(resolved_targets),
+        "resolution_complete": len(resolved_targets) == len(targets),
         "neutral_return": round(neutral, 6),
         "direction_stable": stable,
         "as_reported": as_reported,

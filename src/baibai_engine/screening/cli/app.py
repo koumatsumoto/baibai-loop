@@ -7,6 +7,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from baibai_engine.foundation.env import load_project_env
 from baibai_engine.foundation.time import JST
@@ -15,6 +16,7 @@ from baibai_engine.screening.calibration.cli import (
     calibration_evaluate_command,
 )
 from baibai_engine.screening.calibration.grid import days_with_bars, month_end_asof_grid
+from baibai_engine.screening.calibration.panel import PANEL_BUILD_POLICIES, PanelVariant
 from baibai_engine.screening.calibration.store import DEFAULT_CALIBRATION_DIR
 from baibai_engine.screening.config import (
     DEFAULT_SQLITE_CACHE_DIR,
@@ -348,6 +350,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="rebuild panels that already exist in the calibration store",
     )
+    calibration_build_parser.add_argument(
+        "--panel-variant",
+        choices=tuple(PANEL_BUILD_POLICIES),
+        default="production",
+        help="panel input contract (non-production variants are diagnostic-only)",
+    )
 
     calibration_evaluate_parser = subparsers.add_parser(
         "calibration-evaluate",
@@ -503,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
             start=_parse_iso_date(args.start),
             end=_parse_iso_date(args.end),
             force=args.force,
+            panel_variant=cast(PanelVariant, args.panel_variant),
         )
 
     if args.command == "calibration-evaluate":

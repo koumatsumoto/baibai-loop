@@ -26,6 +26,7 @@ from ..estimates import estimate_expected_return
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
+    VALUATION_HISTORY_SESSIONS,
     build_metrics,
     build_shares_outstanding_index,
     group_bars_by_ticker,
@@ -49,14 +50,53 @@ from .forward import STALE_PRICE_MAX_LAG_DAYS
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
 
+PanelVariant = Literal["production", "pre2019_self_range_375"]
+PopulationCoverageStatus = Literal[
+    "evaluated", "priced_master_without_universe", "master_without_universe_unpriced"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class PanelBuildPolicy:
+    """Input contract for a calibration panel build."""
+
+    variant: PanelVariant
+    valuation_history_sessions: int
+    bars_input_window_days: int
+    production_authority: bool
+
+
+PRODUCTION_PANEL_POLICY = PanelBuildPolicy(
+    variant="production",
+    valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+    bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+    production_authority=True,
+)
+PRE2019_SELF_RANGE_POLICY = PanelBuildPolicy(
+    variant="pre2019_self_range_375",
+    valuation_history_sessions=375,
+    bars_input_window_days=600,
+    production_authority=False,
+)
+PANEL_BUILD_POLICIES: dict[PanelVariant, PanelBuildPolicy] = {
+    policy.variant: policy for policy in (PRODUCTION_PANEL_POLICY, PRE2019_SELF_RANGE_POLICY)
+}
+
 
 class CalibrationError(RuntimeError):
     """Raised when the cache cannot serve a point-in-time panel build."""
 
 
-def rules_content_hash(rules: ScreeningRules) -> str:
-    """screening rules の内容 hash (semantic identity)。panel provenance に使う。"""
-    return sha256(rules.model_dump_json().encode("utf-8")).hexdigest()[:16]
+def rules_content_hash(
+    rules: ScreeningRules, policy: PanelBuildPolicy = PRODUCTION_PANEL_POLICY
+) -> str:
+    """screening rules と panel input contract の semantic identity。"""
+    contract = (
+        f"{rules.model_dump_json()}|{policy.variant}|"
+        f"{policy.valuation_history_sessions}|{policy.bars_input_window_days}|"
+        f"{policy.production_authority}"
+    )
+    return sha256(contract.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -124,6 +164,8 @@ class PanelRow:
     evidence_playbooks: str
     selection_rank: int | None
     recommended_rank: int | None
+    population_coverage_status: PopulationCoverageStatus = "evaluated"
+    self_range_degraded: bool = False
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -183,6 +225,10 @@ class PanelDiagnostics:
     # a different rule carries different observations for the same inputs, so the
     # reader needs to see which rule produced it.
     entry_resolution_lag_days: int = 0
+    panel_variant: PanelVariant = "production"
+    production_authority: bool = True
+    self_range_history_sessions: int = VALUATION_HISTORY_SESSIONS
+    bars_input_window_days: int = BARS_INPUT_WINDOW_DAYS
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,13 +242,14 @@ def build_panel(
     *,
     sqlite_path: Path,
     rules: ScreeningRules,
+    policy: PanelBuildPolicy = PRODUCTION_PANEL_POLICY,
 ) -> PanelBuildResult:
     master_read = read_eq_master_asof(sqlite_path, asof_date)
     securities = list(master_read.masters)
     if not securities:
-        return _unavailable_master_panel(asof_date, rules, master_read.status)
+        return _unavailable_master_panel(asof_date, rules, master_read.status, policy=policy)
     bars_floor, fin_floor = _coverage_floors(sqlite_path)
-    bars_start = max(bars_floor, asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS))
+    bars_start = max(bars_floor, asof_date - timedelta(days=policy.bars_input_window_days))
     fin_start = max(fin_floor, asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS))
     bars = read_daily_bars(sqlite_path, bars_start, asof_date)
     if bars is None:
@@ -245,6 +292,7 @@ def build_panel(
         median_population=median_population,
         margin_latest=margin_latest,
         margin_prior_26w=margin_prior_26w,
+        valuation_history_sessions=policy.valuation_history_sessions,
     )
 
     evidence_by_ticker: dict[str, tuple[str, ...]] = {}
@@ -353,9 +401,15 @@ def build_panel(
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
                 recommended_rank=recommended_rank.get(ticker),
+                self_range_degraded=not policy.production_authority,
             )
         )
 
+    asof_priced = {
+        ticker
+        for ticker, ticker_bars in bars_by_ticker.items()
+        if ticker_bars and ticker_bars[-1].traded_at == asof_date
+    }
     # A historical master member without enough local bars is unavailable data,
     # not a silently excluded survivor. Keep an explicit row so its forward
     # observation and cohort coverage remain visible to authority checks.
@@ -365,7 +419,15 @@ def build_panel(
             and security.is_common_stock
             and security.market_segment.upper() in ELIGIBLE_MARKETS
         ):
-            rows.append(_unresolved_master_member_row(asof_date, security.code, security.sector_33))
+            rows.append(
+                _unresolved_master_member_row(
+                    asof_date,
+                    security.code,
+                    security.sector_33,
+                    priced_at_asof=security.code in asof_priced,
+                    self_range_degraded=not policy.production_authority,
+                )
+            )
 
     policy_exclusions: dict[str, int] = {}
     for security in securities:
@@ -378,17 +440,10 @@ def build_panel(
     population_rows = [row for row in rows if row.in_population]
     panel_tickers = {row.ticker for row in rows}
     master_tickers = {security.code for security in securities}
-    # Bars arrive ordered by (ticker, traded_at) within a window ending at asof, so
-    # the last bar of each ticker is its latest priced day at or before asof.
-    asof_priced = {
-        ticker
-        for ticker, ticker_bars in bars_by_ticker.items()
-        if ticker_bars and ticker_bars[-1].traded_at == asof_date
-    }
     population_mismatch = asof_priced - master_tickers
     diagnostics = PanelDiagnostics(
         asof=asof_date.isoformat(),
-        rules_hash=rules_content_hash(rules),
+        rules_hash=rules_content_hash(rules, policy),
         universe_size=len(universe_result.snapshots),
         population_size=len(median_population),
         candidates=len(candidates),
@@ -398,7 +453,7 @@ def build_panel(
         ),
         effective_bars_start=bars_start.isoformat(),
         effective_fin_start=fin_start.isoformat(),
-        bars_window_clamped=bars_start > asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS),
+        bars_window_clamped=bars_start > asof_date - timedelta(days=policy.bars_input_window_days),
         fin_window_clamped=fin_start > asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS),
         population_per_trailing_nonnull=sum(
             1 for row in population_rows if row.per_trailing is not None
@@ -422,11 +477,22 @@ def build_panel(
             (asof_priced & master_tickers & panel_tickers) - set(universe_result.snapshots)
         ),
         entry_resolution_lag_days=STALE_PRICE_MAX_LAG_DAYS,
+        panel_variant=policy.variant,
+        production_authority=policy.production_authority,
+        self_range_history_sessions=policy.valuation_history_sessions,
+        bars_input_window_days=policy.bars_input_window_days,
     )
     return PanelBuildResult(rows=tuple(rows), diagnostics=diagnostics)
 
 
-def _unresolved_master_member_row(asof_date: date, ticker: str, sector_33: str) -> PanelRow:
+def _unresolved_master_member_row(
+    asof_date: date,
+    ticker: str,
+    sector_33: str,
+    *,
+    priced_at_asof: bool,
+    self_range_degraded: bool,
+) -> PanelRow:
     return PanelRow(
         asof=asof_date.isoformat(),
         ticker=ticker,
@@ -483,16 +549,26 @@ def _unresolved_master_member_row(asof_date: date, ticker: str, sector_33: str) 
         evidence_playbooks="",
         selection_rank=None,
         recommended_rank=None,
+        population_coverage_status=(
+            "priced_master_without_universe"
+            if priced_at_asof
+            else "master_without_universe_unpriced"
+        ),
+        self_range_degraded=self_range_degraded,
     )
 
 
 def _unavailable_master_panel(
-    asof_date: date, rules: ScreeningRules, master_status: str
+    asof_date: date,
+    rules: ScreeningRules,
+    master_status: str,
+    *,
+    policy: PanelBuildPolicy,
 ) -> PanelBuildResult:
     """Persist an unresolved cohort instead of silently removing it from evaluation."""
     diagnostics = PanelDiagnostics(
         asof=asof_date.isoformat(),
-        rules_hash=rules_content_hash(rules),
+        rules_hash=rules_content_hash(rules, policy),
         universe_size=0,
         population_size=0,
         candidates=0,
@@ -511,6 +587,10 @@ def _unavailable_master_panel(
         master_population_count=0,
         candidate_population_count=0,
         policy_exclusion_reason_counts={},
+        panel_variant=policy.variant,
+        production_authority=policy.production_authority,
+        self_range_history_sessions=policy.valuation_history_sessions,
+        bars_input_window_days=policy.bars_input_window_days,
     )
     return PanelBuildResult(rows=(), diagnostics=diagnostics)
 

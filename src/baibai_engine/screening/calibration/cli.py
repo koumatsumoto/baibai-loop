@@ -22,9 +22,18 @@ from .authority import (
 from .evaluation import evaluate_cohorts
 from .forward import HORIZONS, ForwardReturnRow, compute_forward_returns
 from .grid import month_end_asof_grid
-from .panel import CalibrationError, build_panel
+from .panel import (
+    PANEL_BUILD_POLICIES,
+    PRODUCTION_PANEL_POLICY,
+    CalibrationError,
+    PanelRow,
+    PanelVariant,
+    build_panel,
+    rules_content_hash,
+)
 from .store import (
     CACHE_SCHEMA_VERSION,
+    DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     panel_path,
     read_forward,
@@ -43,12 +52,23 @@ def calibration_build_command(
     start: date,
     end: date,
     force: bool = False,
+    panel_variant: PanelVariant = "production",
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     unreadable = unreadable_store_reason(sqlite_path)
     if unreadable is not None:
         print(f"calibration build: {unreadable}", file=sys.stderr)
+        return 1
+    policy = PANEL_BUILD_POLICIES[panel_variant]
+    if (
+        not policy.production_authority
+        and calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
+    ):
+        print(
+            "calibration build: diagnostic panel variant requires a separate --calibration-dir",
+            file=sys.stderr,
+        )
         return 1
     asofs = month_end_asof_grid(sqlite_path, start=start, end=end)
     if not asofs:
@@ -61,13 +81,26 @@ def calibration_build_command(
             rmtree(work_dir)
     tickers_by_asof: dict[date, set[str]] = {}
     built = 0
+    expected_rules_hash = rules_content_hash(rules, policy)
     for asof in asofs:
         path = panel_path(work_dir, asof)
         try:
             if path.exists() and not force:
+                meta = read_panel_meta(work_dir, asof)
+                if (
+                    meta.get("rules_hash") != expected_rules_hash
+                    or meta.get("panel_variant") != policy.variant
+                    or meta.get("production_authority") is not policy.production_authority
+                    or meta.get("self_range_history_sessions") != policy.valuation_history_sessions
+                    or meta.get("bars_input_window_days") != policy.bars_input_window_days
+                ):
+                    raise CalibrationCacheError(
+                        "calibration panel contract differs from the requested build; "
+                        "run calibration-build --force"
+                    )
                 tickers_by_asof[asof] = {row.ticker for row in read_panel(work_dir, asof)}
                 continue
-            result = build_panel(asof, sqlite_path=sqlite_path, rules=rules)
+            result = build_panel(asof, sqlite_path=sqlite_path, rules=rules, policy=policy)
         except (CalibrationError, CalibrationCacheError) as exc:
             print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
             return 1
@@ -178,6 +211,14 @@ def calibration_evaluate_command(
                 "panel store mixes rules provenance; run calibration-build --force"
             )
         panels = {asof.isoformat(): read_panel(calibration_dir, asof) for asof in asofs}
+        if run_purpose == "production_decision" and not _is_production_panel_contract(
+            metas, panels
+        ):
+            print(
+                "calibration evaluate: diagnostic panel variant has no production authority",
+                file=sys.stderr,
+            )
+            return 1
         forwards = {asof.isoformat(): read_forward(calibration_dir, asof) for asof in asofs}
     except CalibrationCacheError as exc:
         print(f"calibration evaluate: {exc}", file=sys.stderr)
@@ -233,6 +274,12 @@ def calibration_evaluate_command(
                     "policy_excluded_priced_count": meta.get("policy_excluded_priced_count"),
                     "priced_master_without_universe_count": unevaluated,
                     "entry_resolution_lag_days": meta.get("entry_resolution_lag_days"),
+                    "panel_variant": meta.get("panel_variant", "unknown"),
+                    "production_authority": meta.get("production_authority"),
+                    "self_range_history_sessions": meta.get("self_range_history_sessions"),
+                    "self_range_degraded_count": sum(
+                        1 for row in panels[str(cohort["asof"])] if row.self_range_degraded
+                    ),
                 }
             )
             if horizon in {"3y", "5y"}:
@@ -249,8 +296,17 @@ def calibration_evaluate_command(
                     blockers.append("input_range_clamped")
                 if not coverage.get("candidate_partition_complete"):
                     blockers.append("candidate_partition_incomplete")
-                if not isinstance(unevaluated, int) or unevaluated:
-                    blockers.append("priced_master_without_universe")
+                unevaluated_sensitivity = coverage.get("priced_master_without_universe")
+                if (
+                    not isinstance(unevaluated, int)
+                    or not isinstance(unevaluated_sensitivity, dict)
+                    or unevaluated_sensitivity.get("excluded_count") != unevaluated
+                ):
+                    blockers.append("priced_master_without_universe_unmeasured")
+                elif not unevaluated_sensitivity.get("resolution_complete"):
+                    blockers.append("priced_master_without_universe_return_unresolved")
+                elif not unevaluated_sensitivity.get("direction_stable"):
+                    blockers.append("priced_master_without_universe_flips_direction")
                 # Each unresolved class blocks for its own reason, and a name the
                 # panel could not price at asof blocks for none of them. The
                 # residual keeps an unenumerated status from passing silently.
@@ -345,3 +401,16 @@ def calibration_evaluate_command(
     else:
         print(text, file=out)
     return 0
+
+
+def _is_production_panel_contract(
+    metas: list[dict[str, object]], panels: dict[str, list[PanelRow]]
+) -> bool:
+    policy = PRODUCTION_PANEL_POLICY
+    return all(
+        meta.get("panel_variant") == policy.variant
+        and meta.get("production_authority") is policy.production_authority
+        and meta.get("self_range_history_sessions") == policy.valuation_history_sessions
+        and meta.get("bars_input_window_days") == policy.bars_input_window_days
+        for meta in metas
+    ) and all(not row.self_range_degraded for rows in panels.values() for row in rows)

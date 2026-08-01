@@ -70,6 +70,7 @@ def build_metrics(
     median_population: frozenset[str] | None = None,
     margin_latest: Mapping[str, JQuantsWeeklyMargin] | None = None,
     margin_prior_26w: Mapping[str, JQuantsWeeklyMargin] | None = None,
+    valuation_history_sessions: int = VALUATION_HISTORY_SESSIONS,
 ) -> MetricBuildResult:
     """Build per-ticker financial and derived metrics for the screen scope.
 
@@ -173,7 +174,11 @@ def build_metrics(
         sector = securities_by_ticker[ticker].sector_33
         ticker_bars = bars_by_ticker.get(ticker, ())
         valuation_history = _valuation_history(
-            latest_prices[ticker], ticker_bars, snapshot, asof_date
+            latest_prices[ticker],
+            ticker_bars,
+            snapshot,
+            asof_date,
+            history_sessions=valuation_history_sessions,
         )
         sector_gaps: dict[str, float | None] = {}
         sector_medians: dict[str, float | None] = {}
@@ -791,6 +796,8 @@ def _valuation_history(
     bars: Sequence[JQuantsDailyBar],
     snapshot: FinancialSnapshot,
     asof_date: date,
+    *,
+    history_sessions: int = VALUATION_HISTORY_SESSIONS,
 ) -> dict[str, list[float]]:
     # asof 以前の bar に限定し、look-ahead bias を防ぐ。
     eligible = sorted(
@@ -800,7 +807,7 @@ def _valuation_history(
     # 価格の不連続 (分割) を valuation history に持ち込まないため調整済み系列を使う。
     # cache の adjustment_close は incremental 取得で基準が混在するため使わず、
     # 不変イベントの adjustment_factor から asof 基準の系列を自前で組む。
-    prices = asof_basis_closes(eligible[-VALUATION_HISTORY_SESSIONS:])
+    prices = asof_basis_closes(eligible[-history_sessions:])
     ev_ebitda_history: list[float] = []
     if (
         snapshot.shares_outstanding is not None
