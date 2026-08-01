@@ -76,6 +76,9 @@ packages = ["src/baibai_engine", "src/baibai_app"]
 "src/baibai_engine/macro/indicators/registry/derived.yaml" = "baibai_engine/macro/indicators/registry/derived.yaml"
 "src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/macro/indicators/providers/pmi_release_urls.yaml"
 
+[tool.uv]
+required-version = "==0.12.1"
+
 # Constrain the sdist to the buildable source packages (plus the metadata
 # hatchling always adds: pyproject.toml, README.md, PKG-INFO). Without this the
 # sdist walks the whole tree and, when uv's build copy loses VCS-ignore

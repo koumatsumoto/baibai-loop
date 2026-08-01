@@ -31,17 +31,16 @@ on:
 permissions:
   contents: read
 
-# The daily batch is the other writer of the machine stores. Sharing its group is
-# what keeps the two from pushing over each other: R2 is last-write-wins, so a
-# concurrent pass would silently drop whichever finished first.
+# Daily batch and materialize are the other cloud publishers. Sharing their group
+# keeps the three from pushing over each other: R2 is last-write-wins, so concurrent
+# passes could silently drop whichever writer finished first.
 #
-# The cost is that this pass holds the group for as long as it runs, and GitHub keeps
-# only one run waiting behind it: a third run entering the group cancels the one
-# already queued. So while a backfill is in flight, dispatching another cloud workflow
-# can drop a queued daily batch. Run backfills outside the hours around 18:30 JST, or
-# re-dispatch the daily batch afterwards.
+# The cost is that this pass holds the group for as long as it runs. `queue: max`
+# preserves later daily/materialize/backfill writers in the shared FIFO queue while
+# keeping exactly one running writer, so a long backfill cannot discard a queued run.
 concurrency:
   group: cloud-publish
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -87,28 +86,10 @@ jobs:
              SELECT 'fin  ' || MIN(disclosed_at) || '..' || MAX(disclosed_at) || ' (' || COUNT(*) || ')' \
              FROM jquants_fin_summaries;"
 
-      - name: Backfill the range sources
+      - name: Backfill and publish committed progress
         run: |
-          uv run baibai-engine screening backfill-history \
-            --start "${{ inputs.start }}" --end "${{ inputs.end }}"
-
-      # The month-end grid is derived from the bar store, so the snapshots for the
-      # newly covered months can only be requested once their bars are present.
-      - name: Backfill month-end master snapshots
-        if: inputs.master_month_end_from != ''
-        run: |
-          uv run baibai-engine screening backfill-master \
-            --month-end-from "${{ inputs.master_month_end_from }}" \
-            --month-end-to "${{ inputs.end }}"
-
-      - name: Record the window the store covers now
-        run: |
-          sqlite3 "file:data/screening/market.sqlite?mode=ro" \
-            "SELECT 'bars ' || MIN(traded_at) || '..' || MAX(traded_at) || ' (' || COUNT(*) || ')' \
-             FROM jquants_daily_bars;
-             SELECT 'fin  ' || MIN(disclosed_at) || '..' || MAX(disclosed_at) || ' (' || COUNT(*) || ')' \
-             FROM jquants_fin_summaries;
-             SELECT 'master snapshots ' || COUNT(DISTINCT snapshot_date) FROM jquants_master_snapshots;"
-
-      - name: Upload the market store
-        run: tools/cloud/r2_transfer.sh push-market
+          args=(--start "${{ inputs.start }}" --end "${{ inputs.end }}")
+          if [[ -n "${{ inputs.master_month_end_from }}" ]]; then
+            args+=(--master-month-end-from "${{ inputs.master_month_end_from }}")
+          fi
+          uv run python -m tools.cloud.history_backfill "${args[@]}"

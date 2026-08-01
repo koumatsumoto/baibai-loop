@@ -5,18 +5,65 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.deploy-scope.outputs.deploy }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect production deploy scope
+        id: deploy-scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          deploy=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$GIT_REF" == "refs/heads/main" ]]; then
+            deploy=true
+          elif [[ "$EVENT_NAME" == "push" && "$GIT_REF" == "refs/heads/main" ]]; then
+            if ! git cat-file -e "$PUSH_BEFORE_SHA^{commit}" 2>/dev/null; then
+              echo "::error::push before SHA is unavailable: $PUSH_BEFORE_SHA"
+              exit 1
+            fi
+            if ! git cat-file -e "$CURRENT_SHA^{commit}" 2>/dev/null; then
+              echo "::error::current SHA is unavailable: $CURRENT_SHA"
+              exit 1
+            fi
+            if git diff --quiet "$PUSH_BEFORE_SHA" "$CURRENT_SHA" -- ui cloud/worker; then
+              deploy=false
+            else
+              diff_status=$?
+              if [[ $diff_status -eq 1 ]]; then
+                deploy=true
+              else
+                echo "::error::failed to determine production deploy scope"
+                exit 1
+              fi
+            fi
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+
   quality:
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || needs.scope.outputs.deploy == 'true' && format('{0}-production-deploy', github.workflow) || format('{0}-{1}', github.workflow, github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -29,19 +76,68 @@ jobs:
             ui/package-lock.json
             cloud/worker/package-lock.json
 
-      - name: Verify UI
+      - name: Install UI dependencies
         working-directory: ui
-        run: |
-          npm ci
-          npm run lint
-          npm run build
-          npm test
+        run: npm ci
 
-      - name: Verify Worker
+      - name: Lint UI
+        working-directory: ui
+        run: npm run lint
+
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
+
+      - name: Test UI
+        working-directory: ui
+        run: npm test
+
+      - name: Install Worker dependencies
         working-directory: cloud/worker
+        run: npm ci
+
+      - name: Check Worker generated types
+        working-directory: cloud/worker
+        run: npm run types:check
+
+      - name: Typecheck Worker
+        working-directory: cloud/worker
+        run: npm run typecheck
+
+      - name: Test Worker
+        working-directory: cloud/worker
+        run: npm test
+
+      - name: Dry-run Worker deploy
+        working-directory: cloud/worker
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"
+
+      - name: Verify current production target
+        id: deploy-target
+        if: ${{ needs.scope.outputs.deploy == 'true' }}
+        env:
+          TARGET_SHA: ${{ github.sha }}
         run: |
-          npm ci
-          npm run types:check
-          npm run typecheck
-          npm test
-          npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"
+          git fetch --no-tags --depth=1 origin main
+          current_sha="$(git rev-parse FETCH_HEAD)"
+          current=false
+          if git diff --quiet "$TARGET_SHA" "$current_sha" -- ui cloud/worker; then
+            current=true
+          else
+            diff_status=$?
+            if [[ $diff_status -eq 1 ]]; then
+              echo "::notice::stale web target skipped: $TARGET_SHA (main: $current_sha)"
+            else
+              echo "::error::failed to compare production target with main"
+              exit 1
+            fi
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Worker and UI assets
+        if: ${{ success() && needs.scope.outputs.deploy == 'true' && steps.deploy-target.outputs.current == 'true' }}
+        working-directory: cloud/worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+        run: npx wrangler deploy

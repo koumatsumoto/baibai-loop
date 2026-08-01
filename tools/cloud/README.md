@@ -28,8 +28,9 @@ R2 lifecycle rule（31日削除）は`history/candidate-views/`へ**prefix指定
 | --- | --- | --- |
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | stores + serving read-write |
 | GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step のみ（job env に出さない） |
+| GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
 | ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | storesだけread-write |
-| Wrangler OAuth | `wrangler login` | bucket初期設定、Worker deploy、Worker secret |
+| Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
 | Worker secret | `VIEW_PASSWORD` | Worker runtimeだけ |
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
@@ -46,18 +47,17 @@ uploadせず停止する。
 tools/cloud/seed.sh
 ```
 
-WorkerはUIをbuildしてからdeployする。`VIEW_PASSWORD`はpassword manager等で生成した32文字のCSPRNG英数値を使い、値を引数やshell historyへ書かずpromptへ入力する。
+production deployは`.github/workflows/web.yml`が所有する。PRはUI lint/build/testとWorker types/typecheck/test/dry-runまで、mainの`ui/`または`cloud/worker/`変更とmainを明示したmanual dispatchは同じgateの後にdeployする。deploy対象jobは共通のproduction concurrency groupで直列化し、deploy直前のremote `main`と`ui/`・`cloud/worker/`のtreeが一致するrunだけを反映する。docs-only等の後続commitはdeployを失わせず、後続web変更があるrunだけをstaleとしてskipする。Cloudflare API tokenは対象accountだけに絞った`Workers Scripts Write`を使い、repository Actionsのvariable `R2_ACCOUNT_ID`とsecret `CLOUDFLARE_API_TOKEN`を設定する。tokenはdeploy stepだけへ渡す。初回deployはworkflowをmainから手動実行する。
 
 ```bash
+gh workflow run web.yml --ref main
+gh run list --workflow web.yml --limit 3
 cd cloud/worker
-npm ci
-npm run types:check
-npm run typecheck
-npm test
 # 初回 deploy は secret 未設定時に全 API を 401 にする。
-npm run deploy
 npx wrangler secret put VIEW_PASSWORD
 ```
+
+`VIEW_PASSWORD`はpassword manager等で生成した32文字のCSPRNG英数値を使い、値を引数やshell historyへ書かずpromptへ入力する。
 
 workflowがdefault branchに存在する状態で初回materializeを実行する。
 
@@ -102,7 +102,7 @@ gh workflow run cloud-history-backfill.yml --ref main \
   -f start=YYYY-MM-DD -f end=YYYY-MM-DD               # ローカルにも無い場合
 ```
 
-`cloud-history-backfill`は財務サマリーが律速で、実測は3.4年で2時間32分（うち財務2時間05分）である。job上限は5時間なので、初回のような大量欠損は3〜4年ずつに分けてdispatchする。coverageのmergeが繋ぐので分割しても結果は同じになる。
+`cloud-history-backfill`は財務サマリーが律速で、実測は3.4年で2時間32分（うち財務2時間05分）である。job上限は5時間なので、大量欠損は3〜4年ずつに分けてdispatchする。coverageのmergeが繋ぐので分割しても結果は同じになる。source failureまでにcommitされたchunkは、store SHA-256が変わった場合だけ`quick_check`と`push-market`を通してR2へ保存し、workflow自体は元の非0で失敗する。変更が無いfailureはuploadをskipする。3つのcloud writerは`cloud-publish`の`queue: max`を共有し、1件だけを実行しながらpending runをFIFOで保持する。
 
 `push-market`はcloud copyをstagingへdownloadし、`merge_market_store.py`でローカルstoreへmergeしてからuploadする。storeの全12 tableが事実tableで、`source_coverage`も1日1行の粒度（`coverage_key`が日付）なので範囲のunion演算は要らない。主キーで`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。価格・財務・保有・被覆の範囲と件数は比較対象に残る。除外列は`merge_market_store.py`の`UNCOMPARED`に列挙してあり、事実列へ伸びていないことをtestが確かめる。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い行をuploadで失わない。source / targetとも現行schemaでなければ停止する——cloud copyが古いときの復旧はcloud側でstoreを開かせることであって、こちらでmigrateしてcloudが書いたことのない形を publish することではない。mergeの対象tableは`merge_market_store.py`の`FACT_KEYS`に列挙してあり、storeのtable一覧とずれたらtestが落ちる。
 
