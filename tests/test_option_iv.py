@@ -8,9 +8,11 @@ from typing import cast
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import RetryError, Timeout
 from tools.research.option_iv_sample import business_days, quantiles
 
-from baibai_engine.macro.indicators.definitions import SeriesDefinition
+from baibai_engine.macro.indicators.definitions import SeriesDefinition, load_definitions
 from baibai_engine.macro.indicators.providers import jquants_options
 from baibai_engine.macro.indicators.providers.base import HttpSession, IndicatorsProviderError
 from baibai_engine.macro.indicators.providers.option_iv import (
@@ -21,6 +23,11 @@ from baibai_engine.macro.indicators.providers.option_iv import (
     fear_readings,
     quotes_from_records,
 )
+
+
+def _registered(series_id: str) -> SeriesDefinition:
+    """The series exactly as the shipped registry declares it."""
+    return load_definitions().by_id()[series_id]
 
 
 def RuntimeError_with(response: object, message: str = "boom") -> Exception:
@@ -98,17 +105,23 @@ def _chain(
     """One expiry's quotes.
 
     `level` shifts the whole smile, so a test can tell two expiries apart. The gap
-    lowers the call at a strike, reproducing a chain whose two sides were not put on
-    one footing: the put-minus-call gap is the gap, while the shape of either side
-    alone is untouched. `gaps` sets it per moneyness so a test can put the
-    disagreement where it wants it; `basis_gap` applies one everywhere.
+    reproduces a chain whose two sides were not put on one footing, and it is split
+    between them rather than applied to one: the source's disagreement is two-sided,
+    the sampled session with a 20-point gap reading 46.5 on the put against 28.0 on
+    the call while their average stayed with its neighbours. A one-sided gap would
+    move that average by half the gap and make every reading built on it look fragile
+    for a reason the source does not produce. `gaps` sets it per moneyness so a test
+    can put the disagreement where it wants it; `basis_gap` applies one everywhere.
     """
     rungs = _LADDER if ladder is None else ladder
     quotes: list[OptionQuote] = []
     for moneyness, volatility in rungs.items():
         strike = underlying * moneyness
         gap = basis_gap if gaps is None else gaps.get(moneyness, 0.0)
-        for side, vol in ((PUT, volatility + level), (CALL, volatility + level - gap)):
+        for side, vol in (
+            (PUT, volatility + level + gap / 2),
+            (CALL, volatility + level - gap / 2),
+        ):
             quotes.append(
                 OptionQuote(
                     put_call=side,
@@ -122,28 +135,49 @@ def _chain(
 
 
 class FearReadingsTest(unittest.TestCase):
-    def test_the_atm_reading_averages_the_put_and_the_call(self) -> None:
-        # Each side carries its own directional bias, so the average is closer to
-        # what the market charges for movement rather than for direction.
-        readings = fear_readings([*_chain(NEAR, basis_gap=4.0), *_chain(FAR, basis_gap=4.0)], ASOF)
+    def test_the_atm_average_is_where_it_was_when_the_sides_disagree(self) -> None:
+        # Each side carries its own directional bias, so the average is closer to what
+        # the market charges for movement rather than for direction — and it is also
+        # what survives the source's own inconsistency, since at the money a wrong
+        # reference price pushes the two sides apart by a like amount.
+        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
-        assert readings.iv_30d is not None
-        self.assertAlmostEqual(readings.iv_30d, 18.0, places=6)
+        for gap in (4.0, 11.0):
+            with self.subTest(gap=gap):
+                readings = fear_readings(
+                    [*_chain(NEAR, basis_gap=gap), *_chain(FAR, basis_gap=gap)], ASOF
+                )
+
+                assert readings.iv_30d is not None
+                assert clean.iv_30d is not None
+                self.assertAlmostEqual(readings.iv_30d, clean.iv_30d, places=9)
+                self.assertAlmostEqual(readings.iv_30d, _LADDER[1.00], places=9)
 
     def test_the_skew_is_the_downside_put_minus_the_at_the_money_put(self) -> None:
         readings = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
         self.assertEqual(readings.iv_skew, 10.0)
 
-    def test_the_skew_ignores_a_basis_error_the_source_left_in_the_chain(self) -> None:
-        # Both legs come from the put side, so a chain whose sides disagree still
-        # reads the same asymmetry. The disagreement is uneven across strikes, so a
-        # leg taken off the call side would land somewhere else rather than cancel.
-        uneven = {0.95: 12.0, 1.025: 6.0}
+    def test_a_uniform_disagreement_moves_both_skew_legs_together(self) -> None:
+        # Both legs come from the put side, so a disagreement of the same size at every
+        # strike lifts them equally and leaves the difference alone. A leg taken off
+        # the call side would instead carry the whole of it.
+        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+        skewed = fear_readings([*_chain(NEAR, basis_gap=10.0), *_chain(FAR, basis_gap=10.0)], ASOF)
+
+        self.assertEqual(skewed.iv_skew, clean.iv_skew)
+
+    def test_a_disagreement_that_differs_across_strikes_does_move_the_skew(self) -> None:
+        # This is why the skew is gated at all: the price the source quoted against
+        # also picks which strikes the two legs land on, so an uneven error separates
+        # them. Below the bound the movement is smaller than the reading's own noise.
+        uneven = {0.95: 8.0}
         clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
         skewed = fear_readings([*_chain(NEAR, gaps=uneven), *_chain(FAR, gaps=uneven)], ASOF)
 
-        self.assertEqual(skewed.iv_skew, clean.iv_skew)
+        assert clean.iv_skew is not None
+        assert skewed.iv_skew is not None
+        self.assertAlmostEqual(skewed.iv_skew - clean.iv_skew, 4.0, places=9)
 
     def test_sides_that_disagree_beyond_the_bound_withhold_the_differences(self) -> None:
         # Past the bound the chain cannot be trusted to subtract one volatility from
@@ -169,8 +203,8 @@ class FearReadingsTest(unittest.TestCase):
 
         readings = fear_readings(
             [
-                *_chain(NEAR, ladder=ladder, basis_gap=18.0),
-                *_chain(FAR, ladder=ladder, basis_gap=18.0),
+                *_chain(NEAR, ladder=ladder, basis_gap=11.0),
+                *_chain(FAR, ladder=ladder, basis_gap=11.0),
             ],
             ASOF,
         )
@@ -381,7 +415,7 @@ class FearReadingsTest(unittest.TestCase):
 
         readings = fear_readings([*_chain(NEAR, ladder=_STEEP), *_chain(WIDE, ladder=_FLAT)], ASOF)
 
-        weight = (58 - 30) / (58 - 16)
+        weight = (30**-0.5 - 58**-0.5) / (16**-0.5 - 58**-0.5)
         assert readings.iv_skew is not None
         self.assertAlmostEqual(readings.iv_skew, weight * 12.0 + (1 - weight) * 3.0, places=9)
         self.assertNotEqual(readings.iv_skew, 12.0)
@@ -402,18 +436,60 @@ class FearReadingsTest(unittest.TestCase):
         self.assertEqual((leading.iv_skew, leading.iv_30d), (12.0, 20.0))
         self.assertEqual((trailing.iv_skew, trailing.iv_30d), (3.0, 23.0))
 
-    def test_a_chain_with_one_priced_expiry_answers_only_what_it_can(self) -> None:
-        # Both differences need two expiries and the level needs one that reaches the
-        # target. Reaching for a second expiry that is not there would fail the whole
-        # day rather than the two readings that actually depend on it.
-        alone = fear_readings(list(_chain(ON_TARGET)), ASOF)
+    def test_a_chain_with_one_priced_expiry_answers_nothing(self) -> None:
+        # Every reading needs two expiries: the differences by definition, and the
+        # level because one expiry past the target would have to be reported as a
+        # 30-day contract the chain never priced. Reaching for a second expiry that is
+        # not there must decline rather than fail the whole day.
+        far_out = fear_readings(list(_chain(WIDE)), ASOF)
+        on_target = fear_readings(list(_chain(ON_TARGET)), ASOF)
         too_near = fear_readings(list(_chain(NEAR)), ASOF)
 
-        self.assertEqual(alone.iv_30d, _LADDER[1.00])
-        self.assertIsNone(alone.iv_skew)
-        self.assertIsNone(alone.iv_term)
-        self.assertIsNone(too_near.iv_30d)
-        self.assertIsNone(too_near.iv_skew)
+        self.assertEqual(far_out, FearReadings())
+        self.assertEqual(on_target, FearReadings())
+        self.assertEqual(too_near, FearReadings())
+
+    def test_the_basis_check_reaches_the_second_expiry_the_differences_read(self) -> None:
+        # Both differences are built from the second expiry as well as the first, so a
+        # check that only saw the front would pass a chain whose second month is the
+        # broken one — and a term reading built on it can invert its own sign.
+        ladder = {0.90: 50.0, 0.95: 46.0, 0.975: 42.0, 1.00: 40.0, 1.025: 38.0, 1.05: 36.0}
+
+        clean = fear_readings(
+            [*_chain(NEAR, ladder=ladder), *_chain(FAR, ladder=ladder, level=4.0)], ASOF
+        )
+        far_broken = fear_readings(
+            [
+                *_chain(NEAR, ladder=ladder),
+                *_chain(FAR, ladder=ladder, level=4.0, basis_gap=30.0),
+            ],
+            ASOF,
+        )
+
+        self.assertEqual(clean.iv_term, 4.0)
+        self.assertIsNone(far_broken.iv_term)
+        self.assertIsNone(far_broken.iv_skew)
+
+    def test_one_row_without_a_believable_underlying_does_not_move_the_readings(self) -> None:
+        # The source repeats the underlying on every row, so any single row could be
+        # taken for it — and a slipped decimal would relocate the at-the-money strike,
+        # the basis band and both skew legs while every reading stayed plausible.
+        slipped = [
+            OptionQuote(
+                put_call=side,
+                strike=UNDERLYING,
+                expiry=expiry,
+                implied_volatility=20.0,
+                underlying=UNDERLYING / 100,
+            )
+            for side in (PUT, CALL)
+            for expiry in (NEAR, FAR)
+        ]
+        clean = fear_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
+
+        readings = fear_readings([*slipped, *_chain(NEAR), *_chain(FAR)], ASOF)
+
+        self.assertEqual(readings, clean)
 
     def test_the_basis_bound_admits_the_gap_it_names_and_refuses_the_next_one(self) -> None:
         # The bound sits above the range the source's own behaviour covers, so a
@@ -430,8 +506,8 @@ class FearReadingsTest(unittest.TestCase):
                 ASOF,
             )
 
-        self.assertIsNotNone(readings_at(20.0).iv_skew)
-        self.assertIsNone(readings_at(20.5).iv_skew)
+        self.assertIsNotNone(readings_at(12.0).iv_skew)
+        self.assertIsNone(readings_at(12.5).iv_skew)
 
     def test_the_basis_check_reads_the_edges_of_its_band(self) -> None:
         # The band is a fraction of the underlying, so where it sits and whether its
@@ -461,8 +537,8 @@ class FearReadingsTest(unittest.TestCase):
                 ASOF,
             )
 
-        minority = readings_for(four, {1.00: 25.0, 1.05: 25.0})
-        majority = readings_for(five, {0.975: 25.0, 1.00: 25.0, 1.05: 25.0})
+        minority = readings_for(four, {1.00: 16.0, 1.05: 16.0})
+        majority = readings_for(five, {0.975: 16.0, 1.00: 16.0, 1.05: 16.0})
 
         self.assertIsNotNone(minority.iv_skew)
         self.assertIsNone(majority.iv_skew)
@@ -618,6 +694,16 @@ class OptionProviderTest(unittest.TestCase):
             notes="test",
         )
 
+    def test_the_exception_a_rate_limit_actually_raises_is_retried(self) -> None:
+        # The client retries the rate-limited statuses itself and, when its attempts
+        # run out, raises RetryError with no response attached. Classifying on the
+        # status code alone made the wait unreachable for the one case it exists for,
+        # and a suite that built its own 429-shaped exception could not see that.
+        self.assertIsNone(RetryError("max retries").response)
+        self.assertTrue(jquants_options._is_retryable(RetryError("max retries")))
+        self.assertTrue(jquants_options._is_retryable(RequestsConnectionError("reset")))
+        self.assertTrue(jquants_options._is_retryable(Timeout("read timed out")))
+
     def test_a_rate_limited_call_is_retried_rather_than_ending_the_range(self) -> None:
         # A range long enough to be worth fetching is long enough to meet a 429, and
         # raising discards every day already fetched.
@@ -636,13 +722,16 @@ class OptionProviderTest(unittest.TestCase):
 
         def always_limited(*, date_yyyymmdd: str) -> object:
             attempts.append(date_yyyymmdd)
-            raise RuntimeError_with(SimpleNamespace(status_code=429), "denied for key sekret")
+            raise RetryError("max retries exceeded for key sekret")
 
+        budget = jquants_options._BackoffBudget(jquants_options._BACKOFF_BUDGET_SECONDS)
         with (
             mock.patch.object(jquants_options.time, "sleep") as slept,
             self.assertRaises(IndicatorsProviderError) as caught,
         ):
-            jquants_options._call_with_backoff(always_limited, date(2026, 7, 29), api_key="sekret")
+            jquants_options._call_with_backoff(
+                always_limited, date(2026, 7, 29), api_key="sekret", budget=budget
+            )
 
         self.assertEqual(len(attempts), 1 + len(jquants_options._RATE_LIMIT_BACKOFF_SECONDS))
         self.assertEqual(
@@ -652,23 +741,54 @@ class OptionProviderTest(unittest.TestCase):
         self.assertIn("2026-07-29", str(caught.exception))
         self.assertNotIn("sekret", str(caught.exception))
 
+    def test_the_waiting_stops_once_the_fetch_has_spent_its_budget(self) -> None:
+        # A range where every day meets the rate limit would otherwise wait 18.5
+        # minutes per day and outlast the job that scheduled it — and a batch killed
+        # from outside loses the whole day's publish, not just this series.
+        def always_limited(*, date_yyyymmdd: str) -> object:
+            raise RetryError("max retries")
+
+        budget = jquants_options._BackoffBudget(100.0)
+        with (
+            mock.patch.object(jquants_options.time, "sleep") as slept,
+            self.assertRaises(IndicatorsProviderError),
+        ):
+            jquants_options._call_with_backoff(
+                always_limited, date(2026, 7, 29), api_key="k", budget=budget
+            )
+
+        # 30 and 60 fit inside 100; 120 does not, and the ladder ends there.
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [30, 60])
+        self.assertEqual(budget.remaining_seconds, 10.0)
+
+    def test_the_budget_is_shared_across_the_days_of_one_fetch(self) -> None:
+        # Spending it per day would let a long range wait without any bound at all.
+        budget = jquants_options._BackoffBudget(90.0)
+
+        with mock.patch.object(jquants_options.time, "sleep"):
+            self.assertTrue(budget.spend(60.0))
+            self.assertFalse(budget.spend(60.0))
+            self.assertTrue(budget.spend(30.0))
+
+        self.assertEqual(budget.remaining_seconds, 0.0)
+
     def test_a_level_outside_the_plausible_band_is_refused(self) -> None:
         # A column mix-up or a ratio-versus-percent slip has to fail loudly rather
-        # than enter the store as a volatility.
-        series = self._series("n225_iv_30d")
+        # than enter the store as a volatility. The band comes from the registry the
+        # store ships, so this exercises the numbers actually in force.
+        series = _registered("jp.n225_iv_30d")
 
-        jquants_options._require_plausible(series, "iv_30d", 19.0)
-        with self.assertRaises(IndicatorsProviderError):
-            jquants_options._require_plausible(series, "iv_30d", 0.19)
-        with self.assertRaises(IndicatorsProviderError):
-            jquants_options._require_plausible(series, "iv_30d", 1900.0)
+        jquants_options._require_plausible(series, 19.0)
+        for wrong_scale in (0.19, 1900.0):
+            with self.subTest(value=wrong_scale), self.assertRaises(IndicatorsProviderError):
+                jquants_options._require_plausible(series, wrong_scale)
 
     def test_a_spread_may_be_negative_but_not_unbounded(self) -> None:
-        series = self._series("n225_iv_term")
+        series = _registered("jp.n225_iv_term")
 
-        jquants_options._require_plausible(series, "iv_term", -4.0)
+        jquants_options._require_plausible(series, -4.0)
         with self.assertRaises(IndicatorsProviderError):
-            jquants_options._require_plausible(series, "iv_term", -400.0)
+            jquants_options._require_plausible(series, -400.0)
 
     def test_the_three_series_read_one_chain_per_day(self) -> None:
         # Without sharing, a ten-year backfill makes three times the calls it needs.
@@ -731,19 +851,19 @@ class OptionProviderTest(unittest.TestCase):
 
     def test_the_plausible_band_admits_its_own_edges(self) -> None:
         # The band exists to catch a column mix-up, not to trim the market: a reading
-        # landing on the edge is inside it, and one step outside is not.
-        level, spread = self._series("n225_iv_30d"), self._series("n225_iv_term")
-
-        jquants_options._require_plausible(level, "iv_30d", 3.0)
-        jquants_options._require_plausible(level, "iv_30d", 200.0)
-        jquants_options._require_plausible(spread, "iv_term", -100.0)
-        jquants_options._require_plausible(spread, "iv_term", 100.0)
-        for value in (2.9, 200.1):
-            with self.assertRaises(IndicatorsProviderError):
-                jquants_options._require_plausible(level, "iv_30d", value)
-        for value in (-100.1, 100.1):
-            with self.assertRaises(IndicatorsProviderError):
-                jquants_options._require_plausible(spread, "iv_term", value)
+        # landing on the edge is inside it, and one step outside is not. Every sampled
+        # reading over 8.5 years sits well inside, so an edge that fires is a defect.
+        for series_id in ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term"):
+            series = _registered(series_id)
+            low, high = series.plausible_min, series.plausible_max
+            assert low is not None
+            assert high is not None
+            with self.subTest(series=series_id):
+                jquants_options._require_plausible(series, low)
+                jquants_options._require_plausible(series, high)
+                for outside in (low - 0.1, high + 0.1):
+                    with self.assertRaises(IndicatorsProviderError):
+                        jquants_options._require_plausible(series, outside)
 
     def test_a_missing_key_is_named_rather_than_failing_at_the_endpoint(self) -> None:
         # Without this the run reaches the API and comes back with an auth error that
@@ -762,7 +882,7 @@ class OptionProviderTest(unittest.TestCase):
         # about the day, not failures; inventing a point for either would put a
         # number in the series that nothing observed.
         closed = date(2026, 7, 27)
-        single_expiry = date(2026, 7, 28)  # one expiry: no term, no skew
+        no_straddle = date(2026, 7, 28)  # both expiries past the target
         full = date(2026, 7, 29)
 
         def chain(*, date_yyyymmdd: str) -> object:
@@ -771,8 +891,8 @@ class OptionProviderTest(unittest.TestCase):
             )
             if day == closed:
                 return _FakeFrame([])
-            if day == single_expiry:
-                return _FakeFrame(_records(_chain(ON_TARGET)))
+            if day == no_straddle:
+                return _FakeFrame(_records([*_chain(ON_TARGET), *_chain(WIDE, level=2.0)]))
             return _FakeFrame(_chain_records())
 
         provider = jquants_options.JQuantsOptionsProvider()
@@ -794,5 +914,6 @@ class OptionProviderTest(unittest.TestCase):
                 for provider_series_id in ("n225_iv_30d", "n225_iv_term")
             }
 
-        self.assertEqual(observed["n225_iv_30d"], [single_expiry, full])
-        self.assertEqual(observed["n225_iv_term"], [full])
+        # The 31-day/58-day pair brackets nothing at 30, so only the term survives it.
+        self.assertEqual(observed["n225_iv_30d"], [full])
+        self.assertEqual(observed["n225_iv_term"], [no_straddle, full])

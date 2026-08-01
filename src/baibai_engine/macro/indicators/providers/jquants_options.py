@@ -3,7 +3,11 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
+
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import RetryError, Timeout
 
 from baibai_engine.foundation.env import load_project_env
 
@@ -16,11 +20,10 @@ from .base import (
     ProviderSpec,
     record_observation,
 )
-from .option_iv import FearReadings, fear_readings, quotes_from_records
+from .option_iv import FearReadings, as_date, fear_readings, quotes_from_records
 
 # jquants_flows / jquants_indices と同じ資格情報。indicators 用に secret を増やさない。
-# Env var name (a credential key, not a secret value); B105 false positive.
-_API_KEY_ENV = "JQUANTS_API_KEY"  # nosec B105
+_API_KEY_ENV = "JQUANTS_API_KEY"
 
 # provider_series_id -> FearReadings の属性名。registry に series を持つ読みだけを
 # 登録する。読む経路のない値を store に入れないため、この表が取得対象を決める。
@@ -30,19 +33,35 @@ _READING_FIELDS: Mapping[str, str] = {
     "n225_iv_term": "iv_term",
 }
 
-# ボラティリティ点の妥当域。水準系 (iv_30d) は下限を持ち、差分系 (skew / term) は
-# 符号が両方向に出るので別の域を持つ。列取り違えや比率と % の取り違えは必ず外へ落ちる。
-_LEVEL_RANGE = (3.0, 200.0)
-_SPREAD_RANGE = (-100.0, 100.0)
-
 # J-Quants は連続した日次呼び出しに 429 を返す。この endpoint は 1 営業日 1 呼び出し
 # なので長い range 取得ほど拒否域に入りやすく、market 側と同じ形の待避を持たせる。
 # rate window は数分に及ぶことがあるため末尾は 10 分まで伸ばす。
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
-# 3 系列は同じチェーンから読むので、1 日 1 回の取得を系列間で共有する。共有しないと
-# 全期間取得の呼び出し数が 3 倍になる。過去日のチェーンは変わらないので memo でよい。
-_CHAIN_CACHE_LIMIT = 4096
+# 1 回の fetch が待避に費やせる総時間。これが無いと、拒否が続く日が並んだとき 1 日
+# あたり 18.5 分の待避が日数分積み上がり、日次 batch の GHA timeout を超えて job ごと
+# cancel される——macro の失敗でなく、その日の screening publish ごと失われる。
+_BACKOFF_BUDGET_SECONDS = 20 * 60
+
+
+@dataclass(slots=True)
+class _BackoffBudget:
+    """How much waiting one fetch may still spend.
+
+    The budget belongs to the fetch rather than to the provider so a long backfill
+    and the daily batch get the same bound, and so a run that used it up does not
+    leave the next one unable to wait at all.
+    """
+
+    remaining_seconds: float
+
+    def spend(self, seconds: float) -> bool:
+        """Wait, or report that the budget cannot cover this wait."""
+        if seconds > self.remaining_seconds:
+            return False
+        self.remaining_seconds -= seconds
+        time.sleep(seconds)
+        return True
 
 
 class JQuantsOptionsProvider:
@@ -61,7 +80,11 @@ class JQuantsOptionsProvider:
     name = spec.name
 
     def __init__(self) -> None:
-        self._readings: dict[date, FearReadings] = {}
+        # 3 系列は同じチェーンから読むので、1 日 1 回の取得を系列間で共有する。共有
+        # しないと全期間取得の呼び出し数が 3 倍になる。過去日のチェーンは変わらない
+        # ので memo でよい。休場日 (年 16 日ほど) の None も憶える——憶えないと 3 系列
+        # がそれぞれ空のチェーンを取りに行く。
+        self._readings: dict[date, FearReadings | None] = {}
 
     def fetch(
         self,
@@ -76,9 +99,10 @@ class JQuantsOptionsProvider:
         field = _reading_field(series.provider_series_id)
         api_key = _read_api_key()
         client = _client(api_key)
+        budget = _BackoffBudget(_BACKOFF_BUDGET_SECONDS)
         observations: list[ObservationRecord] = []
         for day in _days(start, end):
-            reading = self._day_reading(client, day, api_key=api_key)
+            reading = self._day_reading(client, day, api_key=api_key, budget=budget)
             if reading is None:
                 # A closed market returns nothing; that is the day's fact, not a
                 # failure, and skipping keeps the series free of invented points.
@@ -86,20 +110,17 @@ class JQuantsOptionsProvider:
             value = getattr(reading, field)
             if value is None:
                 continue
-            _require_plausible(series, field, value)
+            _require_plausible(series, value)
             observations.append(record_observation(series, observed_at=day, value=value))
         return observations
 
-    def _day_reading(self, client: object, day: date, *, api_key: str) -> FearReadings | None:
-        cached = self._readings.get(day)
-        if cached is not None:
-            return cached
-        rows = _fetch_chain(client, day, api_key=api_key)
-        if not rows:
-            return None
-        reading = _reading(rows, day)
-        if len(self._readings) >= _CHAIN_CACHE_LIMIT:
-            self._readings.clear()
+    def _day_reading(
+        self, client: object, day: date, *, api_key: str, budget: _BackoffBudget
+    ) -> FearReadings | None:
+        if day in self._readings:
+            return self._readings[day]
+        rows = _fetch_chain(client, day, api_key=api_key, budget=budget)
+        reading = _reading(rows, day) if rows else None
         self._readings[day] = reading
         return reading
 
@@ -118,9 +139,18 @@ def _reading_field(provider_series_id: str) -> str:
     return field
 
 
-def _require_plausible(series: SeriesDefinition, field: str, value: float) -> None:
-    low, high = _LEVEL_RANGE if field == "iv_30d" else _SPREAD_RANGE
-    if not low <= value <= high:
+def _require_plausible(series: SeriesDefinition, value: float) -> None:
+    """Refuse a reading the registry says this series cannot take.
+
+    The bounds come from the series rather than from a copy kept here: a level and a
+    difference have different ones, and a second copy is a second thing to keep in
+    step. A column read off the wrong field, or a ratio taken for a percentage, lands
+    outside them either way.
+    """
+    low, high = series.plausible_min, series.plausible_max
+    too_low = low is not None and value < low
+    too_high = high is not None and value > high
+    if too_low or too_high:
         raise IndicatorsProviderError(
             f"jquants_options {series.series_id} value {value} outside plausible [{low}, {high}]"
         )
@@ -156,34 +186,58 @@ def _client(api_key: str) -> object:
     return jquantsapi.ClientV2(api_key=api_key)
 
 
-def _fetch_chain(client: object, day: date, *, api_key: str) -> list[Mapping[str, object]]:
+def _fetch_chain(
+    client: object, day: date, *, api_key: str, budget: _BackoffBudget
+) -> list[Mapping[str, object]]:
     method = getattr(client, "get_drv_bars_daily_opt_225", None)
     if not callable(method):
         raise IndicatorsProviderError(
             "jquantsapi.ClientV2 has no callable get_drv_bars_daily_opt_225"
         )
-    frame = _call_with_backoff(method, day, api_key=api_key)
+    frame = _call_with_backoff(method, day, api_key=api_key, budget=budget)
     to_dict = getattr(frame, "to_dict", None)
     if not callable(to_dict):
         raise IndicatorsProviderError("unexpected jquants_options payload: not a DataFrame")
     records = to_dict(orient="records")
     if not isinstance(records, list):
         raise IndicatorsProviderError("unexpected jquants_options payload: records is not a list")
-    return [record for record in records if isinstance(record, Mapping)]
+    rows = [record for record in records if isinstance(record, Mapping)]
+    _require_requested_day(rows, day)
+    return rows
 
 
-def _call_with_backoff(method: object, day: date, *, api_key: str) -> object:
+def _require_requested_day(rows: Sequence[Mapping[str, object]], day: date) -> None:
+    """Refuse a chain that answers for a day other than the one asked for.
+
+    The observation is stamped with the requested date, so a session served the
+    previous day's chain would carry the previous day's fear under today's date with
+    nothing to show for it. The payload names the day it belongs to; reading it costs
+    one comparison and turns a silent re-dating into a failure.
+    """
+    answered = {parsed for row in rows if (parsed := as_date(row.get("Date"))) is not None}
+    if answered and answered != {day}:
+        seen = ", ".join(sorted(value.isoformat() for value in sorted(answered))[:3])
+        raise IndicatorsProviderError(
+            f"jquants_options answered for {seen} when {day.isoformat()} was requested"
+        )
+
+
+def _call_with_backoff(
+    method: object, day: date, *, api_key: str, budget: _BackoffBudget
+) -> object:
     """Call the endpoint, waiting out a rate limit rather than ending the range.
 
     Without this a single 429 discards every day already fetched, and a range long
     enough to be worth fetching is long enough to meet one. Errors that will not
-    change on a retry (auth, a bad date) fail on the first attempt.
+    change on a retry (auth, a bad date) fail on the first attempt, and the waiting
+    stops once the fetch has spent its budget — a range where every day waits the
+    full ladder would otherwise outlast any job that scheduled it.
     """
     assert callable(method)
     last: Exception | None = None
     for delay_seconds in (0, *_RATE_LIMIT_BACKOFF_SECONDS):
-        if delay_seconds:
-            time.sleep(delay_seconds)
+        if delay_seconds and not budget.spend(delay_seconds):
+            break
         try:
             return method(date_yyyymmdd=day.strftime("%Y%m%d"))
         except Exception as exc:
@@ -200,10 +254,15 @@ def _call_with_backoff(method: object, day: date, *, api_key: str) -> object:
 def _is_retryable(exc: Exception) -> bool:
     """Whether waiting could change the answer.
 
-    jquantsapi wraps the HTTP layer, so the status is read from the attached
-    response when there is one. Without a status the exception is treated as
-    permanent: retrying an auth or schema failure only delays the report.
+    The client retries the rate-limited statuses inside its own session and, once its
+    attempts run out, raises a RetryError carrying no response at all — so a status
+    code is exactly what a 429 never arrives with, and classifying on the status alone
+    made the wait unreachable for the one case it exists for. The exceptions the
+    library raises directly (auth, a date outside the published history) do carry a
+    response, and those are the ones a retry cannot change.
     """
+    if isinstance(exc, RetryError | RequestsConnectionError | Timeout):
+        return True
     status = getattr(getattr(exc, "response", None), "status_code", None)
     return isinstance(status, int) and status in _RETRYABLE_STATUSES
 

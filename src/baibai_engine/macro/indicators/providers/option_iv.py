@@ -29,12 +29,17 @@ SKEW_PUT_MONEYNESS = 0.95
 # by points for reasons that have nothing to do with the basis.
 BASIS_BAND = 0.10
 # Put-call parity puts the same volatility on both sides of a strike, so a gap at all
-# is the source's own inconsistency rather than a market state. Routine gaps of a few
-# points move the differences by less than the day-to-day noise in them, so the bound
-# sits above the range the source stays inside rather than through it: it marks a chain
-# that has left its own behaviour, and refusing every imperfect chain would empty the
-# two difference readings for a condition that changes nothing.
-MAX_BASIS_GAP = 20.0
+# is the source's own inconsistency rather than a market state. Two measurements put
+# the bound here and they agree: the gap the source routinely stays inside reaches 12.4
+# at its 99th percentile, and a skew compared against its own neighbouring sessions
+# only starts to drift once the gap passes about 12. Below that, refusing a chain would
+# empty the two difference readings for a condition that moves them by less than their
+# own noise.
+MAX_BASIS_GAP = 12.0
+# A median over two strikes is the mean of two numbers, so one broken strike would set
+# the verdict; the chains seen here carry twenty or more, and a day that does not is
+# not a chain this check can speak about.
+MIN_BASIS_PAIRS = 3
 # What the source writes where it has no volatility to report. It is a value, not a
 # blank, and it lands on contracts deep enough in the money to carry no time value —
 # reading it as a 1% volatility would drag every average and gap it entered. Nothing
@@ -67,17 +72,19 @@ class FearReadings:
 def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     """Summarise one day's chain.
 
-    Each reading is independent: a chain that can price the front month but has no
-    second one still yields `iv_30d` when the front month straddles the target.
-    Returning None for the rest says the chain could not answer, which a zero would
-    hide.
+    Returning None says the chain could not answer, which a zero would hide. `iv_30d`
+    and `iv_skew` both need two expiries that bracket 30 days, so they appear and
+    disappear together; `iv_term` needs only two expiries and is there on almost every
+    session.
 
-    `iv_30d` averages the put and the call at one strike, so a basis error that
-    lifts one side and drops the other cancels and the level survives it. The other
-    two subtract one volatility from another and do not cancel, so they are withheld
-    once the chain fails the basis check.
+    `iv_30d` averages the put and the call at one strike, and at the money the two
+    carry the same sensitivity to the price the source priced against, so an error in
+    it moves them in opposite directions and the average survives. The other two are
+    positions relative to that price — one subtracts two levels, the other selects the
+    strikes it reads by moneyness — so both are withheld once the chain fails the
+    basis check.
     """
-    by_expiry = _usable_expiries(quotes, asof)
+    by_expiry = usable_expiries(quotes, asof)
     if not by_expiry:
         return FearReadings()
     expiries = sorted(by_expiry)
@@ -92,7 +99,12 @@ def fear_readings(quotes: Sequence[OptionQuote], asof: date) -> FearReadings:
     second_volatility = atm[second] if second is not None else None
     near_days = (front - asof).days
     far_days = (second - asof).days if second is not None else None
-    consistent = _basis_is_consistent(by_expiry[front])
+    # Both difference readings are built from the second expiry as well as the first,
+    # so checking only the front would pass a chain whose second month is the broken
+    # one — and a term reading built on it can invert its own sign.
+    consistent = _basis_is_consistent(by_expiry[front]) and (
+        second is None or _basis_is_consistent(by_expiry[second])
+    )
     return FearReadings(
         iv_30d=_constant_maturity(
             near_days=near_days,
@@ -130,44 +142,68 @@ def _constant_maturity_skew(
     The smile steepens as a contract approaches settlement, so a skew read off
     whichever expiry happens to be in front is a different quantity every week of the
     cycle, and a reader comparing it to a pooled quantile would find fear on the
-    calendar rather than in the market. Quoting it at one maturity takes most of that
-    out — a residue remains, since the bracket the interpolation spans is itself
-    narrower some weeks than others — at the cost of the days where the two expiries
-    do not straddle 30. Those are the same days the level cannot be quoted, so the two
-    readings appear and disappear together.
+    calendar rather than in the market. Quoting it at one maturity removes that, at the
+    cost of the days where the two expiries do not straddle 30 — the same days the
+    level cannot be quoted, so the two readings appear and disappear together.
 
-    Linear in days rather than in variance: this is a difference between two
-    volatilities, and a difference does not add over time the way a variance does.
+    The skew falls away roughly as the inverse root of maturity, so the two readings
+    are placed on that axis and the target read off the line between them. Walking the
+    days instead bends a curve with a straight line, and the resulting bias is largest
+    where the bracket is widest — which is most of the settlement cycle. Measured over
+    the same sessions, the days-linear reading still runs 4.03 a week out against 3.67
+    a month out (correlation -0.17 with the front maturity); this one runs
+    3.49 / 3.56 / 3.60 / 3.63, which is no longer a gradient (-0.02).
+
+    Interpolating along the axis rather than rescaling onto it keeps the answer a
+    weighted average of the two readings, so it can never land outside them: the
+    weight is 1 when the front expiry is the target and 0 when the second one is.
     """
     if near_skew is None or far_days is None or far_skew is None or far_days == near_days:
         return None
     if not near_days <= TARGET_DAYS <= far_days:
         return None
-    weight = (far_days - TARGET_DAYS) / (far_days - near_days)
-    return weight * near_skew + (1 - weight) * far_skew
+    near_root, far_root = near_days**-0.5, far_days**-0.5
+    weight = (TARGET_DAYS**-0.5 - far_root) / (near_root - far_root)
+    return float(weight * near_skew + (1 - weight) * far_skew)
 
 
 def _basis_is_consistent(quotes: Sequence[OptionQuote]) -> bool:
-    """Whether the two sides of the chain are on one footing.
+    gap = basis_gap(quotes)
+    return gap is not None and abs(gap) <= MAX_BASIS_GAP
 
-    A put and a call on one strike and expiry carry the same volatility, so the median
-    gap across the strikes around the money is zero when both sides were computed
-    consistently. What breaks that consistency in the source is not established here
-    and the check does not need it: the gap is measurable, and a chain that shows a
-    large one cannot support a reading built by subtracting one volatility from
-    another, whatever the cause. A chain with no strike quoting both sides cannot be
-    checked and is treated as unusable rather than assumed sound.
+
+def basis_gap(quotes: Sequence[OptionQuote]) -> float | None:
+    """How far apart the two sides of one expiry are, in volatility points.
+
+    A put and a call on one strike and expiry carry the same volatility, so this is
+    zero when both sides were computed on one footing and its size measures how far the
+    chain has left that. What breaks the footing in the source is not established here
+    and the readings do not need it: the gap is measurable, and a chain showing a large
+    one cannot support a reading positioned against the price it was quoted against,
+    whatever the cause. None where too few strikes quote both sides to take a median
+    over — such a chain cannot be checked at all, which is a different answer from a
+    gap of zero.
     """
-    underlying = quotes[0].underlying
+    underlying = _underlying(quotes)
     low, high = underlying * (1 - BASIS_BAND), underlying * (1 + BASIS_BAND)
     sides: dict[float, dict[str, float]] = {}
     for quote in quotes:
         if low <= quote.strike <= high:
             sides.setdefault(quote.strike, {})[quote.put_call] = quote.implied_volatility
     gaps = [pair[PUT] - pair[CALL] for pair in sides.values() if PUT in pair and CALL in pair]
-    if not gaps:
-        return False
-    return abs(_median(gaps)) <= MAX_BASIS_GAP
+    return _median(gaps) if len(gaps) >= MIN_BASIS_PAIRS else None
+
+
+def _underlying(quotes: Sequence[OptionQuote]) -> float:
+    """The price the expiry was quoted against.
+
+    The source repeats it on every row of the chain, so any single row can be taken
+    for it — and a row carrying a slipped decimal would then relocate the
+    at-the-money strike, the basis band and both skew legs at once, while every
+    resulting reading stayed inside its plausible bound. The median is what the rows
+    agree on, and one wrong row cannot move it.
+    """
+    return _median([quote.underlying for quote in quotes])
 
 
 def _median(values: Sequence[float]) -> float:
@@ -178,7 +214,7 @@ def _median(values: Sequence[float]) -> float:
     return (ordered[middle - 1] + ordered[middle]) / 2
 
 
-def _usable_expiries(quotes: Sequence[OptionQuote], asof: date) -> dict[date, list[OptionQuote]]:
+def usable_expiries(quotes: Sequence[OptionQuote], asof: date) -> dict[date, list[OptionQuote]]:
     grouped: dict[date, list[OptionQuote]] = {}
     for quote in quotes:
         if (quote.expiry - asof).days < MIN_DAYS_TO_EXPIRY:
@@ -201,9 +237,14 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
 
     A single side carries its own directional bias — the put is bid for protection
     and the call is offered against holdings — so the average is closer to what the
-    market charges for movement itself.
+    market charges for movement itself. It is also what survives the source's own
+    inconsistency: at the money the two sides move a like amount for a given error in
+    the price they were quoted against, so an error pushes them apart and leaves the
+    average where it was. On the one sampled session whose sides disagreed by 20
+    points the two legs read 46.5 and 28.0, and their average, 37.3, sat between the
+    36.7 and 36.3 of the sessions either side of it.
     """
-    underlying = quotes[0].underlying
+    underlying = _underlying(quotes)
     strikes = {quote.strike for quote in quotes}
     atm_strike = min(strikes, key=lambda strike: abs(strike - underlying))
     sides = {
@@ -218,12 +259,14 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
 def _skew(quotes: Sequence[OptionQuote]) -> float | None:
     """How much more the market charges for a fall than for the same move at the money.
 
-    Both legs are puts. Reading the asymmetry off one side keeps the measure on a
-    single volatility basis, so an error in the underlying price the source priced
-    against shifts both legs together and leaves the difference alone. Taking the
-    upside leg from the call side would put the whole basis error into the reading.
+    Both legs are puts, which keeps the measure on one volatility basis: taking the
+    upside leg from the call side would put the whole of the source's put-against-call
+    inconsistency into the reading. It does not make the reading immune to that
+    inconsistency, because the price the source quoted against also picks which
+    strikes the two legs land on, and moving both along a curved smile does not leave
+    their difference alone — which is why the basis check gates this reading too.
     """
-    underlying = quotes[0].underlying
+    underlying = _underlying(quotes)
     wing = _nearest(quotes, PUT, underlying * SKEW_PUT_MONEYNESS)
     money = _nearest(quotes, PUT, underlying)
     if wing is None or money is None:
@@ -250,9 +293,14 @@ def _constant_maturity(
     Variance is what adds over time; interpolating the volatility directly would
     understate the reading whenever the two expiries disagree, and the disagreement
     is largest exactly when the market is frightened.
+
+    Two expiries that bracket the target are required. A single expiry sitting past
+    30 days would have to be reported as if it were a 30-day contract, which is a
+    maturity the chain never priced; `opt_225` carries several expiries every day, so
+    the chain answers or it does not.
     """
     if far_days is None or far_volatility is None or far_days == near_days:
-        return near_volatility if near_days >= TARGET_DAYS else None
+        return None
     if not near_days <= TARGET_DAYS <= far_days:
         return None
     weight = (far_days - TARGET_DAYS) / (far_days - near_days)
@@ -269,7 +317,7 @@ def quotes_from_records(records: Sequence[Mapping[str, object]], asof: date) -> 
     del asof
     quotes: list[OptionQuote] = []
     for record in records:
-        expiry = _as_date(record.get("SQD"))
+        expiry = as_date(record.get("SQD"))
         strike = _as_float(record.get("Strike"))
         volatility = _as_float(record.get("IV"))
         underlying = _as_float(record.get("UnderPx"))
@@ -300,7 +348,7 @@ def _as_float(value: object) -> float | None:
     return parsed if parsed == parsed and abs(parsed) != float("inf") else None
 
 
-def _as_date(value: object) -> date | None:
+def as_date(value: object) -> date | None:
     """Reduce whatever the payload carries to a plain date.
 
     A pandas Timestamp passes `isinstance(value, date)` but subtracting a date from
