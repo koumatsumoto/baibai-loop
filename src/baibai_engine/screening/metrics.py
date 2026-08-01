@@ -4,8 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, timedelta
 from itertools import pairwise
-from math import sqrt
-from statistics import mean, median
+from math import isfinite, sqrt
+from statistics import fmean, mean, median
 
 from baibai_engine.market.bars import asof_basis_closes
 
@@ -51,6 +51,7 @@ FIN_INPUT_WINDOW_DAYS = 730
 # 補助履歴窓。production の FinancialSnapshot / E[r] 入力窓は上の730日のままにし、
 # この窓を build_metrics へ渡さない。
 SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS = 1200
+NORMALIZED_EPS_HISTORY_WINDOW_DAYS = 2200
 
 # 通期実績 DPS の accrual 期間を bound する暦日窓。前期の通期実績開示行が窓内に
 # 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
@@ -93,6 +94,61 @@ class ShareholderReturnChangeSignals:
     dividend_initiation: bool | None
     share_count_reduction_streak: int | None
     shareholder_return_change: bool | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NormalizedProfitSignals:
+    """Split-safe multi-FY earnings facts used only by calibration."""
+
+    normalized_per_3fy: float | None
+    normalized_per_5fy: float | None
+    eps_cycle_percentile_3fy: float | None
+    eps_cycle_peak_3fy: bool | None
+
+
+def build_normalized_profit_signals(
+    summaries: Sequence[JQuantsFinancialSummary],
+    ticker_bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+    *,
+    close: float | None,
+    current_eps: float | None,
+) -> NormalizedProfitSignals:
+    """Build the preregistered 3/5-FY EPS anchors without filling missing years."""
+    available = sorted(
+        (summary for summary in summaries if summary.disclosed_at <= asof_date),
+        key=lambda item: item.disclosed_at,
+    )
+    normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
+    fy_rows = _latest_fy_revisions(normalized)
+    eps_values = {
+        row.fiscal_year_end: row.eps_ttm
+        for row in fy_rows
+        if row.fiscal_year_end is not None and row.eps_ttm is not None
+    }
+    latest_three = _latest_consecutive_values(fy_rows, eps_values, count=3)
+    latest_five = _latest_consecutive_values(fy_rows, eps_values, count=5)
+
+    def normalized_per(values: tuple[float, ...] | None) -> float | None:
+        if values is None or close is None or close <= 0:
+            return None
+        average = fmean(values)
+        return close / average if isfinite(average) and average > 0 else None
+
+    percentile: float | None = None
+    peak: bool | None = None
+    if latest_three is not None and current_eps is not None and isfinite(current_eps):
+        below = sum(value < current_eps for value in latest_three)
+        equal = sum(value == current_eps for value in latest_three)
+        percentile = (below + 0.5 * equal) / len(latest_three)
+        peak = percentile >= 0.8
+
+    return NormalizedProfitSignals(
+        normalized_per_3fy=normalized_per(latest_three),
+        normalized_per_5fy=normalized_per(latest_five),
+        eps_cycle_percentile_3fy=percentile,
+        eps_cycle_peak_3fy=peak,
+    )
 
 
 def build_metrics(

@@ -26,6 +26,8 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.calibration.panel import (
     PRE2019_SELF_RANGE_POLICY,
+    SELF_RANGE_1250_POLICY,
+    SELF_RANGE_2500_POLICY,
     build_panel,
     rules_content_hash,
 )
@@ -489,6 +491,34 @@ class CalibrationPanelTest(unittest.TestCase):
                 with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
                     read_panel(store_dir, ASOF)
 
+    def test_store_rejects_invalid_normalized_profit_fields(self) -> None:
+        invalid_updates = (
+            {"normalized_per_3fy": "-1"},
+            {"eps_cycle_percentile_3fy": "1.1", "eps_cycle_peak_3fy": "true"},
+            {"eps_cycle_percentile_3fy": "0.5", "eps_cycle_peak_3fy": "true"},
+            {"eps_cycle_percentile_3fy": "0.5", "eps_cycle_peak_3fy": "claimed"},
+            {"self_range_observed_sessions": "-1"},
+        )
+        for updates in invalid_updates:
+            with self.subTest(updates=updates), tempfile.TemporaryDirectory() as tmp:
+                sqlite_path = Path(tmp) / "market.sqlite"
+                _build_fixture_sqlite(sqlite_path)
+                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+                store_dir = Path(tmp) / "calibration"
+                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
+                with path.open(encoding="utf-8", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                    fieldnames = list(rows[0])
+                rows[0].update(updates)
+                with path.open("w", encoding="utf-8", newline="") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+
+                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
+                    read_panel(store_dir, ASOF)
+
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store_dir = Path(tmp) / "calibration"
@@ -620,6 +650,20 @@ class CalibrationPanelTest(unittest.TestCase):
                 result.diagnostics.rules_hash,
                 rules_content_hash(rules),
             )
+
+    def test_long_self_range_variants_have_distinct_diagnostic_contracts(self) -> None:
+        rules = load_screening_rules()
+
+        self.assertEqual(SELF_RANGE_1250_POLICY.valuation_history_sessions, 1250)
+        self.assertEqual(SELF_RANGE_1250_POLICY.bars_input_window_days, 2000)
+        self.assertEqual(SELF_RANGE_2500_POLICY.valuation_history_sessions, 2500)
+        self.assertEqual(SELF_RANGE_2500_POLICY.bars_input_window_days, 4000)
+        self.assertFalse(SELF_RANGE_1250_POLICY.production_authority)
+        self.assertFalse(SELF_RANGE_2500_POLICY.production_authority)
+        self.assertNotEqual(
+            rules_content_hash(rules, SELF_RANGE_1250_POLICY),
+            rules_content_hash(rules, SELF_RANGE_2500_POLICY),
+        )
 
     def test_pre2019_variant_cannot_use_the_production_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

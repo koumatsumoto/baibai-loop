@@ -251,6 +251,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
 - [ ] calibration quality condition は current/prior の開示時点を混ぜず、欠損を不充足へ補完していないか。6成分未満の composite を null にし、cache の optional boolean が空欄 / `true` / `false` 以外なら fail closed にする negative test があるか
 - [ ] calibration の株主還元変化列は同一 FY の最新 revision を選んでから null を判定し、DPS・株数を同じ split basis へ揃えているか。3 FY 不足、DPS YoY の非有限値、株数減少 streak の範囲外、optional boolean の不正 token、change composite と成分の矛盾を cache read で fail closed にする negative test があるか
+- [ ] calibration の利益正規化列は同一 FY の最新 revision を選び、最新 null から旧値へ fallbackせず、赤字年を含む連続3/5 FYとsplit basisを固定しているか。平均EPS非正、FY不足・不連続、PER非正・非有限、cycle percentile範囲外・flag矛盾、不正bool、self-range session負値、variant provenance混在をfail closedまたは明示nullにするnegative testがあるか
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
 - [ ] EDINET metric snapshotを差分再利用する場合、rowの抽出・文書状態revision必須、訂正eventを含むsource identity完全一致、target以下のbaseline選択、failed skip、hard parser failure拒否、同日失敗時の正常snapshot保持、最新ok coverageのrange/error/count矛盾時のfail-closedをnegative testで固定したか
 - [ ] provider が個別 release URL の manifest を持つ場合、scheme / host / path全体をallowlistして
