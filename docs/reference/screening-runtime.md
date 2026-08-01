@@ -78,7 +78,7 @@ current source state であり point-in-time ledger ではない。既存の
 
 `listing_span_days` は J-Quants 銘柄 master に上場日が無いため、cache 内の最古 daily bar からの経過日数を proxy にする。bars cache の窓は asof−1200 暦日なので、上場が古い銘柄は ~1200 日で頭打ちになる（新規上場は実日数）。上場年数の実値ではなく「最低これだけの履歴がある」下限として読む。
 
-`market-snapshot` は週次の regime 履歴(benchmark trend・breadth・regime label)と asof 時点の sector 集計(20/60 営業日リターン中央値・sector 内 breadth)を出力する。regime の閾値・窓は regime module と同一の正本を共有する。macro context 作成時の機械入力としても使う。
+`market-snapshot` は日次運用の任意の asof で、7日間隔の regime 履歴(benchmark trend・breadth・regime label)と asof 時点の sector 集計(20/60 営業日リターン中央値・sector 内 breadth)を出力する。regime の閾値・窓は regime module と同一の正本を共有する。macro context 作成時の機械入力としても使う。
 
 `select` の ranking は機械 E[r] を主キーとし、market regime による中立化は行わない（期間ではなく valuation と耐性で判断する）。`market-snapshot` の regime 履歴は macro context の機械入力として使う。`--sqlite-path` で cache 位置を上書きできる。
 
