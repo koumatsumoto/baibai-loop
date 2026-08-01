@@ -136,8 +136,14 @@ function resolveScreeningHistory(pathname: string): RouteResult | null {
 
 async function screeningHistoryIndex(env: Env): Promise<Response> {
   const prefix = 'history/candidate-views/'
-  const result = await env.BAIBAI_SERVING.list({ prefix, limit: 64 })
-  const dates = result.objects
+  let page = await env.BAIBAI_SERVING.list({ prefix, limit: 64 })
+  const objects = [...page.objects]
+  while (page.truncated) {
+    page = await env.BAIBAI_SERVING.list({ prefix, limit: 64, cursor: page.cursor })
+    objects.push(...page.objects)
+  }
+
+  const dates = objects
     .map((object) => object.key.slice(prefix.length, -'.json'.length))
     .filter((value) => SCREENING_DATE_PATTERN.test(value))
     .sort((left, right) => right.localeCompare(left))

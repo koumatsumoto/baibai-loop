@@ -6,7 +6,11 @@ const PASSWORD = '1234567890abcdefghijklmnopqrstuv'
 
 function environment(
   get: ReturnType<typeof vi.fn>,
-  list: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({ objects: [] }),
+  list: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({
+    objects: [],
+    delimitedPrefixes: [],
+    truncated: false,
+  }),
 ) {
   return {
     BAIBAI_SERVING: { get, list } as unknown as R2Bucket,
@@ -148,6 +152,8 @@ describe('view routing', () => {
         { key: 'history/candidate-views/not-a-date.json' },
         { key: 'history/candidate-views/2026-07-23.json' },
       ],
+      delimitedPrefixes: [],
+      truncated: false,
     })
     const response = await handleRequest(
       request('/api/screening/history'),
@@ -157,6 +163,35 @@ describe('view routing', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ dates: ['2026-07-23', '2026-07-22'] })
     expect(list).toHaveBeenCalledWith({ prefix: 'history/candidate-views/', limit: 64 })
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('continues listing so newer candidate dates on later R2 pages remain visible', async () => {
+    const get = vi.fn()
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({
+        objects: [{ key: 'history/candidate-views/2026-07-22.json' }],
+        delimitedPrefixes: [],
+        truncated: true,
+        cursor: 'next-page',
+      })
+      .mockResolvedValueOnce({
+        objects: [{ key: 'history/candidate-views/2026-10-19.json' }],
+        delimitedPrefixes: [],
+        truncated: false,
+      })
+    const response = await handleRequest(
+      request('/api/screening/history'),
+      environment(get, list),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ dates: ['2026-10-19', '2026-07-22'] })
+    expect(list.mock.calls).toEqual([
+      [{ prefix: 'history/candidate-views/', limit: 64 }],
+      [{ prefix: 'history/candidate-views/', limit: 64, cursor: 'next-page' }],
+    ])
     expect(get).not.toHaveBeenCalled()
   })
 
