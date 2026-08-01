@@ -4191,7 +4191,7 @@ class IndicatorsRegistryTests(unittest.TestCase):
         )
 
     def test_canonical_registry_membership_has_a_known_generation(self) -> None:
-        self.assertEqual(load_definitions().generation, 4)
+        self.assertEqual(load_definitions().generation, 5)
         with (
             patch(
                 "baibai_engine.macro.indicators.definitions._REGISTRY_MEMBERSHIP_GENERATIONS",
@@ -4222,6 +4222,9 @@ class IndicatorsRegistryTests(unittest.TestCase):
             "jp.real_wage_index": ("estat_dashboard", "labor"),
             "us.empire_manufacturing": ("fred_csv", "activity"),
             "us.philly_fed_manufacturing": ("fred_csv", "activity"),
+            "jp.n225_iv_30d": ("jquants_options", "volatility"),
+            "jp.n225_iv_skew": ("jquants_options", "volatility"),
+            "jp.n225_iv_term": ("jquants_options", "volatility"),
         }
 
         for series_id, (provider, category) in expected.items():

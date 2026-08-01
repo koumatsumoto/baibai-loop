@@ -22,6 +22,7 @@ from .frb_h15 import FrbH15Provider
 from .fred import FredProvider
 from .jquants_flows import JQuantsFlowsProvider
 from .jquants_indices import JQuantsIndicesProvider
+from .jquants_options import JQuantsOptionsProvider
 from .mof_jgb import MofJgbProvider
 from .multpl import MultplProvider
 from .nikkei_indexes import NikkeiIndexesProvider
@@ -46,6 +47,7 @@ _PROVIDERS: dict[str, MacroDataProvider] = {
         EStatDashboardProvider(),
         JQuantsFlowsProvider(),
         JQuantsIndicesProvider(),
+        JQuantsOptionsProvider(),
         MofJgbProvider(),
         MultplProvider(),
         NikkeiIndexesProvider(),
