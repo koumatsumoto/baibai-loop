@@ -341,6 +341,80 @@ class EvaluateCohortsTest(unittest.TestCase):
         assert isinstance(quality_axis, dict)
         self.assertGreater(float(quality_axis["decile_spread_median"]), 0.0)
 
+    def test_shareholder_return_change_compares_low_per_band_and_controls(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for i in range(500):
+            ticker = f"{5000 + i}"
+            in_low_per_band = i < 100
+            change = in_low_per_band and i % 2 == 0
+            control = float(i % 20 + 1)
+            row = _panel_row(
+                ticker,
+                per_trailing=float(i + 1),
+                dividend_yield=control / 1_000,
+                market_cap_oku=control * 100,
+                avg_turnover_oku=control,
+                pbr=control / 10,
+                price_change_60d=control / 100,
+            )
+            if in_low_per_band:
+                row = replace(
+                    row,
+                    dps_streak_up=change,
+                    dps_yoy_latest=0.10 if change else 0.0,
+                    dps_guidance_up=change,
+                    dividend_initiation=change,
+                    share_count_reduction_streak=1 if change else 0,
+                    shareholder_return_change=change,
+                )
+            panel.append(row)
+            realized = 0.10 if change else (-0.30 if in_low_per_band else 0.0)
+            forwards.append(_forward_row(ticker, realized, horizon="1y"))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["1y"])
+        horizon = result["1y"]
+        assert isinstance(horizon, dict)
+        cohorts = horizon["cohorts"]
+        assert isinstance(cohorts, list)
+        interaction = cohorts[0]["shareholder_return_change"]
+        assert isinstance(interaction, dict)
+        self.assertEqual(interaction["low_valuation_n"], 100)
+        self.assertEqual(interaction["eligible_n"], 100)
+        self.assertEqual(interaction["median_excess_delta"], 0.4)
+        self.assertEqual(interaction["trap_rate_delta"], -1.0)
+        controls = interaction["controls"]
+        assert isinstance(controls, dict)
+        for field_name in (
+            "dividend_yield",
+            "per_trailing",
+            "pbr",
+            "market_cap_oku",
+            "avg_turnover_oku",
+            "price_change_60d",
+        ):
+            with self.subTest(field_name=field_name):
+                control_result = controls[field_name]
+                assert isinstance(control_result, dict)
+                self.assertEqual(control_result["strata_used"], 2)
+                self.assertEqual(control_result["matched_weight"], 50)
+                self.assertEqual(control_result["stratified_median_excess_delta"], 0.4)
+                self.assertEqual(control_result["stratified_trap_rate_delta"], -1.0)
+        components = interaction["components"]
+        assert isinstance(components, dict)
+        for field_name in ("dps_streak_up", "dps_guidance_up", "dividend_initiation"):
+            component = components[field_name]
+            assert isinstance(component, dict)
+            self.assertEqual(component["median_excess_delta"], 0.4)
+
+        aggregate = horizon["aggregate"]
+        assert isinstance(aggregate, dict)
+        aggregate_interaction = aggregate["shareholder_return_change"]
+        assert isinstance(aggregate_interaction, dict)
+        self.assertEqual(aggregate_interaction["change_n"], 50)
+        self.assertEqual(aggregate_interaction["no_change_n"], 50)
+        self.assertEqual(aggregate_interaction["mean_median_excess_delta"], 0.4)
+
     def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
         # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を
         # 逆相関にする → er_ranked_top5 は er 上位 = 低リターン側を選ぶので

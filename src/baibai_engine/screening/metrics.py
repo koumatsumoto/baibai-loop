@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, timedelta
+from itertools import pairwise
 from math import sqrt
 from statistics import mean, median
 
@@ -46,6 +47,11 @@ MARGIN_DELTA_SESSIONS = 130
 BARS_INPUT_WINDOW_DAYS = 1200
 FIN_INPUT_WINDOW_DAYS = 730
 
+# 株主還元の変化は3期の通期実績を必要とするため、calibration panel だけが使う
+# 補助履歴窓。production の FinancialSnapshot / E[r] 入力窓は上の730日のままにし、
+# この窓を build_metrics へ渡さない。
+SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS = 1200
+
 # 通期実績 DPS の accrual 期間を bound する暦日窓。前期の通期実績開示行が窓内に
 # 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
 # その期間内・開示前の分割を carry へ反映するために使う。
@@ -75,6 +81,18 @@ class _QualitySignals:
     delta_asset_turnover_positive: bool | None
     available_count: int
     count: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ShareholderReturnChangeSignals:
+    """Point-in-time facts used only by the calibration panel."""
+
+    dps_streak_up: bool | None
+    dps_yoy_latest: float | None
+    dps_guidance_up: bool | None
+    dividend_initiation: bool | None
+    share_count_reduction_streak: int | None
+    shareholder_return_change: bool | None
 
 
 def build_metrics(
@@ -477,6 +495,198 @@ def _resolve_dividend_carry(
         basis=basis,
         split_factor=recorded_factor,
     )
+
+
+def build_shareholder_return_change_signals(
+    summaries: Sequence[JQuantsFinancialSummary],
+    ticker_bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+) -> ShareholderReturnChangeSignals:
+    """Build preregistered shareholder-return change facts for calibration.
+
+    Revisions are resolved before field availability is inspected: a null in the
+    newest revision cannot silently fall back to an older value. DPS and gross
+    share counts are normalized to the cohort's stock basis, while the latter is
+    deliberately described as share-count reduction rather than proof of a
+    buyback because the source includes treasury stock.
+    """
+    available = sorted(
+        (summary for summary in summaries if summary.disclosed_at <= asof_date),
+        key=lambda item: item.disclosed_at,
+    )
+    normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
+    fy_rows = _latest_fy_revisions(normalized)
+
+    dps_values = _split_safe_fy_dps(fy_rows, ticker_bars)
+    latest_pair = _latest_consecutive_values(fy_rows, dps_values, count=2)
+    latest_three = _latest_consecutive_values(fy_rows, dps_values, count=3)
+
+    dps_streak_up = (
+        latest_three[0] <= latest_three[1] <= latest_three[2] if latest_three is not None else None
+    )
+    actual_up: bool | None = None
+    dps_yoy_latest: float | None = None
+    if latest_pair is not None:
+        prior_dps, latest_dps = latest_pair
+        actual_up = latest_dps > prior_dps
+        if prior_dps > 0:
+            dps_yoy_latest = (latest_dps / prior_dps) - 1.0
+        elif latest_dps == 0:
+            dps_yoy_latest = 0.0
+
+    latest_actual_row = _latest_row_with_value(fy_rows, dps_values)
+    if latest_actual_row is not None:
+        assert latest_actual_row.fiscal_year_end is not None
+        latest_actual = dps_values[latest_actual_row.fiscal_year_end]
+    else:
+        latest_actual = None
+    forecast = _latest_forecast_after(normalized, latest_actual_row)
+    dps_guidance_up = (
+        forecast > latest_actual if forecast is not None and latest_actual is not None else None
+    )
+    dividend_initiation = _dividend_initiation(
+        latest_pair=latest_pair,
+        latest_actual=latest_actual,
+        forecast=forecast,
+    )
+
+    share_values = {
+        row.fiscal_year_end: row.shares_outstanding
+        for row in fy_rows
+        if row.fiscal_year_end is not None
+        and row.shares_outstanding is not None
+        and row.shares_outstanding > 0
+    }
+    latest_share_three = _latest_consecutive_values(fy_rows, share_values, count=3)
+    share_count_reduction_streak: int | None = None
+    if latest_share_three is not None:
+        share_count_reduction_streak = 0
+        for prior, current in reversed(tuple(pairwise(latest_share_three))):
+            if current >= prior:
+                break
+            share_count_reduction_streak += 1
+
+    change_components = (
+        actual_up,
+        dps_guidance_up,
+        dividend_initiation,
+        (share_count_reduction_streak >= 1 if share_count_reduction_streak is not None else None),
+    )
+    if any(value is True for value in change_components):
+        shareholder_return_change: bool | None = True
+    elif all(value is False for value in change_components):
+        shareholder_return_change = False
+    else:
+        shareholder_return_change = None
+
+    return ShareholderReturnChangeSignals(
+        dps_streak_up=dps_streak_up,
+        dps_yoy_latest=dps_yoy_latest,
+        dps_guidance_up=dps_guidance_up,
+        dividend_initiation=dividend_initiation,
+        share_count_reduction_streak=share_count_reduction_streak,
+        shareholder_return_change=shareholder_return_change,
+    )
+
+
+def _latest_fy_revisions(
+    summaries: Sequence[JQuantsFinancialSummary],
+) -> list[JQuantsFinancialSummary]:
+    latest: dict[date, JQuantsFinancialSummary] = {}
+    for summary in summaries:
+        if summary.fiscal_period != "FY" or summary.fiscal_year_end is None:
+            continue
+        previous = latest.get(summary.fiscal_year_end)
+        if previous is None or summary.disclosed_at > previous.disclosed_at:
+            latest[summary.fiscal_year_end] = summary
+    return [latest[fiscal_year_end] for fiscal_year_end in sorted(latest)]
+
+
+def _split_safe_fy_dps(
+    fy_rows: Sequence[JQuantsFinancialSummary],
+    ticker_bars: Sequence[JQuantsDailyBar],
+) -> dict[date, float]:
+    values: dict[date, float] = {}
+    for index, row in enumerate(fy_rows):
+        fiscal_year_end = row.fiscal_year_end
+        value = row.dps_actual_annual
+        if fiscal_year_end is None or value is None or value < 0:
+            continue
+        prior = fy_rows[index - 1] if index > 0 else None
+        accrual_start = (
+            prior.disclosed_at
+            if prior is not None
+            and prior.dps_actual_annual is not None
+            and prior.dps_actual_annual >= 0
+            else row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+        )
+        factor = _cumulative_adjustment_factor_after(ticker_bars, accrual_start, row.disclosed_at)
+        if factor > 0:
+            values[fiscal_year_end] = value * factor
+    return values
+
+
+def _latest_consecutive_values(
+    fy_rows: Sequence[JQuantsFinancialSummary],
+    values: Mapping[date, float],
+    *,
+    count: int,
+) -> tuple[float, ...] | None:
+    if len(fy_rows) < count:
+        return None
+    selected = list(fy_rows[-count:])
+    for prior, current in pairwise(selected):
+        if current.fiscal_year_end is None or prior.fiscal_year_end is None:
+            return None
+        if _shift_year(current.fiscal_year_end, -1) != prior.fiscal_year_end:
+            return None
+    resolved: list[float] = []
+    for row in selected:
+        if row.fiscal_year_end is None or row.fiscal_year_end not in values:
+            return None
+        resolved.append(values[row.fiscal_year_end])
+    return tuple(resolved)
+
+
+def _latest_row_with_value(
+    fy_rows: Sequence[JQuantsFinancialSummary], values: Mapping[date, float]
+) -> JQuantsFinancialSummary | None:
+    if not fy_rows:
+        return None
+    row = fy_rows[-1]
+    return row if row.fiscal_year_end is not None and row.fiscal_year_end in values else None
+
+
+def _latest_forecast_after(
+    summaries: Sequence[JQuantsFinancialSummary],
+    latest_actual_row: JQuantsFinancialSummary | None,
+) -> float | None:
+    if latest_actual_row is None:
+        return None
+    for summary in reversed(summaries):
+        if summary.disclosed_at < latest_actual_row.disclosed_at:
+            break
+        value = summary.dps_forecast_annual
+        if value is not None and value >= 0:
+            return value
+    return None
+
+
+def _dividend_initiation(
+    *,
+    latest_pair: tuple[float, ...] | None,
+    latest_actual: float | None,
+    forecast: float | None,
+) -> bool | None:
+    if latest_pair is not None:
+        prior, latest = latest_pair
+        if prior == 0 and latest > 0:
+            return True
+        if latest > 0:
+            return False
+    if latest_actual == 0 and forecast is not None:
+        return forecast > 0
+    return None
 
 
 def _build_financial_snapshot(

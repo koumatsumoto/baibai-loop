@@ -26,8 +26,10 @@ from ..estimates import estimate_expected_return
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
+    SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
     VALUATION_HISTORY_SESSIONS,
     build_metrics,
+    build_shareholder_return_change_signals,
     build_shares_outstanding_index,
     group_bars_by_ticker,
     group_summaries_by_ticker,
@@ -176,6 +178,12 @@ class PanelRow:
     recommended_rank: int | None
     population_coverage_status: PopulationCoverageStatus = "evaluated"
     self_range_degraded: bool = False
+    dps_streak_up: bool | None = None
+    dps_yoy_latest: float | None = None
+    dps_guidance_up: bool | None = None
+    dividend_initiation: bool | None = None
+    share_count_reduction_streak: int | None = None
+    shareholder_return_change: bool | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -261,20 +269,30 @@ def build_panel(
     bars_floor, fin_floor = _coverage_floors(sqlite_path)
     bars_start = max(bars_floor, asof_date - timedelta(days=policy.bars_input_window_days))
     fin_start = max(fin_floor, asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS))
-    bars = read_daily_bars(sqlite_path, bars_start, asof_date)
-    if bars is None:
+    return_history_start = max(
+        fin_floor,
+        asof_date - timedelta(days=SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS),
+    )
+    bars_read_start = min(bars_start, return_history_start)
+    history_bars = read_daily_bars(sqlite_path, bars_read_start, asof_date)
+    if history_bars is None:
         raise CalibrationError(
-            f"daily bars are not covered for {bars_start.isoformat()}..{asof_date.isoformat()}"
+            f"daily bars are not covered for {bars_read_start.isoformat()}..{asof_date.isoformat()}"
         )
-    summaries = read_fin_summaries(sqlite_path, fin_start, asof_date)
-    if summaries is None:
+    bars = [bar for bar in history_bars if bar.traded_at >= bars_start]
+    history_summaries = read_fin_summaries(sqlite_path, return_history_start, asof_date)
+    if history_summaries is None:
         raise CalibrationError(
-            f"fin summaries are not covered for {fin_start.isoformat()}..{asof_date.isoformat()}"
+            "fin summaries are not covered for "
+            f"{return_history_start.isoformat()}..{asof_date.isoformat()}"
         )
+    summaries = [summary for summary in history_summaries if summary.disclosed_at >= fin_start]
     edinet_by_ticker = read_edinet_metrics(sqlite_path, asof_date) or {}
 
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
+    history_bars_by_ticker = group_bars_by_ticker(history_bars)
+    history_summaries_by_ticker = group_summaries_by_ticker(history_summaries)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
     )
@@ -349,6 +367,11 @@ def build_panel(
         snapshot = universe_result.snapshots[ticker]
         estimate = estimate_expected_return(
             financial, derived, close=latest_close_by_ticker.get(ticker)
+        )
+        return_change = build_shareholder_return_change_signals(
+            history_summaries_by_ticker.get(ticker, ()),
+            history_bars_by_ticker.get(ticker, ()),
+            asof_date,
         )
         rows.append(
             PanelRow(
@@ -426,6 +449,12 @@ def build_panel(
                 selection_rank=selection_rank.get(ticker),
                 recommended_rank=recommended_rank.get(ticker),
                 self_range_degraded=not policy.production_authority,
+                dps_streak_up=return_change.dps_streak_up,
+                dps_yoy_latest=return_change.dps_yoy_latest,
+                dps_guidance_up=return_change.dps_guidance_up,
+                dividend_initiation=return_change.dividend_initiation,
+                share_count_reduction_streak=(return_change.share_count_reduction_streak),
+                shareholder_return_change=return_change.shareholder_return_change,
             )
         )
 

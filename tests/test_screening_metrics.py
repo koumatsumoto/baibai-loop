@@ -14,6 +14,7 @@ from baibai_engine.screening.metrics import (
     _quality_signal_counts,
     _resolve_dividend_carry,
     build_metrics,
+    build_shareholder_return_change_signals,
 )
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
@@ -157,6 +158,167 @@ def _edinet_metric_record(
 
 
 class ScreeningMetricsTests(unittest.TestCase):
+    def test_shareholder_return_change_builds_preregistered_components(self) -> None:
+        asof = date(2026, 6, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                dps_actual_annual=2.0,
+                dps_forecast_annual=2.0,
+                shares_outstanding=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=2.0,
+                dps_forecast_annual=2.0,
+                shares_outstanding=99.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=3.0,
+                dps_forecast_annual=4.0,
+                shares_outstanding=98.0,
+            ),
+        ]
+
+        result = build_shareholder_return_change_signals(summaries, (), asof)
+
+        self.assertTrue(result.dps_streak_up)
+        self.assertAlmostEqual(result.dps_yoy_latest or 0.0, 0.5)
+        self.assertTrue(result.dps_guidance_up)
+        self.assertFalse(result.dividend_initiation)
+        self.assertEqual(result.share_count_reduction_streak, 2)
+        self.assertTrue(result.shareholder_return_change)
+
+    def test_shareholder_return_change_handles_initiation_and_missing_history(self) -> None:
+        asof = date(2026, 6, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=0.0,
+                dps_forecast_annual=0.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=2.0,
+                dps_forecast_annual=3.0,
+            ),
+        ]
+
+        result = build_shareholder_return_change_signals(summaries, (), asof)
+
+        self.assertIsNone(result.dps_streak_up)
+        self.assertIsNone(result.dps_yoy_latest)
+        self.assertTrue(result.dividend_initiation)
+        self.assertIsNone(result.share_count_reduction_streak)
+        self.assertTrue(result.shareholder_return_change)
+
+    def test_shareholder_return_change_does_not_fallback_from_latest_null_revision(self) -> None:
+        asof = date(2026, 6, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                dps_actual_annual=1.0,
+                shares_outstanding=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=2.0,
+                shares_outstanding=99.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=3.0,
+                shares_outstanding=98.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 20),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                dps_actual_annual=None,
+                dps_forecast_annual=None,
+                shares_outstanding=0.0,
+            ),
+        ]
+
+        result = build_shareholder_return_change_signals(summaries, (), asof)
+
+        self.assertIsNone(result.dps_streak_up)
+        self.assertIsNone(result.dps_yoy_latest)
+        self.assertIsNone(result.dps_guidance_up)
+        self.assertIsNone(result.share_count_reduction_streak)
+        self.assertIsNone(result.shareholder_return_change)
+
+    def test_shareholder_return_change_normalizes_splits_across_fiscal_years(self) -> None:
+        asof = date(2026, 6, 30)
+        split_date = date(2024, 1, 10)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=split_date,
+                close=50.0,
+                turnover_value=1_000_000.0,
+                adjustment_factor=0.5,
+            )
+        ]
+        summaries = [
+            _summary(
+                "130A",
+                date(2023, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2023, 3, 31),
+                dps_actual_annual=40.0,
+                shares_outstanding=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                dps_actual_annual=44.0,
+                shares_outstanding=200.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=24.0,
+                shares_outstanding=190.0,
+            ),
+        ]
+
+        result = build_shareholder_return_change_signals(summaries, bars, asof)
+
+        self.assertTrue(result.dps_streak_up)
+        self.assertAlmostEqual(result.dps_yoy_latest or 0.0, (24.0 / 22.0) - 1.0)
+        self.assertEqual(result.share_count_reduction_streak, 1)
+
     def test_quality_components_use_point_in_time_current_and_prior_full_years(self) -> None:
         asof = date(2026, 6, 30)
         prior = _quality_summary(
