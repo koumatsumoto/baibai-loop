@@ -4222,6 +4222,9 @@ class IndicatorsRegistryTests(unittest.TestCase):
             "jp.real_wage_index": ("estat_dashboard", "labor"),
             "us.empire_manufacturing": ("fred_csv", "activity"),
             "us.philly_fed_manufacturing": ("fred_csv", "activity"),
+            "jp.n225_iv_30d": ("jquants_options", "volatility"),
+            "jp.n225_iv_skew": ("jquants_options", "volatility"),
+            "jp.n225_iv_term": ("jquants_options", "volatility"),
         }
 
         for series_id, (provider, category) in expected.items():

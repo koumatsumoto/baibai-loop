@@ -77,8 +77,11 @@ def read_day(
     maturities unless the sample says which ones it drew. The gaps are recorded because
     the bound that withholds those readings is the one threshold whose justification is
     not otherwise in the sample. Both come from the grouping the readings use, and from
-    its first two expiries — which are the two the readings take, because the
-    at-the-money strike is chosen from the group's own strikes and so always prices.
+    its first two expiries. The readings take the first two that price an at-the-money
+    pair, which is the same pair on every sampled session but need not be: an expiry
+    quoting only one side at every strike would be skipped there and recorded here. A
+    row whose readings and maturities disagree is that case, and the sample carries
+    both so it can be seen rather than assumed away.
     """
     method = getattr(client, "get_drv_bars_daily_opt_225", None)
     if not callable(method):

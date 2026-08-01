@@ -20,7 +20,13 @@ from .base import (
     ProviderSpec,
     record_observation,
 )
-from .option_iv import FearReadings, as_date, fear_readings, quotes_from_records
+from .option_iv import (
+    FearReadings,
+    as_date,
+    fear_readings,
+    quotes_from_records,
+    settlement_rows,
+)
 
 # jquants_flows / jquants_indices と同じ資格情報。indicators 用に secret を増やさない。
 _API_KEY_ENV = "JQUANTS_API_KEY"
@@ -182,19 +188,23 @@ def _fetch_chain(
         raise IndicatorsProviderError("unexpected jquants_options payload: records is not a list")
     rows = [record for record in records if isinstance(record, Mapping)]
     _require_requested_day(rows, day)
-    _require_one_row_per_contract(rows, day)
+    # The duplicate check speaks about the snapshot the readings use. Run against the
+    # raw payload it would instead refuse every session the exchange called emergency
+    # margin on, where a second full copy of the chain is the documented answer.
+    _require_one_row_per_contract(settlement_rows(rows), day)
     return rows
 
 
 def _require_one_row_per_contract(rows: Sequence[Mapping[str, object]], day: date) -> None:
-    """Refuse a chain that carries a contract twice.
+    """Refuse a chain that carries a contract twice within one snapshot.
 
     Every reading resolves a strike to one volatility by writing into a dict, so a
     second row for the same contract wins on arrival order and nothing downstream can
     see it happened — the basis check takes a median and a single duplicated strike
-    does not move it. The endpoint has returned one row per contract on every day
-    examined, so a day that does not is the source doing something this code has not
-    been shown, and guessing which block to keep is worse than stopping.
+    does not move it. The one repetition the source is known to produce is the second
+    snapshot of an emergency-margin session, which is separated before this runs; a
+    contract repeated inside the settlement snapshot is the source doing something this
+    code has not been shown, and guessing which row to keep is worse than stopping.
     """
     seen: set[tuple[str, str, str]] = set()
     for row in rows:

@@ -19,6 +19,7 @@ from baibai_engine.macro.indicators.providers.base import HttpSession, Indicator
 from baibai_engine.macro.indicators.providers.option_iv import (
     CALL,
     PUT,
+    SETTLEMENT_SNAPSHOT,
     FearReadings,
     OptionQuote,
     as_date,
@@ -76,12 +77,18 @@ class _FakeFrame:
         return list(self._records)
 
 
-def _records(quotes: Sequence[OptionQuote], day: date = ASOF) -> list[dict[str, object]]:
+def _records(
+    quotes: Sequence[OptionQuote],
+    day: date = ASOF,
+    *,
+    snapshot: str = SETTLEMENT_SNAPSHOT,
+) -> list[dict[str, object]]:
     """Quotes in the shape the provider payload carries them.
 
     `Date` is the day the chain answers for, and the provider checks it, so every
     fixture carries it — a payload without it would exercise only the branch that
-    has nothing to compare.
+    has nothing to compare. `snapshot` builds the second copy an emergency-margin
+    session carries, which is the one shape that puts two rows on one contract.
     """
     return [
         {
@@ -91,6 +98,7 @@ def _records(quotes: Sequence[OptionQuote], day: date = ASOF) -> list[dict[str, 
             "IV": quote.implied_volatility,
             "UnderPx": quote.underlying,
             "PCDiv": quote.put_call,
+            "EmMrgnTrgDiv": snapshot,
         }
         for quote in quotes
     ]
@@ -641,9 +649,28 @@ class QuoteParsingTest(unittest.TestCase):
             "IV": 20.0,
             "UnderPx": 40000.0,
             "PCDiv": "1",
+            "EmMrgnTrgDiv": SETTLEMENT_SNAPSHOT,
         }
         record.update(overrides)
         return record
+
+    def test_only_the_settlement_snapshot_is_parsed(self) -> None:
+        # An emergency-margin session answers with two full copies of the chain,
+        # quoted against different prices. Reading both would put a basis error into
+        # every strike that carries a row in each.
+        rows = [self._record(), self._record(EmMrgnTrgDiv="001", IV=41.6, UnderPx=39000.0)]
+
+        quotes = quotes_from_records(rows, ASOF)
+
+        self.assertEqual([quote.implied_volatility for quote in quotes], [20.0])
+        self.assertEqual([quote.underlying for quote in quotes], [40000.0])
+
+    def test_a_row_that_does_not_say_which_snapshot_it_is_from_is_dropped(self) -> None:
+        # Keeping unmarked rows would restore the mixing as soon as the source stopped
+        # sending the field, which is exactly when nothing would notice.
+        rows = [self._record(EmMrgnTrgDiv=None), self._record(EmMrgnTrgDiv="")]
+
+        self.assertEqual(quotes_from_records(rows, ASOF), [])
 
     def test_a_row_missing_a_field_is_dropped_rather_than_failing(self) -> None:
         # A chain always carries contracts with no quote; a day is still readable.
@@ -952,6 +979,26 @@ class OptionProviderTest(unittest.TestCase):
         with self.assertRaises(IndicatorsProviderError) as caught:
             jquants_options._require_one_row_per_contract(rows, ASOF)
         self.assertIn("same contract", str(caught.exception))
+
+    def test_an_emergency_margin_session_is_read_rather_than_refused(self) -> None:
+        # The source answers such a session with two full copies of the chain, one row
+        # per contract each. Refusing it would end a multi-year range on a day the
+        # source is behaving as documented — 2016-08-02 is the second weekday of the
+        # ten-year floor, so the whole rebuild would stop there.
+        settled = _chain_records()
+        intervention = _records(
+            [*_chain(NEAR, underlying=39_000.0), *_chain(FAR, underlying=39_000.0, level=1.0)],
+            snapshot="001",
+        )
+        provider = jquants_options.JQuantsOptionsProvider()
+        client = SimpleNamespace(
+            get_drv_bars_daily_opt_225=lambda **_: _FakeFrame([*settled, *intervention])
+        )
+
+        both = provider._day_reading(client, ASOF, api_key="k")
+
+        self.assertEqual(both, fear_readings(quotes_from_records(settled, ASOF), ASOF))
+        self.assertIsNotNone(both.iv_30d)
 
     def test_a_chain_answering_for_another_day_is_refused(self) -> None:
         # The observation is stamped with the requested date, so a session served the

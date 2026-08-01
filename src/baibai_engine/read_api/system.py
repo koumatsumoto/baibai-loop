@@ -205,7 +205,8 @@ def never_attempted_series(path: Path) -> list[str]:
     leaves every remaining series in that group without a run record.
 
     An absent store reports nothing rather than every series: its own row already
-    says the store is missing, and listing 119 "outages" on top would bury that.
+    says the store is missing, and listing every registered series as an "outage"
+    on top would bury that.
     """
 
     registered = {series.series_id for series in load_definitions().series}

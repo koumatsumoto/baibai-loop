@@ -48,6 +48,14 @@ MIN_BASIS_PAIRS = 3
 PLACEHOLDER_VOLATILITY = 1.0
 PUT = "1"
 CALL = "2"
+# The chain can carry a whole second copy of itself. On a session where the exchange
+# called emergency margin, the source returns the settlement snapshot and the snapshot
+# taken when the call was made, one row per contract each, telling them apart only by
+# this field — and the two disagree on the price they were quoted against, so a reading
+# that mixed them would carry a basis error the chain itself explains. 2016-08-02
+# returns 4,380 rows, two per contract, the intervention copy carrying the previous
+# session's underlying and a flat volatility. Only the settlement snapshot is read.
+SETTLEMENT_SNAPSHOT = "002"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -248,10 +256,18 @@ def _atm_volatility(quotes: Sequence[OptionQuote]) -> float | None:
     inconsistency: at the money a put and a call carry the same sensitivity to the
     price they were quoted against, so an error in it pushes them apart and leaves
     their average where it was. Regressing this reading's departure from its own
-    neighbourhood on the signed disagreement over 437 sampled sessions gives a slope
+    neighbourhood on the signed disagreement over 433 sampled sessions gives a slope
     of +0.04 (standard error 0.04): a disagreement carried by one side alone would
-    move the average by half of itself, and 0.5 is twelve standard errors away. Which
-    is why the basis check does not withhold the level.
+    move the average by half of itself, and either sign of 0.5 is thirteen standard
+    errors away. Which is why the basis check does not withhold the level.
+
+    That test has no power on the sessions the check does withhold. Fitted on those
+    seven alone the slope is -0.29 (standard error 0.12), which does not separate a
+    two-sided error from a one-sided one; five of the seven sat in a stretch where the
+    level itself moved ten points in days, and that movement is most of what the fit
+    sees. The level is kept there anyway, because withholding it would empty the
+    sessions most worth reading — at the price that on those days it may be off by
+    half the disagreement.
 
     Both sides are required, so the strike is chosen among those quoting both rather
     than by distance alone: a single side carries the directional bias the average
@@ -323,6 +339,23 @@ def _constant_maturity(
     return float(variance**0.5)
 
 
+def settlement_rows(
+    records: Sequence[Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    """The rows belonging to the settlement snapshot, and only those.
+
+    Keeping the marked rows rather than dropping the marked-otherwise ones: a payload
+    that stopped carrying the field would then quietly go back to reading both copies
+    at once, which is the failure this exists to prevent. Losing the field instead
+    empties the chain, and an empty chain is a day the readings decline to answer.
+    """
+    return [
+        record
+        for record in records
+        if str(record.get("EmMrgnTrgDiv") or "").strip() == SETTLEMENT_SNAPSHOT
+    ]
+
+
 def quotes_from_records(records: Sequence[Mapping[str, object]], asof: date) -> list[OptionQuote]:
     """Parse provider rows, dropping any the readings cannot use.
 
@@ -331,7 +364,7 @@ def quotes_from_records(records: Sequence[Mapping[str, object]], asof: date) -> 
     """
     del asof
     quotes: list[OptionQuote] = []
-    for record in records:
+    for record in settlement_rows(records):
         expiry = as_date(record.get("SQD"))
         strike = _as_float(record.get("Strike"))
         volatility = _as_float(record.get("IV"))
