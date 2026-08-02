@@ -164,6 +164,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 機械参考推奨 | machine recommendation | 機械成果物 | L2 出力 | cap 適用後の機械 top-N。calibration 監視用の参考値であり judgment ではない |
 | リサーチ候補選定 | select | 機械処理 | L2 | screening runの候補に機械 E[r] 降順の着手順位と lens 注記を付ける |
 | 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | OP3 gate で longlist から選んだ候補のcanonical snapshot。selected narrative と rejected 理由を持つ（`data/app/baibai.sqlite`） |
+| 棄却理由分類 | reject class | 判断要約 | L3 | shortlist rejected entryとbargain assessment reject / defer laneの主因を共通enumで集計する。自由記述が判断の正本であり、分類は自動除外・ranking・売買判断に使わない |
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
 | 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
 | 独立反証レビュー | thesis review | 判断文書 | L3 | 別 agent による thesis の second-pass 反証。hash で対象 revision へ束縛する |

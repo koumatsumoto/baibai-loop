@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.reject_classification import RejectClass
 
 
 class ShortlistNarrative(BaseModel):
@@ -54,6 +55,9 @@ class ShortlistEntry(BaseModel):
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
     decision: Literal["selected", "rejected"]
     reason: str = Field(min_length=1)
+    # reason が判断の正本。class は頻度集計と改善候補の列挙にだけ使い、
+    # 自動除外や順位変更には使わない。
+    reject_class: RejectClass | None = None
     rank: int | None = Field(default=None, ge=1)
     narrative: ShortlistNarrative | None = None
     # The machine E[r] this judgment was made against, in annual ratio. The publisher
@@ -72,6 +76,10 @@ class ShortlistEntry(BaseModel):
             raise ValueError("selected shortlist entry must carry a provisional rank")
         if self.decision == "rejected" and self.rank is not None:
             raise ValueError("rejected shortlist entry must not carry a provisional rank")
+        if self.decision == "rejected" and self.reject_class is None:
+            raise ValueError("rejected shortlist entry must include a reject_class")
+        if self.decision == "selected" and self.reject_class is not None:
+            raise ValueError("selected shortlist entry must not include a reject_class")
         return self
 
 
@@ -85,7 +93,7 @@ as_of より前の日付は既に判明した事実なので、どちらも再�
 
 class Shortlist(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     kind: Literal["shortlist"]
     shortlist_id: str
     selection_id: str = Field(min_length=1)

@@ -63,7 +63,7 @@ def scaffold_assessment(
         ]
     macro_context_id = shortlist.get("macro_context_id")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "bargain_assessment",
         "assessment_id": assessment_id,
         "as_of": as_of.isoformat(),
@@ -125,6 +125,7 @@ def _lane_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, 
         "name": document.input_snapshot.company_name,
         "disposition": _PROSE_PLACEHOLDER,
         "disposition_reason": _PROSE_PLACEHOLDER,
+        "reject_class": _PROSE_PLACEHOLDER,
         "thesis_id": thesis_id,
         "thesis_core_sha256": evaluate_thesis(document).thesis_sha256,
         "review_id": None,

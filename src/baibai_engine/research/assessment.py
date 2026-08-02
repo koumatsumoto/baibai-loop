@@ -32,10 +32,11 @@ from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.paths import database_path
 from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.appdb.write import connect_rw, initialize_database
+from baibai_engine.foundation.reject_classification import RejectClass
 
 from .thesis import ThesisDocument, ThesisError, evaluate_thesis
 
-BARGAIN_ASSESSMENT_SCHEMA_VERSION = 1
+BARGAIN_ASSESSMENT_SCHEMA_VERSION = 2
 
 # 機械値の照合許容差。thesis 評価は Decimal、YAML 往復は float を通るので、
 # 表示桁の丸めだけを許し、書き換えは許さない幅にする。
@@ -105,6 +106,8 @@ class AssessmentLane(BaseModel):
     name: str | None = None
     disposition: LaneDisposition
     disposition_reason: str = Field(min_length=1)
+    # disposition_reason が判断の正本。class は棄却理由の頻度集計にだけ使う。
+    reject_class: RejectClass | None = None
     thesis_id: str = Field(min_length=1)
     thesis_core_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     review_id: str | None = None
@@ -118,6 +121,14 @@ class AssessmentLane(BaseModel):
     research_questions: tuple[ResearchQuestion, ...] = Field(min_length=1)
     unknowns: tuple[str, ...] = ()
     source_caveats: tuple[SourceCaveat, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_reject_class_matches_disposition(self) -> Self:
+        if self.disposition in {"reject", "defer"} and self.reject_class is None:
+            raise ValueError("reject/defer assessment lane must include a reject_class")
+        if self.disposition == "selected" and self.reject_class is not None:
+            raise ValueError("selected assessment lane must not include a reject_class")
+        return self
 
 
 class PurchasePlan(BaseModel):
@@ -167,7 +178,7 @@ class ContentReviewBinding(BaseModel):
 
 class BargainAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     kind: Literal["bargain_assessment"]
     assessment_id: str
     as_of: date

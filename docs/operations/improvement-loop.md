@@ -50,6 +50,8 @@ uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eva
 
 導入後のprimary-research laneのうち完了・review済みをcoverageの分母、screening FV baselineとresearch FVと有効なbridgeがあるものを分子とし、canonical thesisとoperation sessionに保存した非promote laneから同一thesisの再実行、scaffold-only、未review、遡及記入を除いた有効観測が5件以上になったら、乖離率の中央値・範囲、要因件数、`other`率、coverage、ユニーク銘柄数・運用回数を記述集計し、この集計だけでscreening式を変更せず変更仮説は別Issueで事前登録してdesign/confirm検証へ進める。
 
+四半期ごとにapplication DBのshortlist rejected entryとbargain assessment reject / defer laneの`reject_class`頻度を工程別に集計し、頻度上位のうち機械化可能な型をwarning / flag候補として別issueへ事前登録する。分類自体で自動除外やranking変更は行わない。
+
 ### 2. 採否基準の事前登録（計測より先に commit）
 
 採用judgeになる数値基準（例: IC・replay 上位の超過リターン差・トラップ非悪化）を、**計測を実行する前に** report の冒頭節または issue に書いて commit する。git history が事前登録の正本。既知の結果（公開済みレポート）がある場合は、盲検性の限定を正直に書く。

@@ -40,7 +40,7 @@ def _narrative() -> dict[str, object]:
 def _shortlist() -> Shortlist:
     return Shortlist.model_validate(
         {
-            "schema_version": 3,
+            "schema_version": 4,
             "kind": "shortlist",
             "shortlist_id": "shortlist-20260719-base",
             "selection_id": "selection-test",
@@ -57,7 +57,12 @@ def _shortlist() -> Shortlist:
                     "reason": "一次IRへ進める",
                     "narrative": _narrative(),
                 },
-                {"ticker": "0001", "decision": "rejected", "reason": "根拠が弱い"},
+                {
+                    "ticker": "0001",
+                    "decision": "rejected",
+                    "reason": "根拠が弱い",
+                    "reject_class": "other",
+                },
             ],
         }
     )
@@ -112,8 +117,8 @@ def test_publish_keeps_the_machine_estimate_the_judgment_was_made_against(
 def test_shortlist_rejects_duplicate_ticker() -> None:
     payload = _shortlist().payload()
     payload["entries"] = [
-        {"ticker": "2331", "decision": "rejected", "reason": "a"},
-        {"ticker": "2331", "decision": "rejected", "reason": "b"},
+        {"ticker": "2331", "decision": "rejected", "reason": "a", "reject_class": "other"},
+        {"ticker": "2331", "decision": "rejected", "reason": "b", "reject_class": "other"},
     ]
     with pytest.raises(ValidationError):
         Shortlist.model_validate(payload)
@@ -122,8 +127,18 @@ def test_shortlist_rejects_duplicate_ticker() -> None:
 def _no_selected_shortlist() -> Shortlist:
     payload = _shortlist().payload()
     payload["entries"] = [
-        {"ticker": "2331", "decision": "rejected", "reason": "正常利益ベースでも割高"},
-        {"ticker": "0001", "decision": "rejected", "reason": "一時益で見かけ上安いだけ"},
+        {
+            "ticker": "2331",
+            "decision": "rejected",
+            "reason": "正常利益ベースでも割高",
+            "reject_class": "price_already_converged",
+        },
+        {
+            "ticker": "0001",
+            "decision": "rejected",
+            "reason": "一時益で見かけ上安いだけ",
+            "reject_class": "one_off_earnings",
+        },
     ]
     return Shortlist.model_validate(payload)
 
@@ -172,9 +187,34 @@ def test_shortlist_rejected_entry_forbids_narrative() -> None:
             "reason": "深掘りへ",
             "narrative": _narrative(),
         },
-        {"ticker": "0001", "decision": "rejected", "reason": "弱い", "narrative": _narrative()},
+        {
+            "ticker": "0001",
+            "decision": "rejected",
+            "reason": "弱い",
+            "reject_class": "other",
+            "narrative": _narrative(),
+        },
     ]
     with pytest.raises(ValidationError):
+        Shortlist.model_validate(payload)
+
+
+def test_shortlist_rejected_entry_requires_a_known_reject_class() -> None:
+    payload = _shortlist().payload()
+    rejected = payload["entries"][1]
+    del rejected["reject_class"]
+    with pytest.raises(ValidationError, match="must include a reject_class"):
+        Shortlist.model_validate(payload)
+
+    rejected["reject_class"] = "future_guess"
+    with pytest.raises(ValidationError, match="Input should be"):
+        Shortlist.model_validate(payload)
+
+
+def test_shortlist_selected_entry_forbids_reject_class() -> None:
+    payload = _shortlist().payload()
+    payload["entries"][0]["reject_class"] = "other"
+    with pytest.raises(ValidationError, match="must not include a reject_class"):
         Shortlist.model_validate(payload)
 
 
@@ -223,7 +263,13 @@ def test_shortlist_rejected_entry_forbids_provisional_rank() -> None:
             "reason": "深掘りへ",
             "narrative": _narrative(),
         },
-        {"ticker": "0001", "decision": "rejected", "rank": 2, "reason": "弱い"},
+        {
+            "ticker": "0001",
+            "decision": "rejected",
+            "rank": 2,
+            "reason": "弱い",
+            "reject_class": "other",
+        },
     ]
     with pytest.raises(ValidationError):
         Shortlist.model_validate(payload)
