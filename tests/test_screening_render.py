@@ -77,6 +77,8 @@ class ScreeningRenderTests(unittest.TestCase):
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
             run_id="screening-20260424",
+            screening_rules_hash="rules-hash-v1",
+            er_model_version="expected-return-v1",
             provider_status_lines=("データソース: J-Quants Light + EDINET + JPX",),
             universe_exclusion_lines=("除外件数: 42 銘柄",),
             ttm_quality_counts={"exact": 1, "approximated": 1, "unavailable": 1},
@@ -89,6 +91,8 @@ class ScreeningRenderTests(unittest.TestCase):
         self.assertIn('run_date: "2026-04-24"', rendered)
         self.assertIn('asof_date: "2026-04-24"', rendered)
         self.assertIn('run_id: "screening-20260424"', rendered)
+        self.assertIn('screening_rules_hash: "rules-hash-v1"', rendered)
+        self.assertIn('er_model_version: "expected-return-v1"', rendered)
         self.assertIn('ticker: "130A"', rendered)
         self.assertIn("ttm_quality:", rendered)
         self.assertIn("approximated", rendered)
@@ -147,6 +151,8 @@ class ScreeningRenderTests(unittest.TestCase):
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
             run_id="screening-20260424",
+            screening_rules_hash="rules-hash-v1",
+            er_model_version="expected-return-v1",
             provider_status_lines=(
                 "データソース: J-Quants Light（日足・財務サマリー・業績予想）+ JPX",
             ),
@@ -205,6 +211,8 @@ class ScreeningRenderTests(unittest.TestCase):
             ],
             run_at=datetime(2026, 4, 24, 9, 0, tzinfo=JST),
             run_id="screening-20260424",
+            screening_rules_hash="rules-hash-v1",
+            er_model_version="expected-return-v1",
         )
 
         payload = safe_load(render_screened_yaml(document))
@@ -222,6 +230,8 @@ class ScreeningRenderTests(unittest.TestCase):
             candidates=(),
             run_at=datetime(2026, 4, 24, 0, 0, tzinfo=UTC),
             run_id="screening-20260424",
+            screening_rules_hash="rules-hash-v1",
+            er_model_version="expected-return-v1",
         )
 
         with self.assertRaises(RenderError):

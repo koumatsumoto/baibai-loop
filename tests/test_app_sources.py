@@ -14,6 +14,7 @@ from baibai_app.sources.protocols import (
     ResearchSource,
     TaskSource,
 )
+from baibai_engine.screening.run_store import ScreeningRunStore
 
 
 class LedgerSourceContract:
@@ -104,6 +105,8 @@ class CandidatesSourceContract:
         assert run.run_id == "screening-20260708"
         assert len(run.rows) == 3
         assert run.run_revision_id.startswith("run-revision-")
+        assert run.screening_rules_hash is None
+        assert run.er_model_version is None
 
 
 class TestDbCandidatesSource(CandidatesSourceContract):
@@ -112,3 +115,24 @@ class TestDbCandidatesSource(CandidatesSourceContract):
             root / "data/screening/runs.sqlite",
             root / "data/app/baibai.sqlite",
         )
+
+    def test_latest_run_preserves_method_identity(self, tmp_path: Path) -> None:
+        runs_path = tmp_path / "runs.sqlite"
+        ScreeningRunStore(runs_path).publish_run(
+            {
+                "run_id": "screening-20260801",
+                "run_date": "2026-08-01",
+                "asof_date": "2026-08-01",
+                "run_at": "2026-08-01T18:30:00+09:00",
+                "universe_size": 1,
+                "screening_rules_hash": "rules-hash-v1",
+                "er_model_version": "expected-return-v1",
+                "candidates": [{"ticker": "4432", "name": "sample", "evidence_hits": []}],
+            }
+        )
+
+        run = DbCandidatesSource(runs_path, tmp_path / "app.sqlite").latest_run()
+
+        assert run is not None
+        assert run.screening_rules_hash == "rules-hash-v1"
+        assert run.er_model_version == "expected-return-v1"

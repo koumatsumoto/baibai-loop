@@ -99,7 +99,12 @@ def export_read_models(
     )
     written.append(_write_model(views_dir / "dashboard.json", dashboard))
 
-    screening = build_screening(stores.candidates, stores.ledger, stores.research)
+    screening = build_screening(
+        stores.candidates,
+        stores.ledger,
+        stores.research,
+        stores.er_level_calibration,
+    )
     written.append(_write_model(views_dir / "screening_latest.json", screening))
 
     written.append(

@@ -201,6 +201,7 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> [--batch dail
 出力（`<dir>` 配下）:
 
 - `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
+- `views/screening_latest.json` は、有効な `reports/data/er-level-calibration-latest.yaml` と表示対象 operative run の method identity が一致する場合だけ E[r] historical quintile 文脈を含む。run identity 不明、欠損・不正・期限切れでは field を `null` にして既存 screening 表を維持する
 - `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）
 - `views/macro-reading.json`（全登録系列の機械読み値。indicator store か reading rules が
   無ければ警告のうえ書かず、Macro タブは該当パネルだけを非表示にする）

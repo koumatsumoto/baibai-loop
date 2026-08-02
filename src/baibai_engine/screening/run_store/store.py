@@ -511,6 +511,12 @@ def _prepare_run(payload: Mapping[str, object]) -> _PreparedRun:
     rules_ref = payload.get("rules_ref")
     if rules_ref is not None and not isinstance(rules_ref, str):
         raise ValueError("rules_ref must be a string or null")
+    for identity_key in ("screening_rules_hash", "er_model_version"):
+        identity_value = payload.get(identity_key)
+        if identity_value is not None and (
+            not isinstance(identity_value, str) or not identity_value.strip()
+        ):
+            raise ValueError(f"{identity_key} must be a non-empty string or null")
     evidence_summary = payload.get("evidence_hits_summary")
     if evidence_summary is not None:
         if not isinstance(evidence_summary, Mapping):

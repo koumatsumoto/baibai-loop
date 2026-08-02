@@ -386,6 +386,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="write the evaluation YAML to this path instead of stdout",
     )
     calibration_evaluate_parser.add_argument(
+        "--context-out",
+        help="write the expiring E[r] quintile context consumed by the review UI",
+    )
+    calibration_evaluate_parser.add_argument(
         "--start",
         help="evaluate only cohorts on/after this date (YYYY-MM-DD; design/confirm 分割用)",
     )
@@ -522,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
             required_asofs=args.required_asofs,
             required_metrics=args.required_metrics,
             output_path=Path(args.out) if args.out else None,
+            context_output_path=Path(args.context_out) if args.context_out else None,
             start=_parse_iso_date(args.start) if args.start else None,
             end=_parse_iso_date(args.end) if args.end else None,
         )

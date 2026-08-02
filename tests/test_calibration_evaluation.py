@@ -3,10 +3,11 @@ from __future__ import annotations
 import sys
 import unittest
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -16,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.calibration.cli import (
+    _er_level_context_payload,
     _required_metric_statuses,
     calibration_evaluate_command,
 )
@@ -818,6 +820,7 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         quintiles = level["er_quintiles"]
         assert isinstance(quintiles, list)
         first = quintiles[0]
+        self.assertEqual(first["max_predicted_er_annual"], 0.039)
         self.assertEqual(first["median_predicted_er_annual"], 0.0295)
         self.assertEqual(first["median_realized_total_return_annual"], 0.0495)
         self.assertEqual(first["calibration_error_annual"], 0.02)
@@ -826,6 +829,65 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(first["median_realized_price_return_annual"], 0.0095)
         self.assertEqual(first["median_realized_dividend_contribution_annual"], 0.04)
         self.assertEqual(cohort["metric_statuses"]["er_level_calibration"], "eligible")
+
+    def test_er_level_context_materializes_required_cohorts_only(self) -> None:
+        def cohort(asof: str, shift: float) -> dict[str, object]:
+            return {
+                "asof": asof,
+                "metric_statuses": {"er_level_calibration": "eligible"},
+                "er_level_calibration": {
+                    "er_quintiles": [
+                        {
+                            "max_predicted_er_annual": -0.04 + index * 0.02 + shift,
+                            "median_predicted_er_annual": -0.05 + index * 0.025 + shift,
+                            "median_realized_total_return_annual": -0.10 + index * 0.06,
+                            "n": 200 + index,
+                        }
+                        for index in range(5)
+                    ]
+                },
+            }
+
+        evaluation: dict[str, object] = {
+            "screening_rules_hash": "rules-hash-v1",
+            "er_model_version": "expected-return-v1",
+            "scope": {
+                "run_purpose": "production_decision",
+                "required_asofs": ["2020-01-31", "2020-02-28"],
+                "required_metrics": ["er_level_calibration"],
+            },
+            "production_decision": {
+                "evidence_status": "eligible",
+                "production_change_allowed": True,
+            },
+            "results": {
+                horizon: {
+                    "cohorts": [
+                        cohort("2019-12-30", -0.01),
+                        cohort("2020-01-31", 0.0),
+                        cohort("2020-02-28", 0.002),
+                    ]
+                }
+                for horizon in ("3y", "5y")
+            },
+        }
+
+        context = _er_level_context_payload(
+            evaluation,
+            generated_at=datetime(2026, 8, 2, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+        )
+
+        self.assertEqual(context["reference_horizon"], "3y")
+        self.assertEqual(context["valid_through"], "2026-09-16")
+        horizons = context["horizons"]
+        assert isinstance(horizons, list)
+        first = horizons[0]
+        assert isinstance(first, dict)
+        self.assertEqual(first["cohort_count"], 2)
+        quintiles = first["quintiles"]
+        assert isinstance(quintiles, list)
+        self.assertEqual(quintiles[0]["upper_er_annual"], -0.039)
+        self.assertIsNone(quintiles[4]["upper_er_annual"])
 
     def test_er_level_calibration_does_not_treat_missing_total_return_as_zero(self) -> None:
         panel = [

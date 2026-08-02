@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from shutil import rmtree
+from statistics import median
 from typing import TextIO, cast
+from zoneinfo import ZoneInfo
 
 import yaml
 
+from ..estimates import EXPECTED_RETURN_MODEL_VERSION
 from ..rule_config import ScreeningRules
 from ..store_readiness import unreadable_store_reason
 from .authority import (
@@ -178,6 +181,7 @@ def calibration_evaluate_command(
     required_asofs: list[str] | None = None,
     required_metrics: list[str] | None = None,
     output_path: Path | None = None,
+    context_output_path: Path | None = None,
     start: date | None = None,
     end: date | None = None,
     stdout: TextIO | None = None,
@@ -401,6 +405,8 @@ def calibration_evaluate_command(
     payload = {
         "kind": "estimate-calibration-evaluation",
         "cache_schema_version": CACHE_SCHEMA_VERSION,
+        "screening_rules_hash": metas[0].get("rules_hash"),
+        "er_model_version": EXPECTED_RETURN_MODEL_VERSION,
         "metric_basis": "price_return_only",
         "metric_bases": ["price_return_only", "fy_actual_dividend_total_return"],
         "scope": {
@@ -419,6 +425,13 @@ def calibration_evaluate_command(
         },
         "results": results,
     }
+    context_payload: dict[str, object] | None = None
+    if context_output_path is not None:
+        try:
+            context_payload = _er_level_context_payload(payload)
+        except ValueError as exc:
+            print(f"calibration evaluate: context not written: {exc}", file=sys.stderr)
+            return 1
     text = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,7 +439,138 @@ def calibration_evaluate_command(
         print(f"calibration evaluate: wrote {output_path}", file=out)
     else:
         print(text, file=out)
+    if context_output_path is not None and context_payload is not None:
+        context_output_path.parent.mkdir(parents=True, exist_ok=True)
+        context_output_path.write_text(
+            yaml.safe_dump(context_payload, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+        print(f"calibration evaluate: wrote {context_output_path}", file=out)
     return 0
+
+
+def _er_level_context_payload(
+    evaluation: dict[str, object], *, generated_at: datetime | None = None
+) -> dict[str, object]:
+    """Materialize the small, expiring E[r] context consumed by the review UI."""
+
+    decision = evaluation.get("production_decision")
+    scope = evaluation.get("scope")
+    results = evaluation.get("results")
+    rules_hash = evaluation.get("screening_rules_hash")
+    er_model_version = evaluation.get("er_model_version")
+    if (
+        not isinstance(decision, dict)
+        or decision.get("evidence_status") != "eligible"
+        or decision.get("production_change_allowed") is not True
+    ):
+        raise ValueError("production authority is not eligible")
+    if not isinstance(scope, dict) or scope.get("run_purpose") != "production_decision":
+        raise ValueError("context requires a production_decision evaluation")
+    required_metrics = scope.get("required_metrics")
+    if not isinstance(required_metrics, list) or "er_level_calibration" not in required_metrics:
+        raise ValueError("er_level_calibration is not a required metric")
+    required_asofs = scope.get("required_asofs")
+    if not isinstance(required_asofs, list) or not required_asofs:
+        raise ValueError("required as-of scope is empty")
+    required = {str(value) for value in required_asofs}
+    if not isinstance(results, dict):
+        raise ValueError("evaluation results are missing")
+    if not isinstance(rules_hash, str) or not rules_hash:
+        raise ValueError("screening rules provenance is missing")
+    if not isinstance(er_model_version, str) or not er_model_version:
+        raise ValueError("E[r] model provenance is missing")
+
+    horizons: list[dict[str, object]] = []
+    for horizon in ("3y", "5y"):
+        result = results.get(horizon)
+        cohorts = result.get("cohorts") if isinstance(result, dict) else None
+        if not isinstance(cohorts, list):
+            raise ValueError(f"{horizon} cohorts are missing")
+        selected = [
+            cohort
+            for cohort in cohorts
+            if isinstance(cohort, dict) and str(cohort.get("asof")) in required
+        ]
+        if len(selected) != len(required):
+            raise ValueError(f"{horizon} does not cover every required as-of")
+        quintile_rows: list[list[dict[str, object]]] = [[] for _ in range(5)]
+        for cohort in selected:
+            statuses = cohort.get("metric_statuses")
+            calibration = cohort.get("er_level_calibration")
+            cells = calibration.get("er_quintiles") if isinstance(calibration, dict) else None
+            if (
+                not isinstance(statuses, dict)
+                or statuses.get("er_level_calibration") != "eligible"
+                or not isinstance(cells, list)
+                or len(cells) != 5
+            ):
+                raise ValueError(f"{horizon} contains an ineligible E[r] level cohort")
+            for index, cell in enumerate(cells):
+                if not isinstance(cell, dict):
+                    raise ValueError(f"{horizon} quintile payload is invalid")
+                quintile_rows[index].append(cell)
+
+        quintiles: list[dict[str, object]] = []
+        for index, cells in enumerate(quintile_rows):
+            predicted = _context_float_values(cells, "median_predicted_er_annual", horizon)
+            realized = _context_float_values(cells, "median_realized_total_return_annual", horizon)
+            ns = _context_int_values(cells, "n", horizon)
+            upper = _context_float_values(cells, "max_predicted_er_annual", horizon)
+            quintiles.append(
+                {
+                    "quintile": index + 1,
+                    "upper_er_annual": None if index == 4 else round(median(upper), 6),
+                    "median_predicted_er_annual": round(median(predicted), 6),
+                    "median_realized_total_return_annual": round(median(realized), 6),
+                    "median_n": int(median(ns)),
+                }
+            )
+        cutoff_values = [item.get("upper_er_annual") for item in quintiles[:-1]]
+        if not all(isinstance(value, int | float) for value in cutoff_values):
+            raise ValueError(f"{horizon} E[r] band edges are incomplete")
+        cutoffs = [float(value) for value in cutoff_values if isinstance(value, int | float)]
+        if any(index > 0 and value <= cutoffs[index - 1] for index, value in enumerate(cutoffs)):
+            raise ValueError(f"{horizon} E[r] band edges are not strictly increasing")
+        ordered_asofs = sorted(required)
+        horizons.append(
+            {
+                "horizon": horizon,
+                "asof_start": ordered_asofs[0],
+                "asof_end": ordered_asofs[-1],
+                "cohort_count": len(selected),
+                "quintiles": quintiles,
+            }
+        )
+
+    now = generated_at or datetime.now(ZoneInfo("Asia/Tokyo"))
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("generated_at must include a timezone")
+    return {
+        "kind": "er-level-calibration-context",
+        "schema_version": 1,
+        "generated_at": now.isoformat(timespec="seconds"),
+        "valid_through": (now.date() + timedelta(days=45)).isoformat(),
+        "reference_horizon": "3y",
+        "screening_rules_hash": rules_hash,
+        "er_model_version": er_model_version,
+        "realized_basis": "fy_actual_dividend_total_return_annualized_absolute",
+        "horizons": horizons,
+    }
+
+
+def _context_float_values(cells: list[dict[str, object]], field: str, horizon: str) -> list[float]:
+    values = [cell.get(field) for cell in cells]
+    if not all(isinstance(value, int | float) for value in values):
+        raise ValueError(f"{horizon} quintile values are incomplete")
+    return [float(value) for value in values if isinstance(value, int | float)]
+
+
+def _context_int_values(cells: list[dict[str, object]], field: str, horizon: str) -> list[int]:
+    values = [cell.get(field) for cell in cells]
+    if not all(isinstance(value, int) for value in values):
+        raise ValueError(f"{horizon} quintile values are incomplete")
+    return [value for value in values if isinstance(value, int)]
 
 
 def _is_production_panel_contract(

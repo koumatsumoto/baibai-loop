@@ -13,6 +13,37 @@ from baibai_engine.screening.run_store import ScreeningRunReader
 from .sqlite import connect_read_only, is_unwritten_store, read_rows
 
 
+def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
+    """Return the current production rules and E[r] model identity, or fail closed."""
+
+    # Local imports keep ordinary run-store reads lightweight; only the optional
+    # calibration context needs the panel contract and method configuration.
+    from yaml import YAMLError
+
+    from baibai_engine.screening.calibration.identity import rules_contract_hash
+    from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
+    from baibai_engine.screening.metrics import (
+        BARS_INPUT_WINDOW_DAYS,
+        VALUATION_HISTORY_SESSIONS,
+    )
+    from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+
+    try:
+        rules = load_screening_rules(root / DEFAULT_RULES_PATH)
+    except (OSError, UnicodeError, ValueError, YAMLError):
+        return None
+    return (
+        rules_contract_hash(
+            rules.model_dump_json(),
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        ),
+        EXPECTED_RETURN_MODEL_VERSION,
+    )
+
+
 def previous_run_revision_id(path: Path, asof: date) -> str | None:
     """Return the newest revision of the greatest prior as-of, or None when none exists.
 
@@ -136,6 +167,8 @@ def _run_payload(run: object) -> dict[str, object]:
 
     if not isinstance(run, RunPublication):  # pragma: no cover - internal contract
         raise TypeError("expected RunPublication")
+    screening_rules_hash = run.payload.get("screening_rules_hash")
+    er_model_version = run.payload.get("er_model_version")
     return {
         "run_revision_id": run.run_revision_id,
         "public_run_id": run.public_run_id,
@@ -144,6 +177,8 @@ def _run_payload(run: object) -> dict[str, object]:
         "run_at": run.run_at,
         "universe_size": run.universe_size,
         "rules_ref": run.rules_ref,
+        "screening_rules_hash": screening_rules_hash,
+        "er_model_version": er_model_version,
         "payload": run.payload,
         "candidates": list(run.candidates),
     }
@@ -151,6 +186,7 @@ def _run_payload(run: object) -> dict[str, object]:
 
 __all__ = [
     "previous_run_revision_id",
+    "screening_calibration_method_identity",
     "screening_run_asof_dates",
     "screening_run_payload",
     "screening_selection_payloads",

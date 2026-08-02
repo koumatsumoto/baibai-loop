@@ -13,10 +13,12 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.candidate_build import build_screened_candidate
 from baibai_engine.screening.config import (
     ScreeningConfig,
 )
+from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.screening.freshness import (
     detect_edinet_freshness_warnings,
     load_disclosure_events,
@@ -25,6 +27,7 @@ from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+    VALUATION_HISTORY_SESSIONS,
     build_metrics,
     build_normalized_profit_signals,
     build_shares_outstanding_index,
@@ -411,6 +414,14 @@ def run_command(
         candidates=tuple(screened_candidates),
         run_at=run_now,
         run_id=run_id,
+        screening_rules_hash=rules_contract_hash(
+            rules.model_dump_json(),
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        ),
+        er_model_version=EXPECTED_RETURN_MODEL_VERSION,
         data_sources=tuple(data_sources),
         provider_status_lines=tuple(provider_status_lines),
         universe_exclusion_lines=tuple(

@@ -82,7 +82,40 @@ class CandidatesRun:
     # The screening rules the run was built from. A pair of runs with different
     # rules differs by method, not by market, so a delta has to see this.
     rules_ref: str | None
+    # Immutable method identity from the operative run publication. Calibration
+    # context is displayable only when both values match its generated artifact.
+    screening_rules_hash: str | None
+    er_model_version: str | None
     rows: tuple[dict[str, object], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ErLevelCalibrationQuintile:
+    quintile: int
+    upper_er_annual: float | None
+    median_predicted_er_annual: float
+    median_realized_total_return_annual: float
+    median_n: int
+
+
+@dataclass(frozen=True, slots=True)
+class ErLevelCalibrationHorizon:
+    horizon: str
+    asof_start: date
+    asof_end: date
+    cohort_count: int
+    quintiles: tuple[ErLevelCalibrationQuintile, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ErLevelCalibrationContext:
+    generated_at: datetime
+    valid_through: date
+    reference_horizon: str
+    screening_rules_hash: str
+    er_model_version: str
+    realized_basis: str
+    horizons: tuple[ErLevelCalibrationHorizon, ...]
 
 
 @dataclass(frozen=True, slots=True)

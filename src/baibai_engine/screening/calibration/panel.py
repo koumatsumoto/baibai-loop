@@ -14,7 +14,6 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, fields, replace
 from datetime import date, timedelta
-from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
@@ -50,6 +49,7 @@ from ..sqlite_reader import (
 )
 from ..universe import ELIGIBLE_MARKETS, build_universe, liquid_median_population
 from .forward import STALE_PRICE_MAX_LAG_DAYS
+from .identity import rules_contract_hash
 
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
@@ -118,12 +118,13 @@ def rules_content_hash(
     rules: ScreeningRules, policy: PanelBuildPolicy = PRODUCTION_PANEL_POLICY
 ) -> str:
     """screening rules と panel input contract の semantic identity。"""
-    contract = (
-        f"{rules.model_dump_json()}|{policy.variant}|"
-        f"{policy.valuation_history_sessions}|{policy.bars_input_window_days}|"
-        f"{policy.production_authority}"
+    return rules_contract_hash(
+        rules.model_dump_json(),
+        variant=policy.variant,
+        valuation_history_sessions=policy.valuation_history_sessions,
+        bars_input_window_days=policy.bars_input_window_days,
+        production_authority=policy.production_authority,
     )
-    return sha256(contract.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
