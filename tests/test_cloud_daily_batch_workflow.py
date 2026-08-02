@@ -71,6 +71,7 @@ def test_known_steps_have_stable_ids(steps_by_id: dict[str, dict]) -> None:
         "validate-input",
         "setup",
         "sync",
+        "browser-smoke",
         "pull",
         "batch",
         "upload-machine",
@@ -114,6 +115,17 @@ def test_batch_step_invokes_daily_batch_as_a_module(steps_by_id: dict[str, dict]
     batch_run = steps_by_id["batch"]["run"]
     assert "python -m tools.cloud.daily_batch" in batch_run
     assert "tools/cloud/daily_batch.py" not in batch_run
+
+
+def test_isolated_browser_smoke_runs_before_any_credential_bearing_step(
+    steps: list[dict], steps_by_id: dict[str, dict]
+) -> None:
+    ids = [step.get("id") for step in steps]
+    assert ids.index("sync") < ids.index("browser-smoke") < ids.index("pull")
+    smoke = steps_by_id["browser-smoke"]
+    assert "env" not in smoke
+    assert "BrowserFetcher" in smoke["run"]
+    assert "data:text/html" in smoke["run"]
 
 
 def test_batch_step_writes_summary_and_finalizes_outputs_before_fatal_exit(

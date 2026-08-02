@@ -12,7 +12,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import openpyxl
 import requests
@@ -2013,6 +2013,45 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             self.assertRaisesRegex(BrowserUnavailableError, r"failed to launch headless browser"),
         ):
             BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
+
+    def test_browser_launch_receives_only_allowlisted_runtime_environment(self) -> None:
+        from baibai_engine.macro.indicators.providers.browser import BrowserFetcher
+
+        context = MagicMock()
+        playwright = MagicMock()
+        playwright.chromium.launch_persistent_context.return_value = context
+        starter = MagicMock()
+        starter.start.return_value = playwright
+        inherited = {
+            "HOME": "/home/runner",
+            "PATH": "/usr/bin",
+            "XDG_RUNTIME_DIR": "/run/user/1001",
+            "PLAYWRIGHT_BROWSERS_PATH": "/home/runner/.cache/ms-playwright",
+            "JQUANTS_API_KEY": "jquants-secret",
+            "EDINET_API_KEY": "edinet-secret",
+            "R2_SECRET_ACCESS_KEY": "r2-secret",
+            "FUTURE_VENDOR_TOKEN": "future-secret",
+            "HTTPS_PROXY": "https://proxy-user:proxy-secret@example.test",
+        }
+
+        with (
+            patch(
+                "baibai_engine.macro.indicators.providers.browser.sync_playwright",
+                return_value=starter,
+            ),
+            patch.dict("os.environ", inherited, clear=True),
+            BrowserFetcher() as fetcher,
+        ):
+            assert fetcher._ensure_context() is context
+
+        launch = playwright.chromium.launch_persistent_context
+        assert launch.call_count == 1
+        assert launch.call_args.kwargs["env"] == {
+            "HOME": "/home/runner",
+            "PATH": "/usr/bin",
+            "XDG_RUNTIME_DIR": "/run/user/1001",
+            "PLAYWRIGHT_BROWSERS_PATH": "/home/runner/.cache/ms-playwright",
+        }
 
     def test_h15_does_not_fall_back_to_a_browser_for_a_failure_that_is_not_a_block(self) -> None:
         series = _series("frb_h15", "RIFLGFCY10_N.B")
