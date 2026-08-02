@@ -56,7 +56,7 @@ def _narrative() -> dict[str, object]:
 def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721-test") -> str:
     shortlist = Shortlist.model_validate(
         {
-            "schema_version": 3,
+            "schema_version": 4,
             "kind": "shortlist",
             "shortlist_id": shortlist_id,
             "selection_id": "selection-test",
@@ -73,7 +73,12 @@ def _publish_shortlist(db_path: Path, *, shortlist_id: str = "shortlist-20260721
                     "reason": "一次IRへ進める",
                     "narrative": _narrative(),
                 },
-                {"ticker": "0001", "decision": "rejected", "reason": "根拠が弱い"},
+                {
+                    "ticker": "0001",
+                    "decision": "rejected",
+                    "reason": "根拠が弱い",
+                    "reject_class": "other",
+                },
             ],
         }
     )
@@ -105,6 +110,7 @@ def _draft(db_path: Path, shortlist_id: str) -> dict[str, Any]:
     lane = draft["lanes"][0]
     lane["disposition"] = "reject"
     lane["disposition_reason"] = "5年期待値が要求利回りに届かない"
+    lane["reject_class"] = "price_already_converged"
     for field in (
         "business_model",
         "value_capture",
@@ -185,6 +191,36 @@ def test_check_verifies_the_bindings_without_writing(app_method_root: Path) -> N
         assert connection.execute("SELECT count(*) FROM bargain_assessment").fetchone()[0] == 0
 
 
+@pytest.mark.parametrize("disposition", ["reject", "defer"])
+def test_reject_or_defer_lane_requires_a_known_reject_class(
+    app_method_root: Path, disposition: str
+) -> None:
+    db_path = app_method_root / "data/app/baibai.sqlite"
+    shortlist_id = _publish_shortlist(db_path)
+    payload = _draft(db_path, shortlist_id)
+    payload["lanes"][0]["disposition"] = disposition
+    del payload["lanes"][0]["reject_class"]
+    with pytest.raises(ValidationError, match="must include a reject_class"):
+        BargainAssessment.model_validate(payload)
+
+    payload["lanes"][0]["reject_class"] = "future_guess"
+    with pytest.raises(ValidationError, match="Input should be"):
+        BargainAssessment.model_validate(payload)
+
+
+def test_selected_lane_forbids_reject_class(app_method_root: Path) -> None:
+    db_path = app_method_root / "data/app/baibai.sqlite"
+    shortlist_id = _publish_shortlist(db_path)
+    payload = _draft(db_path, shortlist_id)
+    payload["result"] = "proposal"
+    payload["lanes"][0]["disposition"] = "selected"
+    payload["entry_timing"] = "決算前に買う理由"
+    payload["purchase"] = _purchase_payload(db_path, _seed_proposal(db_path))
+
+    with pytest.raises(ValidationError, match="must not include a reject_class"):
+        BargainAssessment.model_validate(payload)
+
+
 def test_publish_rejects_a_lane_that_the_shortlist_did_not_select(
     app_method_root: Path,
 ) -> None:
@@ -263,6 +299,7 @@ def test_a_proposal_result_requires_a_purchase_plan_and_entry_timing(
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "proposal"
     payload["lanes"][0]["disposition"] = "selected"
+    payload["lanes"][0]["reject_class"] = None
 
     with pytest.raises(ValidationError, match="requires a purchase plan"):
         BargainAssessment.model_validate(payload)
@@ -275,6 +312,7 @@ def test_a_selected_lane_cannot_appear_without_a_proposal_result(
     shortlist_id = _publish_shortlist(db_path)
     payload = _draft(db_path, shortlist_id)
     payload["lanes"][0]["disposition"] = "selected"
+    payload["lanes"][0]["reject_class"] = None
 
     with pytest.raises(ValidationError, match="only a proposal result"):
         BargainAssessment.model_validate(payload)
@@ -289,6 +327,7 @@ def test_publish_rejects_a_purchase_plan_that_does_not_match_the_proposal(
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "proposal"
     payload["lanes"][0]["disposition"] = "selected"
+    payload["lanes"][0]["reject_class"] = None
     payload["entry_timing"] = "決算前に買う理由"
     payload["purchase"] = _purchase_payload(db_path, proposal_id)
     payload["purchase"]["limit_price_yen"] = 1.0
@@ -307,6 +346,7 @@ def test_publish_accepts_a_proposal_round_bound_to_the_stored_proposal(
     payload = _draft(db_path, shortlist_id)
     payload["result"] = "proposal"
     payload["lanes"][0]["disposition"] = "selected"
+    payload["lanes"][0]["reject_class"] = None
     payload["lanes"][0]["disposition_reason"] = "要求利回りを上回る"
     payload["entry_timing"] = "決算前に買う理由"
     payload["purchase"] = _purchase_payload(db_path, proposal_id)

@@ -9,8 +9,9 @@
 # publish binds the draft to its source selection: selection_id / run_revision_id
 # / as_of / profile / macro_context_id must match the selection, and every ticker
 # must be in that run's candidates. selected entries require `rank` and
-# `narrative`; rejected entries must omit both and give a concrete reason
-# (not "順位が低い" / "予算外").
+# `narrative`; rejected entries must omit both, give a concrete reason
+# (not "順位が低い" / "予算外"), and summarize its primary cause in
+# `reject_class`. The reason remains canonical; the class is aggregation-only.
 #
 # The RR block (`upside` / `downside` / `rr`), `catalyst` and `macro` decide
 # whether a candidate earns a primary-research slot. Fill them against the
@@ -19,7 +20,7 @@
 #
 # The published narrative is read by the baibai-app /shortlist review surface.
 
-schema_version: 3
+schema_version: 4
 kind: shortlist
 shortlist_id: "shortlist-YYYYMMDD-<slug>"   # matches ^shortlist-\d{8}-[a-z0-9-]+$
 selection_id: "<selection_id from `screening select`>"
@@ -54,3 +55,4 @@ entries:
   - ticker: "YYYY"
     decision: rejected
     reason: "非選択の具体的理由"
+    reject_class: price_already_converged   # docs/operations/decision-cycle.md の taxonomy

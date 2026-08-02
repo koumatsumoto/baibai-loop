@@ -30,4 +30,48 @@ taxonomy は OP3 の `other` が 30% 以下なら初期運用へ採用する。3
 
 ## 結果
 
-集計後に追記する。
+sourceは`data/app/baibai.sqlite`（SHA-256 `d99b258ed4cb4c763d9bf154d792aef092618e2627d2e6afce4b1c665c5caa62`）。OP3 rejected 36件、bargain assessment reject / defer 5件を確認した。
+
+### OP3 遡及分類
+
+| as_of | class | tickers | 件数 |
+| --- | --- | --- | ---: |
+| 2026-07-17 | `price_already_converged` | 7595, 5445, 6345, 3608, 6436, 4716, 3405, 7575 | 8 |
+| 2026-07-17 | `structural_decline` | 8291, 7915 | 2 |
+| 2026-07-17 | `other` | 6417, 5021 | 2 |
+| 2026-07-28 | `one_off_earnings` | 4849, 4887, 7595, 3608, 4716 | 5 |
+| 2026-07-28 | `price_already_converged` | 6436, 2267 | 2 |
+| 2026-07-28 | `structural_decline` | 8291, 7915 | 2 |
+| 2026-07-28 | `other` | 5021, 8252 | 2 |
+| 2026-07-28 | `provision_or_writedown` | 3405 | 1 |
+| 2026-07-29 | `one_off_earnings` | 4849, 4887, 7595, 3608, 4716 | 5 |
+| 2026-07-29 | `other` | 5021, 2337, 8252, 3405 | 4 |
+| 2026-07-29 | `price_already_converged` | 6436, 7944 | 2 |
+| 2026-07-29 | `structural_decline` | 7915 | 1 |
+
+| class | 件数 | 構成比 |
+| --- | ---: | ---: |
+| `price_already_converged` | 12 | 33.3% |
+| `one_off_earnings` | 10 | 27.8% |
+| `other` | 8 | 22.2% |
+| `structural_decline` | 5 | 13.9% |
+| `provision_or_writedown` | 1 | 2.8% |
+| **合計** | **36** | **100.0%** |
+
+`other`は8/36（22.2%）で事前登録した30%関門以下だったため、初期taxonomyを採用する。`other`の主因は投資対象外業種、macro event中のexposure、高leverage・与信/金利感応などで、現標本では新classを増やすほど単一の塊にならなかった。`governance_accounting` / `supply_demand_liquidity` / `data_quality` / `event_wait`はOP3の主因として0件だったが、将来の観測とresearch deferを表せるため初期enumに残す。
+
+### Research 遡及分類
+
+| assessment | ticker | disposition | class |
+| --- | --- | --- | --- |
+| 2026-07-28 carry-durability | 6345 | reject | `price_already_converged` |
+| 2026-07-28 carry-durability | 6088 | defer | `event_wait` |
+| 2026-07-29 three-lane-no-buy | 7943 | reject | `structural_decline` |
+| 2026-07-29 three-lane-no-buy | 6345 | reject | `price_already_converged` |
+| 2026-07-29 three-lane-no-buy | 6458 | reject | `price_already_converged` |
+
+分布は`price_already_converged` 3/5、`event_wait` 1/5、`structural_decline` 1/5。全5件を判別できた。assessment導入前のthesis-only defer（4432、2026-07-14）はQ2でorganic成長とmarginを確認する判断であり、補足分類は`event_wait`としたが、事前登録どおり上記集計には混ぜていない。
+
+### 還流判断
+
+頻度1位の`price_already_converged`は、既存のFV anchorと現値から機械判定できる。自動除外・E[r]・rankingを変えず、FV anchorに対する上値不足をselection longlistとUIへwarning表示する[#749](https://github.com/koumatsumoto/baibai-loop/issues/749)を最初の変換候補として起票した。2位の`one_off_earnings`は既存`forecast_special_gain_flag`が既に一部を表面化しているため、最初の追加実装には選ばない。

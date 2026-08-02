@@ -32,6 +32,7 @@ application DBの`bargain_assessment`が正本で、Baibai AppのStocks面がind
 各laneは深掘りの結論を次の要点へ圧縮する。thesisの複製ではなく、**laneを採否した理由が読み取れる最小限**にする。
 
 - `disposition` / `disposition_reason` — `selected` / `reject` / `defer` と、そう決めた理由
+- `reject_class` — `reject` / `defer`の主因を集計する分類。自由記述を置き換えず、自動除外やrankingには使わない
 - `business_model` — 何で稼いでいるか
 - `value_capture` — 売上が利益・FCF・一株価値へ届く経路
 - `growth_quality` — volume / price / mix / upsell・churn / FXを開示範囲で分けた成長の質
@@ -76,7 +77,8 @@ application DBの`bargain_assessment`が正本で、Baibai AppのStocks面がind
 6. `proposal_sha256`がstore上のproposalと違う、または`planned_limit`の数値・expiryが違う
 7. `as_of`がbound shortlistの`as_of`より前
 8. `review.draft_sha256`がdraft内容のhashと違う
-9. 同じ`assessment_id`が別内容で既にpublishされている
+9. `reject` / `defer` laneの`reject_class`が欠ける、未定義である、または`selected` laneに付いている
+10. 同じ`assessment_id`が別内容で既にpublishされている
 
 `result`と`purchase`の整合はschemaが持つ。`proposal`はselected lane 1件と`purchase`と`entry_timing`を必須とし、`no_actionable_bargain` / `defer`はselected laneも`purchase`も持てない。
 

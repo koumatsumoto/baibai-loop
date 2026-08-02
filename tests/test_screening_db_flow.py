@@ -85,7 +85,7 @@ def test_select_and_shortlist_publish_from_explicit_run_revision(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-test",
                 "selection_id": outputs[0]["selection_id"],
@@ -185,7 +185,7 @@ candidates:
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260715-trigger",
                 "selection_id": selection_id,
@@ -202,8 +202,18 @@ candidates:
                         "reason": "一次IRへ進める",
                         "narrative": _selected_narrative(),
                     },
-                    {"ticker": "0001", "decision": "rejected", "reason": "決算前で見送り"},
-                    {"ticker": "0002", "decision": "rejected", "reason": "決算日が読めない"},
+                    {
+                        "ticker": "0001",
+                        "decision": "rejected",
+                        "reason": "決算前で見送り",
+                        "reject_class": "event_wait",
+                    },
+                    {
+                        "ticker": "0002",
+                        "decision": "rejected",
+                        "reason": "決算日が読めない",
+                        "reject_class": "event_wait",
+                    },
                 ],
             },
             sort_keys=False,
@@ -347,7 +357,7 @@ def test_pruned_run_is_a_weak_reference_for_all_application_reads(
     draft.write_text(
         yaml.safe_dump(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "kind": "shortlist",
                 "shortlist_id": "shortlist-20260708-weak-ref",
                 "selection_id": selection_id,
