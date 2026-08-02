@@ -160,6 +160,7 @@ _MESSAGE_TEMPLATES = {
     "summary_missing": "batch summary was not produced",
     "summary_invalid": "batch summary is invalid: {reason}",
     "summary_conflict": "batch summary conflicts with the workflow outcome",
+    "edinet_summary_invalid": "EDINET extraction summary is missing quarantine counters",
     "upload_failed": "upload step '{stage}' failed",
     "step_failed": "GitHub Actions step failed; open the run log",
     "batch_failed": "batch failed before completion",
@@ -192,6 +193,9 @@ _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
         "universe": int,
         "candidates": int,
         "selected": int,
+        "edinet_quarantined_events": int,
+        "edinet_quarantined_tickers": int,
+        "edinet_quarantine_sample": str,
     },
     "macro": {"target": int, "success": int, "failure": int},
     # The delta counts ride the export batch because the notification is the only

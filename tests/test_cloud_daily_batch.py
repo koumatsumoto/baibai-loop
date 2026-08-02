@@ -36,6 +36,13 @@ JST = ZoneInfo("Asia/Tokyo")
 ASOF = date(2026, 7, 21)
 
 OK = CommandResult(0, "", "")
+EXTRACT_OK = CommandResult(
+    0,
+    "EDINET extraction summary: selected=1 reused=1 downloaded=0 "
+    "quarantined_events=0 quarantined_tickers=0 quarantine_sample=none "
+    "baseline_asof=2026-07-18\n",
+    "",
+)
 RUN_OK = CommandResult(
     0,
     "screening run done: status=ok; run_revision_id=rev-1; output=/tmp/run.yaml; "
@@ -141,6 +148,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
     return {
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [OK],
+        "screening extract-edinet-metrics": [EXTRACT_OK],
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
         "screening select": [SELECT_OK],
@@ -212,6 +220,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     assert runner.call_keys() == [
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
+        "screening extract-edinet-metrics",
         "screening run",
         "screening select",
         "macro list",
@@ -284,7 +293,7 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path
         OK,
     ]
     script["screening bootstrap-cache"] = [OK]
-    script["screening extract-edinet-metrics"] = [OK]
+    script["screening extract-edinet-metrics"] = [EXTRACT_OK]
     runner = _runner(script)
 
     exit_code = run_daily_batch(
@@ -302,6 +311,26 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path
     ]
     assert runner.calls[2][3:] == ["--asof", "2026-07-21"]
     assert runner.calls[3][3:] == ["--asof", "2026-07-21"]
+
+
+def test_daily_batch_rejects_extraction_without_quarantine_counters(tmp_path: Path) -> None:
+    script = _success_script()
+    script["screening verify-cache-coverage"] = [
+        CommandResult(1, "SQLite cache coverage incomplete for --asof 2026-07-21\n", ""),
+    ]
+    script["screening bootstrap-cache"] = [OK]
+    script["screening extract-edinet-metrics"] = [OK]
+    runner = _runner(script)
+
+    with pytest.raises(BatchStepError, match="without quarantine counters"):
+        run_daily_batch(
+            root=tmp_path,
+            output_dir=tmp_path / "serving",
+            asof=ASOF,
+            runner=runner,
+        )
+
+    assert "screening run" not in runner.call_keys()
 
 
 def test_daily_batch_treats_verify_exit1_without_marker_as_crash(tmp_path: Path) -> None:
@@ -324,7 +353,7 @@ def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_pa
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [incomplete, incomplete],
         "screening bootstrap-cache": [OK],
-        "screening extract-edinet-metrics": [OK],
+        "screening extract-edinet-metrics": [EXTRACT_OK],
     }
     runner = _runner(script)
 
@@ -615,6 +644,9 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
         "universe": 3800,
         "candidates": 2,
         "selected": 2,
+        "edinet_quarantined_events": 0,
+        "edinet_quarantined_tickers": 0,
+        "edinet_quarantine_sample": "none",
     }
     macro = summary.batches[1]
     assert macro.metrics == {"target": 5, "success": 5, "failure": 0}
@@ -633,6 +665,37 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
         "delta_macro_extremes": 0,
         "delta_unavailable": "view_unreadable",
     }
+
+
+def test_daily_batch_carries_edinet_quarantine_counts_when_coverage_is_complete(
+    tmp_path: Path,
+) -> None:
+    script = _success_script()
+    script["screening extract-edinet-metrics"] = [
+        CommandResult(
+            0,
+            "EDINET extraction summary: selected=3970 reused=3965 downloaded=0 "
+            "quarantined_events=47 quarantined_tickers=5 "
+            "quarantine_sample=S100NS9Y:edit:120,S100T65I:edit:120 "
+            "baseline_asof=2026-07-18\n",
+            "EDINET event quarantine: events=47 affected_tickers=5\n",
+        )
+    ]
+    summary_path = tmp_path / "summary.json"
+
+    exit_code = run_daily_batch(
+        root=tmp_path,
+        output_dir=tmp_path / "serving",
+        asof=ASOF,
+        runner=_summary_runner(script),
+        summary_output=summary_path,
+    )
+
+    assert exit_code == 0
+    screening = load_batch_execution_summary(summary_path).batches[0]
+    assert screening.metrics["edinet_quarantined_events"] == 47
+    assert screening.metrics["edinet_quarantined_tickers"] == 5
+    assert screening.metrics["edinet_quarantine_sample"] == ("S100NS9Y:edit:120,S100T65I:edit:120")
 
 
 def test_daily_batch_writes_skipped_summary(tmp_path: Path) -> None:

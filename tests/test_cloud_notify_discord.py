@@ -67,6 +67,9 @@ def _screening_batch(**overrides) -> dict:
             "universe": 3800,
             "candidates": 42,
             "selected": 12,
+            "edinet_quarantined_events": 0,
+            "edinet_quarantined_tickers": 0,
+            "edinet_quarantine_sample": "none",
         },
         "errors": [],
     }
@@ -369,7 +372,19 @@ def test_no_redirect_handler_refuses_redirects() -> None:
 
 def test_render_message_contains_required_fields(tmp_path: Path) -> None:
     summary_path = tmp_path / "batch.json"
-    _write_batch_summary(summary_path, outcome=OUTCOME_SUCCEEDED)
+    screening = _screening_batch()
+    screening["metrics"].update(
+        {
+            "edinet_quarantined_events": 47,
+            "edinet_quarantined_tickers": 5,
+            "edinet_quarantine_sample": "S100NS9Y:edit:120,S100T65I:edit:120",
+        }
+    )
+    _write_batch_summary(
+        summary_path,
+        outcome=OUTCOME_SUCCEEDED,
+        batches=[screening],
+    )
     summary = _build(
         tmp_path,
         summary_path=summary_path,
@@ -386,6 +401,9 @@ def test_render_message_contains_required_fields(tmp_path: Path) -> None:
     assert "publish: published" in message
     assert "screening ok" in message
     assert "universe=3800" in message
+    assert "edinet_quarantined_events=47" in message
+    assert "edinet_quarantined_tickers=5" in message
+    assert "edinet_quarantine_sample=S100NS9Y:edit:120,S100T65I:edit:120" in message
     assert "https://github.com/koumatsumoto/baibai-loop/actions/runs/123/attempts/1" in message
     assert len(message) <= 2000
 

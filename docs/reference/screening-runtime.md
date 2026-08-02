@@ -62,6 +62,13 @@ raw row は file date と `seqNumber` で保持し、書類情報修正、取下
 operation event として origin filing へ適用してから候補を選ぶ。`legalStatus="2"` は
 延長閲覧期間中であり利用可能として扱う。
 
+operation event の origin filing が取得窓内に無い場合は、その event を docID・種別つきで
+quarantine し、件数を extraction summary と daily batch metrics へ出す。screening 対象の
+書類種別かつ secCode を特定できる event は該当 ticker の当日 EDINET metrics を null にして
+fail-closed とするが、他 ticker の抽出と daily publish は継続する。event 以外の status 不正、
+書類関係の循環、API / rate-limit、CSV hard failure は batch 全体を止める。daily batch は
+同日再実行でも差分抽出を行い、mutable な document state と quarantine counter を同期する。
+
 EDINET は過去日の origin row 自体を後日上書きするため、document cache は取得時点の
 current source state であり point-in-time ledger ではない。既存の
 `edinet_metrics(asof_date, ticker)` snapshot が過去 as-of の正本である。snapshot が

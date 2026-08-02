@@ -218,7 +218,8 @@ views の JSON は `baibai-app` の対応 API response と同形（pydantic `mod
 
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
-営業日判定 → screening cache coverage（不足時のみ bootstrap）→ run → select →
+営業日判定 → screening cache coverage（不足時のみ bootstrap）→ EDINET incremental extraction →
+初回 coverage 不足時のみ再検証 → run → select →
 macro series refresh → export → run store prune を順に実行する。
 全 step は public CLI の subprocess で、step ごとにコマンドライン・exit code・所要秒を
 stdout へ出す（scheduled workflow のログをそのまま読む前提）。
@@ -254,6 +255,9 @@ summary には redaction 済みの typed errors だけを渡す。
   run が無いため exit 1）。ただし `screening run` の exit 2 は品質警告つきの published run で
   あり、警告理由を表示して続行する。`verify-cache-coverage` の exit 1 は cache 不足マーカーが
   ある場合だけ bootstrap へ進み、マーカー無しの exit 1（rules 破損等の crash）は即停止する
+- EDINET document state は日中にも変わり得るため、初回 coverage が complete でも
+  `extract-edinet-metrics` を毎回実行する。変更のない metric row は baseline から再利用し、
+  extraction 後の coverage と quarantine counters を current state に揃える
 - macro series refresh の失敗は繰延べる: export まで完走して screening 結果は publish し、
   最後に exit 3 で終了する（scheduled workflow の失敗通知は発火し、鮮度は meta の
   `macro_asof` に現れる）。繰延べた失敗の詳細は発生時点で stderr にも出す
