@@ -119,7 +119,10 @@ function MachineFacts({ longlistEntry, row }: { longlistEntry: SelectionLonglist
         <span className="mx-1 text-muted-foreground">/</span>
         <PctBadge fraction value={row?.er_carry_annual ?? null} />
       </FactRow>
-      <FactRow label="PER(F) / PBR">{plain(row?.per_forward ?? null)} / {plain(row?.pbr ?? null, 2)}</FactRow>
+      <FactRow label="PER(F / TTM / 3FY)">
+        {plain(row?.per_forward ?? null)} / {plain(row?.per_trailing ?? null)} / {plain(row?.normalized_per_3fy ?? null)}
+      </FactRow>
+      <FactRow label="PBR">{plain(row?.pbr ?? null, 2)}</FactRow>
       <FactRow label="売上 / 営業益 YoY">
         <PctBadge fraction value={row?.sales_yoy ?? null} />
         <span className="mx-1 text-muted-foreground">/</span>

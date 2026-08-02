@@ -44,7 +44,7 @@ _COMPLETE_COVERAGE_TEMPLATE_PATH: Path | None = None
 
 
 def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
-    bars_start = asof - timedelta(days=1200)
+    bars_start = asof - timedelta(days=2200)
     margin_week = (asof - timedelta(days=4)).isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO jquants_weekly_margin("
@@ -60,7 +60,7 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         min_date=margin_week,
         max_date=margin_week,
     )
-    fin_start = asof - timedelta(days=730)
+    fin_start = asof - timedelta(days=2200)
     earnings_date = asof + timedelta(days=7)
     tickers = tuple(f"{1301 + index:04d}" for index in range(100))
     conn.executemany(
@@ -250,8 +250,8 @@ class SQLiteCoverageTests(unittest.TestCase):
             _populate_complete_coverage(conn, first)
             _populate_complete_coverage(conn, second)
 
-            bars_start = first - timedelta(days=1200)
-            fin_start = first - timedelta(days=730)
+            bars_start = first - timedelta(days=2200)
+            fin_start = first - timedelta(days=2200)
             conn.execute("DELETE FROM source_coverage WHERE source = ?", ("jquants_daily_bars",))
             bars_count = int(conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0])
             _add_source_coverage(
@@ -359,6 +359,98 @@ class SQLiteCoverageTests(unittest.TestCase):
             issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
 
             self.assertEqual(issues, ())
+
+    def test_current_bar_window_cannot_satisfy_normalized_split_basis(self) -> None:
+        asof = date(2026, 5, 8)
+        current_start = asof - timedelta(days=1200)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
+            conn.execute(
+                "DELETE FROM jquants_daily_bars WHERE traded_at < ?",
+                (current_start.isoformat(),),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.requirement.startswith("normalized_per_3fy split basis")
+                    for issue in issues
+                )
+            )
+            self.assertFalse(
+                any(
+                    issue.reason == "daily bars request window is not fully covered in SQLite"
+                    for issue in issues
+                )
+            )
+
+    def test_normalized_split_basis_rejects_sparse_old_cross_section(self) -> None:
+        asof = date(2026, 5, 8)
+        normalized_start = asof - timedelta(days=2200)
+        current_start = asof - timedelta(days=1200)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
+            conn.execute(
+                "DELETE FROM jquants_daily_bars WHERE traded_at < ? AND ticker != '1301'",
+                (current_start.isoformat(),),
+            )
+            actual_count = int(
+                conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0]
+            )
+            conn.execute(
+                "UPDATE source_coverage SET record_count = ? WHERE source = 'jquants_daily_bars'",
+                (actual_count,),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.requirement == f"{normalized_start.isoformat()}..{asof.isoformat()}"
+                    and "long-history usable date density is too small" in issue.reason
+                    for issue in issues
+                )
+            )
+            self.assertFalse(
+                any(
+                    issue.reason == "daily bars request window is not fully covered in SQLite"
+                    for issue in issues
+                )
+            )
+
+    def test_current_summary_window_cannot_satisfy_normalized_fy_history(self) -> None:
+        asof = date(2026, 5, 8)
+        current_start = asof - timedelta(days=730)
+        with _complete_coverage_database() as sqlite_path:
+            conn = sqlite3.connect(sqlite_path)
+            conn.execute(
+                "UPDATE source_coverage SET coverage_start = ? "
+                "WHERE source = 'jquants_fin_summaries'",
+                (current_start.isoformat(),),
+            )
+            conn.commit()
+            conn.close()
+
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+
+            self.assertTrue(
+                any(
+                    issue.requirement.startswith("normalized_per_3fy FY history")
+                    for issue in issues
+                )
+            )
+            self.assertFalse(
+                any(
+                    issue.reason
+                    == "financial summary request window is not fully covered in SQLite"
+                    for issue in issues
+                )
+            )
 
     def test_missing_required_table_reports_schema_issue(self) -> None:
         asof = date(2026, 5, 8)

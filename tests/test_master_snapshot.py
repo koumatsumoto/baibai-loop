@@ -46,7 +46,15 @@ class _BootstrapJQuants:
         del start, end
         return []
 
+    def get_adjustment_factor_bars_range(self, start: date, end: date):
+        del start, end
+        return []
+
     def get_fin_summary_range(self, start: date, end: date):
+        del start, end
+        return []
+
+    def get_fy_summary_range(self, start: date, end: date):
         del start, end
         return []
 

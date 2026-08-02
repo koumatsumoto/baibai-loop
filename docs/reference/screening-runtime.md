@@ -42,17 +42,17 @@ uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 
 `select` の `--run-revision-id` は必須で、`screening run` が返した immutable revision を指す。`--macro-context-id` は published macro context の ID（省略時は as-of 以前の latest eligible）で path ではない。`--longlist-top N` は diversity/cap 切断前の上位 N 件を longlist として出す。
 
-`backfill-history` は日次足・財務サマリー・営業日カレンダを、明示した窓に対して 1 回で取得する。`bootstrap-cache` は窓を as-of から導くため、履歴を遡るには 1 日あたり 1200 日 + 730 日の再取得をcohort 日ごとに払うことになる。窓を 1 度名指しすれば 1 パスで済み、coverage の union merge が既存の窓と繋ぐ。source ごとに独立に取得して行ごとに結果を出し、1 つの失敗が残りを止めない。日次足と財務サマリーは暦年で区切って要求する。窓全体を 1 度に読むと 10 年分の行をメモリに載せることになるうえ、区切りを `--start` でなく暦に置けば、開始日の違う実行どうしが同じ chunk を再利用できる。日次足・財務サマリーとも被覆済みの chunk は skip するので、中断した実行は chunk 単位で再開する。被覆の判定材料は違い、日次足は保存行そのもの（DB が SSOT、後述 §11.1）、財務サマリーは `source_coverage` の窓を読む。行を書いたあとに記録を残せず中断した財務取得が取り直されるのはこのためである。営業日カレンダは provider 呼び出し 1 回なので分割せず、再開の単位にもならない。日次足を先に取るのは、`backfill-master` の月末グリッドが bar store から導出されるためで、bars の無い月の snapshot はまだ要求できない。
+`backfill-history` は日次足・財務サマリー・営業日カレンダを、明示した窓に対して 1 回で取得する。`bootstrap-cache` は窓を as-of から導き、通常指標用の日次足 1200 日・財務サマリー 730 日に加えて、`normalized_per_3fy` の分割基準と 3 FY を確定する両 source の 2200 日 coverage を要求する。窓を 1 度名指しすれば 1 パスで済み、coverage の union merge が既存の窓と繋ぐ。source ごとに独立に取得して行ごとに結果を出し、1 つの失敗が残りを止めない。日次足と財務サマリーは暦年で区切って要求する。窓全体を 1 度に読むと 10 年分の行をメモリに載せることになるうえ、区切りを `--start` でなく暦に置けば、開始日の違う実行どうしが同じ chunk を再利用できる。日次足・財務サマリーとも被覆済みの chunk は skip するので、中断した実行は chunk 単位で再開する。被覆の判定材料は違い、日次足は保存行そのもの（DB が SSOT、後述 §11.1）、財務サマリーは `source_coverage` の窓を読む。行を書いたあとに記録を残せず中断した財務取得が取り直されるのはこのためである。営業日カレンダは provider 呼び出し 1 回なので分割せず、再開の単位にもならない。日次足を先に取るのは、`backfill-master` の月末グリッドが bar store から導出されるためで、bars の無い月の snapshot はまだ要求できない。
 
-`backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に 1200 日の bar 窓と 730 日の summary 窓も取り直すため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
+`backfill-master` は指定日の断面 master snapshot だけを取得する。較正 cohort が production evidence になるには population がその日の master から来る必要がある一方、`bootstrap-cache` は同時に最長 2200 日の bar / summary coverage も補完するため 1 日あたり数時間かかる。snapshot 自体は 1 request なので、月末グリッドを埋める経路をここに分ける。`--month-end-from/--month-end-to` は較正グリッドと同じ導出（bar store の月末営業日）を使い、cohort 日以外の日付を埋めて非 exact-date のまま残すことを防ぐ。1 日の取得失敗は残りの日付を止めず、失敗件数を stderr に出して非 0 で終わる。
 
 `cloud-history-backfill` は pull 直後と backfill 終了後の `market.sqlite` SHA-256 を比較する。source failure があっても commit 済み chunk が増えた場合は `PRAGMA quick_check` 後に `push-market` で R2へ保存し、その後に元の非0を返す。storeが変わらないfailureはGB級objectを再uploadしない。再dispatchはR2へ保存済みのcoverage/rowsをpullするため、既存chunkを再取得しない。
 
-`bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、asof まで 1200 日分の日次足、asof まで 730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
+`bootstrap-cache --asof` は `run --asof` が要求する source 別 input を自動で補完する。具体的には J-Quants master、通常指標用の日次足 1200 日・財務サマリー 730 日、`normalized_per_3fy` 用の両 source 2200 日 coverage、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot を SQLite に書き込む。決算発表予定は固定 90 日 range ではなく、JPX 公式 index に現在掲載されている全 cohort file の既知日程を合成する snapshot である。
 
 J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の response だけを受理する。response 全行の `Date`、必須 field、normalized ticker の一意性、普通株 population を SQLite transaction 前に検証し、空・部分・別日 response は保存しない。snapshot は `(snapshot_date, ticker)` の日付別履歴として保持し、同日再取得だけを原子的に置換する。coverage は `get_eq_master:YYYY-MM-DD..YYYY-MM-DD`、`coverage_start == coverage_end == asof`、同日 persisted row count を正本とする。
 
-`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、1200 日分の日次足、730 日分の財務サマリー、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot、rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。決算発表予定は論理 source `jpx_earnings_calendar` が `ok`、保存行数と coverage 件数が一致して 1 件以上、実データの最大日が asof 以後、取得が asof から 7 平日以内であることを要求する。`--allow-stale-jpx` は取得時刻だけを緩和し、空・部分保存・全件過去は許可しない。master は requested as-of のexact rowとcanonical coverageだけを照合し、range、status、row count、common-stock populationの一致を要求する。newer/prior snapshotを代用せず、別日snapshotの破損もrequested dateの判定へ混ぜない。日次足は SQLite 実データの行そのものから completeness を判定し（DB が SSOT、後述 §11.1）、財務サマリーは source_coverage の窓で判定する。いずれも ticker/date 密度を追加で確認する。EDINET metrics は常に必須であり、raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
+`verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、通常指標用の日次足 1200 日・財務サマリー 730 日、`normalized_per_3fy` 用の両 source 2200 日 coverage、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot、rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。決算発表予定は論理 source `jpx_earnings_calendar` が `ok`、保存行数と coverage 件数が一致して 1 件以上、実データの最大日が asof 以後、取得が asof から 7 平日以内であることを要求する。`--allow-stale-jpx` は取得時刻だけを緩和し、空・部分保存・全件過去は許可しない。master は requested as-of のexact rowとcanonical coverageだけを照合し、range、status、row count、common-stock populationの一致を要求する。newer/prior snapshotを代用せず、別日snapshotの破損もrequested dateの判定へ混ぜない。日次足は SQLite 実データの行そのものから completeness を判定し（DB が SSOT、後述 §11.1）、財務サマリーは source_coverage の窓で判定する。`normalized_per_3fy` の追加窓も同じ authority で検証し、不足時に `null` や短い履歴へ黙って縮退しない。いずれも ticker/date 密度を追加で確認する。EDINET metrics は常に必須であり、raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。対象日以前の直近正常 snapshot と `(ticker, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, source_document_revision, extractor_revision)` が一致する row は解析済み metric を再利用し、新規・変更候補だけをdownloadする。`source_document_revision` は訂正・取下げ・開示状態を含むcanonical document eventのhashである。`extractor_revision` はscreening package全体と共通ticker正規化moduleのbundled sourceから自動導出し、抽出依存の追加漏れより一時的な過剰再構築を優先する。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
@@ -78,7 +78,7 @@ current source state であり point-in-time ledger ではない。既存の
 
 `ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近screening runのcandidate record・prior research を 1 つの事実 profile として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation はそのcandidate recordから引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite、run store（`data/screening/runs.sqlite`）、application DB（prior research 用）を読む。
 
-`listing_span_days` は J-Quants 銘柄 master に上場日が無いため、cache 内の最古 daily bar からの経過日数を proxy にする。bars cache の窓は asof−1200 暦日なので、上場が古い銘柄は ~1200 日で頭打ちになる（新規上場は実日数）。上場年数の実値ではなく「最低これだけの履歴がある」下限として読む。
+`listing_span_days` は J-Quants 銘柄 master に上場日が無いため、通常 run が指標計算へ渡す最古 daily bar からの経過日数を proxy にする。この入力窓は asof−1200 暦日なので、物理 cache がより長い履歴を持っていても、上場が古い銘柄は ~1200 日で頭打ちになる（新規上場は実日数）。上場年数の実値ではなく「最低これだけの履歴がある」下限として読む。
 
 `market-snapshot` は日次運用の任意の asof で、7日間隔の regime 履歴(benchmark trend・breadth・regime label)と asof 時点の sector 集計(20/60 営業日リターン中央値・sector 内 breadth)を出力する。regime の閾値・窓は regime module と同一の正本を共有する。macro context 作成時の機械入力としても使う。
 
@@ -112,8 +112,8 @@ cache / SQLite の配置先は固定 (env override 廃止):
 | method | 用途 |
 | --- | --- |
 | `get_eq_master` | requested as-of時点の上場銘柄一覧、普通株判定、市場区分、33業種。`date=YYYY-MM-DD`を必須としresponse `Date`の一致を検証する |
-| `get_eq_bars_daily_range` | 日次 OHLCV、20 営業日平均売買代金、60 営業日騰落率、750 営業日自己レンジ |
-| `get_fin_summary_range` | 財務サマリー、会社予想 EPS、利益系概要値 |
+| `get_eq_bars_daily_range` | 日次 OHLCV、20 営業日平均売買代金、60 営業日騰落率、750 営業日自己レンジ、3FY normalized PER の分割基準 |
+| `get_fin_summary_range` | 財務サマリー、会社予想 EPS、利益系概要値、3FY normalized PER の FY EPS |
 | `get_mkt_calendar` | 営業日カレンダ |
 
 ## 5. EDINET Baseline
@@ -188,7 +188,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 - `.cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の cache。削除しても SQLite の metric rows は残る
 - `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit をYAML viewの`freshness_warnings`に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
 - `method/` は screening rules・macro panel・playbook だけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
-- `screening run` は開始時に `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない
+- `screening run` は開始時に `verify-cache-coverage --asof` 相当の coverage 検証を行う。SQLite が不完全な場合は fail-fast し、raw JSON cache や provider API へフォールバックしない。通常指標は 1200 日の日次足と 730 日の財務行を読み、`normalized_per_3fy` は 2200 日窓から FY 行と分割・併合 event だけを疎に読むため、全日次足を追加でメモリへ載せない
 - `JQuantsProvider` / `EDINETProvider` / `JPXProvider` は bootstrap / extract 系コマンドでは SQLite miss 後に provider API へ進み、取得結果を SQLite に直接保存する。`screening run` では `cache_only` で構築され、run 中の追加取得を禁止する
 
 ### 11.1 SQLite Schema
@@ -214,7 +214,7 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 
 J-Quants の正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_engine/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
 
-- `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の日次足は asof−1200 暦日、財務サマリーは asof−730 暦日を範囲に取り、`_RANGE_CHUNK_DAYS=31` で 31 日 chunk に分割して ClientV2 内部の per-day API 呼び出しに fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、1 asof の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
+- `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の最長窓は `normalized_per_3fy` が要求する日次足・財務サマリー各 2200 暦日で、`_RANGE_CHUNK_DAYS=31` の chunk から ClientV2 内部の per-day API 呼び出しへ fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、初回の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
 - chunk は resumable。`source_coverage` に chunk 単位で `status=ok` を記録し、中断しても完了済み chunk は再取得しない。複数 asof は履歴窓が大きく重複するため、最初の 1 asof の full bootstrap が高コストで、以降の週は非重複 chunk とその週の EDINET だけで安価になる。
 - 既存 cache がある asof では長期履歴を再取得しない。日次足の coverage は行データから導出し（§11.1、DB が SSOT）、range fetch の coverage は overlapping / adjacent window と union merge する（§11.1）。chunk 境界が asof ごとにずれても、行が揃っていれば偽のギャップを作らず re-fetch しない。
 - 被覆済みと判定された窓の末尾を読み直すのは **鮮度のための機構であり、穴の修復機構ではない**。窓の終端が store の最新取引日以降のときだけ発火し、そうでない過去窓は読み直さない。したがって「端の許容（10 日）より短い、過去窓の末尾の穴」を埋める経路は無い。これは coverage 判定が休場と区別できない gap 幅と同じ範囲で、それより広い欠けは被覆判定が落として chunk 経路が取り直す。

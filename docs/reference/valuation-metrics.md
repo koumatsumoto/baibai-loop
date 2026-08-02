@@ -16,6 +16,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 | --- | --- | --- |
 | PER (Forward) | 株価 / 会社予想 EPS | 株価、会社予想 EPS |
 | PER (Trailing) | 株価 / 直近 4 四半期 EPS | 株価、EPS 直近 4Q 合算 |
+| PER (3FY normalized) | 株価 / 直近 3 FY の分割補正後 EPS 平均 | 株価、FY EPS、株式分割・併合係数 |
 | PBR | 株価 / 1 株純資産（BPS） | 株価、BPS |
 | EV/EBITDA | (時価総額 + 有利子負債 - 現金) / EBITDA | 時価総額、有利子負債、現金、EBITDA |
 | P/S | 株価 / 1 株売上高 | 株価、直近 4Q 売上 |
@@ -52,6 +53,12 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 - 直近 4 四半期の合算 EPS を使用
 - 決算期またぎの場合、確報前期と確報後期の混在を避ける（確報確定後のみ更新）
 - 赤字期（EPS マイナス）は `null` を採用（割安検出に意味を持たない）
+
+### 3.1 3FY normalized PER の算出と用途
+
+`normalized_per_3fy` は、as-of 以前に開示された直近 3 FY の EPS を現在の株式数基準へ分割補正し、その単純平均で現在株価を割る raw estimate である。3 FY が揃わない、補正後 EPS 平均が正でない、または価格・分割係数を確定できない場合は `null` とし、別指標へのフォールバックは行わない。
+
+shortlist UI では trailing PER と並べて表示するが、warning、除外条件、ranking、FV、E[r] の入力には使わない。一時損益の中身を判定する指標ではなく、単年 EPS への依存度を人間が確認するための annotation として扱う。
 
 ## 4. PBR の算出
 

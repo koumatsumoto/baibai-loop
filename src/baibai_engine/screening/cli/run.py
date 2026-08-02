@@ -24,7 +24,9 @@ from baibai_engine.screening.freshness import (
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     build_metrics,
+    build_normalized_profit_signals,
     build_shares_outstanding_index,
     group_bars_by_ticker,
     group_summaries_by_ticker,
@@ -102,6 +104,7 @@ def run_command(
     # で ~26 chunk (各 1-3 分) の追加取得コストが支配的になるため。
     bars_start_date = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
     fin_start_date = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
+    normalized_start_date = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
     try:
         print(f"screening run start: asof={asof_date.isoformat()}", file=out, flush=True)
         print("screening run jquants market_calendar: start", file=out, flush=True)
@@ -140,6 +143,25 @@ def run_command(
             file=out,
             flush=True,
         )
+        print(
+            "screening run jquants normalized_profit_inputs: "
+            f"{normalized_start_date.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        normalized_fy_summaries = providers.jquants.get_fy_summary_range(
+            normalized_start_date, asof_date
+        )
+        normalized_split_bars = providers.jquants.get_adjustment_factor_bars_range(
+            normalized_start_date, asof_date
+        )
+        print(
+            "screening run jquants normalized_profit_inputs: "
+            f"{len(normalized_fy_summaries)} FY row(s), "
+            f"{len(normalized_split_bars)} split event(s)",
+            file=out,
+            flush=True,
+        )
         print("screening run jpx earnings_calendar snapshot: start", file=out, flush=True)
         earnings_snapshot = providers.jpx.get_earnings_calendar_snapshot(asof_date)
         print(
@@ -175,6 +197,8 @@ def run_command(
 
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
+    normalized_fy_by_ticker = group_summaries_by_ticker(normalized_fy_summaries)
+    normalized_split_bars_by_ticker = group_bars_by_ticker(normalized_split_bars)
     next_earnings_by_ticker = _index_next_earnings(earnings_snapshot.entries, asof_date)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
@@ -257,6 +281,17 @@ def run_command(
             events_by_ticker=disclosure_load_result.events_by_ticker,
             asof_date=asof_date,
         )
+        normalized_profit = build_normalized_profit_signals(
+            normalized_fy_by_ticker.get(ticker, ()),
+            normalized_split_bars_by_ticker.get(ticker, ()),
+            asof_date,
+            close=(
+                financial.market_cap / financial.shares_outstanding
+                if financial.market_cap is not None and financial.shares_outstanding
+                else None
+            ),
+            current_eps=financial.eps,
+        )
         screened_candidates.append(
             build_screened_candidate(
                 ticker=ticker,
@@ -267,6 +302,7 @@ def run_command(
                 evidence_hits=result.evidence_hits if result.pass_fail else (),
                 freshness_warnings=freshness_warnings,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
+                normalized_per_3fy=normalized_profit.normalized_per_3fy,
             )
         )
 

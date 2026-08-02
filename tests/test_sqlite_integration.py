@@ -37,20 +37,21 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
     conn = open_connection(sqlite_path)
 
     ticker = "130A"
-    # Cover [asof - 1200, max(asof + 60, today + 5)]: `screening run` requires
-    # 1200 calendar days of daily bars, and coverage is derived from the actual
-    # rows, so the fixture must really hold them (not just claim coverage via
-    # source_coverage). The forward window extends to today so the decision sync
+    # Cover [asof - 2200, max(asof + 60, today + 5)]: the current screen reads
+    # 1200 days, while split-safe normalized PER proves a 2200-day factor range.
+    # Coverage is derived from actual rows, so the fixture must really hold them
+    # rather than only claim coverage via source_coverage. The forward window extends
+    # to today so the decision sync
     # path's `end = max(now, asof)` stays inside the imported window for any test
     # wall-clock — a fixed asof + 60 expires once the real clock passes that date.
-    history_days_back = 1200
+    history_days_back = 2200
     forward_days = 60
     history_start = asof - timedelta(days=history_days_back)
     today = datetime.now(UTC).date()
     history_end = max(asof + timedelta(days=forward_days), today + timedelta(days=5))
     history_days = (history_end - history_start).days + 1
-    bars_start = asof - timedelta(days=1200)
-    fin_start = asof - timedelta(days=730)
+    bars_start = asof - timedelta(days=2200)
+    fin_start = asof - timedelta(days=2200)
 
     # Master snapshot
     master_rows = [
@@ -135,8 +136,27 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
         max_date=history_end.isoformat(),
     )
 
-    # Fin summaries: two disclosures spanning a year
+    # Fin summaries: current rows plus three consecutive FY rows for normalized PER.
     fin_rows = [
+        *[
+            (
+                ticker,
+                (asof - timedelta(days=365 * years_ago - 30)).isoformat(),
+                None,
+                eps,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "FY",
+                date(asof.year - years_ago, 3, 31).isoformat(),
+                None,
+                None,
+            )
+            for years_ago, eps in ((3, 10.0), (2, 20.0), (1, 30.0))
+        ],
         (
             ticker,
             (asof - timedelta(days=120)).isoformat(),
@@ -186,7 +206,7 @@ def _populate_screening_fixture(sqlite_path: Path, asof: date) -> None:
             f"get_fin_summary_range-end_dt-{asof.isoformat()}-"
             f"start_dt-{fin_start.isoformat()}.json"
         ),
-        record_count=2,
+        record_count=len(fin_rows),
         min_date=fin_start.isoformat(),
         max_date=asof.isoformat(),
     )

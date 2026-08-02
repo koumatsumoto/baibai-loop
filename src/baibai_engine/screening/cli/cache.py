@@ -23,6 +23,11 @@ from baibai_engine.screening.edinet_revision import (
     compute_extractor_revision,
     has_hard_metric_failure,
 )
+from baibai_engine.screening.metrics import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+)
 from baibai_engine.screening.providers.edinet import (
     EdinetDocumentCandidate,
     EdinetMetricRecord,
@@ -656,8 +661,9 @@ def bootstrap_cache_command(
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
-    bars_start = asof_date - timedelta(days=1200)
-    fin_start = asof_date - timedelta(days=730)
+    bars_start = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
+    fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
+    normalized_start = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
     try:
         print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
         print("bootstrap-cache jquants eq_master: start", file=out, flush=True)
@@ -680,6 +686,18 @@ def bootstrap_cache_command(
             flush=True,
         )
         print(
+            "bootstrap-cache jquants split_normalization_bars: "
+            f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        split_bars = providers.jquants.get_adjustment_factor_bars_range(normalized_start, asof_date)
+        print(
+            f"bootstrap-cache jquants split_normalization_bars: {len(split_bars)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
             "bootstrap-cache jquants fin_summaries: "
             f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
             file=out,
@@ -688,6 +706,18 @@ def bootstrap_cache_command(
         summaries = providers.jquants.get_fin_summary_range(fin_start, asof_date)
         print(
             f"bootstrap-cache jquants fin_summaries: {len(summaries)} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
+            "bootstrap-cache jquants normalized_profit_fy_summaries: "
+            f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        fy_summaries = providers.jquants.get_fy_summary_range(normalized_start, asof_date)
+        print(
+            f"bootstrap-cache jquants normalized_profit_fy_summaries: {len(fy_summaries)} row(s)",
             file=out,
             flush=True,
         )

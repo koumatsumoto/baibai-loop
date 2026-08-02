@@ -219,6 +219,60 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             self.assertEqual(client.fin_calls, [])
             self.assertEqual(len(summaries), 1)
 
+    def test_normalized_profit_inputs_read_only_fy_rows_and_split_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp) / "raw"
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            start = date(2021, 1, 1)
+            end = date(2024, 4, 18)
+            conn = open_connection(sqlite_path)
+            _insert_daily_bars(conn, [(start.isoformat(), end.isoformat())])
+            conn.execute(
+                "UPDATE jquants_daily_bars SET adjustment_factor = ? WHERE traded_at = ?",
+                (2.0, "2023-10-02"),
+            )
+            _add_source_coverage(
+                conn,
+                source="jquants_daily_bars",
+                record_count=(end - start).days + 1,
+                min_date=start.isoformat(),
+                max_date=end.isoformat(),
+            )
+            conn.executemany(
+                "INSERT INTO jquants_fin_summaries("
+                "ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end"
+                ") VALUES (?, ?, ?, ?, ?)",
+                [
+                    ("1301", "2022-05-15", 10.0, "FY", "2022-03-31"),
+                    ("1301", "2023-05-15", 20.0, "FY", "2023-03-31"),
+                    ("1301", "2024-02-01", 25.0, "3Q", "2024-03-31"),
+                    ("1301", "2024-04-15", 30.0, "FY", "2024-03-31"),
+                ],
+            )
+            _add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                record_count=4,
+                min_date=start.isoformat(),
+                max_date=end.isoformat(),
+            )
+            conn.commit()
+            conn.close()
+
+            client = _RecordingClient()
+            provider = JQuantsProvider("token", cache_dir, client=client, sqlite_path=sqlite_path)
+
+            split_bars = provider.get_adjustment_factor_bars_range(start, end)
+            fy_summaries = provider.get_fy_summary_range(start, end)
+
+            self.assertEqual(client.bars_calls, [])
+            self.assertEqual(client.fin_calls, [])
+            self.assertEqual(
+                [(bar.traded_at.isoformat(), bar.adjustment_factor) for bar in split_bars],
+                [("2023-10-02", 2.0)],
+            )
+            self.assertEqual([row.eps_ttm for row in fy_summaries], [10.0, 20.0, 30.0])
+
     def test_get_bars_refetches_recent_tail_when_asof_ahead_of_cache(self) -> None:
         """An incremental asof a few days ahead of the cached tail looks covered
         (the data-derived check tolerates a holiday-sized edge gap), but a
