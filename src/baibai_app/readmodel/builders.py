@@ -54,6 +54,7 @@ from .models import (
     DashboardView,
     DeltaPool,
     DeltaUnavailable,
+    FvConvergenceView,
     HoldingDeltaView,
     HoldingReviewView,
     HoldingView,
@@ -653,6 +654,26 @@ def _selection_longlist_entry_view(raw: Mapping[str, object]) -> SelectionLongli
         selection_reasons=_string_list(raw.get("selection_reasons")),
         durability_warnings=_string_list(raw.get("durability_warnings")),
         event_warnings=_string_list(raw.get("event_warnings")),
+        fv_convergence=_fv_convergence_view(raw.get("fv_convergence")),
+    )
+
+
+def _fv_convergence_view(raw: object) -> FvConvergenceView:
+    payload = raw if isinstance(raw, Mapping) else {}
+    status = payload.get("status")
+    if status not in {"warning", "clear", "not_evaluable"}:
+        status = "not_evaluable"
+    anchors = payload.get("anchors_yen")
+    return FvConvergenceView(
+        status=status,
+        warning_code=_text(payload.get("warning_code")),
+        market_price_yen=_number(payload.get("market_price_yen")),
+        anchors_yen={
+            str(key): number
+            for key, value in (anchors.items() if isinstance(anchors, Mapping) else ())
+            if (number := _number(value)) is not None and number > 0
+        },
+        er_reversion_annual=_number(payload.get("er_reversion_annual")),
     )
 
 

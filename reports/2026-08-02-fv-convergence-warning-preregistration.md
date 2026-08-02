@@ -31,3 +31,23 @@ payloadには`status`、warning code、利用した参考価格、anchor名と�
 - bool、文字列、NaN、無限大、0以下の価格・anchorを判定入力に使わないnegative testを置く。
 - warning有無だけを変えた同一candidate集合で、rank、E[r]、screen結果、recommendation ticker列が不変であることを固定する。
 - read modelが旧payloadを`not_evaluable`として読めることと、UIがwarning / 判定不能を区別して表示することを確認する。
+
+## 遡及結果
+
+事前登録commit `019949b`の後に計測した。入力は次の3 selection artifactと、selected / rejectedラベルの正本であるapplication DBを使った。
+
+| source | SHA-256 |
+| --- | --- |
+| `.cache/opportunity/2026-07-17/selection.yaml` | `c311d199d0fc744e47cd0df6aae3eda870781baeae70ae41a70311a90200e7df` |
+| `.cache/opportunity/2026-07-28/selection.yaml` | `64c864d869f57c6a413e57767cca99fa731350e3f2df3ddf76e4081392ea8faf` |
+| `.cache/opportunity/2026-07-29/selection.yaml` | `b01948dcad79a5922c0b693a53657f2c964dba186bcd97b047ebfb06d8826fe2` |
+| `data/app/baibai.sqlite` | `d99b258ed4cb4c763d9bf154d792aef092618e2627d2e6afce4b1c665c5caa62` |
+
+| cohort | warning | clear | not_evaluable | warning率 |
+| --- | ---: | ---: | ---: | ---: |
+| `price_already_converged` rejected | 2 | 10 | 0 | 2 / 12 = **16.7%** |
+| 同じ3 cycleのselected | 1 | 23 | 0 | 1 / 24 = **4.2%** |
+
+rejectedでwarningになったのは2026-07-17の7575と2026-07-29の7944で、どちらも現値がsector / self-rangeの両anchor以上かつreversionが負だった。clear 10件のうち9件は現値が片方のanchorだけを上回り、もう片方には上値余地が残った。残る2026-07-28の2267は現値が両anchor未満でreversionも正だった。`not_evaluable`は無く、欠損補完は発生していない。
+
+selectedのwarningは2026-07-29の7575だけだった。この記述比較はwarningの正誤を確定しないが、3 cycleのselectedの95.8%をwarningにしないため、OP3面を広い注意表示で埋めない。既知classのcoverageは16.7%に限定されるので、warningは「人間の棄却型を代行する検出器」ではなく、両machine anchorへの収束を高確度で表面化するannotationとして扱う。

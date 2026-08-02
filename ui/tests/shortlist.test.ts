@@ -72,6 +72,13 @@ function longlistEntry(
     selection_reasons: [],
     durability_warnings: [],
     event_warnings: [],
+    fv_convergence: {
+      status: 'clear',
+      warning_code: null,
+      market_price_yen: 1000,
+      anchors_yen: { fv_sector_median_yen: 1250 },
+      er_reversion_annual: 0.011,
+    },
     ...overrides,
   }
 }

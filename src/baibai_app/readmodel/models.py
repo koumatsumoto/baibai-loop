@@ -271,6 +271,16 @@ class ScreeningHistoryRunView(BaseModel):
     rows: list[CandidateRowView]
 
 
+class FvConvergenceView(BaseModel):
+    """Read-only warning provenance; it never carries selection authority."""
+
+    status: Literal["warning", "clear", "not_evaluable"]
+    warning_code: str | None
+    market_price_yen: float | None
+    anchors_yen: dict[str, float]
+    er_reversion_annual: float | None
+
+
 class SelectionLonglistEntryView(BaseModel):
     """機械 rank 上位の候補 1 件。FV アンカーと E[r] はここだけが持つ。"""
 
@@ -286,6 +296,7 @@ class SelectionLonglistEntryView(BaseModel):
     selection_reasons: list[str]
     durability_warnings: list[str]
     event_warnings: list[str]
+    fv_convergence: FvConvergenceView
 
 
 class MachineSelectionView(BaseModel):

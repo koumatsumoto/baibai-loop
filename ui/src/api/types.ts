@@ -396,6 +396,15 @@ export interface SelectionLonglistEntryView {
   selection_reasons: string[]
   durability_warnings: string[]
   event_warnings: string[]
+  fv_convergence: FvConvergenceView
+}
+
+export interface FvConvergenceView {
+  status: 'warning' | 'clear' | 'not_evaluable'
+  warning_code: string | null
+  market_price_yen: number | null
+  anchors_yen: Record<string, number>
+  er_reversion_annual: number | null
 }
 
 export interface MachineSelectionView {

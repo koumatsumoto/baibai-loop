@@ -96,6 +96,17 @@ function SupplyDemandCompact({ row }: { row: CandidateRowView | null }) {
   )
 }
 
+function FvConvergenceBadge({ entry }: { entry: SelectionLonglistEntryView | null }) {
+  const convergence = entry?.fv_convergence
+  if (!convergence || convergence.status === 'not_evaluable') {
+    return <Badge className="text-[10px]" variant="outline">判定不能</Badge>
+  }
+  if (convergence.status === 'warning') {
+    return <Badge className="bg-warning-surface text-[10px] text-warning-ink">全FVへ収束</Badge>
+  }
+  return <span className="text-muted-foreground">—</span>
+}
+
 function MachineFacts({ longlistEntry, row }: { longlistEntry: SelectionLonglistEntryView | null; row: CandidateRowView | null }) {
   if (longlistEntry === null && row === null) {
     return (
@@ -113,6 +124,7 @@ function MachineFacts({ longlistEntry, row }: { longlistEntry: SelectionLonglist
         {yen(longlistEntry?.fair_value_anchor_yen ?? row?.fair_value_anchor_yen ?? null)}
         {gap !== null && <span className="ml-2"><PctBadge value={gap} /></span>}
       </FactRow>
+      <FactRow label="FV convergence"><FvConvergenceBadge entry={longlistEntry} /></FactRow>
       <FactRow label="機械 E[r]"><PctBadge fraction value={row?.er_annual ?? null} /></FactRow>
       <FactRow label="E[r] 分解 (rev / carry)">
         <PctBadge fraction value={row?.er_reversion_annual ?? null} />
@@ -190,6 +202,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
               <TableHead className="w-20 text-right">E[r]</TableHead>
               <TableHead className="w-28 text-right">rev / carry</TableHead>
               <TableHead className="w-20 text-right">FV乖離</TableHead>
+              <TableHead className="w-24">FV収束</TableHead>
               <TableHead className="w-24">信用需給</TableHead>
               <TableHead className="min-w-56">RR が成立する理由</TableHead>
               <TableHead className="w-28">catalyst</TableHead>
@@ -212,6 +225,7 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
                   <PctBadge fraction value={row.erCarryAnnual} />
                 </TableCell>
                 <TableCell className="text-right"><PctBadge value={row.fairValueGapPct} /></TableCell>
+                <TableCell><FvConvergenceBadge entry={row.longlistEntry} /></TableCell>
                 <TableCell><SupplyDemandCompact row={row.row} /></TableCell>
                 <TableCell className="text-muted-foreground" title={row.rr ?? undefined}>{summarize(row.rr) ?? EMPTY}</TableCell>
                 <TableCell className="font-mono text-xs tabular-nums" title={row.catalyst ?? undefined}>
