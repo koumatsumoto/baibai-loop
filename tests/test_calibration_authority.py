@@ -177,6 +177,35 @@ def test_normalized_per_metric_can_be_explicitly_required() -> None:
     assert decision.production_change_allowed is True
 
 
+def test_margin_short_metric_can_be_explicitly_required() -> None:
+    required = (
+        "recommended_rank_top5",
+        "recommended_rank_top10",
+        "er_calibration",
+        "margin_short_to_adv",
+    )
+    scope = EvaluationScope(
+        run_purpose="production_decision",
+        requested_horizons=("3y", "5y"),
+        cohort_window={"start": None, "end": None},
+        required_asofs=("2020-01-31",),
+        required_metrics=required,
+    )
+    cohorts = tuple(
+        CohortIntegrity(
+            asof="2020-01-31",
+            horizon=horizon,
+            integrity_status="eligible",
+            metric_statuses=dict.fromkeys(required, "eligible"),
+        )
+        for horizon in ("3y", "5y")
+    )
+
+    decision = decide_authority(scope, cohorts)
+
+    assert decision.production_change_allowed is True
+
+
 def test_blocking_reasons_stay_bounded_as_the_panel_count_grows() -> None:
     # One reason per cohort would grow with the panel count and bury the few causes a
     # reader can act on, and the same growth would turn the histogram into ones.
