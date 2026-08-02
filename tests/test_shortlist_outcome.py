@@ -16,6 +16,7 @@ from baibai_engine.screening.cli.shortlist_outcome_cli import shortlist_outcome_
 from baibai_engine.screening.shortlist_outcome import (
     cohort_from_payload,
     evaluate_cohort,
+    evaluate_machine_counterfactual,
     with_machine_estimates,
 )
 from baibai_engine.screening.sqlite_cache import open_connection
@@ -131,6 +132,62 @@ def test_machine_basis_separates_a_missing_estimate_from_a_cycle_that_selected_n
 
     assert evaluate_cohort(no_estimate, rows, horizon="3m")["machine_basis"] == "estimate_missing"
     assert evaluate_cohort(no_selection, rows, horizon="3m")["machine_basis"] == "no_selection"
+
+
+def test_fixed_machine_counterfactual_compares_top_one_with_cash_and_pool() -> None:
+    cohort = cohort_from_payload(
+        _payload(
+            [
+                _entry("1111", "selected"),
+                _entry("2222", "rejected"),
+                _entry("3333", "rejected"),
+            ]
+        )
+    )
+    assert cohort is not None
+    cohort = with_machine_estimates(cohort, {"1111": 0.05, "2222": 0.06, "3333": 0.09})
+
+    result = evaluate_machine_counterfactual(
+        cohort,
+        [_forward("1111", 0.1), _forward("2222", 0.0), _forward("3333", 0.2)],
+        horizon="3m",
+        top_n=1,
+    )
+
+    assert result["status"] == "resolved"
+    assert result["target_date"] == "2026-04-30"
+    assert result["pool_median_return_pct"] == 10.0
+    assert result["machine_top_n"] == {
+        "n": 1,
+        "tickers": ["3333"],
+        "resolved": 1,
+        "unresolved": 0,
+        "median_return_pct": 20.0,
+        "median_excess_vs_cash_pct": 20.0,
+        "median_excess_vs_pool_pct": 10.0,
+    }
+
+
+def test_machine_counterfactual_does_not_rank_an_incomplete_estimate_set() -> None:
+    cohort = cohort_from_payload(_payload([_entry("1111", "selected"), _entry("2222", "rejected")]))
+    assert cohort is not None
+    cohort = with_machine_estimates(cohort, {"1111": 0.10})
+
+    result = evaluate_machine_counterfactual(
+        cohort,
+        [_forward("1111", 0.1), _forward("2222", 0.0)],
+        horizon="3m",
+        top_n=1,
+    )
+
+    assert result == {
+        "horizon": "3m",
+        "target_date": "2026-04-30",
+        "status": "estimate_missing",
+        "top_n": 1,
+        "pool_size": 2,
+        "estimate_count": 1,
+    }
 
 
 def test_a_cohort_with_names_but_no_prices_keeps_its_size_and_counts_the_gap() -> None:

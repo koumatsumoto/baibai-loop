@@ -279,6 +279,82 @@ def evaluate_cohort(
     return payload
 
 
+def evaluate_machine_counterfactual(
+    cohort: ShortlistCohort,
+    forward_rows: Sequence[ForwardReturnRow],
+    *,
+    horizon: str,
+    top_n: int,
+) -> dict[str, object]:
+    """Compare a fixed machine top-N with cash and its reviewed pool.
+
+    The price resolver is shared with shortlist outcome through ``ForwardReturnRow``.
+    This function only fixes the cohort and descriptive summaries. It fails closed
+    when any reviewed entry lacks the E[r] needed to establish the true top-N; ranking
+    the remaining entries would silently change the counterfactual.
+    """
+
+    if top_n < 1:
+        raise ValueError("machine counterfactual top_n must be positive")
+    horizon_rows = [row for row in forward_rows if row.horizon == horizon]
+    target_dates = {row.target_date for row in horizon_rows}
+    target_date = next(iter(target_dates)) if len(target_dates) == 1 else None
+    estimate_count = sum(item.er_annual is not None for item in cohort.judgments)
+    if estimate_count != len(cohort.judgments) or len(cohort.judgments) < top_n:
+        return {
+            "horizon": horizon,
+            "target_date": target_date,
+            "status": "estimate_missing",
+            "top_n": top_n,
+            "pool_size": len(cohort.judgments),
+            "estimate_count": estimate_count,
+        }
+
+    ranked = sorted(
+        cohort.judgments,
+        key=lambda item: (-(item.er_annual or 0.0), item.ticker),
+    )
+    machine_tickers = [item.ticker for item in ranked[:top_n]]
+    resolved = {
+        row.ticker: row.price_return
+        for row in horizon_rows
+        if row.resolved and row.price_return is not None
+    }
+    machine_returns = [resolved[ticker] for ticker in machine_tickers if ticker in resolved]
+    pool_tickers = [item.ticker for item in cohort.judgments]
+    pool_returns = [resolved[ticker] for ticker in pool_tickers if ticker in resolved]
+    machine_median = median(machine_returns) if machine_returns else None
+    pool_median = median(pool_returns) if pool_returns else None
+    return {
+        "horizon": horizon,
+        "target_date": target_date,
+        "status": "resolved" if len(machine_returns) == top_n else "unresolved",
+        "cash_benchmark_return_pct": 0.0,
+        "pool_size": len(pool_tickers),
+        "pool_resolved": len(pool_returns),
+        "pool_unresolved": len(pool_tickers) - len(pool_returns),
+        "pool_median_return_pct": None if pool_median is None else round(pool_median * 100, 1),
+        "machine_top_n": {
+            "n": top_n,
+            "tickers": machine_tickers,
+            "resolved": len(machine_returns),
+            "unresolved": top_n - len(machine_returns),
+            "median_return_pct": (
+                None if machine_median is None else round(machine_median * 100, 1)
+            ),
+            "median_excess_vs_cash_pct": (
+                None if machine_median is None else round(machine_median * 100, 1)
+            ),
+            "median_excess_vs_pool_pct": (
+                None
+                if machine_median is None or pool_median is None
+                else round((machine_median - pool_median) * 100, 1)
+            ),
+        },
+        **_unresolved_reasons(horizon_rows, machine_tickers),
+    }
+
+
 def _ploss_summary(
     cohort: ShortlistCohort, drawdowns: Mapping[str, float]
 ) -> list[dict[str, object]]:

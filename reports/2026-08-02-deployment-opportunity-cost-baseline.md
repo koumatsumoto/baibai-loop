@@ -33,4 +33,52 @@
 
 ## 初回結果
 
-計測実装後に追記する。
+実行コマンド:
+
+```bash
+.venv/bin/python tools/measure_deployment_opportunity.py --out /tmp/deployment-opportunity.yaml
+```
+
+出力artifact SHA-256は`abe01e3a834a982ecc68967bee7105620e296caf9aa40965558622ebdc811d8c`。入力storeはapplication DB `d99b258ed4cb4c763d9bf154d792aef092618e2627d2e6afce4b1c665c5caa62`、run store `9792f62d8e0508ed16bf917aa97fdbd0a2240244d60f38800913e0075825839b`、market store `8d039f2219a981bb54dbbbdbbe098a7ad5efdcdbac077a80502cdae071c4ae70`だった。
+
+### Coverage
+
+- opportunity cycleは3件、結論unknownは0件。3件とも`no_action`だった。
+- operation sessionの最初のrecordは2026-07-17。2026-05-01〜07-16はcycle recordが無いため、ledger executionからcycleを推定せずcoverage外とした。
+- ledgerのopening balanceは2026-05-05。2026-05-01〜05-04はcapital coverage外とした。
+- counterfactual算出不能は2/3 cycle。07-17と07-28のshortlistは`er_annual`焼き込み前で、束縛run revisionもprune済みだった。残存entryだけで順位を推定していない。
+
+### Cycle別の結論・資本・counterfactual
+
+| cycle as_of | 結論/source | cash total | deployed cost | deployment比率 | machine top-1 | forward return |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| 2026-07-17 | no_action / legacy operation result | 2,983,200円 | 1,887,900円 | 38.76% | 算出不能（E[r] 0/20） | `estimate_missing` |
+| 2026-07-28 | no_action / bargain assessment | 2,983,200円 | 1,887,900円 | 38.76% | 算出不能（E[r] 0/20） | `estimate_missing` |
+| 2026-07-29 | no_action / bargain assessment | 2,983,200円 | 1,887,900円 | 38.76% | 4849 | 3m/6m/1y/3yすべて未満期 |
+
+07-29 cycleの最初の3m targetは2026-10-29。top-1 4849とpool 20件はいずれも現時点で`unresolved_future_horizon`であり、cash 0%との差もpool中央値との差もまだ算出しない。したがって、初回baselineから「no-actionが過剰慎重だった / 適正だった」のどちらも結論しない。
+
+### Cash / deployment時系列
+
+`cash total`はavailable + reserved。reservationは未投下cashとして分子へ入れず、book capitalの分母には含める。
+
+| ledger event日（JST） | cash total | deployed cost | deployment比率 |
+| --- | ---: | ---: | ---: |
+| 2026-05-05 | 4,871,100円 | 0円 | 0.00% |
+| 2026-05-07 | 4,277,400円 | 593,700円 | 12.19% |
+| 2026-05-13 | 4,277,400円 | 593,700円 | 12.19% |
+| 2026-05-14 | 4,074,400円 | 796,700円 | 16.36% |
+| 2026-05-23 | 4,074,400円 | 796,700円 | 16.36% |
+| 2026-05-25 | 3,946,900円 | 924,200円 | 18.97% |
+| 2026-06-09 | 3,813,700円 | 1,057,400円 | 21.71% |
+| 2026-06-16 | 3,579,700円 | 1,291,400円 | 26.51% |
+| 2026-07-01 | 3,224,000円 | 1,647,100円 | 33.81% |
+| 2026-07-03 | 3,224,000円 | 1,647,100円 | 33.81% |
+| 2026-07-14 | 3,224,000円 | 1,647,100円 | 33.81% |
+| 2026-07-15 | 2,983,200円 | 1,887,900円 | 38.76% |
+
+deploymentはopening balance後の0%から38.76%まで段階的に上がり、記録済み3 cycleでは変化しなかった。これは投入量の記述であって運用成績ではなく、market valueや指数比較を含まない。
+
+### 次回更新
+
+四半期更新では同じコマンド・N・horizon・book-cost basisを維持し、新しいoperation cycleを追加する。2026-10-29以後に07-29 cycleの3mを初めて採点できる。焼き込み後のshortlistが増えるまでは、旧2 cycleの`estimate_missing`を復元・推定しない。
