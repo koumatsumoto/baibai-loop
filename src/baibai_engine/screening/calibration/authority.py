@@ -21,7 +21,6 @@ KNOWN_METRICS = frozenset(
         "selection_rank_top10",
         "margin_deadline_gate_top10",
         "normalized_per_3fy",
-        "normalized_sector_anchor",
     )
 )
 

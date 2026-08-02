@@ -24,7 +24,6 @@ from baibai_engine.screening.calibration.evaluation import (
     MIN_AXIS_SAMPLE,
     _margin_deadline_gate_adoption_sign,
     _metric_direction_stability,
-    _normalized_sector_anchor_adoption_sign,
     _reversion_plus_capped_carry,
     _spearman,
     evaluate_cohorts,
@@ -328,6 +327,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         aggregate = result["6m"]["aggregate"]["profit_normalization_hypotheses"]
 
         self.assertGreater(cohort["axes"]["normalized_per_3fy"]["decile_spread_median"], 0)
+        self.assertEqual(cohort["metric_statuses"]["normalized_per_3fy"], "eligible")
         self.assertEqual(hypotheses["normalized_per_3fy_coverage"], 1.0)
         self.assertEqual(hypotheses["self_range_coverage"]["at_least_1250"], 1.0)
         cycle = aggregate["cycle_peak_top_er_decile"]
@@ -335,77 +335,14 @@ class EvaluateCohortsTest(unittest.TestCase):
         self.assertEqual(cycle["unflagged_n"], 6)
         self.assertGreater(cycle["mean_median_excess_delta"], 0)
 
-    def test_normalized_sector_anchor_uses_common_rows_and_reports_incremental_value(
-        self,
-    ) -> None:
-        panel: list[PanelRow] = []
-        forwards: list[ForwardReturnRow] = []
-        for index in range(120):
-            ticker = f"N{index:03d}"
-            panel.append(
-                replace(
-                    _panel_row(ticker, per_trailing=float(index + 1)),
-                    normalized_per_3fy=float(120 - index),
-                )
-            )
-            realized = -0.4 if index < 12 else 0.4 if index >= 108 else 0.0
-            forwards.append(_forward_row(ticker, realized))
-
-        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
-        cohort = result["6m"]["cohorts"][0]
-        anchor = cohort["normalized_sector_anchor"]
-        aggregate = result["6m"]["aggregate"]["normalized_sector_anchor"]
-
-        self.assertEqual(anchor["common_n"], 120)
-        self.assertEqual(anchor["current"]["n"], 12)
-        self.assertEqual(anchor["normalized"]["n"], 12)
-        self.assertEqual(anchor["top_decile_overlap_n"], 0)
-        self.assertTrue(anchor["changed"])
-        self.assertEqual(anchor["median_excess_delta"], 0.8)
-        self.assertLess(anchor["current_axis"]["decile_spread_median"], 0)
-        self.assertGreater(anchor["normalized_axis"]["decile_spread_median"], 0)
-        self.assertEqual(cohort["metric_statuses"]["normalized_per_3fy"], "eligible")
-        self.assertEqual(cohort["metric_statuses"]["normalized_sector_anchor"], "eligible")
-        self.assertEqual(aggregate["common_n"], 120)
-        self.assertEqual(aggregate["changed_cohort_share"], 1.0)
-        self.assertEqual(aggregate["median_delta_positive_share"], 1.0)
-
-    def test_normalized_sector_anchor_is_unresolved_without_common_sample(self) -> None:
+    def test_normalized_per_metric_is_unresolved_without_sample(self) -> None:
         panel = [_panel_row(f"M{index:03d}", per_trailing=10.0) for index in range(120)]
         forwards = [_forward_row(row.ticker, 0.0) for row in panel]
 
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         cohort = result["6m"]["cohorts"][0]
 
-        self.assertEqual(cohort["normalized_sector_anchor"], {})
         self.assertEqual(cohort["metric_statuses"]["normalized_per_3fy"], "unresolved")
-        self.assertEqual(cohort["metric_statuses"]["normalized_sector_anchor"], "unresolved")
-
-    def test_normalized_sector_anchor_falls_back_for_a_small_sector(self) -> None:
-        panel = [
-            replace(
-                _panel_row(f"A{index:03d}", per_trailing=10.0, sector_33="large"),
-                normalized_per_3fy=10.0,
-            )
-            for index in range(100)
-        ]
-        panel.extend(
-            replace(
-                _panel_row(f"Z{index:03d}", per_trailing=1.0, sector_33="small"),
-                normalized_per_3fy=20.0,
-            )
-            for index in range(9)
-        )
-        forwards = [
-            _forward_row(row.ticker, -0.4 if row.sector_33 == "small" else 0.0) for row in panel
-        ]
-
-        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
-        anchor = result["6m"]["cohorts"][0]["normalized_sector_anchor"]
-
-        self.assertEqual(anchor["common_n"], 109)
-        self.assertTrue(anchor["changed"])
-        self.assertEqual(anchor["median_excess_delta"], 0.4)
 
     def test_asset_backed_axis_reports_fixed_interaction_and_controls(self) -> None:
         panel: list[PanelRow] = []
@@ -1352,30 +1289,14 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         stability = _metric_direction_stability(as_reported, imputed)
         self.assertFalse(stability["margin_deadline_gate_top10"])
 
-    def test_normalized_anchor_sensitivity_uses_the_full_per_cohort_rule(self) -> None:
-        passing = {
-            "common_n": 100,
-            "changed": True,
-            "median_excess_delta": 0.03,
-            "trap_rate_delta": 0.0,
-            "current_axis": {"decile_spread_median": 0.1},
-            "normalized_axis": {"decile_spread_median": 0.1},
-        }
-        worse_axis = {
-            **passing,
-            "normalized_axis": {"decile_spread_median": 0.09},
-        }
-
-        self.assertEqual(_normalized_sector_anchor_adoption_sign(passing), 1.0)
-        self.assertEqual(_normalized_sector_anchor_adoption_sign(worse_axis), 0.0)
-
-        as_reported = {"normalized_sector_anchor": 1.0}
+    def test_normalized_per_direction_flip_blocks_optional_authority(self) -> None:
+        as_reported = {"normalized_per_3fy": 0.1}
         imputed = {
             "total_loss": as_reported,
-            "neutral": {"normalized_sector_anchor": 0.0},
+            "neutral": {"normalized_per_3fy": -0.1},
         }
         stability = _metric_direction_stability(as_reported, imputed)
-        self.assertFalse(stability["normalized_sector_anchor"])
+        self.assertFalse(stability["normalized_per_3fy"])
 
     def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
         # Three of the five recommended names left the market. What the cohort

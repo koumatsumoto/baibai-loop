@@ -148,13 +148,12 @@ def test_optional_er_level_metric_can_be_explicitly_required() -> None:
     assert decision.production_change_allowed is True
 
 
-def test_normalized_metrics_can_be_explicitly_required() -> None:
+def test_normalized_per_metric_can_be_explicitly_required() -> None:
     required = (
         "recommended_rank_top5",
         "recommended_rank_top10",
         "er_calibration",
         "normalized_per_3fy",
-        "normalized_sector_anchor",
     )
     scope = EvaluationScope(
         run_purpose="production_decision",
