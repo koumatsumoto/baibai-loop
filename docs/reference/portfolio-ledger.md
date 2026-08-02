@@ -63,7 +63,7 @@ applyは1 transactionでsource head、proposal / reservation、event payload、p
 
 ## Human result semantics
 
-`record-result`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続resultを受理する。full fill / cancel / expire後の完全一致reportはno-change、矛盾reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。
+`record-result`は人間の`open / filled / cancelled / expired`報告だけを入力にする。active reservationをIDなしで推定しない。partial fillはremainingがある間だけ後続resultを受理する。full fill / cancel / expire後の完全一致reportはno-change、矛盾reportはhard errorとする。`expired`は人間が未約定を確認し、`occurred_at >= expires_at`の場合だけreleaseを作る。同時刻に複数reservationがterminalになる場合は`--reservation-id`の反復指定を1 transactionで検証・適用する。対象の一部が不正なら全件を拒否する。migration由来で`decision_reference`がnullのactive reservationはterminal resultに限ってproposal rowを要求せず、人間報告のGitHub issue URLを新しいrelease eventへ記録する。bindingを持つreservationはそのproposal ID以外へ付け替えられない。
 
 ## Historical outcome
 

@@ -199,7 +199,11 @@ def build_parser() -> argparse.ArgumentParser:
     result_parser.add_argument("--ticker")
     result_parser.add_argument("--quantity", type=int)
     result_parser.add_argument("--price-yen", type=_decimal_argument)
-    result_parser.add_argument("--reservation-id")
+    result_parser.add_argument(
+        "--reservation-id",
+        action="append",
+        help="reservation ID; repeat for simultaneous terminal results",
+    )
     result_parser.add_argument("--order-id")
     result_parser.add_argument("--sector")
     result_parser.add_argument("--common-factor", action="append", default=[])
@@ -733,7 +737,7 @@ def _run_record_result(args: argparse.Namespace, *, now: datetime | None) -> int
             ticker=args.ticker,
             quantity=args.quantity,
             price_yen=args.price_yen,
-            reservation_id=args.reservation_id,
+            reservation_ids=tuple(args.reservation_id or ()),
             order_id=args.order_id,
             sector=args.sector,
             common_factors=tuple(sorted(set(args.common_factor))),
