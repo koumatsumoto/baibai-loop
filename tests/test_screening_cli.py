@@ -1124,6 +1124,135 @@ class ScreeningCliTests(unittest.TestCase):
             self.assertIn("reused=1 downloaded=0", reuse_buffer.getvalue())
             self.assertIn("quality_issues=1", reuse_buffer.getvalue())
 
+    def test_extract_edinet_metrics_command_quarantines_affected_ticker_and_continues(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            provider = FakeEDINETProvider(
+                documents=[
+                    {
+                        "docID": "S100MISSING",
+                        "secCode": "72030",
+                        "docTypeCode": "120",
+                        "docInfoEditStatus": "1",
+                        "withdrawalStatus": "0",
+                        "disclosureStatus": "0",
+                    },
+                    {
+                        "docID": "S100HEALTHY",
+                        "secCode": "96820",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                    },
+                ],
+                zip_by_doc_id={"S100HEALTHY": _edinet_csv_zip(include_debt=True)},
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr):
+                exit_code = extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=provider,
+                    sqlite_path=sqlite_path,
+                    stdout=stdout,
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(provider.download_calls, ["S100HEALTHY"])
+            payload = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert payload is not None
+            self.assertIsNone(payload["7203"].sales_ttm)
+            self.assertEqual(
+                payload["7203"].failure_reasons,
+                ("document_event_quarantined:edit:S100MISSING",),
+            )
+            self.assertIsNotNone(payload["9682"].sales_ttm)
+            self.assertIn("events=1 affected_tickers=1", stderr.getvalue())
+            self.assertIn("S100MISSING(edit,type=120,ticker=7203)", stderr.getvalue())
+            self.assertIn("quarantined_events=1 quarantined_tickers=1", stdout.getvalue())
+            self.assertIn("quarantine_sample=S100MISSING:edit:120", stdout.getvalue())
+
+    def test_extract_edinet_metrics_command_uses_baseline_to_quarantine_withdrawal_ticker(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            store_edinet_metrics(
+                sqlite_path,
+                date(2026, 4, 23),
+                [
+                    {
+                        "ticker": "7203",
+                        "sales_ttm": 1000.0,
+                        "source_doc_id": "S100ORIGIN",
+                        "document_type": "120",
+                        "extractor_revision": "seed",
+                        "source_document_revision": "seed",
+                    }
+                ],
+            )
+            documents = [
+                {
+                    "docID": "S100WITHDRAW",
+                    "parentDocID": "S100ORIGIN",
+                    "docInfoEditStatus": "0",
+                    "withdrawalStatus": "1",
+                    "disclosureStatus": "0",
+                    "legalStatus": "0",
+                },
+                {
+                    "docID": "S100HEALTHY",
+                    "secCode": "96820",
+                    "docTypeCode": "120",
+                    "csvFlag": "1",
+                    "xbrlFlag": "1",
+                },
+            ]
+            first_provider = FakeEDINETProvider(
+                documents=documents,
+                zip_by_doc_id={"S100HEALTHY": _edinet_csv_zip(include_debt=True)},
+            )
+
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 24),
+                    lookback_days=0,
+                    provider=first_provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            first = read_edinet_metrics(sqlite_path, date(2026, 4, 24))
+            assert first is not None
+            self.assertEqual(first["7203"].source_doc_id, "S100ORIGIN")
+            self.assertEqual(first["7203"].document_type, "120")
+            self.assertIsNone(first["7203"].sales_ttm)
+
+            second_provider = FakeEDINETProvider(documents=documents)
+            self.assertEqual(
+                extract_edinet_metrics_command(
+                    asof_date=date(2026, 4, 25),
+                    lookback_days=0,
+                    provider=second_provider,
+                    sqlite_path=sqlite_path,
+                    stdout=io.StringIO(),
+                ),
+                0,
+            )
+            second = read_edinet_metrics(sqlite_path, date(2026, 4, 25))
+            assert second is not None
+            self.assertIsNone(second["7203"].sales_ttm)
+            self.assertEqual(
+                second["7203"].failure_reasons,
+                ("document_event_quarantined:withdrawal:S100WITHDRAW",),
+            )
+            self.assertEqual(second_provider.download_calls, [])
+
     def test_extract_edinet_metrics_command_fails_when_no_filings_selected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"

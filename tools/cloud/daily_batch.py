@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import re
 import sqlite3
 import subprocess  # nosec B404
 import sys
@@ -75,6 +76,11 @@ _COVERAGE_INCOMPLETE_MARKER = "SQLite cache coverage incomplete"
 _EXIT_DEFERRED_FAILURE = 3
 # The OP3 review input population size the opportunity path uses.
 _SELECT_LONGLIST_TOP = 20
+_EDINET_QUARANTINE_RE = re.compile(
+    r"\bquarantined_events=(?P<events>\d+)\s+"
+    r"quarantined_tickers=(?P<tickers>\d+)\s+"
+    r"quarantine_sample=(?P<sample>[^\s;]+)"
+)
 
 
 class BatchStepError(RuntimeError):
@@ -323,6 +329,27 @@ def _daily_delta_metrics(path: Path) -> dict[str, object]:
         ",".join(str(item) for item in unavailable) if isinstance(unavailable, list) else ""
     )
     return counts
+
+
+def _parse_edinet_quarantine_metrics(stdout: str) -> tuple[int, int, str]:
+    """Read the fail-closed event/ticker counts from a successful extraction."""
+
+    for line in reversed(stdout.splitlines()):
+        if not line.startswith("EDINET extraction summary: "):
+            continue
+        match = _EDINET_QUARANTINE_RE.search(line)
+        if match is not None:
+            return (
+                int(match.group("events")),
+                int(match.group("tickers")),
+                match.group("sample"),
+            )
+        break
+    raise BatchStepError(
+        "extract-edinet-metrics succeeded without quarantine counters",
+        stage="extract-edinet-metrics",
+        error_code="edinet_summary_invalid",
+    )
 
 
 def _stderr_summary(stderr: str) -> str:
@@ -667,6 +694,9 @@ def _execute_daily_batch(
             flush=True,
         )
     asof_arg = target.isoformat()
+    edinet_quarantined_events = 0
+    edinet_quarantined_tickers = 0
+    edinet_quarantine_sample = "none"
 
     _run_step(
         runner,
@@ -682,6 +712,7 @@ def _execute_daily_batch(
         cwd=root,
         allowed_exit_codes=(0, 1),
     )
+    coverage_was_incomplete = verify.returncode != 0
     if verify.returncode != 0:
         if _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
             raise BatchStepError(
@@ -697,13 +728,22 @@ def _execute_daily_batch(
             argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
             cwd=root,
         )
-        _run_step(
-            runner,
-            name="extract-edinet-metrics",
-            argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
-            cwd=root,
-            echo_stdout_prefixes=("skipped ",),
-        )
+    # Document events are mutable throughout the day. Re-extract even when the
+    # target-day snapshot already exists so a retry reports and stores the same
+    # current quarantine state instead of publishing synthetic zero counters.
+    extract_result = _run_step(
+        runner,
+        name="extract-edinet-metrics",
+        argv=(_ENGINE, "screening", "extract-edinet-metrics", "--asof", asof_arg),
+        cwd=root,
+        echo_stdout_prefixes=("EDINET extraction summary: ",),
+    )
+    (
+        edinet_quarantined_events,
+        edinet_quarantined_tickers,
+        edinet_quarantine_sample,
+    ) = _parse_edinet_quarantine_metrics(extract_result.stdout)
+    if coverage_was_incomplete:
         _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
 
     run_view = _run_screening_run(runner, root=root, asof_arg=asof_arg)
@@ -755,6 +795,9 @@ def _execute_daily_batch(
                 "universe": run_view.universe_size,
                 "candidates": run_view.candidate_count,
                 "selected": selection_view.selected_count,
+                "edinet_quarantined_events": edinet_quarantined_events,
+                "edinet_quarantined_tickers": edinet_quarantined_tickers,
+                "edinet_quarantine_sample": edinet_quarantine_sample,
             },
         )
     )

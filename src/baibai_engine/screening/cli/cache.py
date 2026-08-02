@@ -29,10 +29,12 @@ from baibai_engine.screening.metrics import (
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
 from baibai_engine.screening.providers.edinet import (
+    TARGET_DOC_TYPE_CODES,
     EdinetDocumentCandidate,
     EdinetMetricRecord,
     EDINETProviderError,
     EDINETRateLimitError,
+    QuarantinedDocumentEvent,
     select_document_candidates,
 )
 from baibai_engine.screening.providers.edinet_csv import parse_csv_zip_metric_record
@@ -227,14 +229,7 @@ def extract_edinet_metrics_command(
         print(message, file=sys.stderr)
         return 1
     candidates = selection.candidates
-    if selection.unresolved_event_doc_ids:
-        sample = ", ".join(selection.unresolved_event_doc_ids[:5])
-        print(
-            f"skipped {len(selection.unresolved_event_doc_ids)} EDINET operation row(s) "
-            f"whose filing predates {start.isoformat()}: {sample}",
-            file=out,
-            flush=True,
-        )
+    quarantined_events = selection.quarantined_events
     if not candidates:
         message = (
             f"no EDINET filings selected for --asof {asof_date.isoformat()} "
@@ -254,6 +249,42 @@ def extract_edinet_metrics_command(
     except EDINETMetricBaselineError as exc:
         print(f"EDINET metric baseline is corrupt: {exc}", file=sys.stderr)
         return 1
+    events_by_ticker: dict[str, set[QuarantinedDocumentEvent]] = {}
+    for event in quarantined_events:
+        if event.ticker is not None and event.document_type in TARGET_DOC_TYPE_CODES:
+            events_by_ticker.setdefault(event.ticker, set()).add(event)
+    if baseline is not None:
+        baseline_tickers_by_doc: dict[str, set[str]] = {}
+        for ticker, row in baseline.rows.items():
+            record = row.record
+            if record.source_doc_id is not None and record.document_type in TARGET_DOC_TYPE_CODES:
+                baseline_tickers_by_doc.setdefault(record.source_doc_id, set()).add(ticker)
+        for event in quarantined_events:
+            if event.target_doc_id is None:
+                continue
+            for ticker in baseline_tickers_by_doc.get(event.target_doc_id, ()):
+                events_by_ticker.setdefault(ticker, set()).add(event)
+    quarantined_tickers = set(events_by_ticker)
+    quarantine_summary_sample = (
+        ",".join(
+            f"{event.doc_id}:{event.event_type}:{event.document_type or 'unknown'}"
+            for event in quarantined_events[:5]
+        )
+        or "none"
+    )
+    if quarantined_events:
+        sample = ", ".join(
+            f"{event.doc_id}({event.event_type},type={event.document_type or 'unknown'},"
+            f"ticker={event.ticker or 'unknown'})"
+            for event in quarantined_events[:5]
+        )
+        print(
+            "EDINET event quarantine: "
+            f"events={len(quarantined_events)} affected_tickers={len(quarantined_tickers)}; "
+            f"sample={sample}",
+            file=sys.stderr,
+            flush=True,
+        )
     baseline_asof = baseline.asof_date.isoformat() if baseline is not None else "none"
     full_rebuild_reason = "no_baseline" if baseline is None else "none"
     if (
@@ -267,7 +298,65 @@ def extract_edinet_metrics_command(
     downloaded_count = 0
     hard_failure_count = 0
     quality_issue_count = 0
+    for ticker in sorted(quarantined_tickers):
+        candidate = candidates.get(ticker)
+        baseline_record = (
+            baseline.rows[ticker].record
+            if baseline is not None and ticker in baseline.rows
+            else None
+        )
+        events = tuple(
+            sorted(
+                events_by_ticker[ticker],
+                key=lambda event: (event.doc_id, event.event_type, event.target_doc_id or ""),
+            )
+        )
+        first_event = events[0]
+        records.append(
+            EdinetMetricRecord(
+                ticker=ticker,
+                source_doc_id=first_event.target_doc_id or first_event.doc_id,
+                document_type=(
+                    candidate.doc_type_code
+                    if candidate is not None
+                    else baseline_record.document_type
+                    if baseline_record is not None
+                    else first_event.document_type
+                ),
+                source_submit_datetime=(
+                    candidate.submit_datetime
+                    if candidate is not None
+                    else baseline_record.source_submit_datetime
+                    if baseline_record is not None
+                    else None
+                ),
+                source_period_start=(
+                    candidate.period_start
+                    if candidate is not None
+                    else baseline_record.source_period_start
+                    if baseline_record is not None
+                    else None
+                ),
+                source_period_end=(
+                    candidate.period_end
+                    if candidate is not None
+                    else baseline_record.source_period_end
+                    if baseline_record is not None
+                    else None
+                ),
+                failure_reasons=tuple(
+                    f"document_event_quarantined:{event.event_type}:{event.doc_id}"
+                    for event in events
+                ),
+            )
+        )
+        quality_issue_count += 1
+    processable_count = len(candidates) - len(quarantined_tickers & candidates.keys())
+    processed_count = 0
     for candidate in sorted(candidates.values(), key=lambda item: item.ticker):
+        if candidate.ticker in quarantined_tickers:
+            continue
+        processed_count += 1
         baseline_row = baseline.rows.get(candidate.ticker) if baseline is not None else None
         if baseline_row is not None and _can_reuse_edinet_metric(
             candidate=candidate,
@@ -317,9 +406,9 @@ def extract_edinet_metrics_command(
         if record.failure_reasons and not parse_failed:
             quality_issue_count += 1
         records.append(record)
-        if len(records) % 50 == 0 or len(records) == len(candidates):
+        if processed_count % 50 == 0 or processed_count == processable_count:
             print(
-                f"parsed EDINET CSV metrics: {len(records)}/{len(candidates)} filing(s); "
+                f"parsed EDINET CSV metrics: {processed_count}/{processable_count} filing(s); "
                 f"{hard_failure_count} hard failure(s)",
                 file=out,
                 flush=True,
@@ -335,7 +424,11 @@ def extract_edinet_metrics_command(
             "EDINET extraction summary: "
             f"selected={len(candidates)} reused={reused_count} downloaded={downloaded_count} "
             f"baseline_asof={baseline_asof} full_rebuild_reason={full_rebuild_reason} "
-            f"extractor_revision={extractor_revision}; hard_failures={hard_failure_count} "
+            f"extractor_revision={extractor_revision} "
+            f"quarantined_events={len(quarantined_events)} "
+            f"quarantined_tickers={len(quarantined_tickers)} "
+            f"quarantine_sample={quarantine_summary_sample}; "
+            f"hard_failures={hard_failure_count} "
             f"quality_issues={quality_issue_count}; output=not-written",
             file=out,
         )
@@ -363,7 +456,11 @@ def extract_edinet_metrics_command(
         "EDINET extraction summary: "
         f"selected={len(candidates)} reused={reused_count} downloaded={downloaded_count} "
         f"baseline_asof={baseline_asof} full_rebuild_reason={full_rebuild_reason} "
-        f"extractor_revision={extractor_revision}; hard_failures={hard_failure_count} "
+        f"extractor_revision={extractor_revision} "
+        f"quarantined_events={len(quarantined_events)} "
+        f"quarantined_tickers={len(quarantined_tickers)} "
+        f"quarantine_sample={quarantine_summary_sample}; "
+        f"hard_failures={hard_failure_count} "
         f"quality_issues={quality_issue_count}; output={sqlite_path}",
         file=out,
     )
@@ -417,7 +514,10 @@ def _can_reuse_edinet_metric(
 ) -> bool:
     record = baseline_row.record
     return (
-        baseline_row.extractor_revision == extractor_revision
+        not any(
+            reason.startswith("document_event_quarantined:") for reason in record.failure_reasons
+        )
+        and baseline_row.extractor_revision == extractor_revision
         and baseline_row.source_document_revision == candidate.source_document_revision
         and candidate.source_document_revision is not None
         and record.ticker == candidate.ticker

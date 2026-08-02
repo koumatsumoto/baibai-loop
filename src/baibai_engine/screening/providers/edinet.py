@@ -135,18 +135,29 @@ class EdinetDocumentCandidate:
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+class QuarantinedDocumentEvent:
+    """An operation row whose origin filing cannot be resolved in the input window."""
+
+    doc_id: str
+    target_doc_id: str | None
+    event_type: str
+    document_type: str | None = None
+    ticker: str | None = None
+
+
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class DocumentSelection:
-    """Selected filings plus the operation rows that had no filing to fold onto.
+    """Selected filings plus operation rows quarantined without an origin filing.
 
     EDINET lists an edit or withdrawal on the day it happens, so an operation on
     a filing older than the lookback window arrives with its origin absent. Such
-    a filing is out of scope by the same age bound that excluded the origin, so
-    the operation carries no candidate; ``unresolved_event_doc_ids`` keeps the
-    exclusion visible instead of letting one stale filing end the extraction.
+    an event cannot safely mutate a candidate. The structured quarantine keeps
+    its identity and any usable ticker visible so extraction can fail-close that
+    ticker without letting one external inconsistency stop the whole batch.
     """
 
     candidates: dict[str, EdinetDocumentCandidate]
-    unresolved_event_doc_ids: tuple[str, ...] = ()
+    quarantined_events: tuple[QuarantinedDocumentEvent, ...] = ()
 
 
 class EDINETProvider:
@@ -439,7 +450,7 @@ def select_document_candidates(
 ) -> DocumentSelection:
     """Select the latest usable EDINET CSV-capable filing per ticker."""
     candidates: dict[str, EdinetDocumentCandidate] = {}
-    folded, unresolved = _canonicalize_document_events(documents, origin_start=origin_start)
+    folded, quarantined = _canonicalize_document_events(documents, origin_start=origin_start)
     for document in folded:
         raw_doc_id = _coalesce(document, "docID", "doc_id")
         raw_type = _to_str_or_none(_coalesce(document, "docTypeCode", "doc_type_code"))
@@ -469,7 +480,7 @@ def select_document_candidates(
         current = candidates.get(ticker)
         if current is None or _document_sort_key(candidate) > _document_sort_key(current):
             candidates[ticker] = candidate
-    return DocumentSelection(candidates=candidates, unresolved_event_doc_ids=unresolved)
+    return DocumentSelection(candidates=candidates, quarantined_events=quarantined)
 
 
 def _source_document_revision(document: Mapping[str, Any]) -> str:
@@ -516,12 +527,12 @@ def _canonicalize_document_events(
     documents: Sequence[Mapping[str, Any]],
     *,
     origin_start: date | None,
-) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+) -> tuple[list[dict[str, Any]], tuple[QuarantinedDocumentEvent, ...]]:
     """Fold EDINET operation rows onto origin filings before ticker selection.
 
-    Returns the folded filings and the doc IDs of operation rows whose origin is
-    not in scope, which happens whenever a filing older than the lookback window
-    is edited or withdrawn inside it.
+    Returns the folded filings and structured operation rows whose origin is not
+    in scope. The latter most often happens when a filing older than the lookback
+    window is edited or withdrawn inside it.
     """
     normalized = [dict(document) for document in documents]
     normalized.sort(key=_document_event_sort_key)
@@ -564,7 +575,7 @@ def _canonicalize_document_events(
             children.setdefault(parent, set()).add(doc_id)
     _validate_parent_graph(origins)
 
-    unresolved: set[str] = set()
+    quarantined: set[QuarantinedDocumentEvent] = set()
     for event in events:
         doc_id = parse_doc_id(_coalesce(event, "docID", "doc_id"))
         edit_status = _to_str_or_none(_coalesce(event, "docInfoEditStatus", "doc_info_edit_status"))
@@ -577,13 +588,28 @@ def _canonicalize_document_events(
         if withdrawal_status == "1":
             parent = _to_str_or_none(_coalesce(event, "parentDocID", "parent_doc_id"))
             if parent is None or parent not in origins:
-                unresolved.add(doc_id)
+                quarantined.add(
+                    _quarantined_document_event(
+                        event,
+                        doc_id=doc_id,
+                        target_doc_id=parent,
+                        event_type="withdrawal",
+                    )
+                )
                 continue
             _tombstone_document_tree(parent, origins=origins, children=children)
             continue
         current = origins.get(doc_id)
         if current is None:
-            unresolved.add(doc_id)
+            event_type = "edit" if edit_status == "1" else "disclosure"
+            quarantined.add(
+                _quarantined_document_event(
+                    event,
+                    doc_id=doc_id,
+                    target_doc_id=doc_id,
+                    event_type=event_type,
+                )
+            )
             continue
         if _to_str_or_none(_coalesce(current, "withdrawalStatus", "withdrawal_status")) == "2":
             raise EDINETProviderError(f"EDINET event follows withdrawal: {doc_id}")
@@ -597,7 +623,48 @@ def _canonicalize_document_events(
             current["disclosureStatus"] = "2"
         elif disclosure_status == "3":
             current["disclosureStatus"] = "0"
-    return list(origins.values()), tuple(sorted(unresolved))
+    return list(origins.values()), tuple(
+        sorted(
+            quarantined,
+            key=lambda item: (
+                item.doc_id,
+                item.event_type,
+                item.target_doc_id or "",
+                item.ticker or "",
+            ),
+        )
+    )
+
+
+def _quarantined_document_event(
+    event: Mapping[str, Any],
+    *,
+    doc_id: str,
+    target_doc_id: str | None,
+    event_type: str,
+) -> QuarantinedDocumentEvent:
+    raw_sec_code = _coalesce(event, "secCode", "sec_code")
+    ticker: str | None = None
+    if _to_str_or_none(raw_sec_code) is not None:
+        try:
+            ticker = parse_sec_code(raw_sec_code)
+        except EDINETProviderError:
+            # The event is already quarantined. An unusable security code reduces
+            # the isolation scope to the event itself rather than restoring a
+            # batch-wide failure for metadata that cannot identify a ticker.
+            ticker = None
+    document_type = _to_str_or_none(_coalesce(event, "docTypeCode", "doc_type_code"))
+    if document_type is not None and (
+        len(document_type) != 3 or not document_type.isascii() or not document_type.isdigit()
+    ):
+        document_type = None
+    return QuarantinedDocumentEvent(
+        doc_id=doc_id,
+        target_doc_id=target_doc_id,
+        event_type=event_type,
+        document_type=document_type,
+        ticker=ticker,
+    )
 
 
 def _validate_parent_graph(origins: Mapping[str, Mapping[str, Any]]) -> None:

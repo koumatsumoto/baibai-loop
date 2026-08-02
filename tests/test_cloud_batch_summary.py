@@ -50,6 +50,9 @@ def _screening_result(**overrides) -> dict:
             "universe": 3800,
             "candidates": 42,
             "selected": 12,
+            "edinet_quarantined_events": 0,
+            "edinet_quarantined_tickers": 0,
+            "edinet_quarantine_sample": "none",
         },
         "errors": [],
     }

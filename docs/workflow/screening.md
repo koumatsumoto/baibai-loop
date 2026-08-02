@@ -3,7 +3,7 @@ title: "Workflow — screening"
 summary: "point-in-time cacheからcandidate、longlist、selectionを決定論的に生成し、人間レビューgateへ渡す工程。"
 doc_type: workflow
 status: active
-last_reviewed: 2026-07-23
+last_reviewed: 2026-08-02
 related_docs:
   - "../operations/decision-cycle.md"
   - "../reference/screening-runtime.md"
@@ -36,20 +36,20 @@ historical backfill以外で`--allow-stale-jpx`を通常使用しない。ASOF�
 
 1. `verify-cache-coverage`
 2. 不足時だけ`bootstrap-cache`
-3. 不足時だけ`extract-edinet-metrics`
-4. `verify-cache-coverage`を再実行
+3. coverage状態にかかわらず`extract-edinet-metrics`
+4. 初回coverageが不足していた場合だけ`verify-cache-coverage`を再実行
 5. `run`（返された`run_revision_id`を保持）
 6. `select --run-revision-id ...`（返された`selection_id`を保持）
 7. review後に`shortlist publish`
 
 coverage commandは単独で実行し、後続commandのexit 0で失敗を隠さない。`run/select`はprovider APIへ暗黙fallbackせず、cache-onlyで決定論的に動く。
 
-この正規順（営業日判定 → coverage → bootstrap → run → select）とmacro series更新・read model export・run store pruneを東証営業日ごとに1コマンドで回す補助として`tools/cloud/daily_batch.py`がある。export後の差分件数はbatch metricsへ載り、run通知にそのまま出る（通知は開かなくても読み手へ届く唯一の経路なので、その日の変化件数をそこへ置く）。screening後段の人間reviewは含まず`select`までの機械工程をorchestrateするscriptで、安定契約は各`baibai-engine` public CLI側に置く。使い方と失敗ポリシーは[`tools/cloud/README.md`](../../tools/cloud/README.md)を正本とする。
+この正規順（営業日判定 → coverage → 不足時のbootstrap → EDINET incremental extraction → 初回不足時のcoverage再検証 → run → select）とmacro series更新・read model export・run store pruneを東証営業日ごとに1コマンドで回す補助として`tools/cloud/daily_batch.py`がある。EDINETのdocument stateは日中にも変わり得るため、初回coverageがcompleteでもextractionを省略しない。変更のないmetric rowはbaselineから再利用する。export後の差分件数はbatch metricsへ載り、run通知にそのまま出る（通知は開かなくても読み手へ届く唯一の経路なので、その日の変化件数をそこへ置く）。screening後段の人間reviewは含まず`select`までの機械工程をorchestrateするscriptで、安定契約は各`baibai-engine` public CLI側に置く。使い方と失敗ポリシーは[`tools/cloud/README.md`](../../tools/cloud/README.md)を正本とする。
 
 | coverage result | action |
 | --- | --- |
-| complete、ASOF一致 | runへ進む |
-| source range不足 | 該当sourceだけrefreshして再検証 |
+| complete、ASOF一致 | EDINET incremental extractionを実行してrunへ進む |
+| source range不足 | 該当sourceをbootstrapし、EDINET incremental extractionを実行して再検証 |
 | future-dated row | stop。dataを修正する |
 | stale JPX | historical backfill以外はstop |
 | EDINET/price欠損 | 欠損範囲とcandidate影響を記録してstop/defer |
