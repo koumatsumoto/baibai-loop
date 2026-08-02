@@ -358,6 +358,9 @@ def _evaluate_cohort(
         and gate_top10["variant"].get("n", 0)
         else "unresolved"
     )
+    metric_statuses["normalized_per_3fy"] = (
+        "eligible" if "normalized_per_3fy" in axes else "unresolved"
+    )
 
     return {
         "asof": asof,
@@ -463,7 +466,10 @@ _SENSITIVITY_METRICS: tuple[str, ...] = (
     "recommended_rank_top10",
     "er_calibration",
 )
-OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = ("margin_deadline_gate_top10",)
+OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
+    "margin_deadline_gate_top10",
+    "normalized_per_3fy",
+)
 _ALL_SENSITIVITY_METRICS = (*_SENSITIVITY_METRICS, *OPTIONAL_SENSITIVITY_METRICS)
 
 
@@ -507,6 +513,17 @@ def _direction_signs(
         signs["er_calibration"] = None
     signs["margin_deadline_gate_top10"] = _margin_deadline_gate_adoption_sign(
         _evaluate_margin_deadline_gate(panel, context.excess).get("top10")
+    )
+    normalized_axis = _evaluate_axis(
+        AxisSpec(name="normalized_per_3fy", direction=-1),
+        context.population,
+        context.excess,
+    )
+    normalized_spread = (
+        normalized_axis.get("decile_spread_median") if isinstance(normalized_axis, dict) else None
+    )
+    signs["normalized_per_3fy"] = (
+        float(normalized_spread) if isinstance(normalized_spread, int | float) else None
     )
     return signs
 
@@ -650,8 +667,8 @@ def _metric_direction_stability(
     stability: dict[str, bool] = {}
     for metric in _ALL_SENSITIVITY_METRICS:
         values = [
-            as_reported[metric],
-            *(imputed[name][metric] for name in _DELISTING_IMPUTATIONS),
+            as_reported.get(metric),
+            *(imputed[name].get(metric) for name in _DELISTING_IMPUTATIONS),
         ]
         present = [value for value in values if value is not None]
         # No conclusion under any case cannot have been produced by the exclusion;

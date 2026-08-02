@@ -327,12 +327,22 @@ class EvaluateCohortsTest(unittest.TestCase):
         aggregate = result["6m"]["aggregate"]["profit_normalization_hypotheses"]
 
         self.assertGreater(cohort["axes"]["normalized_per_3fy"]["decile_spread_median"], 0)
+        self.assertEqual(cohort["metric_statuses"]["normalized_per_3fy"], "eligible")
         self.assertEqual(hypotheses["normalized_per_3fy_coverage"], 1.0)
         self.assertEqual(hypotheses["self_range_coverage"]["at_least_1250"], 1.0)
         cycle = aggregate["cycle_peak_top_er_decile"]
         self.assertEqual(cycle["flagged_n"], 6)
         self.assertEqual(cycle["unflagged_n"], 6)
         self.assertGreater(cycle["mean_median_excess_delta"], 0)
+
+    def test_normalized_per_metric_is_unresolved_without_sample(self) -> None:
+        panel = [_panel_row(f"M{index:03d}", per_trailing=10.0) for index in range(120)]
+        forwards = [_forward_row(row.ticker, 0.0) for row in panel]
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]
+
+        self.assertEqual(cohort["metric_statuses"]["normalized_per_3fy"], "unresolved")
 
     def test_asset_backed_axis_reports_fixed_interaction_and_controls(self) -> None:
         panel: list[PanelRow] = []
@@ -1278,6 +1288,15 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         }
         stability = _metric_direction_stability(as_reported, imputed)
         self.assertFalse(stability["margin_deadline_gate_top10"])
+
+    def test_normalized_per_direction_flip_blocks_optional_authority(self) -> None:
+        as_reported = {"normalized_per_3fy": 0.1}
+        imputed = {
+            "total_loss": as_reported,
+            "neutral": {"normalized_per_3fy": -0.1},
+        }
+        stability = _metric_direction_stability(as_reported, imputed)
+        self.assertFalse(stability["normalized_per_3fy"])
 
     def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
         # Three of the five recommended names left the market. What the cohort
