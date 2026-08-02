@@ -19,7 +19,7 @@
 
 ### 保有側
 
-- 母集団はmeasurement as-of日末のcanonical ledgerでopenなholding。各tickerについて、その時点までにpublishされた最新thesisの`estimates.current_fair_value_yen`を使う。
+- 母集団はmeasurement as-of以前のcanonical ledger headでopenなholding。ledger headがmeasurement as-ofより古ければ、その翌日以降をposition coverage gapとして明示し、現在保有を推定しない。各tickerについて、measurement as-ofまでにpublishされた最新thesisの`estimates.current_fair_value_yen`を使う。
 - FV factの発火日は、thesisの`published_at`をJST日付へ変換した日以後で、market storeのunadjusted closeが初めてFV以上になった営業日とする。日次デルタと同じ価格basisを使い、thesisが人間に利用可能になる前の到達を遡及認定しない。
 - thesis publish日から観測日までに株式分割・併合を示すnon-1 `adjustment_factor`があれば、FVの株数basisを機械補正せず`corporate_action_unresolved`とする。
 - holding review実施日は、発火日以後で最初のcanonical holding reviewの`as_of`。発火前のreviewを捕捉として数えない。遅延はその暦日差とし、reviewが無ければright-censored日数を出す。
