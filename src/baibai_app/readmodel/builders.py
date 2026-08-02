@@ -156,19 +156,17 @@ _METRIC_FIELDS = (
     "sales_yoy",
     "operating_profit_yoy",
     "margin_long_to_adv",
+    "margin_short_to_adv",
     "margin_long_share",
     "margin_long_delta_26w",
     "margin_std_long_share",
 )
 
-# The one supply/demand axis that met the acceptance criteria in
-# reports/2026-07-31-margin-supply-demand-preregistration.md and survived holding
-# size fixed. The cut is taken from where the axis sits rather than chosen: its
-# ninth decile lands at 0.93-0.94 of the candidate rows this runs on as well as of
-# the liquid population it was measured on, so one fixed value tracks the top
-# decile in both. The other three axes are shown as numbers and never raise a flag
-# — `margin_long_to_adv` in particular reads as a micro-cap label once size is held
-# fixed, and a flag built on it would put an untested rule beside tested ones.
+# The deadline-share axis supports this specific flag. Its ninth decile lands at
+# 0.93-0.94 of both candidate rows and the liquid population, so one fixed value
+# tracks the measured top decile. `margin_short_to_adv` remains a raw annotation
+# even after adoption: its production contract does not authorize a warning, gate,
+# ranking, FV, E[r], or sizing effect.
 _MARGIN_DEADLINE_SHARE = 0.75
 _STALE_RUN_AGE = timedelta(days=7)
 
@@ -1453,6 +1451,7 @@ def _candidate_row_view(
         name=_text(row.get("name")),
         sector_33=_text(row.get("sector_33")),
         next_earnings_date=_text(row.get("next_earnings_date")),
+        margin_week_end=_text(metrics.get("margin_week_end")),
         data_quality_flags=flags,
         portfolio_state=_portfolio_state(ticker, held=held, reserved=reserved),
         has_research=ticker in researched,

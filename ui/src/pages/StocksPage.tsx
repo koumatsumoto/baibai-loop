@@ -48,8 +48,8 @@ function numericFilter(value: string) {
 function compareRows(left: CandidateRowView, right: CandidateRowView, key: SortKey, direction: SortDirection) {
   const a = left[key]
   const b = right[key]
-  if (a === null) return 1
-  if (b === null) return -1
+  if (a === null || a === undefined) return 1
+  if (b === null || b === undefined) return -1
   let result: number
   if (typeof a === 'number' && typeof b === 'number') result = a - b
   else if (typeof a === 'boolean' && typeof b === 'boolean') result = Number(a) - Number(b)
@@ -448,6 +448,7 @@ export function StocksPage() {
                 <SortHeader column="operating_profit_yoy" direction={direction} label="営業益YoY" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="market_cap_oku" direction={direction} label="時価総額(億)" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="avg_turnover_oku" direction={direction} label="売買代金(億)" onSort={onSort} right sortKey={sortKey} />
+                <SortHeader column="margin_short_to_adv" direction={direction} label="売残/ADV" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="price_change_20d" direction={direction} label="20d" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="gap_from_52w_low" direction={direction} label="52w low" onSort={onSort} right sortKey={sortKey} />
                 <SortHeader column="sector_relative_strength_percentile" direction={direction} label="RS%" onSort={onSort} right sortKey={sortKey} />
@@ -477,6 +478,12 @@ export function StocksPage() {
                   <TableCell className="text-right"><PctBadge fraction value={row.operating_profit_yoy} /></TableCell>
                   <TableCell className="text-right"><Metric digits={0} value={row.market_cap_oku} /></TableCell>
                   <TableCell className="text-right"><Metric digits={1} value={row.avg_turnover_oku} /></TableCell>
+                  <TableCell className="text-right">
+                    <span className="grid whitespace-nowrap font-mono text-xs tabular-nums">
+                      <span>{row.margin_short_to_adv === null || row.margin_short_to_adv === undefined ? EMPTY : `${formatNumber(row.margin_short_to_adv, 2)} 日`}</span>
+                      <span className="text-[10px] text-muted-foreground">{row.margin_week_end ?? EMPTY}</span>
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.price_change_20d} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.gap_from_52w_low} /></TableCell>
                   <TableCell className="text-right"><PctBadge fraction value={row.sector_relative_strength_percentile} /></TableCell>

@@ -120,6 +120,7 @@ def candidate_metrics_map(
         "margin_week_end": _date_iso(derived.margin_week_end),
         "margin_issue_type": derived.margin_issue_type,
         "margin_long_to_adv": derived.margin_long_to_adv,
+        "margin_short_to_adv": derived.margin_short_to_adv,
         "margin_long_share": derived.margin_long_share,
         "margin_long_delta_26w": derived.margin_long_delta_26w,
         "margin_std_long_share": derived.margin_std_long_share,

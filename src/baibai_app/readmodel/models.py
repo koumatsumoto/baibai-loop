@@ -237,9 +237,12 @@ class CandidateRowView(BaseModel):
     price_change_20d: float | None
     gap_from_52w_low: float | None
     next_earnings_date: str | None
-    # 需給。margin_std_long_share だけが採否基準を満たし flag を持つ。他は数値として
-    # 文脈に出すだけで、検証していない量に検証済みの量と同じ重みを与えない。
+    # 需給は観測値として表示する。margin_short_to_adv は採否基準を通過しているが
+    # annotation 契約のまま warning / gate へ変換しない。制度期日偏重だけは別途検証済み
+    # の閾値に達したとき flag を持つ。
+    margin_week_end: date | None = None
     margin_long_to_adv: float | None
+    margin_short_to_adv: float | None = None
     margin_long_share: float | None
     margin_long_delta_26w: float | None
     margin_std_long_share: float | None

@@ -46,6 +46,8 @@ function ScreeningMetrics({ row }: { row: CandidateRowView }) {
       <Field label="FCF yield"><FractionMetric value={row.fcf_yield} /></Field>
       <Field label="OCF yield"><FractionMetric value={row.ocf_yield} /></Field>
       <Field label="売上 / 営業益 YoY"><span className="font-mono tabular-nums"><FractionMetric value={row.sales_yoy} /> / <FractionMetric value={row.operating_profit_yoy} /></span></Field>
+      <Field label="信用売残 / ADV"><span className="font-mono tabular-nums">{row.margin_short_to_adv === null || row.margin_short_to_adv === undefined ? '—' : `${row.margin_short_to_adv.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} 日分`}</span></Field>
+      <Field label="信用残の観測週"><span className="font-mono tabular-nums">{row.margin_week_end ?? '—'}</span></Field>
       <Field label="20d"><FractionMetric value={row.price_change_20d} /></Field>
       <Field label="52w low gap"><FractionMetric value={row.gap_from_52w_low} /></Field>
       <Field label="sector RS%"><FractionMetric value={row.sector_relative_strength_percentile} /></Field>

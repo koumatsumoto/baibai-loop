@@ -336,6 +336,28 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         self.assertEqual([item["ticker"] for item in longlist], ["1111", "2222", "3333"])
         self.assertEqual(self._diag(payload)["supply_demand_excluded_count"], 1)
 
+    def test_short_to_adv_annotation_does_not_change_selection_output(self) -> None:
+        candidates = [
+            _candidate("1111", metrics={"er_annual": 0.12}),
+            _candidate("2222", sector_33="化学", metrics={"er_annual": 0.10}),
+        ]
+        annotated = [
+            {
+                **candidate,
+                "metrics": {
+                    **candidate["metrics"],
+                    "margin_week_end": "2026-07-24",
+                    "margin_short_to_adv": 40.0 if candidate["ticker"] == "1111" else None,
+                },
+            }
+            for candidate in candidates
+        ]
+
+        self.assertEqual(
+            self._payload(candidates, longlist_top=2),
+            self._payload(annotated, longlist_top=2),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -121,6 +121,8 @@ function candidateRow(overrides: Partial<CandidateRowView> = {}): CandidateRowVi
     sector_relative_strength_percentile: null,
     price_change_20d: null,
     gap_from_52w_low: null,
+    margin_week_end: null,
+    margin_short_to_adv: null,
     next_earnings_date: '2026-08-06',
     data_quality_flags: [],
     portfolio_state: 'unheld',
@@ -184,6 +186,17 @@ describe('buildShortlistComparison', () => {
     )
 
     expect(rows[0].fairValueGapPct).toBe(12.5)
+  })
+
+  it('keeps nullable short-interest context on the joined candidate row', () => {
+    const [row] = buildShortlistComparison(
+      shortlist([entry({ ticker: '2331', rank: 1 })]),
+      selection([longlistEntry()]),
+      [candidateRow({ margin_short_to_adv: 3.5, margin_week_end: '2026-07-24' })],
+    )
+
+    expect(row.row?.margin_short_to_adv).toBe(3.5)
+    expect(row.row?.margin_week_end).toBe('2026-07-24')
   })
 
   it('carries the risk-reward judgment and blanks it for entries published without one', () => {
