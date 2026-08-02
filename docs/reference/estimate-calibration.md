@@ -97,11 +97,11 @@ authoritative な delisting exit value source が無い限り、窓中に系列�
 
 forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
 
-`er_level_calibration` は production core metric ではなく optional な既知 metric である。E[r] 水準 parameter の判断では、事前登録した run が core 3 metric と併せて `--required-metric er_level_calibration` を明示する。
+`er_level_calibration`、`margin_deadline_gate_top10`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
 
-cache schema version は `9`。panel は8つの point-in-time quality condition、6成分以上を観測できる行だけの `quality_signal_count`、E[r] top-decile 内の high/low interaction を持つ。さらに、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、および赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PERと3 FY cycle positionを記録する。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。
+cache schema version は `10`。panel は8つの point-in-time quality condition、6成分以上を観測できる行だけの `quality_signal_count`、E[r] top-decile 内の high/low interaction を持つ。さらに、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、および赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PERと3 FY cycle positionを記録する。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。
 
-信用需給では、貸借銘柄だけの `margin_short_to_adv`、時価総額 quintile 内の `margin_long_to_adv` percentile、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share >= 0.75` の recommendation-only virtual gateは、candidates・full rankを変えずに除外後を詰めた top-5 / top-10 をbaselineと比較する。production rulesへ接続する判断では、core 3 metricに `--required-metric margin_deadline_gate_top10` を明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+信用需給では、貸借銘柄だけの `margin_short_to_adv`、時価総額 quintile 内の `margin_long_to_adv` percentile、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share >= 0.75` の recommendation-only virtual gateは、candidates・full rankを変えずに除外後を詰めた top-5 / top-10 をbaselineと比較する。production判断では、virtual gateは`margin_deadline_gate_top10`、空売り残/ADVのraw annotationは`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
 
 ### pre-2019 診断 panel
 

@@ -23,6 +23,7 @@ from baibai_engine.screening.calibration.evaluation import (
     DECILES,
     MIN_AXIS_SAMPLE,
     _margin_deadline_gate_adoption_sign,
+    _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
     _reversion_plus_capped_carry,
     _spearman,
@@ -277,6 +278,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         cohort = result["6m"]["cohorts"][0]
         axes = cohort["axes"]
         self.assertGreater(axes["margin_short_to_adv"]["decile_spread_median"], 0)
+        self.assertEqual(cohort["metric_statuses"]["margin_short_to_adv"], "eligible")
         hypotheses = cohort["margin_supply_demand_hypotheses"]
         short_controls = hypotheses["margin_short_to_adv"]["controls"]
         self.assertEqual(
@@ -1297,6 +1299,29 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         }
         stability = _metric_direction_stability(as_reported, imputed)
         self.assertFalse(stability["normalized_per_3fy"])
+
+    def test_margin_short_trap_flip_blocks_optional_authority(self) -> None:
+        passing = {
+            "decile_spread_median": 0.03,
+            "best_decile_trap_rate": 0.1,
+            "deciles": [{"trap_rate": 0.2}],
+        }
+        trap_regression = {
+            **passing,
+            "best_decile_trap_rate": 0.3,
+        }
+        self.assertEqual(_margin_short_to_adv_adoption_sign(passing), 1.0)
+        self.assertEqual(_margin_short_to_adv_adoption_sign(trap_regression), 0.0)
+
+        as_reported = {"margin_short_to_adv": 1.0}
+        imputed = {
+            "total_loss": as_reported,
+            "neutral": {"margin_short_to_adv": 0.0},
+        }
+        stability = _metric_direction_stability(as_reported, imputed)
+        self.assertFalse(stability["margin_short_to_adv"])
+
+        self.assertIsNone(_margin_short_to_adv_adoption_sign({"deciles": []}))
 
     def test_a_conclusion_only_the_survivors_support_blocks_the_cohort(self) -> None:
         # Three of the five recommended names left the market. What the cohort

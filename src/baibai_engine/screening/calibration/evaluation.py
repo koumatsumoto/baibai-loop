@@ -358,6 +358,9 @@ def _evaluate_cohort(
         and gate_top10["variant"].get("n", 0)
         else "unresolved"
     )
+    metric_statuses["margin_short_to_adv"] = (
+        "eligible" if "margin_short_to_adv" in axes else "unresolved"
+    )
     metric_statuses["normalized_per_3fy"] = (
         "eligible" if "normalized_per_3fy" in axes else "unresolved"
     )
@@ -468,6 +471,7 @@ _SENSITIVITY_METRICS: tuple[str, ...] = (
 )
 OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
     "margin_deadline_gate_top10",
+    "margin_short_to_adv",
     "normalized_per_3fy",
 )
 _ALL_SENSITIVITY_METRICS = (*_SENSITIVITY_METRICS, *OPTIONAL_SENSITIVITY_METRICS)
@@ -482,6 +486,27 @@ def _margin_deadline_gate_adoption_sign(value: object) -> float | None:
     if not isinstance(median_delta, int | float) or not isinstance(trap_delta, int | float):
         return None
     return float(median_delta >= MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR and trap_delta <= 0)
+
+
+def _margin_short_to_adv_adoption_sign(value: object) -> float | None:
+    """Encode the preregistered raw-annotation direction and trap conclusion."""
+    if not isinstance(value, dict):
+        return None
+    spread = value.get("decile_spread_median")
+    best_trap = value.get("best_decile_trap_rate")
+    deciles = value.get("deciles")
+    if (
+        not isinstance(spread, int | float)
+        or not isinstance(best_trap, int | float)
+        or not isinstance(deciles, list)
+        or not deciles
+        or not isinstance(deciles[0], dict)
+    ):
+        return None
+    worst_trap = deciles[0].get("trap_rate")
+    if not isinstance(worst_trap, int | float):
+        return None
+    return float(spread > 0 and best_trap <= worst_trap)
 
 
 def _direction_signs(
@@ -513,6 +538,13 @@ def _direction_signs(
         signs["er_calibration"] = None
     signs["margin_deadline_gate_top10"] = _margin_deadline_gate_adoption_sign(
         _evaluate_margin_deadline_gate(panel, context.excess).get("top10")
+    )
+    signs["margin_short_to_adv"] = _margin_short_to_adv_adoption_sign(
+        _evaluate_axis(
+            AxisSpec(name="margin_short_to_adv", direction=-1),
+            context.population,
+            context.excess,
+        )
     )
     normalized_axis = _evaluate_axis(
         AxisSpec(name="normalized_per_3fy", direction=-1),
