@@ -15,6 +15,11 @@ from baibai_engine.market.sqlite import (
     validate_current_schema,
 )
 
+from ..metrics import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+)
 from ..sqlite_cache.jquants import WEEKLY_MARGIN_SOURCE, weekly_margin_coverage_key
 from .edinet import _append_edinet_metrics_coverage_issues
 from .jpx import (
@@ -62,8 +67,9 @@ def verify_screening_sqlite_coverage(
         )
 
     issues: list[CacheCoverageIssue] = []
-    bars_start = asof_date - timedelta(days=1200)
-    fin_start = asof_date - timedelta(days=730)
+    bars_start = asof_date - timedelta(days=BARS_INPUT_WINDOW_DAYS)
+    fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
+    normalized_start = asof_date - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS)
     jpx_source_coverage_covers_asof = False
     jpx_source_names: set[str] = set()
     try:
@@ -121,7 +127,10 @@ def verify_screening_sqlite_coverage(
             _append_daily_history_density_issue(
                 conn,
                 issues,
-                start=bars_start,
+                # The split basis for normalized_per_3fy reaches beyond the
+                # ordinary metric window. Date continuity alone cannot distinguish
+                # a complete cross-section from a range with only one ticker left.
+                start=normalized_start,
                 end=asof_date,
             )
             _append_table_consistency_issues(
@@ -180,6 +189,28 @@ def verify_screening_sqlite_coverage(
                     issues,
                     start=fin_start,
                     end=asof_date,
+                )
+            if not daily_bars_covered_by_data(conn, normalized_start, asof_date):
+                issues.append(
+                    CacheCoverageIssue(
+                        source="jquants_daily_bars",
+                        requirement=(
+                            "normalized_per_3fy split basis "
+                            f"{normalized_start.isoformat()}..{asof_date.isoformat()}"
+                        ),
+                        reason="split-normalization bar range is not fully covered in SQLite",
+                    )
+                )
+            if not range_covered(conn, "jquants_fin_summaries", normalized_start, asof_date):
+                issues.append(
+                    CacheCoverageIssue(
+                        source="jquants_fin_summaries",
+                        requirement=(
+                            "normalized_per_3fy FY history "
+                            f"{normalized_start.isoformat()}..{asof_date.isoformat()}"
+                        ),
+                        reason="normalized-profit summary range is not fully covered in SQLite",
+                    )
                 )
             _append_jpx_earnings_calendar_issues(
                 conn,

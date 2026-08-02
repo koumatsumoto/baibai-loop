@@ -515,6 +515,46 @@ def read_fin_summaries(
     return summaries
 
 
+def read_fy_summaries(
+    sqlite_path: Path, start: date, end: date
+) -> list[JQuantsFinancialSummary] | None:
+    """Read only FY EPS rows over a fully covered financial-summary range."""
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        if not range_covered(conn, "jquants_fin_summaries", start, end):
+            return None
+        rows = conn.execute(
+            "SELECT ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end "
+            "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
+            "AND fiscal_period = 'FY' ORDER BY ticker, disclosed_at",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    summaries: list[JQuantsFinancialSummary] = []
+    for ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end in rows:
+        try:
+            summaries.append(
+                JQuantsFinancialSummary(
+                    ticker=str(ticker),
+                    disclosed_at=date.fromisoformat(disclosed_at),
+                    eps_ttm=optional_float(eps_ttm),
+                    fiscal_period=str(fiscal_period),
+                    fiscal_year_end=optional_date(fiscal_year_end),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise JQuantsProviderError(
+                f"corrupt FY summary row in jquants_fin_summaries for {ticker}: {exc}"
+            ) from exc
+    return summaries
+
+
 def read_jpx_earnings_calendar_snapshot(
     sqlite_path: Path,
     asof_date: date,

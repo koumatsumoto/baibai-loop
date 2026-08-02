@@ -95,6 +95,7 @@ function candidateRow(overrides: Partial<CandidateRowView> = {}): CandidateRowVi
     market_cap_oku: null,
     avg_turnover_oku: null,
     per_trailing: null,
+    normalized_per_3fy: null,
     per_forward: null,
     pbr: null,
     ev_ebitda: null,

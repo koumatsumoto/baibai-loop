@@ -47,9 +47,9 @@ MARGIN_DELTA_SESSIONS = 130
 BARS_INPUT_WINDOW_DAYS = 1200
 FIN_INPUT_WINDOW_DAYS = 730
 
-# 株主還元の変化は3期の通期実績を必要とするため、calibration panel だけが使う
-# 補助履歴窓。production の FinancialSnapshot / E[r] 入力窓は上の730日のままにし、
-# この窓を build_metrics へ渡さない。
+# 株主還元の変化と正規化PERは複数期の通期実績を必要とする。production の
+# FinancialSnapshot / E[r] 入力窓は上の730日のまま維持し、正規化PERだけはFY行と
+# split eventを疎に読む。全bar・全四半期を日次runへ載せないための別窓である。
 SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS = 1200
 NORMALIZED_EPS_HISTORY_WINDOW_DAYS = 2200
 

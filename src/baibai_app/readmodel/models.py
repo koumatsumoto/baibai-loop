@@ -217,6 +217,7 @@ class CandidateRowView(BaseModel):
     market_cap_oku: float | None
     avg_turnover_oku: float | None
     per_trailing: float | None
+    normalized_per_3fy: float | None
     per_forward: float | None
     pbr: float | None
     ev_ebitda: float | None

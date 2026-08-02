@@ -205,6 +205,32 @@ class JQuantsProvider(JQuantsMarketProvider):
             if (margin := normalize_weekly_margin(record, week_end)) is not None
         ]
 
+    def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+        """Return only split events while still proving the full bar range is covered."""
+        if self._sqlite_path is not None:
+            from baibai_engine.market.store import read_adjustment_factor_bars
+
+            cached = read_adjustment_factor_bars(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+        self._raise_if_cache_only("jquants_daily_bars", f"{start.isoformat()}..{end.isoformat()}")
+        if self._sqlite_path is not None:
+            self._fetch_missing_range_chunks("get_eq_bars_daily_range", start, end)
+            cached = read_adjustment_factor_bars(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+            raise JQuantsProviderError(
+                "SQLite cache remained incomplete after fetching split-normalization bars "
+                f"for {start.isoformat()}..{end.isoformat()}"
+            )
+        records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)
+        return [
+            bar
+            for record in records
+            if (bar := normalize_daily_bar(record)) is not None
+            and bar.adjustment_factor not in (None, 0.0, 1.0)
+        ]
+
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         if self._sqlite_path is not None:
             from ..sqlite_reader import read_fin_summaries
@@ -229,6 +255,34 @@ class JQuantsProvider(JQuantsMarketProvider):
             summary
             for record in records
             if (summary := normalize_financial_summary(record)) is not None
+        ]
+
+    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
+        """Return only FY rows while still proving the full summary range is covered."""
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_fy_summaries
+
+            cached = read_fy_summaries(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+        self._raise_if_cache_only(
+            "jquants_fin_summaries", f"{start.isoformat()}..{end.isoformat()}"
+        )
+        if self._sqlite_path is not None:
+            self._fetch_missing_range_chunks("get_fin_summary_range", start, end)
+            cached = read_fy_summaries(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+            raise JQuantsProviderError(
+                "SQLite cache remained incomplete after fetching normalized-profit summaries "
+                f"for {start.isoformat()}..{end.isoformat()}"
+            )
+        records = self._load_or_fetch_range("get_fin_summary_range", start, end)
+        return [
+            summary
+            for record in records
+            if (summary := normalize_financial_summary(record)) is not None
+            and summary.fiscal_period == "FY"
         ]
 
     def _range_chunk_is_cached(self, method: str, start: date, end: date) -> bool:

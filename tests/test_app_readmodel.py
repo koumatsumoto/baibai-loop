@@ -318,7 +318,7 @@ def test_dashboard_returns_task_data_when_ledger_is_absent_or_invalid() -> None:
 
 def test_screening_tolerates_missing_or_invalid_metrics() -> None:
     view = build_screening(
-        StubCandidates(_run()),
+        StubCandidates(_run(metrics={"normalized_per_3fy": "12.5"})),
         StubLedger(_snapshot()),
         StubResearch([_revision()]),
     )
@@ -328,6 +328,7 @@ def test_screening_tolerates_missing_or_invalid_metrics() -> None:
     assert view.run.run_at == datetime(2026, 7, 8, 12, 0, tzinfo=JST)
     row = view.rows[0]
     assert row.per_trailing is None
+    assert row.normalized_per_3fy == 12.5
     assert row.er_annual is None
     assert row.portfolio_state == "held"
     assert row.has_research is True

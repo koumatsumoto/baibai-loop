@@ -242,6 +242,7 @@ export interface CandidateRowView {
   market_cap_oku: number | null
   avg_turnover_oku: number | null
   per_trailing: number | null
+  normalized_per_3fy: number | null
   per_forward: number | null
   pbr: number | null
   ev_ebitda: number | null

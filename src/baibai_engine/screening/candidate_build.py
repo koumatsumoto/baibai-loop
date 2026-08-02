@@ -32,6 +32,7 @@ def build_screened_candidate(
     evidence_hits: tuple[EvidenceHit, ...],
     freshness_warnings: tuple[FreshnessWarning, ...] = (),
     next_earnings_date: date | None = None,
+    normalized_per_3fy: float | None = None,
 ) -> ScreenedCandidate:
     return ScreenedCandidate(
         ticker=ticker,
@@ -74,6 +75,7 @@ def build_screened_candidate(
             estimate=estimate_expected_return(
                 financial, derived, close=_close_from_snapshot(financial)
             ),
+            normalized_per_3fy=normalized_per_3fy,
         ),
         next_earnings_date=next_earnings_date,
         split_adjustment_flag=derived.split_adjustment_flag,
@@ -87,6 +89,7 @@ def candidate_metrics_map(
     freshness_warning_count: int,
     derived: DerivedMetrics,
     estimate: ExpectedReturnEstimate | None = None,
+    normalized_per_3fy: float | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         "sales_ttm": financial.sales_ttm,
@@ -140,6 +143,9 @@ def candidate_metrics_map(
         # research layer can read them without a second cache fetch.
         "accruals_to_assets": financial.accruals_to_assets,
         "net_share_change_yoy": financial.net_share_change_yoy,
+        # 3 FY平均EPSに対する現在株価の倍率。正常利益や安全性の判定ではなく、
+        # trailing PERと比較して利益cycleを読むためのestimateである。
+        "normalized_per_3fy": normalized_per_3fy,
         "edinet_freshness_warning_count": freshness_warning_count,
         # 機械 E[r] (成分分解付き見積り。%/年の比率)。詳細は estimates.py。
         "er_annual": estimate.er_annual if estimate else None,

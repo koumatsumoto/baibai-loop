@@ -114,6 +114,10 @@ class FakeJQuantsProvider:
             for index in range(total)
         ]
 
+    def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+        self.calls.append(("get_adjustment_factor_bars_range", start, end))
+        return []
+
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         self.calls.append(("get_fin_summary_range", start, end))
         return [
@@ -147,6 +151,19 @@ class FakeJQuantsProvider:
                 ordinary_profit=None,
                 profit=None,
             ),
+        ]
+
+    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
+        self.calls.append(("get_fy_summary_range", start, end))
+        return [
+            JQuantsFinancialSummary(
+                ticker="130A",
+                disclosed_at=date(year, 5, 15),
+                eps_ttm=eps,
+                fiscal_period="FY",
+                fiscal_year_end=date(year, 3, 31),
+            )
+            for year, eps in ((2023, 10.0), (2024, 20.0), (2025, 30.0))
         ]
 
 
@@ -344,6 +361,10 @@ class ScreeningCliTests(unittest.TestCase):
                 self.assertEqual(len(payload["candidates"]), 1)
                 self.assertEqual(payload["candidates"][0]["ticker"], "130A")
                 self.assertEqual(payload["candidates"][0]["evidence_hits"], [])
+                self.assertAlmostEqual(
+                    payload["candidates"][0]["metrics"]["normalized_per_3fy"],
+                    44.95,
+                )
                 manifest_path = Path(".cache/screening/manifests") / f"{payload['run_id']}.json"
                 self.assertFalse(manifest_path.exists())
             finally:
@@ -851,6 +872,18 @@ class ScreeningCliTests(unittest.TestCase):
         self.assertIn(("get_eq_master", asof, asof), jquants.calls)
         self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=1200), asof), jquants.calls)
         self.assertIn(("get_fin_summary_range", asof - timedelta(days=730), asof), jquants.calls)
+        self.assertIn(
+            (
+                "get_adjustment_factor_bars_range",
+                asof - timedelta(days=2200),
+                asof,
+            ),
+            jquants.calls,
+        )
+        self.assertIn(
+            ("get_fy_summary_range", asof - timedelta(days=2200), asof),
+            jquants.calls,
+        )
         # The calendar bootstrap fetches a forward window so the unattended daily
         # batch can read the current (and upcoming) business-day rows.
         self.assertIn(
