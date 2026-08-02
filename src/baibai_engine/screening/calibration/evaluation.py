@@ -91,16 +91,6 @@ ASSET_BACKED_CONTROL_FIELDS: tuple[str, ...] = (
     "market_cap_oku",
     "equity_ratio",
 )
-DISLOCATION_ACUTE_THRESHOLD = -0.20
-DISLOCATION_LOW_PER_DECILES = 2
-DISLOCATION_CONTROL_FIELDS: tuple[str, ...] = (
-    "realized_volatility_60d",
-    "market_cap_oku",
-    "sector_33",
-    "per_trailing",
-)
-MIN_DISLOCATION_CONTROL_ACUTE = 1
-MIN_DISLOCATION_CONTROL_CHRONIC = 5
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -323,7 +313,6 @@ def _evaluate_cohort(
             "margin_supply_demand_hypotheses": {},
             "profit_normalization_hypotheses": {},
             "asset_backed_hypotheses": {},
-            "dislocation_lens": {},
             "er_calibration": {},
             "er_level_calibration": {},
         }
@@ -340,7 +329,6 @@ def _evaluate_cohort(
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
     asset_backed_hypotheses = _evaluate_asset_backed_hypotheses(population, excess)
-    dislocation_lens = _evaluate_dislocation_lens(population, excess)
     quality_interaction = _evaluate_quality_interaction(population, excess)
     return_change = _evaluate_shareholder_return_change(population, excess)
     er_calibration = _evaluate_er_calibration(
@@ -358,9 +346,6 @@ def _evaluate_cohort(
     )
     metric_statuses["shareholder_return_change"] = (
         "eligible" if return_change.get("eligible_n", 0) else "unresolved"
-    )
-    metric_statuses["dislocation_lens"] = (
-        "eligible" if dislocation_lens.get("eligible_n", 0) else "unresolved"
     )
     gate_top10 = margin_deadline_gate.get("top10")
     metric_statuses["margin_deadline_gate_top10"] = (
@@ -401,7 +386,6 @@ def _evaluate_cohort(
         "margin_supply_demand_hypotheses": margin_hypotheses,
         "profit_normalization_hypotheses": profit_hypotheses,
         "asset_backed_hypotheses": asset_backed_hypotheses,
-        "dislocation_lens": dislocation_lens,
         "er_calibration": er_calibration,
         "er_level_calibration": er_level_calibration,
     }
@@ -904,133 +888,6 @@ def _evaluate_shareholder_return_change(
         **_quality_group_deltas(change_stats, no_change_stats),
         "controls": controls,
         "components": components,
-    }
-
-
-def _evaluate_dislocation_lens(
-    population: Sequence[PanelRow], excess: Mapping[str, float]
-) -> dict[str, object]:
-    """Compare acute and chronic discounts without creating a production signal."""
-    per_rows = sorted(
-        (row for row in population if row.per_trailing is not None and row.per_trailing > 0),
-        key=lambda row: (row.per_trailing or 0.0, row.ticker),
-    )
-    band_end = int(DISLOCATION_LOW_PER_DECILES * len(per_rows) / DECILES)
-    low_valuation = per_rows[:band_end]
-    eligible = [
-        row
-        for row in low_valuation
-        if row.price_change_60d is not None
-        and row.quality_cfo_positive is not None
-        and row.quality_no_dilution is not None
-    ]
-    acute_quality = [
-        row
-        for row in eligible
-        if row.price_change_60d is not None
-        and row.price_change_60d <= DISLOCATION_ACUTE_THRESHOLD
-        and row.quality_cfo_positive is True
-        and row.quality_no_dilution is True
-    ]
-    chronic_quality = [
-        row
-        for row in eligible
-        if row.price_change_60d is not None
-        and row.price_change_60d > DISLOCATION_ACUTE_THRESHOLD
-        and row.quality_cfo_positive is True
-        and row.quality_no_dilution is True
-    ]
-    acute_quality_fail = [
-        row
-        for row in eligible
-        if row.price_change_60d is not None
-        and row.price_change_60d <= DISLOCATION_ACUTE_THRESHOLD
-        and not (row.quality_cfo_positive is True and row.quality_no_dilution is True)
-    ]
-    groups = {
-        "A_acute_quality": _group_stats([excess[row.ticker] for row in acute_quality]),
-        "B_chronic_quality": _group_stats([excess[row.ticker] for row in chronic_quality]),
-        "C_acute_quality_fail": _group_stats([excess[row.ticker] for row in acute_quality_fail]),
-    }
-    controls = {
-        field_name: _stratified_dislocation_control(
-            acute_quality,
-            chronic_quality,
-            excess,
-            field_name=field_name,
-        )
-        for field_name in DISLOCATION_CONTROL_FIELDS
-    }
-    return {
-        "acute_threshold": DISLOCATION_ACUTE_THRESHOLD,
-        "low_valuation_deciles": DISLOCATION_LOW_PER_DECILES,
-        "low_valuation_n": len(low_valuation),
-        "eligible_n": len(eligible),
-        "groups": groups,
-        "A_minus_B": _quality_group_deltas(groups["A_acute_quality"], groups["B_chronic_quality"]),
-        "C_minus_A": _quality_group_deltas(
-            groups["C_acute_quality_fail"], groups["A_acute_quality"]
-        ),
-        "controls": controls,
-    }
-
-
-def _stratified_dislocation_control(
-    acute: Sequence[PanelRow],
-    chronic: Sequence[PanelRow],
-    excess: Mapping[str, float],
-    *,
-    field_name: str,
-) -> dict[str, object]:
-    rows = [row for row in (*acute, *chronic) if getattr(row, field_name) is not None]
-    if not rows:
-        return _empty_dislocation_control()
-    if field_name == "sector_33":
-        grouped: dict[str, list[PanelRow]] = {}
-        for row in rows:
-            grouped.setdefault(row.sector_33, []).append(row)
-        strata = [grouped[key] for key in sorted(grouped)]
-    else:
-        ordered = sorted(rows, key=lambda row: (getattr(row, field_name), row.ticker))
-        strata = [[] for _ in range(5)]
-        for index, row in enumerate(ordered):
-            strata[min(index * 5 // len(ordered), 4)].append(row)
-
-    acute_tickers = {row.ticker for row in acute}
-    median_deltas: list[tuple[float, int]] = []
-    trap_deltas: list[tuple[float, int]] = []
-    for stratum in strata:
-        acute_values = [excess[row.ticker] for row in stratum if row.ticker in acute_tickers]
-        chronic_values = [excess[row.ticker] for row in stratum if row.ticker not in acute_tickers]
-        if (
-            len(acute_values) < MIN_DISLOCATION_CONTROL_ACUTE
-            or len(chronic_values) < MIN_DISLOCATION_CONTROL_CHRONIC
-        ):
-            continue
-        acute_stats = _group_stats(acute_values)
-        chronic_stats = _group_stats(chronic_values)
-        deltas = _quality_group_deltas(acute_stats, chronic_stats)
-        median_delta = deltas["median_excess_delta"]
-        trap_delta = deltas["trap_rate_delta"]
-        if median_delta is None or trap_delta is None:
-            continue
-        weight = min(len(acute_values), len(chronic_values))
-        median_deltas.append((median_delta, weight))
-        trap_deltas.append((trap_delta, weight))
-    return {
-        "strata_used": len(median_deltas),
-        "matched_weight": sum(weight for _, weight in median_deltas),
-        "stratified_median_excess_delta": _weighted_mean(median_deltas),
-        "stratified_trap_rate_delta": _weighted_mean(trap_deltas),
-    }
-
-
-def _empty_dislocation_control() -> dict[str, object]:
-    return {
-        "strata_used": 0,
-        "matched_weight": 0,
-        "stratified_median_excess_delta": None,
-        "stratified_trap_rate_delta": None,
     }
 
 
@@ -1829,7 +1686,6 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
         "asset_backed_hypotheses": _aggregate_asset_backed_hypotheses(cohorts),
-        "dislocation_lens": _aggregate_dislocation_lens(cohorts),
         "er_calibration": _aggregate_er_calibration(cohorts),
     }
 
@@ -2109,76 +1965,6 @@ def _aggregate_asset_backed_hypotheses(
         "mean_difference_in_differences_trap_rate": (
             round(fmean(did_traps), 6) if did_traps else None
         ),
-        "controls": _control_summaries(controls),
-    }
-
-
-def _aggregate_dislocation_lens(
-    cohorts: Sequence[dict[str, object]],
-) -> dict[str, object]:
-    group_ns = dict.fromkeys(("A_acute_quality", "B_chronic_quality", "C_acute_quality_fail"), 0)
-    comparisons: dict[str, dict[str, list[float]]] = {
-        name: {"median": [], "mean": [], "trap": []} for name in ("A_minus_B", "C_minus_A")
-    }
-    controls = {
-        name: _QualityControlAccumulator(median_deltas=[], trap_deltas=[])
-        for name in DISLOCATION_CONTROL_FIELDS
-    }
-    low_valuation_n = 0
-    eligible_n = 0
-    for cohort in cohorts:
-        lens = cohort.get("dislocation_lens")
-        if not isinstance(lens, dict):
-            continue
-        if isinstance(lens.get("low_valuation_n"), int):
-            low_valuation_n += int(lens["low_valuation_n"])
-        if isinstance(lens.get("eligible_n"), int):
-            eligible_n += int(lens["eligible_n"])
-        cohort_groups = lens.get("groups")
-        if isinstance(cohort_groups, dict):
-            for name in group_ns:
-                stats = cohort_groups.get(name)
-                count = stats.get("n") if isinstance(stats, dict) else None
-                if isinstance(count, int):
-                    group_ns[name] += count
-        for name, values in comparisons.items():
-            comparison = lens.get(name)
-            if not isinstance(comparison, dict):
-                continue
-            _append_numeric(comparison.get("median_excess_delta"), values["median"])
-            _append_numeric(comparison.get("mean_excess_delta"), values["mean"])
-            _append_numeric(comparison.get("trap_rate_delta"), values["trap"])
-        cohort_controls = lens.get("controls")
-        if isinstance(cohort_controls, dict):
-            _collect_control_values(cohort_controls, controls)
-
-    return {
-        "low_valuation_n": low_valuation_n,
-        "eligible_n": eligible_n,
-        "group_n": group_ns,
-        **{
-            name: {
-                "comparable_cohorts": len(values["median"]),
-                "mean_median_excess_delta": (
-                    round(fmean(values["median"]), 6) if values["median"] else None
-                ),
-                "median_delta_positive_share": (
-                    round(
-                        sum(value > 0 for value in values["median"]) / len(values["median"]),
-                        4,
-                    )
-                    if values["median"]
-                    else None
-                ),
-                "mean_mean_excess_delta": (
-                    round(fmean(values["mean"]), 6) if values["mean"] else None
-                ),
-                "mean_trap_rate_delta": (
-                    round(fmean(values["trap"]), 6) if values["trap"] else None
-                ),
-            }
-            for name, values in comparisons.items()
-        },
         "controls": _control_summaries(controls),
     }
 
