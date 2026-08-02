@@ -122,7 +122,7 @@ shortlistは「安く見える」候補ではなく「非対称が買いに値�
 | `cancelled` | proposal ID、reservation ID、時刻 | remaining release |
 | `expired` | proposal ID、reservation ID、brokerで未約定を確認した時刻 | remaining release |
 
-新規openとreservationなしfillはcurrent approved proposalを必須とする。既存reservationのterminal resultはreservationに保存されたproposal bindingを使う。期限経過だけで`expired`を作らない。partial fillはremainingがある間だけ後続reportを受け、同一terminal reportはno-change、矛盾reportはhard errorにする。
+新規openとreservationなしfillはcurrent approved proposalを必須とする。既存reservationのterminal resultはreservationに保存されたproposal bindingを使う。migration由来でbindingがnullのreservationだけは、人間報告を記録するGitHub issue URLを`--proposal-ref`へ渡し、release eventの`decision_reference`へ束縛する。同時刻に複数reservationがterminalになる場合は`--reservation-id`を反復し、1 draftで原子的にreleaseする。期限経過だけで`expired`を作らない。partial fillはremainingがある間だけ後続reportを受け、同一terminal reportはno-change、矛盾reportはhard errorにする。
 
 ```bash
 uv run baibai-engine position record-result --db data/app/baibai.sqlite --proposal-ref PROPOSAL_ID --status open --occurred-at YYYY-MM-DDTHH:MM:SS+09:00 --ticker XXXX --quantity 100 --sector SECTOR --price-guard-yen 1000 --expires-at YYYY-MM-DDT15:30:00+09:00 --out /tmp/open-draft.yaml

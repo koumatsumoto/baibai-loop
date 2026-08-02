@@ -61,13 +61,7 @@ def record_result(
     """
 
     _validate_proposal_ref(proposal_ref)
-    if occurred_at.tzinfo is None:
-        raise ResultRecordingError("occurred_at must include a timezone")
-    effective_now = now or datetime.now().astimezone()
-    if effective_now.tzinfo is None:
-        raise ResultRecordingError("now must include a timezone")
-    if occurred_at > effective_now:
-        raise ResultRecordingError("occurred_at must not be in the future")
+    effective_now = _validate_report_time(occurred_at, now=now)
     if approved_at is not None:
         if approved_at.tzinfo is None:
             raise ResultRecordingError("approved_at must include a timezone")
@@ -97,19 +91,13 @@ def record_result(
         release_reason: Literal["cancelled", "expired"] = (
             "cancelled" if status == "cancelled" else "expired"
         )
-        releases = [
-            event
-            for event in document.events
-            if isinstance(event, ReleaseEvent) and event.reservation_id == reservation_id
-        ]
-        if releases:
-            if len(releases) != 1 or not _same_release_report(
-                releases[0],
-                reason=release_reason,
-                proposal_ref=proposal_ref,
-                occurred_at=occurred_at,
-            ):
-                raise ResultRecordingError("conflicting human report for released reservation")
+        if _release_already_recorded(
+            document,
+            reservation_id=reservation_id,
+            reason=release_reason,
+            proposal_ref=proposal_ref,
+            occurred_at=occurred_at,
+        ):
             return ResultRecordingResult(document=document, changed=False, event_ids=())
 
     state = replay_events_through(document.events, document.as_of)
@@ -220,28 +208,141 @@ def record_result(
         )
     else:
         assert reservation is not None
-        if (
-            reservation.decision_reference is not None
-            and proposal_ref != reservation.decision_reference
-        ):
-            raise ResultRecordingError(
-                f"{status} proposal_ref does not match the active reservation"
-            )
-        if status == "expired" and occurred_at < reservation.expires_at:
-            raise ResultRecordingError("expired occurred_at must be at or after expires_at")
-        suffix = _event_suffix(proposal_ref, status, reservation.ticker, occurred_at)
-        prefix = "human-cancel" if status == "cancelled" else "human-expire"
         additions.append(
-            {
-                "event_id": f"{prefix}-{suffix}",
-                "type": "release",
-                "occurred_at": occurred_at.isoformat(),
-                "reservation_id": reservation.reservation_id,
-                "reason": status,
-                "decision_reference": proposal_ref,
-            }
+            _release_addition(
+                reservation,
+                proposal_ref=proposal_ref,
+                status=status,
+                occurred_at=occurred_at,
+                event_identity=reservation.ticker,
+            )
         )
 
+    return _patch_document(document, additions=additions, occurred_at=occurred_at)
+
+
+def record_terminal_results(
+    document: PortfolioLedgerDocument,
+    *,
+    proposal_ref: str,
+    status: Literal["cancelled", "expired"],
+    occurred_at: datetime,
+    reservation_ids: tuple[str, ...],
+    now: datetime | None = None,
+) -> ResultRecordingResult:
+    """Append simultaneous terminal reports as one reconciled ledger change."""
+
+    _validate_proposal_ref(proposal_ref)
+    _validate_report_time(occurred_at, now=now)
+    if len(reservation_ids) < 2:
+        raise ResultRecordingError("batch terminal result requires multiple reservation_ids")
+    if len(set(reservation_ids)) != len(reservation_ids):
+        raise ResultRecordingError("reservation_ids must be unique")
+
+    pending_ids = [
+        reservation_id
+        for reservation_id in reservation_ids
+        if not _release_already_recorded(
+            document,
+            reservation_id=reservation_id,
+            reason=status,
+            proposal_ref=proposal_ref,
+            occurred_at=occurred_at,
+        )
+    ]
+    if not pending_ids:
+        return ResultRecordingResult(document=document, changed=False, event_ids=())
+
+    state = replay_events_through(document.events, document.as_of)
+    active = {item.reservation_id: item for item in reservation_snapshots(state)}
+    additions: list[dict[str, object]] = []
+    for reservation_id in pending_ids:
+        reservation = active.get(reservation_id)
+        if reservation is None:
+            raise ResultRecordingError(f"{status} requires an active reservation")
+        additions.append(
+            _release_addition(
+                reservation,
+                proposal_ref=proposal_ref,
+                status=status,
+                occurred_at=occurred_at,
+                event_identity=f"{reservation.ticker}:{reservation.reservation_id}",
+            )
+        )
+
+    return _patch_document(document, additions=additions, occurred_at=occurred_at)
+
+
+def _validate_report_time(occurred_at: datetime, *, now: datetime | None) -> datetime:
+    if occurred_at.tzinfo is None:
+        raise ResultRecordingError("occurred_at must include a timezone")
+    effective_now = now or datetime.now().astimezone()
+    if effective_now.tzinfo is None:
+        raise ResultRecordingError("now must include a timezone")
+    if occurred_at > effective_now:
+        raise ResultRecordingError("occurred_at must not be in the future")
+    return effective_now
+
+
+def _release_already_recorded(
+    document: PortfolioLedgerDocument,
+    *,
+    reservation_id: str,
+    reason: Literal["cancelled", "expired"],
+    proposal_ref: str,
+    occurred_at: datetime,
+) -> bool:
+    releases = [
+        event
+        for event in document.events
+        if isinstance(event, ReleaseEvent) and event.reservation_id == reservation_id
+    ]
+    if not releases:
+        return False
+    if len(releases) != 1 or not _same_release_report(
+        releases[0],
+        reason=reason,
+        proposal_ref=proposal_ref,
+        occurred_at=occurred_at,
+    ):
+        raise ResultRecordingError("conflicting human report for released reservation")
+    return True
+
+
+def _release_addition(
+    reservation: ReservationSnapshot,
+    *,
+    proposal_ref: str,
+    status: Literal["cancelled", "expired"],
+    occurred_at: datetime,
+    event_identity: str,
+) -> dict[str, object]:
+    if (
+        reservation.decision_reference is not None
+        and proposal_ref != reservation.decision_reference
+    ):
+        raise ResultRecordingError(f"{status} proposal_ref does not match the active reservation")
+    if status == "expired" and occurred_at < reservation.expires_at:
+        raise ResultRecordingError("expired occurred_at must be at or after expires_at")
+    suffix = _event_suffix(proposal_ref, status, event_identity, occurred_at)
+    prefix = "human-cancel" if status == "cancelled" else "human-expire"
+    return {
+        "event_id": f"{prefix}-{suffix}",
+        "type": "release",
+        "occurred_at": occurred_at.isoformat(),
+        "reservation_id": reservation.reservation_id,
+        "reason": status,
+        "decision_reference": proposal_ref,
+    }
+
+
+def _patch_document(
+    document: PortfolioLedgerDocument,
+    *,
+    additions: list[dict[str, object]],
+    occurred_at: datetime,
+) -> ResultRecordingResult:
+    existing_by_id = {event.event_id: event for event in document.events}
     pending: list[dict[str, object]] = []
     for addition in additions:
         event_id = str(addition["event_id"])
