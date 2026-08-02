@@ -248,7 +248,8 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
-- [ ] calibration coverage の対象 row は diagnostics の件数だけでなく row identity も保存し、件数不一致・未知 status・対象 return 欠損を fail closed にするか。diagnostic-only panel は directory と provenance hash を production から分け、`production_decision` では authority flag 単独でなく variant・入力窓・全 row の quality を固定 tuple として照合する negative test を持つか
+- [ ] calibration coverage の対象 row は diagnostics の件数だけでなく row identity も保存し、件数不一致・未知 status・感度計算不能を fail closed にするか。diagnostic-only panel は directory と provenance hash を production から分け、`production_decision` では authority flag 単独でなく variant・入力窓・全 row の quality を固定 tuple として照合する negative test を持つか
+- [ ] `priced_master_without_universe` の対象 return が未解決でも値を推定せず、全対象 row への全損 / resolved 母集団中央値の両側代入で結論方向を判定するか。方向 split、diagnostics 件数と row identity の不一致、candidate partition 不一致、未知 unresolved status をそれぞれ fail closed にする negative test があるか
 - [ ] calibration total return は FY 行なし / `DivAnn: null` / `DivAnn: 0` を区別し、前 2 つを 0 円に補完していないか。同一 FY の訂正を重複加算せず、最新 non-null 訂正が負値・非有限なら古い正常値へ fallback せず拒否するか。DPS と entry price を同じ adjustment-factor basis へ揃える split negative test があるか。total-return 欠損が price-only metric を欠損または改変せず、optional metric を required にした run だけが、status 欠落・非 mapping・未知値を含めて fail closed になるか
 - [ ] calibration quality condition は current/prior の開示時点を混ぜず、欠損を不充足へ補完していないか。6成分未満の composite を null にし、cache の optional boolean が空欄 / `true` / `false` 以外なら fail closed にする negative test があるか
 - [ ] calibration の株主還元変化列は同一 FY の最新 revision を選んでから null を判定し、DPS・株数を同じ split basis へ揃えているか。3 FY 不足、DPS YoY の非有限値、株数減少 streak の範囲外、optional boolean の不正 token、change composite と成分の矛盾を cache read で fail closed にする negative test があるか

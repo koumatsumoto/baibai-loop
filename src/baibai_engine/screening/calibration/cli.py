@@ -318,8 +318,6 @@ def calibration_evaluate_command(
                     or unevaluated_sensitivity.get("excluded_count") != unevaluated
                 ):
                     blockers.append("priced_master_without_universe_unmeasured")
-                elif not unevaluated_sensitivity.get("resolution_complete"):
-                    blockers.append("priced_master_without_universe_return_unresolved")
                 elif not unevaluated_sensitivity.get("direction_stable"):
                     blockers.append("priced_master_without_universe_flips_direction")
                 # Each unresolved class blocks for its own reason, and a name the
