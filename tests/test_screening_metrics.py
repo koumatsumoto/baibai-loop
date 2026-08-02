@@ -131,6 +131,7 @@ def _edinet_metric_record(
     ocf_ttm: float = 100.0,
     debt: float = 300.0,
     cash: float = 100.0,
+    investment_securities: float | None = None,
     ebitda_ttm: float = 200.0,
     consolidation_basis: str = "consolidated",
     ttm_quality: TTMQuality = TTMQuality.EXACT,
@@ -146,6 +147,7 @@ def _edinet_metric_record(
         ocf_ttm=ocf_ttm,
         debt=debt,
         cash=cash,
+        investment_securities=investment_securities,
         ebitda_ttm=ebitda_ttm,
         consolidation_basis=consolidation_basis,
         ttm_quality_ev_ebitda=ttm_quality,
@@ -1324,6 +1326,53 @@ class ScreeningMetricsTests(unittest.TestCase):
         variance = sum((value - avg) ** 2 for value in history_values) / len(history_values)
         expected_sigma_gap = (history_values[-1] - avg) / (variance**0.5)
         self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
+
+    def test_build_metrics_adds_investment_securities_to_net_cash_ratio(self) -> None:
+        asof = date(2026, 4, 24)
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": [JQuantsDailyBar("130A", asof, 120.0, 300_000_000.0)]},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        asof,
+                        fiscal_period="FY",
+                        fiscal_year_end=date(2026, 3, 31),
+                        shares_outstanding=10.0,
+                    )
+                ]
+            },
+            edinet_by_ticker={"130A": _edinet_metric_record(investment_securities=800.0)},
+        )
+
+        snapshot = result.financials["130A"]
+        self.assertEqual(snapshot.investment_securities, 800.0)
+        self.assertAlmostEqual(snapshot.net_cash_to_market_cap or 0.0, -200.0 / 1200.0)
+        self.assertAlmostEqual(snapshot.asset_backed_ratio or 0.0, 600.0 / 1200.0)
+
+    def test_asset_backed_ratio_is_null_without_positive_market_cap(self) -> None:
+        asof = date(2026, 4, 24)
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": [JQuantsDailyBar("130A", asof, 120.0, 300_000_000.0)]},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        asof,
+                        fiscal_period="FY",
+                        fiscal_year_end=date(2026, 3, 31),
+                        shares_outstanding=0.0,
+                    )
+                ]
+            },
+            edinet_by_ticker={"130A": _edinet_metric_record(investment_securities=800.0)},
+        )
+
+        self.assertIsNone(result.financials["130A"].asset_backed_ratio)
 
     def test_build_metrics_drops_ev_ebitda_when_ev_or_ebitda_is_non_positive(self) -> None:
         asof = date(2026, 4, 24)

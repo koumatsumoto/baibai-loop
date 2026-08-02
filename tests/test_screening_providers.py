@@ -1075,6 +1075,7 @@ class ScreeningProviderTests(unittest.TestCase):
                 "-40",
             ),
             ("jpcrp_cor:CashAndDeposits", "CurrentYearConsolidatedInstant", "300"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
             ("jpcrp_cor:ShortTermBorrowings", "CurrentYearConsolidatedInstant", "20"),
             ("jpcrp_cor:LongTermBorrowings", "CurrentYearConsolidatedInstant", "50"),
             ("jpcrp_cor:Equity", "CurrentYearConsolidatedInstant", "800"),
@@ -1095,6 +1096,7 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.debt, 70.0)
         self.assertEqual(record.cash, 300.0)
         self.assertEqual(record.net_cash, 230.0)
+        self.assertEqual(record.investment_securities, 250.0)
         self.assertEqual(record.capex_ttm, 40.0)
         self.assertEqual(record.fcf_ttm, 110.0)
         self.assertEqual(record.ebitda_ttm, 120.0)
@@ -1102,6 +1104,88 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
         self.assertEqual(record.source_period_start, date(2025, 4, 1))
         self.assertEqual(record.source_period_end, date(2026, 3, 31))
+
+    def test_investment_securities_uses_exact_tag_and_consolidated_basis(self) -> None:
+        rows = [
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "250"),
+            ("jppfs_cor:InvestmentSecurities", "CurrentYearNonConsolidatedInstant", "900"),
+            (
+                "jppfs_cor:SharesOfSubsidiariesAndAssociates",
+                "CurrentYearConsolidatedInstant",
+                "700",
+            ),
+            (
+                "jpcrp_cor:OperationalInvestmentSecurities",
+                "CurrentYearConsolidatedInstant",
+                "800",
+            ),
+            (
+                "jppfs_cor:GainOnSaleOfInvestmentSecurities",
+                "CurrentYearConsolidatedDuration",
+                "1000",
+            ),
+        ]
+
+        record = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100TEST",
+            doc_type_code="120",
+            content=_edinet_csv_zip(rows),
+        )
+
+        self.assertEqual(record.investment_securities, 250.0)
+        self.assertNotIn("tag_not_found:investment_securities", record.failure_reasons)
+
+    def test_investment_securities_excludes_similar_tags_and_accepts_reported_zero(self) -> None:
+        excluded = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100TEST",
+            doc_type_code="120",
+            content=_edinet_csv_zip(
+                [
+                    (
+                        "jpcrp_cor:OperationalInvestmentSecurities",
+                        "CurrentYearConsolidatedInstant",
+                        "800",
+                    ),
+                    (
+                        "jppfs_cor:ProceedsFromSaleOfInvestmentSecurities",
+                        "CurrentYearConsolidatedDuration",
+                        "900",
+                    ),
+                ]
+            ),
+        )
+        zero = parse_csv_zip_metric_record(
+            ticker="7203",
+            doc_id="S100ZERO",
+            doc_type_code="120",
+            content=_edinet_csv_zip(
+                [("jppfs_cor:InvestmentSecurities", "CurrentYearConsolidatedInstant", "－")]
+            ),
+        )
+
+        self.assertIsNone(excluded.investment_securities)
+        self.assertIn("tag_not_found:investment_securities", excluded.failure_reasons)
+        self.assertEqual(zero.investment_securities, 0.0)
+
+    def test_investment_securities_rejects_negative_value(self) -> None:
+        for value in ("-1", "inf"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_csv_zip_metric_record(
+                    ticker="7203",
+                    doc_id="S100INVALID",
+                    doc_type_code="120",
+                    content=_edinet_csv_zip(
+                        [
+                            (
+                                "jppfs_cor:InvestmentSecurities",
+                                "CurrentYearConsolidatedInstant",
+                                value,
+                            )
+                        ]
+                    ),
+                )
 
     def test_parse_csv_zip_metric_record_extracts_loan_payable_and_lease_debt(self) -> None:
         rows = [

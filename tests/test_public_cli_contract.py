@@ -130,6 +130,8 @@ def test_select_cli_emits_stable_yaml_shape(
         "pcfr",
         "cash_to_market_cap",
         "net_cash_to_market_cap",
+        "investment_securities",
+        "asset_backed_ratio",
         "equity_ratio",
         "ocf_yield",
         "operating_profit_yoy",

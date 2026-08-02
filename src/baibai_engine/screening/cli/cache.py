@@ -377,6 +377,7 @@ def _metric_record_payload(
         "ocf_ttm": record.ocf_ttm,
         "debt": record.debt,
         "cash": record.cash,
+        "investment_securities": record.investment_securities,
         "ebitda_ttm": record.ebitda_ttm,
         "consolidation_basis": record.consolidation_basis,
         "ttm_quality_ev_ebitda": record.ttm_quality_ev_ebitda.value,

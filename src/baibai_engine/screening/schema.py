@@ -115,6 +115,8 @@ class FinancialSnapshot:
     ocf_yield: float | None = None
     net_cash: float | None = None
     net_cash_to_market_cap: float | None = None
+    investment_securities: float | None = None
+    asset_backed_ratio: float | None = None
     fcf_ttm: float | None = None
     fcf_yield: float | None = None
     capex_ttm: float | None = None
@@ -201,6 +203,8 @@ class FinancialSnapshot:
         "ocf_yield",
         "net_cash",
         "net_cash_to_market_cap",
+        "investment_securities",
+        "asset_backed_ratio",
         "fcf_ttm",
         "fcf_yield",
         "capex_ttm",
@@ -220,6 +224,13 @@ class FinancialSnapshot:
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
         return _validate_finite(value)
+
+    @field_validator("investment_securities")
+    @classmethod
+    def _nonnegative_investment_securities(cls, value: float | None) -> float | None:
+        if value is not None and value < 0:
+            raise ValueError("investment_securities must be nonnegative")
+        return value
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)

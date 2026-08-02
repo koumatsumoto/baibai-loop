@@ -54,6 +54,7 @@ class EdinetMetricRecord:
     ocf_ttm: float | None = None
     debt: float | None = None
     cash: float | None = None
+    investment_securities: float | None = None
     ebitda_ttm: float | None = None
     consolidation_basis: str | None = None
     ttm_quality_ev_ebitda: TTMQuality = TTMQuality.UNAVAILABLE
@@ -98,6 +99,14 @@ class EdinetMetricRecord:
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
         return _validate_finite(value)
+
+    @field_validator("investment_securities")
+    @classmethod
+    def _nonnegative_investment_securities(cls, value: float | None) -> float | None:
+        value = _validate_finite(value)
+        if value is not None and value < 0:
+            raise ValueError("investment_securities must be nonnegative")
+        return value
 
     @field_validator("failure_reasons", mode="before")
     @classmethod
@@ -383,6 +392,9 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         ocf_ttm=_to_float(_coalesce(record, "ocf_ttm", "OperatingCashFlowTTM")),
         debt=_to_float(_coalesce(record, "debt", "Debt")),
         cash=_to_float(_coalesce(record, "cash", "Cash")),
+        investment_securities=_to_float(
+            _coalesce(record, "investment_securities", "InvestmentSecurities")
+        ),
         ebitda_ttm=_to_float(_coalesce(record, "ebitda_ttm", "EBITDATTM")),
         consolidation_basis=_coalesce(record, "consolidation_basis", "ConsolidationBasis"),
         ttm_quality_ev_ebitda=_parse_ttm_quality(

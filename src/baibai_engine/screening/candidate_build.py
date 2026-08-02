@@ -101,6 +101,8 @@ def candidate_metrics_map(
         "ocf_yield": financial.ocf_yield,
         "net_cash": financial.net_cash,
         "net_cash_to_market_cap": financial.net_cash_to_market_cap,
+        "investment_securities": financial.investment_securities,
+        "asset_backed_ratio": financial.asset_backed_ratio,
         "debt": financial.debt,
         "cash": financial.cash,
         "fcf_ttm": financial.fcf_ttm,

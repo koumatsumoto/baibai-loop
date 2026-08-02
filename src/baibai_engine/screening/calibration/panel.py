@@ -146,6 +146,8 @@ class PanelRow:
     fcf_yield: float | None
     net_cash_to_market_cap: float | None
     cash_to_market_cap: float | None
+    investment_securities: float | None
+    asset_backed_ratio: float | None
     equity_ratio: float | None
     price_to_equity: float | None
     dividend_yield: float | None
@@ -449,6 +451,8 @@ def build_panel(
                 fcf_yield=financial.fcf_yield,
                 net_cash_to_market_cap=financial.net_cash_to_market_cap,
                 cash_to_market_cap=financial.cash_to_market_cap,
+                investment_securities=financial.investment_securities,
+                asset_backed_ratio=financial.asset_backed_ratio,
                 equity_ratio=financial.equity_ratio,
                 price_to_equity=financial.price_to_equity,
                 dividend_yield=financial.dividend_yield,
@@ -631,6 +635,8 @@ def _unresolved_master_member_row(
         fcf_yield=None,
         net_cash_to_market_cap=None,
         cash_to_market_cap=None,
+        investment_securities=None,
+        asset_backed_ratio=None,
         equity_ratio=None,
         price_to_equity=None,
         dividend_yield=None,

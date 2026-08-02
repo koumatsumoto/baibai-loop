@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 9
+CACHE_SCHEMA_VERSION = 10
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -158,6 +158,8 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         fcf_yield=_opt_float(raw, "fcf_yield"),
         net_cash_to_market_cap=_opt_float(raw, "net_cash_to_market_cap"),
         cash_to_market_cap=_opt_float(raw, "cash_to_market_cap"),
+        investment_securities=_opt_float(raw, "investment_securities"),
+        asset_backed_ratio=_opt_float(raw, "asset_backed_ratio"),
         equity_ratio=_opt_float(raw, "equity_ratio"),
         price_to_equity=_opt_float(raw, "price_to_equity"),
         dividend_yield=_opt_float(raw, "dividend_yield"),
@@ -229,6 +231,7 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         self_range_observed_sessions=int(raw["self_range_observed_sessions"]),
     )
     _validate_quality_signals(row)
+    _validate_asset_backed(row)
     _validate_shareholder_return_change(row)
     _validate_margin_supply_demand(row)
     _validate_normalized_profit(row)
@@ -323,6 +326,38 @@ def _validate_quality_signals(row: PanelRow) -> None:
             raise ValueError("quality signal count requires six available components")
     elif row.quality_signal_count != expected_count:
         raise ValueError("quality signal count is inconsistent")
+
+
+def _validate_asset_backed(row: PanelRow) -> None:
+    investment = row.investment_securities
+    if investment is not None and (not isfinite(investment) or investment < 0):
+        raise ValueError("investment securities must be finite and non-negative")
+    ratio = row.asset_backed_ratio
+    if ratio is None:
+        return
+    if not isfinite(ratio):
+        raise ValueError("asset-backed ratio must be finite")
+    if investment is None or row.net_cash_to_market_cap is None:
+        raise ValueError("asset-backed ratio requires its source fields")
+    if row.market_cap_oku is None:
+        if row.in_population:
+            raise ValueError("population asset-backed ratio requires market cap")
+        if ratio < row.net_cash_to_market_cap - 1e-12:
+            raise ValueError("asset-backed ratio is inconsistent with non-negative investment")
+        return
+    if row.market_cap_oku <= 0:
+        raise ValueError("asset-backed ratio requires positive market cap")
+    # market_cap_oku is the liquidity snapshot rounded to whole oku, while both
+    # ratios use the exact close * shares market cap. Validate the investment
+    # component against the exact-value interval represented by that rounded fact.
+    component = ratio - row.net_cash_to_market_cap
+    lower_market_cap = max((row.market_cap_oku - 0.5) * 100_000_000, 1.0)
+    upper_market_cap = (row.market_cap_oku + 0.5) * 100_000_000
+    component_min = investment / upper_market_cap
+    component_max = investment / lower_market_cap
+    tolerance = 1e-12 * max(1.0, abs(component), abs(component_max))
+    if component < component_min - tolerance or component > component_max + tolerance:
+        raise ValueError("asset-backed ratio is inconsistent with its source fields")
 
 
 def _validate_shareholder_return_change(row: PanelRow) -> None:

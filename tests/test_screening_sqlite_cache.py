@@ -620,6 +620,7 @@ class SQLiteCacheTest(unittest.TestCase):
                     {
                         "ticker": "7203",
                         "sales_ttm": 100,
+                        "investment_securities": 250,
                         "extractor_revision": revision,
                         "source_document_revision": source_revision,
                     }
@@ -636,14 +637,32 @@ class SQLiteCacheTest(unittest.TestCase):
             conn = sqlite3.connect(db)
             try:
                 row = conn.execute(
-                    "SELECT sales_ttm, extractor_revision, source_document_revision "
+                    "SELECT sales_ttm, investment_securities, extractor_revision, "
+                    "source_document_revision "
                     "FROM edinet_metrics "
                     "WHERE asof_date = ? AND ticker = '7203'",
                     (asof.isoformat(),),
                 ).fetchone()
             finally:
                 conn.close()
-            self.assertEqual(row, (100.0, revision, source_revision))
+            self.assertEqual(row, (100.0, 250.0, revision, source_revision))
+
+            for invalid in (-1, float("inf"), float("nan")):
+                with (
+                    self.subTest(invalid=invalid),
+                    self.assertRaisesRegex(ValueError, "invalid investment_securities"),
+                ):
+                    store_edinet_metrics(
+                        db,
+                        asof,
+                        [
+                            {
+                                "ticker": "7203",
+                                "investment_securities": invalid,
+                                "extractor_revision": revision,
+                            }
+                        ],
+                    )
 
     def test_direct_stores_do_not_persist_raw_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

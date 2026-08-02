@@ -85,6 +85,12 @@ PROFIT_NORMALIZATION_CONTROL_FIELDS: tuple[str, ...] = (
     "market_cap_oku",
     "sector_33",
 )
+ASSET_BACKED_THRESHOLD = 0.4
+ASSET_BACKED_CONTROL_FIELDS: tuple[str, ...] = (
+    "pbr",
+    "market_cap_oku",
+    "equity_ratio",
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -134,6 +140,7 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="fcf_yield", direction=1),
     AxisSpec(name="net_cash_to_market_cap", direction=1),
     AxisSpec(name="cash_to_market_cap", direction=1),
+    AxisSpec(name="asset_backed_ratio", direction=1),
     AxisSpec(name="equity_ratio", direction=1),
     AxisSpec(name="dividend_yield", direction=1),
     AxisSpec(name="er_annual", direction=1),
@@ -305,6 +312,7 @@ def _evaluate_cohort(
             "margin_deadline_gate": {},
             "margin_supply_demand_hypotheses": {},
             "profit_normalization_hypotheses": {},
+            "asset_backed_hypotheses": {},
             "er_calibration": {},
             "er_level_calibration": {},
         }
@@ -320,6 +328,7 @@ def _evaluate_cohort(
     margin_deadline_gate = _evaluate_margin_deadline_gate(panel, excess)
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
+    asset_backed_hypotheses = _evaluate_asset_backed_hypotheses(population, excess)
     quality_interaction = _evaluate_quality_interaction(population, excess)
     return_change = _evaluate_shareholder_return_change(population, excess)
     er_calibration = _evaluate_er_calibration(
@@ -376,6 +385,7 @@ def _evaluate_cohort(
         "margin_deadline_gate": margin_deadline_gate,
         "margin_supply_demand_hypotheses": margin_hypotheses,
         "profit_normalization_hypotheses": profit_hypotheses,
+        "asset_backed_hypotheses": asset_backed_hypotheses,
         "er_calibration": er_calibration,
         "er_level_calibration": er_level_calibration,
     }
@@ -1022,6 +1032,7 @@ def _evaluate_profit_normalization_hypotheses(
         )
         for control_name in PROFIT_NORMALIZATION_CONTROL_FIELDS
     }
+
     er_rows = sorted(
         (row for row in population if row.er_annual is not None),
         key=lambda row: (row.er_annual or 0.0, row.ticker),
@@ -1070,6 +1081,91 @@ def _evaluate_profit_normalization_hypotheses(
             )
             for sessions in (750, 1250, 2500)
         },
+    }
+
+
+def _evaluate_asset_backed_hypotheses(
+    population: Sequence[PanelRow], excess: Mapping[str, float]
+) -> dict[str, object]:
+    population_n = len(population)
+    eligible = [
+        row
+        for row in population
+        if row.asset_backed_ratio is not None and row.shareholder_return_change is not None
+    ]
+    groups = {
+        "A_thick_change": [
+            row
+            for row in eligible
+            if (row.asset_backed_ratio or 0.0) >= ASSET_BACKED_THRESHOLD
+            and row.shareholder_return_change is True
+        ],
+        "B_thick_no_change": [
+            row
+            for row in eligible
+            if (row.asset_backed_ratio or 0.0) >= ASSET_BACKED_THRESHOLD
+            and row.shareholder_return_change is False
+        ],
+        "C_thin_change": [
+            row
+            for row in eligible
+            if (row.asset_backed_ratio or 0.0) < ASSET_BACKED_THRESHOLD
+            and row.shareholder_return_change is True
+        ],
+        "D_thin_no_change": [
+            row
+            for row in eligible
+            if (row.asset_backed_ratio or 0.0) < ASSET_BACKED_THRESHOLD
+            and row.shareholder_return_change is False
+        ],
+    }
+    stats = {
+        name: _group_stats([excess[row.ticker] for row in rows]) for name, rows in groups.items()
+    }
+    thick_median_delta = _rounded_delta(
+        stats["A_thick_change"].get("median_excess"),
+        stats["B_thick_no_change"].get("median_excess"),
+    )
+    thin_median_delta = _rounded_delta(
+        stats["C_thin_change"].get("median_excess"),
+        stats["D_thin_no_change"].get("median_excess"),
+    )
+    thick_trap_delta = _rounded_delta(
+        stats["A_thick_change"].get("trap_rate"),
+        stats["B_thick_no_change"].get("trap_rate"),
+    )
+    thin_trap_delta = _rounded_delta(
+        stats["C_thin_change"].get("trap_rate"),
+        stats["D_thin_no_change"].get("trap_rate"),
+    )
+    return {
+        "population_n": population_n,
+        "asset_backed_ratio_coverage": (
+            round(sum(row.asset_backed_ratio is not None for row in population) / population_n, 4)
+            if population_n
+            else None
+        ),
+        "interaction_eligible_n": len(eligible),
+        "threshold": ASSET_BACKED_THRESHOLD,
+        "controls": {
+            control_name: _stratified_axis_control(
+                population,
+                excess,
+                axis_name="asset_backed_ratio",
+                direction=1,
+                control_name=control_name,
+            )
+            for control_name in ASSET_BACKED_CONTROL_FIELDS
+        },
+        "groups": stats,
+        "thick_change_minus_no_change_median_excess": thick_median_delta,
+        "thick_change_minus_no_change_trap_rate": thick_trap_delta,
+        "thin_change_minus_no_change_median_excess": thin_median_delta,
+        "thin_change_minus_no_change_trap_rate": thin_trap_delta,
+        "difference_in_differences_median_excess": _rounded_delta(
+            thick_median_delta, thin_median_delta
+        ),
+        "difference_in_differences_trap_rate": _rounded_delta(thick_trap_delta, thin_trap_delta),
     }
 
 
@@ -1589,6 +1685,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "margin_deadline_gate": _aggregate_margin_deadline_gate(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
+        "asset_backed_hypotheses": _aggregate_asset_backed_hypotheses(cohorts),
         "er_calibration": _aggregate_er_calibration(cohorts),
     }
 
@@ -1779,6 +1876,96 @@ def _aggregate_profit_normalization(
             f"at_least_{sessions}": round(fmean(values), 4) if values else None
             for sessions, values in self_coverage.items()
         },
+    }
+
+
+def _aggregate_asset_backed_hypotheses(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    coverage: list[float] = []
+    thick_medians: list[float] = []
+    thick_traps: list[float] = []
+    did_medians: list[float] = []
+    did_traps: list[float] = []
+    group_ns = dict.fromkeys(
+        (
+            "A_thick_change",
+            "B_thick_no_change",
+            "C_thin_change",
+            "D_thin_no_change",
+        ),
+        0,
+    )
+    controls = {
+        name: _QualityControlAccumulator(median_deltas=[], trap_deltas=[])
+        for name in ASSET_BACKED_CONTROL_FIELDS
+    }
+    for cohort in cohorts:
+        hypotheses = cohort.get("asset_backed_hypotheses")
+        if not isinstance(hypotheses, dict):
+            continue
+        _append_numeric(hypotheses.get("asset_backed_ratio_coverage"), coverage)
+        cohort_groups = hypotheses.get("groups")
+        if not isinstance(cohort_groups, dict):
+            continue
+        cohort_ns: dict[str, int] = {}
+        for name in group_ns:
+            stats = cohort_groups.get(name)
+            count = stats.get("n") if isinstance(stats, dict) else None
+            if isinstance(count, int):
+                group_ns[name] += count
+                cohort_ns[name] = count
+        if cohort_ns.get("A_thick_change", 0) >= 5 and cohort_ns.get("B_thick_no_change", 0) >= 5:
+            _append_numeric(
+                hypotheses.get("thick_change_minus_no_change_median_excess"), thick_medians
+            )
+            _append_numeric(hypotheses.get("thick_change_minus_no_change_trap_rate"), thick_traps)
+            if cohort_ns.get("C_thin_change", 0) >= 5 and cohort_ns.get("D_thin_no_change", 0) >= 5:
+                _append_numeric(
+                    hypotheses.get("difference_in_differences_median_excess"), did_medians
+                )
+                _append_numeric(hypotheses.get("difference_in_differences_trap_rate"), did_traps)
+        cohort_controls = hypotheses.get("controls")
+        if not isinstance(cohort_controls, dict):
+            continue
+        for name, accumulator in controls.items():
+            control = cohort_controls.get(name)
+            if not isinstance(control, dict):
+                continue
+            median_value = control.get("stratified_median_excess_spread")
+            trap_value = control.get("stratified_trap_rate_delta")
+            if not isinstance(median_value, int | float) or not isinstance(trap_value, int | float):
+                continue
+            accumulator.median_deltas.append(float(median_value))
+            accumulator.trap_deltas.append(float(trap_value))
+            accumulator.cohorts += 1
+            matched_weight = control.get("matched_weight")
+            if isinstance(matched_weight, int):
+                accumulator.matched_weight += matched_weight
+
+    return {
+        "mean_asset_backed_ratio_coverage": round(fmean(coverage), 4) if coverage else None,
+        "group_n": group_ns,
+        "comparable_cohorts": len(thick_medians),
+        "mean_thick_change_minus_no_change_median_excess": (
+            round(fmean(thick_medians), 6) if thick_medians else None
+        ),
+        "thick_median_delta_positive_share": (
+            round(sum(value > 0 for value in thick_medians) / len(thick_medians), 4)
+            if thick_medians
+            else None
+        ),
+        "mean_thick_change_minus_no_change_trap_rate": (
+            round(fmean(thick_traps), 6) if thick_traps else None
+        ),
+        "difference_in_differences_cohorts": len(did_medians),
+        "mean_difference_in_differences_median_excess": (
+            round(fmean(did_medians), 6) if did_medians else None
+        ),
+        "mean_difference_in_differences_trap_rate": (
+            round(fmean(did_traps), 6) if did_traps else None
+        ),
+        "controls": _control_summaries(controls),
     }
 
 

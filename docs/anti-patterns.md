@@ -254,6 +254,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] calibration の利益正規化列は同一 FY の最新 revision を選び、最新 null から旧値へ fallbackせず、赤字年を含む連続3/5 FYとsplit basisを固定しているか。平均EPS非正、FY不足・不連続、PER非正・非有限、cycle percentile範囲外・flag矛盾、不正bool、self-range session負値、variant provenance混在をfail closedまたは明示nullにするnegative testがあるか
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
 - [ ] EDINET metric snapshotを差分再利用する場合、rowの抽出・文書状態revision必須、訂正eventを含むsource identity完全一致、target以下のbaseline選択、failed skip、hard parser failure拒否、同日失敗時の正常snapshot保持、最新ok coverageのrange/error/count矛盾時のfail-closedをnegative testで固定したか
+- [ ] EDINET の投資有価証券を追加・変更する場合、`InvestmentSecurities` exact local name、連結優先、zero-like、類似 BS / 売却損益 / CF tag の除外、非負・有限の write-time validation、asset-backed ratio の source field / 単位整合、cache schema 更新を positive / negative test で固定したか
 - [ ] provider が個別 release URL の manifest を持つ場合、scheme / host / path全体をallowlistして
       lookalike host・query・fragmentを拒否し、抽出値を妥当域で検証し、矛盾する複数候補を
       hard errorにするか。manifest が公表カレンダーに追いつかない状態を無音にせず

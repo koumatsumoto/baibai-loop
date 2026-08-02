@@ -49,6 +49,7 @@ def parse_csv_zip_metric_record(
     ocf = _single_metric(rows, _TAGS["ocf"], basis=basis)
     operating_profit = _single_metric(rows, _TAGS["operating_profit"], basis=basis)
     cash = _single_metric(rows, _TAGS["cash"], basis=basis)
+    investment_securities = _balance_sheet_metric(rows, _TAGS["investment_securities"], basis=basis)
     equity = _single_metric(rows, _TAGS["equity"], basis=basis)
     total_assets = _single_metric(rows, _TAGS["total_assets"], basis=basis)
     debt = _debt_metric(rows, basis=basis)
@@ -68,6 +69,7 @@ def parse_csv_zip_metric_record(
         ("sales", sales),
         ("ocf", ocf),
         ("cash", cash),
+        ("investment_securities", investment_securities),
         ("capex", capex_abs),
     ):
         if value is None:
@@ -83,6 +85,7 @@ def parse_csv_zip_metric_record(
         ocf_ttm=ocf,
         debt=debt,
         cash=cash,
+        investment_securities=investment_securities,
         ebitda_ttm=ebitda,
         consolidation_basis=basis,
         ttm_quality_ev_ebitda=quality if ebitda is not None else TTMQuality.UNAVAILABLE,
@@ -112,6 +115,7 @@ _TAGS: dict[str, tuple[str, ...]] = {
     "ocf": ("cashflowsfromoperatingactivities", "netcashprovidedbyusedinoperatingactivities"),
     "operating_profit": ("operatingprofit", "operatingincome"),
     "cash": ("cashanddeposits", "cashandcashequivalents"),
+    "investment_securities": ("investmentsecurities",),
     "equity": ("equity", "totalequity", "netassets"),
     "total_assets": ("totalassets", "assets"),
     "debt_total": (
@@ -210,6 +214,20 @@ def _debt_metric(rows: Sequence[Mapping[str, str]], *, basis: str) -> float | No
     if components is not None:
         return components
     if _has_zero_like_metric(rows, (*_TAGS["debt_total"], *_TAGS["debt_components"]), basis=basis):
+        return 0.0
+    return None
+
+
+def _balance_sheet_metric(
+    rows: Sequence[Mapping[str, str]],
+    tags: tuple[str, ...],
+    *,
+    basis: str,
+) -> float | None:
+    value = _single_metric(rows, tags, basis=basis)
+    if value is not None:
+        return value
+    if _has_zero_like_metric(rows, tags, basis=basis):
         return 0.0
     return None
 

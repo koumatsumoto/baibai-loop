@@ -171,6 +171,7 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "failure_reasons",
         "extractor_revision",
         "source_document_revision",
+        "investment_securities",
     ),
     "jpx_regulation_flags": (
         "asof_date",
@@ -353,6 +354,7 @@ CREATE TABLE IF NOT EXISTS edinet_metrics(
   failure_reasons TEXT,
   extractor_revision TEXT,
   source_document_revision TEXT,
+  investment_securities REAL,
   PRIMARY KEY (asof_date, ticker)
 );
 
