@@ -85,6 +85,8 @@ PROFIT_NORMALIZATION_CONTROL_FIELDS: tuple[str, ...] = (
     "market_cap_oku",
     "sector_33",
 )
+NORMALIZED_ANCHOR_MIN_SECTOR_COUNT = 10
+NORMALIZED_ANCHOR_MEDIAN_DELTA_FLOOR = 0.03
 ASSET_BACKED_THRESHOLD = 0.4
 ASSET_BACKED_CONTROL_FIELDS: tuple[str, ...] = (
     "pbr",
@@ -312,6 +314,7 @@ def _evaluate_cohort(
             "margin_deadline_gate": {},
             "margin_supply_demand_hypotheses": {},
             "profit_normalization_hypotheses": {},
+            "normalized_sector_anchor": {},
             "asset_backed_hypotheses": {},
             "er_calibration": {},
             "er_level_calibration": {},
@@ -328,6 +331,7 @@ def _evaluate_cohort(
     margin_deadline_gate = _evaluate_margin_deadline_gate(panel, excess)
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
+    normalized_sector_anchor = _evaluate_normalized_sector_anchor(panel, population, excess)
     asset_backed_hypotheses = _evaluate_asset_backed_hypotheses(population, excess)
     quality_interaction = _evaluate_quality_interaction(population, excess)
     return_change = _evaluate_shareholder_return_change(population, excess)
@@ -358,6 +362,18 @@ def _evaluate_cohort(
         and gate_top10["variant"].get("n", 0)
         else "unresolved"
     )
+    metric_statuses["normalized_per_3fy"] = (
+        "eligible" if "normalized_per_3fy" in axes else "unresolved"
+    )
+    normalized_anchor_common_n = normalized_sector_anchor.get("common_n")
+    metric_statuses["normalized_sector_anchor"] = (
+        "eligible"
+        if isinstance(normalized_anchor_common_n, int)
+        and normalized_anchor_common_n >= MIN_AXIS_SAMPLE
+        and isinstance(normalized_sector_anchor.get("current_axis"), dict)
+        and isinstance(normalized_sector_anchor.get("normalized_axis"), dict)
+        else "unresolved"
+    )
 
     return {
         "asof": asof,
@@ -385,6 +401,7 @@ def _evaluate_cohort(
         "margin_deadline_gate": margin_deadline_gate,
         "margin_supply_demand_hypotheses": margin_hypotheses,
         "profit_normalization_hypotheses": profit_hypotheses,
+        "normalized_sector_anchor": normalized_sector_anchor,
         "asset_backed_hypotheses": asset_backed_hypotheses,
         "er_calibration": er_calibration,
         "er_level_calibration": er_level_calibration,
@@ -463,7 +480,11 @@ _SENSITIVITY_METRICS: tuple[str, ...] = (
     "recommended_rank_top10",
     "er_calibration",
 )
-OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = ("margin_deadline_gate_top10",)
+OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
+    "margin_deadline_gate_top10",
+    "normalized_per_3fy",
+    "normalized_sector_anchor",
+)
 _ALL_SENSITIVITY_METRICS = (*_SENSITIVITY_METRICS, *OPTIONAL_SENSITIVITY_METRICS)
 
 
@@ -476,6 +497,36 @@ def _margin_deadline_gate_adoption_sign(value: object) -> float | None:
     if not isinstance(median_delta, int | float) or not isinstance(trap_delta, int | float):
         return None
     return float(median_delta >= MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR and trap_delta <= 0)
+
+
+def _normalized_sector_anchor_adoption_sign(value: object) -> float | None:
+    """Encode the per-cohort conditions used by the anchor adoption rule."""
+    if not isinstance(value, dict):
+        return None
+    median_delta = value.get("median_excess_delta")
+    trap_delta = value.get("trap_rate_delta")
+    current_axis = value.get("current_axis")
+    normalized_axis = value.get("normalized_axis")
+    if (
+        not isinstance(median_delta, int | float)
+        or not isinstance(trap_delta, int | float)
+        or not isinstance(current_axis, dict)
+        or not isinstance(normalized_axis, dict)
+    ):
+        return None
+    current_spread = current_axis.get("decile_spread_median")
+    normalized_spread = normalized_axis.get("decile_spread_median")
+    if not isinstance(current_spread, int | float) or not isinstance(
+        normalized_spread, int | float
+    ):
+        return None
+    return float(
+        value.get("common_n", 0) >= MIN_AXIS_SAMPLE
+        and value.get("changed") is True
+        and median_delta >= NORMALIZED_ANCHOR_MEDIAN_DELTA_FLOOR
+        and trap_delta <= 0
+        and normalized_spread >= current_spread
+    )
 
 
 def _direction_signs(
@@ -507,6 +558,20 @@ def _direction_signs(
         signs["er_calibration"] = None
     signs["margin_deadline_gate_top10"] = _margin_deadline_gate_adoption_sign(
         _evaluate_margin_deadline_gate(panel, context.excess).get("top10")
+    )
+    normalized_axis = _evaluate_axis(
+        AxisSpec(name="normalized_per_3fy", direction=-1),
+        context.population,
+        context.excess,
+    )
+    normalized_spread = (
+        normalized_axis.get("decile_spread_median") if isinstance(normalized_axis, dict) else None
+    )
+    signs["normalized_per_3fy"] = (
+        float(normalized_spread) if isinstance(normalized_spread, int | float) else None
+    )
+    signs["normalized_sector_anchor"] = _normalized_sector_anchor_adoption_sign(
+        _evaluate_normalized_sector_anchor(panel, context.population, context.excess)
     )
     return signs
 
@@ -650,8 +715,8 @@ def _metric_direction_stability(
     stability: dict[str, bool] = {}
     for metric in _ALL_SENSITIVITY_METRICS:
         values = [
-            as_reported[metric],
-            *(imputed[name][metric] for name in _DELISTING_IMPUTATIONS),
+            as_reported.get(metric),
+            *(imputed[name].get(metric) for name in _DELISTING_IMPUTATIONS),
         ]
         present = [value for value in values if value is not None]
         # No conclusion under any case cannot have been produced by the exclusion;
@@ -687,6 +752,10 @@ def _evaluate_axis(
         for row in population
         if (value := getattr(row, spec.name)) is not None
     ]
+    return _evaluate_pairs(pairs)
+
+
+def _evaluate_pairs(pairs: Sequence[tuple[float, float]]) -> dict[str, object] | None:
     if len(pairs) < MIN_AXIS_SAMPLE:
         return None
     ic = _spearman(pairs)
@@ -717,6 +786,97 @@ def _evaluate_axis(
             else None
         ),
         "deciles": deciles,
+    }
+
+
+def _evaluate_normalized_sector_anchor(
+    panel: Sequence[PanelRow],
+    population: Sequence[PanelRow],
+    excess: Mapping[str, float],
+) -> dict[str, object]:
+    """Compare current and 3-FY-normalized sector-relative earnings anchors."""
+
+    def anchors(field_name: str) -> tuple[float | None, dict[str, float]]:
+        market_values: list[float] = []
+        sector_values: dict[str, list[float]] = {}
+        for row in panel:
+            value = getattr(row, field_name)
+            if not row.in_population or not isinstance(value, int | float) or value <= 0:
+                continue
+            numeric = float(value)
+            market_values.append(numeric)
+            sector_values.setdefault(row.sector_33, []).append(numeric)
+        market_anchor = median(market_values) if market_values else None
+        return market_anchor, {
+            sector: median(values)
+            for sector, values in sector_values.items()
+            if len(values) >= NORMALIZED_ANCHOR_MIN_SECTOR_COUNT
+        }
+
+    current_market, current_sectors = anchors("per_trailing")
+    normalized_market, normalized_sectors = anchors("normalized_per_3fy")
+    if current_market is None or normalized_market is None:
+        return {}
+
+    current_upside: dict[str, float] = {}
+    normalized_upside: dict[str, float] = {}
+    for row in population:
+        current = row.per_trailing
+        normalized = row.normalized_per_3fy
+        if (
+            not isinstance(current, int | float)
+            or current <= 0
+            or not isinstance(normalized, int | float)
+            or normalized <= 0
+        ):
+            continue
+        current_anchor = current_sectors.get(row.sector_33, current_market)
+        normalized_anchor = normalized_sectors.get(row.sector_33, normalized_market)
+        current_upside[row.ticker] = current_anchor / current - 1
+        normalized_upside[row.ticker] = normalized_anchor / normalized - 1
+
+    common = sorted(set(current_upside).intersection(normalized_upside))
+    current_pairs = [(current_upside[ticker], excess[ticker]) for ticker in common]
+    normalized_pairs = [(normalized_upside[ticker], excess[ticker]) for ticker in common]
+    current_axis = _evaluate_pairs(current_pairs)
+    normalized_axis = _evaluate_pairs(normalized_pairs)
+    if not common:
+        return {"common_n": 0, "current_axis": None, "normalized_axis": None}
+
+    top_start = int((DECILES - 1) * len(common) / DECILES)
+    current_top = [
+        ticker
+        for ticker, _ in sorted(current_upside.items(), key=lambda item: (item[1], item[0]))[
+            top_start:
+        ]
+        if ticker in excess
+    ]
+    normalized_top = [
+        ticker
+        for ticker, _ in sorted(normalized_upside.items(), key=lambda item: (item[1], item[0]))[
+            top_start:
+        ]
+        if ticker in excess
+    ]
+    current_stats = _group_stats([excess[ticker] for ticker in current_top])
+    normalized_stats = _group_stats([excess[ticker] for ticker in normalized_top])
+    return {
+        "common_n": len(common),
+        "current": current_stats,
+        "normalized": normalized_stats,
+        "top_decile_overlap_n": len(set(current_top).intersection(normalized_top)),
+        "changed": set(current_top) != set(normalized_top),
+        "median_excess_delta": _rounded_delta(
+            normalized_stats.get("median_excess"), current_stats.get("median_excess")
+        ),
+        "mean_excess_delta": _rounded_delta(
+            normalized_stats.get("mean_excess"), current_stats.get("mean_excess")
+        ),
+        "trap_rate_delta": _rounded_delta(
+            normalized_stats.get("trap_rate"), current_stats.get("trap_rate")
+        ),
+        "normalized_axis": normalized_axis,
+        "current_axis": current_axis,
     }
 
 
@@ -1685,6 +1845,7 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "margin_deadline_gate": _aggregate_margin_deadline_gate(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
+        "normalized_sector_anchor": _aggregate_normalized_sector_anchor(cohorts),
         "asset_backed_hypotheses": _aggregate_asset_backed_hypotheses(cohorts),
         "er_calibration": _aggregate_er_calibration(cohorts),
     }
@@ -1876,6 +2037,102 @@ def _aggregate_profit_normalization(
             f"at_least_{sessions}": round(fmean(values), 4) if values else None
             for sessions, values in self_coverage.items()
         },
+    }
+
+
+def _aggregate_normalized_sector_anchor(
+    cohorts: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    common_n = 0
+    current_n = 0
+    normalized_n = 0
+    overlap_n = 0
+    comparable_cohorts = 0
+    changed_cohorts = 0
+    median_deltas: list[float] = []
+    mean_deltas: list[float] = []
+    trap_deltas: list[float] = []
+    current_spreads: list[float] = []
+    normalized_spreads: list[float] = []
+    current_best_medians: list[float] = []
+    normalized_best_medians: list[float] = []
+    current_traps: list[float] = []
+    normalized_traps: list[float] = []
+    for cohort in cohorts:
+        anchor = cohort.get("normalized_sector_anchor")
+        if not isinstance(anchor, dict):
+            continue
+        cohort_common_n = anchor.get("common_n")
+        if isinstance(cohort_common_n, int):
+            common_n += cohort_common_n
+        current = anchor.get("current")
+        normalized = anchor.get("normalized")
+        if isinstance(current, dict) and isinstance(current.get("n"), int):
+            current_n += int(current["n"])
+        if isinstance(normalized, dict) and isinstance(normalized.get("n"), int):
+            normalized_n += int(normalized["n"])
+        cohort_overlap_n = anchor.get("top_decile_overlap_n")
+        if isinstance(cohort_overlap_n, int):
+            overlap_n += cohort_overlap_n
+        median_delta = anchor.get("median_excess_delta")
+        trap_delta = anchor.get("trap_rate_delta")
+        if isinstance(median_delta, int | float) and isinstance(trap_delta, int | float):
+            comparable_cohorts += 1
+            median_deltas.append(float(median_delta))
+            trap_deltas.append(float(trap_delta))
+            if anchor.get("changed") is True:
+                changed_cohorts += 1
+        _append_numeric(anchor.get("mean_excess_delta"), mean_deltas)
+        for axis_name, spreads, best_medians, traps in (
+            ("current_axis", current_spreads, current_best_medians, current_traps),
+            (
+                "normalized_axis",
+                normalized_spreads,
+                normalized_best_medians,
+                normalized_traps,
+            ),
+        ):
+            axis = anchor.get(axis_name)
+            if not isinstance(axis, dict):
+                continue
+            _append_numeric(axis.get("decile_spread_median"), spreads)
+            _append_numeric(axis.get("best_decile_median_excess"), best_medians)
+            _append_numeric(axis.get("best_decile_trap_rate"), traps)
+
+    def axis_summary(
+        spreads: Sequence[float], best_medians: Sequence[float], traps: Sequence[float]
+    ) -> dict[str, object]:
+        return {
+            "cohorts": len(spreads),
+            "mean_decile_spread_median": round(fmean(spreads), 6) if spreads else None,
+            "mean_best_decile_median_excess": (
+                round(fmean(best_medians), 6) if best_medians else None
+            ),
+            "mean_best_decile_trap_rate": round(fmean(traps), 4) if traps else None,
+        }
+
+    return {
+        "comparable_cohorts": comparable_cohorts,
+        "common_n": common_n,
+        "current_n": current_n,
+        "normalized_n": normalized_n,
+        "top_decile_overlap_n": overlap_n,
+        "changed_cohorts": changed_cohorts,
+        "changed_cohort_share": (
+            round(changed_cohorts / comparable_cohorts, 4) if comparable_cohorts else None
+        ),
+        "mean_median_excess_delta": round(fmean(median_deltas), 6) if median_deltas else None,
+        "median_delta_positive_share": (
+            round(sum(value > 0 for value in median_deltas) / len(median_deltas), 4)
+            if median_deltas
+            else None
+        ),
+        "mean_mean_excess_delta": round(fmean(mean_deltas), 6) if mean_deltas else None,
+        "mean_trap_rate_delta": round(fmean(trap_deltas), 6) if trap_deltas else None,
+        "current_axis": axis_summary(current_spreads, current_best_medians, current_traps),
+        "normalized_axis": axis_summary(
+            normalized_spreads, normalized_best_medians, normalized_traps
+        ),
     }
 
 
