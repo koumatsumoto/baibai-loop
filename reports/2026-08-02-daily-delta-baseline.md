@@ -32,4 +32,45 @@
 
 ## 初回結果
 
-計測実装後に追記する。
+実行コマンド:
+
+```bash
+.venv/bin/python tools/measure_daily_delta_effect.py \
+  --as-of 2026-08-02 \
+  --out /tmp/daily-delta-baseline.yaml
+```
+
+出力artifact SHA-256は`2c999608fd08ebf49c6b46d35d6d8776a91bd615238788e67be85336fa45e0ed`。入力storeはapplication DB `d99b258ed4cb4c763d9bf154d792aef092618e2627d2e6afce4b1c665c5caa62`、run store `9792f62d8e0508ed16bf917aa97fdbd0a2240244d60f38800913e0075825839b`、market store `8d039f2219a981bb54dbbbdbbe098a7ad5efdcdbac077a80502cdae071c4ae70`だった。
+
+### 候補側
+
+| coverage / metric | 結果 |
+| --- | ---: |
+| retained run日 | 3日（2026-07-27〜07-29） |
+| explicit longlist snapshot | 1/3日 |
+| longlist unique ticker | 20件 |
+| 後続shortlistで評価記録済み | 20件（捕捉率100.0%） |
+| exact first-seen | 0件 |
+| left-censored first-seen | 20件 |
+| exact遅延分布の標本 | 0件 |
+
+07-27と07-28のretained machine selectionは`longlist`を持たず、07-29のshortlist束縛selectionだけが20件のlonglistを持っていた。20件はすべて07-30に同じshortlistで評価が記録され、観測できた下限は1日だった。ただし前2日のlonglistが欠けるため20件すべての真のfirst-seenは左打切りで、1日をexact遅延として採点しない。捕捉率100%も1 snapshot・1 shortlistの記述であり、日次デルタの効果を示さない。
+
+R2の31日`candidate-views`は全candidate rowを保存するが、explicit longlist membershipを保存しない。FV欄の有無からmembershipを推定するとFV欠損longlistを落とし得るため、baseline入力から除外した。四半期更新でも利用可能なcanonical longlist snapshotだけを読み、保持窓が改善しない限りexact件数ゼロをそのまま報告する。
+
+### 保有側
+
+| coverage / metric | 結果 |
+| --- | ---: |
+| ledger head時点のopen holding | 10件 |
+| 最新thesis / FVあり | 2件 |
+| FV未到達 | 1件（3836） |
+| FV到達 | 1件（4432） |
+| 到達後holding review | 0件（捕捉率0.0%） |
+| exact review遅延分布の標本 | 0件 |
+
+canonical ledger headは2026-07-15 09:00 JSTで、07-16〜08-02のposition stateはcoverage gapである。head時点のopen holding 10件のうち8件はthesisが無く、価格とFVを比較できたのは2件だった。3836はmarket store終端の07-31までFV未到達。4432は07-29のunadjusted close 3,230円でFV 3,093円へ初めて到達したが、その後のholding reviewは無く、08-02時点で4暦日right-censoredだった。07-14のholding reviewは発火前なので捕捉に数えない。
+
+### 初回判定
+
+候補遅延はexact標本0件、保有遅延はreview済み標本0件であり、日次デルタが着手を早めたかは判定不能。観測層、自動cycle、自動task、shortlist判断、holding action、FVは変更しない。次回は同じCLIと固定bucketで再計測し、coverageと打切りを含めて比較する。
