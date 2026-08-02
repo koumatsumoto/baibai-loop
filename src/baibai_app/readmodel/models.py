@@ -250,6 +250,34 @@ class CandidateRowView(BaseModel):
     # かった候補では空になる。read-only app は FV を導出しない。
     fair_value_anchor_yen: float | None = None
     fair_value_gap_pct: float | None = None
+    # Historical calibration context only. It never alters E[r], rank, or selection.
+    er_level_quintile: int | None = None
+
+
+class ErLevelCalibrationQuintileView(BaseModel):
+    quintile: int
+    upper_er_annual: float | None
+    median_predicted_er_annual: float
+    median_realized_total_return_annual: float
+    median_n: int
+
+
+class ErLevelCalibrationHorizonView(BaseModel):
+    horizon: str
+    asof_start: date
+    asof_end: date
+    cohort_count: int
+    quintiles: list[ErLevelCalibrationQuintileView]
+
+
+class ErLevelCalibrationContextView(BaseModel):
+    generated_at: datetime
+    valid_through: date
+    reference_horizon: str
+    screening_rules_hash: str
+    er_model_version: str
+    realized_basis: str
+    horizons: list[ErLevelCalibrationHorizonView]
 
 
 class ScreeningView(BaseModel):
@@ -258,6 +286,7 @@ class ScreeningView(BaseModel):
     selections: list[MachineSelectionView]
     shortlists: list[ShortlistView]
     assessments: list[BargainAssessmentSummaryView]
+    er_level_calibration: ErLevelCalibrationContextView | None = None
 
 
 class ScreeningHistoryView(BaseModel):

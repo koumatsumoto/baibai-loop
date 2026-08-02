@@ -1525,6 +1525,12 @@ def _evaluate_er_level_calibration(
         realized_total = median(total for _, _, total in chunk)
         quintiles.append(
             {
+                # The display context maps a current estimate back to the historical
+                # calibration band. Keep the observed band edge with the cohort;
+                # reconstructing it later from the median would only be an approximation.
+                "max_predicted_er_annual": round(
+                    max(float(row.er_annual or 0.0) for row, _, _ in chunk), 6
+                ),
                 "median_predicted_er_annual": round(predicted, 6),
                 "median_realized_total_return_annual": round(realized_total, 6),
                 "calibration_error_annual": round(realized_total - predicted, 6),

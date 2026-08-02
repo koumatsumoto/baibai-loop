@@ -88,6 +88,8 @@ def _build_front_matter(document: ScreenedRunDocument) -> dict[str, object]:
     front_matter["data_sources"] = [QuotedString(source) for source in document.data_sources]
     front_matter["run_at"] = QuotedString(document.run_at.isoformat())
     front_matter["run_id"] = QuotedString(document.run_id)
+    front_matter["screening_rules_hash"] = QuotedString(document.screening_rules_hash)
+    front_matter["er_model_version"] = QuotedString(document.er_model_version)
     front_matter["candidates"] = [candidate_entry(candidate) for candidate in document.candidates]
     front_matter["provider_status_lines"] = [
         QuotedString(line) for line in document.provider_status_lines

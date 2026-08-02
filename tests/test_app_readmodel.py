@@ -17,6 +17,9 @@ from baibai_app.readmodel.builders import (
 )
 from baibai_app.sources.types import (
     CandidatesRun,
+    ErLevelCalibrationContext,
+    ErLevelCalibrationHorizon,
+    ErLevelCalibrationQuintile,
     ResearchRevision,
     ScenarioSummary,
     TaskRecord,
@@ -203,7 +206,12 @@ def _revision() -> ResearchRevision:
     )
 
 
-def _run(*, metrics: object = None) -> CandidatesRun:
+def _run(
+    *,
+    metrics: object = None,
+    screening_rules_hash: str | None = "rules-hash-v1",
+    er_model_version: str | None = "expected-return-v1",
+) -> CandidatesRun:
     row: dict[str, object] = {
         "ticker": "4432",
         "name": "ウイングアーク１ｓｔ",
@@ -220,6 +228,8 @@ def _run(*, metrics: object = None) -> CandidatesRun:
         universe_size=3744,
         run_revision_id="run-revision-20260708",
         rules_ref=None,
+        screening_rules_hash=screening_rules_hash,
+        er_model_version=er_model_version,
         rows=(row,),
     )
 
@@ -332,6 +342,96 @@ def test_screening_tolerates_missing_or_invalid_metrics() -> None:
     assert row.er_annual is None
     assert row.portfolio_state == "held"
     assert row.has_research is True
+
+
+def _er_calibration_context() -> ErLevelCalibrationContext:
+    quintiles = tuple(
+        ErLevelCalibrationQuintile(
+            quintile=index + 1,
+            upper_er_annual=None if index == 4 else -0.04 + index * 0.02,
+            median_predicted_er_annual=-0.05 + index * 0.025,
+            median_realized_total_return_annual=-0.1 + index * 0.06,
+            median_n=200,
+        )
+        for index in range(5)
+    )
+    return ErLevelCalibrationContext(
+        generated_at=datetime(2026, 8, 2, 12, 0, tzinfo=JST),
+        valid_through=date(2026, 9, 16),
+        reference_horizon="3y",
+        screening_rules_hash="rules-hash-v1",
+        er_model_version="expected-return-v1",
+        realized_basis="fy_actual_dividend_total_return_annualized_absolute",
+        horizons=(
+            ErLevelCalibrationHorizon(
+                horizon="3y",
+                asof_start=date(2020, 1, 31),
+                asof_end=date(2021, 5, 31),
+                cohort_count=11,
+                quintiles=quintiles,
+            ),
+        ),
+    )
+
+
+def test_screening_maps_er_to_historical_calibration_band() -> None:
+    context = _er_calibration_context()
+
+    view = build_screening(
+        StubCandidates(_run(metrics={"er_annual": 0.1})),
+        StubLedger(_snapshot()),
+        StubResearch([]),
+        context,
+    )
+
+    assert view.rows[0].er_level_quintile == 5
+    assert view.er_level_calibration is not None
+    assert view.er_level_calibration.horizons[0].quintiles[4].median_n == 200
+
+
+def test_screening_hides_calibration_when_operative_run_method_differs() -> None:
+    context = _er_calibration_context()
+
+    view = build_screening(
+        StubCandidates(_run(metrics={"er_annual": 0.1}, screening_rules_hash="other-rules-hash")),
+        StubLedger(_snapshot()),
+        StubResearch([]),
+        context,
+    )
+
+    assert view.er_level_calibration is None
+    assert view.rows[0].er_level_quintile is None
+
+
+def test_screening_checks_calibration_against_selected_fallback_run() -> None:
+    selections: list[dict[str, object]] = [
+        {
+            "selection_id": "selection-1",
+            "run_revision_id": "run-revision-with-selection",
+            "profile": "value",
+            "macro_context_id": None,
+            "created_at": "2026-07-21T13:00:00+09:00",
+            "payload": {"longlist": []},
+        }
+    ]
+    rerun = replace(_run(), run_revision_id="run-revision-rerun-without-selection")
+    selected_run = replace(
+        _run(screening_rules_hash="older-rules-hash"),
+        run_revision_id="run-revision-with-selection",
+    )
+    candidates = StubFallbackCandidates(latest=rerun, fallback=selected_run, selections=selections)
+
+    view = build_screening(
+        candidates,
+        StubLedger(None),
+        StubResearch([]),
+        _er_calibration_context(),
+    )
+
+    assert view.run is not None
+    assert view.run.run_revision_id == selected_run.run_revision_id
+    assert view.er_level_calibration is None
+    assert view.rows[0].er_level_quintile is None
 
 
 def test_security_detail_is_none_only_when_all_sources_are_empty() -> None:
@@ -832,6 +932,8 @@ def _delta_run(*, asof: date, revision: str, rules_ref: str | None = "rules-a") 
         universe_size=3744,
         run_revision_id=revision,
         rules_ref=rules_ref,
+        screening_rules_hash=None,
+        er_model_version=None,
         rows=(),
     )
 

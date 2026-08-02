@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from baibai_app.sources.calibration_context import load_er_level_calibration_context
 from baibai_app.sources.db_sources import (
     DbCandidatesSource,
     DbLedgerSource,
@@ -22,14 +23,18 @@ from baibai_app.sources.db_sources import (
     DbTaskSource,
     load_macro_panel_config,
 )
-from baibai_app.sources.types import MacroGroupConfig
-from baibai_engine.read_api import MACRO_READING_RULES_PATH
+from baibai_app.sources.types import ErLevelCalibrationContext, MacroGroupConfig
+from baibai_engine.read_api import (
+    MACRO_READING_RULES_PATH,
+    screening_calibration_method_identity,
+)
 
 _APP_DB = "data/app/baibai.sqlite"
 _RUNS_DB = "data/screening/runs.sqlite"
 _INDICATORS_DB = "data/indicators/macro.sqlite"
 _MARKET_DB = "data/screening/market.sqlite"
 _MACRO_PANEL_CONFIG = "method/macro-panel.yaml"
+_ER_LEVEL_CALIBRATION_CONTEXT = "reports/data/er-level-calibration-latest.yaml"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +50,7 @@ class Sources:
     market: DbMarketPriceSource
     meta: DbMetaSource
     system: DbSystemSource
+    er_level_calibration: ErLevelCalibrationContext | None
     app_db_path: Path
     runs_db_path: Path
 
@@ -84,6 +90,10 @@ def build_sources(
         market=DbMarketPriceSource(root / _MARKET_DB),
         meta=DbMetaSource(resolved_db, resolved_runs, indicators_db),
         system=DbSystemSource(resolved_db, resolved_runs, indicators_db, root / _MARKET_DB),
+        er_level_calibration=load_er_level_calibration_context(
+            root / _ER_LEVEL_CALIBRATION_CONTEXT,
+            expected_method_identity=screening_calibration_method_identity(root),
+        ),
         app_db_path=resolved_db,
         runs_db_path=resolved_runs,
     )

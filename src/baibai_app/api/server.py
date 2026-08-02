@@ -114,6 +114,7 @@ def create_app(
             sources.candidates,
             sources.ledger,
             sources.research,
+            sources.er_level_calibration,
         )
 
     @app.get("/api/screening/history", response_model=ScreeningHistoryView)

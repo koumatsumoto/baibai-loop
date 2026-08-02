@@ -4,12 +4,14 @@ import { Link } from 'react-router'
 import { fetchJson } from '../api/client'
 import type {
   CandidateRowView,
+  ErLevelCalibrationContextView,
   MachineSelectionView,
   ScreeningView,
   SelectionLonglistEntryView,
   ShortlistEntryView,
 } from '../api/types'
 import { AsOfBadge } from '../components/AsOfBadge'
+import { InfoHint } from '../components/InfoHint'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
 import { SectionCard } from '../components/SectionCard'
@@ -76,12 +78,37 @@ function plain(value: number | null, digits = 1) {
   return value === null ? EMPTY : formatNumber(value, digits)
 }
 
-function FactRow({ label, children }: { label: string; children: React.ReactNode }) {
+function FactRow({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[9.5rem_1fr] gap-3 border-b py-1.5 text-sm last:border-b-0">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="text-right font-mono tabular-nums">{children}</dd>
     </div>
+  )
+}
+
+function ErLevelContext({ calibration, row }: {
+  calibration: ErLevelCalibrationContextView | null
+  row: CandidateRowView | null
+}) {
+  const quintile = row?.er_level_quintile ?? null
+  if (calibration === null || quintile === null) return null
+  const horizon = calibration.horizons.find((item) => item.horizon === calibration.reference_horizon)
+  const cell = horizon?.quintiles.find((item) => item.quintile === quintile)
+  if (!horizon || !cell) return null
+  return (
+    <FactRow label={(
+      <span className="inline-flex items-center gap-1">
+        E[r] 履歴帯
+        <InfoHint label="E[r] 履歴帯の注意">
+          過去 panel の cohort 中央値であり、この銘柄の予測ではありません。月次窓は重複し、COVID 前後に偏ります。total return は FY 実績配当を FY 末へ帰属させた近似で、実際の配当権利日を再現しません。
+        </InfoHint>
+      </span>
+    )}>
+      <span>Q{quintile} 帯 / panel 歴史実現中央値 ({horizon.horizon}, total return) </span>
+      <PctBadge fraction value={cell.median_realized_total_return_annual} />
+      <span className="ml-1">/ 年</span>
+    </FactRow>
   )
 }
 
@@ -107,7 +134,11 @@ function FvConvergenceBadge({ entry }: { entry: SelectionLonglistEntryView | nul
   return <span className="text-muted-foreground">—</span>
 }
 
-function MachineFacts({ longlistEntry, row }: { longlistEntry: SelectionLonglistEntryView | null; row: CandidateRowView | null }) {
+function MachineFacts({ calibration, longlistEntry, row }: {
+  calibration: ErLevelCalibrationContextView | null
+  longlistEntry: SelectionLonglistEntryView | null
+  row: CandidateRowView | null
+}) {
   if (longlistEntry === null && row === null) {
     return (
       <p className="rounded-md border border-dashed p-3 text-sm text-warning">
@@ -126,6 +157,7 @@ function MachineFacts({ longlistEntry, row }: { longlistEntry: SelectionLonglist
       </FactRow>
       <FactRow label="FV convergence"><FvConvergenceBadge entry={longlistEntry} /></FactRow>
       <FactRow label="機械 E[r]"><PctBadge fraction value={row?.er_annual ?? null} /></FactRow>
+      <ErLevelContext calibration={calibration} row={row} />
       <FactRow label="E[r] 分解 (rev / carry)">
         <PctBadge fraction value={row?.er_reversion_annual ?? null} />
         <span className="mx-1 text-muted-foreground">/</span>
@@ -245,7 +277,10 @@ function ComparisonTable({ rows }: { rows: readonly ShortlistComparisonRow[] }) 
   )
 }
 
-function SelectedCard({ comparison }: { comparison: ShortlistComparisonRow }) {
+function SelectedCard({ calibration, comparison }: {
+  calibration: ErLevelCalibrationContextView | null
+  comparison: ShortlistComparisonRow
+}) {
   const entry: ShortlistEntryView = comparison.entry
   const narrative = entry.narrative
   return (
@@ -267,7 +302,7 @@ function SelectedCard({ comparison }: { comparison: ShortlistComparisonRow }) {
         </div>
       </CardHeader>
       <CardContent className="grid gap-0 px-5 py-4 lg:grid-cols-[minmax(0,20rem)_1fr] lg:gap-6">
-        <MachineFacts longlistEntry={comparison.longlistEntry} row={comparison.row} />
+        <MachineFacts calibration={calibration} longlistEntry={comparison.longlistEntry} row={comparison.row} />
         <div className="mt-4 grid gap-3 lg:mt-0">
           {narrative
             ? NARRATIVE_SECTIONS.map(([key, heading]) => {
@@ -372,7 +407,7 @@ export function ShortlistPage() {
 
       <div className="grid gap-4">
         {comparison.map((row) => (
-          <SelectedCard comparison={row} key={row.ticker} />
+          <SelectedCard calibration={data.er_level_calibration ?? null} comparison={row} key={row.ticker} />
         ))}
       </div>
 

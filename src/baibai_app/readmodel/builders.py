@@ -26,6 +26,7 @@ from baibai_app.sources.protocols import (
 )
 from baibai_app.sources.types import (
     CandidatesRun,
+    ErLevelCalibrationContext,
     MacroSeriesConfig,
     ResearchRevision,
     TaskRecord,
@@ -54,6 +55,9 @@ from .models import (
     DashboardView,
     DeltaPool,
     DeltaUnavailable,
+    ErLevelCalibrationContextView,
+    ErLevelCalibrationHorizonView,
+    ErLevelCalibrationQuintileView,
     FvConvergenceView,
     HoldingDeltaView,
     HoldingReviewView,
@@ -379,10 +383,12 @@ def build_screening(
     candidates: CandidatesSource,
     ledger: LedgerSource,
     research: ResearchSource,
+    er_level_calibration: ErLevelCalibrationContext | None = None,
 ) -> ScreeningView:
     """Build the latest candidates table with portfolio/research annotations."""
 
     run, selections = _operative_run(candidates)
+    applicable_calibration = _calibration_for_run(run, er_level_calibration)
     shortlists: list[ShortlistView] = []
     assessments: list[BargainAssessmentSummaryView] = []
     if isinstance(candidates, DbCandidatesSource):
@@ -395,6 +401,7 @@ def build_screening(
             selections=selections,
             shortlists=shortlists,
             assessments=assessments,
+            er_level_calibration=None,
         )
     held, reserved = _held_and_reserved_tickers(ledger)
     researched = {item.ticker for item in research.revisions()}
@@ -408,13 +415,31 @@ def build_screening(
                 reserved=reserved,
                 researched=researched,
                 fair_value=_fair_value_by_ticker(selections),
+                er_level_calibration=applicable_calibration,
             )
             for row in run.rows
         ],
         selections=selections,
         shortlists=shortlists,
         assessments=assessments,
+        er_level_calibration=_er_level_calibration_view(applicable_calibration),
     )
+
+
+def _calibration_for_run(
+    run: CandidatesRun | None,
+    context: ErLevelCalibrationContext | None,
+) -> ErLevelCalibrationContext | None:
+    """Bind historical E[r] bands to the exact method of the displayed run."""
+
+    if run is None or context is None:
+        return None
+    if (
+        run.screening_rules_hash != context.screening_rules_hash
+        or run.er_model_version != context.er_model_version
+    ):
+        return None
+    return context
 
 
 def _operative_run(
@@ -1414,6 +1439,7 @@ def _candidate_row_view(
     reserved: set[str],
     researched: set[str],
     fair_value: Mapping[str, SelectionLonglistEntryView] | None = None,
+    er_level_calibration: ErLevelCalibrationContext | None = None,
 ) -> CandidateRowView:
     ticker = str(row.get("ticker", ""))
     metrics_raw = row.get("metrics")
@@ -1432,7 +1458,60 @@ def _candidate_row_view(
         has_research=ticker in researched,
         fair_value_anchor_yen=None if anchor is None else anchor.fair_value_anchor_yen,
         fair_value_gap_pct=None if anchor is None else anchor.fair_value_gap_pct,
+        er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
         **values,
+    )
+
+
+def _er_level_quintile(
+    er_annual: float | None, context: ErLevelCalibrationContext | None
+) -> int | None:
+    if er_annual is None or context is None:
+        return None
+    horizon = next(
+        (item for item in context.horizons if item.horizon == context.reference_horizon), None
+    )
+    if horizon is None:
+        return None
+    for cell in horizon.quintiles:
+        if cell.upper_er_annual is None or er_annual <= cell.upper_er_annual:
+            return cell.quintile
+    return None
+
+
+def _er_level_calibration_view(
+    context: ErLevelCalibrationContext | None,
+) -> ErLevelCalibrationContextView | None:
+    if context is None:
+        return None
+    return ErLevelCalibrationContextView(
+        generated_at=context.generated_at,
+        valid_through=context.valid_through,
+        reference_horizon=context.reference_horizon,
+        screening_rules_hash=context.screening_rules_hash,
+        er_model_version=context.er_model_version,
+        realized_basis=context.realized_basis,
+        horizons=[
+            ErLevelCalibrationHorizonView(
+                horizon=item.horizon,
+                asof_start=item.asof_start,
+                asof_end=item.asof_end,
+                cohort_count=item.cohort_count,
+                quintiles=[
+                    ErLevelCalibrationQuintileView(
+                        quintile=cell.quintile,
+                        upper_er_annual=cell.upper_er_annual,
+                        median_predicted_er_annual=cell.median_predicted_er_annual,
+                        median_realized_total_return_annual=(
+                            cell.median_realized_total_return_annual
+                        ),
+                        median_n=cell.median_n,
+                    )
+                    for cell in item.quintiles
+                ],
+            )
+            for item in context.horizons
+        ],
     )
 
 

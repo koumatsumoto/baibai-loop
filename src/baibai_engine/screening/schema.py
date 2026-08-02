@@ -415,6 +415,8 @@ class ScreenedRunDocument:
     candidates: tuple[ScreenedCandidate, ...]
     run_at: datetime
     run_id: NonEmptyString
+    screening_rules_hash: NonEmptyString
+    er_model_version: NonEmptyString
     generated_by: str = "screening-cli-v1"
     data_sources: tuple[str, ...] = (
         "j-quants-light",

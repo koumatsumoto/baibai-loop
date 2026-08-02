@@ -36,6 +36,7 @@ _DECLARED_OUTSIDE_THE_SWEEP = frozenset(
         "macro_series_names",  # reads the bundled definitions, not a store
         "reconcile_portfolio",  # takes a document, not a path
         "safe_load",  # a YAML helper re-exported for callers
+        "screening_calibration_method_identity",  # reads Git-managed method config
         "store_stats",  # takes a store name alongside its path
     }
 )

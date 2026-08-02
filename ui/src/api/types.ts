@@ -272,6 +272,33 @@ export interface CandidateRowView {
   // FV アンカーは machine selection の longlist だけが持つので、longlist 外は null。
   fair_value_anchor_yen: number | null
   fair_value_gap_pct: number | null
+  er_level_quintile?: number | null
+}
+
+export interface ErLevelCalibrationQuintileView {
+  quintile: number
+  upper_er_annual: number | null
+  median_predicted_er_annual: number
+  median_realized_total_return_annual: number
+  median_n: number
+}
+
+export interface ErLevelCalibrationHorizonView {
+  horizon: string
+  asof_start: string
+  asof_end: string
+  cohort_count: number
+  quintiles: ErLevelCalibrationQuintileView[]
+}
+
+export interface ErLevelCalibrationContextView {
+  generated_at: string
+  valid_through: string
+  reference_horizon: string
+  screening_rules_hash: string
+  er_model_version: string
+  realized_basis: string
+  horizons: ErLevelCalibrationHorizonView[]
 }
 
 export interface ScreeningView {
@@ -280,6 +307,7 @@ export interface ScreeningView {
   selections: MachineSelectionView[]
   shortlists: ShortlistView[]
   assessments: BargainAssessmentSummaryView[]
+  er_level_calibration?: ErLevelCalibrationContextView | null
 }
 
 export interface BargainAssessmentSummaryView {

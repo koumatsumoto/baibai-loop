@@ -61,6 +61,7 @@ from .research import (
 )
 from .screening import (
     previous_run_revision_id,
+    screening_calibration_method_identity,
     screening_run_asof_dates,
     screening_run_payload,
     screening_selection_payloads,
@@ -127,6 +128,7 @@ __all__ = [
     "provider_failure_streaks",
     "reconcile_portfolio",
     "safe_load",
+    "screening_calibration_method_identity",
     "screening_latest_asof",
     "screening_run_asof_dates",
     "screening_run_payload",

@@ -504,6 +504,14 @@ class DbCandidatesSource:
             universe_size=int(str(raw["universe_size"])),
             run_revision_id=str(raw["run_revision_id"]),
             rules_ref=None if raw.get("rules_ref") is None else str(raw["rules_ref"]),
+            screening_rules_hash=(
+                None
+                if raw.get("screening_rules_hash") is None
+                else str(raw["screening_rules_hash"])
+            ),
+            er_model_version=(
+                None if raw.get("er_model_version") is None else str(raw["er_model_version"])
+            ),
             rows=tuple(candidates),
         )
 
