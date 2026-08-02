@@ -659,6 +659,22 @@ def reservation_snapshots(state: ReplayedPortfolioState) -> tuple[ReservationSna
     return _reservation_snapshots(state.active_reservations)
 
 
+def replayed_deployed_cost_yen(state: ReplayedPortfolioState) -> int:
+    """Return the FIFO cost of open lots without introducing a market price.
+
+    Deployment pace is a capital-allocation observation, not a valuation. Reading
+    the lots produced by the canonical replay keeps it independent of current or
+    historical quotes while preserving sells and partial-lot FIFO consumption.
+    """
+
+    return sum(
+        _yen_notional(lot.quantity, lot.price_yen, field="replayed deployed cost")
+        for lots in state.lots.values()
+        for lot in lots
+        if lot.quantity > 0
+    )
+
+
 def _reservation_snapshots(
     active: Mapping[str, _Reservation],
 ) -> tuple[ReservationSnapshot, ...]:
