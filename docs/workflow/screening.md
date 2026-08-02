@@ -86,12 +86,15 @@ AI judgment、割安の原因、将来予測、採用結論をcandidateへ書か
 | --- | --- | --- |
 | versioned screening ruleとestimate components | yes | — |
 | liquidity/durability rule | rulesが定義する範囲 | 詳細reasonを出す |
+| FV convergence | no | 現値が全ての利用可能なFV anchor以上、かつ`er_reversion_annual <= 0`なら`price_at_or_above_all_fv_anchors` |
 | held/reserved | no | portfolio annotation |
 | monthly budget/cash/concentration | no | proposal warning |
 | macro material delta、macro contextの`as_of`の古さ | no | research context、context-level warning |
 | corporate action unresolved | rankを都合よく変更しない | research/limitをblock |
 
 上位候補をheld/reserved/予算だけで削除しない。一時的なFV乖離が大きく永久損失が低いなら買増し候補としてresearchへ残す。
+
+FV convergence warning はselection longlistの調査入口だけに置く。入力はscreening candidateに保存済みの`market_price_yen`、`fv_sector_median_yen`、`fv_self_range_yen`、`er_reversion_annual`で、有限かつ正の価格・anchorと有限なreversionだけを利用する。anchorが2本なら現値が両方以上、1本ならその1本以上で、さらにreversionが0以下のとき`warning`とする。現値とanchorの等値は上値余地がないためwarning側に含める。anchorが0本、価格が無効、またはreversionが無効なら`not_evaluable`とし、欠損・未知・非数値を0へ補完しない。利用可能なanchorの名前と値、参考価格、reversionをprovenanceとしてpayloadへ残す。warningはscreen pass、自動除外、E[r]、rank、recommendationを変更しない。
 
 ## Corporate action and abnormal price
 

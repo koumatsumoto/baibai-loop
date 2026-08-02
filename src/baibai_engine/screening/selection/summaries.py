@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date
+from math import isfinite
 
 from baibai_engine.foundation.coerce import (
     dedupe_strings,
@@ -194,6 +195,7 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
         # 基準に載せる screening 参考値。約定 limit の price basis ではなく、正本の
         # raw/unadjusted close は plan-limit が SQLite から再取得する。
         "market_price_yen": _screening_reference_close_yen(candidate, metrics),
+        "fv_convergence": _fv_convergence_annotation(candidate, metrics),
         "liquidity_status": "pass",
         "durability_warnings": list(string_sequence(durability_lens.get("caution_reasons"))),
         "event_warnings": [tag for tag in risk_tags if tag in _EVENT_RISK_TAGS],
@@ -216,7 +218,7 @@ def _conservative_fair_value_yen(metrics: Mapping[str, object]) -> float | None:
     anchors = [
         anchor
         for key in ("fv_sector_median_yen", "fv_self_range_yen")
-        if (anchor := optional_float(metrics.get(key))) is not None
+        if (anchor := _positive_finite(metrics.get(key))) is not None
     ]
     return round(min(anchors), 4) if anchors else None
 
@@ -224,11 +226,57 @@ def _conservative_fair_value_yen(metrics: Mapping[str, object]) -> float | None:
 def _screening_reference_close_yen(
     candidate: Mapping[str, object], metrics: Mapping[str, object]
 ) -> float | None:
-    market_cap_oku = optional_float(candidate.get("market_cap_oku"))
-    shares_outstanding = optional_float(metrics.get("shares_outstanding"))
-    if market_cap_oku is None or not shares_outstanding:
+    market_cap_oku = _positive_finite(candidate.get("market_cap_oku"))
+    shares_outstanding = _positive_finite(metrics.get("shares_outstanding"))
+    if market_cap_oku is None or shares_outstanding is None:
         return None
-    return round(market_cap_oku * 1e8 / shares_outstanding, 4)
+    price = market_cap_oku * 1e8 / shares_outstanding
+    return round(price, 4) if isfinite(price) and price > 0 else None
+
+
+def _fv_convergence_annotation(
+    candidate: Mapping[str, object], metrics: Mapping[str, object]
+) -> dict[str, object]:
+    """Describe FV convergence without changing selection authority.
+
+    Every usable anchor must be exhausted. This avoids calling a candidate converged
+    when the two machine anchors disagree and one still offers upside. The independent
+    reversion sign is a consistency guard against turning the displayed FV comparison
+    into a new estimate policy.
+    """
+    price = _screening_reference_close_yen(candidate, metrics)
+    anchors = {
+        key: anchor
+        for key in ("fv_sector_median_yen", "fv_self_range_yen")
+        if (anchor := _positive_finite(metrics.get(key))) is not None
+    }
+    reversion = _finite_number(metrics.get("er_reversion_annual"))
+    if price is None or not anchors or reversion is None:
+        status = "not_evaluable"
+        warning_code = None
+    elif all(price >= anchor for anchor in anchors.values()) and reversion <= 0:
+        status = "warning"
+        warning_code = "price_at_or_above_all_fv_anchors"
+    else:
+        status = "clear"
+        warning_code = None
+    return {
+        "status": status,
+        "warning_code": warning_code,
+        "market_price_yen": price,
+        "anchors_yen": anchors,
+        "er_reversion_annual": reversion,
+    }
+
+
+def _positive_finite(value: object) -> float | None:
+    number = _finite_number(value)
+    return number if number is not None and number > 0 else None
+
+
+def _finite_number(value: object) -> float | None:
+    number = optional_float(value)
+    return number if number is not None and isfinite(number) else None
 
 
 def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) -> dict[str, object]:
