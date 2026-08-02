@@ -18,9 +18,10 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-stores` | `schema-migrations/market-v13.sqlite` | `cloud-daily-batch`（write-once rollback artifact） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
+| `baibai-serving` | `history/longlists/<asof>.json` | 日次batch、R2 lifecycleで400日後に削除 |
 | `baibai-serving` | `system/latest-run.json` | 日次batch、毎runで上書き（`views/`外なのでexportの再生成で消えない） |
 
-R2 lifecycle rule（31日削除）は`history/candidate-views/`へ**prefix指定で**追加する。旧形式の`history/candidates/` ruleは既存objectが31日で自然失効するまで残し、その後に削除する。Workerは旧prefixへ到達しない。**prefixを持たないbucket全体のruleを作らない** — `system/latest-run.json`が静かに失効し、`/system`のrunカードが恒久的に「記録なし」表示へ落ちる（消えたことに気づけない）。
+R2 lifecycle rule は `history/candidate-views/` を31日、`history/longlists/` を400日で削除するよう**prefix指定で**追加する。後者は四半期の着手遅延計測へ1年以上の exact first-seen sourceを供給し、UI routeからは公開しない。旧形式の`history/candidates/` ruleは既存objectが31日で自然失効するまで残し、その後に削除する。**prefixを持たないbucket全体のruleを作らない** — `system/latest-run.json`が静かに失効し、`/system`のrunカードが恒久的に「記録なし」表示へ落ちる（消えたことに気づけない）。
 
 資格情報はprincipalごとに分ける。
 
@@ -29,7 +30,7 @@ R2 lifecycle rule（31日削除）は`history/candidate-views/`へ**prefix指定
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
 | GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step のみ（job env に出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
-| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | storesだけread-write |
+| ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write + serving read-only（longlist history取得用） |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
 | Worker secret | `VIEW_PASSWORD` | Worker runtimeだけ |
 
@@ -208,14 +209,24 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> [--batch dail
 - `views/security--<ticker>.json`（保有 + 最新 run 掲載 + shortlist の ticker）
 - `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
 - `history/candidate-views/<asof>.json`（run とCandidates全件を型付きUI read modelへ変換した履歴。31 日で削除）
+- `history/longlists/<asof>.json`（latest runに束縛されたmachine selectionの `ticker` / `rank` / `er_annual`。selection欠損日と空longlistも空recordとして発行し、400日で削除）
 
 書き出しの前に application store の `user_version` が code の schema version と一致することを確認し、不一致なら view を 1 件も作らず exit 1 で停止する（読み取り経路は read-only で migrate しないため、不一致は build の途中で素の SQL error になる）。store が無い root は judgment 空の正常状態として export する。
 
-`views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の「31 日で削除」は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
+`views/` は毎回 export の完全な像に置換される（実行のたびに一度削除して作り直すので、対象から外れた古い view は残らない）。`history/` は追記のみで、この script は削除を行わない。上記の31日 / 400日削除は serving store（R2 lifecycle）側の保持契約であり、script の挙動ではない。
 
 Workerは認証後の`/api/screening/history`でCandidates履歴の日付一覧を返し、`/api/screening/history/YYYY-MM-DD`だけを`history/candidate-views/`へ写像する。任意key、旧形式の`history/candidates/`、store bucketは公開しない。
 
 views の JSON は `baibai-app` の対応 API response と同形（pydantic `model_dump_json`）。`meta.json` は全 view / history の書き込み成功後に最後に書くので、途中失敗した出力 dir が新鮮さを主張する事態を避ける。
+
+四半期の着手遅延計測では、既存targetを上書きしない download と専用 source を使う。
+
+```bash
+tools/cloud/r2_transfer.sh pull-longlist-history /tmp/baibai-longlist-history
+.venv/bin/python tools/measure_daily_delta_effect.py \
+  --longlist-history-dir /tmp/baibai-longlist-history \
+  --as-of YYYY-MM-DD
+```
 
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 

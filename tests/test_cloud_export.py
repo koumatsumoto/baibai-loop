@@ -278,6 +278,43 @@ def test_export_writes_expected_view_tree(app_method_root: Path, tmp_path: Path)
     assert pool["run"]["asof_date"] == "2026-07-01"
     latest_pool = json.loads(pool_files[1].read_text(encoding="utf-8"))
     assert latest_pool["run"]["run_revision_id"] == run.run_revision_id
+    longlist_record = json.loads(
+        (output_dir / "history/longlists/2026-07-08.json").read_text(encoding="utf-8")
+    )
+    assert longlist_record["kind"] == "daily-longlist-membership"
+    assert longlist_record["selection_status"] == "available"
+    assert longlist_record["selection_id"] == screening.selections[0].selection_id
+    assert longlist_record["members"] == [{"ticker": "0001", "rank": None, "er_annual": None}]
+
+
+def test_export_writes_explicit_empty_longlist_when_selection_is_missing(
+    app_method_root: Path, tmp_path: Path
+) -> None:
+    (app_method_root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    runs_db = app_method_root / "data/screening/runs.sqlite"
+    runs = ScreeningRunReader(runs_db).list_runs()
+    assert len(runs) >= 2
+    connection = sqlite3.connect(runs_db)
+    with connection:
+        connection.execute("DELETE FROM screening_selection")
+    connection.close()
+    ScreeningRunStore(runs_db).publish_selection(
+        run_revision_id=runs[1].run_revision_id,
+        profile="value",
+        macro_context_id=None,
+        payload={"recommendations": [], "longlist": [{"ticker": "0001"}]},
+        created_at=datetime(2026, 7, 1, 4, 0, tzinfo=UTC),
+    )
+    output_dir = tmp_path / "export"
+
+    assert main(["--output-dir", str(output_dir), "--repo-root", str(app_method_root)]) == 0
+
+    payload = json.loads(
+        (output_dir / "history/longlists/2026-07-08.json").read_text(encoding="utf-8")
+    )
+    assert payload["selection_status"] == "selection_missing"
+    assert payload["selection_id"] is None
+    assert payload["members"] == []
 
 
 def test_export_writes_macro_context_detail_views(app_method_root: Path, tmp_path: Path) -> None:

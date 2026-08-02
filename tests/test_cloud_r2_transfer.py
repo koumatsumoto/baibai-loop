@@ -121,6 +121,8 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     (output / "views/meta.json").write_text("{}", encoding="utf-8")
     (output / "history/candidate-views").mkdir(parents=True)
     (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
+    (output / "history/longlists").mkdir(parents=True)
+    (output / "history/longlists/2026-07-21.json").write_text("{}", encoding="utf-8")
 
     subprocess.run(
         [TRANSFER_SCRIPT, "upload-serving", output],
@@ -130,17 +132,55 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     )
 
     commands = log.read_text(encoding="utf-8").splitlines()
-    assert len(commands) == 3
+    assert len(commands) == 4
     assert commands[0].startswith("s3 sync ")
     assert "s3://baibai-serving/views/" in commands[0]
     assert "--delete --exclude meta.json" in commands[0]
     assert "s3://baibai-serving/history/candidate-views/" in commands[1]
     assert "--delete" not in commands[1]
-    assert commands[2].startswith("s3 cp ")
-    assert commands[2].endswith(
+    assert "s3://baibai-serving/history/longlists/" in commands[2]
+    assert "--delete" not in commands[2]
+    assert commands[3].startswith("s3 cp ")
+    assert commands[3].endswith(
         "s3://baibai-serving/views/meta.json --endpoint-url "
         "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
     )
+
+
+def test_pull_longlist_history_uses_the_dedicated_serving_prefix(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = tmp_path / "longlist-history"
+
+    subprocess.run(
+        [TRANSFER_SCRIPT, "pull-longlist-history", output],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=True,
+    )
+
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert len(commands) == 1
+    assert commands[0].startswith("s3 sync s3://baibai-serving/history/longlists/")
+    assert output.is_dir()
+
+
+def test_pull_longlist_history_refuses_to_overwrite_a_local_target(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = tmp_path / "longlist-history"
+    output.mkdir()
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "pull-longlist-history", output],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "refusing longlist history download overwrite" in completed.stderr
+    assert not log.exists()
 
 
 def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:

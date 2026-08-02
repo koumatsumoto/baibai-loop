@@ -247,8 +247,22 @@ upload_serving() {
     aws_s3 sync "${output_dir}/history/candidate-views/" \
       "s3://${serving_bucket}/history/candidate-views/"
   fi
+  if [[ -d "${output_dir}/history/longlists" ]]; then
+    aws_s3 sync "${output_dir}/history/longlists/" \
+      "s3://${serving_bucket}/history/longlists/"
+  fi
   # Freshness is published only after every view and history upload succeeds.
   aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
+}
+
+pull_longlist_history() {
+  local output_dir="$1"
+  if [[ -e "${output_dir}" ]]; then
+    printf 'refusing longlist history download overwrite: %s\n' "${output_dir}" >&2
+    return 2
+  fi
+  mkdir -p "${output_dir}"
+  aws_s3 sync "s3://${serving_bucket}/history/longlists/" "${output_dir}/"
 }
 
 upload_run_summary() {
@@ -265,7 +279,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|pull-market|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-all|pull-machine|pull-market|pull-longlist-history DIR|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -281,6 +295,10 @@ case "${1:-}" in
   # meanwhile. These two move the market store alone.
   pull-market)
     pull_keys market.sqlite
+    ;;
+  pull-longlist-history)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    pull_longlist_history "$2"
     ;;
   preserve-market-v13)
     preserve_market_v13
