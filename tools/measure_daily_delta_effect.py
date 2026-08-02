@@ -20,10 +20,6 @@ from baibai_engine.read_api.research import (
     list_holding_review_publications,
     list_thesis_publications,
 )
-from baibai_engine.read_api.screening import (
-    screening_run_asof_dates,
-    screening_selection_payloads,
-)
 from baibai_engine.read_api.shortlist import list_shortlist_payloads
 from baibai_engine.read_api.sqlite import read_rows
 from baibai_engine.screening.store_readiness import unreadable_store_reason
@@ -62,60 +58,6 @@ def _mapping_rows(value: object) -> list[Mapping[str, object]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, Mapping)]
-
-
-def _longlist(selection: Mapping[str, object]) -> list[Mapping[str, object]] | None:
-    payload = selection.get("payload")
-    rows = payload.get("longlist") if isinstance(payload, Mapping) else None
-    if not isinstance(rows, list) or not rows:
-        return None
-    parsed = _mapping_rows(rows)
-    return parsed if len(parsed) == len(rows) else None
-
-
-def _selection_instant(selection: Mapping[str, object]) -> tuple[datetime, str]:
-    return _as_datetime(selection["created_at"]), str(selection.get("selection_id", ""))
-
-
-def _shortlists_by_selection(
-    shortlists: Sequence[Mapping[str, object]], *, asof: date
-) -> dict[str, list[Mapping[str, object]]]:
-    indexed: dict[str, list[Mapping[str, object]]] = {}
-    for shortlist in shortlists:
-        if _jst_date(shortlist["published_at"]) > asof:
-            continue
-        selection_id = shortlist.get("selection_id")
-        if selection_id:
-            indexed.setdefault(str(selection_id), []).append(shortlist)
-    return indexed
-
-
-def _daily_pool(
-    selections: Sequence[Mapping[str, object]],
-    shortlists_by_selection: Mapping[str, Sequence[Mapping[str, object]]],
-) -> tuple[Mapping[str, object] | None, str]:
-    with_longlist = [item for item in selections if _longlist(item) is not None]
-    bound_ids = {
-        str(item.get("selection_id", ""))
-        for item in selections
-        if str(item.get("selection_id", "")) in shortlists_by_selection
-    }
-    if len(bound_ids) > 1:
-        return None, "ambiguous_shortlist_bindings"
-    if len(bound_ids) == 1:
-        bound_id = next(iter(bound_ids))
-        bound = next(item for item in selections if str(item.get("selection_id")) == bound_id)
-        return (
-            (bound, "shortlist_bound")
-            if _longlist(bound) is not None
-            else (
-                None,
-                "bound_selection_without_longlist",
-            )
-        )
-    if not with_longlist:
-        return None, "longlist_missing"
-    return max(with_longlist, key=_selection_instant), "latest_longlist"
 
 
 def _evaluations(
@@ -164,40 +106,67 @@ def _delay_summary(values: Sequence[int]) -> dict[str, object]:
 
 def build_candidate_measurement(
     *,
-    run_dates: Sequence[date],
-    selections: Sequence[Mapping[str, object]],
+    longlist_history: Sequence[Mapping[str, object]],
+    expected_dates: Sequence[date],
     shortlists: Sequence[Mapping[str, object]],
     asof: date,
 ) -> dict[str, object]:
-    """Measure first-observed longlist membership without hiding retention gaps."""
+    """Measure first-observed membership from durable daily longlist records."""
 
-    dates = sorted({day for day in run_dates if day <= asof})
-    by_date: dict[date, list[Mapping[str, object]]] = {day: [] for day in dates}
-    for selection in selections:
-        day = _as_date(selection["as_of_date"])
-        if day in by_date and selection.get("publication_kind") == "machine":
-            by_date[day].append(selection)
-    shortlist_index = _shortlists_by_selection(shortlists, asof=asof)
+    by_date: dict[date, Mapping[str, object]] = {}
+    for record in longlist_history:
+        if record.get("kind") != "daily-longlist-membership" or record.get("schema_version") != 1:
+            raise DailyDeltaMeasurementError("longlist history has an unsupported contract")
+        day = _as_date(record["as_of"])
+        if day > asof:
+            continue
+        if day in by_date:
+            raise DailyDeltaMeasurementError(f"duplicate longlist history date: {day}")
+        by_date[day] = record
+    dates = sorted({day for day in expected_dates if day <= asof} | set(by_date))
     snapshots: list[dict[str, object]] = []
     pools: list[tuple[date, set[str]]] = []
     for day in dates:
-        chosen, status = _daily_pool(by_date[day], shortlist_index)
-        pool_rows = None if chosen is None else _longlist(chosen)
-        tickers = (
-            set()
-            if pool_rows is None
-            else {str(row["ticker"]) for row in pool_rows if row.get("ticker")}
-        )
+        daily_record = by_date.get(day)
+        if daily_record is None:
+            snapshots.append(
+                {
+                    "as_of": day.isoformat(),
+                    "status": "record_missing",
+                    "selection_id": None,
+                    "longlist_size": None,
+                }
+            )
+            continue
+        status = daily_record.get("selection_status")
+        members = daily_record.get("members")
+        if status not in {"available", "selection_missing"} or not isinstance(members, list):
+            raise DailyDeltaMeasurementError(f"invalid longlist history record: {day}")
+        parsed_members = _mapping_rows(members)
+        if len(parsed_members) != len(members):
+            raise DailyDeltaMeasurementError(f"invalid longlist history members: {day}")
+        if status == "selection_missing" and (
+            parsed_members or daily_record.get("selection_id") is not None
+        ):
+            raise DailyDeltaMeasurementError(
+                f"selection-missing longlist history must be explicitly empty: {day}"
+            )
+        if status == "available" and not daily_record.get("selection_id"):
+            raise DailyDeltaMeasurementError(
+                f"available longlist history must identify its selection: {day}"
+            )
+        tickers = {str(row["ticker"]) for row in parsed_members if row.get("ticker")}
+        if len(tickers) != len(parsed_members):
+            raise DailyDeltaMeasurementError(f"longlist history has invalid ticker rows: {day}")
         snapshots.append(
             {
                 "as_of": day.isoformat(),
                 "status": status,
-                "machine_selection_count": len(by_date[day]),
-                "selection_id": None if chosen is None else chosen.get("selection_id"),
-                "longlist_size": None if pool_rows is None else len(tickers),
+                "selection_id": daily_record.get("selection_id"),
+                "longlist_size": len(tickers),
             }
         )
-        if pool_rows is not None:
+        if status == "available":
             pools.append((day, tickers))
 
     first_observed: dict[str, date] = {}
@@ -246,16 +215,18 @@ def build_candidate_measurement(
         )
     denominator = len(first_observed)
     return {
-        "source_basis": "screening_selection.payload.longlist",
+        "source_basis": "r2_history_longlists_v1",
         "evaluation_time_basis": "shortlist.published_at_jst_date_proxy",
         "coverage": {
-            "run_record_start": None if not dates else dates[0].isoformat(),
-            "run_record_end": None if not dates else dates[-1].isoformat(),
-            "run_date_count": len(dates),
+            "coverage_start": None if not dates else dates[0].isoformat(),
+            "coverage_end": None if not dates else dates[-1].isoformat(),
+            "expected_session_count": len(dates),
+            "history_record_count": len(by_date),
             "complete_longlist_snapshot_count": len(pools),
-            "missing_or_ambiguous_snapshot_count": len(dates) - len(pools),
-            "r2_candidate_history_excluded": True,
-            "r2_reason": "candidate history does not preserve explicit longlist membership",
+            "missing_history_record_count": len(set(dates) - set(by_date)),
+            "missing_selection_snapshot_count": sum(
+                record.get("selection_status") == "selection_missing" for record in by_date.values()
+            ),
         },
         "pool_unique_ticker_count": denominator,
         "evaluated_ticker_count": captured,
@@ -469,6 +440,18 @@ def _market_bars(
     return result
 
 
+def _market_sessions(path: Path, *, start: date, end: date) -> list[date]:
+    return [
+        date.fromisoformat(str(row["traded_at"]))
+        for row in read_rows(
+            path,
+            "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+            "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            [start.isoformat(), end.isoformat()],
+        )
+    ]
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -477,10 +460,40 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _history_sha256(path: Path, *, asof: date) -> str:
+    digest = hashlib.sha256()
+    for item in sorted(path.glob("*.json")):
+        try:
+            day = date.fromisoformat(item.stem)
+        except ValueError:
+            continue
+        if day > asof:
+            continue
+        digest.update(item.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(item.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def load_longlist_history(path: Path) -> list[Mapping[str, object]]:
+    records: list[Mapping[str, object]] = []
+    for item in sorted(path.glob("*.json")):
+        try:
+            date.fromisoformat(item.stem)
+            payload = yaml.safe_load(item.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError) as error:
+            raise DailyDeltaMeasurementError(f"longlist history is unreadable: {item}") from error
+        if not isinstance(payload, Mapping) or str(payload.get("as_of")) != item.stem:
+            raise DailyDeltaMeasurementError(f"longlist history filename and as_of differ: {item}")
+        records.append(payload)
+    return records
+
+
 def build_measurement(
     *,
     db_path: Path,
-    runs_db_path: Path,
+    longlist_history_dir: Path,
     market_db_path: Path,
     asof: date,
 ) -> dict[str, object]:
@@ -493,20 +506,30 @@ def build_measurement(
     open_tickers = [
         ticker for ticker, lots in state.lots.items() if any(lot.quantity > 0 for lot in lots)
     ]
-    run_dates = screening_run_asof_dates(runs_db_path, limit=10_000)
     shortlists = list_shortlist_payloads(db_path)
+    longlist_history = load_longlist_history(longlist_history_dir)
+    retained_days = [
+        _as_date(record["as_of"])
+        for record in longlist_history
+        if _as_date(record["as_of"]) <= asof
+    ]
+    expected_dates = (
+        []
+        if not retained_days
+        else _market_sessions(market_db_path, start=min(retained_days), end=asof)
+    )
     return {
         "kind": "daily-delta-effect-baseline",
         "measurement_asof": asof.isoformat(),
         "day_basis": "jst_calendar_days",
         "input_sha256": {
             "application_db": _sha256(db_path),
-            "runs_db": _sha256(runs_db_path),
+            "longlist_history": _history_sha256(longlist_history_dir, asof=asof),
             "market_db": _sha256(market_db_path),
         },
         "candidate": build_candidate_measurement(
-            run_dates=run_dates,
-            selections=screening_selection_payloads(runs_db_path),
+            longlist_history=longlist_history,
+            expected_dates=expected_dates,
             shortlists=shortlists,
             asof=asof,
         ),
@@ -524,17 +547,22 @@ def build_measurement(
 def measure_command(
     *,
     db_path: Path,
-    runs_db_path: Path,
+    longlist_history_dir: Path,
     market_db_path: Path,
     asof: date,
     output_path: Path | None,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
-    for name, path in (("application", db_path), ("runs", runs_db_path)):
-        if not path.is_file():
-            print(f"daily-delta-baseline: {name} store is missing: {path}", file=sys.stderr)
-            return 1
+    if not db_path.is_file():
+        print(f"daily-delta-baseline: application store is missing: {db_path}", file=sys.stderr)
+        return 1
+    if not longlist_history_dir.is_dir():
+        print(
+            f"daily-delta-baseline: longlist history is missing: {longlist_history_dir}",
+            file=sys.stderr,
+        )
+        return 1
     unreadable = unreadable_store_reason(market_db_path)
     if unreadable is not None:
         print(f"daily-delta-baseline: market store: {unreadable}", file=sys.stderr)
@@ -542,7 +570,7 @@ def measure_command(
     try:
         payload = build_measurement(
             db_path=db_path,
-            runs_db_path=runs_db_path,
+            longlist_history_dir=longlist_history_dir,
             market_db_path=market_db_path,
             asof=asof,
         )
@@ -562,7 +590,7 @@ def measure_command(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=Path("data/app/baibai.sqlite"))
-    parser.add_argument("--runs-db", type=Path, default=Path("data/screening/runs.sqlite"))
+    parser.add_argument("--longlist-history-dir", type=Path, required=True)
     parser.add_argument("--market-db", type=Path, default=Path("data/screening/market.sqlite"))
     parser.add_argument("--as-of", type=_parse_date, default=DEFAULT_ASOF)
     parser.add_argument("--out", type=Path)
@@ -573,7 +601,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return measure_command(
         db_path=args.db,
-        runs_db_path=args.runs_db,
+        longlist_history_dir=args.longlist_history_dir,
         market_db_path=args.market_db,
         asof=args.as_of,
         output_path=args.out,
