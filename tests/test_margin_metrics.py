@@ -14,9 +14,10 @@ from baibai_engine.screening.calibration.store import (
     cache_meta_path,
     read_panel,
 )
+from baibai_engine.screening.candidate_build import candidate_metrics_map
 from baibai_engine.screening.margin_metrics import MarginSupplyDemand, margin_supply_demand
 from baibai_engine.screening.providers.jquants import JQuantsWeeklyMargin
-from baibai_engine.screening.schema import DerivedMetrics
+from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot
 
 WEEK = date(2026, 7, 24)
 
@@ -125,6 +126,16 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
         self.assertEqual(derived.margin_long_delta_26w, -0.005)
         self.assertEqual(derived.margin_std_long_share, 0.8)
         self.assertEqual(derived.margin_week_end, WEEK)
+
+    def test_candidate_output_carries_short_to_adv_and_observation_week(self) -> None:
+        metrics = candidate_metrics_map(
+            FinancialSnapshot(None, None, None, None, None, None, None, None, None),
+            freshness_warning_count=0,
+            derived=DerivedMetrics(margin_week_end=WEEK, margin_short_to_adv=0.5),
+        )
+
+        self.assertEqual(metrics["margin_week_end"], WEEK.isoformat())
+        self.assertEqual(metrics["margin_short_to_adv"], 0.5)
 
 
 class CalibrationCacheVersionTest(unittest.TestCase):

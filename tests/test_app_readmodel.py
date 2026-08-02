@@ -487,24 +487,25 @@ def test_supply_demand_flags_stay_quiet_below_the_measured_decile() -> None:
     assert "制度期日偏重" not in view.data_quality_flags
 
 
-def test_every_rejected_axis_reaches_the_view_as_a_number_without_a_flag() -> None:
-    # The three axes that failed the acceptance criteria are context for the
-    # reader, not warnings. They have to arrive as values — a view that silently
-    # drops them would leave the report claiming a display that does not exist —
-    # and none of them may raise a flag, which would give an untested rule the
-    # weight of a tested one.
+def test_supply_demand_annotations_reach_the_view_without_becoming_flags() -> None:
+    # Raw supply/demand observations remain context. The adoption decision for one
+    # axis does not turn its value into a warning or a selection rule.
     view = _candidate_row(
         {
             "ticker": "4849",
             "metrics": {
+                "margin_week_end": "2026-07-24",
                 "margin_long_to_adv": 25.0,
+                "margin_short_to_adv": 3.5,
                 "margin_long_share": 1.0,
                 "margin_long_delta_26w": -0.9,
             },
         }
     )
 
+    assert view.margin_week_end == date(2026, 7, 24)
     assert view.margin_long_to_adv == 25.0
+    assert view.margin_short_to_adv == 3.5
     assert view.margin_long_share == 1.0
     assert view.margin_long_delta_26w == -0.9
     assert view.data_quality_flags == []
@@ -513,6 +514,8 @@ def test_every_rejected_axis_reaches_the_view_as_a_number_without_a_flag() -> No
 def test_an_unobserved_margin_balance_raises_nothing() -> None:
     view = _candidate_row({"ticker": "4849", "metrics": {}})
 
+    assert view.margin_week_end is None
+    assert view.margin_short_to_adv is None
     assert view.margin_std_long_share is None
     assert view.data_quality_flags == []
 

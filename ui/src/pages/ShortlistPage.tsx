@@ -116,9 +116,11 @@ function SupplyDemandCompact({ row }: { row: CandidateRowView | null }) {
   return (
     <span className="grid gap-0.5 whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground">
       <span>買/ADV {row?.margin_long_to_adv === null || row?.margin_long_to_adv === undefined ? EMPTY : `${plain(row.margin_long_to_adv, 2)}日`}</span>
+      <span>売/ADV {row?.margin_short_to_adv === null || row?.margin_short_to_adv === undefined ? EMPTY : `${plain(row.margin_short_to_adv, 2)}日`}</span>
       <span>買率 <PctBadge fraction value={row?.margin_long_share ?? null} /></span>
       <span>26w <PctBadge fraction value={row?.margin_long_delta_26w ?? null} /></span>
       <span>制度 <PctBadge fraction value={row?.margin_std_long_share ?? null} /></span>
+      <span>観測週 {row?.margin_week_end ?? EMPTY}</span>
     </span>
   )
 }
@@ -187,6 +189,12 @@ function MachineFacts({ calibration, longlistEntry, row }: {
           ? EMPTY
           : `${plain(row.margin_long_to_adv, 2)} 日分`}
       </FactRow>
+      <FactRow label="信用売残 / ADV">
+        {row?.margin_short_to_adv === null || row?.margin_short_to_adv === undefined
+          ? EMPTY
+          : `${plain(row.margin_short_to_adv, 2)} 日分`}
+      </FactRow>
+      <FactRow label="信用残の観測週">{row?.margin_week_end ?? EMPTY}</FactRow>
       <FactRow label="信用買残比率"><PctBadge fraction value={row?.margin_long_share ?? null} /></FactRow>
       <FactRow label="信用買残 26w変化"><PctBadge fraction value={row?.margin_long_delta_26w ?? null} /></FactRow>
       <FactRow label="制度信用買残比率"><PctBadge fraction value={row?.margin_std_long_share ?? null} /></FactRow>
