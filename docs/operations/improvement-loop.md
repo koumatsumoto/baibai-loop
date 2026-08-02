@@ -28,6 +28,7 @@ related_docs:
 | research の見積り手順（FV・RR・耐性） | [`../workflow/research.md`](../workflow/research.md) + skill `decision-cycle` | portfolio outcome と長期horizon calibration |
 | 資本・cap・sizing | [`../portfolio-management.md`](../portfolio-management.md) + `src/baibai_engine/position/policy.py` | 保有 outcome |
 | OP3 の選定判断（深度契約・narrative 規約） | [`../operations/decision-cycle.md`](./decision-cycle.md#opportunity-human-review-gate-op3) | 判断コホート比較（`screening shortlist outcome`）+ 人間ゲートの機会費用・資本deployment（`python tools/measure_deployment_opportunity.py`。cycle結論 × machine top-1 forward return × ledger book-cost/cash） |
+| 日次デルタ観測層 | `baibai-app`の`daily-delta` view | 四半期ごとの候補評価・FV到達review遅延（`python tools/measure_daily_delta_effect.py --as-of YYYY-MM-DD`。保持窓・left/right censoringを併記） |
 
 計測の母数は 2 系統（doctrine §2）: **(a) 保有 outcome**（少数・深い観測。判断品質の最終的な正）と **(b) 較正リプレイ**（全銘柄 × 長期 horizon。手法較正用に件数を桁で補う）。その中間に **(c) 判断コホート**（1 サイクル約 20 件蓄積する OP3 の selected / rejected）があり、機械順位への付加価値と ploss 判定の序列を記述比較する。(c) は非ランダム割当・窓の重複・少数標本のため因果効果を主張せず、手順変更は長期 horizon の evidence と事前登録を通す。機械レバー（screen / select / E[r]）の実証的改訂は (b) の 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は (a) と運用の事後検証で改める。
 
