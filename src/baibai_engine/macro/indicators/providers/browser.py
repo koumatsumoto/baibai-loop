@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
 from types import TracebackType
@@ -27,6 +29,49 @@ _USER_AGENT = (
 _NAV_TIMEOUT_MS = 60_000
 _NAV_ATTEMPTS = 3
 _MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
+
+# Playwright otherwise passes the entire Python environment to Chromium. The browser
+# executes JavaScript from external origins, so its process receives only OS/runtime
+# configuration needed to launch and render. Browser discovery happens in the
+# Playwright driver before Chromium starts, but keeping PLAYWRIGHT_BROWSERS_PATH makes
+# the contract explicit for installations that inspect it again in a child process.
+# Proxy variables are intentionally absent: they can embed credentials and the hosted
+# runner reaches these public sources directly.
+_BROWSER_ENV_ALLOWLIST = frozenset(
+    {
+        "DBUS_SESSION_BUS_ADDRESS",
+        "DISPLAY",
+        "FONTCONFIG_FILE",
+        "FONTCONFIG_PATH",
+        "HOME",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LD_LIBRARY_PATH",
+        "PATH",
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "TZ",
+        "WAYLAND_DISPLAY",
+        "XAUTHORITY",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+    }
+)
+
+
+def _browser_environment(
+    source: Mapping[str, str] | None = None,
+) -> dict[str, str | float | bool]:
+    """Return launch configuration without application credentials."""
+
+    environment = os.environ if source is None else source
+    return {name: value for name, value in environment.items() if name in _BROWSER_ENV_ALLOWLIST}
 
 
 class BrowserFetcher:
@@ -76,6 +121,7 @@ class BrowserFetcher:
                 accept_downloads=True,
                 user_agent=_USER_AGENT,
                 args=["--disable-blink-features=AutomationControlled"],
+                env=_browser_environment(),
             )
         except (PlaywrightError, OSError) as exc:
             # The profile directory is written here too, so a full or read-only

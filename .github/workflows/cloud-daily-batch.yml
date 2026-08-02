@@ -89,6 +89,16 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: uv run playwright install --with-deps chromium
 
+      # This runs before credential-bearing steps. It proves the allowlisted browser
+      # environment still starts in both the restored-cache and fresh-install paths.
+      - name: Smoke-check isolated Chromium environment
+        id: browser-smoke
+        run: >-
+          uv run python -c "from baibai_engine.macro.indicators.providers.browser import
+          BrowserFetcher; fetcher=BrowserFetcher();
+          content=fetcher.fetch_html('data:text/html,<p>baibai-browser-smoke</p>');
+          fetcher.close(); assert 'baibai-browser-smoke' in content"
+
       - name: Pull stores
         id: pull
         env:
