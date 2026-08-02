@@ -40,7 +40,7 @@ forward row は `resolved` または明示的な unresolved status を持つ。t
 | --- | --- | --- |
 | `master_snapshot_status` | population が cohort 日の断面から来ているか | `exact_date` |
 | `survivorship_coverage_status` | panel の population が as-of の投資可能 universe を再現しているか | `asof_population_mismatch_count == 0` |
-| `priced_master_without_universe.direction_stable` | as-of に価格が付き master にも在るが panel が評価できなかった銘柄が結論を作っていないか | diagnostics 件数と row 同定数が一致し、全対象に実現 return があり、`true` |
+| `priced_master_without_universe.direction_stable` | as-of に価格が付き master にも在るが panel が評価できなかった銘柄が結論を作っていないか | diagnostics 件数と row 同定数が一致し、`true` |
 | `adjustment_factor_coverage` | 価格系列に分割調整 factor が揃っているか | `complete` |
 | `delisting_exclusion.direction_stable` | 窓中に価格が途切れた銘柄の除外が結論を作っていないか | `true` |
 | `entry_price_gap_count` / `future_horizon_count` / `unclassified_unresolved_count` | 未解決 row の分類（下記） | `0` |
@@ -70,11 +70,11 @@ entry は as-of の 15 日前までの close で解決するので、保有期�
 
 ### universe 未評価銘柄（`priced_master_without_universe`）
 
-該当 row は実現 forward return を持つ一方、必要な入力履歴を欠くため valuation metrics、rank、E[r] を持たない。現行 method で選抜対象にならない row へ所属を後付けせず、実現 return が母集団中央値を通じて production 結論の向きを作っていないかを有界バイアスで判定する。
+該当 row は必要な入力履歴を欠くため valuation metrics、rank、E[r] を持たず、窓中に価格系列が終われば実現 forward return も持たない。現行 method で選抜対象にならない row へ所属を後付けせず、観測済み return の有無が母集団中央値を通じて production 結論の向きを作っていないかを有界バイアスで判定する。
 
-報告値では観測済み return を使い、感度計算では該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。`recommended_rank_top5` / `top10` と `er_calibration` の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。
+報告値では観測済み return だけを使い、未解決 return は値なしのまま母集団から除外する。感度計算では resolved / unresolved を問わず該当 row だけを `-1.0` と置換前の resolved 流動性母集団中央値へそれぞれ置換する。`recommended_rank_top5` / `top10` と `er_calibration` の向きは delisting 判定と同じ定義を使い、報告値と両置換の向きがすべて一致するときだけ `direction_stable` とする。`resolved_target_count` と `resolution_complete` は観測できた実現 return の coverage 診断であり、単独では authority を block しない。
 
-cache が対象 row を同定できない、diagnostics 件数と row 数が一致しない、対象に resolved return が無い場合は fail closed で block する。この判定は欠けた metrics や rank を復元せず、未評価銘柄が無かったことにもならない。
+cache が対象 row を同定できない、diagnostics 件数と row 数が一致しない、または両側代入で向きが割れる場合は fail closed で block する。この判定は欠けた実現 return、metrics、rank を復元せず、未評価銘柄が無かったことにもならない。
 
 ### 廃止銘柄の除外（`delisting_exclusion`）
 

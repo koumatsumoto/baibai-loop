@@ -639,9 +639,9 @@ def priced_master_without_universe_sensitivity(
 ) -> dict[str, object]:
     """Bound the conclusions' sensitivity to priced rows the screen could not evaluate.
 
-    These rows have observed forward returns but no valuation metrics or rank. They
-    already contribute to the reported population median. The two imputations alter
-    only that return contribution; they do not invent a rank or E[r] value.
+    These rows have no valuation metrics or rank, and some also have no observed
+    forward return. The reported case uses only observations, while both imputations
+    assign every target a bounded value without inventing rank or E[r].
     """
     targets = sorted(
         row.ticker
@@ -677,9 +677,7 @@ def priced_master_without_universe_sensitivity(
         )
 
     metric_stability = _metric_direction_stability(as_reported, imputed)
-    stable = len(resolved_targets) == len(targets) and all(
-        metric_stability[metric] for metric in _SENSITIVITY_METRICS
-    )
+    stable = all(metric_stability[metric] for metric in _SENSITIVITY_METRICS)
     return {
         "excluded_count": len(targets),
         "resolved_target_count": len(resolved_targets),
