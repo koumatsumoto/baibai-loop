@@ -58,6 +58,9 @@ def _panel_row(
     shareholder_return_change: bool | None = None,
     price_change_60d: float | None = None,
     quality_signal_count: int | None = None,
+    quality_cfo_positive: bool | None = None,
+    quality_no_dilution: bool | None = None,
+    realized_volatility_60d: float | None = None,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -91,11 +94,11 @@ def _panel_row(
         net_share_change_yoy=None,
         quality_roa_positive=None,
         quality_delta_roa_positive=None,
-        quality_cfo_positive=None,
+        quality_cfo_positive=quality_cfo_positive,
         quality_accrual_healthy=None,
         quality_delta_operating_margin_positive=None,
         quality_delta_equity_ratio_positive=None,
-        quality_no_dilution=None,
+        quality_no_dilution=quality_no_dilution,
         quality_delta_asset_turnover_positive=None,
         quality_signal_available_count=8 if quality_signal_count is not None else 0,
         quality_signal_count=quality_signal_count,
@@ -128,6 +131,7 @@ def _panel_row(
         selection_rank=rank,
         recommended_rank=rank,
         shareholder_return_change=shareholder_return_change,
+        realized_volatility_60d=realized_volatility_60d,
     )
 
 
@@ -615,6 +619,73 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(aggregate_interaction["change_n"], 50)
         self.assertEqual(aggregate_interaction["no_change_n"], 50)
         self.assertEqual(aggregate_interaction["mean_median_excess_delta"], 0.4)
+
+    def test_dislocation_lens_compares_acute_chronic_and_quality_fail_groups(self) -> None:
+        panel: list[PanelRow] = []
+        forwards: list[ForwardReturnRow] = []
+        for i in range(500):
+            ticker = f"{6000 + i}"
+            in_low_per_band = i < 100
+            group = i % 10 if in_low_per_band else 9
+            acute_quality = in_low_per_band and group == 0
+            acute_quality_fail = in_low_per_band and group == 1
+            acute = acute_quality or acute_quality_fail
+            sector = "サービス業" if i % 2 == 0 else "情報・通信業"
+            panel.append(
+                _panel_row(
+                    ticker,
+                    per_trailing=float(i + 1),
+                    sector_33=sector,
+                    market_cap_oku=float((i % 10 + 1) * 100),
+                    price_change_60d=(None if i == 3 else (-0.20 if acute else -0.05)),
+                    quality_cfo_positive=(None if i == 2 or not in_low_per_band else True),
+                    quality_no_dilution=(not acute_quality_fail if in_low_per_band else None),
+                    realized_volatility_60d=float(i % 10 + 1) / 100,
+                )
+            )
+            realized = 0.20 if acute_quality else (-0.40 if acute_quality_fail else -0.10)
+            forwards.append(_forward_row(ticker, realized, horizon="1y"))
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["1y"])
+        horizon = result["1y"]
+        assert isinstance(horizon, dict)
+        cohorts = horizon["cohorts"]
+        assert isinstance(cohorts, list)
+        lens = cohorts[0]["dislocation_lens"]
+        assert isinstance(lens, dict)
+        self.assertEqual(lens["low_valuation_n"], 100)
+        self.assertEqual(lens["eligible_n"], 98)
+        groups = lens["groups"]
+        assert isinstance(groups, dict)
+        self.assertEqual(groups["A_acute_quality"]["n"], 10)
+        self.assertEqual(groups["B_chronic_quality"]["n"], 78)
+        self.assertEqual(groups["C_acute_quality_fail"]["n"], 10)
+        self.assertAlmostEqual(lens["A_minus_B"]["median_excess_delta"], 0.3)
+        self.assertEqual(lens["A_minus_B"]["trap_rate_delta"], 0.0)
+        self.assertAlmostEqual(lens["C_minus_A"]["median_excess_delta"], -0.6)
+        self.assertEqual(lens["C_minus_A"]["trap_rate_delta"], 1.0)
+        controls = lens["controls"]
+        assert isinstance(controls, dict)
+        for field_name in (
+            "realized_volatility_60d",
+            "market_cap_oku",
+            "sector_33",
+            "per_trailing",
+        ):
+            with self.subTest(field_name=field_name):
+                control = controls[field_name]
+                assert isinstance(control, dict)
+                self.assertGreater(control["strata_used"], 0)
+                self.assertAlmostEqual(control["stratified_median_excess_delta"], 0.3)
+                self.assertEqual(control["stratified_trap_rate_delta"], 0.0)
+
+        aggregate = horizon["aggregate"]
+        assert isinstance(aggregate, dict)
+        aggregate_lens = aggregate["dislocation_lens"]
+        assert isinstance(aggregate_lens, dict)
+        self.assertEqual(aggregate_lens["group_n"]["A_acute_quality"], 10)
+        self.assertAlmostEqual(aggregate_lens["A_minus_B"]["mean_median_excess_delta"], 0.3)
+        self.assertEqual(aggregate_lens["C_minus_A"]["mean_trap_rate_delta"], 1.0)
 
     def test_er_ranked_virtual_replay_orders_by_er_within_screen_passers(self) -> None:
         # screen 通過 20 銘柄に er_annual を 0.01..0.20 で与え、er と forward return を
