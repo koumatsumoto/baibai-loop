@@ -118,6 +118,7 @@ def _disclosure_cycle(
             if item.disclosed_at <= asof
             and item.period_end is not None
             and item.period_end <= item.disclosed_at
+            and _carries_actuals(item)
         ),
         key=lambda item: item.disclosed_at,
     )
@@ -130,6 +131,19 @@ def _disclosure_cycle(
         seen.add(item.period_end)
         cycle.append(item)
     return cycle
+
+
+def _carries_actuals(item: JQuantsFinancialSummary) -> bool:
+    """実績を伴う開示か。
+
+    業績予想・配当予想の修正は決算と同じ table へ入るが、実績列を持たない。cadence を
+    刻むのは実績のほうなので、予想だけの行を周期の 1 つとして数えない。
+    """
+
+    return any(
+        value is not None
+        for value in (item.sales, item.cfo, item.profit, item.operating_profit, item.eps_ttm)
+    )
 
 
 def _shift_year(value: date, *, years: int) -> date:

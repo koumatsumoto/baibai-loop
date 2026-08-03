@@ -30,9 +30,20 @@ def _cycle(*disclosures: tuple[str, str]) -> list[JQuantsFinancialSummary]:
             ticker="0000",
             disclosed_at=date.fromisoformat(disclosed_at),
             period_end=date.fromisoformat(period_end),
+            profit=1.0,
         )
         for disclosed_at, period_end in disclosures
     ]
+
+
+def _forecast_revision(disclosed_at: str, period_end: str) -> JQuantsFinancialSummary:
+    """A revision row: same table, same shape, no actuals."""
+    return JQuantsFinancialSummary(
+        ticker="0000",
+        disclosed_at=date.fromisoformat(disclosed_at),
+        period_end=date.fromisoformat(period_end),
+        forecast_eps=1.0,
+    )
 
 
 def _lag(
@@ -167,6 +178,17 @@ class EstimateTests(unittest.TestCase):
             ("2025-08-06", "2025-06-30"),
             ("2026-05-12", "2026-03-31"),
         )
+
+        self.assertEqual(estimate_next_announcement(history, asof=_ASOF), date(2026, 8, 6))
+
+    def test_a_forecast_revision_is_not_a_cycle_step(self) -> None:
+        # Forecast and dividend revisions land in the same table with no actuals.
+        # Counting one as a quarter shifts the projection onto the revision's date.
+        history = [
+            *_cycle(("2025-05-12", "2025-03-31")),
+            _forecast_revision("2025-06-20", "2026-03-31"),
+            *_cycle(("2025-08-06", "2025-06-30"), ("2026-05-12", "2026-03-31")),
+        ]
 
         self.assertEqual(estimate_next_announcement(history, asof=_ASOF), date(2026, 8, 6))
 
