@@ -335,7 +335,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   - [ ] `src/baibai_engine/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
   - [ ] `docs/` 全 grep (`rg <subcommand> docs/ method/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.agents/skills/`と`.claude/skills/`全grep: canonical skillとsymlinkが当該CLIを参照していないか
-  - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) と `docs/workflow/screening.md` の selection block 節
+  - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) / §select の判断境界
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える**:
   - [ ] `method/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
@@ -435,6 +435,6 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 
 - 思想・基本方針: [`doctrine.md`](./doctrine.md)
 - 事実 / 分析の分離: [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation)
-- macro context 仕様: [`workflow/macro.md`](./workflow/macro.md)
-- research 採用判定: [`workflow/research.md`](./workflow/research.md)
+- macro context 仕様: [`reference/macro.md`](./reference/macro.md)
+- research 採用判定: [`reference/thesis.md`](./reference/thesis.md) と skill `research`
 - AI agent 規約 (本ドキュメントの参照経路): [`../AGENTS.md`](../AGENTS.md)

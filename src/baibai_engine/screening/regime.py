@@ -5,7 +5,7 @@ fact-layer artifact: `market-snapshot` の週次履歴、`ticker-profile` の事
 thesis、`select` diagnostics の市場状態 fact として出力し、macro context
 作成の機械入力になる。thresholds are fixed up front and never fitted to past
 data; the label annotates facts and never gates or re-ranks selection
-(期間ではなく valuation と耐性で判断するため、docs/workflow/screening.md)。
+(期間ではなく valuation と耐性で判断するため、docs/reference/screening-runtime.md)。
 
 The classification is trend-only by design: breadth や他の内部指標は label を
 gate しない (診断は macro context 側の解釈に委ねる)。
@@ -21,7 +21,7 @@ from pathlib import Path
 
 NIKKEI225_ETF_PROXY = "1321"
 
-# Pre-registered fixed thresholds (no grid search; docs/workflow/screening.md).
+# Pre-registered fixed thresholds (no grid search; docs/reference/screening-runtime.md).
 # +-3% over 20 business days is roughly a +-40% annualized drift, a conventional
 # bar for calling a directional move rather than range noise.
 RALLY_RETURN_20D_MIN = 0.03

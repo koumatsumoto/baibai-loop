@@ -7,7 +7,7 @@ last_reviewed: 2026-07-12
 related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"
-  - "../workflow/position.md"
+  - "./portfolio-ledger.md"
   - "./thesis.md"
   - "./portfolio-ledger.md"
 ---
@@ -81,4 +81,4 @@ uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input
 uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --thesis-id THESIS_ID
 ```
 
-`ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger entityとappend headに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。`thesis-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。独立reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をholding reviewへ渡す。buildはthesis/review missing、revision drift、thesisとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致で停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --db ... --input`がcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順は[`../operations/decision-cycle.md#earnings-and-material-event-path`](../operations/decision-cycle.md#earnings-and-material-event-path)を正本とする。
+`ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger entityとappend headに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。`thesis-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。独立reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をholding reviewへ渡す。buildはthesis/review missing、revision drift、thesisとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致で停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --db ... --input`がcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順は skill [`holding-review`](../../.agents/skills/holding-review/SKILL.md) を正本とする。

@@ -1,12 +1,12 @@
 ---
-title: "Workflow — macro analysis"
+title: "Reference — macro analysis"
 summary: "マクロ環境分析：L1 指標を毎営業日 L2 reading で機械読み値にし、人間が判断するときだけ L3 macro context report（core 環境評価 10 + synthesis 統合評価 + connection 積立ループ接続）を書く。"
-doc_type: workflow
+doc_type: reference
 status: active
-last_reviewed: 2026-07-28
+last_reviewed: 2026-08-03
 ---
 
-# Workflow — マクロ環境分析
+# Reference — マクロ環境分析
 
 マクロ環境分析は **独立した機能のまとまり**（データ取得層 + 機械読み値 + リサーチの実践）であり、形式化した独自ループにはしない。狙いは、個別銘柄の5年期待値を変え得る外部経路と共通riskを判断層へ供給すること。sector順位、相場方向、買い時、投入額を決めない。
 
@@ -252,7 +252,7 @@ publish 済み revision は immutable なので、検証は**参照先が動く�
 
 ### scenario scorecard：見立てを後から採点できる形で書く
 
-セクション9の base / bear / bull は、主観確率（`probability`）と、自由文の成立条件とは別の **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。確率と scorecard は組で意味を持つ：確率は見立ての強さを反証可能な数値にし、scorecard はその見立てが当たったかを後から機械で決める。次のレポートは `previous_scorecard_review` で「どの条件が成立し、置いた確率とどう噛み合ったか」を書き、当たり外れの**度合い**を記録する（成立/不成立の二値だけでは読みの較正にならない）。蓄積した確率×成立実績の横断集計は improvement-loop の将来の計測経路であり、レポート単体では統計的な主張をしない。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。期限日は **as_of から「その系列がもう一度公表されるだけの日数」以上、かつ as_of から 18 か月以内**（四半期系列が 2 回公表される幅）で、近すぎる期限も遠すぎる期限も採点できないため publish されない。同じ条件を 2 回書いて 2 件にすることもできない（`series_id` + 比較演算 + 閾値の重複を拒否する）。
+セクション9の base / bear / bull は、主観確率（`probability`）と、自由文の成立条件とは別の **機械照合可能な観測条件（scorecard）** を各シナリオ 2 つ以上持つ。確率と scorecard は組で意味を持つ：確率は見立ての強さを反証可能な数値にし、scorecard はその見立てが当たったかを後から機械で決める。次のレポートは `previous_scorecard_review` で「どの条件が成立し、置いた確率とどう噛み合ったか」を書き、当たり外れの**度合い**を記録する（成立/不成立の二値だけでは読みの較正にならない）。蓄積した確率×成立実績の横断集計は 較正の将来の計測経路であり、レポート単体では統計的な主張をしない。条件は `series_id` + 比較演算（`below` / `at_or_below` / `above` / `at_or_above`）+ 閾値 + 期限日で書き、series はそのセクションが引用済みのものに限る。期限日は **as_of から「その系列がもう一度公表されるだけの日数」以上、かつ as_of から 18 か月以内**（四半期系列が 2 回公表される幅）で、近すぎる期限も遠すぎる期限も採点できないため publish されない。同じ条件を 2 回書いて 2 件にすることもできない（`series_id` + 比較演算 + 閾値の重複を拒否する）。
 
 狙いは予測精度の測定ではなく、**機械照合できる条件でしか書けなくすることでシナリオの記述品質を事前に縛る**ことである。「金融環境が引き締まれば」のような採点不能な条件は書けなくなる。定例が無くても、次のレポートがいつになっても L1 履歴から遡って採点できる。
 
@@ -286,11 +286,11 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 環境認識の前提にしてよいのは過去の客観的事実（価格・指標・イベント）だけで、過去の macro context revision にある分析・結論・tilt は前提にしない。保有中の建玉も分析に持ち込まない。一次情報と指標から、解釈を毎回ゼロベースで組み立てる。比較可能な時点からの変化と前回 scorecard の採点は、結論を確定させた後にレジーム要約のfactとして接続する。
 
-**revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は本 doc（workflow）に置く。revision には、screening / research / スポット判断の前提として使う環境認識と出所のメタデータだけを残す。
+**revision は分析レイヤーであり、手順（作業の指示）を書かない**。「次回からこう調べる」といった手順の話は skill（`macro-context`）に置く。revision には、screening / research / スポット判断の前提として使う環境認識と出所のメタデータだけを残す。
 
 ### 入門者向けの指標の読み方
 
-指標は単独で結論にせず、方向・水準・市場予想との差・改定を分け、同じ経路の反証指標と組にして読む。系列の一次sourceと取得上の制約は[`../reference/data-sources.md`](../reference/data-sources.md)を参照する。
+指標は単独で結論にせず、方向・水準・市場予想との差・改定を分け、同じ経路の反証指標と組にして読む。系列の一次sourceと取得上の制約は[`./data-sources.md`](./data-sources.md)を参照する。
 
 | 指標群 | 基本の読み方 | 必ず組み合わせる確認 |
 | --- | --- | --- |
@@ -303,7 +303,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 ## ④ ナレッジ：8 分析レンズ
 
-個別の指標は単体で読まず、以下のレンズに束ねて環境認識に使う（1枚のパネルとして横断的に読む）。操作routingはskill[`macro-analysis`](../../.agents/skills/macro-analysis/SKILL.md)、分析詳細とsource規律は本docを正本とする。
+個別の指標は単体で読まず、以下のレンズに束ねて環境認識に使う（1枚のパネルとして横断的に読む）。操作routingはskill[`macro-context`](../../.agents/skills/macro-context/SKILL.md)、分析詳細とsource規律は本docを正本とする。
 
 1. **グローバル流動性**：net liquidity ≈ `us.fed_assets` − `us.reverse_repo` − `us.tga`（単位換算注意）。`us.m2` 前年比はリスク資産に約 10 週先行。
 2. **実質金利・store-of-value**：`us.real_10y` + `us.breakeven_10y` + `usd_index.broad` + `gold`。名目 = 実質 + 期待インフレに分解。日本側は `jp.real_10y_proxy`（月末10Y JGB − コアCPI前年比）で、名目金利の上昇が実質でも締まっているのか、インフレに食われて実質マイナスのままかを読む。
@@ -318,7 +318,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 次の 3 点は「機能が足りない」ように読めるが、意図して引いた境界である。
 
-**中国は proxy basket で読む。** 中国の直接系列は `usd_cny` の 1 本だけである。NBS 等の公式配信に機械可読で安定した無認証経路が無く、脆い scrape provider を足すと「取り込みの停止」と「系列自体の停止」を store の上で区別できない無音の失敗を増やす（§① の relay に関する注意と同じ理由）。代わりに **`copper`（中国の実需）・`aud_jpy`（資源国通貨として中国感応度が高い）・`em.equity`（EEM）・`usd_cny`** を横に読み、中国の需要と資金の向きを推す。安定した機械可読 source が現れたらこの方針を再評価する。境界は **L1 の系列取り込み**の側にあり、L3 のレポートでは NBS / 海関総署の公表値を `inputs.articles` の一次情報として引いてよい（[`../reference/data-sources.md`](../reference/data-sources.md)）。
+**中国は proxy basket で読む。** 中国の直接系列は `usd_cny` の 1 本だけである。NBS 等の公式配信に機械可読で安定した無認証経路が無く、脆い scrape provider を足すと「取り込みの停止」と「系列自体の停止」を store の上で区別できない無音の失敗を増やす（§① の relay に関する注意と同じ理由）。代わりに **`copper`（中国の実需）・`aud_jpy`（資源国通貨として中国感応度が高い）・`em.equity`（EEM）・`usd_cny`** を横に読み、中国の需要と資金の向きを推す。安定した機械可読 source が現れたらこの方針を再評価する。境界は **L1 の系列取り込み**の側にあり、L3 のレポートでは NBS / 海関総署の公表値を `inputs.articles` の一次情報として引いてよい（[`./data-sources.md`](./data-sources.md)）。
 
 **`next_print_estimate` は上端であり、entry timing には使えない。** これは「これ以降なら公表済みのはず」の線で、平常の公表待ちで負値や `stale` を出さないよう遅い側へ寄せてある。staleness 判定と scorecard の settlement watermark にはこれが正しい。一方で「保有ウィンドウ内に CPI が落ちるか」のような事前確認には、**早い側に外れるイベントを見逃す**ので使えない。その用途には下端推定が要り、現状は L3 の monitoring と人手の暦確認が担う。
 
@@ -332,9 +332,9 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 
 マクロの読みは機械スクリーニングの `run` には接続しない（`run` は財務事実だけを扱う決定論的なエンジンのまま）。効かせるのは判断層だけ：
 
-- **select**（[`./screening.md`](./screening.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
+- **select**（[`./screening-runtime.md`](./screening-runtime.md)）：material deltaと`as_of`鮮度warningをcontext-level summaryとして出す。E[r]順位とcandidateの事実層は変えない。
 - **research**：material deltaが個別5年期待値へ影響する場合だけ、thesisのjudgmentへその因果と根拠を残す。マクロを数値ドライバー、採用gate、投入額ルールにはしない。
-- **connection セクション**：OP3 が research 優先度ヒントと sizing caution を消化する入口になる（[`../operations/decision-cycle.md`](../operations/decision-cycle.md)）。
+- **connection セクション**：OP3 が research 優先度ヒントと sizing caution を消化する入口になる（skill `shortlist`）。
 
 行動指示（売買タイミング・現金比率・配分指示）はcore にもconnection にも書かない。sector tiltとresearch優先度ヒントは着手順位を判断するjudgment入力であり、機械ranking・hard gate・自動sizingへは接続しない。
 
@@ -345,5 +345,5 @@ macro contextはdiscount rate、需要、資金調達、共通tail risk、sizing
 ## 参考
 
 - [`../doctrine.md`](../doctrine.md)：思想・柱 2（macroとAIの責務境界）
-- [`./screening.md`](./screening.md)：material deltaとas_of鮮度warningを出すselect
-- [`../reference/data-sources.md`](../reference/data-sources.md)：データソース Tier
+- [`./screening-runtime.md`](./screening-runtime.md)：material deltaとas_of鮮度warningを出すselect
+- [`./data-sources.md`](./data-sources.md)：データソース Tier

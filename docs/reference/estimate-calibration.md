@@ -3,7 +3,7 @@ title: "Estimate calibration"
 summary: "point-in-time panelと長期forward returnでE[r]・FV・selection方法を較正するcontract。"
 doc_type: reference
 status: active
-last_reviewed: 2026-08-02
+last_reviewed: 2026-08-03
 ---
 
 # estimate-calibration
@@ -140,3 +140,47 @@ uv run baibai-engine screening calibration-evaluate \
 E[r] 水準 parameter を判断する事前登録済み run では、上の core 3 metric に加えて `--required-metric er_level_calibration` を指定する。判断面の月次文脈も更新する run は、同じ command に `--context-out reports/data/er-level-calibration-latest.yaml` を加える。authority が不成立、required cohort が不足、level metric が未解決の場合は context を書かず exit 1 にする。
 
 The retained diagnostics are selection top-5/top-10 median excess and trap rate, price-reversion E[r] relative calibration, FY-dividend total-return E[r] level calibration, axis/gate/reversion regression diagnostics, and cohort coverage/integrity. They do not establish a track record or statistical significance.
+
+## 改善サイクルの運用契約
+
+基盤（マクロ読み・screening 選定・E[r]/FV/RR 見積り）の改善は独立した運用 loop を持たず、**self-contained issue → 通常の PR delivery** で回す。1 改善 = 1 issue = 1 PR。issue には観察（レポート参照つき）→ 仮説 → 検証方法 → 着手条件と、冒頭に `価値tier: Tn — <因果経路>`（[doctrine](../doctrine.md#improvement-value-hierarchy)）を書く。
+
+### 改善対象マップ（レバーの所在）
+
+| レバー | 所在 | 計測経路 |
+| --- | --- | --- |
+| screen の閾値・gate・evidence pattern | `method/screening-rules/*.yaml` | 較正リプレイ（rules variant） |
+| select の順位付け・diversity cap | 同上 + `src/baibai_engine/screening/selection/` | 較正リプレイ（selection replay） |
+| 機械 E[r]・FV アンカー | `src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
+| valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
+| マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
+| research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
+| 資本・cap・sizing | [`portfolio-management.md`](../portfolio-management.md) + `position/policy.py` | 保有 outcome |
+| OP3 の選定判断 | skill `shortlist` の深度契約 | 判断コホート比較（`screening shortlist outcome`）+ 機会費用計測 tools |
+
+evidence pattern（playbook）を追加・変更・削除するときは、screening rules・対応 checklist・selection の順位・test を同じ変更で整合させ、根拠を較正結果に置く。
+
+### 事前登録と design/confirm
+
+- 採用 judge になる数値基準は**計測を実行する前に** issue または report 冒頭へ書いて commit する（git history が事前登録の正本）。既知の結果がある場合は盲検性の限定を正直に書く。
+- cohort を時間で design / confirm に 2 分割し、**両方で同方向・基準充足のときだけ採用**。片側のみは不確定、両側逆は棄却。grid search（基準を後から動かす網羅探索）をしない。
+- rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`data/screening/calibration-<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
+- 機械レバー（screen / select / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は保有 outcome と運用の事後検証で改める。
+
+### 採用後
+
+- 通過した変更だけを本番へ反映し、計測した構成と本番構成を一致させる。rules 改訂後は panel を `--force` 再構築する。
+- 現 asof で `screening run` → `select --longlist-top 20` を回し、意図した挙動を実銘柄で確認する（運用テスト）。
+- `reports/YYYY-MM-DD-<slug>.md` に再現手順・データ窓・coverage / survivorship 開示・判定表・検算・採用後の監視事項を固定する（一次計測記録。別の監査ファイルは作らない）。マージ前 gate は [`python-foundation.md`](./python-foundation.md) §9 が正本。マージ後は report の監視事項を次の replay 計測で追う。
+
+### 判断コホートの集計
+
+primary-research lane の research FV と screening FV の bridge は、有効観測（同一 thesis 再実行・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。四半期ごとに shortlist rejected と assessment reject / defer の `reject_class` 頻度を集計し、機械化可能な型を warning / flag 候補として事前登録する（分類で自動除外・ranking 変更はしない）。
+
+### 誠実性の規律
+
+1. 有意性・統計的優位を主張しない。効果量と cohort 勝率で判断し、そう書く。
+2. 仮説と採否基準は検証前に事前登録し、後から動かさない。
+3. survivorship・coverage の欠け・レジーム文脈を計数で開示する。
+4. 累積リターン・年率・シャープ等を track record として掲げない。
+5. post-hoc の判断はそう明記する。

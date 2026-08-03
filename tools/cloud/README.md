@@ -124,7 +124,7 @@ tools/cloud/r2_transfer.sh push-macro              # その後で通る
 
 **pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する唯一の経路（日次batchのpull → open → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。schemaがずれている間に妥当域外の値が入る心配も要らない — 書き込み経路は全て`open_connection`を通り、そこで必ずmigrationが先に走る。
 
-decision-cycleやmacro分析を始める前に、クラウド正本のmachine storeをローカルへ取得する。
+shortlist / research / macro-context の運用を始める前に、クラウド正本のmachine storeをローカルへ取得する。
 
 ```bash
 tools/cloud/pull.sh

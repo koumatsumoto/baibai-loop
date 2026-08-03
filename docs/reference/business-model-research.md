@@ -5,7 +5,7 @@ doc_type: reference
 status: active
 last_reviewed: 2026-07-15
 related_docs:
-  - "../workflow/research.md"
+  - "./thesis.md"
   - "./bargain-assessment.md"
   - "../../method/playbooks/README.md"
 ---
@@ -20,7 +20,7 @@ related_docs:
 2. 複合modelで別segmentも5年評価を左右する場合だけsecondary lensを1つ選び、その節からmaterialな問いを追加する。売上区分だけで機械分類しない。
 3. primary lensの全required questionsと、secondary lensから選んだ全material questionsを確認し、各問を`answered / unknown / not_applicable`のいずれかにする。`not_applicable`にはbusiness modelの根拠sourceと理由、`unknown`には試したsourceとscenario・permanent-loss判断への影響を残す。
 4. 回答にはsource IDとclaim classを接続し、下記triangulation規約に従う。開示されないKPIを同業平均や推測で埋めない。
-5. どのpilot lensにも適合しない企業を無理に分類せず、[`research workflow`](../workflow/research.md)の共通確認へ戻る。pilot中にlensを追加せず、2〜3件の自然発生run後に維持・修正・撤回・拡張を別Issueで判断する。
+5. どのpilot lensにも適合しない企業を無理に分類せず、skill `research` の共通確認へ戻る。pilot中にlensを追加せず、2〜3件の自然発生run後に維持・修正・撤回・拡張を別Issueで判断する。
 
 findingsでは`answered`を既存の`domain_findings`へ置き、question IDを`heading`、回答とlens適合理由を`conclusion`、根拠を`evidence.statement / kind / source_ids`へ置く。`not_applicable`もbusiness modelの根拠sourceを持つ`domain_findings`として、理由を`conclusion`に明記する。部分回答は確認できた部分だけを`domain_findings`へ置き、未確認部分を`unknowns`へ分ける。source取得不能時は偽のevidenceを作らず、`unknowns`へ`<question_id>: unknown — attempted source / decision impact`として置く。`answered / unknown / not_applicable`、source role、claim class、load-bearing、triangulation statusはguide上のreview語彙であり、新しいYAML field、enum、schema、artifactにしない。必要な区分は既存の`conclusion`、`evidence.statement`、`unknowns`、thesis sourceの`used_for`へ文章で残す。
 

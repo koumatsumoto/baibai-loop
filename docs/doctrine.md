@@ -8,7 +8,7 @@ last_reviewed: 2026-07-20
 
 # Doctrine — Baibai-Loop の投資思想と大戦略
 
-このリポジトリが **何を信じ、何を狙い、どの原則と語彙で判断するか** を定める正本。構造（3 層・engine/app package・CLI/SQLite 契約）は [`architecture.md`](./architecture.md)、資本とポジションの管理は [`portfolio-management.md`](./portfolio-management.md)、各工程の手順は [`workflow/`](./workflow/) を参照する。
+このリポジトリが **何を信じ、何を狙い、どの原則と語彙で判断するか** を定める正本。構造（3 層・engine/app package・CLI/SQLite 契約）は [`architecture.md`](./architecture.md)、資本とポジションの管理は [`portfolio-management.md`](./portfolio-management.md)、各運用の手順は [`.agents/skills/`](../.agents/skills/) の各 SKILL.md を参照する。
 
 運用モデルは **AI 主導・人間裁定**：AI がマクロ経済を分析してトレンドを読み、市場で過小評価されているお買い得銘柄を機械抽出し、長期積立・配当還元を前提とした長期保有に耐える銘柄を個別にリサーチして売買提案まで作る。人間はその提案を判断し、発注する。Baibai-Loop はこの分業に一貫性を持たせ、判断を後から検証できるようにするための基盤であり、投資助言サービスではない。
 
@@ -226,5 +226,5 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 
 - [`architecture.md`](./architecture.md)：3 層インフラ・engine/app package・CLI / SQLite 安定契約・repository map
 - [`portfolio-management.md`](./portfolio-management.md)：資本・ポジション管理・cap・積立・余力・kill switch 仕様
-- [`workflow/`](./workflow/)：単一ループ各工程の手順（macro / screening / research / position / playbooks）
+- [`../.agents/skills/`](../.agents/skills/)：単一ループ各運用の手順（shortlist / research / holding-review / ledger-record / macro-context / ops-maintenance）
 - [`anti-patterns.md`](./anti-patterns.md)：失敗パターンと commit 前チェックリスト
