@@ -94,12 +94,14 @@ class StaleFinancialsTests(unittest.TestCase):
 
 
 class NextEarningsStatusTests(unittest.TestCase):
-    def test_an_early_disclosure_against_a_future_schedule_reads_as_announced(self) -> None:
-        # 8040 shape: disclosed 7/31, calendar still points at 8/6. Calling that
-        # "scheduled" makes the reader carry an event risk that has already passed.
+    def test_a_disclosure_shortly_before_a_future_date_still_reads_as_scheduled(self) -> None:
+        # A disclosure days before the scheduled date is far more often a forecast
+        # revision than an early release, so guessing "already out" would delete a
+        # dated event the reader has to carry. The disclosure date stays on the row.
         lag = _lag(announcement_date=date(2026, 8, 6), fin_latest_disclosed=date(2026, 7, 31))
 
-        self.assertEqual(lag.next_earnings_status, "announced")
+        self.assertEqual(lag.next_earnings_status, "scheduled")
+        self.assertEqual(lag.fin_latest_disclosed_date, date(2026, 7, 31))
 
     def test_a_genuinely_forthcoming_schedule_reads_as_scheduled(self) -> None:
         lag = _lag(announcement_date=date(2026, 8, 6), fin_latest_disclosed=date(2026, 5, 14))
@@ -155,6 +157,19 @@ class EstimateTests(unittest.TestCase):
 
         self.assertEqual(estimate_next_announcement(history, asof=_ASOF), date(2026, 8, 6))
 
+    def test_guidance_for_an_unfinished_period_is_not_a_cycle_step(self) -> None:
+        # A company guiding the coming year emits a row whose period_end is still in
+        # the future. Counting it as the step for that period drops the actual
+        # statement for the same period and skips a whole quarter.
+        history = _cycle(
+            ("2025-05-12", "2025-03-31"),
+            ("2025-05-12", "2026-03-31"),
+            ("2025-08-06", "2025-06-30"),
+            ("2026-05-12", "2026-03-31"),
+        )
+
+        self.assertEqual(estimate_next_announcement(history, asof=_ASOF), date(2026, 8, 6))
+
     def test_no_estimate_without_a_matching_prior_cycle(self) -> None:
         history = _cycle(("2026-05-12", "2026-03-31"), ("2026-07-31", "2026-06-30"))
 
@@ -195,6 +210,17 @@ class CalendarIndexTests(unittest.TestCase):
         )
 
         self.assertEqual(index, {"1111": date(2026, 8, 6), "2222": date(2026, 7, 31)})
+
+    def test_conflicting_rows_for_one_ticker_are_rejected(self) -> None:
+        # The cache primary key is (announcement_date, ticker), so a duplicate would
+        # otherwise resolve by row order and silently flip announced to scheduled.
+        with self.assertRaisesRegex(ValueError, "conflicting rows for 1111"):
+            index_calendar_announcements(
+                [
+                    JPXEarningsCalendarEntry(ticker="1111", announcement_date=date(2026, 7, 15)),
+                    JPXEarningsCalendarEntry(ticker="1111", announcement_date=date(2026, 11, 5)),
+                ]
+            )
 
     def test_universe_tickers_without_calendar_rows_are_counted(self) -> None:
         count = tickers_without_calendar_rows(("1111", "2222", "3333"), {"2222": date(2026, 8, 6)})

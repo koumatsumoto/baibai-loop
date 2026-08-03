@@ -53,9 +53,23 @@ class EarningsLag:
 def index_calendar_announcements(
     entries: Sequence[JPXEarningsCalendarEntry],
 ) -> dict[str, date]:
-    """ticker ごとの発表予定日。provider は ticker あたり 1 行を保証する。"""
+    """ticker ごとの発表予定日。
 
-    return {entry.ticker: entry.announcement_date for entry in entries}
+    network 経路は ticker あたり 1 行を保証するが、cache の primary key は
+    ``(announcement_date, ticker)`` なので同じ ticker の 2 行を弾かない。黙って
+    どちらかが勝つと「発表済みなのに予定」へ静かに転ぶので、見つけたら止める。
+    """
+
+    index: dict[str, date] = {}
+    for entry in entries:
+        seen = index.get(entry.ticker)
+        if seen is not None and seen != entry.announcement_date:
+            raise ValueError(
+                f"earnings calendar has conflicting rows for {entry.ticker}: "
+                f"{seen.isoformat()} and {entry.announcement_date.isoformat()}"
+            )
+        index[entry.ticker] = entry.announcement_date
+    return index
 
 
 def estimate_next_announcement(
@@ -89,23 +103,31 @@ def estimate_next_announcement(
 def _disclosure_cycle(
     summaries: Sequence[JQuantsFinancialSummary], *, asof: date
 ) -> list[JQuantsFinancialSummary]:
-    """会計期間が進むごとに 1 行だけを残した開示列を、古い順で返す。
+    """発表 cadence に乗っている開示だけを、古い順で 1 期 1 行にして返す。
 
-    同じ ``period_end`` の再開示・訂正・予想修正は周期の刻みではないので落とす。
-    ``period_end`` を持たない行は判別できないので、開示日で 1 行に畳む。
+    ``jquants_fin_summaries`` には終了した期間の実績だけでなく、**まだ終わっていない期間**
+    を指す来期ガイダンス行と、同一期の再開示・予想修正が同じ粒度で入る。cadence を刻む
+    のは実績行だけなので、期末が開示日より後の行を落としてから ``period_end`` ごとに
+    最初の 1 行を残す。ガイダンス行を残すと同じ期の実績行が捨てられ、周期が 1 つ飛ぶ。
     """
 
     ordered = sorted(
-        (item for item in summaries if item.disclosed_at <= asof),
+        (
+            item
+            for item in summaries
+            if item.disclosed_at <= asof
+            and item.period_end is not None
+            and item.period_end <= item.disclosed_at
+        ),
         key=lambda item: item.disclosed_at,
     )
     cycle: list[JQuantsFinancialSummary] = []
-    seen: set[object] = set()
+    seen: set[date] = set()
     for item in ordered:
-        key = item.period_end if item.period_end is not None else item.disclosed_at
-        if key in seen:
+        assert item.period_end is not None  # filtered above
+        if item.period_end in seen:
             continue
-        seen.add(key)
+        seen.add(item.period_end)
         cycle.append(item)
     return cycle
 
@@ -134,20 +156,16 @@ def build_earnings_lag(
     と読む行を他方が「これから」と呼ぶ食い違いが起きる。
     """
 
-    same_event = _is_same_event(announcement_date, fin_latest_disclosed)
     estimated = (
         None
-        if announcement_date is not None and announcement_date > asof and not same_event
+        if announcement_date is not None and announcement_date > asof
         else estimate_next_announcement(summaries, asof=asof)
     )
     return EarningsLag(
         fin_latest_disclosed_date=fin_latest_disclosed,
         next_earnings_estimated_date=estimated,
         next_earnings_status=_status(
-            asof=asof,
-            announcement_date=announcement_date,
-            same_event=same_event,
-            estimated=estimated,
+            asof=asof, announcement_date=announcement_date, estimated=estimated
         ),
         stale_fin_flag=_stale_fin_flag(
             asof=asof,
@@ -157,27 +175,21 @@ def build_earnings_lag(
     )
 
 
-def _is_same_event(announcement_date: date | None, fin_latest_disclosed: date | None) -> bool:
-    """予定日と直近開示が同じ発表を指しているか。
+def _status(
+    *, asof: date, announcement_date: date | None, estimated: date | None
+) -> NextEarningsStatus:
+    """予定日と as-of の前後だけで決める。
 
-    会社が予定日より前に開示すると、カレンダーは未来を指したまま数字だけが最新になる。
-    その行を「これから発表」と読むと、既に出た決算を保有窓の event risk として数える。
+    「予定日の手前に開示があるから前倒しで発表済み」という読みは試したが、実 store の
+    retrospective で 89% が誤りだった —— 決算直前の業績予想修正・再開示が同じ形に見え、
+    本番の開示は予定どおり来る。誤って ``announced`` にすると読み手は目前の決算を
+    event risk から外すので、判定できないほうへ倒す。前倒し開示した銘柄はカレンダーが
+    更新されるまで ``scheduled`` に見えるが、隣の ``fin_latest_disclosed_date`` が
+    予定日の直前を指すので読み手はそこで気づける。
     """
 
-    if announcement_date is None or fin_latest_disclosed is None:
-        return False
-    return 0 <= (announcement_date - fin_latest_disclosed).days <= _SAME_EVENT_TOLERANCE_DAYS
-
-
-def _status(
-    *,
-    asof: date,
-    announcement_date: date | None,
-    same_event: bool,
-    estimated: date | None,
-) -> NextEarningsStatus:
     if announcement_date is not None:
-        return "announced" if announcement_date <= asof or same_event else "scheduled"
+        return "announced" if announcement_date <= asof else "scheduled"
     return "estimated" if estimated is not None else "unknown"
 
 

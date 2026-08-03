@@ -38,7 +38,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
    | E[r] 履歴帯（較正 quintile 文脈） | 帯の記述統計としてのみ参照。個別銘柄の予測として書かない |
    | `data_quality_flags` / `durability_warnings` | flag が upside / downside をどちら向きに歪めるかを narrative に書く |
    | `stale_fin_flag` / `fin_latest_disclosed_date` | `true` は「予定日が過ぎたのにその開示が機械行に無い」。延期・決算期変更・provider 欠落を**一次開示で切り分けてから** narrative を書き、切り分け前の数字のまま selected にしない。`null` は判定材料が無いという意味で、`false`（照合して一致）と読み替えない |
-   | `next_earnings_status` | `announced` = 発表済み（前倒し開示を含む）。この銘柄の決算を保有窓の event risk として数えない。`scheduled` = 未発表の確定日。`estimated` は推定日なので event risk 判定に使わず着手順の目安に留める。`unknown` は次回時期が不明 |
+   | `next_earnings_status` | `announced` = 予定日を過ぎている。`scheduled` = 予定日が先。ただし前倒し開示した銘柄もカレンダーが更新されるまで `scheduled` に見えるので、`fin_latest_disclosed_date` が予定日の直前なら一次開示で確認する。`estimated` は推定日なので event risk 判定に使わず着手順の目安に留める。`unknown` は次回時期が不明 |
 
 7. **OP3 深度契約**: selected 各銘柄について次を 1 項目ずつ機械的に突合する（印象で「満たしているはず」としない）。
 
