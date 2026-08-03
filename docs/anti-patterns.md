@@ -3,7 +3,7 @@ title: "Anti-patterns"
 summary: "投資判断、data、schema、validator、AI運用で繰り返し防ぐ失敗パターンとcommit前checklist。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-23
+last_reviewed: 2026-08-03
 ---
 
 # anti-patterns
@@ -431,7 +431,50 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 `yaml.dump` / `yaml.safe_dump` 側の hot path も同様に `yaml.CSafeDumper` を使えば加速できるが、
 write side は read side ほど呼ばれないため P2 の改善候補 (cli/query.py 等)。
 
-## 11. 関連ドキュメント
+## 11. AP-11: 外部データの公表ラグを設計に含めないハード必須検査
+
+### 観測された症状
+
+- multpl の月次履歴表で「当月 1 日」の行を無条件に必須とし、multpl が当月行を月の途中で追加する
+  ため、毎月 1〜14 日ごろの daily batch が `us.sp500_cape` / `us.sp500_earnings_yield` /
+  `us.sp500_pe` の 3 系列で必ず失敗した (#795)
+- `jp.cpi.*` の staleness 境界を monthly default (`publication_lag_days` + `staleness_margin_days`)
+  で解決し、e-Stat の実掲載日 (観測月 + 53〜61 日) を超えたため、次の公表を待っている平常時が
+  毎月 `stale: true` になった (#594)
+- どちらも取得経路そのものは正常で、壊れているのは「その期の行が在るはず」という前提だけ。
+  失敗は月初・週初・公表日前へ周期的に集中する
+
+### 根本原因
+
+- **完全性検査と鮮度検査の混同**。完全性 (履歴に穴が無いこと) は公表済みの過去期に対してだけ
+  確定でき、最新期が在るかどうかは公表スケジュールの関数である。両者を 1 つの必須検査へ畳むと、
+  正常な公表ラグが障害として誤検出される
+- 検査を書く時点の today が月中・公表後にあり、公表前の日付でその検査を通したことが一度もない
+- 「必須にするほど厳しく検査するほど安全」という直観。最新期を必須にした瞬間、**正しいデータが
+  周期的に拒否される**という向きの逆転が起きるため、レビューでも「完全性検査は正しい」と見えて
+  素通りする
+- 周期的な失敗は恒常赤として定着し、「赤 = 見に行く」を壊して本物の障害を埋もれさせる
+
+### 再発防止チェックリスト
+
+- [ ] 定期公表 series の必須範囲を「公表済みであることが保証できる期」までに閉じているか。
+      当該期は次のどちらかで扱う:
+  - [ ] 実在するときだけ検査対象にする (`macro/indicators/providers/multpl.py` の
+        `_required_latest_month`)
+  - [ ] 公表締切日を持ち、締切前は要求期を 1 つ手前へずらす
+        (`macro/indicators/providers/tsr_bankruptcies.py` の `_PUBLICATION_DEADLINE_DAY`)
+- [ ] 鮮度の劣化を必須検査でなく staleness 判定側で検出しているか。staleness の境界は generic
+      default でなく、その series の実公表暦を一次情報 (公表機関の release schedule / 実掲載日)
+      で確認した値になっているか
+- [ ] 検査対象期間の端に、データが存在すると保証できない日 (未公表期・非取引日・休場日) を
+      置いていないか
+- [ ] 日次 job がその provider を呼ぶ窓 (`--start` / `--end`) を月初・週初・公表前日について
+      書き出し、必須範囲がその全ての日で満たせることを確認したか
+- [ ] 新しい完全性検査を足したら、**公表直前の日付を today に固定した negative test** で正しい
+      データが拒否されないことを確認したか。判定に使う today は引数で注入し、実装内部から
+      現在時刻を直接読まない (`_required_latest_month(*, end, today, available)` が型見本)
+
+## 12. 関連ドキュメント
 
 - 思想・基本方針: [`doctrine.md`](./doctrine.md)
 - 事実 / 分析の分離: [`doctrine.md#fact-analysis-separation`](./doctrine.md#fact-analysis-separation)
