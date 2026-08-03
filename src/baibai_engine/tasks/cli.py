@@ -96,7 +96,7 @@ def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today
 
     This never writes. A task's date is machine-set when the schedule could supply
     one and hand-set when it could not, so the only dates that would ever change
-    here are the ones a human chose — and `decision-cycle.md` keeps that write
+    here are the ones a human chose — and the task 規約 (ops-maintenance skill) keeps that write
     boundary with the human. The comparison names what moved; `task edit` applies it.
     """
     from .earnings_reconcile import reconcile_earnings_dates

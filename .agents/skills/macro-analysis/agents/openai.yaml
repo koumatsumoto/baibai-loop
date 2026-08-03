@@ -1,6 +1,0 @@
-interface:
-  display_name: "Baibai Macro Analysis"
-  short_description: "判断のための市場環境評価レポートを書く"
-  default_prompt: "Use $macro-analysis to write the market environment assessment for this Baibai-Loop decision."
-policy:
-  allow_implicit_invocation: true

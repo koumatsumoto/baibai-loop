@@ -6,7 +6,7 @@ status: active
 last_reviewed: 2026-07-30
 related_docs:
   - "./doctrine.md"
-  - "./operations/decision-cycle.md"
+  - "../AGENTS.md"
   - "./reference/portfolio-ledger.md"
   - "./reference/holding-review.md"
 ---
@@ -89,12 +89,12 @@ FV到達はreview triggerで、自動売却ではない。含み損は単独のe
 
 年次にcanonical ledgerの確認済みcash flowと同期間の配当込みTOPIXを同じbasisで比較する。税・費用込みportfolio総合returnを使い、source/期間/corporate action不足は`unresolved`とする。
 
-短期成績、単一銘柄、少数回の注文結果だけでpolicyを変えない。entry estimate、holding/outcome、long-horizon calibrationを突き合わせ、方法変更はimprovement loopで事前登録して評価する。
+短期成績、単一銘柄、少数回の注文結果だけでpolicyを変えない。entry estimate、holding/outcome、long-horizon calibrationを突き合わせ、方法変更は[較正の運用契約](./reference/estimate-calibration.md)で事前登録して評価する。
 
 ## Policy source
 
 - 思想と優先順位: [`doctrine.md`](./doctrine.md)
-- e2e運用: [`operations/decision-cycle.md`](./operations/decision-cycle.md)
+- e2e運用: [`AGENTS.md`](../AGENTS.md) の trigger → skill 表
 - ledger式とerror/warning: [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md)
 - holding action: [`reference/holding-review.md`](./reference/holding-review.md)
 - 機械的なcap/lot/warning値: `src/baibai_engine/position/policy.py`とwrite-time validation

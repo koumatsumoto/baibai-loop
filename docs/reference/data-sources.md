@@ -8,7 +8,7 @@ source_paths:
   - "../../data/"
 related_docs:
   - "../architecture.md"
-  - "../workflow/macro.md"
+  - "./macro.md"
 ---
 
 # データソース一覧とスコアリング

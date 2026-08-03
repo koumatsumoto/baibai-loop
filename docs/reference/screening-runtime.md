@@ -75,7 +75,7 @@ current source state であり point-in-time ledger ではない。既存の
 ない過去 as-of の再抽出は実行時点の EDINET current source state を使い、観測前の
 修正前・取下げ前状態を再現するものではない。
 
-`select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス ([`../workflow/research.md`](../workflow/research.md)) を支援する。
+`select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス（skill `shortlist` / `research`）を支援する。
 
 `shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `estimate_missing` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
 
@@ -229,3 +229,9 @@ J-Quants の正確なレート制限は非公開で、挙動は実運用の観�
 - `run` は cache-only で、coverage が揃えば provider を叩かず高速。歴史 replay の律速は `run` ではなく `bootstrap-cache` / `extract-edinet-metrics` の coverage 充足にある。
 
 過去 asof の cache 充足は「rate budget の回復を待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題として扱う。1 asof ずつ長時間バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させる。短い per-step timeout で kill するとその asof の coverage が未充足のまま `run` が fail-fast するため、kill せず完走させるか完了済み chunk から再開する。
+
+## select の判断境界
+
+ranking を変えるのは versioned screening rules と estimate component だけである。held / reserved・月次予算・cash・集中・macro material delta / staleness は annotation / warning であり、rank・候補抽出を変えない。corporate action が unresolved の候補は rank を都合よく変えず、research / plan-limit を block する。candidate に AI 解釈・因果・採用結論を書かない（observed / derived / estimate の区分を維持する）。
+
+**FV convergence warning**: selection longlist の調査入口だけに置く。入力は candidate 保存済みの `market_price_yen`・`fv_sector_median_yen`・`fv_self_range_yen`・`er_reversion_annual`。有限かつ正の価格・anchor と有限な reversion だけを使い、anchor 2 本なら現値が両方以上（1 本ならその 1 本以上）かつ reversion ≤ 0 のとき `price_at_or_above_all_fv_anchors` を warning とする（等値は上値余地がないため warning 側）。anchor 0 本・無効値は `not_evaluable` とし、欠損を 0 へ補完しない。使った anchor 名と値・参考価格・reversion を provenance として payload に残す。warning は screen pass・自動除外・E[r]・rank・recommendation を変更しない。

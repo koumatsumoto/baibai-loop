@@ -15,7 +15,7 @@
 #
 # The RR block (`upside` / `downside` / `rr`), `catalyst` and `macro` decide
 # whether a candidate earns a primary-research slot. Fill them against the
-# depth contract in docs/operations/decision-cycle.md (OP3 gate) — the schema
+# depth contract in the shortlist skill (OP3 gate) — the schema
 # only checks presence, the 5 RR tests are the author's self-check.
 #
 # The published narrative is read by the baibai-app /shortlist review surface.
@@ -55,4 +55,4 @@ entries:
   - ticker: "YYYY"
     decision: rejected
     reason: "非選択の具体的理由"
-    reject_class: price_already_converged   # docs/operations/decision-cycle.md の taxonomy
+    reject_class: price_already_converged   # reject_class taxonomy は shortlist skill を参照

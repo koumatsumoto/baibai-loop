@@ -46,7 +46,7 @@ Baibai-Loop スクリーニングで使う valuation 指標の算出仕様とデ
 ### 2.4 会社予想の一時益 data-quality flag
 
 - 会社予想で **予想当期純利益 > 予想経常利益**（両方存在時）なら `forecast_special_gain` flag を立てる。税負担が通常正である以上、純利益>経常は特別益（事業売却益など）の存在をほぼ確定する 1 行チェック。純利益/経常は `forecast_eps` と同一予想期のペアで比較する。
-- 一時益で嵩上げされた forward PER・予想配当利回り・機械 E[r] carry の value trap を判断前に表面化させる **warning annotation** であり、ranking・E[r]・既存指標の計算は変えない（doctrine の warning/annotation 境界）。candidate metrics（`forecast_special_gain_flag`）・selection longlist の `event_warnings`・UI の `一時益予想` badge に出す。持続ベースへの補正（forecast 純利益を経常ベースへ丸める等）は方法変更のため improvement-loop で事前登録して評価する。
+- 一時益で嵩上げされた forward PER・予想配当利回り・機械 E[r] carry の value trap を判断前に表面化させる **warning annotation** であり、ranking・E[r]・既存指標の計算は変えない（doctrine の warning/annotation 境界）。candidate metrics（`forecast_special_gain_flag`）・selection longlist の `event_warnings`・UI の `一時益予想` badge に出す。持続ベースへの補正（forecast 純利益を経常ベースへ丸める等）は方法変更のため [`estimate-calibration.md`](./estimate-calibration.md) の運用契約で事前登録して評価する。
 
 ## 3. Trailing PER の算出
 
@@ -140,7 +140,7 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 - **対象**: PER / PBR / EV-EBITDA
 - **期間**: 直近 750 営業日（≒ 3 年）
 - **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
-- **上場 3 年未満**: 上場来レンジで代替（[`../workflow/screening.md`](../workflow/screening.md) 参照）
+- **上場 3 年未満**: 上場来レンジで代替（[`./screening-runtime.md`](./screening-runtime.md) 参照）
 
 Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合、EV がゼロ以下、または EBITDA がゼロ以下の場合は `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
 
@@ -165,7 +165,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
 - 割安判定の主信号は price に対する valuation（PBR / PER 等の percentile）であり、配当落ちを含めた pure な price 系列で percentile を出すのが一貫する
 - 配当落ち分を加算した擬似 total return を percentile に使うと、高配当銘柄 (鉄鋼 / 銀行 / 商社等) の相対割安度が本来より small に見えるバイアスがかかる
 
-**長期保有では配当を含む総リターンが重要**なため、配当は screen の price percentile ではなく、research の期待利回り見積り（[`../workflow/research.md`](../workflow/research.md)）と position の realized yield / calibration（[`../workflow/position.md`](../workflow/position.md)）で織り込む。銘柄の総リターン評価が要る場合は J-Quants Premium の配当 API 取得を検討する。
+**長期保有では配当を含む総リターンが重要**なため、配当は screen の price percentile ではなく、research の期待利回り見積り（[`./thesis.md`](./thesis.md)）と position の realized yield / calibration（[`./portfolio-ledger.md`](./portfolio-ledger.md)）で織り込む。銘柄の総リターン評価が要る場合は J-Quants Premium の配当 API 取得を検討する。
 
 ## 10. データソース
 
@@ -214,5 +214,5 @@ J-Quants の財務サマリーは四半期 disclosure の時系列として扱�
 
 ## 15. 参考
 
-- [`../workflow/screening.md`](../workflow/screening.md): universe / evidence pattern screen / screening run
+- [`./screening-runtime.md`](./screening-runtime.md): universe / evidence pattern screen / screening run
 - [`./data-sources.md`](./data-sources.md): データソース Tier 一覧

@@ -8,8 +8,9 @@ Baibai-Loopは、一人で日本株を長期運用するための意思決定基
 
 | 目的 | 入口 |
 | --- | --- |
-| 候補選定、指値、人間からの注文結果、保有review | [`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md) |
-| screening、FV、E[r]等の方法改善 | [`docs/operations/improvement-loop.md`](./docs/operations/improvement-loop.md) |
+| 候補選定〜指値提案 | skill [`shortlist`](./.agents/skills/shortlist/SKILL.md) → [`research`](./.agents/skills/research/SKILL.md) |
+| 注文結果・保有review の記録 | skill [`ledger-record`](./.agents/skills/ledger-record/SKILL.md) / [`holding-review`](./.agents/skills/holding-review/SKILL.md) |
+| screening、FV、E[r]等の方法改善 | [`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md) の運用契約 |
 | 思想、優先順位、語彙 | [`docs/doctrine.md`](./docs/doctrine.md) |
 | package、CLI、method、store | [`docs/architecture.md`](./docs/architecture.md) |
 | AIへ作業させる | [`AGENTS.md`](./AGENTS.md)から`.agents/skills`を選ぶ |
@@ -34,10 +35,10 @@ AIは提案までを担当し、人間だけが`approve / defer / reject`とbrok
 
 | cycle | 目的 | 主な成果物 |
 | --- | --- | --- |
-| continuous decision cycle | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | operation session、proposal、thesis/review、human-confirmed ledger、holding review、annual outcome |
-| improvement loop | 見積り方法を計測し、再現可能な変更だけ採用する | preregistration、design/confirm評価、PR、operation test、dated report |
+| 継続的な投資判断 | お買い得候補を見つけ、発注判断、結果反映、保有見直しまで進める | operation session、proposal、thesis/review、human-confirmed ledger、holding review、annual outcome |
+| 基盤改善 | 見積り方法を計測し、再現可能な変更だけ採用する | self-contained issue、preregistration、design/confirm評価、PR、dated report |
 
-個別銘柄の判断と基盤方法の改善を同じ作業に混ぜません。日常運用で見つけた基盤不備はIssue化し、improvement loopへ渡します。
+個別銘柄の判断と基盤方法の改善を同じ作業に混ぜません。日常運用で見つけた基盤不備はIssue化し、[較正の運用契約](./docs/reference/estimate-calibration.md)に従って進めます。
 
 ## Read-only 運用 UI
 
@@ -95,7 +96,7 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 | `baibai-engine db` | application DB init/info/backup |
 | `baibai-app` | 127.0.0.1固定のread-only UI（Baibai App） |
 
-日常運用の完全なcommand順は[`docs/operations/decision-cycle.md`](./docs/operations/decision-cycle.md)、各optionはpublic `--help`を正本とします。
+日常運用の完全なcommand順は[`.agents/skills/`](./.agents/skills/)の各SKILL.md、各optionはpublic `--help`を正本とします。
 
 ## Non-goals
 

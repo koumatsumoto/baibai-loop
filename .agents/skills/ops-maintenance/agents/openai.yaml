@@ -1,0 +1,6 @@
+interface:
+  display_name: "Baibai Ops Maintenance"
+  short_description: "daily batch 監視・store 同期・月次維持・障害対応"
+  default_prompt: "Use $ops-maintenance to run this Baibai-Loop operation."
+policy:
+  allow_implicit_invocation: true
