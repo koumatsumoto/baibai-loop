@@ -68,7 +68,34 @@ def _shortlist() -> Shortlist:
     )
 
 
-def _binding() -> SelectionBinding:
+def _longlist_row(ticker: str, rank: int) -> dict[str, object]:
+    """One selection longlist row, in the shape the publisher reads."""
+    return {
+        "rank": rank,
+        "ticker": ticker,
+        "name": f"name-{ticker}",
+        "screening_playbook": "cashflow-yield-discount",
+        "expected_return_pct": 12.0,
+        "fair_value_anchor_yen": 1250.0,
+        "market_price_yen": 1000.0,
+        "liquidity_status": "pass",
+        "durability_warnings": [],
+        "event_warnings": ["stale_financials"],
+        "selection_reasons": ["valuation_reversion"],
+        "fv_convergence": {
+            "status": "clear",
+            "warning_code": None,
+            "market_price_yen": 1000.0,
+            "anchors_yen": {"fv_sector_median_yen": 1250.0},
+            "er_reversion_annual": 0.011,
+        },
+        # The research hand-off block rides along on the same row and must not be
+        # required by the judgment record.
+        "estimate_snapshot": {"as_of": "2026-07-21"},
+    }
+
+
+def _binding(machine_rows: dict[str, dict[str, object]] | None = None) -> SelectionBinding:
     shortlist = _shortlist()
     return SelectionBinding(
         selection_id=shortlist.selection_id,
@@ -78,6 +105,7 @@ def _binding() -> SelectionBinding:
         macro_context_id=shortlist.macro_context_id,
         candidate_tickers=frozenset({"2331", "0001"}),
         candidate_er={"2331": 0.12, "0001": 0.04},
+        candidate_machine_rows=machine_rows or {},
     )
 
 
@@ -112,6 +140,61 @@ def test_publish_keeps_the_machine_estimate_the_judgment_was_made_against(
         "2331": 0.12,
         "0001": 0.04,
     }
+
+
+def test_publish_keeps_the_machine_coordinates_the_judgment_was_compared_against(
+    tmp_path: Path,
+) -> None:
+    # The selection that ranked these tickers is deleted with its run after three
+    # generations, and the review surface has nothing else to show beside the
+    # narrative. Publishing has to carry the coordinates into the judgment.
+    path = tmp_path / "app.sqlite"
+    rows = {"2331": _longlist_row("2331", 3)}
+    ShortlistService(path).publish(_shortlist(), selection=_binding(rows))
+
+    with sqlite3.connect(path) as connection:
+        payload = json.loads(connection.execute("SELECT payload FROM shortlist").fetchone()[0])
+    by_ticker = {entry["ticker"]: entry["machine_snapshot"] for entry in payload["entries"]}
+
+    assert by_ticker["2331"]["rank"] == 3
+    assert by_ticker["2331"]["fair_value_anchor_yen"] == 1250.0
+    assert by_ticker["2331"]["market_price_yen"] == 1000.0
+    assert by_ticker["2331"]["event_warnings"] == ["stale_financials"]
+    assert by_ticker["2331"]["fv_convergence"]["status"] == "clear"
+    assert "estimate_snapshot" not in by_ticker["2331"]
+    # A ticker the selection did not rank has nothing to burn in.
+    assert by_ticker["0001"] is None
+
+
+def test_a_selection_without_a_longlist_burns_nothing_in(tmp_path: Path) -> None:
+    # `select` emits a longlist only when asked for one. Nothing to record is a
+    # normal state, not a reason to fail the publication.
+    path = tmp_path / "app.sqlite"
+    ShortlistService(path).publish(_shortlist(), selection=_binding())
+
+    with sqlite3.connect(path) as connection:
+        payload = json.loads(connection.execute("SELECT payload FROM shortlist").fetchone()[0])
+
+    assert all(entry["machine_snapshot"] is None for entry in payload["entries"])
+
+
+def test_a_published_snapshot_is_not_recomputed_by_a_later_run(tmp_path: Path) -> None:
+    # Same discipline as er_annual: the record says what the judgment saw, so a
+    # newer ranking must not overwrite it through a retry.
+    path = tmp_path / "app.sqlite"
+    service = ShortlistService(path)
+    service.publish(_shortlist(), selection=_binding({"2331": _longlist_row("2331", 3)}))
+
+    with pytest.raises(ShortlistConflictError):
+        service.publish(_shortlist(), selection=_binding({"2331": _longlist_row("2331", 9)}))
+
+    with sqlite3.connect(path) as connection:
+        payload = json.loads(connection.execute("SELECT payload FROM shortlist").fetchone()[0])
+    snapshot = next(
+        entry["machine_snapshot"] for entry in payload["entries"] if entry["ticker"] == "2331"
+    )
+
+    assert snapshot["rank"] == 3
 
 
 def test_shortlist_rejects_duplicate_ticker() -> None:

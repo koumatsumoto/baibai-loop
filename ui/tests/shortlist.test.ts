@@ -40,6 +40,7 @@ function entry(overrides: Partial<ShortlistEntryView> = {}): ShortlistEntryView 
     reason: '一次 IR へ進める',
     rank: 1,
     narrative: narrative(),
+    machine_snapshot: null,
     ...overrides,
   }
 }
@@ -132,6 +133,41 @@ function candidateRow(overrides: Partial<CandidateRowView> = {}): CandidateRowVi
     ...overrides,
   }
 }
+
+describe('machine coordinates after the bound run is evicted', () => {
+  it('reads the snapshot burned into the judgment when the selection is gone', () => {
+    // Three run generations outlive a shortlist by days; the horizon it will be
+    // scored over takes months. Without the burned copy the review surface loses
+    // every machine column it compares the human ordering against.
+    const burned = longlistEntry({ rank: 4, fair_value_gap_pct: 18 })
+    const rows = buildShortlistComparison(
+      shortlist([entry({ machine_snapshot: burned })]),
+      null,
+      [],
+    )
+
+    expect(rows[0].machineRank).toBe(4)
+    expect(rows[0].fairValueGapPct).toBe(18)
+    expect(rows[0].longlistEntry).toEqual(burned)
+  })
+
+  it('prefers the live selection over the burned copy while the run is still there', () => {
+    const rows = buildShortlistComparison(
+      shortlist([entry({ machine_snapshot: longlistEntry({ rank: 4 }) })]),
+      selection([longlistEntry({ rank: 3 })]),
+      [],
+    )
+
+    expect(rows[0].machineRank).toBe(3)
+  })
+
+  it('has no machine coordinates for a judgment published before they were burned', () => {
+    const rows = buildShortlistComparison(shortlist([entry()]), null, [])
+
+    expect(rows[0].longlistEntry).toBeNull()
+    expect(rows[0].machineRank).toBeNull()
+  })
+})
 
 describe('buildShortlistComparison', () => {
   it('orders selected candidates by the provisional rank rather than the published order', () => {

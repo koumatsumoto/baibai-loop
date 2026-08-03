@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal, Self
@@ -50,6 +50,46 @@ class ShortlistNarrative(BaseModel):
     sector_label: str | None = None
 
 
+class ShortlistFvConvergence(BaseModel):
+    """Judgment-time FV convergence warning, exactly as the machine reported it."""
+
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["warning", "clear", "not_evaluable"]
+    warning_code: str | None = None
+    market_price_yen: float | None = None
+    anchors_yen: dict[str, float] = Field(default_factory=dict)
+    er_reversion_annual: float | None = None
+
+
+class ShortlistMachineSnapshot(BaseModel):
+    """The machine coordinates this judgment was made against.
+
+    The run store keeps three generations, and the selection that ranked these
+    tickers is deleted with the run it belongs to. Everything the review surface
+    shows beside the narrative — the machine's own ordering, the FV anchor, the
+    reference price, the warnings — lives only there. A shortlist is the canonical
+    record of a cycle (the only one when nothing is selected), so the coordinates
+    have to travel with the judgment rather than be joined back to a store that
+    outlives it by three runs.
+
+    The publisher fills this from the source selection's longlist row; a draft does
+    not carry it. It is a display record: nothing recomputes or overwrites it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    rank: int | None = None
+    name: str | None = None
+    screening_playbook: str | None = None
+    expected_return_pct: float | None = None
+    fair_value_anchor_yen: float | None = None
+    market_price_yen: float | None = None
+    liquidity_status: str | None = None
+    durability_warnings: tuple[str, ...] = ()
+    event_warnings: tuple[str, ...] = ()
+    selection_reasons: tuple[str, ...] = ()
+    fv_convergence: ShortlistFvConvergence | None = None
+
+
 class ShortlistEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ticker: str = Field(pattern=r"^[0-9A-Z]{4}$")
@@ -65,6 +105,9 @@ class ShortlistEntry(BaseModel):
     # a few generations, so a comparison of the judgment against the ranking it
     # started from has to hold the ranking here or lose it before the horizon matures.
     er_annual: float | None = None
+    # The rest of the machine row the judgment read. Same reason as er_annual, and
+    # the same discipline: written once at publish, never recomputed.
+    machine_snapshot: ShortlistMachineSnapshot | None = None
 
     @model_validator(mode="after")
     def validate_narrative_matches_decision(self) -> Self:
@@ -155,6 +198,25 @@ class SelectionBinding:
     macro_context_id: str | None
     candidate_tickers: frozenset[str]
     candidate_er: Mapping[str, float]
+    # ticker -> the selection's longlist row. Empty when the selection was published
+    # without a longlist, in which case nothing is burned in and the review surface
+    # degrades once the bound run is evicted.
+    candidate_machine_rows: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
+
+
+def _machine_snapshot(row: Mapping[str, object] | None) -> ShortlistMachineSnapshot | None:
+    """Read the selection's longlist row into the judgment's own record.
+
+    Unknown keys are dropped rather than rejected: the longlist row also carries the
+    research hand-off block, and a judgment record does not need to grow every time
+    that view does.
+    """
+
+    if row is None:
+        return None
+    fields = set(ShortlistMachineSnapshot.model_fields)
+    payload = {key: value for key, value in row.items() if key in fields}
+    return ShortlistMachineSnapshot.model_validate(payload)
 
 
 class ShortlistService:
@@ -196,7 +258,14 @@ class ShortlistService:
         shortlist = shortlist.model_copy(
             update={
                 "entries": tuple(
-                    entry.model_copy(update={"er_annual": selection.candidate_er.get(entry.ticker)})
+                    entry.model_copy(
+                        update={
+                            "er_annual": selection.candidate_er.get(entry.ticker),
+                            "machine_snapshot": _machine_snapshot(
+                                selection.candidate_machine_rows.get(entry.ticker)
+                            ),
+                        }
+                    )
                     for entry in shortlist.entries
                 )
             }

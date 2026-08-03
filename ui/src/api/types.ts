@@ -472,6 +472,8 @@ export interface ShortlistEntryView {
   reason: string
   rank: number | null
   narrative: ShortlistNarrativeView | null
+  // 判断時の機械座標。source run が prune された後はこれが唯一の機械値になる。
+  machine_snapshot: SelectionLonglistEntryView | null
 }
 
 export interface ShortlistView {

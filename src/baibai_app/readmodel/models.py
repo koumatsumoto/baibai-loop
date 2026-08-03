@@ -372,6 +372,9 @@ class ShortlistEntryView(BaseModel):
     reason: str
     rank: int | None = None
     narrative: ShortlistNarrativeView | None = None
+    # 判断時の機械座標。source run が prune された後もレビュー面が読めるよう、
+    # publish 時に judgment へ焼き込まれた値をそのまま返す。
+    machine_snapshot: SelectionLonglistEntryView | None = None
 
 
 class ShortlistView(BaseModel):
