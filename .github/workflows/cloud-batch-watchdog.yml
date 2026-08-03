@@ -1,0 +1,79 @@
+name: cloud-batch-watchdog
+
+on:
+  schedule:
+    # 12:00 UTC (21:00 JST) on weekdays. `cloud-daily-batch` is scheduled at
+    # 08:23 UTC and GitHub's schedule queue adds about two hours at the median, so
+    # a healthy run has finished well before this. The watchdog only reads the run
+    # history, so a late firing of its own costs nothing: the evaluated window is
+    # anchored to when it runs, not to when it was due.
+    #
+    # No business-day calendar is needed. `cloud-daily-batch` completes a
+    # non-business day as a green skip run, which counts as success here.
+    - cron: "0 12 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      check_date:
+        description: "Optional YYYY-MM-DD; evaluate the window a scheduled run on that date would have used"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+# The watchdog only reads run history and posts a message, so it must never wait
+# behind (or hold up) the publish pipeline it is watching.
+concurrency:
+  group: cloud-batch-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The watchdog scripts must import on the runner's system python3: this job
+      # deliberately installs nothing, so a dependency creeping in would only
+      # surface at the moment an alert is due.
+      - name: Smoke-check watchdog scripts
+        id: smoke
+        run: |
+          python3 -m py_compile tools/cloud/batch_watchdog.py tools/cloud/validate_workflow_inputs.py
+          python3 -c "import tools.cloud.batch_watchdog; import tools.cloud.validate_workflow_inputs"
+
+      # Validate the untrusted dispatch value before any credential-bearing step.
+      # The scheduled event supplies an empty value, which is valid.
+      - name: Validate dispatch input
+        id: validate-input
+        env:
+          WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
+        run: |
+          python3 -m tools.cloud.validate_workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+          echo "check_date=$WATCHDOG_CHECK_DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch daily batch run history
+        id: history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-daily-batch.yml/runs" \
+            -f per_page=100 \
+            > "$RUNNER_TEMP/daily-batch-runs.json"
+
+      - name: "Alert Discord #batch-runs when the batch is missing"
+        id: watchdog
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WATCHDOG_CHECK_DATE: ${{ steps.validate-input.outputs.check_date }}
+        run: |
+          # $WATCHDOG_CHECK_DATE carries the dispatch input safely as a variable;
+          # never interpolate inputs.* into this run block (script injection).
+          python3 -m tools.cloud.batch_watchdog \
+            --runs-json "$RUNNER_TEMP/daily-batch-runs.json" \
+            --check-date "$WATCHDOG_CHECK_DATE"

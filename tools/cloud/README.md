@@ -28,7 +28,7 @@ R2 lifecycle rule は `history/candidate-views/` を31日、`history/longlists/`
 | principal | 設定 | scope |
 | --- | --- | --- |
 | GitHub Actions | variable `R2_ACCOUNT_ID`、secrets `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / provider 3本、公開 JPX 規制 URL 4本 | 必要なtransfer/provider stepだけ、stores + serving read-write |
-| GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step のみ（job env に出さない） |
+| GitHub Actions（通知） | secret `DISCORD_WEBHOOK_URL` | `cloud-daily-batch` の通知 step と `cloud-batch-watchdog` の警報 step のみ（job env に出さない） |
 | GitHub Actions（Worker deploy） | variable `R2_ACCOUNT_ID`、secret `CLOUDFLARE_API_TOKEN` | 対象accountの`Workers Scripts Write`、`web`のdeploy stepのみ |
 | ローカル`.env` | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | stores read-write + serving read-only（longlist history取得用） |
 | Wrangler OAuth | `wrangler login` | bucket初期設定、Worker secretの手動設定 |
@@ -142,7 +142,7 @@ gh workflow run cloud-daily-batch.yml --ref main -f asof=YYYY-MM-DD
 gh run list --workflow cloud-daily-batch.yml --limit 10
 ```
 
-通常cronは平日08:23 UTC（17:23 JST）。同日必須なのは`asof = today`が依存する株価日足の16:30 JST更新だけで、遅配に約50分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容し、UIのas-ofとworkflow履歴で検知する。
+通常cronは平日08:23 UTC（17:23 JST）。同日必須なのは`asof = today`が依存する株価日足の16:30 JST更新だけで、遅配に約50分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。
 
 `daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
@@ -329,6 +329,21 @@ Python 3.14 固有構文を使わず、checkout 直後の system `python3` で i
 正常 run は配送失敗を意味するので、GitHub Actions の run log（通知 step の stderr）で data 処理の
 成功と配送の失敗を区別して確認する。webhook URL・response body は log に出ない。未設定・HTTPS 以外・
 Discord 以外の host・timeout・HTTP error はすべて sanitized な理由で non-zero 終了する。
+
+### 欠測の検知（`cloud-batch-watchdog`）
+
+run自身の通知は「runが起動したこと」を前提にする。GitHubは高負荷時にscheduled runを黙って落とし、cron直前に着地したmergeはその日のscheduleを差し替える。どちらの場合も成功通知も失敗通知も出ず、**沈黙**になる。人間は届かないメッセージの検知が最も苦手なので、沈黙のままにしない。
+
+`.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読み、直近20時間に**conclusion=successのcompleted runが1本も無ければ**同じ`#batch-runs`へ`[MISSING]`を送る。正常な日は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。したがって`#batch-runs`の沈黙は「当日のbatchが正常だった」を意味する。
+
+- **20時間窓**の両端はGitHubのschedule遅延（median約2時間）で決まる。前日の08:23 UTC runが窓に入らない程度に短く（前日の成功で当日の欠測を隠さない）、watchdog自身が数時間遅れて発火しても当日の08:23 UTC runを取りこぼさない程度に長い。
+- **営業日カレンダーは持たない**。非営業日は`cloud-daily-batch`自身がgreenのskip runとして完了するので、successとして数えられる。
+- 手動の復旧dispatchもsuccessとして数えるので、当日中に復旧すれば警報は出ない。
+- run一覧が期待した形でなければ**警報を出さずにexit 1**する。parseの劣化が「run 0本」に落ちると、APIの形が変わるたびに誤報になるため。
+- 過去日の判定は`gh workflow run cloud-batch-watchdog.yml -f check_date=YYYY-MM-DD`で再現する（その日の21:00 JSTに発火したwatchdogと同じ窓を評価する）。dispatch入力はcredentialを持たないvalidation stepでexact `YYYY-MM-DD`を検査してからstep env経由で渡す。
+- watchdog自身もscheduleなので同時にskipされ得る。独立した2本が同日に両方skipされる確率は単発よりずっと低い。それでも不足が観測されたらCloudflare Worker cronへ格上げする。
+
+watchdog jobは何もinstallしない（checkoutとsystem `python3`だけ）。警報が必要なまさにその瞬間にtoolchainの都合で止まらないようにするためで、`tests/test_cloud_batch_watchdog.py`がstep一覧で固定する。
 
 ### webhook rotation
 

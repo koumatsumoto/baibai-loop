@@ -59,6 +59,11 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
         "DISCORD_WEBHOOK_URL": "${{ secrets.DISCORD_WEBHOOK_URL }}"
     },
     ("cloud-daily-batch.yml", "daily", "Upload run summary"): _R2,
+    (
+        "cloud-batch-watchdog.yml",
+        "watchdog",
+        "Alert Discord #batch-runs when the batch is missing",
+    ): {"DISCORD_WEBHOOK_URL": "${{ secrets.DISCORD_WEBHOOK_URL }}"},
     ("cloud-history-backfill.yml", "backfill", "Pull the market store"): _R2,
     (
         "cloud-history-backfill.yml",
@@ -82,6 +87,9 @@ _EXPECTED_INPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Validate dispatch input"): {
         "MANUAL_ASOF": "${{ inputs.asof }}"
     },
+    ("cloud-batch-watchdog.yml", "watchdog", "Validate dispatch input"): {
+        "WATCHDOG_CHECK_DATE": "${{ inputs.check_date }}"
+    },
     ("cloud-history-backfill.yml", "backfill", "Validate dispatch inputs"): {
         "BACKFILL_START": "${{ inputs.start }}",
         "BACKFILL_END": "${{ inputs.end }}",
@@ -96,6 +104,11 @@ _EXPECTED_VALIDATED_OUTPUT_ENV: dict[tuple[str, str, str], dict[str, str]] = {
         "MANUAL_ASOF": "${{ steps.validate-input.outputs.asof }}"
     },
     (
+        "cloud-batch-watchdog.yml",
+        "watchdog",
+        "Alert Discord #batch-runs when the batch is missing",
+    ): {"WATCHDOG_CHECK_DATE": "${{ steps.validate-input.outputs.check_date }}"},
+    (
         "cloud-history-backfill.yml",
         "backfill",
         "Backfill and publish committed progress",
@@ -109,6 +122,10 @@ _EXPECTED_VALIDATION_SCRIPTS = {
     ("cloud-daily-batch.yml", "daily", "Validate dispatch input"): """
         python3 -m tools.cloud.validate_workflow_inputs daily --asof "$MANUAL_ASOF"
         echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
+    """,
+    ("cloud-batch-watchdog.yml", "watchdog", "Validate dispatch input"): """
+        python3 -m tools.cloud.validate_workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+        echo "check_date=$WATCHDOG_CHECK_DATE" >> "$GITHUB_OUTPUT"
     """,
     ("cloud-history-backfill.yml", "backfill", "Validate dispatch inputs"): """
         python3 -m tools.cloud.validate_workflow_inputs backfill \\
@@ -144,6 +161,11 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("cloud-daily-batch.yml", "daily", "Upload run summary"): (
         "68252336012dac8fc5d5bad8e447e96fa38f50b9c364b355633a9b24ef764a22"
     ),
+    (
+        "cloud-batch-watchdog.yml",
+        "watchdog",
+        "Alert Discord #batch-runs when the batch is missing",
+    ): "87d14915dd4b8bd0f6e8896b817638df8de6cf9fa9df969182d4a74b580a0c3c",
     ("cloud-history-backfill.yml", "backfill", "Pull the market store"): (
         "8d91929fc219b7b4bc506845bc1ac4f79ddd3a11434e25391fea0ed0e628c715"
     ),

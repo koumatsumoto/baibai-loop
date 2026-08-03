@@ -52,6 +52,11 @@ def validate_backfill_inputs(
         raise WorkflowInputError("master_month_end_from must not be after end")
 
 
+def validate_watchdog_input(*, check_date: str) -> None:
+    """Validate the optional date whose scheduled watchdog window to evaluate."""
+    _exact_date(check_date, label="check_date", required=False)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -63,6 +68,9 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--start", required=True)
     backfill.add_argument("--end", required=True)
     backfill.add_argument("--master-month-end-from", default="")
+
+    watchdog = subparsers.add_parser("watchdog")
+    watchdog.add_argument("--check-date", default="")
     return parser
 
 
@@ -71,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "daily":
             validate_daily_input(asof=args.asof)
+        elif args.command == "watchdog":
+            validate_watchdog_input(check_date=args.check_date)
         else:
             validate_backfill_inputs(
                 start=args.start,
