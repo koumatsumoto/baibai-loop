@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -10,6 +11,7 @@ import yaml
 
 from baibai_engine.macro.indicators.cli import build_parser as macro_parser
 from baibai_engine.macro.indicators.cli import main as macro_main
+from baibai_engine.position.cli import _draft_output_path
 from baibai_engine.position.cli import build_parser as position_parser
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.ledger import PortfolioLedgerDocument, load_portfolio_ledger
@@ -825,3 +827,21 @@ def test_skill_recipes_use_public_cli_contract(
         for path in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md"))
     )
     assert f"{executable} {argv[0]}" in skills
+
+
+def test_skill_draft_output_paths_are_accepted_by_the_draft_path_guard() -> None:
+    """Every `--out` a skill writes has to survive the draft path confinement.
+
+    The ledger and holding-review draft commands refuse an absolute path or one
+    that climbs out of the repository, so a runbook that hands out `/tmp/...`
+    documents a command that can never run.
+    """
+    offenders: list[str] = []
+    for path in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md")):
+        text = path.read_text(encoding="utf-8")
+        for value in re.findall(r"--out ([^\s\\]+)", text):
+            try:
+                _draft_output_path(ROOT, Path(value), label="skill recipe")
+            except ValueError as error:
+                offenders.append(f"{path.relative_to(ROOT)}: --out {value} ({error})")
+    assert offenders == []

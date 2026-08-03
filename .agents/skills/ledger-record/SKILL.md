@@ -9,7 +9,7 @@ portfolio ledger の正本は application DB。人間の報告だけを broker f
 
 ## 共通 lifecycle
 
-1. typed draft command が current DB に束縛した ephemeral draft を exclusive create する。
+1. typed draft command が current DB に束縛した ephemeral draft を exclusive create する。`--out` は repository root 配下の相対 path で渡す（`record-result` / `sell-result-draft` / `market-price-draft` / `holding-review-build` は root 外の絶対 path を拒否する）。
 2. 人間が event payload・binding・cash / reservation / holding 差分を確認する。
 3. `apply-draft --confirmed` が expected append head・binding・invariant を transaction 内で再検証する。stale なら no-write で draft を再生成する。
 
@@ -32,8 +32,8 @@ proposal への `approve / defer / reject` は人間の会話報告だけを `uv
 ```bash
 uv run baibai-engine position record-result --db data/app/baibai.sqlite --proposal-ref <PROPOSAL_ID> \
   --status open --occurred-at <ISO8601+09:00> --ticker XXXX --quantity 100 --sector <SECTOR> \
-  --price-guard-yen <LIMIT> --expires-at <ISO8601> --out /tmp/open-draft.yaml
-uv run baibai-engine position apply-draft /tmp/open-draft.yaml --db data/app/baibai.sqlite --confirmed
+  --price-guard-yen <LIMIT> --expires-at <ISO8601> --out .cache/ledger/open-draft.yaml
+uv run baibai-engine position apply-draft .cache/ledger/open-draft.yaml --db data/app/baibai.sqlite --confirmed
 ```
 
 - 新規 open と reservation なし fill は current approved proposal が必須。migration 由来で binding が null の reservation だけ、人間報告を記録した issue URL を `--proposal-ref` へ渡す。
@@ -44,7 +44,7 @@ uv run baibai-engine position apply-draft /tmp/open-draft.yaml --db data/app/bai
 ```bash
 uv run baibai-engine position sell-result-draft --db data/app/baibai.sqlite --ticker XXXX \
   --quantity 100 --price-yen <PRICE> --occurred-at <ISO8601> \
-  --decision-reference <HOLDING_REVIEW_ID> --out /tmp/sell-draft.yaml
+  --decision-reference <HOLDING_REVIEW_ID> --out .cache/ledger/sell-draft.yaml
 ```
 
 - 約定日が最終 market price 観測から `market_price_max_age_days`（7 日）を超えると price staleness で拒否される — 先に `market-price-draft` を apply する。
@@ -54,7 +54,7 @@ uv run baibai-engine position sell-result-draft --db data/app/baibai.sqlite --ti
 
 ```bash
 uv run baibai-engine position event-draft --type contribution --event-id <ID> \
-  --occurred-at <ISO8601> --amount-yen 100000 --db data/app/baibai.sqlite --out /tmp/event-draft.yaml
+  --occurred-at <ISO8601> --amount-yen 100000 --db data/app/baibai.sqlite --out .cache/ledger/event-draft.yaml
 ```
 
 `contribution / withdrawal / income / cost / tax_confirmed` は確認した事実ごとに 1 event。risk override は `override-draft`、tax estimate 設定は `meta-draft`。購入や screening を強制しない。
