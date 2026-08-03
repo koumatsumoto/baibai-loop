@@ -105,7 +105,9 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh pull-all
+        run: |
+          tools/cloud/r2_transfer.sh pull-machine
+          tools/cloud/r2_transfer.sh pull-app
 
       - name: Preserve and verify market schema v13 rollback
         id: preserve-market-v13

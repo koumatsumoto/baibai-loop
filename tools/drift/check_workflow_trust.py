@@ -124,7 +124,7 @@ _EXPECTED_VALIDATION_SCRIPTS = {
 # shell, working directory, and error policy), not merely a command substring.
 _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("cloud-daily-batch.yml", "daily", "Pull stores"): (
-        "04acd79fa4f1ba8439c62bc08693ff29285f3fafb4a6af21df668e196f2cdd3b"
+        "07a280053b55c74bc983ebd91d5f8f7b3ada2e50c9117de655d1ff28120b0ea9"
     ),
     ("cloud-daily-batch.yml", "daily", "Preserve and verify market schema v13 rollback"): (
         "f81af85e12fbe61a8ed419d56a34f6a0aece9ff8c9ca1d34297061f974b64615"
@@ -158,7 +158,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "Backfill and publish committed progress",
     ): "28de80b3b8217905d8974f3524b461f0b18487fb5df5889218a4a9fd635b0255",
     ("cloud-materialize.yml", "materialize", "Pull stores"): (
-        "fbcebc211004dcaf4740e7df78fc20718bb48dae0f9f7ca0c7ff4a20d248e8fe"
+        "406ddbcec94d613165754b844b043db53d1b436695f7c9bfc4272fe4af3a6ada"
     ),
     ("cloud-materialize.yml", "materialize", "Upload serving objects"): (
         "a03ce272b9ff4dbf79507d93e6dcce195e003bd39c7e432765010fc22eb1857f"
