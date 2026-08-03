@@ -27,6 +27,7 @@ _EVENT_RISK_TAGS = frozenset(
         "earnings_scheduled",
         "freshness_warning",
         "forecast_special_gain",
+        "stale_financials",
     }
 )
 
@@ -104,38 +105,8 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     return dedupe_strings(tags)
 
 
-def _next_earnings_status(candidate: Mapping[str, object], *, asof_date: date) -> str:
-    """次回決算の 3 状態: 予定 / 発表済み / 推定。
-
-    カレンダーは ticker あたり 1 行なので、発表当日はその行が as-of と同じ日付のまま
-    残る。日付だけを見ても「これから」と「もう出た」が同じに見えるため、as-of との
-    前後関係を状態として明示する。カレンダー行が無い ticker は推定日の有無で分ける。
-
-    読めない日付は ``unknown`` へ落とす。これは annotation の表示ラベルなので、値の
-    破損で selection 全体を落とすほうが影響が大きい。生の日付は行に残るので、読み手が
-    見るものは減らない。
-    """
-
-    scheduled = _parse_date_or_none(candidate.get("next_earnings_date"))
-    if scheduled is not None:
-        return "scheduled" if scheduled > asof_date else "announced"
-    metrics = mapping_or_empty(candidate.get("metrics"))
-    estimated = _parse_date_or_none(metrics.get("next_earnings_estimated_date"))
-    return "estimated" if estimated is not None else "unknown"
-
-
-def _parse_date_or_none(value: object) -> date | None:
-    text = string_or_none(value)
-    if text is None:
-        return None
-    try:
-        return date.fromisoformat(text)
-    except ValueError:
-        return None
-
-
 def _selection_candidate_summary(
-    candidate: Mapping[str, object], *, rank: int, asof_date: date
+    candidate: Mapping[str, object], *, rank: int
 ) -> dict[str, object]:
     durability_lens = _durability_lens_of(candidate)
     metrics = mapping_or_empty(candidate.get("metrics"))
@@ -192,13 +163,14 @@ def _selection_candidate_summary(
         "price_history_coverage_750d": candidate.get("price_history_coverage_750d"),
         "split_adjustment_flag": candidate.get("split_adjustment_flag") is True,
         "next_earnings_date": candidate.get("next_earnings_date"),
-        # 決算ラグの annotation。next_earnings_date だけでは as-of 当日の発表が
-        # 「これから」と「もう出た」のどちらか読めないので、状態と、行が含む最後の
-        # 開示日と、カレンダー欠落時の推定日を併記する。ranking・gate には入らない。
-        "next_earnings_status": _next_earnings_status(candidate, asof_date=asof_date),
+        # 決算ラグの annotation (earnings_lag.py が判定し、ここは転記だけ)。
+        # next_earnings_date は予定表の日付なので、前倒し開示や当日発表を日付だけでは
+        # 読めない。状態・行が含む最後の開示日・カレンダー欠落時の推定日を併記する。
+        # stale_fin_flag の None は「判定材料が無い」で、False (照合して一致) と違う。
+        "next_earnings_status": metrics.get("next_earnings_status"),
         "next_earnings_estimated_date": metrics.get("next_earnings_estimated_date"),
         "fin_latest_disclosed_date": metrics.get("fin_latest_disclosed_date"),
-        "stale_fin_flag": metrics.get("stale_fin_flag") is True,
+        "stale_fin_flag": metrics.get("stale_fin_flag"),
         "position_tier": candidate.get("position_tier"),
         "durability_rating": string_or_none(durability_lens.get("rating")),
         "durability_caution_reasons": list(string_sequence(durability_lens.get("caution_reasons"))),

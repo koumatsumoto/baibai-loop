@@ -1,19 +1,19 @@
-"""決算開示と as-of 財務のラグを判断面へ出すための annotation。
+"""決算開示と as-of 財務のラグを判断面へ出す annotation。
 
 決算ピーク週では「機械行の数字が直近の発表を含んでいるか」が判断の最初の分岐になる。
 その問いに答えるのは 2 つの source の突き合わせである:
 
-- ``jquants_earnings_calendar`` — 会社が公表した次回発表予定日。ticker あたり 1 行しか
-  持たないので、発表当日はその行が「今日」を指したまま残り、予定と発表済みが同じ
-  日付として見える。
+- ``jquants_earnings_calendar`` — 会社が公表した次回発表**予定**日。ticker あたり 1 行で、
+  会社が予定日より前に開示しても行はそのまま残る。日付だけを見ても「これから」と
+  「もう出た」が区別できない。
 - ``jquants_fin_summaries`` — 実際に開示された数字。機械行の財務はここから作られる。
 
-発表があってから summary が取り込まれるまでには窓があり、その間 candidate の財務・FV
-アンカー・E[r] は旧四半期のままになる。ここで作るのは ranking にも gate にも入らない
-annotation で、その窓に居ることを読み手へ渡すだけである。
+この 2 つを突き合わせられる場所は 1 つしかないので、状態の判定はすべてここで行い、
+表示層は転記だけをする。ranking にも gate にも E[r] にも入らない。
 
-カレンダー行が無い ticker は実測 16.3% あり、「未公表」と「データ欠落」が区別できない。
-過去の開示周期から次回を推定して estimate として併記し、確定日と混ぜない。
+**historical backfill では読めない**: カレンダーは単一 snapshot で fetch 日を持たないため、
+過去 as-of の run は「今日の予定表」を読む。その run の annotation は as-of 時点の状態では
+ないので、過去 run の `next_earnings_status` と `stale_fin_flag` を解釈しない。
 """
 
 from __future__ import annotations
@@ -21,154 +21,179 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Protocol
+from typing import Literal
 
+from .providers.jpx import JPXEarningsCalendarEntry
 from .providers.jquants import JQuantsFinancialSummary
 
+type NextEarningsStatus = Literal["announced", "scheduled", "estimated", "unknown"]
 
-class CalendarEntry(Protocol):
-    """発表予定カレンダーの 1 行。ticker と発表日だけを読む。"""
+# 会社は予定日より数日早く開示することがある。その差を「別の四半期」と読むと、数字が
+# 現に最新である行を stale と呼び、逆に発表済みの行を「これから」と呼ぶ。四半期の間隔は
+# 90 日前後なので、この幅なら同じ発表の前倒しと前四半期のままを取り違えない。
+_SAME_EVENT_TOLERANCE_DAYS = 14
 
-    @property
-    def ticker(self) -> str: ...
-
-    @property
-    def announcement_date(self) -> date: ...
+# 前年同期の発表日は決算期変更や休日繰り上げでずれる。これより離れた開示は同一四半期と
+# みなさず、推定を出さない。
+_ANCHOR_TOLERANCE_DAYS = 45
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class EarningsLag:
     """1 ticker 分の決算ラグ annotation。すべて ranking・gate へ入らない。"""
 
     fin_latest_disclosed_date: date | None
     next_earnings_estimated_date: date | None
-    stale_fin_flag: bool
+    next_earnings_status: NextEarningsStatus
+    # None = 判定材料が無い: 予定日が未来 / カレンダー行が無い / 行に財務が無い。
+    # False は「照合して食い違わなかった」であり、両者を同じ値にしない。
+    stale_fin_flag: bool | None
 
 
 def index_calendar_announcements(
-    entries: Sequence[CalendarEntry], *, asof: date
+    entries: Sequence[JPXEarningsCalendarEntry],
 ) -> dict[str, date]:
-    """ticker ごとに、as-of から見て判断に効くカレンダー行を 1 つ選ぶ。
+    """ticker ごとの発表予定日。provider は ticker あたり 1 行を保証する。"""
 
-    カレンダーは ticker あたり 1 行しか持たないので通常は選択の余地が無い。複数行ある
-    場合は **as-of 以前の最新**を優先する。数字が追いついたかを問えるのは既に起きた
-    発表だけで、未来の予定日は staleness を判定しない。
-    """
-
-    past: dict[str, date] = {}
-    future: dict[str, date] = {}
-    for entry in entries:
-        if entry.announcement_date <= asof:
-            current = past.get(entry.ticker)
-            if current is None or entry.announcement_date > current:
-                past[entry.ticker] = entry.announcement_date
-        else:
-            upcoming = future.get(entry.ticker)
-            if upcoming is None or entry.announcement_date < upcoming:
-                future[entry.ticker] = entry.announcement_date
-    return {**future, **past}
+    return {entry.ticker: entry.announcement_date for entry in entries}
 
 
 def estimate_next_announcement(
     summaries: Sequence[JQuantsFinancialSummary], *, asof: date
 ) -> date | None:
-    """前年同四半期の次回発表日から次の発表日を推定する。
+    """前年同期の「次の」発表日から次回発表日を推定する。
 
-    直近開示の 1 年前にあたる開示を探し、その **次** の開示日を 1 年ずらす。四半期
-    周期は年ごとにほぼ固定なので、周期そのものを仮定するより実績を写すほうが外れにくい。
+    ``jquants_fin_summaries`` には定期開示だけでなく業績予想修正・同一期の再開示が同じ
+    粒度で入る。周期の刻みとして数えてよいのは会計期間が変わる行だけなので、
+    ``period_end`` ごとに最初の開示だけを残してから 1 年前の同期を探す。
+
     材料が揃わなければ推定しない。欠落を推定で埋めない。
     """
 
-    history = sorted(
-        (item for item in summaries if item.disclosed_at <= asof),
-        key=lambda item: item.disclosed_at,
-    )
+    history = _disclosure_cycle(summaries, asof=asof)
     if not history:
         return None
-    latest = history[-1]
-    target = _shift_year(latest.disclosed_at)
-    if target is None:
-        return None
-    # 直近開示の 1 年前に最も近い開示を起点にする。同日が無くても周期は年ごとに
-    # 数日ずれる程度なので、最近傍を取れば同一四半期を指す。
+    target = _shift_year(history[-1].disclosed_at, years=-1)
     anchor_index = min(
         range(len(history)),
         key=lambda index: abs((history[index].disclosed_at - target).days),
     )
-    anchor = history[anchor_index]
-    if abs((anchor.disclosed_at - target).days) > _ANCHOR_TOLERANCE_DAYS:
+    if abs((history[anchor_index].disclosed_at - target).days) > _ANCHOR_TOLERANCE_DAYS:
         return None
     if anchor_index + 1 >= len(history):
         return None
-    following = history[anchor_index + 1].disclosed_at
-    estimated = _shift_year_forward(following)
-    if estimated is None or estimated <= asof:
-        return None
-    return estimated
+    estimated = _shift_year(history[anchor_index + 1].disclosed_at, years=1)
+    return estimated if estimated > asof else None
 
 
-# 前年同四半期の発表日は決算期変更や休日繰り上げで数週ずれる。これより離れた開示は
-# 同一四半期とみなさず、推定を出さない。
-_ANCHOR_TOLERANCE_DAYS = 45
+def _disclosure_cycle(
+    summaries: Sequence[JQuantsFinancialSummary], *, asof: date
+) -> list[JQuantsFinancialSummary]:
+    """会計期間が進むごとに 1 行だけを残した開示列を、古い順で返す。
 
-# 会社は予定日より数日早く開示することがある。その差を staleness と読むと、数字が
-# 現に最新である行に flag が立つ (実測: 予定 7/15 に対し 7/13 開示)。四半期の間隔は
-# 90 日前後なので、この幅なら「同じ発表の前倒し」と「前四半期のまま」を取り違えない。
-_SAME_EVENT_TOLERANCE_DAYS = 14
+    同じ ``period_end`` の再開示・訂正・予想修正は周期の刻みではないので落とす。
+    ``period_end`` を持たない行は判別できないので、開示日で 1 行に畳む。
+    """
+
+    ordered = sorted(
+        (item for item in summaries if item.disclosed_at <= asof),
+        key=lambda item: item.disclosed_at,
+    )
+    cycle: list[JQuantsFinancialSummary] = []
+    seen: set[object] = set()
+    for item in ordered:
+        key = item.period_end if item.period_end is not None else item.disclosed_at
+        if key in seen:
+            continue
+        seen.add(key)
+        cycle.append(item)
+    return cycle
 
 
-def _shift_year(value: date) -> date | None:
+def _shift_year(value: date, *, years: int) -> date:
     try:
-        return value.replace(year=value.year - 1)
+        return value.replace(year=value.year + years)
     except ValueError:
-        # 2/29 は前年に存在しない。周期推定にとって 1 日の差は意味がないので寄せる。
-        return value.replace(year=value.year - 1, day=28)
-
-
-def _shift_year_forward(value: date) -> date | None:
-    try:
-        return value.replace(year=value.year + 1)
-    except ValueError:
-        return value.replace(year=value.year + 1, day=28)
+        # 2/29 は前後の年に存在しない。周期推定にとって 1 日の差は意味がないので寄せる。
+        return value.replace(year=value.year + years, day=28)
 
 
 def build_earnings_lag(
     *,
-    ticker: str,
     asof: date,
     fin_latest_disclosed: date | None,
-    calendar_next: Mapping[str, date],
-    summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
+    announcement_date: date | None,
+    summaries: Sequence[JQuantsFinancialSummary],
 ) -> EarningsLag:
     """1 ticker の annotation を組む。
 
-    ``fin_latest_disclosed`` は行の財務が読んだ開示日そのものを受け取る。ここで数え
-    直すと「行が使った日」と「annotation が示す日」が静かにずれうるので、導出元は 1 つ
-    に保つ。
+    ``fin_latest_disclosed`` は行の財務が読んだ開示日そのものを受け取る。ここで数え直すと
+    「行が使った日」と「annotation が示す日」が静かにずれうるので、導出元は 1 つに保つ。
 
-    ``stale_fin_flag`` は「カレンダーが as-of 以前の発表を指しているのに、行の最新開示
-    がそこから四半期分ずれている」で立つ。これは発表が済んだのに数字が追いついて
-    いない窓そのもので、判断面で最初に見たい条件である。カレンダーが未来を指す通常状態
-    では立たず、予定日より数日早い開示も staleness と読まない。
+    状態と flag は同じ 2 入力から同時に決める。別々の層で判定すると、一方が「発表済み」
+    と読む行を他方が「これから」と呼ぶ食い違いが起きる。
     """
 
-    disclosed = fin_latest_disclosed
-    announced_on = calendar_next.get(ticker)
-    stale = (
-        announced_on is not None
-        and announced_on <= asof
-        and (disclosed is None or (announced_on - disclosed).days > _SAME_EVENT_TOLERANCE_DAYS)
-    )
+    same_event = _is_same_event(announcement_date, fin_latest_disclosed)
     estimated = (
         None
-        if announced_on is not None and announced_on > asof
-        else estimate_next_announcement(summaries_by_ticker.get(ticker, ()), asof=asof)
+        if announcement_date is not None and announcement_date > asof and not same_event
+        else estimate_next_announcement(summaries, asof=asof)
     )
     return EarningsLag(
-        fin_latest_disclosed_date=disclosed,
+        fin_latest_disclosed_date=fin_latest_disclosed,
         next_earnings_estimated_date=estimated,
-        stale_fin_flag=stale,
+        next_earnings_status=_status(
+            asof=asof,
+            announcement_date=announcement_date,
+            same_event=same_event,
+            estimated=estimated,
+        ),
+        stale_fin_flag=_stale_fin_flag(
+            asof=asof,
+            announcement_date=announcement_date,
+            fin_latest_disclosed=fin_latest_disclosed,
+        ),
     )
+
+
+def _is_same_event(announcement_date: date | None, fin_latest_disclosed: date | None) -> bool:
+    """予定日と直近開示が同じ発表を指しているか。
+
+    会社が予定日より前に開示すると、カレンダーは未来を指したまま数字だけが最新になる。
+    その行を「これから発表」と読むと、既に出た決算を保有窓の event risk として数える。
+    """
+
+    if announcement_date is None or fin_latest_disclosed is None:
+        return False
+    return 0 <= (announcement_date - fin_latest_disclosed).days <= _SAME_EVENT_TOLERANCE_DAYS
+
+
+def _status(
+    *,
+    asof: date,
+    announcement_date: date | None,
+    same_event: bool,
+    estimated: date | None,
+) -> NextEarningsStatus:
+    if announcement_date is not None:
+        return "announced" if announcement_date <= asof or same_event else "scheduled"
+    return "estimated" if estimated is not None else "unknown"
+
+
+def _stale_fin_flag(
+    *, asof: date, announcement_date: date | None, fin_latest_disclosed: date | None
+) -> bool | None:
+    """予定日に対応する開示が行に無いか。原因は区別しない。
+
+    立つのは「予定日が as-of 以前なのに、その発表に対応する statement が行に無い」場合で、
+    延期・決算期変更・provider 欠落のいずれでも立つ。どれであっても読み手のすべきことは
+    同じ = 一次開示で切り分ける、なので、原因を断定しない。判定材料が無ければ ``None``。
+    """
+
+    if announcement_date is None or announcement_date > asof or fin_latest_disclosed is None:
+        return None
+    return (announcement_date - fin_latest_disclosed).days > _SAME_EVENT_TOLERANCE_DAYS
 
 
 def tickers_without_calendar_rows(
@@ -176,16 +201,16 @@ def tickers_without_calendar_rows(
 ) -> int:
     """カレンダー行を 1 つも持たない universe ticker 数。
 
-    provider 側の欠落 = 件数の急増と、個別企業の未公表を区別するための計数で、閾値も判定も
-    持たない。
+    provider 側の欠落 = 件数の急増と、個別企業の未公表を区別するための計数で、閾値も
+    判定も持たない。
     """
 
     return sum(1 for ticker in tickers if ticker not in calendar_tickers)
 
 
 __all__ = [
-    "CalendarEntry",
     "EarningsLag",
+    "NextEarningsStatus",
     "build_earnings_lag",
     "estimate_next_announcement",
     "index_calendar_announcements",

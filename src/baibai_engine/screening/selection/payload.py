@@ -167,7 +167,7 @@ def build_selection_payload(
         recommended
         if detail == "full"
         else [
-            _selection_candidate_summary(candidate, rank=rank, asof_date=asof_date)
+            _selection_candidate_summary(candidate, rank=rank)
             for rank, candidate in enumerate(recommended, start=1)
         ]
     )

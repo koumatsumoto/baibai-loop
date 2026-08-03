@@ -158,7 +158,8 @@ def candidate_metrics_map(
         "next_earnings_estimated_date": (
             None if earnings_lag is None else _date_iso(earnings_lag.next_earnings_estimated_date)
         ),
-        "stale_fin_flag": False if earnings_lag is None else earnings_lag.stale_fin_flag,
+        "next_earnings_status": None if earnings_lag is None else earnings_lag.next_earnings_status,
+        "stale_fin_flag": None if earnings_lag is None else earnings_lag.stale_fin_flag,
         "edinet_freshness_warning_count": freshness_warning_count,
         # 機械 E[r] (成分分解付き見積り。%/年の比率)。詳細は estimates.py。
         "er_annual": estimate.er_annual if estimate else None,

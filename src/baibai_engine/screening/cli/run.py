@@ -208,7 +208,7 @@ def run_command(
     normalized_fy_by_ticker = group_summaries_by_ticker(normalized_fy_summaries)
     normalized_split_bars_by_ticker = group_bars_by_ticker(normalized_split_bars)
     next_earnings_by_ticker = _index_next_earnings(earnings_snapshot.entries, asof_date)
-    calendar_announcements = index_calendar_announcements(earnings_snapshot.entries, asof=asof_date)
+    calendar_announcements = index_calendar_announcements(earnings_snapshot.entries)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
     )
@@ -312,11 +312,10 @@ def run_command(
                 freshness_warnings=freshness_warnings,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
                 earnings_lag=build_earnings_lag(
-                    ticker=ticker,
                     asof=asof_date,
                     fin_latest_disclosed=financial.latest_disclosed_at,
-                    calendar_next=calendar_announcements,
-                    summaries_by_ticker=summaries_by_ticker,
+                    announcement_date=calendar_announcements.get(ticker),
+                    summaries=summaries_by_ticker.get(ticker, ()),
                 ),
                 normalized_per_3fy=normalized_profit.normalized_per_3fy,
             )
