@@ -35,7 +35,6 @@ from baibai_engine.screening.calibration.forward import ForwardReturnRow
 from baibai_engine.screening.calibration.panel import (
     PanelDiagnostics,
     PanelRow,
-    _with_mcap_quintile_percentiles,
 )
 from baibai_engine.screening.calibration.store import write_forward, write_panel
 
@@ -60,7 +59,6 @@ def _panel_row(
     equity_ratio: float | None = None,
     shareholder_return_change: bool | None = None,
     price_change_60d: float | None = None,
-    quality_signal_count: int | None = None,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -92,16 +90,6 @@ def _panel_row(
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
-        quality_roa_positive=None,
-        quality_delta_roa_positive=None,
-        quality_cfo_positive=None,
-        quality_accrual_healthy=None,
-        quality_delta_operating_margin_positive=None,
-        quality_delta_equity_ratio_positive=None,
-        quality_no_dilution=None,
-        quality_delta_asset_turnover_positive=None,
-        quality_signal_available_count=8 if quality_signal_count is not None else 0,
-        quality_signal_count=quality_signal_count,
         ttm_quality_per_trailing="exact",
         ttm_quality_ocf_yield="exact",
         price_change_60d=price_change_60d,
@@ -270,7 +258,6 @@ class EvaluateCohortsTest(unittest.TestCase):
                         price_change_60d=index / 1000,
                     ),
                     margin_short_to_adv=axis,
-                    margin_long_to_adv_mcap_quintile_percentile=index / 149,
                     realized_volatility_60d=0.1 + index / 1000,
                 )
             )
@@ -296,12 +283,9 @@ class EvaluateCohortsTest(unittest.TestCase):
                 "sector_33",
             },
         )
-        normalized = hypotheses["margin_long_to_adv_mcap_quintile_percentile"]["controls"][
-            "market_cap_oku"
-        ]
-        self.assertEqual(normalized, {"normalized_in_axis": True})
+        self.assertNotIn("margin_long_to_adv_mcap_quintile_percentile", hypotheses)
 
-    def test_profit_normalization_reports_controls_cycle_flag_and_history_coverage(self) -> None:
+    def test_profit_normalization_reports_controls_and_history_coverage(self) -> None:
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
         for index in range(120):
@@ -318,8 +302,6 @@ class EvaluateCohortsTest(unittest.TestCase):
                     ),
                     normalized_per_3fy=1.0 + index,
                     normalized_per_5fy=2.0 + index,
-                    eps_cycle_percentile_3fy=1.0 if index >= 114 else 0.5,
-                    eps_cycle_peak_3fy=index >= 114,
                     self_range_observed_sessions=1300,
                 )
             )
@@ -334,10 +316,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         self.assertEqual(cohort["metric_statuses"]["normalized_per_3fy"], "eligible")
         self.assertEqual(hypotheses["normalized_per_3fy_coverage"], 1.0)
         self.assertEqual(hypotheses["self_range_coverage"]["at_least_1250"], 1.0)
-        cycle = aggregate["cycle_peak_top_er_decile"]
-        self.assertEqual(cycle["flagged_n"], 6)
-        self.assertEqual(cycle["unflagged_n"], 6)
-        self.assertGreater(cycle["mean_median_excess_delta"], 0)
+        self.assertNotIn("cycle_peak_top_er_decile", aggregate)
 
     def test_normalized_per_metric_is_unresolved_without_sample(self) -> None:
         panel = [_panel_row(f"M{index:03d}", per_trailing=10.0) for index in range(120)]
@@ -389,40 +368,6 @@ class EvaluateCohortsTest(unittest.TestCase):
 
 
 class MarginSizeNormalizationTest(unittest.TestCase):
-    def test_rank_is_tie_aware_within_stable_market_cap_quintiles(self) -> None:
-        rows = [
-            replace(
-                _panel_row(
-                    f"{5000 + index}",
-                    per_trailing=10.0,
-                    market_cap_oku=float(index + 1),
-                ),
-                margin_long_to_adv=(1.0 if index % 3 < 2 else 2.0),
-            )
-            for index in range(15)
-        ]
-
-        normalized = _with_mcap_quintile_percentiles(rows)
-
-        self.assertEqual(
-            [row.margin_long_to_adv_mcap_quintile_percentile for row in normalized[:3]],
-            [0.25, 0.25, 1.0],
-        )
-
-    def test_missing_and_out_of_population_rows_are_not_normalized(self) -> None:
-        missing = replace(_panel_row("6000", per_trailing=10.0), margin_long_to_adv=None)
-        excluded = replace(
-            _panel_row("6001", per_trailing=10.0),
-            in_population=False,
-            margin_long_to_adv=2.0,
-        )
-
-        normalized = _with_mcap_quintile_percentiles([missing, excluded])
-
-        self.assertTrue(
-            all(row.margin_long_to_adv_mcap_quintile_percentile is None for row in normalized)
-        )
-
     def test_cheap_per_trailing_outperformance_yields_positive_ic(self) -> None:
         # 150 銘柄: PER が低いほど forward return が高い設計 (direction=-1 で
         # 正の IC・best decile 正の超過になるべき) 。上位 10 銘柄を select 順に見立てる。
@@ -496,65 +441,6 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         mean_excess = best["mean_excess"]
         assert isinstance(mean_excess, float)
         self.assertEqual(mean_excess, 0.0)
-
-    def test_quality_interaction_compares_er_top_decile_and_applies_all_controls(self) -> None:
-        panel: list[PanelRow] = []
-        forwards: list[ForwardReturnRow] = []
-        for i in range(400):
-            ticker = f"{4000 + i}"
-            in_er_top = i >= 360
-            high_quality = 360 <= i < 380
-            control = float(i % 20 + 1)
-            quality_count = 6 if high_quality else (2 if in_er_top else 4)
-            panel.append(
-                _panel_row(
-                    ticker,
-                    per_trailing=control,
-                    dividend_yield=control / 1_000,
-                    er_annual=float(i),
-                    market_cap_oku=control * 100,
-                    avg_turnover_oku=control,
-                    pbr=control / 10,
-                    price_change_60d=control / 100,
-                    quality_signal_count=quality_count,
-                )
-            )
-            realized = 0.10 if high_quality else (-0.30 if in_er_top else 0.0)
-            forwards.append(_forward_row(ticker, realized, horizon="1y"))
-
-        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["1y"])
-        horizon = result["1y"]
-        assert isinstance(horizon, dict)
-        cohorts = horizon["cohorts"]
-        assert isinstance(cohorts, list)
-        interaction = cohorts[0]["quality_interaction"]
-        assert isinstance(interaction, dict)
-        self.assertEqual(interaction["er_top_decile_n"], 40)
-        self.assertEqual(interaction["eligible_n"], 40)
-        self.assertEqual(interaction["median_excess_delta"], 0.4)
-        self.assertEqual(interaction["trap_rate_delta"], -1.0)
-        controls = interaction["controls"]
-        assert isinstance(controls, dict)
-        for field_name in (
-            "market_cap_oku",
-            "avg_turnover_oku",
-            "pbr",
-            "per_trailing",
-            "dividend_yield",
-            "price_change_60d",
-        ):
-            with self.subTest(field_name=field_name):
-                control_result = controls[field_name]
-                assert isinstance(control_result, dict)
-                self.assertEqual(control_result["strata_used"], 2)
-                self.assertEqual(control_result["matched_weight"], 20)
-                self.assertEqual(control_result["stratified_median_excess_delta"], 0.4)
-                self.assertEqual(control_result["stratified_trap_rate_delta"], -1.0)
-        axes = cohorts[0]["axes"]
-        assert isinstance(axes, dict)
-        quality_axis = axes["quality_signal_count"]
-        assert isinstance(quality_axis, dict)
-        self.assertGreater(float(quality_axis["decile_spread_median"]), 0.0)
 
     def test_shareholder_return_change_compares_low_per_band_and_controls(self) -> None:
         panel: list[PanelRow] = []

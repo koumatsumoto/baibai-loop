@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = DEFAULT_SQLITE_CACHE_DIR / "calibration"
-CACHE_SCHEMA_VERSION = 10
+CACHE_SCHEMA_VERSION = 11
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -169,20 +169,6 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         cfo_yoy=_opt_float(raw, "cfo_yoy"),
         accruals_to_assets=_opt_float(raw, "accruals_to_assets"),
         net_share_change_yoy=_opt_float(raw, "net_share_change_yoy"),
-        quality_roa_positive=_opt_bool(raw, "quality_roa_positive"),
-        quality_delta_roa_positive=_opt_bool(raw, "quality_delta_roa_positive"),
-        quality_cfo_positive=_opt_bool(raw, "quality_cfo_positive"),
-        quality_accrual_healthy=_opt_bool(raw, "quality_accrual_healthy"),
-        quality_delta_operating_margin_positive=_opt_bool(
-            raw, "quality_delta_operating_margin_positive"
-        ),
-        quality_delta_equity_ratio_positive=_opt_bool(raw, "quality_delta_equity_ratio_positive"),
-        quality_no_dilution=_opt_bool(raw, "quality_no_dilution"),
-        quality_delta_asset_turnover_positive=_opt_bool(
-            raw, "quality_delta_asset_turnover_positive"
-        ),
-        quality_signal_available_count=int(raw["quality_signal_available_count"]),
-        quality_signal_count=_opt_int(raw, "quality_signal_count"),
         ttm_quality_per_trailing=raw["ttm_quality_per_trailing"],
         ttm_quality_ocf_yield=raw["ttm_quality_ocf_yield"],
         price_change_60d=_opt_float(raw, "price_change_60d"),
@@ -220,17 +206,11 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         share_count_reduction_streak=_opt_int(raw, "share_count_reduction_streak"),
         shareholder_return_change=_opt_bool(raw, "shareholder_return_change"),
         margin_short_to_adv=_opt_float(raw, "margin_short_to_adv"),
-        margin_long_to_adv_mcap_quintile_percentile=_opt_float(
-            raw, "margin_long_to_adv_mcap_quintile_percentile"
-        ),
         realized_volatility_60d=_opt_float(raw, "realized_volatility_60d"),
         normalized_per_3fy=_opt_float(raw, "normalized_per_3fy"),
         normalized_per_5fy=_opt_float(raw, "normalized_per_5fy"),
-        eps_cycle_percentile_3fy=_opt_float(raw, "eps_cycle_percentile_3fy"),
-        eps_cycle_peak_3fy=_opt_bool(raw, "eps_cycle_peak_3fy"),
         self_range_observed_sessions=int(raw["self_range_observed_sessions"]),
     )
-    _validate_quality_signals(row)
     _validate_asset_backed(row)
     _validate_shareholder_return_change(row)
     _validate_margin_supply_demand(row)
@@ -306,28 +286,6 @@ def _opt_bool(raw: Mapping[str, str], key: str) -> bool | None:
     raise ValueError(f"invalid boolean value for {key}: {text!r}")
 
 
-def _validate_quality_signals(row: PanelRow) -> None:
-    components = (
-        row.quality_roa_positive,
-        row.quality_delta_roa_positive,
-        row.quality_cfo_positive,
-        row.quality_accrual_healthy,
-        row.quality_delta_operating_margin_positive,
-        row.quality_delta_equity_ratio_positive,
-        row.quality_no_dilution,
-        row.quality_delta_asset_turnover_positive,
-    )
-    available_count = sum(value is not None for value in components)
-    expected_count = sum(value is True for value in components)
-    if row.quality_signal_available_count != available_count:
-        raise ValueError("quality signal available count is inconsistent")
-    if available_count < 6:
-        if row.quality_signal_count is not None:
-            raise ValueError("quality signal count requires six available components")
-    elif row.quality_signal_count != expected_count:
-        raise ValueError("quality signal count is inconsistent")
-
-
 def _validate_asset_backed(row: PanelRow) -> None:
     investment = row.investment_securities
     if investment is not None and (not isfinite(investment) or investment < 0):
@@ -392,16 +350,6 @@ def _validate_margin_supply_demand(row: PanelRow) -> None:
     ):
         raise ValueError("margin short to ADV requires a dated non-negative value")
 
-    percentile = row.margin_long_to_adv_mcap_quintile_percentile
-    if percentile is not None and (
-        not isfinite(percentile)
-        or not 0 <= percentile <= 1
-        or not row.in_population
-        or row.market_cap_oku is None
-        or row.margin_long_to_adv is None
-    ):
-        raise ValueError("size-normalized margin percentile is inconsistent")
-
     volatility = row.realized_volatility_60d
     if volatility is not None and (not isfinite(volatility) or volatility < 0):
         raise ValueError("realized volatility must be finite and non-negative")
@@ -411,13 +359,6 @@ def _validate_normalized_profit(row: PanelRow) -> None:
     for value in (row.normalized_per_3fy, row.normalized_per_5fy):
         if value is not None and (not isfinite(value) or value <= 0):
             raise ValueError("normalized PER must be finite and positive")
-    percentile = row.eps_cycle_percentile_3fy
-    peak = row.eps_cycle_peak_3fy
-    if percentile is None:
-        if peak is not None:
-            raise ValueError("cycle peak flag requires a percentile")
-    elif not isfinite(percentile) or not 0 <= percentile <= 1 or peak is not (percentile >= 0.8):
-        raise ValueError("cycle peak flag is inconsistent with its percentile")
     if row.self_range_observed_sessions < 0:
         raise ValueError("self-range observed sessions must be non-negative")
 
