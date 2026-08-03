@@ -39,17 +39,7 @@ SELECTION_TOP_NS: tuple[int, ...] = (5, 10, 20)
 # threshold と同じ -0.3 を事前固定で用いる) 。
 DETERIORATION_THRESHOLD = -0.3
 
-QUALITY_HIGH_MIN_COUNT = 5
-QUALITY_LOW_MAX_COUNT = 3
 MIN_QUALITY_CONTROL_GROUP = 5
-QUALITY_CONTROL_FIELDS: tuple[str, ...] = (
-    "market_cap_oku",
-    "avg_turnover_oku",
-    "pbr",
-    "per_trailing",
-    "dividend_yield",
-    "price_change_60d",
-)
 RETURN_CHANGE_CONTROL_FIELDS: tuple[str, ...] = (
     "dividend_yield",
     "per_trailing",
@@ -65,10 +55,7 @@ RETURN_CHANGE_COMPONENT_FIELDS: tuple[str, ...] = (
 )
 MARGIN_DEADLINE_SHARE_EXCLUDE_AT_OR_ABOVE = 0.75
 MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR = -0.01
-MARGIN_HYPOTHESIS_AXES: tuple[str, ...] = (
-    "margin_short_to_adv",
-    "margin_long_to_adv_mcap_quintile_percentile",
-)
+MARGIN_HYPOTHESIS_AXES: tuple[str, ...] = ("margin_short_to_adv",)
 MARGIN_CONTROL_FIELDS: tuple[str, ...] = (
     "market_cap_oku",
     "avg_turnover_oku",
@@ -158,7 +145,6 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="srp_p_s", direction=-1),
     AxisSpec(name="net_share_change_yoy", direction=-1),
     AxisSpec(name="accruals_to_assets", direction=-1),
-    AxisSpec(name="quality_signal_count", direction=1),
     AxisSpec(name="dps_yoy_latest", direction=1),
     AxisSpec(name="share_count_reduction_streak", direction=1),
     AxisSpec(name="price_change_60d", direction=-1),
@@ -174,7 +160,6 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="margin_long_share", direction=-1),
     AxisSpec(name="margin_long_delta_26w", direction=-1),
     AxisSpec(name="margin_std_long_share", direction=-1),
-    AxisSpec(name="margin_long_to_adv_mcap_quintile_percentile", direction=-1),
     AxisSpec(name="normalized_per_3fy", direction=-1),
     AxisSpec(name="normalized_per_5fy", direction=-1),
 )
@@ -307,7 +292,6 @@ def _evaluate_cohort(
             "gates": {},
             "reversion": {},
             "crowded_value": {},
-            "quality_interaction": {},
             "shareholder_return_change": {},
             "margin_deadline_gate": {},
             "margin_supply_demand_hypotheses": {},
@@ -329,7 +313,6 @@ def _evaluate_cohort(
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
     asset_backed_hypotheses = _evaluate_asset_backed_hypotheses(population, excess)
-    quality_interaction = _evaluate_quality_interaction(population, excess)
     return_change = _evaluate_shareholder_return_change(population, excess)
     er_calibration = _evaluate_er_calibration(
         population, excess, years=require_horizon(horizon).months / 12
@@ -341,9 +324,6 @@ def _evaluate_cohort(
     }
     metric_statuses["er_calibration"] = "eligible" if er_calibration else "unresolved"
     metric_statuses["er_level_calibration"] = "eligible" if er_level_calibration else "unresolved"
-    metric_statuses["quality_interaction"] = (
-        "eligible" if quality_interaction.get("eligible_n", 0) else "unresolved"
-    )
     metric_statuses["shareholder_return_change"] = (
         "eligible" if return_change.get("eligible_n", 0) else "unresolved"
     )
@@ -386,7 +366,6 @@ def _evaluate_cohort(
         "gates": _evaluate_gates(population, excess),
         "reversion": _evaluate_reversion(population, excess),
         "crowded_value": _evaluate_crowded_value(population, excess),
-        "quality_interaction": quality_interaction,
         "shareholder_return_change": return_change,
         "margin_deadline_gate": margin_deadline_gate,
         "margin_supply_demand_hypotheses": margin_hypotheses,
@@ -767,58 +746,6 @@ def _evaluate_axis(
     }
 
 
-def _evaluate_quality_interaction(
-    population: Sequence[PanelRow], excess: Mapping[str, float]
-) -> dict[str, object]:
-    er_rows = sorted(
-        (row for row in population if row.er_annual is not None),
-        key=lambda row: (row.er_annual or 0.0, row.ticker),
-    )
-    if not er_rows:
-        return _empty_quality_interaction()
-    top_start = int((DECILES - 1) * len(er_rows) / DECILES)
-    er_top_decile = er_rows[top_start:]
-    eligible = [row for row in er_top_decile if row.quality_signal_count is not None]
-    high = [row for row in eligible if (row.quality_signal_count or 0) >= QUALITY_HIGH_MIN_COUNT]
-    low = [row for row in eligible if (row.quality_signal_count or 0) <= QUALITY_LOW_MAX_COUNT]
-    high_stats = _group_stats([excess[row.ticker] for row in high])
-    low_stats = _group_stats([excess[row.ticker] for row in low])
-    controls: dict[str, object] = {}
-    result: dict[str, object] = {
-        "er_top_decile_n": len(er_top_decile),
-        "eligible_n": len(eligible),
-        "high": high_stats,
-        "low": low_stats,
-        **_quality_group_deltas(high_stats, low_stats),
-        "controls": controls,
-    }
-    for field_name in QUALITY_CONTROL_FIELDS:
-        controls[field_name] = _stratified_quality_control(high, low, excess, field_name=field_name)
-    return result
-
-
-def _empty_quality_interaction() -> dict[str, object]:
-    empty = _group_stats(())
-    return {
-        "er_top_decile_n": 0,
-        "eligible_n": 0,
-        "high": empty,
-        "low": empty,
-        "median_excess_delta": None,
-        "mean_excess_delta": None,
-        "trap_rate_delta": None,
-        "controls": {
-            field_name: {
-                "strata_used": 0,
-                "matched_weight": 0,
-                "stratified_median_excess_delta": None,
-                "stratified_trap_rate_delta": None,
-            }
-            for field_name in QUALITY_CONTROL_FIELDS
-        },
-    }
-
-
 def _quality_group_deltas(
     high: Mapping[str, object], low: Mapping[str, object]
 ) -> dict[str, float | None]:
@@ -1046,12 +973,6 @@ def _evaluate_margin_supply_demand_hypotheses(
         spec = next(spec for spec in AXES if spec.name == axis_name)
         controls: dict[str, object] = {}
         for control_name in MARGIN_CONTROL_FIELDS:
-            if (
-                axis_name == "margin_long_to_adv_mcap_quintile_percentile"
-                and control_name == "market_cap_oku"
-            ):
-                controls[control_name] = {"normalized_in_axis": True}
-                continue
             controls[control_name] = _stratified_axis_control(
                 population,
                 excess,
@@ -1080,16 +1001,6 @@ def _evaluate_profit_normalization_hypotheses(
         for control_name in PROFIT_NORMALIZATION_CONTROL_FIELDS
     }
 
-    er_rows = sorted(
-        (row for row in population if row.er_annual is not None),
-        key=lambda row: (row.er_annual or 0.0, row.ticker),
-    )
-    top_start = int((DECILES - 1) * len(er_rows) / DECILES) if er_rows else 0
-    eligible = [row for row in er_rows[top_start:] if row.eps_cycle_peak_3fy is not None]
-    flagged = [excess[row.ticker] for row in eligible if row.eps_cycle_peak_3fy is True]
-    unflagged = [excess[row.ticker] for row in eligible if row.eps_cycle_peak_3fy is False]
-    flagged_stats = _group_stats(flagged)
-    unflagged_stats = _group_stats(unflagged)
     population_n = len(population)
 
     def coverage(field_name: str) -> float | None:
@@ -1105,17 +1016,6 @@ def _evaluate_profit_normalization_hypotheses(
         "normalized_per_3fy_coverage": coverage("normalized_per_3fy"),
         "normalized_per_5fy_coverage": coverage("normalized_per_5fy"),
         "normalized_per_3fy_controls": controls,
-        "cycle_peak_top_er_decile": {
-            "eligible_n": len(eligible),
-            "flagged": flagged_stats,
-            "unflagged": unflagged_stats,
-            "median_excess_delta": _rounded_delta(
-                unflagged_stats.get("median_excess"), flagged_stats.get("median_excess")
-            ),
-            "trap_rate_delta": _rounded_delta(
-                unflagged_stats.get("trap_rate"), flagged_stats.get("trap_rate")
-            ),
-        },
         "self_range_coverage": {
             f"at_least_{sessions}": (
                 round(
@@ -1733,7 +1633,6 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "cohort_count": len(cohorts),
         "axes": axis_summary,
         "selection": selection_summary,
-        "quality_interaction": _aggregate_quality_interaction(cohorts),
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
         "margin_deadline_gate": _aggregate_margin_deadline_gate(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
@@ -1833,8 +1732,6 @@ def _aggregate_margin_hypotheses(
                 if isinstance(weight, int):
                     accumulator.matched_weight += weight
         controls_summary = _control_summaries(control_values)
-        if axis_name == "margin_long_to_adv_mcap_quintile_percentile":
-            cast(dict[str, object], controls_summary["market_cap_oku"])["normalized_in_axis"] = True
         result[axis_name] = {
             "eligible_n": eligible_n,
             "controls": controls_summary,
@@ -1852,11 +1749,6 @@ def _aggregate_profit_normalization(
     coverage_3fy: list[float] = []
     coverage_5fy: list[float] = []
     self_coverage: dict[int, list[float]] = {750: [], 1250: [], 2500: []}
-    cycle_medians: list[float] = []
-    cycle_traps: list[float] = []
-    eligible_n = 0
-    flagged_n = 0
-    unflagged_n = 0
     for cohort in cohorts:
         hypotheses = cohort.get("profit_normalization_hypotheses")
         if not isinstance(hypotheses, dict):
@@ -1885,24 +1777,6 @@ def _aggregate_profit_normalization(
                 weight = control.get("matched_weight")
                 if isinstance(weight, int):
                     accumulator.matched_weight += weight
-        cycle = hypotheses.get("cycle_peak_top_er_decile")
-        if not isinstance(cycle, dict):
-            continue
-        flagged = cycle.get("flagged")
-        unflagged = cycle.get("unflagged")
-        if not isinstance(flagged, dict) or not isinstance(unflagged, dict):
-            continue
-        cohort_flagged_n = flagged.get("n")
-        cohort_unflagged_n = unflagged.get("n")
-        if not isinstance(cohort_flagged_n, int) or not isinstance(cohort_unflagged_n, int):
-            continue
-        if cohort_flagged_n < 5 or cohort_unflagged_n < 5:
-            continue
-        flagged_n += cohort_flagged_n
-        unflagged_n += cohort_unflagged_n
-        eligible_n += cohort_flagged_n + cohort_unflagged_n
-        _append_numeric(cycle.get("median_excess_delta"), cycle_medians)
-        _append_numeric(cycle.get("trap_rate_delta"), cycle_traps)
 
     return {
         "mean_normalized_per_3fy_coverage": (
@@ -1912,19 +1786,6 @@ def _aggregate_profit_normalization(
             round(fmean(coverage_5fy), 4) if coverage_5fy else None
         ),
         "normalized_per_3fy_controls": _control_summaries(controls),
-        "cycle_peak_top_er_decile": {
-            "comparable_cohorts": len(cycle_medians),
-            "eligible_n": eligible_n,
-            "flagged_n": flagged_n,
-            "unflagged_n": unflagged_n,
-            "mean_median_excess_delta": (round(fmean(cycle_medians), 6) if cycle_medians else None),
-            "median_delta_positive_share": (
-                round(sum(value > 0 for value in cycle_medians) / len(cycle_medians), 4)
-                if cycle_medians
-                else None
-            ),
-            "mean_trap_rate_delta": (round(fmean(cycle_traps), 6) if cycle_traps else None),
-        },
         "mean_self_range_coverage": {
             f"at_least_{sessions}": round(fmean(values), 4) if values else None
             for sessions, values in self_coverage.items()
@@ -2063,75 +1924,6 @@ def _aggregate_er_calibration(cohorts: Sequence[dict[str, object]]) -> dict[str,
             if realized_spreads
             else None
         ),
-    }
-
-
-def _aggregate_quality_interaction(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
-    median_deltas: list[float] = []
-    mean_deltas: list[float] = []
-    trap_deltas: list[float] = []
-    high_n = 0
-    low_n = 0
-    control_values = {
-        field_name: _QualityControlAccumulator(median_deltas=[], trap_deltas=[])
-        for field_name in QUALITY_CONTROL_FIELDS
-    }
-    for cohort in cohorts:
-        interaction = cohort.get("quality_interaction")
-        if not isinstance(interaction, dict):
-            continue
-        high = interaction.get("high")
-        low = interaction.get("low")
-        if isinstance(high, dict) and isinstance(high.get("n"), int):
-            high_n += int(high["n"])
-        if isinstance(low, dict) and isinstance(low.get("n"), int):
-            low_n += int(low["n"])
-        _append_numeric(interaction.get("median_excess_delta"), median_deltas)
-        _append_numeric(interaction.get("mean_excess_delta"), mean_deltas)
-        _append_numeric(interaction.get("trap_rate_delta"), trap_deltas)
-        controls = interaction.get("controls")
-        if not isinstance(controls, dict):
-            continue
-        for field_name in QUALITY_CONTROL_FIELDS:
-            control = controls.get(field_name)
-            if not isinstance(control, dict):
-                continue
-            summary = control_values[field_name]
-            median_value = control.get("stratified_median_excess_delta")
-            trap_value = control.get("stratified_trap_rate_delta")
-            if isinstance(median_value, int | float) and isinstance(trap_value, int | float):
-                summary.median_deltas.append(float(median_value))
-                summary.trap_deltas.append(float(trap_value))
-                summary.cohorts += 1
-                weight = control.get("matched_weight")
-                if isinstance(weight, int):
-                    summary.matched_weight += weight
-
-    controls_summary: dict[str, object] = {}
-    for field_name, values in control_values.items():
-        controls_summary[field_name] = {
-            "cohorts": values.cohorts,
-            "matched_weight": values.matched_weight,
-            "mean_stratified_median_excess_delta": (
-                round(fmean(values.median_deltas), 6) if values.median_deltas else None
-            ),
-            "mean_stratified_trap_rate_delta": (
-                round(fmean(values.trap_deltas), 6) if values.trap_deltas else None
-            ),
-        }
-    return {
-        "cohorts": len(median_deltas),
-        "high_n": high_n,
-        "low_n": low_n,
-        "mean_median_excess_delta": (round(fmean(median_deltas), 6) if median_deltas else None),
-        "median_delta_positive_share": (
-            round(sum(1 for value in median_deltas if value > 0) / len(median_deltas), 4)
-            if median_deltas
-            else None
-        ),
-        "mean_mean_excess_delta": round(fmean(mean_deltas), 6) if mean_deltas else None,
-        "mean_trap_rate_delta": round(fmean(trap_deltas), 6) if trap_deltas else None,
-        "controls": controls_summary,
     }
 
 

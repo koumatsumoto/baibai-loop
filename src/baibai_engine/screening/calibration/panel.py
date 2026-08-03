@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, fields
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
@@ -158,16 +158,6 @@ class PanelRow:
     cfo_yoy: float | None
     accruals_to_assets: float | None
     net_share_change_yoy: float | None
-    quality_roa_positive: bool | None
-    quality_delta_roa_positive: bool | None
-    quality_cfo_positive: bool | None
-    quality_accrual_healthy: bool | None
-    quality_delta_operating_margin_positive: bool | None
-    quality_delta_equity_ratio_positive: bool | None
-    quality_no_dilution: bool | None
-    quality_delta_asset_turnover_positive: bool | None
-    quality_signal_available_count: int
-    quality_signal_count: int | None
     ttm_quality_per_trailing: str
     ttm_quality_ocf_yield: str
     price_change_60d: float | None
@@ -213,12 +203,9 @@ class PanelRow:
     share_count_reduction_streak: int | None = None
     shareholder_return_change: bool | None = None
     margin_short_to_adv: float | None = None
-    margin_long_to_adv_mcap_quintile_percentile: float | None = None
     realized_volatility_60d: float | None = None
     normalized_per_3fy: float | None = None
     normalized_per_5fy: float | None = None
-    eps_cycle_percentile_3fy: float | None = None
-    eps_cycle_peak_3fy: bool | None = None
     self_range_observed_sessions: int = 0
 
 
@@ -463,20 +450,6 @@ def build_panel(
                 cfo_yoy=financial.cfo_yoy,
                 accruals_to_assets=financial.accruals_to_assets,
                 net_share_change_yoy=financial.net_share_change_yoy,
-                quality_roa_positive=financial.quality_roa_positive,
-                quality_delta_roa_positive=financial.quality_delta_roa_positive,
-                quality_cfo_positive=financial.quality_cfo_positive,
-                quality_accrual_healthy=financial.quality_accrual_healthy,
-                quality_delta_operating_margin_positive=(
-                    financial.quality_delta_operating_margin_positive
-                ),
-                quality_delta_equity_ratio_positive=(financial.quality_delta_equity_ratio_positive),
-                quality_no_dilution=financial.quality_no_dilution,
-                quality_delta_asset_turnover_positive=(
-                    financial.quality_delta_asset_turnover_positive
-                ),
-                quality_signal_available_count=financial.quality_signal_available_count,
-                quality_signal_count=financial.quality_signal_count,
                 ttm_quality_per_trailing=financial.ttm_quality_per_trailing.value,
                 ttm_quality_ocf_yield=financial.ttm_quality_ocf_yield.value,
                 price_change_60d=derived.price_change_60d,
@@ -504,12 +477,9 @@ def build_panel(
                 margin_long_share=derived.margin_long_share,
                 margin_long_delta_26w=derived.margin_long_delta_26w,
                 margin_std_long_share=derived.margin_std_long_share,
-                margin_long_to_adv_mcap_quintile_percentile=None,
                 realized_volatility_60d=derived.realized_volatility_60d,
                 normalized_per_3fy=normalized_profit.normalized_per_3fy,
                 normalized_per_5fy=normalized_profit.normalized_per_5fy,
-                eps_cycle_percentile_3fy=normalized_profit.eps_cycle_percentile_3fy,
-                eps_cycle_peak_3fy=normalized_profit.eps_cycle_peak_3fy,
                 self_range_observed_sessions=sum(
                     bar.traded_at <= asof_date for bar in bars_by_ticker.get(ticker, ())
                 ),
@@ -526,8 +496,6 @@ def build_panel(
                 shareholder_return_change=return_change.shareholder_return_change,
             )
         )
-
-    rows = _with_mcap_quintile_percentiles(rows)
 
     asof_priced = {
         ticker
@@ -647,16 +615,6 @@ def _unresolved_master_member_row(
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
-        quality_roa_positive=None,
-        quality_delta_roa_positive=None,
-        quality_cfo_positive=None,
-        quality_accrual_healthy=None,
-        quality_delta_operating_margin_positive=None,
-        quality_delta_equity_ratio_positive=None,
-        quality_no_dilution=None,
-        quality_delta_asset_turnover_positive=None,
-        quality_signal_available_count=0,
-        quality_signal_count=None,
         ttm_quality_per_trailing="unavailable",
         ttm_quality_ocf_yield="unavailable",
         price_change_60d=None,
@@ -682,7 +640,6 @@ def _unresolved_master_member_row(
         margin_long_share=None,
         margin_long_delta_26w=None,
         margin_std_long_share=None,
-        margin_long_to_adv_mcap_quintile_percentile=None,
         realized_volatility_60d=None,
         pass_screen=False,
         evidence_playbooks="",
@@ -695,51 +652,6 @@ def _unresolved_master_member_row(
         ),
         self_range_degraded=self_range_degraded,
     )
-
-
-def _with_mcap_quintile_percentiles(rows: list[PanelRow]) -> list[PanelRow]:
-    """Rank long/ADV only against names in the same cohort size quintile."""
-    eligible = sorted(
-        (
-            row
-            for row in rows
-            if row.in_population
-            and row.market_cap_oku is not None
-            and row.margin_long_to_adv is not None
-        ),
-        key=lambda row: (row.market_cap_oku or 0.0, row.ticker),
-    )
-    if not eligible:
-        return rows
-    quintiles: list[list[PanelRow]] = [[] for _ in range(5)]
-    for index, row in enumerate(eligible):
-        quintiles[min(index * 5 // len(eligible), 4)].append(row)
-
-    percentiles: dict[str, float] = {}
-    for group in quintiles:
-        ordered = sorted(group, key=lambda row: (row.margin_long_to_adv or 0.0, row.ticker))
-        if len(ordered) == 1:
-            percentiles[ordered[0].ticker] = 0.5
-            continue
-        index = 0
-        while index < len(ordered):
-            tie_end = index + 1
-            value = ordered[index].margin_long_to_adv
-            while tie_end < len(ordered) and ordered[tie_end].margin_long_to_adv == value:
-                tie_end += 1
-            average_zero_based_rank = (index + tie_end - 1) / 2
-            percentile = average_zero_based_rank / (len(ordered) - 1)
-            for tied in ordered[index:tie_end]:
-                percentiles[tied.ticker] = percentile
-            index = tie_end
-
-    return [
-        replace(
-            row,
-            margin_long_to_adv_mcap_quintile_percentile=percentiles.get(row.ticker),
-        )
-        for row in rows
-    ]
 
 
 def _unavailable_master_panel(
