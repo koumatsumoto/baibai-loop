@@ -154,11 +154,7 @@ def candidate_metrics_map(
         # 決算開示と as-of 財務のラグ (earnings_lag.py)。annotation であり ranking・
         # gate・E[r] へ入らない。fin_latest_disclosed_date は本行の財務が含む最後の
         # 開示、stale_fin_flag は「発表済みだが取込前」の窓に居ることを示す。
-        "fin_latest_disclosed_date": _date_iso(
-            financial.latest_disclosed_at
-            if earnings_lag is None
-            else earnings_lag.fin_latest_disclosed_date
-        ),
+        "fin_latest_disclosed_date": _date_iso(financial.latest_disclosed_at),
         "next_earnings_estimated_date": (
             None if earnings_lag is None else _date_iso(earnings_lag.next_earnings_estimated_date)
         ),

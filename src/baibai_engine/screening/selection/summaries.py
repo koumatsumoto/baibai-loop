@@ -110,13 +110,28 @@ def _next_earnings_status(candidate: Mapping[str, object], *, asof_date: date) -
     カレンダーは ticker あたり 1 行なので、発表当日はその行が as-of と同じ日付のまま
     残る。日付だけを見ても「これから」と「もう出た」が同じに見えるため、as-of との
     前後関係を状態として明示する。カレンダー行が無い ticker は推定日の有無で分ける。
+
+    読めない日付は ``unknown`` へ落とす。これは annotation の表示ラベルなので、値の
+    破損で selection 全体を落とすほうが影響が大きい。生の日付は行に残るので、読み手が
+    見るものは減らない。
     """
 
-    scheduled = string_or_none(candidate.get("next_earnings_date"))
+    scheduled = _parse_date_or_none(candidate.get("next_earnings_date"))
     if scheduled is not None:
-        return "scheduled" if date.fromisoformat(scheduled) > asof_date else "announced"
+        return "scheduled" if scheduled > asof_date else "announced"
     metrics = mapping_or_empty(candidate.get("metrics"))
-    return "estimated" if string_or_none(metrics.get("next_earnings_estimated_date")) else "unknown"
+    estimated = _parse_date_or_none(metrics.get("next_earnings_estimated_date"))
+    return "estimated" if estimated is not None else "unknown"
+
+
+def _parse_date_or_none(value: object) -> date | None:
+    text = string_or_none(value)
+    if text is None:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def _selection_candidate_summary(

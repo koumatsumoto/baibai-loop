@@ -21,7 +21,6 @@ from baibai_engine.screening.config import (
 from baibai_engine.screening.earnings_lag import (
     build_earnings_lag,
     index_calendar_announcements,
-    latest_disclosed_dates,
     tickers_without_calendar_rows,
 )
 from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
@@ -210,7 +209,6 @@ def run_command(
     normalized_split_bars_by_ticker = group_bars_by_ticker(normalized_split_bars)
     next_earnings_by_ticker = _index_next_earnings(earnings_snapshot.entries, asof_date)
     calendar_announcements = index_calendar_announcements(earnings_snapshot.entries, asof=asof_date)
-    latest_disclosed = latest_disclosed_dates(summaries_by_ticker, asof=asof_date)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
     )
@@ -316,7 +314,7 @@ def run_command(
                 earnings_lag=build_earnings_lag(
                     ticker=ticker,
                     asof=asof_date,
-                    latest_disclosed=latest_disclosed,
+                    fin_latest_disclosed=financial.latest_disclosed_at,
                     calendar_next=calendar_announcements,
                     summaries_by_ticker=summaries_by_ticker,
                 ),

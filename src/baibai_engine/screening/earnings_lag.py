@@ -45,22 +45,6 @@ class EarningsLag:
     stale_fin_flag: bool
 
 
-def latest_disclosed_dates(
-    summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]], *, asof: date
-) -> dict[str, date]:
-    """as-of 時点で store が持つ最新開示日を ticker ごとに返す。
-
-    未来日の開示は point-in-time 再構成を壊すので除く。
-    """
-
-    latest: dict[str, date] = {}
-    for ticker, summaries in summaries_by_ticker.items():
-        dates = [item.disclosed_at for item in summaries if item.disclosed_at <= asof]
-        if dates:
-            latest[ticker] = max(dates)
-    return latest
-
-
 def index_calendar_announcements(
     entries: Sequence[CalendarEntry], *, asof: date
 ) -> dict[str, date]:
@@ -152,19 +136,23 @@ def build_earnings_lag(
     *,
     ticker: str,
     asof: date,
-    latest_disclosed: Mapping[str, date],
+    fin_latest_disclosed: date | None,
     calendar_next: Mapping[str, date],
     summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
 ) -> EarningsLag:
     """1 ticker の annotation を組む。
 
-    ``stale_fin_flag`` は「カレンダーが as-of 以前の発表を指しているのに、store の最新
-    開示がそこから四半期分ずれている」で立つ。これは発表が済んだのに数字が追いついて
+    ``fin_latest_disclosed`` は行の財務が読んだ開示日そのものを受け取る。ここで数え
+    直すと「行が使った日」と「annotation が示す日」が静かにずれうるので、導出元は 1 つ
+    に保つ。
+
+    ``stale_fin_flag`` は「カレンダーが as-of 以前の発表を指しているのに、行の最新開示
+    がそこから四半期分ずれている」で立つ。これは発表が済んだのに数字が追いついて
     いない窓そのもので、判断面で最初に見たい条件である。カレンダーが未来を指す通常状態
     では立たず、予定日より数日早い開示も staleness と読まない。
     """
 
-    disclosed = latest_disclosed.get(ticker)
+    disclosed = fin_latest_disclosed
     announced_on = calendar_next.get(ticker)
     stale = (
         announced_on is not None
@@ -201,6 +189,5 @@ __all__ = [
     "build_earnings_lag",
     "estimate_next_announcement",
     "index_calendar_announcements",
-    "latest_disclosed_dates",
     "tickers_without_calendar_rows",
 ]

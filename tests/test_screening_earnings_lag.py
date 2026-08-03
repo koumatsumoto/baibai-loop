@@ -10,7 +10,6 @@ from baibai_engine.screening.earnings_lag import (
     build_earnings_lag,
     estimate_next_announcement,
     index_calendar_announcements,
-    latest_disclosed_dates,
     tickers_without_calendar_rows,
 )
 from baibai_engine.screening.providers.jquants import JQuantsFinancialSummary
@@ -37,6 +36,12 @@ def _quarterly_history(ticker: str, dates: Sequence[str]) -> list[JQuantsFinanci
     return [_summary(ticker, value) for value in dates]
 
 
+def _latest(summaries: Mapping[str, Sequence[JQuantsFinancialSummary]], ticker: str) -> date | None:
+    """What the snapshot builder reads: the newest disclosure in its own window."""
+    history = summaries.get(ticker, ())
+    return history[-1].disclosed_at if history else None
+
+
 class EarningsLagTests(unittest.TestCase):
     def test_announcement_on_the_asof_without_an_ingested_summary_is_stale(self) -> None:
         # 7943 shape: the calendar points at the as-of itself and the store's newest
@@ -46,7 +51,7 @@ class EarningsLagTests(unittest.TestCase):
         lag = build_earnings_lag(
             ticker="7943",
             asof=_ASOF,
-            latest_disclosed=latest_disclosed_dates(summaries, asof=_ASOF),
+            fin_latest_disclosed=_latest(summaries, "7943"),
             calendar_next=index_calendar_announcements(
                 [_Entry("7943", date(2026, 7, 31))], asof=_ASOF
             ),
@@ -61,7 +66,7 @@ class EarningsLagTests(unittest.TestCase):
         lag = build_earnings_lag(
             ticker="7943",
             asof=_ASOF,
-            latest_disclosed=latest_disclosed_dates(summaries, asof=_ASOF),
+            fin_latest_disclosed=_latest(summaries, "7943"),
             calendar_next=index_calendar_announcements(
                 [_Entry("7943", date(2026, 7, 31))], asof=_ASOF
             ),
@@ -79,7 +84,7 @@ class EarningsLagTests(unittest.TestCase):
         lag = build_earnings_lag(
             ticker="3536",
             asof=_ASOF,
-            latest_disclosed=latest_disclosed_dates(summaries, asof=_ASOF),
+            fin_latest_disclosed=_latest(summaries, "3536"),
             calendar_next=index_calendar_announcements(
                 [_Entry("3536", date(2026, 7, 15))], asof=_ASOF
             ),
@@ -94,7 +99,7 @@ class EarningsLagTests(unittest.TestCase):
         lag = build_earnings_lag(
             ticker="4849",
             asof=_ASOF,
-            latest_disclosed=latest_disclosed_dates(summaries, asof=_ASOF),
+            fin_latest_disclosed=_latest(summaries, "4849"),
             calendar_next=index_calendar_announcements(
                 [_Entry("4849", date(2026, 8, 6))], asof=_ASOF
             ),
@@ -116,7 +121,7 @@ class EarningsLagTests(unittest.TestCase):
         lag = build_earnings_lag(
             ticker="4202",
             asof=_ASOF,
-            latest_disclosed=latest_disclosed_dates(summaries, asof=_ASOF),
+            fin_latest_disclosed=_latest(summaries, "4202"),
             calendar_next=index_calendar_announcements([], asof=_ASOF),
             summaries_by_ticker=summaries,
         )
@@ -131,10 +136,19 @@ class EarningsLagTests(unittest.TestCase):
 
         self.assertIsNone(estimate_next_announcement(summaries["9999"], asof=_ASOF))
 
-    def test_disclosures_after_the_asof_are_not_read(self) -> None:
-        summaries = {"1111": _quarterly_history("1111", ["2026-05-12", "2026-08-05"])}
+    def test_the_reported_disclosure_is_the_one_the_row_read(self) -> None:
+        # The annotation must not re-derive the date: a second derivation can drift
+        # from the disclosure the snapshot actually built its financials from.
+        summaries = {"1111": _quarterly_history("1111", ["2026-01-30", "2026-05-12"])}
+        lag = build_earnings_lag(
+            ticker="1111",
+            asof=_ASOF,
+            fin_latest_disclosed=date(2026, 5, 12),
+            calendar_next=index_calendar_announcements([], asof=_ASOF),
+            summaries_by_ticker=summaries,
+        )
 
-        self.assertEqual(latest_disclosed_dates(summaries, asof=_ASOF), {"1111": date(2026, 5, 12)})
+        self.assertEqual(lag.fin_latest_disclosed_date, date(2026, 5, 12))
 
     def test_a_past_calendar_row_wins_over_a_future_one(self) -> None:
         # Staleness is only answerable about an announcement that already happened.
@@ -225,6 +239,23 @@ class EarningsLagAnnotationIsolationTests(unittest.TestCase):
         self.assertIn("stale_financials", row["risk_tags"])
         self.assertTrue(row["stale_fin_flag"])
         self.assertEqual(row["fin_latest_disclosed_date"], "2026-05-13")
+
+    def test_an_unreadable_date_degrades_the_label_instead_of_the_selection(self) -> None:
+        # An annotation label must not be able to fail the payload it annotates.
+        payload = self._payload(
+            [
+                {**_candidate("1111"), "next_earnings_date": "not-a-date"},
+                _candidate("2222", next_earnings_estimated_date="also-not-a-date"),
+            ]
+        )
+        recommendations = payload["recommendations"]
+        assert isinstance(recommendations, list)
+
+        self.assertEqual(
+            {item["ticker"]: item["next_earnings_status"] for item in recommendations},
+            {"1111": "unknown", "2222": "unknown"},
+        )
+        self.assertEqual(recommendations[0]["next_earnings_date"], "not-a-date")
 
     def test_next_earnings_status_separates_scheduled_announced_and_estimated(self) -> None:
         payload = self._payload(
