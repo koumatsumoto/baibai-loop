@@ -16,7 +16,15 @@ description: 買い機会の発見と絞り込み。screening run → select →
 
 ## 手順
 
-1. **データ準備**（日次 batch が当日分を完走済みなら 4 へ）:
+1. **データ準備**（日次 batch が当日分を完走済みなら、batch が publish した run / selection を再利用して 4 へ。同一 as-of の `screening run` 打ち直しは 3 世代 retention を焼くので行わない）:
+
+   ```bash
+   # batch の成果物を再利用する場合の ID 取得（最新 selection とその bound run）
+   sqlite3 data/screening/runs.sqlite \
+     "SELECT selection_id, run_revision_id, created_at FROM screening_selection \
+      ORDER BY created_at DESC LIMIT 3;"
+   ```
+
 
    ```bash
    uv run baibai-engine screening verify-cache-coverage --asof <ASOF>
@@ -52,7 +60,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
    8. macro connection の research hint / sizing caution / estimate_caveats / bargain_topography のうち該当分を消化したか（該当なしの判断も書く）
    9. rejected 全件に具体的理由と `reject_class`（disposition_reason が正本、class は集計専用）
 
-8. **publish**: [`tools/shortlist/draft-template.yaml`](../../../tools/shortlist/draft-template.yaml) を写して記入し、source `selection_id` へ束縛して `uv run baibai-engine screening shortlist publish <draft>`。publisher が longlist 行（rank・FV アンカー・参考価格・warning）を entry へ焼き込むので、run が prune された後もレビュー面が判断根拠を読める。件数契約は 8〜10 件だが、基準を下げて枠を埋めない（selected 0 件も正常で、その cycle は shortlist が正本判断になり session をここで complete する）。draft に `er_annual` を書かない（publisher が bound run から焼き込む）。
+8. **publish**: [`tools/shortlist/draft-template.yaml`](../../../tools/shortlist/draft-template.yaml) を写して記入し、source `selection_id` へ束縛して `uv run baibai-engine screening shortlist publish <draft>`。publisher が longlist 行（rank・FV アンカー・参考価格・warning）を entry へ焼き込むので、run が prune された後もレビュー面が判断根拠を読める。件数契約（8〜10 件）は **narrative 付き selected entry 数の目安**であり、entries 総数ではない（rejected を含む entries は longlist 全件で可）。基準を下げて枠を埋めない（selected 0 件も正常で、その cycle は shortlist が正本判断になり session をここで complete する）。draft に `er_annual` を書かない（publisher が bound run から焼き込む）。
 9. **検証**: publish された全 entry の焼き込み E[r] を bound run と機械照合する。stderr に印字される follow-up task 提案（rejected の決算日 re-entry trigger）から `task add` を実行する。
 10. **cloud 反映**: `tools/cloud/r2_transfer.sh push-app` → `gh workflow run cloud-materialize` → run の completed success を確認。
 11. **checkpoint と報告**: session checkpoint を更新し、レビュー面（`/stocks/shortlist`）へ誘導する報告を出す。各 ticker に TradingView link（`https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`）を付け、件数契約からの逸脱・機械順位との乖離・残 risk を明記する。人間の選択を待つ（session は active のまま `research` skill へ）。
@@ -60,7 +68,8 @@ description: 買い機会の発見と絞り込み。screening run → select →
 ## 既知の gotcha
 
 - run store は 3 世代 retention。selection output のローカルファイルを消しても `screening selection show --selection-id <ID>` で読み直せる（bound run の evict 後も取れる）。
-- 同じ as-of を作り直すと 3 世代を食い潰して前 as-of の run が消え、差分の前回側が空になる（前回候補上限の cap も効かなくなる）。`tools/cloud/r2_transfer.sh pull-longlist-history <DIR>` で永続 record を取り、手順 3 の select へ `--longlist-history-dir <DIR>` を渡すと前回側を復元できる。
+- 同じ as-of を作り直すと 3 世代を食い潰して前 as-of の run が消え、差分の前回側が空になる（前回候補上限の cap も効かなくなる）。`tools/cloud/r2_transfer.sh pull-longlist-history <DIR>` で永続 record を取り、手順 3 の select へ `--longlist-history-dir <DIR>` を渡すと前回側を復元できる。**ただしローカル R2 token は serving bucket（`history/longlists/` の実体）へのアクセス権を持たず、ローカルからは AccessDenied で実行不能（CI 専用）**。ローカル cycle での fallback は前回 shortlist（application DB 永続）との比較。
+- `operation checkpoint` の `--payload` は **JSON ファイルのパス**を取る（JSON 文字列を直接渡すとファイル名として解釈され失敗する）。
 - `select` の再実行は**新しい selection を publish する**（冪等でない）。既存 selection の再取得には使わない。
 - machine recommendation を shortlist と呼ばない。review 済み draft の publish だけが shortlist である。
 
