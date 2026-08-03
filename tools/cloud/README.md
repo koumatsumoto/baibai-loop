@@ -142,7 +142,7 @@ gh workflow run cloud-daily-batch.yml --ref main -f asof=YYYY-MM-DD
 gh run list --workflow cloud-daily-batch.yml --limit 10
 ```
 
-通常cronは平日09:30 UTC（18:30 JST）。株価日足の16:30 JST更新と、18:00 JST更新のJPX系日次datasetの後に余裕を置く。GitHub Actionsのschedule遅延は許容し、UIのas-ofとworkflow履歴で検知する。
+通常cronは平日08:23 UTC（17:23 JST）。同日必須なのは`asof = today`が依存する株価日足の16:30 JST更新だけで、遅配に約50分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容し、UIのas-ofとworkflow履歴で検知する。
 
 `daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
