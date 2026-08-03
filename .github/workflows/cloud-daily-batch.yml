@@ -2,8 +2,16 @@ name: cloud-daily-batch
 
 on:
   schedule:
-    # 18:30 JST: after the 16:30 daily-price update and other 18:00 JPX datasets.
-    - cron: "30 9 * * 1-5"
+    # 17:23 JST. The only same-day requirement is the 16:30 J-Quants daily-price
+    # update, which `asof = today` depends on; the run keeps ~50 minutes of margin
+    # for a late publish. The JPX regulation pages are event-driven status pages the
+    # coverage gate accepts for 7 business days, and the margin balances are weekly,
+    # so neither needs the evening refresh — a designation landing after this run is
+    # picked up the next business day.
+    #
+    # The odd minute is deliberate: GitHub concentrates scheduled work on :00 / :15 /
+    # :30 / :45, and a schedule pinned there waits behind that queue.
+    - cron: "23 8 * * 1-5"
   workflow_dispatch:
     inputs:
       asof:
@@ -105,7 +113,9 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh pull-all
+        run: |
+          tools/cloud/r2_transfer.sh pull-machine
+          tools/cloud/r2_transfer.sh pull-app
 
       - name: Preserve and verify market schema v13 rollback
         id: preserve-market-v13

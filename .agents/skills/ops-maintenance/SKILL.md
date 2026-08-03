@@ -25,7 +25,7 @@ description: 機械の健全性維持。daily batch 監視、store 同期（R2 p
 | --- | --- | --- |
 | market / machine（runs） | R2 | 読む前に `pull-market` / `pull-machine`。push は script が **R2 copy を merge してから upload**（merge-then-push）。ローカルだけで長く作業した store を直接 push しない |
 | macro（indicators） | R2 | 同上（`push-macro` は no-loss merge。誤値の訂正は削除でなく `macro retract` — 契約は [`macro.md`](../../../docs/reference/macro.md)） |
-| app（baibai.sqlite） | **local** | 判断はローカルが正本。publish 後に `push-app`（直 push）→ materialize |
+| app（baibai.sqlite） | **local** | 判断はローカルが正本。publish 後に `push-app`（直 push）→ materialize。**pull しない** — `pull-app` はローカルに store があれば止まる（cloud copy で置換すると未 push の判断が消える）|
 
 cloud 障害は「store が code より古い」形で出ることが多い。再現はローカルへ R2 store を pull して read 経路を通す。
 

@@ -183,6 +183,62 @@ def test_pull_longlist_history_refuses_to_overwrite_a_local_target(tmp_path: Pat
     assert not log.exists()
 
 
+APP_STORE = REPO_ROOT / "data/app/baibai.sqlite"
+
+
+def test_pull_app_refuses_to_overwrite_a_local_application_store(tmp_path: Path) -> None:
+    # The application DB is canonical on the operator's machine: judgments are
+    # published locally and only then pushed. Replacing it with the cloud copy
+    # destroys anything published since the last push, and nothing can rebuild it.
+    bin_dir, log = _fake_aws(tmp_path)
+    created = not APP_STORE.exists()
+    if created:
+        APP_STORE.parent.mkdir(parents=True, exist_ok=True)
+        APP_STORE.write_bytes(b"local")
+    try:
+        completed = subprocess.run(
+            [TRANSFER_SCRIPT, "pull-app"],
+            cwd=REPO_ROOT,
+            env=_environment(bin_dir, log),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        if created:
+            APP_STORE.unlink()
+
+    assert completed.returncode == 2
+    assert "refusing application store download overwrite" in completed.stderr
+    assert not log.exists()
+
+
+def test_only_the_application_pull_names_the_application_store() -> None:
+    """No other pull command may reach `baibai.sqlite`.
+
+    The guard inside `pull_app` is the second line of defence; the first is that no
+    bulk command lists the application store at all. Asserting the dispatch source
+    keeps that structural, because actually running a pull here would write to the
+    operational store paths (the script resolves them from its own location).
+    """
+    script = TRANSFER_SCRIPT.read_text(encoding="utf-8")
+    dispatch = script[script.index('case "${1:-}" in') :]
+    pulls = {
+        line.split(")")[0].strip()
+        for line in dispatch.splitlines()
+        if line.strip().startswith("pull-") and line.strip().endswith(")")
+    }
+    naming_app = {
+        command
+        for command in pulls
+        if "baibai.sqlite" in dispatch.split(f"  {command})")[1].split(";;")[0]
+        or command == "pull-app"
+    }
+
+    assert pulls == {"pull-app", "pull-machine", "pull-market", "pull-longlist-history"}
+    assert naming_app == {"pull-app"}
+
+
 def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     output = tmp_path / "serving"

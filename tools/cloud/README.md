@@ -142,7 +142,7 @@ gh workflow run cloud-daily-batch.yml --ref main -f asof=YYYY-MM-DD
 gh run list --workflow cloud-daily-batch.yml --limit 10
 ```
 
-通常cronは平日09:30 UTC（18:30 JST）。株価日足の16:30 JST更新と、18:00 JST更新のJPX系日次datasetの後に余裕を置く。GitHub Actionsのschedule遅延は許容し、UIのas-ofとworkflow履歴で検知する。
+通常cronは平日08:23 UTC（17:23 JST）。同日必須なのは`asof = today`が依存する株価日足の16:30 JST更新だけで、遅配に約50分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容し、UIのas-ofとworkflow履歴で検知する。
 
 `daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
@@ -166,6 +166,7 @@ npx wrangler secret put VIEW_PASSWORD
 - `.bak`は1世代のみで、次のpushで置き換わる。日次batchが毎営業日pushするため、実質の巻き戻し猶予は約24時間である。registry編集後は日次workflowの`registry-prune-pending` / `registry-prune`行（transaction ID・series ID・observation/provider-run削除件数）を当日中に確認する。pending に対応する committed 行が無い実行や意図しないpruneを検出したら、次のpushが`.bak`を置き換える前に状態を確認・復元する。
 - 初回seedは既存のstore keyを1件でも検出したら停止し、再seedによるクラウド正本の上書きを許可しない。
 - pullは固定4 key以外を受け付けず、全downloadと`quick_check`完了後に置換する。
+- application store (`baibai.sqlite`) のpullは`pull-app`だけが行い、bulk pullは触らない。この storeの正本はローカルで、判断はローカルでpublishしてから`push-app`でcloudへ出すため、publish済みで未pushの窓ではローカルがcloudより進んでいる。cloud copyでの置換は再生成できないjudgmentを消すので、`pull-app`はローカルにfileがあれば止める。CIはcheckout直後で`data/app/`が空なので素通りする。ローカルで意図して置き換えるときは、既存fileを自分で退避してから実行する。
 - servingの`views/`は`aws s3 sync --delete`で完全像に合わせる。historyは追記だけで削除しない。
 - `views/meta.json`は他のviewとhistoryが全て成功した後に最後にuploadする。
 - bucket名は`R2_STORES_BUCKET` / `R2_SERVING_BUCKET`で明示的にoverrideできるが、通常は固定defaultを使う。

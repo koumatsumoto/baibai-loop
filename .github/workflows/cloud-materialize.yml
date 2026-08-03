@@ -35,7 +35,9 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh pull-all
+        run: |
+          tools/cloud/r2_transfer.sh pull-machine
+          tools/cloud/r2_transfer.sh pull-app
 
       - name: Materialize read models
         run: uv run python tools/cloud/export_read_models.py --output-dir "$RUNNER_TEMP/serving" --batch manual

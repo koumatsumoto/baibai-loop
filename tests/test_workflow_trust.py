@@ -36,7 +36,7 @@ EXPECTED_CREDENTIAL_NAMES = {
     "Deploy Worker and UI assets": {"CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"},
 }
 EXPECTED_COMMAND_DIGESTS = {
-    "Pull stores": "780a95f3b25500a874a2ee837427e187bc874a76e5d8801a8075157112d6ac25",
+    "Pull stores": "f10acd1ea74423745ea80b3d3ee8d4e94e18ec94147bde133706bebcfafecfc8",
     "Pull the market store": "938b1c2bd6098ce32f515950463f176acac30d0a9ad51381a3f441a4a64d437a",
     "Preserve and verify market schema v13 rollback": (
         "7e7969d7b402806371483432f9c55dd446a1ea9fd9793cb4f74a08d6abbe49eb"
@@ -187,10 +187,8 @@ def test_credential_step_rejects_any_unreviewed_command(
     path = _fixture(
         tmp_path,
         text.replace(
-            "        run: tools/cloud/r2_transfer.sh pull-all",
-            "        run: |\n"
-            "          tools/cloud/r2_transfer.sh pull-all\n"
-            f"          {unknown_command}",
+            "          tools/cloud/r2_transfer.sh pull-app",
+            f"          tools/cloud/r2_transfer.sh pull-app\n          {unknown_command}",
             1,
         ),
         name="cloud-daily-batch.yml",

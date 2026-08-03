@@ -255,6 +255,20 @@ upload_serving() {
   aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
 }
 
+pull_app() {
+  # application DB の正本はローカルにある (判断はローカルで publish し、`push-app` で
+  # cloud へ出す)。cloud copy で置換してよいのは「ローカルに正本が無い」ときだけなので、
+  # ファイルがあれば止める。publish 済みで未 push の判断は再生成できず、上書きすると
+  # 復元手段が無い。CI は checkout 直後で data/app/ が空なので素通りする。
+  local target
+  target="$(store_path baibai.sqlite)"
+  if [[ -e "${target}" ]]; then
+    printf 'refusing application store download overwrite: %s\n' "${target}" >&2
+    return 2
+  fi
+  pull_keys baibai.sqlite
+}
+
 pull_longlist_history() {
   local output_dir="$1"
   if [[ -e "${output_dir}" ]]; then
@@ -279,13 +293,13 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-all|pull-machine|pull-market|pull-longlist-history DIR|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-longlist-history DIR|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
 case "${1:-}" in
-  pull-all)
-    pull_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite
+  pull-app)
+    pull_app
     ;;
   pull-machine)
     pull_keys market.sqlite runs.sqlite macro.sqlite
