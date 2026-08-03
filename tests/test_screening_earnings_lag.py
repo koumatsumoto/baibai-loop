@@ -184,9 +184,12 @@ class EstimateTests(unittest.TestCase):
     def test_a_forecast_revision_is_not_a_cycle_step(self) -> None:
         # Forecast and dividend revisions land in the same table with no actuals.
         # Counting one as a quarter shifts the projection onto the revision's date.
+        # The revision lands after the period closed but three weeks before the
+        # statement for it, so keeping it as that period's step pulls the whole
+        # projection forward — here far enough to be discarded as already past.
         history = [
             *_cycle(("2025-05-12", "2025-03-31")),
-            _forecast_revision("2025-06-20", "2026-03-31"),
+            _forecast_revision("2025-07-15", "2025-06-30"),
             *_cycle(("2025-08-06", "2025-06-30"), ("2026-05-12", "2026-03-31")),
         ]
 
