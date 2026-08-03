@@ -57,8 +57,8 @@ description: 買い機会の発見と絞り込み。screening run → select →
 
 ## 既知の gotcha
 
-- run store は 3 世代 retention。selection output のローカルファイルを消すと、bound run の evict 後は `data/screening/runs.sqlite` の `screening_selection.payload` からの復元が必要になる（手順は research skill）。
-- `select` の再実行は**新しい selection を publish する**（冪等でない）。既存 selection の再取得は runs.sqlite から行う。
+- run store は 3 世代 retention。selection output のローカルファイルを消しても `screening selection show --selection-id <ID>` で読み直せる（bound run の evict 後も取れる）。
+- `select` の再実行は**新しい selection を publish する**（冪等でない）。既存 selection の再取得には使わない。
 - machine recommendation を shortlist と呼ばない。review 済み draft の publish だけが shortlist である。
 
 ## 参照

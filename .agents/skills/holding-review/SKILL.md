@@ -14,8 +14,8 @@ description: 保有銘柄の見直し。決算・material event・FV 到達・�
 
    ```bash
    uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite \
-     --sqlite data/screening/market.sqlite --asof <最新完全営業日> --out /tmp/market-price-draft.yaml
-   uv run baibai-engine position apply-draft /tmp/market-price-draft.yaml --db data/app/baibai.sqlite --confirmed
+     --sqlite data/screening/market.sqlite --asof <最新完全営業日> --out .cache/ledger/market-price-draft.yaml
+   uv run baibai-engine position apply-draft .cache/ledger/market-price-draft.yaml --db data/app/baibai.sqlite --confirmed
    ```
 
 3. **workspace**（保有 lane は screening selection を要求しない）:
@@ -33,9 +33,9 @@ description: 保有銘柄の見直し。決算・material event・FV 到達・�
 
    ```bash
    uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite \
-     --thesis-id <THESIS_ID> --position-id <POSITION_ID> --out /tmp/holding-review.yaml
-   uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input /tmp/holding-review.yaml
-   uv run baibai-engine position holding-review publish /tmp/holding-review.yaml \
+     --thesis-id <THESIS_ID> --position-id <POSITION_ID> --out .cache/holding-review/review.yaml
+   uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input .cache/holding-review/review.yaml
+   uv run baibai-engine position holding-review publish .cache/holding-review/review.yaml \
      --db data/app/baibai.sqlite --thesis-id <THESIS_ID>
    ```
 

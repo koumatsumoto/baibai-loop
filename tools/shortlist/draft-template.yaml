@@ -55,4 +55,4 @@ entries:
   - ticker: "YYYY"
     decision: rejected
     reason: "非選択の具体的理由"
-    reject_class: price_already_converged   # reject_class taxonomy は shortlist skill を参照
+    reject_class: price_already_converged   # 未定義値は publish が許容値を列挙して拒否する
