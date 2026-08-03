@@ -21,6 +21,10 @@ description: 人間が選んだ primary-research set の深掘り。一次情報
      --db data/app/baibai.sqlite --workspace .cache/opportunity/<ASOF>
    ```
 
+   `--selection-output` は **workspace 外**（scratchpad 等）に置く。prepare は入力ファイルの
+   sha256 を manifest に固定して workspace へコピーするので、workspace 内のパスを渡すと入力と
+   コピーが同一ファイルになり、手順 2 の shortlist 記入編集が `input hash drift` で拒否される。
+
    selection output が手元に無ければ run store から read-only で取り出す（bound run が
    evict 済みでも取れる。`select` の再実行は新しい selection を publish してしまうので使わない）:
 
