@@ -9,7 +9,9 @@ description: 機械の健全性維持。daily batch 監視、store 同期（R2 p
 
 ## Daily batch 監視
 
-`cloud-daily-batch` が東証営業日 18:30 JST に coverage → EDINET 抽出 → run → select → macro refresh → export → prune を 1 コマンドで回す（契約は [`tools/cloud/README.md`](../../../tools/cloud/README.md)）。Discord `#batch-runs` の `[OK]` / 失敗通知が唯一の push 経路で、通知本文に当日の差分件数が載る。
+`cloud-daily-batch` が東証営業日 17:23 JST に coverage → EDINET 抽出 → run → select → macro refresh → export → prune を 1 コマンドで回す（契約は [`tools/cloud/README.md`](../../../tools/cloud/README.md)）。Discord `#batch-runs` の `[OK]` / 失敗通知に当日の差分件数が載る。
+
+push の経路は 2 本ある。run が起動すれば run 自身が結果を通知し、起動しなければ `cloud-batch-watchdog`（平日 21:00 JST）が同じ channel へ `[MISSING]` を送る。したがって **`#batch-runs` の沈黙は「当日の batch が正常だった」を意味する**。UI の as-of と workflow 履歴は裏取り用の pull 経路であって、欠測の第一発見手段ではない。
 
 失敗時の入口:
 
@@ -17,7 +19,9 @@ description: 機械の健全性維持。daily batch 監視、store 同期（R2 p
 - **validation 失敗**: application service / DB constraint / model validation の error path を読み、schema・validator の意味を推測で変えない（必要なら issue）。
 - **automation 失敗**: screening CLI は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md)、バッチ経路は [`architecture.md#cloud-serving-layer`](../../../docs/architecture.md#cloud-serving-layer)、CI/local parity は [`python-foundation.md`](../../../docs/reference/python-foundation.md)。
 
-失敗 run は publish が skip され正本は変わらない。復旧後の再実行は `gh workflow run cloud-daily-batch`（必要なら `MANUAL_ASOF` dispatch input）。**古い workflow revision の rerun は使わない**（main の現行コードで dispatch し直す）。
+- **欠測（`[MISSING]` が届く / 何も届かない）**: schedule run が起動していない。`gh run list --workflow=cloud-daily-batch.yml` で当日の run を確認し、無ければ下記の手順で当日分を dispatch する。過去日の判定をやり直すときは `gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>`（その日の 21:00 JST に発火した watchdog と同じ窓を評価する）。
+
+失敗 run は publish が skip され正本は変わらない。復旧後の再実行は `gh workflow run cloud-daily-batch`（必要なら `MANUAL_ASOF` dispatch input）。**古い workflow revision の rerun は使わない**（main の現行コードで dispatch し直す）。復旧 dispatch が成功すれば watchdog の窓に入るので、当日中の復旧なら警報は出ない。
 
 ## Store 同期（`tools/cloud/r2_transfer.sh`）
 
