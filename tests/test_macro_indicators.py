@@ -3729,6 +3729,96 @@ class IndicatorsProviderParserTests(unittest.TestCase):
                 end=date(2026, 7, 20),
             )
 
+    def test_parse_multpl_history_accepts_month_start_without_current_month_row(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        html = """
+        <table id="datatable">
+          <tr><th>Date</th><th>Value</th></tr>
+          <tr><td>Aug 3, 2026</td><td>37.80</td></tr>
+          <tr><td>Jul 1, 2026</td><td>37.50</td></tr>
+          <tr><td>Jun 1, 2026</td><td>37.00</td></tr>
+        </table>
+        """
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 8, 3),
+        ):
+            observations = parse_multpl_history(
+                series,
+                html,
+                start=date(2026, 7, 20),
+                end=date(2026, 8, 3),
+            )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 8, 3), 37.80)],
+        )
+
+    def test_parse_multpl_history_rejects_history_ending_before_previous_month(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        html = """
+        <table id="datatable">
+          <tr><th>Date</th><th>Value</th></tr>
+          <tr><td>Aug 3, 2026</td><td>37.80</td></tr>
+          <tr><td>Jun 1, 2026</td><td>37.00</td></tr>
+          <tr><td>May 1, 2026</td><td>36.50</td></tr>
+        </table>
+        """
+
+        with (
+            patch(
+                "baibai_engine.macro.indicators.providers.multpl._today_jst",
+                return_value=date(2026, 8, 3),
+            ),
+            self.assertRaisesRegex(IndicatorsProviderError, "ends before 2026-07-01"),
+        ):
+            parse_multpl_history(
+                series,
+                html,
+                start=date(2026, 7, 20),
+                end=date(2026, 8, 3),
+            )
+
+    def test_multpl_all_history_accepts_month_start_without_current_month_row(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        html = _multpl_monthly_table(floor=date(1871, 2, 1), latest=date(2026, 7, 1))
+
+        with patch(
+            "baibai_engine.macro.indicators.providers.multpl._today_jst",
+            return_value=date(2026, 8, 3),
+        ):
+            observations = parse_multpl_history(
+                series,
+                html,
+                start=date(1871, 1, 1),
+                end=date(2026, 8, 3),
+            )
+
+        self.assertEqual(observations[0].observed_at, date(2026, 7, 1))
+        self.assertEqual(observations[-1].observed_at, date(1871, 2, 1))
+
+    def test_multpl_all_history_rejects_gap_before_current_month(self) -> None:
+        series = _series("multpl", "shiller-pe")
+        html = _multpl_monthly_table(
+            floor=date(1871, 2, 1), latest=date(2026, 7, 1), omit=date(2020, 5, 1)
+        )
+
+        with (
+            patch(
+                "baibai_engine.macro.indicators.providers.multpl._today_jst",
+                return_value=date(2026, 8, 3),
+            ),
+            self.assertRaisesRegex(IndicatorsProviderError, "missing monthly value.*2020-05-01"),
+        ):
+            parse_multpl_history(
+                series,
+                html,
+                start=date(1871, 1, 1),
+                end=date(2026, 8, 3),
+            )
+
     def test_multpl_uses_japan_operation_date(self) -> None:
         series = _series("multpl", "shiller-pe")
         response = _FakeResponse(b"Current Shiller PE Ratio is 40.70")
@@ -6058,6 +6148,25 @@ def _obs(series_id: str, observed_at: date, value: float) -> ObservationRecord:
         source_url="https://example.com/data.csv",
         vintage_at=datetime.now(UTC),
     )
+
+
+def _multpl_monthly_table(*, floor: date, latest: date, omit: date | None = None) -> str:
+    """Render a multpl by-month table covering ``floor``..``latest`` inclusive.
+
+    Month arithmetic is spelled out here rather than reused from the provider so a
+    defect in the provider's month stepping cannot cancel itself out in the fixture.
+    """
+    rows: list[str] = []
+    month = floor
+    while month <= latest:
+        if month != omit:
+            rows.append(f"<tr><td>{month:%b} 1, {month.year}</td><td>20.0</td></tr>")
+        month = (
+            date(month.year + 1, 1, 1)
+            if month.month == 12
+            else month.replace(month=month.month + 1)
+        )
+    return '<table id="datatable">' + "".join(reversed(rows)) + "</table>"
 
 
 def _series(
