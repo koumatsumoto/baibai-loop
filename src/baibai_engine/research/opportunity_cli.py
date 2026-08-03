@@ -1,6 +1,10 @@
 """CLI for opportunity authoring: prepare / status / thesis-scaffold /
 review-scaffold / promote / plan-limit / assessment-scaffold / assessment-publish.
 
+This is also the `baibai-engine research` help surface, so the read-only `evaluate`
+command is declared here and forwarded to :mod:`decision_cli`, which keeps its own
+arguments and its own exit codes.
+
 Machine output is YAML on stdout only; human explanation and errors go to stderr.
 Exit codes:
 
@@ -112,6 +116,14 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--ticker", required=True)
     review_parser.add_argument("--force", action="store_true")
 
+    # Listed for discovery; `main` hands this off before parsing so the evaluation
+    # command keeps its own arguments, its own `--help`, and its own exit codes.
+    subparsers.add_parser(
+        "evaluate",
+        help="evaluate a thesis draft against the decision gate (read-only)",
+        add_help=False,
+    )
+
     promote_parser = subparsers.add_parser(
         "promote", help="publish the canonical thesis/review to the application DB"
     )
@@ -165,8 +177,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "evaluate":
+        # Returned unwrapped: evaluation reports "not decision-ready" as exit 2,
+        # which is not this CLI's usage/data/conflict code set.
+        from .decision_cli import main as evaluate_main
+
+        return evaluate_main(arguments[1:], now=now)
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     out = sys.stdout
     resolved_now = now or datetime.now(JST)
     try:

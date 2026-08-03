@@ -41,14 +41,6 @@ def _delegate(domain: str, arguments: list[str]) -> int:
 
         return main(arguments)
     if domain == "macro":
-        if arguments and arguments[0] == "context":
-            from baibai_engine.macro.context.cli import main
-
-            return main(arguments[1:])
-        if arguments and arguments[0] == "reading":
-            from baibai_engine.macro.reading.cli import main
-
-            return main(arguments[1:])
         from baibai_engine.macro.indicators.cli import main
 
         return main(arguments)
@@ -69,10 +61,6 @@ def _delegate(domain: str, arguments: list[str]) -> int:
 
         return main(arguments)
     if domain == "research":
-        if arguments and arguments[0] == "evaluate":
-            from baibai_engine.research.decision_cli import main
-
-            return main(arguments[1:])
         from baibai_engine.research.opportunity_cli import main
 
         return main(arguments)

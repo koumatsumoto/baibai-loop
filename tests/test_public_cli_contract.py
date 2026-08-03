@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baibai_engine.macro.indicators.cli import build_parser as macro_parser
+from baibai_engine.macro.indicators.cli import main as macro_main
 from baibai_engine.position.cli import build_parser as position_parser
 from baibai_engine.position.cli import main as position_main
 from baibai_engine.position.ledger import PortfolioLedgerDocument, load_portfolio_ledger
@@ -410,10 +412,30 @@ def test_opportunity_cli_exposes_the_research_authoring_subcommands() -> None:
         "status",
         "thesis-scaffold",
         "review-scaffold",
+        "evaluate",
         "promote",
         "plan-limit",
         "assessment-scaffold",
         "assessment-publish",
+    }
+
+
+def test_macro_cli_lists_every_command_group() -> None:
+    # `--help` is the operator's source of truth for what a domain accepts, so the
+    # groups routed to another module are listed alongside the series commands.
+    parser = macro_parser()
+    subactions = [
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    ]
+    assert len(subactions) == 1
+    assert set(subactions[0].choices) == {
+        "context",
+        "reading",
+        "list",
+        "search",
+        "get",
+        "refresh",
+        "retract",
     }
 
 
@@ -435,10 +457,49 @@ def test_opportunity_subcommand_help_is_public(command: str) -> None:
     assert excinfo.value.code == 0
 
 
+@pytest.mark.parametrize(
+    ("entry", "command", "prog"),
+    [
+        (macro_main, "context", "baibai-engine macro context"),
+        (macro_main, "reading", "baibai-engine macro reading"),
+        (opportunity_main, "evaluate", "baibai-engine research evaluate"),
+    ],
+)
+def test_routed_command_help_reaches_its_own_parser(
+    entry: Callable[[list[str]], int],
+    command: str,
+    prog: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`<domain> <command> --help` must render the routed module's own usage.
+
+    The listing in the domain parser is a stub, so a hand-off that went through
+    argparse instead of around it would answer with the domain usage or a usage
+    error rather than the command's own options.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        entry([command, "--help"])
+    assert excinfo.value.code == 0
+    assert capsys.readouterr().out.startswith(f"usage: {prog}")
+
+
 def test_opportunity_missing_required_argument_is_usage_error() -> None:
     # argparse usage errors exit 2, distinct from the data (3) / conflict (4) classes.
     with pytest.raises(SystemExit) as excinfo:
         opportunity_main(["prepare"])
+    assert excinfo.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("entry", "command"),
+    [(macro_main, "bogus"), (opportunity_main, "bogus")],
+)
+def test_unknown_domain_command_is_rejected(
+    entry: Callable[[list[str]], int], command: str
+) -> None:
+    # Routing ahead of argparse must not turn an unknown command into a hand-off.
+    with pytest.raises(SystemExit) as excinfo:
+        entry([command])
     assert excinfo.value.code == 2
 
 

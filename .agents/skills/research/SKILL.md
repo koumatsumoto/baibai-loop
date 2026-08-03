@@ -46,7 +46,7 @@ description: 人間が選んだ primary-research set の深掘り。一次情報
    - `permanent_loss_conclusion` は 7 軸から自動導出された期待値と一致が必須: adverse が 1 つでもあれば `elevated`、無ければ unknown 軸ありで `unknown`、それ以外 `acceptable`。
    - retrieved_at / proposed_at / reviewed_at は**現在時刻以前**。source 取得より前の proposed_at も拒否される。
    - scaffold が置いた構造は変えず、null と `TODO` だけを埋める（draft 冒頭の comment が gate の要求を持つ）。`facts[trailing-per]` は `scenario.base_3y_5y` の観測 multiple なので、比率を入れて利益側の一次 source を `source_ids` へ足す。`independent_review_ref` は review-scaffold が書き出す隣接ファイル名なので触らない。
-5. **evaluate と独立反証**: `uv run baibai-engine research evaluate <thesis-draft>` のエラーを 0 にする（このコマンドは `--help` に出ないが動く）。独立レビューは thesis author と別 role で実施し、次を必須反証にする: 上位候補の都合よい除外 / 構造衰退の一時割安誤認 / scenario・FV・CAGR・株数・配当の再計算（recalculated は engine の 2 桁丸め値と完全一致が必須）/ base・break-even・buffer と観測 trailing multiple の `scenario.base_3y_5y` check への記録 / multiple premium の一次根拠 / 7 軸 unknown・adverse の一次照合 / 代替候補 / portfolio marginal value / limit 整合。review が結論・価格を変えるなら `proposal_changed=true` で thesis へ戻し、hash 変更後は review を再生成する。
+5. **evaluate と独立反証**: `uv run baibai-engine research evaluate <thesis-draft>` のエラーを 0 にする。独立レビューは thesis author と別 role で実施し、次を必須反証にする: 上位候補の都合よい除外 / 構造衰退の一時割安誤認 / scenario・FV・CAGR・株数・配当の再計算（recalculated は engine の 2 桁丸め値と完全一致が必須）/ base・break-even・buffer と観測 trailing multiple の `scenario.base_3y_5y` check への記録 / multiple premium の一次根拠 / 7 軸 unknown・adverse の一次照合 / 代替候補 / portfolio marginal value / limit 整合。review が結論・価格を変えるなら `proposal_changed=true` で thesis へ戻し、hash 変更後は review を再生成する。
 6. **promote**（lane ごと。買わない lane も canonical thesis を持つ）:
 
    ```bash
