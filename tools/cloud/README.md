@@ -337,6 +337,7 @@ run自身の通知は「runが起動したこと」を前提にする。GitHub�
 `.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読み、直近20時間に**conclusion=successのcompleted runが1本も無ければ**同じ`#batch-runs`へ`[MISSING]`を送る。正常な日は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。したがって`#batch-runs`の沈黙は「当日のbatchが正常だった」を意味する。
 
 - **20時間窓**の両端はGitHubのschedule遅延（median約2時間）で決まる。前日の08:23 UTC runが窓に入らない程度に短く（前日の成功で当日の欠測を隠さない）、watchdog自身が数時間遅れて発火しても当日の08:23 UTC runを取りこぼさない程度に長い。
+- **まだ実行中のrunは欠測として数えない**。schedule queueが08:23 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に`completed`でないrunが1本でもあれば`in_flight`として無送信にする。
 - **営業日カレンダーは持たない**。非営業日は`cloud-daily-batch`自身がgreenのskip runとして完了するので、successとして数えられる。
 - 手動の復旧dispatchもsuccessとして数えるので、当日中に復旧すれば警報は出ない。
 - run一覧が期待した形でなければ**警報を出さずにexit 1**する。parseの劣化が「run 0本」に落ちると、APIの形が変わるたびに誤報になるため。

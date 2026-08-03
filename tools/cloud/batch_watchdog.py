@@ -9,10 +9,9 @@ is exactly what a human is worst at noticing, and the UI as-of and the workflow
 history only answer when someone goes looking.
 
 This adapter turns that silence into a message. It reads a ``gh api`` workflow-run
-listing, asks whether any run of the watched workflow succeeded inside the recent
-window, and posts to the same ``#batch-runs`` webhook only when the answer is no.
-A healthy day sends nothing, so a second daily ``[OK]`` never trains the reader to
-ignore the channel.
+listing and posts to the same ``#batch-runs`` webhook only when the recent window
+holds neither a successful run nor one still in flight. A healthy day sends nothing,
+so a second daily ``[OK]`` never trains the reader to ignore the channel.
 
 Dependency-free by design: only the Python standard library and no 3.13+ syntax,
 so the watchdog job runs on the runner's system ``python3`` without ``uv``.
@@ -76,6 +75,10 @@ class WorkflowRun:
     def succeeded(self) -> bool:
         return self.status == "completed" and self.conclusion == "success"
 
+    @property
+    def in_flight(self) -> bool:
+        return self.status != "completed"
+
     def describe(self) -> str:
         state = self.conclusion or self.status
         return (
@@ -84,14 +87,30 @@ class WorkflowRun:
         )
 
 
+STATE_HEALTHY = "healthy"
+STATE_IN_FLIGHT = "in_flight"
+STATE_MISSING = "missing"
+
+
 @dataclass(frozen=True, slots=True)
 class Verdict:
-    """Whether the window holds a successful run, and what it does hold."""
+    """What the window holds, and therefore whether the batch is missing.
 
-    healthy: bool
+    ``in_flight`` is a separate answer from ``missing`` because a batch that started
+    late is not a gap: it will report its own outcome when it finishes, including a
+    ``[CANCELLED]`` if it hits the job timeout. Folding it into ``missing`` would send
+    a false alarm every time the schedule queue runs long enough to push the batch past
+    the watchdog, and a channel that cries wolf stops being read.
+    """
+
+    state: str
     window_start: datetime
     window_end: datetime
     runs_in_window: tuple[WorkflowRun, ...]
+
+    @property
+    def alerting(self) -> bool:
+        return self.state == STATE_MISSING
 
 
 def _parse_instant(value: object, *, field: str) -> datetime:
@@ -146,8 +165,14 @@ def evaluate(runs: Sequence[WorkflowRun], *, window_end: datetime, window_hours:
             key=lambda run: run.created_at,
         )
     )
+    if any(run.succeeded for run in in_window):
+        state = STATE_HEALTHY
+    elif any(run.in_flight for run in in_window):
+        state = STATE_IN_FLIGHT
+    else:
+        state = STATE_MISSING
     return Verdict(
-        healthy=any(run.succeeded for run in in_window),
+        state=state,
         window_start=window_start,
         window_end=window_end,
         runs_in_window=in_window,
@@ -227,10 +252,10 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         print(f"error: cannot evaluate the batch window: {exc}", file=sys.stderr)
         return 1
     window = f"{verdict.window_start.isoformat()}..{verdict.window_end.isoformat()}"
-    if verdict.healthy:
+    if not verdict.alerting:
         # Silence is the product on a healthy day: a second daily [OK] would train
         # the reader to skip the channel the alert has to reach.
-        print(f"watchdog: healthy; successful run inside {window}")
+        print(f"watchdog: {verdict.state}; no gap to report inside {window}")
         return 0
     message = render_alert(
         verdict,
