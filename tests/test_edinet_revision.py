@@ -97,6 +97,23 @@ def test_manifest_excludes_screening_modules_the_extraction_path_cannot_reach() 
         assert artifact not in manifest
 
 
+def test_manifest_excludes_the_argparse_layer_above_the_extraction_entry() -> None:
+    """`cli/app.py` supplies runtime arguments, not extraction logic.
+
+    The one argument it owns is the document lookback window, which decides *which*
+    filings are offered rather than what a filing's row says. A baseline row is reused
+    only while its candidate still carries the same source document revision, so
+    widening or narrowing the window adds or drops candidates without making a kept row
+    wrong — and hashing the whole CLI package would pull ranking, narrative and
+    calibration back into the revision, which is what this change removes.
+    """
+    app = "screening/cli/app.py"
+
+    assert (_ENGINE_ROOT / app).is_file()
+    assert app not in set(extraction_artifact_manifest())
+    assert "screening/cli/cache.py" in set(extraction_artifact_manifest())
+
+
 def test_manifest_modules_reach_dependencies_only_through_static_imports() -> None:
     """A derived manifest stays sound only while every dependency is a literal import.
 
