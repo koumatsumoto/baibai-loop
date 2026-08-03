@@ -229,6 +229,8 @@ tools/cloud/r2_transfer.sh pull-longlist-history /tmp/baibai-longlist-history
   --as-of YYYY-MM-DD
 ```
 
+同じ dir を `screening select --longlist-history-dir` へ渡すと、run store の retention で前 as-of が消えた日でも差分診断の前回側を復元できる。run store に前 as-of が残っていればそちらが優先され、母数は `selection.diagnostics.previous_overlap.previous_candidates_source` に出る。
+
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
 営業日判定 → screening cache coverage（不足時のみ bootstrap）→ EDINET incremental extraction →

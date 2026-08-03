@@ -219,6 +219,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--previous-run-revision-id",
         help="explicit previous revision when the greatest prior as-of is ambiguous",
     )
+    select_parser.add_argument(
+        "--longlist-history-dir",
+        help=(
+            "persisted daily longlist records, used as the previous candidate set "
+            "when the prior as-of has been pruned out of the run store"
+        ),
+    )
     select_parser.add_argument("--app-db", help="application DB path")
     select_parser.add_argument(
         "--macro-context-id",
@@ -484,6 +491,9 @@ def main(argv: list[str] | None = None) -> int:
             app_db_path=Path(args.app_db) if args.app_db else None,
             macro_context_id=args.macro_context_id,
             previous_run_revision_id=args.previous_run_revision_id,
+            longlist_history_dir=(
+                Path(args.longlist_history_dir) if args.longlist_history_dir else None
+            ),
         )
 
     if args.command == "selection":
