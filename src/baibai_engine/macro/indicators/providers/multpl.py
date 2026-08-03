@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Container
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
@@ -134,24 +135,19 @@ def parse_multpl_history(
         raise IndicatorsProviderError(
             f"multpl: unknown historical floor for {series.provider_series_id}"
         )
+    required_latest = _required_latest_month(end=end, today=_today_jst(), available=values)
     if start <= floor:
         if not values or min(values) != floor:
             raise IndicatorsProviderError(
                 f"multpl: history for {series.provider_series_id} must start at {floor}"
             )
         expected = floor
-        required_latest = min(end, _today_jst()).replace(day=1)
         while expected <= required_latest:
             if expected not in values:
                 raise IndicatorsProviderError(
                     f"multpl: missing monthly value for {series.provider_series_id}: {expected}"
                 )
-            expected = (
-                date(expected.year + 1, 1, 1)
-                if expected.month == 12
-                else date(expected.year, expected.month + 1, 1)
-            )
-    required_latest = min(end, _today_jst()).replace(day=1)
+            expected = _next_month(expected)
     if required_latest not in values:
         raise IndicatorsProviderError(
             f"multpl: history for {series.provider_series_id} ends before {required_latest}"
@@ -200,6 +196,30 @@ class _MultplHistoryParser(HTMLParser):
             self._row_cells = None
         elif self._in_table and tag == "table":
             self._in_table = False
+
+
+def _required_latest_month(*, end: date, today: date, available: Container[date]) -> date:
+    """Latest month the history table must carry for the range to be complete.
+
+    multpl adds a month's row partway through that month, so at the start of every
+    month the current row does not exist yet. Requiring it unconditionally turns an
+    ordinary publication lag into a fetch failure on every run until the row lands,
+    so the current month is only required once it is actually there. Every earlier
+    month stays mandatory, which is what detects a truncated or holed history;
+    whether the series is fresh enough to read is decided by the staleness rule.
+    """
+    anchor = min(end, today).replace(day=1)
+    if anchor < today.replace(day=1) or anchor in available:
+        return anchor
+    return _previous_month(anchor)
+
+
+def _next_month(value: date) -> date:
+    return date(value.year + 1, 1, 1) if value.month == 12 else date(value.year, value.month + 1, 1)
+
+
+def _previous_month(value: date) -> date:
+    return date(value.year - 1, 12, 1) if value.month == 1 else date(value.year, value.month - 1, 1)
 
 
 def _today_jst() -> date:
