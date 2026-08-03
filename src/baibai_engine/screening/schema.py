@@ -76,8 +76,13 @@ class UniverseSnapshot:
         return _validate_finite(value)
 
 
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+# field が 80 を超えるので kw_only にする。位置引数で組めると、先頭へ 1 つ足しただけで
+# 呼び出し側の全引数が静かに 1 つずれる。
+@dataclass(frozen=True, slots=True, kw_only=True, config=_MODEL_CONFIG)
 class FinancialSnapshot:
+    # 本 snapshot が読んだ最新開示の開示日。決算シーズンは「発表済みだが取込前」の窓が
+    # 開くので、行の数字がどの開示までを含むかを判断面から読めるようにする。
+    latest_disclosed_at: date | None
     per_forward: float | None
     per_trailing: float | None
     pbr: float | None

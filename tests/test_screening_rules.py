@@ -29,6 +29,7 @@ RULES = load_screening_rules()
 
 def _financial(**overrides: object) -> FinancialSnapshot:
     base = dict(
+        latest_disclosed_at=None,
         per_forward=8.0,
         per_trailing=9.0,
         pbr=0.8,

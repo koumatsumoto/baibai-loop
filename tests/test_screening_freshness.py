@@ -15,6 +15,7 @@ from baibai_engine.screening.schema import FinancialSnapshot
 
 def _financial(source_submit_datetime: str | None = "2025-10-15 12:00") -> FinancialSnapshot:
     return FinancialSnapshot(
+        latest_disclosed_at=None,
         per_forward=None,
         per_trailing=None,
         pbr=None,

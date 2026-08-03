@@ -18,6 +18,11 @@ from baibai_engine.screening.candidate_build import build_screened_candidate
 from baibai_engine.screening.config import (
     ScreeningConfig,
 )
+from baibai_engine.screening.earnings_lag import (
+    build_earnings_lag,
+    index_calendar_announcements,
+    tickers_without_calendar_rows,
+)
 from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
 from baibai_engine.screening.freshness import (
     detect_edinet_freshness_warnings,
@@ -203,6 +208,7 @@ def run_command(
     normalized_fy_by_ticker = group_summaries_by_ticker(normalized_fy_summaries)
     normalized_split_bars_by_ticker = group_bars_by_ticker(normalized_split_bars)
     next_earnings_by_ticker = _index_next_earnings(earnings_snapshot.entries, asof_date)
+    calendar_announcements = index_calendar_announcements(earnings_snapshot.entries)
     shares_by_ticker = build_shares_outstanding_index(
         summaries_by_ticker, bars_by_ticker, asof_date
     )
@@ -305,11 +311,26 @@ def run_command(
                 evidence_hits=result.evidence_hits if result.pass_fail else (),
                 freshness_warnings=freshness_warnings,
                 next_earnings_date=next_earnings_by_ticker.get(ticker),
+                earnings_lag=build_earnings_lag(
+                    asof=asof_date,
+                    fin_latest_disclosed=financial.latest_disclosed_at,
+                    announcement_date=calendar_announcements.get(ticker),
+                    summaries=summaries_by_ticker.get(ticker, ()),
+                ),
                 normalized_per_3fy=normalized_profit.normalized_per_3fy,
             )
         )
 
     universe_size = len(universe_result.snapshots)
+    # カレンダー行を持たない universe ticker 数。個別企業の未公表でも出るので閾値は
+    # 置かず、provider 側の欠落が起きたときに件数の急増として読めるようにするだけ。
+    print(
+        "screening run jpx earnings_calendar coverage: "
+        f"{tickers_without_calendar_rows(tuple(universe_result.snapshots), calendar_announcements)}"
+        f" of {universe_size} universe ticker(s) without a calendar row",
+        file=out,
+        flush=True,
+    )
     approx_total = metric_result.ttm_quality_counts.get(
         "approximated", 0
     ) + metric_result.ttm_quality_counts.get("unavailable", 0)
