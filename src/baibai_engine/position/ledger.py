@@ -34,7 +34,12 @@ class PortfolioLedgerError(ValueError):
 
 
 def _datetime(value: object) -> datetime:
-    if isinstance(value, str):
+    # Events reach the model both as YAML text and as an already-parsed instant from
+    # the CLI, and both have to land on the same tz-aware value. Only the timezone
+    # requirement below is a real constraint on the caller.
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value)
         except ValueError as error:
