@@ -52,10 +52,7 @@ def _import_ledger(db_path: Path, source: Path = LEDGER_FIXTURE) -> None:
     )
 
 
-def test_select_cli_emits_stable_yaml_shape(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    runs_db = tmp_path / "runs.sqlite"
+def _publish_contract_run(runs_db: Path) -> str:
     run_revision_id = "run-revision-public-contract"
     ScreeningRunStore(runs_db).publish_run(
         {
@@ -88,27 +85,41 @@ def test_select_cli_emits_stable_yaml_shape(
         },
         run_revision_id=run_revision_id,
     )
+    return run_revision_id
 
-    assert (
-        screening_main(
-            [
-                "select",
-                "--asof",
-                date(2026, 4, 24).isoformat(),
-                "--run-revision-id",
-                run_revision_id,
-                "--runs-db",
-                str(runs_db),
-                "--top",
-                "1",
-                "--rules-path",
-                str(RULES_PATH),
-                "--sqlite-path",
-                str(tmp_path / "missing-market.sqlite"),
-            ]
-        )
-        == 0
-    )
+
+def _select_argv(tmp_path: Path, runs_db: Path, run_revision_id: str) -> list[str]:
+    return [
+        "select",
+        "--asof",
+        date(2026, 4, 24).isoformat(),
+        "--run-revision-id",
+        run_revision_id,
+        "--runs-db",
+        str(runs_db),
+        "--top",
+        "1",
+        "--rules-path",
+        str(RULES_PATH),
+        "--sqlite-path",
+        str(tmp_path / "missing-market.sqlite"),
+    ]
+
+
+def _store_bytes(runs_db: Path) -> dict[str, bytes]:
+    """Every file the run store keeps, so a write through any journal is visible."""
+    return {
+        path.name: path.read_bytes() for path in sorted(runs_db.parent.glob(f"{runs_db.name}*"))
+    }
+
+
+def test_select_cli_emits_stable_yaml_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    run_revision_id = _publish_contract_run(runs_db)
+
+    assert screening_main(_select_argv(tmp_path, runs_db, run_revision_id)) == 0
     payload = _payload(capsys.readouterr().out)
 
     assert set(payload) == {"recommendations", "selection", "selection_id"}
@@ -189,6 +200,93 @@ def test_select_cli_emits_stable_yaml_shape(
         "macro_context_ref",
         "previous_candidates_ref",
     }
+
+
+def test_selection_show_reproduces_the_published_output_without_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Recovering a selection must not mint another one.
+
+    `research prepare` consumes this text, so the recovered document has to carry
+    the same values and lead with `selection_id`. Re-running `select` would publish
+    a second selection and split the shortlist's binding from the workspace's.
+    """
+    runs_db = tmp_path / "runs.sqlite"
+    run_revision_id = _publish_contract_run(runs_db)
+    assert screening_main(_select_argv(tmp_path, runs_db, run_revision_id)) == 0
+    published = capsys.readouterr().out
+    selection_id = str(_payload(published)["selection_id"])
+
+    before = _store_bytes(runs_db)
+    restored_path = tmp_path / "restored-selection.yaml"
+    assert (
+        screening_main(
+            [
+                "selection",
+                "show",
+                "--selection-id",
+                selection_id,
+                "--runs-db",
+                str(runs_db),
+                "--output-path",
+                str(restored_path),
+            ]
+        )
+        == 0
+    )
+
+    restored = capsys.readouterr().out
+    assert restored_path.read_text(encoding="utf-8") == restored
+    # The store serializes payload keys in its own order, so the contract is the
+    # values plus the leading selection_id that `research prepare` reads.
+    assert restored.startswith("selection_id:")
+    assert _payload(restored) == _payload(published)
+    assert _store_bytes(runs_db) == before
+
+
+def test_selection_show_rejects_an_unknown_selection_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    _publish_contract_run(runs_db)
+
+    code = screening_main(
+        ["selection", "show", "--selection-id", "selection-absent", "--runs-db", str(runs_db)]
+    )
+
+    assert code == 1
+    captured = capsys.readouterr()
+    # No partial or reconstructed payload: an unpublished selection has no output.
+    assert captured.out == ""
+    assert "selection not found: selection-absent" in captured.err
+
+
+def test_selection_show_refuses_to_overwrite_an_existing_output_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runs_db = tmp_path / "runs.sqlite"
+    run_revision_id = _publish_contract_run(runs_db)
+    assert screening_main(_select_argv(tmp_path, runs_db, run_revision_id)) == 0
+    selection_id = str(_payload(capsys.readouterr().out)["selection_id"])
+    occupied = tmp_path / "workspace-selection.yaml"
+    occupied.write_text("selection_id: already-here\n", encoding="utf-8")
+
+    code = screening_main(
+        [
+            "selection",
+            "show",
+            "--selection-id",
+            selection_id,
+            "--runs-db",
+            str(runs_db),
+            "--output-path",
+            str(occupied),
+        ]
+    )
+
+    assert code == 1
+    assert occupied.read_text(encoding="utf-8") == "selection_id: already-here\n"
+    assert "output already exists" in capsys.readouterr().err
 
 
 def test_ledger_cli_emits_stable_yaml_shape(
@@ -570,6 +668,19 @@ def test_current_decision_clis_do_not_expose_backdated_clock(
                 "run-revision-example",
                 "--longlist-top",
                 "20",
+                "--output-path",
+                "/tmp/selection.yaml",
+            ],
+        ),
+        (
+            screening_parser,
+            [
+                "selection",
+                "show",
+                "--selection-id",
+                "selection-example",
+                "--runs-db",
+                "data/screening/runs.sqlite",
                 "--output-path",
                 "/tmp/selection.yaml",
             ],
