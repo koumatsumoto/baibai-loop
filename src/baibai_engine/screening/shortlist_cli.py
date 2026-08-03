@@ -38,6 +38,27 @@ def _machine_estimates(candidates: Sequence[Mapping[str, object]]) -> dict[str, 
     return estimates
 
 
+def _machine_rows(payload: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
+    """Index the selection's longlist rows by ticker.
+
+    The longlist is the ranked set the human reviewed, so its row is what the
+    judgment was made against. A selection published without `--longlist-top` has
+    nothing to burn in and leaves the entries without a snapshot.
+    """
+
+    longlist = payload.get("longlist")
+    if not isinstance(longlist, Sequence) or isinstance(longlist, str | bytes):
+        return {}
+    rows: dict[str, Mapping[str, object]] = {}
+    for item in longlist:
+        if not isinstance(item, Mapping):
+            continue
+        ticker = item.get("ticker")
+        if ticker is not None:
+            rows[str(ticker)] = item
+    return rows
+
+
 def publish_shortlist(
     draft_path: Path,
     *,
@@ -64,6 +85,7 @@ def publish_shortlist(
             macro_context_id=selection.macro_context_id,
             candidate_tickers=frozenset(str(item["ticker"]) for item in run.candidates),
             candidate_er=_machine_estimates(run.candidates),
+            candidate_machine_rows=_machine_rows(selection.payload),
         )
         next_earnings_by_ticker = {
             str(item["ticker"]): item.get("next_earnings_date") for item in run.candidates

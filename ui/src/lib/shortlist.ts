@@ -55,7 +55,9 @@ function toComparisonRow(
   longlistByTicker: ReadonlyMap<string, SelectionLonglistEntryView>,
   rowByTicker: ReadonlyMap<string, CandidateRowView>,
 ): ShortlistComparisonRow & { readonly publishedIndex: number } {
-  const longlistEntry = longlistByTicker.get(entry.ticker) ?? null
+  // The live selection first, then the coordinates burned into the judgment. Once
+  // the bound run is pruned only the burned copy is left, and it is the same shape.
+  const longlistEntry = longlistByTicker.get(entry.ticker) ?? entry.machine_snapshot ?? null
   const row = rowByTicker.get(entry.ticker) ?? null
   const narrative = entry.narrative
   return {

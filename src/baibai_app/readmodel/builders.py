@@ -707,12 +707,30 @@ def _fair_value_gap_pct(anchor: float | None, price: float | None) -> float | No
     return round((anchor / price - 1) * 100, 4)
 
 
+def _shortlist_entry_view(raw: Mapping[str, object]) -> ShortlistEntryView:
+    """判断 1 件。焼き込み済みの機械座標は longlist 行と同じ view へ通す。
+
+    レビュー面は source selection が生きていれば longlist から、prune 後は
+    この焼き込みから同じ形を読む。形を揃えるので join 側に分岐が増えない。
+    """
+
+    snapshot = raw.get("machine_snapshot")
+    view = ShortlistEntryView.model_validate({**raw, "machine_snapshot": None})
+    if not isinstance(snapshot, Mapping):
+        return view
+    return view.model_copy(
+        update={
+            "machine_snapshot": _selection_longlist_entry_view({**snapshot, "ticker": view.ticker})
+        }
+    )
+
+
 def _shortlist_view(raw: Mapping[str, object]) -> ShortlistView:
     entries: list[ShortlistEntryView] = []
     unreadable = 0
     for item in _mapping_items(raw.get("entries")):
         try:
-            entries.append(ShortlistEntryView.model_validate(item))
+            entries.append(_shortlist_entry_view(item))
         except ValidationError:
             # 発行済み revision は immutable なので、read 経路が形の違いで落ちると
             # export ごと止まる。読めない entry は数えて面へ出し、黙って消さない。

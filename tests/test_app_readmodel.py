@@ -702,6 +702,73 @@ def test_shortlist_view_keeps_reading_entries_published_before_the_risk_reward_b
     assert entry.narrative.catalyst_date is None
 
 
+def test_shortlist_view_reads_the_burned_machine_snapshot_as_a_longlist_row() -> None:
+    # After the bound run is pruned the selection is gone, so this is the only place
+    # the review surface can read the coordinates from. It has to arrive in the same
+    # shape the live join produces, or the surface needs a second code path.
+    view = _shortlist_view(
+        {
+            "shortlist_id": "shortlist-20260731-burned",
+            "selection_id": "selection-burned",
+            "run_revision_id": "runrev-burned",
+            "as_of": "2026-07-31",
+            "published_at": "2026-07-31T18:00:00+09:00",
+            "entries": [
+                {
+                    "ticker": "2331",
+                    "decision": "rejected",
+                    "reason": "価格が収束済み",
+                    "reject_class": "price_already_converged",
+                    "machine_snapshot": {
+                        "rank": 3,
+                        "name": "ALSOK",
+                        "market_price_yen": 1000.0,
+                        "fair_value_anchor_yen": 1250.0,
+                        "expected_return_pct": 12.0,
+                        "screening_playbook": "cashflow-yield-discount",
+                        "liquidity_status": "pass",
+                        "durability_warnings": [],
+                        "event_warnings": ["stale_financials"],
+                        "selection_reasons": ["valuation_reversion"],
+                        "fv_convergence": {
+                            "status": "clear",
+                            "warning_code": None,
+                            "market_price_yen": 1000.0,
+                            "anchors_yen": {"fv_sector_median_yen": 1250.0},
+                            "er_reversion_annual": 0.011,
+                        },
+                    },
+                }
+            ],
+        }
+    )
+    snapshot = view.entries[0].machine_snapshot
+
+    assert snapshot is not None
+    assert snapshot.ticker == "2331"
+    assert snapshot.rank == 3
+    # The gap the surface shows is derived here, exactly as it is for a live row.
+    assert snapshot.fair_value_gap_pct == 25.0
+    assert snapshot.event_warnings == ["stale_financials"]
+
+
+def test_shortlist_view_leaves_the_snapshot_empty_when_the_judgment_predates_it() -> None:
+    view = _shortlist_view(
+        {
+            "shortlist_id": "shortlist-20260717-legacy",
+            "selection_id": "selection-legacy",
+            "run_revision_id": "runrev-legacy",
+            "as_of": "2026-07-17",
+            "published_at": "2026-07-17T18:00:00+09:00",
+            "entries": [
+                {"ticker": "2331", "decision": "rejected", "reason": "見送り"},
+            ],
+        }
+    )
+
+    assert view.entries[0].machine_snapshot is None
+
+
 def test_shortlist_view_counts_unreadable_entries_instead_of_dropping_the_surface() -> None:
     view = _shortlist_view(
         {

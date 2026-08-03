@@ -144,7 +144,7 @@ function MachineFacts({ calibration, longlistEntry, row }: {
   if (longlistEntry === null && row === null) {
     return (
       <p className="rounded-md border border-dashed p-3 text-sm text-warning">
-        この shortlist の source run 世代は cache から prune 済みです。機械値は再現できないため narrative のみ表示しています。
+        この判断は機械座標を焼き込む前に publish されており、source run 世代も cache から prune 済みです。機械値は再現できないため narrative のみ表示しています。
       </p>
     )
   }
@@ -368,7 +368,9 @@ export function ShortlistPage() {
   if (!shortlist) return <PageState message="shortlist はまだ publish されていません" title="Shortlist" />
 
   const rejected = shortlist.entries.filter((entry) => entry.decision === 'rejected')
-  const machineMissing = selection === null
+  // 焼き込み済みの判断は selection が消えても機械値を持つ。警告は本当に何も無い場合だけ。
+  const machineMissing =
+    selection === null && comparison.every((item) => item.longlistEntry === null)
 
   return (
     <PageShell
