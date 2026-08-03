@@ -87,6 +87,31 @@ CHECKLIST_IDS: tuple[str, ...] = (
     "judgment.ai_value_capture",
 )
 
+# 観測 trailing multiple の fact ID。thesis の 5y base break-even check は、この ID
+# または `trailing-per-` 前置の valuation_metric / ratio fact だけを読む。
+TRAILING_MULTIPLE_FACT_ID = "trailing-per"
+# scaffold が観測できない値の sentinel。数値でないので evaluate が必ず拒否し、
+# 未記入のまま promote へ抜けない。
+TODO_PLACEHOLDER = "TODO"
+
+# draft はそのまま人間 / AI が編集するので、gate の非自明な要求は本文の隣に置く。
+# YAML comment なので load 結果にも core hash にも影響しない。
+_THESIS_DRAFT_HEADER = """\
+# thesis draft — null と TODO を一次情報で埋める。scaffold が置いた構造は変えない。
+# - retrieved_at / proposed_at は JST の現在時刻以前。同日でも先の時刻は future-dated
+#   として拒否される。source 取得より前の proposed_at も拒否される。
+# - facts[trailing-per] は 5y base break-even check が読む観測 trailing multiple。
+#   TODO を比率へ置き換え、利益側の一次 source を source_ids へ追加する。
+# - independent_review_ref は review-scaffold が書き出す隣接ファイル名。変更しない。
+"""
+
+_REVIEW_DRAFT_HEADER = """\
+# independent review draft — thesis author と別 role が埋める。
+# - reviewed_at は JST の現在時刻以前。
+# - reviewed_thesis_sha256 は生成時点の thesis core hash に束縛される。thesis を
+#   編集したら review-scaffold --force で作り直す（古い hash のままだと promote が拒否）。
+"""
+
 
 class OpportunityError(Exception):
     """Base error carrying the CLI exit code for the failure class."""
@@ -463,7 +488,9 @@ def compute_status(workspace: Path, *, db_path: Path | None = None) -> dict[str,
         if item.get("status") == "blocked"
     ]
     thesis_errors = _thesis_validation_errors(workspace, selected_ticker)
-    review_errors = _review_validation_errors(workspace, selected_ticker)
+    review_errors = _review_validation_errors(
+        workspace, selected_ticker, _parse_date(str(manifest.get("as_of")), label="manifest as_of")
+    )
 
     workspace_status = _resolve_workspace_status(
         pending=pending, blocked=blocked, thesis_errors=thesis_errors, review_errors=review_errors
@@ -660,6 +687,22 @@ def _research_lane_dir(workspace: Path, ticker: str) -> Path:
     return ticker_dir
 
 
+def _review_filename(*, asof: date, ticker: str) -> str:
+    """Return the stable independent-review filename for a lane.
+
+    The thesis payload carries this name in ``independent_review_ref`` and
+    ``plan-limit`` resolves the review by that name from the thesis's own
+    directory, so scaffold, status, and promote all address the same path and no
+    copy step stands between the draft and the gate.
+    """
+
+    return f"{asof:%Y-%m-%d}-{ticker}-decision-review.yaml"
+
+
+def _review_draft_path(workspace: Path, ticker: str, asof: date) -> Path:
+    return _research_lane_dir(workspace, ticker) / _review_filename(asof=asof, ticker=ticker)
+
+
 def _require_primary_research_ticker(workspace: Path, ticker: str, *, action: str) -> None:
     selection = _load_mapping(workspace / "selection.yaml", label="workspace selection")
     shortlist_tickers = {
@@ -739,7 +782,7 @@ def scaffold_thesis(
         screening_estimate=screening_estimate,
         screening_retrieved_at=retrieved_at,
     )
-    write_text_atomic(thesis_path, _dump_yaml(thesis_draft))
+    write_text_atomic(thesis_path, _THESIS_DRAFT_HEADER + _dump_yaml(thesis_draft))
     checklist = _checklist_skeleton(price=price)
     write_text_atomic(ticker_dir / "research-checklist.yaml", _dump_yaml(checklist))
     return {
@@ -766,6 +809,12 @@ def _thesis_draft_skeleton(
     # AI judgment fields are left null so the operator fills them from primary sources;
     # no value is guessed. An adjustment_factor anomaly is surfaced to the corporate
     # action checklist (not the fact), which blocks that check.
+    #
+    # Every structural slot the evaluation gate requires is laid out here — the
+    # market price unit, the trailing-multiple valuation fact, and the review
+    # reference — so filling the placeholders is the only work left. Values the
+    # scaffold cannot observe stay as the TODO sentinel, which the gate rejects as
+    # non-numeric rather than letting an unfilled draft reach promotion.
     del sqlite_path
     observed_at = datetime.combine(price.price_as_of, time(15, 30), tzinfo=JST)
     sources = [
@@ -807,12 +856,24 @@ def _thesis_draft_skeleton(
                 "fact_id": "market_price_close",
                 "fact_kind": "market_price",
                 "value": price.close_yen,
-                "unit": "JPY",
+                "unit": "JPY_per_share",
                 "as_of": price.price_as_of.isoformat(),
                 "source_ids": ["market_close"],
                 "observed_at": observed_at.isoformat(),
                 "price_basis": "last_close_unadjusted",
-            }
+            },
+            {
+                # The observed trailing multiple the 5y base break-even check reads.
+                # Only the price half is local; the earnings half comes from the
+                # operator's primary disclosure, so the value stays a sentinel and
+                # its source list is extended when the ratio is filled in.
+                "fact_id": TRAILING_MULTIPLE_FACT_ID,
+                "fact_kind": "valuation_metric",
+                "value": TODO_PLACEHOLDER,
+                "unit": "ratio",
+                "as_of": asof.isoformat(),
+                "source_ids": ["market_close"],
+            },
         ],
     }
     if screening_estimate is not None:
@@ -824,7 +885,7 @@ def _thesis_draft_skeleton(
         "estimates": None,
         "permanent_loss_risks": [],
         "judgment": None,
-        "independent_review_ref": None,
+        "independent_review_ref": _review_filename(asof=asof, ticker=ticker),
     }
 
 
@@ -1020,23 +1081,26 @@ def _checklist_skeleton(*, price: PreviousClose) -> dict[str, object]:
 def scaffold_review(
     *, workspace: Path, ticker: str, db_path: Path | None = None, force: bool = False
 ) -> dict[str, object]:
-    """Write a review-draft bound to the current thesis core hash.
+    """Write the independent review draft bound to the current thesis core hash.
 
     The review author is a distinct role from the thesis author; this scaffold only
     lays out the recalculation slots and never produces the review conclusions. The
     bound ``reviewed_thesis_sha256`` is what lets ``promote`` detect a stale review.
+    The file lands under the stable name the thesis already references, so promote
+    and plan-limit resolve it without an intervening copy.
     """
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     _verify_external_inputs(manifest, db_path=db_path)
     _validate_editable_drafts(workspace, manifest)
     _require_primary_research_ticker(workspace, ticker, action="scaffold review")
+    asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     ticker_dir = _research_lane_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
     if not thesis_path.exists():
         raise OpportunityDataError(f"thesis draft not found for {ticker}: {thesis_path}")
 
     core_hash = _thesis_core_hash_if_valid(thesis_path)
-    review_path = ticker_dir / "review-draft.yaml"
+    review_path = _review_draft_path(workspace, ticker, asof)
     if review_path.exists() and not force:
         raise OpportunityConflictError(
             f"review draft already exists (use --force to regenerate): {review_path}"
@@ -1061,7 +1125,7 @@ def scaffold_review(
         "proposal_changed": False,
         "change_rationale": None,
     }
-    write_text_atomic(review_path, _dump_yaml(review_draft))
+    write_text_atomic(review_path, _REVIEW_DRAFT_HEADER + _dump_yaml(review_draft))
     return {"review_draft": str(review_path), "reviewed_thesis_sha256": core_hash}
 
 
@@ -1110,9 +1174,10 @@ def promote(
     # bargain assessment binds each lane's machine values to a stored thesis.
     _require_primary_research_ticker(workspace, ticker, action="promote")
 
+    manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     ticker_dir = _research_lane_dir(workspace, ticker)
     thesis_path = ticker_dir / "thesis-draft.yaml"
-    review_path = ticker_dir / "review-draft.yaml"
+    review_path = _review_draft_path(workspace, ticker, manifest_asof)
     if not thesis_path.exists() or not review_path.exists():
         raise OpportunityDataError(f"thesis or review draft missing for {ticker}")
 
@@ -1138,7 +1203,6 @@ def promote(
     except ThesisError as error:
         raise OpportunityDataError(f"draft is not schema-valid: {error}") from error
 
-    manifest_asof = _parse_date(str(manifest.get("as_of")), label="manifest as_of")
     if document.input_snapshot.ticker != ticker:
         raise OpportunityDataError(
             f"cannot promote {ticker}: thesis ticker is {document.input_snapshot.ticker}"
@@ -1163,13 +1227,14 @@ def promote(
     if result.decision_readiness != "ready":
         raise OpportunityDataError(f"thesis is not decision-ready: {list(result.errors)}")
 
-    legacy_review_name = f"{document.input_snapshot.as_of:%Y-%m-%d}-{ticker}-decision-review.yaml"
-    # The legacy ref remains part of the thesis payload and core hash. Canonical
-    # source binding is the DB thesis_id FK; the field is retained as migrated data.
-    if document.independent_review_ref != legacy_review_name:
+    stable_review_name = _review_filename(asof=document.input_snapshot.as_of, ticker=ticker)
+    # The ref stays inside the thesis payload and its core hash so a stored thesis
+    # still names the review it was decided against; the canonical binding in the DB
+    # is the thesis_id FK.
+    if document.independent_review_ref != stable_review_name:
         raise OpportunityDataError(
             "thesis independent_review_ref must equal the stable review filename "
-            f"{legacy_review_name!r} before promotion"
+            f"{stable_review_name!r} before promotion"
         )
     resolved_thesis_id = thesis_id or (
         f"thesis-{document.input_snapshot.as_of:%Y%m%d}-{ticker}-{review.review_id}"
@@ -1355,8 +1420,8 @@ def _thesis_validation_errors(workspace: Path, ticker: str) -> list[str]:
     return []
 
 
-def _review_validation_errors(workspace: Path, ticker: str) -> list[str]:
-    review_path = _research_lane_dir(workspace, ticker) / "review-draft.yaml"
+def _review_validation_errors(workspace: Path, ticker: str, asof: date) -> list[str]:
+    review_path = _review_draft_path(workspace, ticker, asof)
     if not review_path.exists():
         return ["review draft missing"]
     try:
