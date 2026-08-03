@@ -82,7 +82,7 @@ repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（�
 
 ## commit 前 / PR 前の self-review
 
-method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-10) のチェックリストを通過させること。特に以下は 100% 防ぐ:
+method / src / docs の変更を含む commit を作る前に、[`docs/anti-patterns.md`](./docs/anti-patterns.md) の対応する anti-pattern (AP-01〜AP-11) のチェックリストを通過させること。特に以下は 100% 防ぐ:
 
 - 一次情報を直接確認せず二次情報・推測で書く (AP-01)
 - 数値計算を機械的に検算しない (AP-02)
@@ -92,6 +92,7 @@ method / src / docs の変更を含む commit を作る前に、[`docs/anti-patt
 - 公表日 / source の最新性確認を skip する (AP-07)
 - validator の抜け道を意識しない (AP-08)
 - 外部 AI 分析や system output を事実として thesis（application DB）に取り込む / canonical ledgerのcurrent + reserved exposureを再計算しない / 注文と約定の状態を区別しない (AP-09)
+- 定期公表データの最新期を無条件に必須とし、公表ラグを障害として誤検出する (AP-11)
 
 成分別の詳細チェックリスト:
 - macro context 編集時: [`docs/reference/macro.md`](./docs/reference/macro.md)
