@@ -57,9 +57,37 @@ def parse_refresh_failure_count(stderr: str) -> int | None:
     return int(matches[-1]["failed"])
 
 
+# macro domain の 3 command group のうち、series store を持たない 2 つ。この module が
+# `baibai-engine macro` の入口なので、ここに並べて初めて `--help` が domain の完全な
+# command 一覧になる。引数は各 group の parser が持つため、argv は解析せず転送する。
+_GROUP_COMMANDS: tuple[tuple[str, str], ...] = (
+    ("context", "macro context reports for human judgment"),
+    ("reading", "daily machine reading of the registered series"),
+)
+
+
+def _run_group(command: str, arguments: list[str]) -> int:
+    match command:
+        case "context":
+            from baibai_engine.macro.context.cli import main as context_main
+
+            return context_main(arguments)
+        case "reading":
+            from baibai_engine.macro.reading.cli import main as reading_main
+
+            return reading_main(arguments)
+        case _:  # pragma: no cover - the caller filters on _GROUP_COMMANDS
+            raise AssertionError(f"unreachable macro group: {command!r}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine macro")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Listed for discovery; `main` hands these off before parsing so each group
+    # keeps its own arguments and its own `--help`.
+    for group, description in _GROUP_COMMANDS:
+        subparsers.add_parser(group, help=description, add_help=False)
 
     list_parser = subparsers.add_parser("list", help="list registered macro indicator series")
     list_parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
@@ -112,8 +140,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] in {group for group, _ in _GROUP_COMMANDS}:
+        # Handed off before parsing so the group sees its own flags verbatim. The
+        # groups own their environment and store handling too; only the series
+        # commands below need the provider credentials in `.env`.
+        return _run_group(arguments[0], arguments[1:])
     load_project_env()
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(arguments)
     service = IndicatorsService(args.db)
     try:
         match args.command:

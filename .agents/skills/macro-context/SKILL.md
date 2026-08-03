@@ -9,8 +9,6 @@ description: 市場環境の評価（macro context report）を人間の判断�
 
 最初に [`docs/reference/macro.md`](../../../docs/reference/macro.md) を読む。series・provider・reading の読み方、3 層構成（core / synthesis / connection）、8 分析レンズ、source tier、深度契約、record schema を skill へ再転記しない。
 
-`macro context` / `macro reading` は `baibai-engine macro --help` の choices に出ないが動く（既知の hidden dispatch）。「`--help` と一致しない」ことを理由にここで停止しない。
-
 ## Trigger
 
 レポートは **1 種類・常に full 深度・人間の判断が起点**である。定例義務も更新義務もない。
