@@ -48,6 +48,7 @@ from .prune import prune_command
 from .query import (
     market_snapshot_command,
     select_command,
+    selection_show_command,
     ticker_profile_command,
 )
 from .run import run_command
@@ -264,6 +265,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_market_state_arguments(select_parser)
 
+    selection_parser = subparsers.add_parser(
+        "selection",
+        help="read published selections",
+    )
+    selection_commands = selection_parser.add_subparsers(dest="selection_command", required=True)
+    selection_show = selection_commands.add_parser(
+        "show",
+        help="re-emit a published selection output without publishing a new one",
+    )
+    selection_show.add_argument("--selection-id", required=True)
+    selection_show.add_argument("--runs-db", help="screening run store path")
+    selection_show.add_argument(
+        "--output-path",
+        help="also write the selection YAML to this path (stdout is unchanged)",
+    )
+    selection_show.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing --output-path file",
+    )
+
     shortlist_parser = subparsers.add_parser(
         "shortlist",
         help="publish a shortlist judgment",
@@ -462,6 +484,16 @@ def main(argv: list[str] | None = None) -> int:
             app_db_path=Path(args.app_db) if args.app_db else None,
             macro_context_id=args.macro_context_id,
             previous_run_revision_id=args.previous_run_revision_id,
+        )
+
+    if args.command == "selection":
+        # selection show reads the immutable run store only; no provider
+        # credentials and no writes.
+        return selection_show_command(
+            selection_id=args.selection_id,
+            runs_db_path=Path(args.runs_db) if args.runs_db else None,
+            output_path=Path(args.output_path) if args.output_path else None,
+            force=args.force,
         )
 
     if args.command == "shortlist" and args.shortlist_command == "outcome":

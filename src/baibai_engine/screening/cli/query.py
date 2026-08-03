@@ -209,6 +209,45 @@ def select_command(
     return 0
 
 
+def selection_show_command(
+    *,
+    selection_id: str,
+    runs_db_path: Path | None = None,
+    output_path: Path | None = None,
+    force: bool = False,
+    stdout: TextIO | None = None,
+) -> int:
+    """Re-emit a published selection in the shape ``select`` wrote it.
+
+    Reading is the only way to recover a selection output after retention has
+    evicted the run it was bound to. Re-running ``select`` would publish a second
+    selection instead, leaving the shortlist bound to one and the research
+    workspace built from another.
+    """
+    if output_path is not None and output_path.exists() and not force:
+        print(f"output already exists: {output_path}", file=sys.stderr)
+        return 1
+
+    out = stdout if stdout is not None else sys.stdout
+    try:
+        publication = ScreeningRunReader(runs_db_path).get_selection(selection_id)
+    except (OSError, sqlite3.Error) as exc:
+        print(f"screening run store is unreadable: {exc}", file=sys.stderr)
+        return 1
+    if publication is None:
+        # No reconstruction from candidates: a selection that is not stored was
+        # never published, and guessing one would fabricate a decision input.
+        print(f"selection not found: {selection_id}", file=sys.stderr)
+        return 1
+
+    payload = {"selection_id": publication.selection_id, **publication.payload}
+    rendered = yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
+    if output_path is not None:
+        write_text_atomic(output_path, rendered)
+    out.write(rendered)
+    return 0
+
+
 def _load_market_regime(
     regime_sqlite_path: Path | None,
     asof_date: date,

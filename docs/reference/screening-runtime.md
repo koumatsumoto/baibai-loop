@@ -31,6 +31,7 @@ uv run baibai-engine screening backfill-history --start YYYY-MM-DD --end YYYY-MM
 uv run baibai-engine screening backfill-master --asof YYYY-MM-DD [--asof YYYY-MM-DD ...]
 uv run baibai-engine screening backfill-master --month-end-from YYYY-MM-DD --month-end-to YYYY-MM-DD
 uv run baibai-engine screening select --asof YYYY-MM-DD --run-revision-id ID [--macro-context-id ID] [--top N] [--profile PROFILE] [--detail summary|full] [--longlist-top N]
+uv run baibai-engine screening selection show --selection-id ID [--runs-db PATH] [--output-path PATH] [--force]
 uv run baibai-engine screening shortlist publish DRAFT.yaml [--db PATH]
 uv run baibai-engine screening shortlist outcome [--db PATH] [--runs-db PATH] [--horizon 3m] [--out PATH]
 uv run baibai-engine screening ticker-profile --ticker XXXX [--asof YYYY-MM-DD]

@@ -21,12 +21,12 @@ description: 人間が選んだ primary-research set の深掘り。一次情報
      --db data/app/baibai.sqlite --workspace .cache/opportunity/<ASOF>
    ```
 
-   selection output が手元に無く bound run も evict 済みなら、run store から復元する:
+   selection output が手元に無ければ run store から read-only で取り出す（bound run が
+   evict 済みでも取れる。`select` の再実行は新しい selection を publish してしまうので使わない）:
 
    ```bash
-   sqlite3 -readonly data/screening/runs.sqlite \
-     "SELECT payload FROM screening_selection WHERE selection_id='<ID>';" > payload.json
-   # payload(JSON) の先頭に selection_id キーを足して YAML 保存すれば prepare に渡せる
+   uv run baibai-engine screening selection show --selection-id <ID> \
+     --runs-db data/screening/runs.sqlite --output-path <selection.yaml>
    ```
 
 2. workspace の `selection.yaml` の `shortlist:` へ選択 ticker を `[{ticker: 'XXXX'}, ...]` で記入し、lane を作る:
