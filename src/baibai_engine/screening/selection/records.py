@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
+from json import JSONDecodeError
 from pathlib import Path
+from typing import Literal
 
 from baibai_engine.foundation.coerce import (
-    dict_sequence,
     mapping_sequence,
     metric_map,
     optional_float,
@@ -16,7 +18,14 @@ from baibai_engine.foundation.coerce import (
     string_or_none,
     string_sequence,
 )
-from baibai_engine.foundation.yaml_io import safe_load
+
+# Contract of the daily longlist records the serving export persists.
+_LONGLIST_HISTORY_KIND = "daily-longlist-membership"
+_LONGLIST_HISTORY_SCHEMA_VERSION = 1
+
+
+class PreviousLonglistError(ValueError):
+    """A persisted longlist record cannot be read as the previous candidate set."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,9 +60,22 @@ class CandidateRecord:
     pcfr: float | None = None
 
 
+type PreviousCandidatesSource = Literal["run_revision", "longlist_history"]
+
+
 @dataclass(frozen=True, slots=True)
 class PreviousCandidates:
+    """The earlier side of the new / continued / exited comparison.
+
+    ``source`` states which population ``tickers`` came from, because the two
+    sources have different sizes: a run revision carries every candidate of the
+    prior as-of, a persisted longlist carries only its top-N. The overlap ratio and
+    the previous-candidate cap both read differently under each, so the selection
+    reports the source instead of leaving the denominator implicit.
+    """
+
     ref_path: str | None
+    source: PreviousCandidatesSource | None
     tickers: tuple[str, ...]
 
 
@@ -118,54 +140,64 @@ _EXPECTED_NUMERIC_EVIDENCE_METRICS = _EXPECTED_NUMERIC_METRICS | frozenset(
 )
 
 
-def load_previous_candidates(
-    candidates_root: Path,
-    asof_date: date,
-    *,
-    current_path: Path | None = None,
-    payload_cache: dict[Path, Mapping[str, object]] | None = None,
-) -> PreviousCandidates:
-    """Resolve the most recent candidates YAML before ``asof_date``.
+def load_previous_longlist(history_dir: Path, *, asof_date: date) -> PreviousCandidates:
+    """Resolve the newest persisted longlist strictly before ``asof_date``.
 
-    ``payload_cache`` lets the caller share parsed payloads with
-    ``load_week_candidates`` so the same YAML is not loaded twice when this
-    function is invoked once per week alongside the per-week sweep.
+    The run store keeps three generations, so repeating one as-of evicts the prior
+    as-of and leaves the selection with no earlier side: every candidate then looks
+    new and the previous-candidate cap stops binding. These records are written once
+    per day and retained independently of that pruning, so they still name a
+    predecessor when the store no longer does.
+
+    A day whose record carries no longlist is skipped rather than treated as an
+    empty predecessor, since "nobody was on the list" and "everything is new" are
+    not the same statement. A record whose contract does not match raises, so a
+    changed writer surfaces as a failure instead of as zero overlap.
     """
-    if not candidates_root.exists():
-        return PreviousCandidates(ref_path=None, tickers=())
-    matches: list[tuple[date, int, str, Path]] = []
-    for path in candidates_root.glob("*/*/*.yaml"):
-        if current_path is not None and path.resolve() == current_path.resolve():
-            continue
+    if not history_dir.is_dir():
+        return PreviousCandidates(ref_path=None, source=None, tickers=())
+    dated: list[tuple[date, Path]] = []
+    for path in history_dir.glob("*.json"):
         parsed = parse_iso_date(path.stem)
         if parsed is not None and parsed < asof_date:
-            try:
-                mtime_ns = path.stat().st_mtime_ns
-            except OSError:
-                mtime_ns = 0
-            matches.append((parsed, mtime_ns, path.as_posix(), path))
-    if not matches:
-        return PreviousCandidates(ref_path=None, tickers=())
-    _, _, _, latest_path = sorted(matches)[-1]
-    if payload_cache is not None:
-        cache_key = latest_path.resolve()
-        cached = payload_cache.get(cache_key)
-        if cached is not None:
-            payload: object = cached
-        else:
-            payload = safe_load(latest_path.read_text(encoding="utf-8"))
-            if isinstance(payload, Mapping):
-                payload_cache[cache_key] = payload
-    else:
-        payload = safe_load(latest_path.read_text(encoding="utf-8"))
+            dated.append((parsed, path))
+    for record_date, path in sorted(dated, reverse=True):
+        tickers = _longlist_history_tickers(path, record_date=record_date)
+        if tickers:
+            return PreviousCandidates(
+                ref_path=path.as_posix(),
+                source="longlist_history",
+                tickers=tickers,
+            )
+    return PreviousCandidates(ref_path=None, source=None, tickers=())
+
+
+def _longlist_history_tickers(path: Path, *, record_date: date) -> tuple[str, ...]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, JSONDecodeError) as exc:
+        raise PreviousLonglistError(f"longlist history is unreadable: {path}") from exc
     if not isinstance(payload, Mapping):
-        return PreviousCandidates(ref_path=latest_path.as_posix(), tickers=())
-    tickers = tuple(
-        ticker
-        for item in dict_sequence(payload.get("candidates"))
-        if (ticker := string_or_none(item.get("ticker"))) is not None
-    )
-    return PreviousCandidates(ref_path=latest_path.as_posix(), tickers=tickers)
+        raise PreviousLonglistError(f"longlist history is not an object: {path}")
+    if (
+        payload.get("kind") != _LONGLIST_HISTORY_KIND
+        or payload.get("schema_version") != _LONGLIST_HISTORY_SCHEMA_VERSION
+    ):
+        raise PreviousLonglistError(f"longlist history has an unsupported contract: {path}")
+    if parse_iso_date(str(payload.get("as_of"))) != record_date:
+        raise PreviousLonglistError(f"longlist history as-of does not match its name: {path}")
+    members = payload.get("members")
+    if not isinstance(members, list):
+        raise PreviousLonglistError(f"longlist history members must be an array: {path}")
+    tickers: list[str] = []
+    for item in members:
+        if not isinstance(item, Mapping):
+            raise PreviousLonglistError(f"longlist history member is not an object: {path}")
+        ticker = string_or_none(item.get("ticker"))
+        if ticker is None:
+            raise PreviousLonglistError(f"longlist history member has no ticker: {path}")
+        tickers.append(ticker)
+    return tuple(tickers)
 
 
 def _numeric_metric_type_warnings(

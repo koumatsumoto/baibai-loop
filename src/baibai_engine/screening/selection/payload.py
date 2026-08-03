@@ -81,7 +81,9 @@ def build_selection_payload(
         top=top,
         configured_max=rules.output.research_selection_target_max,
     )
-    previous_candidates = previous_candidates or PreviousCandidates(ref_path=None, tickers=())
+    previous_candidates = previous_candidates or PreviousCandidates(
+        ref_path=None, source=None, tickers=()
+    )
     previous_tickers = set(previous_candidates.tickers)
     # Entry preflight は候補の対 benchmark 20 日相対リターンを情報として使うため、
     # market regime snapshot が持つ benchmark return を候補へ機械転記する。
@@ -470,6 +472,10 @@ def _diagnostics(
         "supply_demand_excluded_count": supply_demand_excluded_count,
         "previous_overlap": {
             "previous_candidates_ref": previous_candidates.ref_path,
+            # The two sources have different population sizes, so the ratio below is
+            # only comparable across runs that read the same one.
+            "previous_candidates_source": previous_candidates.source,
+            "previous_candidates_count": len(previous_tickers),
             "overlap_count": len(overlap_tickers),
             "overlap_ratio": round(overlap_ratio, 4),
         },

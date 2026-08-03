@@ -22,16 +22,18 @@ from .profiles import resolve_selection_rules
 from .records import (
     CandidateRecord,
     PreviousCandidates,
+    PreviousLonglistError,
     candidate_record_from_mapping,
-    load_previous_candidates,
+    load_previous_longlist,
 )
 
 __all__ = [
     "CandidateRecord",
     "PreviousCandidates",
+    "PreviousLonglistError",
     "build_selection_payload",
     "build_selection_sweep_payload",
     "candidate_record_from_mapping",
-    "load_previous_candidates",
+    "load_previous_longlist",
     "resolve_selection_rules",
 ]

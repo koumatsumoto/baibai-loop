@@ -40,6 +40,7 @@ from baibai_engine.screening.selection import (
     PreviousCandidates,
     build_selection_payload,
     candidate_record_from_mapping,
+    load_previous_longlist,
 )
 from baibai_engine.screening.ticker_profile import build_ticker_profile
 
@@ -139,6 +140,7 @@ def select_command(
     app_db_path: Path | None = None,
     macro_context_id: str | None = None,
     previous_run_revision_id: str | None = None,
+    longlist_history_dir: Path | None = None,
 ) -> int:
     if top < 1:
         print("--top must be greater than zero", file=sys.stderr)
@@ -162,6 +164,7 @@ def select_command(
             app_db_path=app_db_path,
             macro_context_id=macro_context_id,
             previous_run_revision_id=previous_run_revision_id,
+            longlist_history_dir=longlist_history_dir,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -277,6 +280,7 @@ def _load_selection_inputs_db(
     app_db_path: Path | None,
     macro_context_id: str | None,
     previous_run_revision_id: str | None,
+    longlist_history_dir: Path | None,
 ) -> _SelectionInputs:
     reader = ScreeningRunReader(runs_db_path)
     run = reader.get_run(run_revision_id)
@@ -298,12 +302,19 @@ def _load_selection_inputs_db(
             raise ValueError(
                 "previous run revision must belong to the greatest as-of before the current run"
             )
-    previous_candidates = PreviousCandidates(
-        ref_path=None if previous is None else previous.run_revision_id,
-        tickers=()
-        if previous is None
-        else tuple(str(item["ticker"]) for item in previous.candidates),
-    )
+    if previous is not None:
+        previous_candidates = PreviousCandidates(
+            ref_path=previous.run_revision_id,
+            source="run_revision",
+            tickers=tuple(str(item["ticker"]) for item in previous.candidates),
+        )
+    elif longlist_history_dir is not None:
+        # The prior as-of has been pruned out of the run store. The persisted daily
+        # longlists outlive that retention, so they can still supply an earlier side
+        # for the overlap diagnostic and the previous-candidate cap.
+        previous_candidates = load_previous_longlist(longlist_history_dir, asof_date=asof_date)
+    else:
+        previous_candidates = PreviousCandidates(ref_path=None, source=None, tickers=())
     resolved_app_db = database_path(app_db_path)
     if macro_context_id is None:
         context_payload = latest_macro_context_payload(resolved_app_db, as_of=asof_date)
