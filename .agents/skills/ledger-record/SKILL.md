@@ -15,7 +15,13 @@ portfolio ledger の正本は application DB。人間の報告だけを broker f
 
 session は kind ごとに 1 件（注文結果 = `pending-result`、資金 = `monthly-contribution`、年次 = `annual-outcome`）。
 
+## 人間裁定の記録（proposal decide）
+
+proposal への `approve / defer / reject` は人間の会話報告だけを `uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite decide <PROPOSAL_ID> --decision <decision>` で記録する。approve 時は current DB の thesis・price・quantity・expiry・portfolio constraint が再検証され、不一致なら no-write で新しい proposal を作り直す。ledger event が参照した proposal を approved 以外へ変更しない。
+
 ## 注文結果
+
+`pending-result` を無関係な market / macro 不足で止めない。
 
 | report | required facts | draft |
 | --- | --- | --- |
