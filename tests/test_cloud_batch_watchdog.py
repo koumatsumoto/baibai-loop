@@ -8,6 +8,9 @@ import pytest
 import yaml
 from tools.cloud.batch_watchdog import (
     DEFAULT_WINDOW_HOURS,
+    STATE_HEALTHY,
+    STATE_IN_FLIGHT,
+    STATE_MISSING,
     WatchdogInputError,
     evaluate,
     main,
@@ -99,26 +102,61 @@ def test_a_successful_run_inside_the_window_is_healthy() -> None:
 
     verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
 
-    assert verdict.healthy is True
+    assert verdict.state == STATE_HEALTHY
+    assert verdict.alerting is False
 
 
-def test_only_failed_runs_inside_the_window_is_not_healthy() -> None:
+def test_only_failed_runs_inside_the_window_is_a_gap() -> None:
     runs = parse_runs(
         _listing(
             _run(number=7, created_at=FIRED_AT - timedelta(hours=2), conclusion="failure"),
-            _run(
-                number=8,
-                created_at=FIRED_AT - timedelta(hours=1),
-                status="in_progress",
-                conclusion="",
-            ),
+            _run(number=8, created_at=FIRED_AT - timedelta(hours=1), conclusion="cancelled"),
         )
     )
 
     verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
 
-    assert verdict.healthy is False
+    assert verdict.state == STATE_MISSING
     assert [run.run_number for run in verdict.runs_in_window] == [7, 8]
+
+
+def test_a_batch_still_running_when_the_watchdog_fires_is_not_a_gap() -> None:
+    """A late start is not a missing run, and alerting on it would be the false alarm.
+
+    The schedule queue can push the 08:23 UTC batch past the watchdog's 12:00 UTC
+    firing. That run still reports its own outcome when it finishes — including
+    `[CANCELLED]` if it hits the job timeout — so the watchdog has nothing to add.
+    """
+    runs = parse_runs(
+        _listing(
+            _run(
+                number=9,
+                created_at=FIRED_AT - timedelta(minutes=20),
+                status="in_progress",
+                conclusion="",
+            )
+        )
+    )
+
+    verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
+
+    assert verdict.state == STATE_IN_FLIGHT
+    assert verdict.alerting is False
+
+
+def test_a_queued_run_is_also_treated_as_in_flight() -> None:
+    runs = parse_runs(
+        _listing(
+            _run(
+                number=10,
+                created_at=FIRED_AT - timedelta(minutes=5),
+                status="queued",
+                conclusion="",
+            )
+        )
+    )
+
+    assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).alerting is False
 
 
 def test_yesterdays_successful_run_falls_outside_the_window() -> None:
@@ -132,7 +170,7 @@ def test_yesterdays_successful_run_falls_outside_the_window() -> None:
 
     verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
 
-    assert verdict.healthy is False
+    assert verdict.state == STATE_MISSING
     assert verdict.runs_in_window == ()
 
 
@@ -152,7 +190,7 @@ def test_a_late_watchdog_firing_still_sees_the_days_batch() -> None:
         window_hours=DEFAULT_WINDOW_HOURS,
     )
 
-    assert late.healthy is True
+    assert late.state == STATE_HEALTHY
 
 
 def test_a_manual_recovery_dispatch_counts_as_the_days_run() -> None:
@@ -163,7 +201,7 @@ def test_a_manual_recovery_dispatch_counts_as_the_days_run() -> None:
         )
     )
 
-    assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).healthy is True
+    assert evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS).alerting is False
 
 
 # --- input handling (fail closed) ------------------------------------------
@@ -261,7 +299,25 @@ def test_main_sends_nothing_when_the_window_holds_a_successful_run(
 
     assert exit_code == 0
     assert transport.calls == []
-    assert "healthy" in capsys.readouterr().out
+    assert "watchdog: healthy" in capsys.readouterr().out
+
+
+def test_main_sends_nothing_while_the_days_batch_is_still_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    payload = _listing(
+        _run(
+            created_at=datetime.now(UTC) - timedelta(minutes=15),
+            status="in_progress",
+            conclusion="",
+        )
+    )
+
+    exit_code, transport = _run_main(tmp_path, monkeypatch, payload)
+
+    assert exit_code == 0
+    assert transport.calls == []
+    assert "watchdog: in_flight" in capsys.readouterr().out
 
 
 def test_main_alerts_once_when_no_run_succeeded_in_the_window(
