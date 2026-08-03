@@ -48,6 +48,8 @@ LEDGER_FIXTURE = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 
 FIXED_NOW = datetime(2026, 7, 12, 10, 0, tzinfo=JST)
 TARGET_SESSION = "2026-07-13"
+# The stable review filename a 2026-07-03 lane for 2331 scaffolds and promotes under.
+LANE_REVIEW_NAME = "2026-07-03-2331-decision-review.yaml"
 
 
 # --------------------------------------------------------------------------- #
@@ -294,7 +296,7 @@ def _ready_thesis_and_review() -> tuple[dict[str, object], dict[str, object], st
         risk["evidence_status"] = "verified"
     thesis["judgment"]["permanent_loss_conclusion"] = "acceptable"
     thesis.pop("human_evidence_override", None)
-    review_filename = "2026-07-03-2331-decision-review.yaml"
+    review_filename = LANE_REVIEW_NAME
     thesis["independent_review_ref"] = review_filename
 
     document = ThesisDocument.model_validate(thesis)
@@ -350,7 +352,7 @@ def _fill_ready_workspace(
     (ticker_dir / "thesis-draft.yaml").write_text(
         yaml.safe_dump(thesis, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-    (ticker_dir / "review-draft.yaml").write_text(
+    (ticker_dir / review_filename).write_text(
         yaml.safe_dump(review, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     checklist = {
@@ -1120,16 +1122,30 @@ def test_thesis_scaffold_snapshots_raw_close(
     # bespoke price_snapshot block. price_basis uses the canonical schema enum.
     assert "price_snapshot" not in snapshot
     facts = snapshot["facts"]
-    assert len(facts) == 1
+    assert [item["fact_kind"] for item in facts] == ["market_price", "valuation_metric"]
     fact = facts[0]
-    assert fact["fact_kind"] == "market_price"
     assert fact["value"] == 1005.0
-    assert fact["unit"] == "JPY"
+    # JPY_per_share is what the snapshot contract requires of a market price; a bare
+    # JPY unit would make the scaffold's own output fail evaluation.
+    assert fact["unit"] == "JPY_per_share"
     assert fact["as_of"] == "2026-07-10"
     assert fact["observed_at"] == "2026-07-10T15:30:00+09:00"
     assert fact["price_basis"] == "last_close_unadjusted"
     # The fact references a declared local_data source.
     assert fact["source_ids"] == [snapshot["sources"][0]["source_id"]]
+    # The valuation slot the snapshot contract requires is laid out with a sentinel
+    # value, keyed to the fact ID the break-even check reads.
+    assert facts[1] == {
+        "fact_id": "trailing-per",
+        "fact_kind": "valuation_metric",
+        "value": "TODO",
+        "unit": "ratio",
+        "as_of": "2026-07-03",
+        "source_ids": ["market_close"],
+    }
+    # The review reference is the stable filename review-scaffold writes, so no copy
+    # step stands between the drafts and promotion.
+    assert draft["independent_review_ref"] == LANE_REVIEW_NAME
     assert "screening_estimate" not in snapshot
 
 
@@ -1660,6 +1676,185 @@ def test_thesis_scaffold_blocks_checklist_on_corporate_action(
 # --------------------------------------------------------------------------- #
 
 
+def _fill_scaffolded_thesis(draft: dict[str, object], fixture: dict[str, object]) -> None:
+    """Fill only the slots the scaffold left blank, keeping every emitted structure.
+
+    This is the operator's mechanical pass: identity, primary sources, the observed
+    ratio, and the judgment blocks. The scaffolded market price fact, valuation slot,
+    and review reference are used exactly as written.
+    """
+    snapshot = draft["input_snapshot"]
+    fixture_snapshot = fixture["input_snapshot"]
+    primary = next(
+        source for source in fixture_snapshot["sources"] if source["source_id"] == "primary-results"
+    )
+    snapshot["company_name"] = fixture_snapshot["company_name"]
+    snapshot["sector"] = fixture_snapshot["sector"]
+    snapshot["common_factors"] = fixture_snapshot["common_factors"]
+    snapshot["sources"].append(primary)
+
+    trailing = next(fact for fact in snapshot["facts"] if fact["fact_id"] == "trailing-per")
+    trailing["value"] = 10.32
+    trailing["source_ids"] = ["market_close", "primary-results"]
+    snapshot["facts"].extend(
+        fact
+        for fact in fixture_snapshot["facts"]
+        if fact["fact_kind"] in {"net_income_attributable_to_owners", "shares_outstanding"}
+    )
+
+    metrics = fixture["derived"]["metrics"]
+    for metric in metrics:
+        metric["source_ids"] = ["primary-results"]
+    draft["derived"] = {"metrics": metrics}
+
+    estimates = fixture["estimates"]
+    estimates["market_price_fact_id"] = "market_price_close"
+    estimates["entry_price_source_ids"] = ["market_close"]
+    draft["estimates"] = estimates
+    draft["permanent_loss_risks"] = fixture["permanent_loss_risks"]
+    judgment = fixture["judgment"]
+    # The proposal is written after the close it reasons about.
+    judgment["proposed_at"] = FIXED_NOW.isoformat()
+    draft["judgment"] = judgment
+
+
+def _fill_scaffolded_review(draft: dict[str, object], fixture: dict[str, object]) -> None:
+    """Fill the reviewer's slots without touching the scaffolded thesis binding."""
+    recalculated = {
+        (row["horizon_years"], row["name"]): row["total_return_cagr_pct"]
+        for row in fixture["recalculated_scenarios"]
+    }
+    for row in draft["recalculated_scenarios"]:
+        row["total_return_cagr_pct"] = recalculated[(row["horizon_years"], row["name"])]
+    draft["review_id"] = fixture["review_id"]
+    draft["reviewer_identity"] = fixture["reviewer_identity"]
+    draft["reviewer_run_id"] = fixture["reviewer_run_id"]
+    draft["reviewed_at"] = FIXED_NOW.isoformat()
+    draft["primary_source_check"] = "verified"
+    draft["checked_source_ids"] = ["primary-results", "market_close"]
+    draft["strongest_countercase"] = fixture["strongest_countercase"]
+    draft["alternative_candidate_check"] = fixture["alternative_candidate_check"]
+
+
+def test_scaffolded_drafts_promote_without_repairing_their_own_structure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Everything the scaffold emits survives its own evaluate / promote gate.
+
+    Only the judgment the scaffold cannot observe is filled in; the market price
+    fact and its unit, the valuation slot, the review reference, and the review file
+    the scaffold wrote are all used exactly as produced. A regression here is what
+    forces an operator into edit-evaluate round trips before the gate opens.
+    """
+    sqlite_path = tmp_path / "market.sqlite"
+    # A workspace prepared for the next session resolves its close on its own as_of,
+    # which is what the snapshot contract requires of the market price fact.
+    _seed_bars(sqlite_path, [("2331", "2026-07-03", 1032.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    scaffold_code, _ = _run(
+        [
+            "thesis-scaffold",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            "2026-07-06",
+        ],
+        capsys,
+    )
+    assert scaffold_code == 0
+
+    thesis_path = workspace / "2331" / "thesis-draft.yaml"
+    draft = safe_load(thesis_path.read_text(encoding="utf-8"))
+    fixture, fixture_review, _ = _ready_thesis_and_review()
+    _fill_scaffolded_thesis(draft, fixture)
+    thesis_path.write_text(
+        yaml.safe_dump(draft, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    # The review is scaffolded after the thesis is complete so its hash binds.
+    review_code, review_payload = _run(
+        ["review-scaffold", "--workspace", str(workspace), "--ticker", "2331"], capsys
+    )
+    assert review_code == 0
+    review_path = workspace / "2331" / LANE_REVIEW_NAME
+    assert Path(str(review_payload["review_draft"])) == review_path
+    review = safe_load(review_path.read_text(encoding="utf-8"))
+    _fill_scaffolded_review(review, fixture_review)
+    review_path.write_text(
+        yaml.safe_dump(review, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    checklist_path = workspace / "2331" / "research-checklist.yaml"
+    checklist = safe_load(checklist_path.read_text(encoding="utf-8"))
+    for check in checklist["checks"]:
+        check["status"] = "complete"
+        check["source_ids"] = ["primary-results"]
+    checklist_path.write_text(
+        yaml.safe_dump(checklist, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    comparison_path = workspace / "research-comparison.yaml"
+    comparison = safe_load(comparison_path.read_text(encoding="utf-8"))
+    comparison["selected_ticker"] = "2331"
+    comparison_path.write_text(
+        yaml.safe_dump(comparison, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+    document = ThesisDocument.model_validate(safe_load(thesis_path.read_text(encoding="utf-8")))
+    independent_review = IndependentReview.model_validate(
+        safe_load(review_path.read_text(encoding="utf-8"))
+    )
+    assert evaluate_thesis(document, review=independent_review, now=FIXED_NOW).errors == ()
+
+    db_path = tmp_path / "app.sqlite"
+    promote_code, promote_payload = _run(
+        [
+            "promote",
+            "--workspace",
+            str(workspace),
+            "--ticker",
+            "2331",
+            "--db",
+            str(db_path),
+        ],
+        capsys,
+    )
+    assert promote_code == 0
+    assert promote_payload["review_id"] == "review-2331-20260703"
+    # No copy stands beside the drafts: the scaffolded review is the promoted one.
+    assert sorted(path.name for path in (workspace / "2331").glob("*.yaml")) == [
+        LANE_REVIEW_NAME,
+        "research-checklist.yaml",
+        "thesis-draft.yaml",
+    ]
+
+    # plan-limit resolves the same adjacent review straight from the workspace draft.
+    plan_code, plan_payload = _run(
+        [
+            "plan-limit",
+            "--thesis",
+            str(thesis_path),
+            "--db",
+            str(_app_db(tmp_path)),
+            "--sqlite-path",
+            str(sqlite_path),
+            "--target-session",
+            "2026-07-06",
+            "--budget-min-yen",
+            "200000",
+            "--budget-max-yen",
+            "300000",
+        ],
+        capsys,
+    )
+    assert plan_code == 0
+    assert plan_payload["independent_review_ref"] == str(review_path)
+    assert "thesis_not_decision_ready" not in plan_payload["defer_reasons"]
+
+
 def test_review_scaffold_goes_stale_when_thesis_hash_changes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1683,7 +1878,7 @@ def test_review_scaffold_goes_stale_when_thesis_hash_changes(
     # The scaffolded (null) review is not the ready fixture review, so refill the
     # ready review bound to the OLD hash to isolate the staleness gate.
     _, review, _ = _ready_thesis_and_review()
-    (workspace / "2331" / "review-draft.yaml").write_text(
+    (workspace / "2331" / LANE_REVIEW_NAME).write_text(
         yaml.safe_dump(review, sort_keys=False), encoding="utf-8"
     )
     code = opportunity_main(
@@ -1825,7 +2020,7 @@ def test_promote_rejects_thesis_identity_tampering(
     thesis_path.write_text(
         yaml.safe_dump(thesis, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-    review_path = workspace / "2331/review-draft.yaml"
+    review_path = workspace / "2331" / LANE_REVIEW_NAME
     review = safe_load(review_path.read_text(encoding="utf-8"))
     review["reviewed_thesis_sha256"] = thesis_core_hash(document)
     review_path.write_text(
@@ -1927,7 +2122,7 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
         safe_load((workspace / "2331/thesis-draft.yaml").read_text(encoding="utf-8"))
     )
     review = IndependentReview.model_validate(
-        safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
+        safe_load((workspace / "2331" / LANE_REVIEW_NAME).read_text(encoding="utf-8"))
     )
     assert evaluate_thesis(thesis, review=review, now=FIXED_NOW).errors == ()
 
@@ -2032,7 +2227,7 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
     )
 
     assert promote_code == 0
-    promoted_review = safe_load((workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"))
+    promoted_review = safe_load((workspace / "2331" / LANE_REVIEW_NAME).read_text(encoding="utf-8"))
     assert "screening_selection" not in promoted_review["checked_source_ids"]
     thesis = ThesisDocument.model_validate(
         safe_load((workspace / "2331/thesis-draft.yaml").read_text(encoding="utf-8"))
@@ -2090,8 +2285,8 @@ def _promoted_thesis(tmp_path: Path, sqlite_path: Path) -> Path:
         )
         == 0
     )
-    # plan-limit accepts an ephemeral thesis file; materialize the adjacent review
-    # under the ref already embedded in the draft without creating a canonical record.
+    # plan-limit accepts an ephemeral thesis file; copy the lane's thesis and its
+    # adjacent review out of the workspace without creating a canonical record.
     ephemeral = tmp_path / "ephemeral-thesis"
     ephemeral.mkdir()
     thesis_path = ephemeral / "2026-07-03-2331-decision.yaml"
@@ -2101,7 +2296,7 @@ def _promoted_thesis(tmp_path: Path, sqlite_path: Path) -> Path:
         encoding="utf-8",
     )
     review_path.write_text(
-        (workspace / "2331/review-draft.yaml").read_text(encoding="utf-8"),
+        (workspace / "2331" / review_path.name).read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     return thesis_path
