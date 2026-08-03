@@ -7,8 +7,19 @@ from pathlib import Path
 
 import yaml
 
-EXPECTED = frozenset({"decision-cycle", "macro-analysis", "improvement-loop"})
-OLD = frozenset({"ai-value-bargain-selection", "ir-research", "financial-pro-review"})
+EXPECTED = frozenset(
+    {"shortlist", "research", "holding-review", "ledger-record", "macro-context", "ops-maintenance"}
+)
+OLD = frozenset(
+    {
+        "ai-value-bargain-selection",
+        "ir-research",
+        "financial-pro-review",
+        "decision-cycle",
+        "macro-analysis",
+        "improvement-loop",
+    }
+)
 
 
 def check(root: Path) -> list[str]:

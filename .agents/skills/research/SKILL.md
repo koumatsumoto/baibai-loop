@@ -1,0 +1,79 @@
+---
+name: research
+description: 人間が選んだ primary-research set の深掘り。一次情報 → thesis → 独立反証 → promote → plan-limit / proposal → bargain assessment → session complete まで。候補提示までは shortlist skill。
+---
+
+# Research
+
+安く見える理由が一時的な誤解か構造的毀損かを一次情報で区別し、proposal（指値・数量・期限）または見送り（no_actionable_bargain / defer）の統合判断を人間へ提示する。approve と broker 操作は人間だけが行う。
+
+## 前提
+
+- active な opportunity session と、人間が選択した primary-research set（2〜4 件）。
+- 選択・判断の記録: 人間の選択内容と予算条件を session checkpoint の `human_confirmation` へ先に記録する。
+
+## 手順
+
+1. **workspace prepare**:
+
+   ```bash
+   uv run baibai-engine research prepare --asof <ASOF> --selection-output <selection.yaml> \
+     --db data/app/baibai.sqlite --workspace .cache/opportunity/<ASOF>
+   ```
+
+   selection output が手元に無く bound run も evict 済みなら、run store から復元する:
+
+   ```bash
+   sqlite3 -readonly data/screening/runs.sqlite \
+     "SELECT payload FROM screening_selection WHERE selection_id='<ID>';" > payload.json
+   # payload(JSON) の先頭に selection_id キーを足して YAML 保存すれば prepare に渡せる
+   ```
+
+2. workspace の `selection.yaml` の `shortlist:` へ選択 ticker を `[{ticker: 'XXXX'}, ...]` で記入し、lane を作る:
+
+   ```bash
+   uv run baibai-engine research thesis-scaffold --workspace .cache/opportunity/<ASOF> \
+     --db data/app/baibai.sqlite --ticker XXXX --sqlite-path data/screening/market.sqlite \
+     --target-session <次の取引session>
+   uv run baibai-engine research review-scaffold --workspace .cache/opportunity/<ASOF> \
+     --db data/app/baibai.sqlite --ticker XXXX
+   ```
+
+   `research status --workspace ...` が常に次コマンドを教える。
+3. **一次情報調査**（lane ごと。委譲するときは AGENTS.md の subagent 規律に従う）: 会社 IR・EDINET・決算資料の原文で load-bearing claim を検証する。TDnet・株探は 403 になりやすい（irbank の PDF ミラー等で代替し、裏取りできない項目は「未検証」と明示する）。検索 snippet・外部 AI 要約を観測事実へ昇格しない。business-model guide の pilot 指定 lane だけ [`business-model-research.md`](../../../docs/reference/business-model-research.md) の lens を適用する。
+4. **thesis 執筆**（契約・算術の正本は [`thesis.md`](../../../docs/reference/thesis.md)）。schema が語らない機械 gate:
+   - scenario の starting earnings / share count は input_snapshot の**開示済み fact** に束縛される（正規化の主張は growth 側で表現する）。claimed_* は engine 再計算と一致が必須（CAGR は 2 桁丸め）。bear ≤ base ≤ bull の順序も検証される。
+   - `permanent_loss_conclusion` は 7 軸から自動導出された期待値と一致が必須: adverse が 1 つでもあれば `elevated`、無ければ unknown 軸ありで `unknown`、それ以外 `acceptable`。
+   - retrieved_at / proposed_at / reviewed_at は**現在時刻以前**。source 取得より前の proposed_at も拒否される。
+   - scaffold 出力は現状そのままでは evaluate を通らない（#777、恒久修正まで）: market_price fact の unit を `JPY_per_share` へ、`valuation_metric` fact を 1 件追加、`independent_review_ref` は安定名 `<ASOF>-<ticker>-decision-review.yaml`（promote 前に review-draft.yaml をこの名前へ copy してファイル実体も置く）。
+5. **evaluate と独立反証**: `uv run baibai-engine research evaluate <thesis-draft>` のエラーを 0 にする（このコマンドは `--help` に出ないが動く）。独立レビューは thesis author と別 role で実施し、次を必須反証にする: 上位候補の都合よい除外 / 構造衰退の一時割安誤認 / scenario・FV・CAGR・株数・配当の再計算（recalculated は engine の 2 桁丸め値と完全一致が必須）/ base・break-even・buffer と観測 trailing multiple の `scenario.base_3y_5y` check への記録 / multiple premium の一次根拠 / 7 軸 unknown・adverse の一次照合 / 代替候補 / portfolio marginal value / limit 整合。review が結論・価格を変えるなら `proposal_changed=true` で thesis へ戻し、hash 変更後は review を再生成する。
+6. **promote**（lane ごと。買わない lane も canonical thesis を持つ）:
+
+   ```bash
+   uv run baibai-engine research promote --workspace .cache/opportunity/<ASOF> \
+     --db data/app/baibai.sqlite --ticker XXXX
+   ```
+
+   gate: checklist 全 complete・review hash = thesis core hash・schema valid。`research-comparison.yaml` に各 lane の FV / 5y base CAGR / countercase / disposition を記入し（`fv_gap_pct` は FV/price − 1）、`selected_ticker` は 0〜1 件。
+7. **plan-limit と proposal**:
+
+   ```bash
+   uv run baibai-engine research plan-limit --thesis <thesis-draft> --db data/app/baibai.sqlite \
+     --sqlite-path data/screening/market.sqlite --target-session <日付> \
+     --budget-min-yen <MIN> --budget-max-yen <MAX> --output <proposal-input.yaml>
+   ```
+
+   機械契約: **指値 = 前営業日 raw close 固定**（gap を追う注文は作れない）、**`max_acceptable_price` = thesis 自身の 5y base FV を required return で割引いた値**。close > max なら `defer_reasons: close_above_max_acceptable_price` — これは正常な条件付き結論で、「終値 ≤ ceiling の日の夕方に proposal を起動する」watch に変換する。proposal create は thesis の recommendation が `buy` のときだけ通り、**adverse 軸・evidence gap・review 未完全検証がある buy には human evidence override（`approved_by: human`）が必須**（機械単独では buy を記録できない。人間の明示承認を取ってから記録する）。
+8. **bargain assessment**: `uv run baibai-engine research assessment-scaffold --assessment-id bargain-assessment-<日付>-<slug> --asof <ASOF> --shortlist-id <ID> --thesis-id <ID>（lane ごとに反復）[--proposal-id <ID>] --out <draft>` で骨格を作り、散文（headline / comparison / entry_timing / forgone / lane 別 6 項目）を記入する。reject / defer lane にも `reject_class` 必須。`uv run baibai-engine research assessment-publish <draft> --db data/app/baibai.sqlite --check` の `draft_sha256` を review block へ転記してから publish する（--check なしで実 publish）。
+9. **完了**: follow-up task（defer の dated trigger）を `task add` し、session を complete する（opportunity の complete は `artifacts` 1 件以上が必須 — plan-limit の defer 証跡等を置く）。cloud 反映（`push-app` → materialize → success 確認）。報告には各 lane の判定・FV vs 価格・countercase・TradingView link・次の trigger を載せる。
+
+## 人間境界
+
+- 最新完全営業日の raw close で寄り前の指値を計画する。realtime 板・fill 確率を必須にしない。
+- 人間報告前に broker 状態を推定せず ledger を変更しない。`approve / defer / reject` は人間の権限で、見送りも正常な結論である。
+
+## 参照
+
+- thesis 算術・review binding: [`docs/reference/thesis.md`](../../../docs/reference/thesis.md)
+- 統合判断の契約: [`docs/reference/bargain-assessment.md`](../../../docs/reference/bargain-assessment.md)
+- 資金・注文額 baseline: [`docs/portfolio-management.md`](../../../docs/portfolio-management.md)

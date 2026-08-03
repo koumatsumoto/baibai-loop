@@ -1,6 +1,0 @@
-interface:
-  display_name: "Baibai Decision Cycle"
-  short_description: "日本株の選定から人間判断後の保有reviewまで実行"
-  default_prompt: "Use $decision-cycle to run the next Baibai-Loop investment decision checkpoint."
-policy:
-  allow_implicit_invocation: true

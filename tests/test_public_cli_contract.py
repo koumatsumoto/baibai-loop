@@ -637,7 +637,7 @@ def test_current_decision_clis_do_not_expose_backdated_clock(
         ),
     ],
 )
-def test_decision_cycle_runbook_recipes_use_public_cli_contract(
+def test_skill_recipes_use_public_cli_contract(
     parser_factory: Callable[[], argparse.ArgumentParser], argv: list[str]
 ) -> None:
     parser = parser_factory()
@@ -648,5 +648,8 @@ def test_decision_cycle_runbook_recipes_use_public_cli_contract(
         opportunity_parser: "baibai-engine research",
         position_parser: "baibai-engine position",
     }[parser_factory]
-    runbook = (ROOT / "docs/operations/decision-cycle.md").read_text(encoding="utf-8")
-    assert f"{executable} {argv[0]}" in runbook
+    skills = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md"))
+    )
+    assert f"{executable} {argv[0]}" in skills

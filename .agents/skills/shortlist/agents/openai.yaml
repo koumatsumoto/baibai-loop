@@ -1,0 +1,6 @@
+interface:
+  display_name: "Baibai Shortlist"
+  short_description: "候補抽出から shortlist publish・人間の選択待ちまで"
+  default_prompt: "Use $shortlist to run this Baibai-Loop operation."
+policy:
+  allow_implicit_invocation: true
