@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
+from .earnings_lag import EarningsLag
 from .estimates import ExpectedReturnEstimate, estimate_expected_return
 from .schema import (
     DerivedMetrics,
@@ -32,6 +33,7 @@ def build_screened_candidate(
     evidence_hits: tuple[EvidenceHit, ...],
     freshness_warnings: tuple[FreshnessWarning, ...] = (),
     next_earnings_date: date | None = None,
+    earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
 ) -> ScreenedCandidate:
     return ScreenedCandidate(
@@ -76,6 +78,7 @@ def build_screened_candidate(
                 financial, derived, close=_close_from_snapshot(financial)
             ),
             normalized_per_3fy=normalized_per_3fy,
+            earnings_lag=earnings_lag,
         ),
         next_earnings_date=next_earnings_date,
         split_adjustment_flag=derived.split_adjustment_flag,
@@ -90,6 +93,7 @@ def candidate_metrics_map(
     derived: DerivedMetrics,
     estimate: ExpectedReturnEstimate | None = None,
     normalized_per_3fy: float | None = None,
+    earnings_lag: EarningsLag | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         "sales_ttm": financial.sales_ttm,
@@ -147,6 +151,18 @@ def candidate_metrics_map(
         # 3 FY平均EPSに対する現在株価の倍率。正常利益や安全性の判定ではなく、
         # trailing PERと比較して利益cycleを読むためのestimateである。
         "normalized_per_3fy": normalized_per_3fy,
+        # 決算開示と as-of 財務のラグ (earnings_lag.py)。annotation であり ranking・
+        # gate・E[r] へ入らない。fin_latest_disclosed_date は本行の財務が含む最後の
+        # 開示、stale_fin_flag は「発表済みだが取込前」の窓に居ることを示す。
+        "fin_latest_disclosed_date": _date_iso(
+            financial.latest_disclosed_at
+            if earnings_lag is None
+            else earnings_lag.fin_latest_disclosed_date
+        ),
+        "next_earnings_estimated_date": (
+            None if earnings_lag is None else _date_iso(earnings_lag.next_earnings_estimated_date)
+        ),
+        "stale_fin_flag": False if earnings_lag is None else earnings_lag.stale_fin_flag,
         "edinet_freshness_warning_count": freshness_warning_count,
         # 機械 E[r] (成分分解付き見積り。%/年の比率)。詳細は estimates.py。
         "er_annual": estimate.er_annual if estimate else None,

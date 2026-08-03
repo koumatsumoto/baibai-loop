@@ -29,6 +29,7 @@ def _financial(
     shares_outstanding: float | None = 1e8,
 ) -> FinancialSnapshot:
     return FinancialSnapshot(
+        latest_disclosed_at=None,
         per_forward=per_forward,
         per_trailing=per_trailing,
         pbr=pbr,

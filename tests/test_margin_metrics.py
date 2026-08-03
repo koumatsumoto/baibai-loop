@@ -129,7 +129,7 @@ class DerivedMetricsCarriesEveryAxisTest(unittest.TestCase):
 
     def test_candidate_output_carries_short_to_adv_and_observation_week(self) -> None:
         metrics = candidate_metrics_map(
-            FinancialSnapshot(None, None, None, None, None, None, None, None, None),
+            FinancialSnapshot(None, None, None, None, None, None, None, None, None, None),
             freshness_warning_count=0,
             derived=DerivedMetrics(margin_week_end=WEEK, margin_short_to_adv=0.5),
         )

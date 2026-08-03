@@ -58,6 +58,7 @@ def _financial(**overrides: object) -> FinancialSnapshot:
         ttm_quality_fcf_yield=TTMQuality.EXACT,
         ttm_quality_net_cash=TTMQuality.EXACT,
     )
+    base.setdefault("latest_disclosed_at", None)
     base.update(overrides)
     return FinancialSnapshot(**base)
 

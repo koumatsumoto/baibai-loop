@@ -97,7 +97,26 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     # 会社予想 normalize (経常ベースへの丸め) へ誘導する。
     if mapping_or_empty(candidate.get("metrics")).get("forecast_special_gain_flag") is True:
         tags.append("forecast_special_gain")
+    # 発表は済んだのに store の開示がそこまで届いていない窓。この行の財務・FV アンカー・
+    # E[r] は旧四半期のままなので、一次開示を先に読ませる。
+    if mapping_or_empty(candidate.get("metrics")).get("stale_fin_flag") is True:
+        tags.append("stale_financials")
     return dedupe_strings(tags)
+
+
+def _next_earnings_status(candidate: Mapping[str, object], *, asof_date: date) -> str:
+    """次回決算の 3 状態: 予定 / 発表済み / 推定。
+
+    カレンダーは ticker あたり 1 行なので、発表当日はその行が as-of と同じ日付のまま
+    残る。日付だけを見ても「これから」と「もう出た」が同じに見えるため、as-of との
+    前後関係を状態として明示する。カレンダー行が無い ticker は推定日の有無で分ける。
+    """
+
+    scheduled = string_or_none(candidate.get("next_earnings_date"))
+    if scheduled is not None:
+        return "scheduled" if date.fromisoformat(scheduled) > asof_date else "announced"
+    metrics = mapping_or_empty(candidate.get("metrics"))
+    return "estimated" if string_or_none(metrics.get("next_earnings_estimated_date")) else "unknown"
 
 
 def _selection_candidate_summary(
@@ -158,6 +177,13 @@ def _selection_candidate_summary(
         "price_history_coverage_750d": candidate.get("price_history_coverage_750d"),
         "split_adjustment_flag": candidate.get("split_adjustment_flag") is True,
         "next_earnings_date": candidate.get("next_earnings_date"),
+        # 決算ラグの annotation。next_earnings_date だけでは as-of 当日の発表が
+        # 「これから」と「もう出た」のどちらか読めないので、状態と、行が含む最後の
+        # 開示日と、カレンダー欠落時の推定日を併記する。ranking・gate には入らない。
+        "next_earnings_status": _next_earnings_status(candidate, asof_date=asof_date),
+        "next_earnings_estimated_date": metrics.get("next_earnings_estimated_date"),
+        "fin_latest_disclosed_date": metrics.get("fin_latest_disclosed_date"),
+        "stale_fin_flag": metrics.get("stale_fin_flag") is True,
         "position_tier": candidate.get("position_tier"),
         "durability_rating": string_or_none(durability_lens.get("rating")),
         "durability_caution_reasons": list(string_sequence(durability_lens.get("caution_reasons"))),

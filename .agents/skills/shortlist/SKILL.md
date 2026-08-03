@@ -37,6 +37,8 @@ description: 買い機会の発見と絞り込み。screening run → select →
    | `margin_short_to_adv` / `margin_week_end` | 需給の確認材料。単独で自動除外・rank 変更に使わない |
    | E[r] 履歴帯（較正 quintile 文脈） | 帯の記述統計としてのみ参照。個別銘柄の予測として書かない |
    | `data_quality_flags` / `durability_warnings` | flag が upside / downside をどちら向きに歪めるかを narrative に書く |
+   | `stale_fin_flag` / `fin_latest_disclosed_date` | 発表済みだが機械行が未反映。**一次開示を先に読み**、narrative の数値をそちらへ寄せる。flag が立つ銘柄を反映前の数字のまま selected にしない |
+   | `next_earnings_status`（scheduled / announced / estimated / unknown） | `announced` は as-of 当日までに発表済み、`estimated` はカレンダー欠落時の推定日。推定を確定日として event risk 判定に使わない |
 
 7. **OP3 深度契約**: selected 各銘柄について次を 1 項目ずつ機械的に突合する（印象で「満たしているはず」としない）。
 

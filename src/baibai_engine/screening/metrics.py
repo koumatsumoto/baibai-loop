@@ -852,6 +852,7 @@ def _build_financial_snapshot(
     )
 
     return FinancialSnapshot(
+        latest_disclosed_at=latest.disclosed_at if latest else None,
         per_forward=per_forward,
         per_trailing=per_trailing,
         pbr=pbr,
