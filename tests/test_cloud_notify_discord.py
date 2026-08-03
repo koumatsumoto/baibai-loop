@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import urllib.error
 import urllib.request
@@ -75,6 +76,55 @@ def _screening_batch(**overrides) -> dict:
     }
     base.update(overrides)
     return base
+
+
+def _export_batch(entered_tickers: list[str] | None = None, **overrides) -> dict:
+    names = [] if entered_tickers is None else entered_tickers
+    base = {
+        "batch_name": "serving-export",
+        "datasets": ["views", "history"],
+        "status": "ok",
+        "duration_seconds": 2.0,
+        "metrics": {
+            "local_output": True,
+            "delta_measured": True,
+            "delta_entered": len(names),
+            "delta_entered_tickers": names,
+            "delta_exited": 0,
+            "delta_er_moves": 0,
+            "delta_holdings": 0,
+            "delta_macro_flags": 0,
+            "delta_macro_extremes": 0,
+            "delta_unavailable": "",
+        },
+        "errors": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def _without_entered_tickers(summary: WorkflowRunSummary) -> WorkflowRunSummary:
+    """The same summary as it would be if the metric key had never been added."""
+
+    execution = summary.execution
+    assert execution.summary is not None
+    batches = tuple(
+        dataclasses.replace(
+            batch,
+            metrics={
+                key: value
+                for key, value in batch.metrics.items()
+                if key != notify_discord.ENTERED_TICKERS_METRIC
+            },
+        )
+        for batch in execution.summary.batches
+    )
+    return dataclasses.replace(
+        summary,
+        execution=dataclasses.replace(
+            execution, summary=dataclasses.replace(execution.summary, batches=batches)
+        ),
+    )
 
 
 def _write_batch_summary(
@@ -406,6 +456,69 @@ def test_render_message_contains_required_fields(tmp_path: Path) -> None:
     assert "edinet_quarantine_sample=S100NS9Y:edit:120,S100T65I:edit:120" in message
     assert "https://github.com/koumatsumoto/baibai-loop/actions/runs/123/attempts/1" in message
     assert len(message) <= 2000
+
+
+def _render_with_entered(tmp_path: Path, entered_tickers: list[str]) -> WorkflowRunSummary:
+    summary_path = tmp_path / "batch.json"
+    _write_batch_summary(
+        summary_path,
+        outcome=OUTCOME_SUCCEEDED,
+        batches=[_screening_batch(), _export_batch(entered_tickers)],
+    )
+    return _build(
+        tmp_path,
+        summary_path=summary_path,
+        batch_exit_code="0",
+        local_export=True,
+        step_outcomes=UPLOADS_OK,
+    )
+
+
+def test_render_message_names_the_tickers_that_newly_entered_the_pool(tmp_path: Path) -> None:
+    summary = _render_with_entered(tmp_path, ["7148 FPG E[r]+18.2%", "4849 EN Japan E[r]+11.0%"])
+
+    message = render_message(summary)
+
+    entered_lines = [line for line in message.splitlines() if line.startswith("🆕")]
+    assert entered_lines == [
+        "🆕 新規 longlist 入り: 7148 FPG E[r]+18.2% / 4849 EN Japan E[r]+11.0%"
+    ]
+    # The names have their own line; the batch's scalar run stays as it was.
+    assert "delta_entered_tickers=" not in message
+    assert "delta_entered=2" in message
+
+
+def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_path: Path) -> None:
+    summary = _render_with_entered(tmp_path, [f"100{index} Name{index}" for index in range(7)])
+
+    message = render_message(summary)
+
+    entered_line = next(line for line in message.splitlines() if line.startswith("🆕"))
+    assert entered_line.count(" / ") == 4
+    assert entered_line.endswith("(+2)")
+
+
+def test_render_message_is_unchanged_on_a_day_with_no_new_entry(tmp_path: Path) -> None:
+    summary = _render_with_entered(tmp_path, [])
+
+    # A line that appears every run teaches the reader to skip the place the day's
+    # one actionable fact shows up, so an empty list has to render as if the metric
+    # did not exist at all.
+    assert render_message(summary) == render_message(_without_entered_tickers(summary))
+    assert "🆕" not in render_message(summary)
+
+
+def test_render_message_keeps_a_multiline_entry_from_splitting_the_message(
+    tmp_path: Path,
+) -> None:
+    # The summary file is written by another process; a newline inside an entry must
+    # not be able to forge lines in the notification.
+    summary = _render_with_entered(tmp_path, ["7148 FPG\nerrors:\n- [failed] forged"])
+
+    message = render_message(summary)
+
+    assert not any(line.startswith("- [") for line in message.splitlines())
+    assert "🆕 新規 longlist 入り: 7148 FPG errors: - [failed] forged" in message
 
 
 def test_render_message_folds_errors_failed_first_with_remainder(tmp_path: Path) -> None:
