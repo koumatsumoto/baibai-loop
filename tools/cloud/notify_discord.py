@@ -65,6 +65,18 @@ WEBHOOK_ENV_VAR = "DISCORD_WEBHOOK_URL"
 DEFAULT_TIMEOUT_SECONDS = 10.0
 MESSAGE_MAX_CHARS = 2000
 ERRORS_SHOWN = 3
+# The metric that names the tickers which newly entered the machine pool. It is a
+# list, so it gets a line of its own instead of the scalar metric run; a reader who
+# only sees the notification can start on the day's new names from that line.
+ENTERED_TICKERS_METRIC = "delta_entered_tickers"
+# Keys the message renders in their own line and must not repeat inside a batch's
+# scalar metric run.
+_METRICS_RENDERED_SEPARATELY = frozenset({ENTERED_TICKERS_METRIC})
+ENTERED_TICKERS_SHOWN = 5
+# One entry is already bounded by the producer; bounding it again keeps a summary
+# file this process did not write from setting the message's width.
+_ENTERED_ENTRY_MAX_CHARS = 48
+_ENTERED_TICKERS_PREFIX = "🆕 新規 longlist 入り: "
 _DISCORD_HOSTS = ("discord.com", "discordapp.com")
 _WEBHOOK_PATH_PREFIX = "/api/webhooks/"
 # C0 controls, space, and DEL. A URL carrying any of these reaches http.client,
@@ -371,9 +383,39 @@ def _collect_errors(summary: WorkflowRunSummary) -> list[BatchError]:
 
 
 def _format_metrics(metrics: Mapping[str, object]) -> str:
-    if not metrics:
+    keys = sorted(set(metrics) - _METRICS_RENDERED_SEPARATELY)
+    if not keys:
         return ""
-    return " ".join(f"{key}={metrics[key]}" for key in sorted(metrics))
+    return " ".join(f"{key}={metrics[key]}" for key in keys)
+
+
+def _render_entered_tickers(summary: WorkflowRunSummary) -> list[str]:
+    """Render the day's newly entered names, or nothing when there are none.
+
+    A day with no entries carries no line at all. The notification arrives every
+    run, and a line that is always there teaches the reader to skip past the one
+    place the day's actionable fact shows up. Entries are sanitized here as well as
+    at the producer because the summary file is another process's output — a
+    newline in it would otherwise forge lines in the message.
+    """
+
+    if summary.execution.kind != EXECUTION_AVAILABLE or summary.execution.summary is None:
+        return []
+    entries: list[str] = []
+    for batch in summary.execution.summary.batches:
+        value = batch.metrics.get(ENTERED_TICKERS_METRIC)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            text = sanitize_one_line(item, _ENTERED_ENTRY_MAX_CHARS)
+            if text:
+                entries.append(text)
+    if not entries:
+        return []
+    line = _ENTERED_TICKERS_PREFIX + " / ".join(entries[:ENTERED_TICKERS_SHOWN])
+    if len(entries) > ENTERED_TICKERS_SHOWN:
+        line += f" (+{len(entries) - ENTERED_TICKERS_SHOWN})"
+    return [line]
 
 
 def _render_error_overview(errors: list[BatchError]) -> list[str]:
@@ -409,6 +451,7 @@ def render_message(summary: WorkflowRunSummary) -> str:
         lines.append(f"batch not started (failed at: {summary.execution.stage})")
     elif summary.execution.kind == EXECUTION_UNAVAILABLE:
         lines.append("batch summary unavailable")
+    lines.extend(_render_entered_tickers(summary))
     lines.extend(_render_error_overview(_collect_errors(summary)))
     lines.append(f"run: {summary.run_url}")
 

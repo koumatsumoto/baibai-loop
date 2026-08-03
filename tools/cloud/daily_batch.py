@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import re
 import sqlite3
 import subprocess  # nosec B404
@@ -59,6 +60,7 @@ from tools.cloud.batch_summary import (
     BatchExecutionSummary,
     BatchResult,
     SummaryValidationError,
+    sanitize_one_line,
     write_json_atomic,
 )
 
@@ -81,6 +83,16 @@ _EDINET_QUARANTINE_RE = re.compile(
     r"quarantined_tickers=(?P<tickers>\d+)\s+"
     r"quarantine_sample=(?P<sample>[^\s;]+)"
 )
+# How many newly entered names the notification names. The reader acts on the top
+# of the list on the evening of a drop; the full set stays in the delta view, and
+# ``delta_entered`` keeps carrying the count so a capped list never hides its own
+# remainder.
+_DELTA_ENTERED_NAMED = 5
+# Bound one rendered entry so a long company name cannot crowd out the rest of the
+# notification. The name is bounded first so the estimate, which is what ranks the
+# entry, survives the truncation.
+_DELTA_ENTERED_NAME_MAX_CHARS = 24
+_DELTA_ENTERED_LABEL_MAX_CHARS = 48
 
 
 class BatchStepError(RuntimeError):
@@ -292,6 +304,56 @@ def _failed_series_count(exc: BatchStepError, *, requested: int) -> int:
     return reported
 
 
+def _finite_number(value: object) -> float | None:
+    """A JSON number that can be rendered, or None. ``bool`` is not a number here."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
+def _entered_ticker_labels(rows: object) -> list[str]:
+    """Name the tickers that newly entered the machine pool, best estimate first.
+
+    A day that pushes names into the pool is worth acting on that evening, and a
+    count alone does not say which names to look at. The list is capped because the
+    reader acts on the top of it; ``delta_entered`` keeps carrying the full count,
+    so a capped list never hides its own remainder.
+
+    Each field degrades on its own: a row missing a company name or an estimate
+    still names its ticker, since a partly-known entry is still the pointer the
+    reader needs. A row that cannot even be identified by ticker is dropped rather
+    than reported blank. The view is written by a separate process, so nothing about
+    its shape may cost the run its notification — every value is read defensively
+    and rendered through the same one-line sanitizer the notification contract uses.
+    """
+
+    if not isinstance(rows, list):
+        return []
+    ranked: list[tuple[int, float, str, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ticker = row.get("ticker")
+        if not isinstance(ticker, str) or not ticker.strip():
+            continue
+        parts = [ticker.strip()]
+        name = row.get("company_name")
+        if isinstance(name, str) and name.strip():
+            parts.append(sanitize_one_line(name, _DELTA_ENTERED_NAME_MAX_CHARS))
+        er = _finite_number(row.get("er_annual_pct"))
+        if er is not None:
+            parts.append(f"E[r]{er:+.1f}%")
+        label = sanitize_one_line(" ".join(parts), _DELTA_ENTERED_LABEL_MAX_CHARS)
+        if not label:
+            continue
+        # Estimate descending, rows without an estimate last, ticker as the
+        # tie-break so the same pool always renders the same way.
+        ranked.append((0 if er is not None else 1, -(er or 0.0), ticker, label))
+    ranked.sort()
+    return [label for *_, label in ranked[:_DELTA_ENTERED_NAMED]]
+
+
 def _daily_delta_metrics(path: Path) -> dict[str, object]:
     """Read the exported delta counts so the run notification carries them.
 
@@ -299,12 +361,15 @@ def _daily_delta_metrics(path: Path) -> dict[str, object]:
     opened, so the day's change counts belong in it. Every key is reported on every
     run because the summary schema requires it, and ``delta_measured`` separates a
     day with no changes from a view that could not be read — zero counts alone
-    would say the same thing for both.
+    would say the same thing for both. ``delta_entered_tickers`` names the entries
+    behind the ``delta_entered`` count; it is empty whenever there is nothing to
+    name, which the schema requires to be a present-but-empty list.
     """
 
     absent: dict[str, object] = {
         "delta_measured": False,
         "delta_entered": 0,
+        "delta_entered_tickers": [],
         "delta_exited": 0,
         "delta_er_moves": 0,
         "delta_holdings": 0,
@@ -324,6 +389,7 @@ def _daily_delta_metrics(path: Path) -> dict[str, object]:
         if not isinstance(value, list):
             return absent
         counts[f"delta_{name}"] = len(value)
+    counts["delta_entered_tickers"] = _entered_ticker_labels(payload.get("entered"))
     unavailable = payload.get("unavailable")
     counts["delta_unavailable"] = (
         ",".join(str(item) for item in unavailable) if isinstance(unavailable, list) else ""

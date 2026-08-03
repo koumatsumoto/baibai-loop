@@ -19,6 +19,7 @@ from tools.cloud.daily_batch import (
     BatchStepError,
     CalendarCoverageError,
     CommandResult,
+    _daily_delta_metrics,
     _macro_refresh_groups,
     _parse_macro_series,
     main,
@@ -658,6 +659,7 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
         "local_output": True,
         "delta_measured": False,
         "delta_entered": 0,
+        "delta_entered_tickers": [],
         "delta_exited": 0,
         "delta_er_moves": 0,
         "delta_holdings": 0,
@@ -665,6 +667,123 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
         "delta_macro_extremes": 0,
         "delta_unavailable": "view_unreadable",
     }
+
+
+def _delta_view(path: Path, entered: list[object]) -> Path:
+    payload = {
+        "entered": entered,
+        "exited": [],
+        "er_moves": [],
+        "holdings": [],
+        "macro_flags": [],
+        "macro_extremes": [],
+        "unavailable": [],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _entry(ticker: str, name: object, er: object) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "company_name": name,
+        "er_annual_pct": er,
+        "disclosed_since_previous": False,
+    }
+
+
+def test_daily_delta_metrics_names_entered_tickers_by_estimate_descending(
+    tmp_path: Path,
+) -> None:
+    view = _delta_view(
+        tmp_path / "daily-delta.json",
+        [
+            _entry("1001", "Alpha", 8.0),
+            _entry("1002", "Bravo", 22.5),
+            _entry("1003", "Charlie", 12.0),
+            _entry("1004", "Delta", 30.0),
+            _entry("1005", "Echo", 15.0),
+            _entry("1006", "Foxtrot", 9.0),
+        ],
+    )
+
+    metrics = _daily_delta_metrics(view)
+
+    assert metrics["delta_entered"] == 6
+    # Capped at five names; the count above still carries the remainder.
+    assert metrics["delta_entered_tickers"] == [
+        "1004 Delta E[r]+30.0%",
+        "1002 Bravo E[r]+22.5%",
+        "1005 Echo E[r]+15.0%",
+        "1003 Charlie E[r]+12.0%",
+        "1006 Foxtrot E[r]+9.0%",
+    ]
+
+
+def test_daily_delta_metrics_names_a_ticker_whose_name_or_estimate_is_missing(
+    tmp_path: Path,
+) -> None:
+    view = _delta_view(
+        tmp_path / "daily-delta.json",
+        [
+            _entry("2001", None, 5.0),
+            _entry("2002", "Named", None),
+            _entry("2003", None, None),
+        ],
+    )
+
+    # A partly-known row is still the pointer the reader needs, so the known fields
+    # are reported and the unknown ones are left out. Rows without an estimate sort
+    # last because the estimate is what ranks them.
+    assert _daily_delta_metrics(view)["delta_entered_tickers"] == [
+        "2001 E[r]+5.0%",
+        "2002 Named",
+        "2003",
+    ]
+
+
+def test_daily_delta_metrics_reports_an_empty_list_when_nothing_entered(tmp_path: Path) -> None:
+    view = _delta_view(tmp_path / "daily-delta.json", [])
+
+    metrics = _daily_delta_metrics(view)
+
+    # The key is always present: the summary schema requires it, and an empty list
+    # is what "no new name today" has to look like.
+    assert metrics["delta_entered"] == 0
+    assert metrics["delta_entered_tickers"] == []
+
+
+def test_daily_delta_metrics_drops_unreadable_entered_rows_without_failing(
+    tmp_path: Path,
+) -> None:
+    view = _delta_view(
+        tmp_path / "daily-delta.json",
+        [
+            "not-a-row",
+            _entry(" ", "Blank", 40.0),
+            {"company_name": "No ticker", "er_annual_pct": 50.0},
+            _entry("3001", "Broken", float("nan")),
+            _entry("3002", "Boolish", True),
+            _entry("3003", "Multi\nline {name}", 3.0),
+            _entry("3004", "x" * 200, 2.0),
+        ],
+    )
+
+    labels = _daily_delta_metrics(view)["delta_entered_tickers"]
+
+    assert isinstance(labels, list)
+    # A row that cannot be identified by ticker is dropped; a value the renderer
+    # cannot use (NaN, bool) costs only that field, not the row.
+    assert labels[:2] == ["3003 Multi line name E[r]+3.0%", "3004 " + "x" * 24 + " E[r]+2.0%"]
+    assert sorted(labels[2:]) == ["3001 Broken", "3002 Boolish"]
+    assert all("\n" not in label and len(label) <= 48 for label in labels)
+
+
+def test_daily_delta_metrics_names_nothing_when_the_view_cannot_be_read(tmp_path: Path) -> None:
+    metrics = _daily_delta_metrics(tmp_path / "missing.json")
+
+    assert metrics["delta_measured"] is False
+    assert metrics["delta_entered_tickers"] == []
 
 
 def test_daily_batch_carries_edinet_quarantine_counts_when_coverage_is_complete(

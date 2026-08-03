@@ -202,10 +202,15 @@ _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
     # channel that reaches a reader without being opened. Every key is always
     # present: ``delta_measured`` false with zero counts says "not measured", which
     # zero counts alone could not distinguish from "nothing changed".
+    # ``delta_entered_tickers`` names the entries behind ``delta_entered`` so the day
+    # a name falls into the pool is actionable from the notification alone. It is a
+    # bounded list of already-rendered one-line strings and is empty when there is
+    # nothing to name.
     "serving-export": {
         "local_output": bool,
         "delta_measured": bool,
         "delta_entered": int,
+        "delta_entered_tickers": list,
         "delta_exited": int,
         "delta_er_moves": int,
         "delta_holdings": int,
@@ -283,7 +288,14 @@ def _validate_metric_value(batch_name: str, key: str, value: object) -> None:
 
 
 def _check_metric_type(batch_name: str, key: str, value: object, expected: type) -> None:
-    # ``expected`` is exactly one of bool/int/float/str, so at most one branch fires.
+    # ``expected`` is exactly one of bool/int/float/str/list, so at most one branch
+    # fires. ``list`` means a list of strings: the renderer prints its items as text,
+    # so a list carrying anything else has to be rejected here rather than reaching a
+    # message as a repr.
+    if expected is list and (
+        not isinstance(value, list) or not all(isinstance(item, str) for item in value)
+    ):
+        raise SummaryValidationError(f"batch {batch_name!r} metric {key!r} must be a list of str")
     if expected is bool and not isinstance(value, bool):
         raise SummaryValidationError(f"batch {batch_name!r} metric {key!r} must be bool")
     if expected is int and (isinstance(value, bool) or not isinstance(value, int)):

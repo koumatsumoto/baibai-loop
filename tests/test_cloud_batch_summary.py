@@ -83,6 +83,7 @@ def _export_result(**overrides) -> dict:
             "local_output": True,
             "delta_measured": True,
             "delta_entered": 1,
+            "delta_entered_tickers": ["7148 FPG E[r]+18.2%"],
             "delta_exited": 0,
             "delta_er_moves": 2,
             "delta_holdings": 1,
@@ -281,11 +282,36 @@ def test_batch_result_rejects_non_finite_metric() -> None:
 
 
 def test_batch_result_accepts_scalar_list_metric_but_rejects_non_scalar_items() -> None:
-    # General metric validation allows scalar lists; the per-batch schema for the
-    # current batches is scalar-only, so a list is rejected by the schema check.
+    # General metric validation allows scalar lists; the macro schema declares an
+    # int for this key, so a list is still rejected by the per-batch schema check.
     payload = _macro_result()
     payload["metrics"]["success"] = [1, 2, 3]
     with pytest.raises(SummaryValidationError, match="must be int"):
+        BatchResult.from_json(payload)
+
+
+def test_batch_result_requires_the_entered_ticker_names_on_every_export() -> None:
+    # The names ride the same strict schema as the counts: a run that stops emitting
+    # them has to fail loudly rather than notify a reader with a silent gap.
+    payload = _export_result()
+    del payload["metrics"]["delta_entered_tickers"]
+    with pytest.raises(SummaryValidationError, match="missing keys"):
+        BatchResult.from_json(payload)
+
+
+def test_batch_result_accepts_an_empty_entered_ticker_list() -> None:
+    payload = _export_result()
+    payload["metrics"]["delta_entered_tickers"] = []
+    assert BatchResult.from_json(payload).metrics["delta_entered_tickers"] == []
+
+
+@pytest.mark.parametrize("value", ["7148 FPG", 3, ["7148 FPG", 3], [None], [True]])
+def test_batch_result_rejects_entered_ticker_names_that_are_not_strings(value: object) -> None:
+    # The renderer prints these items as text; anything else would reach a Discord
+    # message as a repr.
+    payload = _export_result()
+    payload["metrics"]["delta_entered_tickers"] = value
+    with pytest.raises(SummaryValidationError, match="must be a list of str"):
         BatchResult.from_json(payload)
 
 

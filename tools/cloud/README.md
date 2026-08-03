@@ -314,7 +314,11 @@ batch 未到達（`not_started`）の `[FAILED]`、batch 実行後の summary �
 `[DEGRADED]`、upload 失敗は `[FAILED]`（`upload_failed`）という契約を README と test で固定する。
 
 message には workflow 名・repository・trigger・run attempt・overall outcome・as-of・総所要時間・
-batch ごとの status / datasets / metrics・publish state・GitHub Actions run URL を含む。error は
+batch ごとの status / datasets / metrics・publish state・GitHub Actions run URL を含む。
+その日 machine pool へ新しく入った銘柄がある run では、`serving-export` の
+`delta_entered_tickers`（E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`）を専用行
+`🆕 新規 longlist 入り:` として出す。急落当日の候補を通知だけで拾えるようにするための行であり、
+入りが 0 件の run では行ごと出さない（毎回出る行は読み飛ばされる）。error は
 failed を degraded より先に表示し、4件以上は上位3件 + 残件数へ折りたたむ。error message は固定
 code / stage / impact と検証済み scalar だけから作り、subprocess の stderr・例外本文・provider
 response body は載せない（1行400文字以内、全体2000文字以内）。
