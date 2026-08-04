@@ -123,11 +123,13 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
     (output / "history/longlists").mkdir(parents=True)
     (output / "history/longlists/2026-07-21.json").write_text("{}", encoding="utf-8")
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
 
     subprocess.run(
         [TRANSFER_SCRIPT, "upload-serving", output],
         cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
+        env=env,
         check=True,
     )
 
@@ -243,6 +245,28 @@ def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     output = tmp_path / "serving"
     (output / "views").mkdir(parents=True)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "upload-serving", output],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "meta.json is missing" in completed.stderr
+    assert not log.exists()
+
+
+def test_serving_upload_is_github_actions_only(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = tmp_path / "serving"
+    (output / "views").mkdir(parents=True)
+    (output / "views/meta.json").write_text("{}", encoding="utf-8")
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "upload-serving", output],
@@ -254,7 +278,7 @@ def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
     )
 
     assert completed.returncode == 2
-    assert "meta.json is missing" in completed.stderr
+    assert "outside GitHub Actions" in completed.stderr
     assert not log.exists()
 
 
@@ -264,11 +288,13 @@ def test_run_summary_upload_writes_one_object_outside_the_views_prefix(
     bin_dir, log = _fake_aws(tmp_path)
     summary = tmp_path / "workflow-run-summary.json"
     summary.write_text('{"schema_version": 1}', encoding="utf-8")
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
 
     subprocess.run(
         [TRANSFER_SCRIPT, "upload-run-summary", summary],
         cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
+        env=env,
         check=True,
     )
 
@@ -283,9 +309,30 @@ def test_run_summary_upload_reports_a_missing_summary_without_uploading(
     tmp_path: Path,
 ) -> None:
     bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "upload-run-summary", tmp_path / "absent.json"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "no workflow run summary to upload" in completed.stderr
+    assert not log.exists()
+
+
+def test_run_summary_upload_is_github_actions_only(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    summary = tmp_path / "workflow-run-summary.json"
+    summary.write_text('{"schema_version": 1}', encoding="utf-8")
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "upload-run-summary", summary],
         cwd=REPO_ROOT,
         env=_environment(bin_dir, log),
         check=False,
@@ -294,7 +341,7 @@ def test_run_summary_upload_reports_a_missing_summary_without_uploading(
     )
 
     assert completed.returncode == 2
-    assert "no workflow run summary to upload" in completed.stderr
+    assert "outside GitHub Actions" in completed.stderr
     assert not log.exists()
 
 
