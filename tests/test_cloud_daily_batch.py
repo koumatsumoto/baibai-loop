@@ -661,6 +661,7 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
         "delta_entered": 0,
         "delta_entered_tickers": [],
         "delta_exited": 0,
+        "delta_exited_tickers": [],
         "delta_er_moves": 0,
         "delta_holdings": 0,
         "delta_macro_flags": 0,
@@ -669,10 +670,10 @@ def test_daily_batch_writes_succeeded_summary(tmp_path: Path) -> None:
     }
 
 
-def _delta_view(path: Path, entered: list[object]) -> Path:
+def _delta_view(path: Path, entered: list[object], exited: list[object] | None = None) -> Path:
     payload = {
         "entered": entered,
-        "exited": [],
+        "exited": [] if exited is None else exited,
         "er_moves": [],
         "holdings": [],
         "macro_flags": [],
@@ -740,6 +741,22 @@ def test_daily_delta_metrics_names_a_ticker_whose_name_or_estimate_is_missing(
         "2002 Named",
         "2003",
     ]
+
+
+def test_daily_delta_metrics_names_exited_tickers_from_the_other_side(tmp_path: Path) -> None:
+    view = _delta_view(
+        tmp_path / "daily-delta.json",
+        [_entry("1001", "Alpha", 8.0)],
+        [_entry("9001", "Zulu", 6.0), _entry("9002", "Yankee", 11.0)],
+    )
+
+    metrics = _daily_delta_metrics(view)
+
+    # A name leaving the pool is the same kind of fact as one entering it, ranked
+    # the same way, and read from the row shape the two sides share.
+    assert metrics["delta_exited"] == 2
+    assert metrics["delta_exited_tickers"] == ["9002 Yankee E[r]+11.0%", "9001 Zulu E[r]+6.0%"]
+    assert metrics["delta_entered_tickers"] == ["1001 Alpha E[r]+8.0%"]
 
 
 def test_daily_delta_metrics_reports_an_empty_list_when_nothing_entered(tmp_path: Path) -> None:

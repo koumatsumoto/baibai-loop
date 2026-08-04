@@ -65,18 +65,28 @@ WEBHOOK_ENV_VAR = "DISCORD_WEBHOOK_URL"
 DEFAULT_TIMEOUT_SECONDS = 10.0
 MESSAGE_MAX_CHARS = 2000
 ERRORS_SHOWN = 3
-# The metric that names the tickers which newly entered the machine pool. It is a
-# list, so it gets a line of its own instead of the scalar metric run; a reader who
-# only sees the notification can start on the day's new names from that line.
+# The metrics that name the tickers which entered and left the machine pool. Both
+# are lists, so each gets a line of its own instead of the scalar metric run; a
+# reader who only sees the notification can start on the day's names from them.
 ENTERED_TICKERS_METRIC = "delta_entered_tickers"
+EXITED_TICKERS_METRIC = "delta_exited_tickers"
+# Whether the export could read the delta view at all, and why not. A zero count and
+# an unreadable view are different facts and the line has to say which one it is.
+DELTA_MEASURED_METRIC = "delta_measured"
+DELTA_UNAVAILABLE_METRIC = "delta_unavailable"
 # Keys the message renders in their own line and must not repeat inside a batch's
 # scalar metric run.
-_METRICS_RENDERED_SEPARATELY = frozenset({ENTERED_TICKERS_METRIC})
+_METRICS_RENDERED_SEPARATELY = frozenset({ENTERED_TICKERS_METRIC, EXITED_TICKERS_METRIC})
 ENTERED_TICKERS_SHOWN = 5
 # One entry is already bounded by the producer; bounding it again keeps a summary
 # file this process did not write from setting the message's width.
 _ENTERED_ENTRY_MAX_CHARS = 48
 _ENTERED_TICKERS_PREFIX = "🆕 新規 longlist 入り: "
+_EXITED_TICKERS_PREFIX = "👋 longlist 退出: "
+_DELTA_EMPTY_TEXT = "なし"
+_DELTA_UNMEASURED_TEXT = "計測なし"
+_DELTA_UNMEASURED_UNKNOWN_REASON = "理由不明"
+_DELTA_UNREADABLE_REASON = "metric_unreadable"
 _DISCORD_HOSTS = ("discord.com", "discordapp.com")
 _WEBHOOK_PATH_PREFIX = "/api/webhooks/"
 # C0 controls, space, and DEL. A URL carrying any of these reaches http.client,
@@ -389,33 +399,67 @@ def _format_metrics(metrics: Mapping[str, object]) -> str:
     return " ".join(f"{key}={metrics[key]}" for key in keys)
 
 
-def _render_entered_tickers(summary: WorkflowRunSummary) -> list[str]:
-    """Render the day's newly entered names, or nothing when there are none.
+def _render_delta_tickers(summary: WorkflowRunSummary) -> list[str]:
+    """Render both sides of the pool delta, one line each, on every run.
 
-    A day with no entries carries no line at all. The notification arrives every
-    run, and a line that is always there teaches the reader to skip past the one
-    place the day's actionable fact shows up. Entries are sanitized here as well as
-    at the producer because the summary file is another process's output — a
-    newline in it would otherwise forge lines in the message.
+    Silence would carry three different facts — nothing entered, the delta could not
+    be measured, and the notification path is broken — and a reader cannot tell them
+    apart. So the lines are always present and say which case it is; what changes
+    between a quiet day and an actionable one is the text, not whether the line
+    exists.
+
+    The lines appear only when the batch summary is available, because that is where
+    the metrics live. A run that never got that far already says so in its own line.
+
+    Entries are sanitized here as well as at the producer because the summary file
+    is another process's output — a newline in it would otherwise forge lines in the
+    message.
     """
 
     if summary.execution.kind != EXECUTION_AVAILABLE or summary.execution.summary is None:
         return []
-    entries: list[str] = []
+    lines: list[str] = []
     for batch in summary.execution.summary.batches:
-        value = batch.metrics.get(ENTERED_TICKERS_METRIC)
-        if not isinstance(value, list):
+        metrics = batch.metrics
+        if not any(key in metrics for key in (ENTERED_TICKERS_METRIC, EXITED_TICKERS_METRIC)):
             continue
-        for item in value:
-            text = sanitize_one_line(item, _ENTERED_ENTRY_MAX_CHARS)
-            if text:
-                entries.append(text)
+        unmeasured = _delta_unmeasured_reason(metrics)
+        lines.append(
+            _ENTERED_TICKERS_PREFIX
+            + _render_delta_side(metrics, ENTERED_TICKERS_METRIC, unmeasured)
+        )
+        lines.append(
+            _EXITED_TICKERS_PREFIX + _render_delta_side(metrics, EXITED_TICKERS_METRIC, unmeasured)
+        )
+    return lines
+
+
+def _delta_unmeasured_reason(metrics: Mapping[str, object]) -> str | None:
+    """Return why the delta is unmeasured, or None when it was measured."""
+
+    measured = metrics.get(DELTA_MEASURED_METRIC)
+    if measured is not False:
+        return None
+    reason = metrics.get(DELTA_UNAVAILABLE_METRIC)
+    text = sanitize_one_line(reason, _ENTERED_ENTRY_MAX_CHARS) if reason is not None else ""
+    return text or _DELTA_UNMEASURED_UNKNOWN_REASON
+
+
+def _render_delta_side(metrics: Mapping[str, object], metric: str, unmeasured: str | None) -> str:
+    if unmeasured is not None:
+        return f"{_DELTA_UNMEASURED_TEXT}（{unmeasured}）"
+    value = metrics.get(metric)
+    if not isinstance(value, list):
+        return f"{_DELTA_UNMEASURED_TEXT}（{_DELTA_UNREADABLE_REASON}）"
+    entries = [
+        text for item in value if (text := sanitize_one_line(item, _ENTERED_ENTRY_MAX_CHARS))
+    ]
     if not entries:
-        return []
-    line = _ENTERED_TICKERS_PREFIX + " / ".join(entries[:ENTERED_TICKERS_SHOWN])
+        return _DELTA_EMPTY_TEXT
+    rendered = " / ".join(entries[:ENTERED_TICKERS_SHOWN])
     if len(entries) > ENTERED_TICKERS_SHOWN:
-        line += f" (+{len(entries) - ENTERED_TICKERS_SHOWN})"
-    return [line]
+        rendered += f" (+{len(entries) - ENTERED_TICKERS_SHOWN})"
+    return rendered
 
 
 def _render_error_overview(errors: list[BatchError]) -> list[str]:
@@ -451,7 +495,7 @@ def render_message(summary: WorkflowRunSummary) -> str:
         lines.append(f"batch not started (failed at: {summary.execution.stage})")
     elif summary.execution.kind == EXECUTION_UNAVAILABLE:
         lines.append("batch summary unavailable")
-    lines.extend(_render_entered_tickers(summary))
+    lines.extend(_render_delta_tickers(summary))
     lines.extend(_render_error_overview(_collect_errors(summary)))
     lines.append(f"run: {summary.run_url}")
 

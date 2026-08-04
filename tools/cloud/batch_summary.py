@@ -202,16 +202,17 @@ _BATCH_METRIC_SCHEMA: dict[str, dict[str, type]] = {
     # channel that reaches a reader without being opened. Every key is always
     # present: ``delta_measured`` false with zero counts says "not measured", which
     # zero counts alone could not distinguish from "nothing changed".
-    # ``delta_entered_tickers`` names the entries behind ``delta_entered`` so the day
-    # a name falls into the pool is actionable from the notification alone. It is a
-    # bounded list of already-rendered one-line strings and is empty when there is
-    # nothing to name.
+    # ``delta_entered_tickers`` and ``delta_exited_tickers`` name the tickers behind
+    # the two counts so the day a name falls into or out of the pool is actionable
+    # from the notification alone. Each is a bounded list of already-rendered
+    # one-line strings and is empty when there is nothing to name.
     "serving-export": {
         "local_output": bool,
         "delta_measured": bool,
         "delta_entered": int,
         "delta_entered_tickers": list,
         "delta_exited": int,
+        "delta_exited_tickers": list,
         "delta_er_moves": int,
         "delta_holdings": int,
         "delta_macro_flags": int,
