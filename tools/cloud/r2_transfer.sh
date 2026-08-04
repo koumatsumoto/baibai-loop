@@ -363,12 +363,24 @@ case "${1:-}" in
   push-app)
     push_keys baibai.sqlite
     ;;
+  # The serving bucket has one writer: the batch that produces a complete export.
+  # `upload_serving` mirrors `views/` with `--delete`, so a partial local export would
+  # remove production views, and the local credential carries write permission because
+  # R2 grants it per token rather than per bucket. The boundary lives here instead.
   upload-serving)
     [[ $# -eq 2 ]] || { usage; exit 2; }
+    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+      printf 'refusing serving upload outside GitHub Actions\n' >&2
+      exit 2
+    fi
     upload_serving "$2"
     ;;
   upload-run-summary)
     [[ $# -eq 2 ]] || { usage; exit 2; }
+    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+      printf 'refusing run-summary upload outside GitHub Actions\n' >&2
+      exit 2
+    fi
     upload_run_summary "$2"
     ;;
   *)
