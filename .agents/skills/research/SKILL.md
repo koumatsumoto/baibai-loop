@@ -44,9 +44,9 @@ description: 人間が選んだ primary-research set の深掘り。一次情報
    ```
 
    `research status --workspace ...` が常に次コマンドを教える。
-3. **一次情報調査**（lane ごと。委譲するときは AGENTS.md の subagent 規律に従う）: 会社 IR・EDINET・決算資料の原文で load-bearing claim を検証する。TDnet・株探は 403 になりやすい（irbank の PDF ミラー等で代替し、裏取りできない項目は「未検証」と明示する）。検索 snippet・外部 AI 要約を観測事実へ昇格しない。business-model guide の pilot 指定 lane だけ [`business-model-research.md`](../../../docs/reference/business-model-research.md) の lens を適用する。
+3. **一次情報調査**（lane ごと。委譲するときは AGENTS.md の subagent 規律に従う）: 会社 IR・EDINET・決算資料の原文で load-bearing claim を検証する。TDnet・株探は 403 になりやすい（irbank の PDF ミラー等で代替し、裏取りできない項目は「未検証」と明示する）。落とした PDF は `uv run python tools/read_ir_pdf.py <pdf> --search <キーワード>` で読む（決算短信の AES 暗号化に対応済み。`--pages 1-3` で節を通読）。検索 snippet・外部 AI 要約を観測事実へ昇格しない。business-model guide の pilot 指定 lane だけ [`business-model-research.md`](../../../docs/reference/business-model-research.md) の lens を適用する。
 4. **thesis 執筆**（契約・算術の正本は [`thesis.md`](../../../docs/reference/thesis.md)）。schema が語らない機械 gate:
-   - scenario の starting earnings / share count は input_snapshot の**開示済み fact** に束縛される（正規化の主張は growth 側で表現する）。claimed_* は engine 再計算と一致が必須（CAGR は 2 桁丸め）。bear ≤ base ≤ bull の順序も検証される。
+   - scenario の starting earnings / share count は input_snapshot の**開示済み fact** に束縛される（正規化の主張は growth 側で表現する）。claimed_* は engine 再計算と一致が必須（CAGR は 2 桁丸め）。bear ≤ base ≤ bull の順序も検証される。claimed_* は手計算せず `uv run python tools/scenario_arithmetic.py --entry-price <P> --starting-earnings <E> --starting-shares <S> --scenario <name>:<3|5>:<growth>:<share_change>:<multiple>:<dividends> ... [--required-cagr-pct 8.5]` で出す（engine と同じ関数を呼ぶので丸めがずれない。`--required-cagr-pct` は 5y base を要求 CAGR で割り戻した FV 候補を併記する）。
    - `permanent_loss_conclusion` は 7 軸から自動導出された期待値と一致が必須: adverse が 1 つでもあれば `elevated`、無ければ unknown 軸ありで `unknown`、それ以外 `acceptable`。
    - retrieved_at / proposed_at / reviewed_at は**現在時刻以前**。source 取得より前の proposed_at も拒否される。
    - scaffold が置いた構造は変えず、null と `TODO` だけを埋める（draft 冒頭の comment が gate の要求を持つ）。`facts[trailing-per]` は `scenario.base_3y_5y` の観測 multiple なので、比率を入れて利益側の一次 source を `source_ids` へ足す。`independent_review_ref` は review-scaffold が書き出す隣接ファイル名なので触らない。
