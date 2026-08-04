@@ -68,7 +68,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
 ## 既知の gotcha
 
 - run store は 3 世代 retention。selection output のローカルファイルを消しても `screening selection show --selection-id <ID>` で読み直せる（bound run の evict 後も取れる）。
-- 同じ as-of を作り直すと 3 世代を食い潰して前 as-of の run が消え、差分の前回側が空になる（前回候補上限の cap も効かなくなる）。`tools/cloud/r2_transfer.sh pull-longlist-history <DIR>` で永続 record を取り、手順 3 の select へ `--longlist-history-dir <DIR>` を渡すと前回側を復元できる。**ただしローカル R2 token は serving bucket（`history/longlists/` の実体）へのアクセス権を持たず、ローカルからは AccessDenied で実行不能（CI 専用）**。ローカル cycle での fallback は前回 shortlist（application DB 永続）との比較。
+- 同じ as-of を作り直すと 3 世代を食い潰して前 as-of の run が消え、差分の前回側が空になる（前回候補上限の cap も効かなくなる）。`tools/cloud/r2_transfer.sh pull-longlist-history <DIR>` で永続 record を取り、手順 3 の select へ `--longlist-history-dir <DIR>` を渡すと前回側を復元できる（ローカル R2 token は serving bucket を読める）。record が無い日は前回 shortlist（application DB 永続）との比較が fallback。
 - `operation checkpoint` の `--payload` は **JSON ファイルのパス**を取る（JSON 文字列を直接渡すとファイル名として解釈され失敗する）。
 - `select` の再実行は**新しい selection を publish する**（冪等でない）。既存 selection の再取得には使わない。
 - machine recommendation を shortlist と呼ばない。review 済み draft の publish だけが shortlist である。
