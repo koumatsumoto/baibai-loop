@@ -78,8 +78,13 @@ def _screening_batch(**overrides) -> dict:
     return base
 
 
-def _export_batch(entered_tickers: list[str] | None = None, **overrides) -> dict:
-    names = [] if entered_tickers is None else entered_tickers
+def _export_batch(
+    entered_tickers: list[str] | None = None,
+    exited_tickers: list[str] | None = None,
+    **overrides,
+) -> dict:
+    entered = [] if entered_tickers is None else entered_tickers
+    exited = [] if exited_tickers is None else exited_tickers
     base = {
         "batch_name": "serving-export",
         "datasets": ["views", "history"],
@@ -88,9 +93,10 @@ def _export_batch(entered_tickers: list[str] | None = None, **overrides) -> dict
         "metrics": {
             "local_output": True,
             "delta_measured": True,
-            "delta_entered": len(names),
-            "delta_entered_tickers": names,
-            "delta_exited": 0,
+            "delta_entered": len(entered),
+            "delta_entered_tickers": entered,
+            "delta_exited": len(exited),
+            "delta_exited_tickers": exited,
             "delta_er_moves": 0,
             "delta_holdings": 0,
             "delta_macro_flags": 0,
@@ -458,12 +464,20 @@ def test_render_message_contains_required_fields(tmp_path: Path) -> None:
     assert len(message) <= 2000
 
 
-def _render_with_entered(tmp_path: Path, entered_tickers: list[str]) -> WorkflowRunSummary:
+def _render_with_entered(
+    tmp_path: Path,
+    entered_tickers: list[str],
+    exited_tickers: list[str] | None = None,
+    **export_overrides,
+) -> WorkflowRunSummary:
     summary_path = tmp_path / "batch.json"
     _write_batch_summary(
         summary_path,
         outcome=OUTCOME_SUCCEEDED,
-        batches=[_screening_batch(), _export_batch(entered_tickers)],
+        batches=[
+            _screening_batch(),
+            _export_batch(entered_tickers, exited_tickers, **export_overrides),
+        ],
     )
     return _build(
         tmp_path,
@@ -474,18 +488,24 @@ def _render_with_entered(tmp_path: Path, entered_tickers: list[str]) -> Workflow
     )
 
 
-def test_render_message_names_the_tickers_that_newly_entered_the_pool(tmp_path: Path) -> None:
-    summary = _render_with_entered(tmp_path, ["7148 FPG E[r]+18.2%", "4849 EN Japan E[r]+11.0%"])
+def test_render_message_names_the_tickers_on_both_sides_of_the_delta(tmp_path: Path) -> None:
+    summary = _render_with_entered(
+        tmp_path,
+        ["7148 FPG E[r]+18.2%", "4849 EN Japan E[r]+11.0%"],
+        ["6088 SIGMAXYZ E[r]+8.4%"],
+    )
 
     message = render_message(summary)
 
-    entered_lines = [line for line in message.splitlines() if line.startswith("🆕")]
-    assert entered_lines == [
-        "🆕 新規 longlist 入り: 7148 FPG E[r]+18.2% / 4849 EN Japan E[r]+11.0%"
+    assert [line for line in message.splitlines() if line.startswith(("🆕", "👋"))] == [
+        "🆕 新規 longlist 入り: 7148 FPG E[r]+18.2% / 4849 EN Japan E[r]+11.0%",
+        "👋 longlist 退出: 6088 SIGMAXYZ E[r]+8.4%",
     ]
-    # The names have their own line; the batch's scalar run stays as it was.
+    # The names have their own lines; the batch's scalar run stays as it was.
     assert "delta_entered_tickers=" not in message
+    assert "delta_exited_tickers=" not in message
     assert "delta_entered=2" in message
+    assert "delta_exited=1" in message
 
 
 def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_path: Path) -> None:
@@ -498,14 +518,66 @@ def test_render_message_caps_the_named_tickers_and_says_how_many_are_left(tmp_pa
     assert entered_line.endswith("(+2)")
 
 
-def test_render_message_is_unchanged_on_a_day_with_no_new_entry(tmp_path: Path) -> None:
+def test_render_message_says_none_on_a_day_with_no_movement(tmp_path: Path) -> None:
     summary = _render_with_entered(tmp_path, [])
 
-    # A line that appears every run teaches the reader to skip the place the day's
-    # one actionable fact shows up, so an empty list has to render as if the metric
-    # did not exist at all.
-    assert render_message(summary) == render_message(_without_entered_tickers(summary))
-    assert "🆕" not in render_message(summary)
+    # Silence would mean "nothing entered", "the delta was not measured" and "the
+    # notification path is broken" at once, so a quiet day says so in words.
+    assert [
+        line for line in render_message(summary).splitlines() if line.startswith(("🆕", "👋"))
+    ] == [
+        "🆕 新規 longlist 入り: なし",
+        "👋 longlist 退出: なし",
+    ]
+
+
+def test_render_message_separates_an_unmeasured_delta_from_an_empty_one(tmp_path: Path) -> None:
+    summary = _render_with_entered(
+        tmp_path,
+        [],
+        [],
+        metrics={
+            "local_output": True,
+            "delta_measured": False,
+            "delta_entered": 0,
+            "delta_entered_tickers": [],
+            "delta_exited": 0,
+            "delta_exited_tickers": [],
+            "delta_er_moves": 0,
+            "delta_holdings": 0,
+            "delta_macro_flags": 0,
+            "delta_macro_extremes": 0,
+            "delta_unavailable": "view_unreadable",
+        },
+    )
+
+    assert [
+        line for line in render_message(summary).splitlines() if line.startswith(("🆕", "👋"))
+    ] == [
+        "🆕 新規 longlist 入り: 計測なし（view_unreadable）",
+        "👋 longlist 退出: 計測なし（view_unreadable）",
+    ]
+
+
+def test_render_message_reports_a_missing_ticker_metric_as_unreadable(tmp_path: Path) -> None:
+    """A summary this process did not write may still be missing a key."""
+
+    summary = _without_entered_tickers(_render_with_entered(tmp_path, ["7148 FPG"]))
+
+    assert [line for line in render_message(summary).splitlines() if line.startswith("🆕")] == [
+        "🆕 新規 longlist 入り: 計測なし（metric_unreadable）",
+    ]
+
+
+def test_render_message_caps_the_exited_names_the_same_way(tmp_path: Path) -> None:
+    summary = _render_with_entered(tmp_path, [], [f"200{index} Name{index}" for index in range(7)])
+
+    exited_line = next(
+        line for line in render_message(summary).splitlines() if line.startswith("👋")
+    )
+
+    assert exited_line.count(" / ") == 4
+    assert exited_line.endswith("(+2)")
 
 
 def test_render_message_keeps_a_multiline_entry_from_splitting_the_message(

@@ -84,7 +84,8 @@ def _export_result(**overrides) -> dict:
             "delta_measured": True,
             "delta_entered": 1,
             "delta_entered_tickers": ["7148 FPG E[r]+18.2%"],
-            "delta_exited": 0,
+            "delta_exited": 1,
+            "delta_exited_tickers": ["6088 SIGMAXYZ E[r]+8.4%"],
             "delta_er_moves": 2,
             "delta_holdings": 1,
             "delta_macro_flags": 0,
@@ -305,12 +306,15 @@ def test_batch_result_accepts_an_empty_entered_ticker_list() -> None:
     assert BatchResult.from_json(payload).metrics["delta_entered_tickers"] == []
 
 
+@pytest.mark.parametrize("metric", ["delta_entered_tickers", "delta_exited_tickers"])
 @pytest.mark.parametrize("value", ["7148 FPG", 3, ["7148 FPG", 3], [None], [True]])
-def test_batch_result_rejects_entered_ticker_names_that_are_not_strings(value: object) -> None:
+def test_batch_result_rejects_delta_ticker_names_that_are_not_strings(
+    metric: str, value: object
+) -> None:
     # The renderer prints these items as text; anything else would reach a Discord
     # message as a repr.
     payload = _export_result()
-    payload["metrics"]["delta_entered_tickers"] = value
+    payload["metrics"][metric] = value
     with pytest.raises(SummaryValidationError, match="must be a list of str"):
         BatchResult.from_json(payload)
 

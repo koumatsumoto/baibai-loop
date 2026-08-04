@@ -317,10 +317,12 @@ batch 未到達（`not_started`）の `[FAILED]`、batch 実行後の summary �
 
 message には workflow 名・repository・trigger・run attempt・overall outcome・as-of・総所要時間・
 batch ごとの status / datasets / metrics・publish state・GitHub Actions run URL を含む。
-その日 machine pool へ新しく入った銘柄がある run では、`serving-export` の
-`delta_entered_tickers`（E[r] 降順・最大5件・`<ticker> <社名> E[r]±X.X%`）を専用行
-`🆕 新規 longlist 入り:` として出す。急落当日の候補を通知だけで拾えるようにするための行であり、
-入りが 0 件の run では行ごと出さない（毎回出る行は読み飛ばされる）。error は
+`serving-export` の `delta_entered_tickers` / `delta_exited_tickers`（それぞれ E[r] 降順・
+最大5件・`<ticker> <社名> E[r]±X.X%`）は専用行 `🆕 新規 longlist 入り:` / `👋 longlist 退出:`
+として出す。急落当日の候補と、pool から落ちた銘柄を通知だけで拾えるようにするための行である。
+**この2行は batch summary が読めた run では常に出す** — 0 件の日は `なし`、`delta_measured`
+が false の日は `計測なし（<理由>）` と書く。行が無いことは「0 件」「計測不能」「通知経路の
+異常」の3つを同時に意味してしまい、読み手が区別できない。error は
 failed を degraded より先に表示し、4件以上は上位3件 + 残件数へ折りたたむ。error message は固定
 code / stage / impact と検証済み scalar だけから作り、subprocess の stderr・例外本文・provider
 response body は載せない（1行400文字以内、全体2000文字以内）。
