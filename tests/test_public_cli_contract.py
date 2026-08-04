@@ -833,19 +833,32 @@ def test_skill_recipes_use_public_cli_contract(
     assert f"{executable} {argv[0]}" in skills
 
 
-def test_skill_draft_output_paths_are_accepted_by_the_draft_path_guard() -> None:
+def test_skill_draft_output_paths_are_accepted_by_the_draft_path_guard(tmp_path: Path) -> None:
     """Every `--out` a skill writes has to survive the draft path confinement.
 
     The ledger and holding-review draft commands refuse an absolute path or one
     that climbs out of the repository, so a runbook that hands out `/tmp/...`
     documents a command that can never run.
+
+    The guard also refuses to overwrite a draft that already exists, which is a
+    property of the machine the recipe runs on rather than of the recipe. Resolving
+    against an empty root keeps this check on the shape of the path, so a real
+    holding review leaving `.cache/ledger/` populated cannot turn the suite red.
     """
     offenders: list[str] = []
     for path in sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md")):
         text = path.read_text(encoding="utf-8")
         for value in re.findall(r"--out ([^\s\\]+)", text):
             try:
-                _draft_output_path(ROOT, Path(value), label="skill recipe")
+                _draft_output_path(tmp_path, Path(value), label="skill recipe")
             except ValueError as error:
                 offenders.append(f"{path.relative_to(ROOT)}: --out {value} ({error})")
     assert offenders == []
+
+
+@pytest.mark.parametrize("recipe", ["/tmp/draft.yaml", "../draft.yaml"])
+def test_a_recipe_path_outside_the_repository_is_still_rejected(
+    recipe: str, tmp_path: Path
+) -> None:
+    with pytest.raises(ValueError, match="skill recipe --out"):
+        _draft_output_path(tmp_path, Path(recipe), label="skill recipe")

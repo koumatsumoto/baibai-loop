@@ -600,6 +600,16 @@ class ThesisDocument(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
+class ScenarioProjection:
+    """One scenario's terminal values at the rounding the claim comparison uses."""
+
+    terminal_earnings_yen: float
+    terminal_share_count: float
+    terminal_price_yen: float
+    total_return_cagr_pct: float
+
+
+@dataclass(frozen=True, slots=True)
 class ScenarioResult:
     horizon_years: int
     name: str
@@ -1193,32 +1203,71 @@ def _round_payload_decimal(value: Decimal | None) -> float | None:
     return payload_value if math.isfinite(payload_value) else None
 
 
+def project_scenario(
+    *,
+    horizon_years: int,
+    starting_earnings_yen: float,
+    annual_earnings_growth_pct: float,
+    starting_share_count: float,
+    annual_share_count_change_pct: float,
+    terminal_valuation_multiple: float,
+    cumulative_dividend_per_share_yen: float,
+    entry_price_yen: float,
+) -> ScenarioProjection:
+    """Project one scenario's terminal values from its parameters.
+
+    This is the arithmetic `_compare_claims` measures a thesis against, exposed so a
+    thesis author derives the claimed values from the same code that later checks
+    them. Values come back at the rounding the comparison uses; a second
+    implementation of the formula would drift from it silently.
+    """
+
+    terminal_earnings = starting_earnings_yen * (1 + annual_earnings_growth_pct / 100) ** (
+        horizon_years
+    )
+    terminal_shares = starting_share_count * (1 + annual_share_count_change_pct / 100) ** (
+        horizon_years
+    )
+    terminal_price = terminal_earnings / terminal_shares * terminal_valuation_multiple
+    total_value = terminal_price + cumulative_dividend_per_share_yen
+    cagr = ((total_value / entry_price_yen) ** (1 / horizon_years) - 1) * 100
+    return ScenarioProjection(
+        terminal_earnings_yen=round(terminal_earnings, 2),
+        terminal_share_count=round(terminal_shares, 4),
+        terminal_price_yen=round(terminal_price, 4),
+        total_return_cagr_pct=round(cagr, 2),
+    )
+
+
 def _recalculate_scenario(scenario: ScenarioEstimate, *, entry_price: Decimal) -> ScenarioResult:
     horizon = scenario.horizon_years
-    terminal_earnings = (
-        float(scenario.starting_earnings_yen)
-        * (1 + scenario.annual_earnings_growth_pct / 100) ** horizon
+    projection = project_scenario(
+        horizon_years=horizon,
+        starting_earnings_yen=float(scenario.starting_earnings_yen),
+        annual_earnings_growth_pct=scenario.annual_earnings_growth_pct,
+        starting_share_count=float(scenario.starting_share_count),
+        annual_share_count_change_pct=scenario.annual_share_count_change_pct,
+        terminal_valuation_multiple=float(scenario.terminal_valuation_multiple),
+        cumulative_dividend_per_share_yen=float(scenario.cumulative_dividend_per_share_yen),
+        entry_price_yen=float(entry_price),
     )
-    terminal_shares = (
-        float(scenario.starting_share_count)
-        * (1 + scenario.annual_share_count_change_pct / 100) ** horizon
-    )
-    terminal_price = (
-        terminal_earnings / terminal_shares * float(scenario.terminal_valuation_multiple)
-    )
-    total_value = terminal_price + float(scenario.cumulative_dividend_per_share_yen)
-    cagr = ((total_value / float(entry_price)) ** (1 / horizon) - 1) * 100
     if not all(
-        math.isfinite(value) for value in (terminal_earnings, terminal_shares, terminal_price, cagr)
+        math.isfinite(value)
+        for value in (
+            projection.terminal_earnings_yen,
+            projection.terminal_share_count,
+            projection.terminal_price_yen,
+            projection.total_return_cagr_pct,
+        )
     ):
         raise ThesisError(f"scenario {horizon}y/{scenario.name} calculation must remain finite")
     return ScenarioResult(
         horizon_years=horizon,
         name=scenario.name,
-        terminal_earnings_yen=round(terminal_earnings, 2),
-        terminal_share_count=round(terminal_shares, 4),
-        terminal_price_yen=round(terminal_price, 4),
-        total_return_cagr_pct=round(cagr, 2),
+        terminal_earnings_yen=projection.terminal_earnings_yen,
+        terminal_share_count=projection.terminal_share_count,
+        terminal_price_yen=projection.terminal_price_yen,
+        total_return_cagr_pct=projection.total_return_cagr_pct,
     )
 
 
