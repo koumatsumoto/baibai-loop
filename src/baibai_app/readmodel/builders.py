@@ -259,7 +259,7 @@ def build_dashboard(
     candidates: CandidatesSource,
     market: MarketPriceSource,
 ) -> DashboardView:
-    """Build the Baibai Loop first view without performing storage I/O directly."""
+    """Build the app's first view without performing storage I/O directly."""
 
     now = datetime.now(_JST)
     today = now.date()
@@ -1249,7 +1249,7 @@ def _holding_view(
 ) -> HoldingView:
     # The canonical ledger price is a human-confirmed observation; when the read-only
     # market store carries a strictly newer close, value the holding on that close so the
-    # Baibai Loop does not lag stale ledger prices. Anything not newer keeps the ledger value.
+    # The app does not lag stale ledger prices. Anything not newer keeps the ledger value.
     price_value = float(holding.market_price_yen)
     price_display = str(holding.market_price_yen)
     market_value = holding.market_value_yen
@@ -1300,7 +1300,7 @@ def _upcoming_events(
 
     The window is inclusive on both ends: an event dated today (days_until 0) through
     ``today + _EVENT_WINDOW_DAYS`` is surfaced; anything past or beyond is dropped so the
-    Baibai Loop only shows what needs attention now.
+    The app only shows what needs attention now.
     """
 
     window_end = today + timedelta(days=_EVENT_WINDOW_DAYS)

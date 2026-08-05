@@ -1,4 +1,4 @@
-"""Unified command entry point for the Baibai Loop engine."""
+"""Unified command entry point for `baibai-engine`."""
 
 from __future__ import annotations
 

@@ -42,7 +42,7 @@ AIは提案までを担当し、人間だけが`approve / defer / reject`とbrok
 
 ## Read-only 運用 UI
 
-frontend を build して Baibai Loop を起動します。
+frontend を build して `baibai-app` を起動します。
 
 ```bash
 cd ui

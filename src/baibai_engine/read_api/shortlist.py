@@ -16,7 +16,7 @@ def list_shortlist_payloads(path: Path) -> list[dict[str, object]]:
 
 
 def latest_shortlist_payload(path: Path) -> dict[str, object] | None:
-    """Return the current Baibai Loop shortlist without loading canonical history."""
+    """Return the shortlist `baibai-app` shows, without loading canonical history."""
 
     rows = read_rows(path, f"{_SELECT} LIMIT 1")
     return _payload(rows[0][0]) if rows else None

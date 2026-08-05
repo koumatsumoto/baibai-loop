@@ -59,7 +59,7 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 | market | `src/baibai_engine/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
 | foundation | `src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
 | task | `src/baibai_engine/tasks/` | `data/app/baibai.sqlite` | `baibai-engine task` | current task state |
-| app | `src/baibai_app/` | application DBほかdomain storeをread-only合成 | `baibai-app` | Baibai Loopのread model / local API |
+| app | `src/baibai_app/` | application DBほかdomain storeをread-only合成 | `baibai-app` | read model / local API |
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイで見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善であり、契約と規律は [`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md) を正本とする。
 
