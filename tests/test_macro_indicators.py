@@ -3478,8 +3478,6 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
         A row from another one means the filter did not apply, and mixing a
         month-on-month change into an index level would read as the series itself.
-        A preliminary print is rejected on the same ground: the declared
-        publication lag belongs to the final print.
         """
 
         for attribute, value in (
@@ -3487,7 +3485,6 @@ class IndicatorsProviderParserTests(unittest.TestCase):
             ("@isSeasonal", "1"),
             ("@indicator", "0302030202010090010"),
             ("@regionCode", "13000"),
-            ("@isProvisional", "1"),
         ):
             with self.subTest(attribute=attribute):
                 row = _dashboard_row("20260500", "2.4")
@@ -3495,6 +3492,42 @@ class IndicatorsProviderParserTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(IndicatorsProviderError, attribute):
                     _parse_dashboard([row])
+
+    def test_parse_dashboard_json_leaves_a_preliminary_month_unwritten(self) -> None:
+        # The declared publication lag belongs to the final print, so a month that
+        # has only a preliminary print is not due yet rather than missing.
+        preliminary = _dashboard_row("20260600", "2.9")
+        preliminary["VALUE"]["@isProvisional"] = "1"
+
+        with self.assertLogs(
+            "baibai_engine.macro.indicators.providers.estat_dashboard", level="WARNING"
+        ) as logs:
+            observations = _parse_dashboard(
+                [
+                    _dashboard_row("20260400", "2.6"),
+                    _dashboard_row("20260500", "2.4"),
+                    preliminary,
+                ]
+            )
+
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in observations],
+            [(date(2026, 4, 1), 2.6), (date(2026, 5, 1), 2.4)],
+        )
+        message = "\n".join(logs.output)
+        self.assertIn("test.series", message)
+        self.assertIn("2026-06-01", message)
+
+    def test_parse_dashboard_json_keeps_a_preliminary_month_out_of_the_unit_check(self) -> None:
+        # A preliminary row is not part of the series being written, so its unit
+        # must not read as the publisher mixing two units into one series.
+        preliminary = _dashboard_row("20260600", "2.9")
+        preliminary["VALUE"]["@isProvisional"] = "1"
+        preliminary["VALUE"]["@unit"] = "指数"
+
+        observations = _parse_dashboard([_dashboard_row("20260500", "2.4"), preliminary])
+
+        self.assertEqual([item.observed_at for item in observations], [date(2026, 5, 1)])
 
     def test_parse_dashboard_json_rejects_a_page_shorter_than_its_declared_total(self) -> None:
         text = _dashboard_payload([_dashboard_row("20260500", "2.4")], total=2)
