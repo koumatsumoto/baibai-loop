@@ -29,6 +29,8 @@ description: 保有銘柄の見直し。決算・material event・FV 到達・�
    ```
 
 4. 一次情報の **material delta だけ**を更新する（決算実数・guidance・資本政策。thesis 執筆規約と機械 gate は research skill 手順 4〜5 と同じ）。独立反証を通して promote する。
+
+   「guidance 据え置き」は会社の主張であって観測ではない。反証は季節進捗で取る: 当該四半期の経常利益 ÷ 通期 guidance を、過去 3 期の同四半期 ÷ その期の通期**実績**と比べる（`jquants_fin_summaries` だけで出る）。乖離があれば、会社が織り込み済みなのか未達なのかを一次開示の定性説明で切り分けてから scenario の starting earnings に使う。
 5. **review の構築と publish**（人間確認後だけ publish）:
 
    ```bash

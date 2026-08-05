@@ -33,7 +33,14 @@ class KeywordHit:
 
 
 def parse_page_selection(spec: str, page_count: int) -> tuple[int, ...]:
-    """Turn `1-3,10` into 1-based page numbers, rejecting anything out of range."""
+    """Turn `1-3,10` into 1-based page numbers.
+
+    A range that starts inside the document but runs past its end is clamped: the
+    page count is not known until the file is open, so `--pages 1-4` is how a caller
+    asks for "the opening section" of a 短信 whose length varies by company. A range
+    that starts past the end, or a single page past the end, still raises — there the
+    caller is asking for something that does not exist rather than for a tail.
+    """
 
     pages: list[int] = []
     for part in spec.split(","):
@@ -45,9 +52,9 @@ def parse_page_selection(spec: str, page_count: int) -> tuple[int, ...]:
             start, end = int(start_text), int(end_text)
         else:
             start = end = int(chunk)
-        if start < 1 or end < start or end > page_count:
+        if start < 1 or end < start or start > page_count:
             raise ValueError(f"page range out of bounds: {chunk} (document has {page_count})")
-        pages.extend(range(start, end + 1))
+        pages.extend(range(start, min(end, page_count) + 1))
     if not pages:
         raise ValueError("no page selected")
     return tuple(dict.fromkeys(pages))
@@ -90,6 +97,19 @@ def find_keyword_contexts(
     return tuple(hits)
 
 
+def missing_keywords(keywords: Sequence[str], hits: Sequence[KeywordHit]) -> tuple[str, ...]:
+    """Keywords that matched nothing, in the order they were requested.
+
+    `--search` takes space-separated keywords, so a comma-joined list arrives as one
+    long keyword that hits nothing — indistinguishable from "the document does not say
+    this" unless the failing string is echoed back. Naming the misses also separates a
+    genuinely absent term from a mistyped one when other keywords did hit.
+    """
+
+    found = {hit.keyword for hit in hits}
+    return tuple(keyword for keyword in keywords if keyword not in found)
+
+
 def _page_texts(path: Path) -> tuple[str, ...]:
     reader = PdfReader(path)
     return tuple(page.extract_text() or "" for page in reader.pages)
@@ -116,8 +136,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.search:
         hits = find_keyword_contexts(pages, args.search, context_chars=args.context)
+        missing = missing_keywords(args.search, hits)
+        if missing:
+            print(f"no hit for: {list(missing)}", file=sys.stderr)
         if not hits:
-            print("no keyword hit", file=sys.stderr)
             return 1
         for hit in hits:
             print(f"--- p{hit.page_number} [{hit.keyword}]")
