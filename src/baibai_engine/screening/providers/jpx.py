@@ -73,9 +73,10 @@ class JPXEarningsCalendarSnapshot:
     raw_record_count: int
     excluded_record_count: int
     # Dates a lower-precedence cohort file offered for a ticker another file had
-    # already dated. Distinct from the `rejected` counters elsewhere in the
+    # already dated, or `None` when the snapshot was read back from SQLite and
+    # no merge happened. Distinct from the `rejected` counters elsewhere in the
     # cache, which mean malformed rows and turn a coverage row `partial`.
-    superseded_record_count: int
+    superseded_record_count: int | None
 
     @property
     def valid_record_count(self) -> int:
@@ -376,13 +377,12 @@ class JPXProvider:
         files = [self._download_earnings_calendar(url) for url in source_urls]
         raw_count = sum(source.raw_record_count for source in files)
         excluded_count = sum(source.excluded_record_count for source in files)
-        _warn_on_unreadable_earnings_sources(files)
+        _warn_on_unexpected_earnings_sources(files)
         entries: dict[str, date] = {}
         winner_urls: dict[str, str] = {}
         superseded: list[str] = []
         # Issuers reschedule, so cohort files published on different days
-        # legitimately disagree. The most current view wins; ties keep the index
-        # document order.
+        # legitimately disagree. The most current view wins.
         ordered = sorted(files, key=lambda source: _earnings_source_precedence(source, asof_date))
         for source in ordered:
             for entry in source.entries:
@@ -467,11 +467,15 @@ class JPXProvider:
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
         earnings = self.get_earnings_calendar_snapshot(asof_date)
         snapshot = self.get_regulation_snapshot(asof_date)
-        return {
+        counts = {
             "earnings_calendar_rows": earnings.valid_record_count,
-            "earnings_calendar_superseded": earnings.superseded_record_count,
             "regulated_tickers": len(snapshot.flags_by_ticker),
         }
+        # A cached read did no merge, so printing a zero here would read as
+        # "nothing was superseded today" when nothing was measured.
+        if earnings.superseded_record_count is not None:
+            counts["earnings_calendar_superseded"] = earnings.superseded_record_count
+        return counts
 
     def _resolve_earnings_calendar_urls(self) -> tuple[str, ...]:
         index_url = JPX_EARNINGS_CALENDAR_INDEX_URL
@@ -948,31 +952,42 @@ def _is_rolling_earnings_file(url: str) -> bool:
     return Path(urlparse(url).path).stem.lower() == "kessan"
 
 
-def _earnings_source_precedence(source: _EarningsCalendarFile, asof_date: date) -> tuple[int, int]:
+def _earnings_source_precedence(
+    source: _EarningsCalendarFile, asof_date: date
+) -> tuple[int, int, str]:
     """Order cohort files by how current their view of the schedule is.
 
     A file holding no date on or after the as-of has no forward schedule left to
     contribute, and a file whose publication stamp cannot be read cannot be
     placed among the dated ones, so both sit below every file known to be
-    current. Ranks are equal only for files we genuinely cannot separate, where
-    the index document order decides.
+    current. Publication order is kept inside the demoted rank so a stale file
+    never reorders its cohort. Files we genuinely cannot separate fall back to
+    their URL, which keeps the snapshot independent of the index listing order.
     """
+    published_rank = 0 if source.published_on is None else -source.published_on.toordinal()
     if not any(entry.announcement_date >= asof_date for entry in source.entries):
-        return (_EARNINGS_RANK_NO_FORWARD_VIEW, 0)
+        return (_EARNINGS_RANK_NO_FORWARD_VIEW, published_rank, source.url)
     if _is_rolling_earnings_file(source.url):
-        return (_EARNINGS_RANK_ROLLING, 0)
+        return (_EARNINGS_RANK_ROLLING, 0, source.url)
     if source.published_on is None:
-        return (_EARNINGS_RANK_UNDATED, 0)
-    return (_EARNINGS_RANK_DATED, -source.published_on.toordinal())
+        return (_EARNINGS_RANK_UNDATED, 0, source.url)
+    return (_EARNINGS_RANK_DATED, published_rank, source.url)
 
 
-def _warn_on_unreadable_earnings_sources(files: Sequence[_EarningsCalendarFile]) -> None:
+def _warn_on_unexpected_earnings_sources(files: Sequence[_EarningsCalendarFile]) -> None:
     """Say when the JPX layout stopped matching what precedence relies on."""
-    if not any(_is_rolling_earnings_file(source.url) for source in files):
+    rolling = [source.url for source in files if _is_rolling_earnings_file(source.url)]
+    if not rolling:
         _LOGGER.warning(
             "JPX earnings calendar index has no rolling `kessan` file; "
             "cohort archives alone decide the schedule: %s",
             ", ".join(source.url for source in files),
+        )
+    if len(rolling) > 1:
+        _LOGGER.warning(
+            "JPX earnings calendar index lists several rolling `kessan` files, "
+            "so which one is current cannot be told apart: %s",
+            ", ".join(rolling),
         )
     undated = [
         source.url

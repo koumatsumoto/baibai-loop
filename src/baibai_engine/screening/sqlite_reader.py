@@ -622,7 +622,7 @@ def read_jpx_earnings_calendar_snapshot(
         source_urls=(),
         raw_record_count=len(entries),
         excluded_record_count=0,
-        superseded_record_count=0,
+        superseded_record_count=None,
     )
 
 
