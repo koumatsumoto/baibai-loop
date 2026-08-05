@@ -39,6 +39,11 @@ _JPX_PUBLICATION_DATE_PATTERN = re.compile(
     r"(?:(\d{4})年(\d{1,2})月(\d{1,2})日現在|asof(\d{4})/(\d{1,2})/(\d{1,2}))",
     re.IGNORECASE,
 )
+# Cohort file precedence, most current view first.
+_EARNINGS_RANK_ROLLING = 0
+_EARNINGS_RANK_DATED = 1
+_EARNINGS_RANK_UNDATED = 2
+_EARNINGS_RANK_NO_FORWARD_VIEW = 3
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _HTTP_TIMEOUT_SECONDS = 30
 _LOGGER = logging.getLogger(__name__)
@@ -67,7 +72,10 @@ class JPXEarningsCalendarSnapshot:
     source_urls: tuple[str, ...]
     raw_record_count: int
     excluded_record_count: int
-    rejected_record_count: int
+    # Dates a lower-precedence cohort file offered for a ticker another file had
+    # already dated. Distinct from the `rejected` counters elsewhere in the
+    # cache, which mean malformed rows and turn a coverage row `partial`.
+    superseded_record_count: int
 
     @property
     def valid_record_count(self) -> int:
@@ -87,8 +95,9 @@ class _EarningsCalendarFile:
     """One cohort Excel from the JPX financial-announcement index.
 
     `published_on` is the `YYYY年M月D日現在` stamp the archived cohort files
-    carry. The rolling file that JPX refreshes every business day carries no
-    stamp, so `None` means "current" and outranks every stamped file.
+    carry, and is `None` both for the rolling daily file, which has no fixed
+    as-of to stamp, and for an archive whose stamp could not be read. Telling
+    those two apart is `_is_rolling_earnings_file`'s job, not this field's.
     """
 
     url: str
@@ -367,21 +376,25 @@ class JPXProvider:
         files = [self._download_earnings_calendar(url) for url in source_urls]
         raw_count = sum(source.raw_record_count for source in files)
         excluded_count = sum(source.excluded_record_count for source in files)
+        _warn_on_unreadable_earnings_sources(files)
         entries: dict[str, date] = {}
+        winner_urls: dict[str, str] = {}
         superseded: list[str] = []
         # Issuers reschedule, so cohort files published on different days
-        # legitimately disagree. The freshest publication wins; ties keep the
-        # index document order.
-        for source in sorted(files, key=_earnings_source_precedence):
+        # legitimately disagree. The most current view wins; ties keep the index
+        # document order.
+        ordered = sorted(files, key=lambda source: _earnings_source_precedence(source, asof_date))
+        for source in ordered:
             for entry in source.entries:
                 previous = entries.get(entry.ticker)
                 if previous is None:
                     entries[entry.ticker] = entry.announcement_date
+                    winner_urls[entry.ticker] = source.url
                     continue
                 if previous != entry.announcement_date:
                     superseded.append(
-                        f"{entry.ticker}: kept {previous}, dropped "
-                        f"{entry.announcement_date} from {source.url}"
+                        f"{entry.ticker}: kept {previous} from {winner_urls[entry.ticker]}, "
+                        f"dropped {entry.announcement_date} from {source.url}"
                     )
         if superseded:
             _LOGGER.warning(
@@ -402,7 +415,7 @@ class JPXProvider:
             source_urls=source_urls,
             raw_record_count=raw_count,
             excluded_record_count=excluded_count,
-            rejected_record_count=len(superseded),
+            superseded_record_count=len(superseded),
         )
         if self._sqlite_path is not None:
             from ..sqlite_cache import store_jpx_earnings_calendar_snapshot
@@ -456,6 +469,7 @@ class JPXProvider:
         snapshot = self.get_regulation_snapshot(asof_date)
         return {
             "earnings_calendar_rows": earnings.valid_record_count,
+            "earnings_calendar_superseded": earnings.superseded_record_count,
             "regulated_tickers": len(snapshot.flags_by_ticker),
         }
 
@@ -908,25 +922,69 @@ def _parse_jpx_publication_date(cells: Sequence[str]) -> date | None:
 
     Matching is anchored on the stamp wording rather than on any date-shaped
     text so cohort titles such as `2027年3月期第1四半期決算` are never mistaken
-    for a publication date. An unrecognised stamp yields `None`, which ranks the
-    file alongside the rolling daily file instead of dating it wrongly.
+    for a publication date. An unrecognised stamp yields `None`, which leaves the
+    file undatable and therefore unable to outrank a dated one.
     """
     for value in cells:
         match = _JPX_PUBLICATION_DATE_PATTERN.search(value)
         if match is None:
             continue
-        year, month, day = (int(part) for part in match.groups() if part is not None)
         try:
+            year, month, day = (int(part) for part in match.groups() if part is not None)
             return date(year, month, day)
         except ValueError:
-            return None
+            continue
     return None
 
 
-def _earnings_source_precedence(source: _EarningsCalendarFile) -> tuple[int, int]:
+def _is_rolling_earnings_file(url: str) -> bool:
+    """Tell the daily file from the dated cohort archives by its stable name.
+
+    JPX publishes the next business day's disclosures as `kessan.xlsx` and the
+    per-cohort archives as `kessanMM_MMDD.xlsx`. Identity comes from the name
+    rather than from a missing publication stamp so that an archive whose stamp
+    stops parsing cannot promote itself to "current".
+    """
+    return Path(urlparse(url).path).stem.lower() == "kessan"
+
+
+def _earnings_source_precedence(source: _EarningsCalendarFile, asof_date: date) -> tuple[int, int]:
+    """Order cohort files by how current their view of the schedule is.
+
+    A file holding no date on or after the as-of has no forward schedule left to
+    contribute, and a file whose publication stamp cannot be read cannot be
+    placed among the dated ones, so both sit below every file known to be
+    current. Ranks are equal only for files we genuinely cannot separate, where
+    the index document order decides.
+    """
+    if not any(entry.announcement_date >= asof_date for entry in source.entries):
+        return (_EARNINGS_RANK_NO_FORWARD_VIEW, 0)
+    if _is_rolling_earnings_file(source.url):
+        return (_EARNINGS_RANK_ROLLING, 0)
     if source.published_on is None:
-        return (0, 0)
-    return (1, -source.published_on.toordinal())
+        return (_EARNINGS_RANK_UNDATED, 0)
+    return (_EARNINGS_RANK_DATED, -source.published_on.toordinal())
+
+
+def _warn_on_unreadable_earnings_sources(files: Sequence[_EarningsCalendarFile]) -> None:
+    """Say when the JPX layout stopped matching what precedence relies on."""
+    if not any(_is_rolling_earnings_file(source.url) for source in files):
+        _LOGGER.warning(
+            "JPX earnings calendar index has no rolling `kessan` file; "
+            "cohort archives alone decide the schedule: %s",
+            ", ".join(source.url for source in files),
+        )
+    undated = [
+        source.url
+        for source in files
+        if source.published_on is None and not _is_rolling_earnings_file(source.url)
+    ]
+    if undated:
+        _LOGGER.warning(
+            "JPX earnings cohort file has no readable publication stamp and "
+            "cannot outrank a dated one: %s",
+            ", ".join(undated),
+        )
 
 
 def _parse_jpx_earnings_date(raw: str, *, url: str, ticker: str) -> date:

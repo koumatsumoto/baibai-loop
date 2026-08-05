@@ -271,7 +271,7 @@ class FakeJPXProvider:
             source_urls=("https://www.jpx.co.jp/test/kessan.xlsx",),
             raw_record_count=1,
             excluded_record_count=0,
-            rejected_record_count=0,
+            superseded_record_count=0,
         )
 
     def get_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:

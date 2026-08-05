@@ -177,7 +177,7 @@ return ではない)。これ以外のコーポレートアクション (合併�
   - document download (`type=5`): CSV ZIP から EV/EBITDA / Net cash / Asset-backed / FCF 関連項目を抽出
   - raw XBRL (`type=1`) の直接 parser は将来拡張。CSV-derived metrics の coverage / precision が不十分な場合に検討する
 - **JPX**:
-  - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は掲載が新しい file を採る）
+  - 決算発表予定: 公式 financial-announcement index に掲載された全 cohort Excel の既知日程（file 間で日付が食い違う銘柄は、より current な view を持つ file を採る）
   - 上場会社情報（業種分類、市場区分の補助確認）
   - 特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定
 
