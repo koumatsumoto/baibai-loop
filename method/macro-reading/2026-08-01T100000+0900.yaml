@@ -332,8 +332,9 @@ overrides:
   # ので level のまま。
   jp.nominal_wage_index:
     statistic: yoy
-    # 統計ダッシュボードは毎月勤労統計の確報だけを載せる。確報は月 M を M+2 下旬に
-    # 公表する（e-Stat 掲載日の実測は観測日 + 82〜84 日）。
+    # 読むのは毎月勤労統計の確報だけで、統計ダッシュボードが先に載せる速報は
+    # 書かない。確報は月 M を M+2 下旬に公表する（e-Stat 掲載日の実測は観測日 +
+    # 82〜84 日）。
     publication_lag_days: 85
   jp.real_wage_index:
     statistic: yoy

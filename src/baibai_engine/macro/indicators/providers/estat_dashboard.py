@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Mapping
 from datetime import date
 from typing import cast
@@ -38,7 +39,10 @@ _MONTHLY_CYCLE = "1"
 # The dashboard marks a preliminary print with "1". Registered series declare a
 # publication lag that belongs to the final print, so a preliminary row would make
 # an observation appear weeks early and keep the series looking fresh after the
-# final print stopped. Reading one is a contract change, not a data update.
+# final print stopped. A month that has only a preliminary print is therefore left
+# unwritten and picked up when the final print lands — the declared lag already
+# says the month is not due yet, so this is a publication state rather than a
+# failed fetch.
 _FINAL_PRINT = "0"
 
 # Every request opens at this floor even when a narrower window is asked for. The
@@ -48,6 +52,8 @@ _FINAL_PRINT = "0"
 # registered series always has observations from the floor, which keeps that status a
 # real failure. The published history of one indicator is a few hundred KB.
 _HISTORY_FLOOR = date(1948, 1, 1)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class EStatDashboardProvider:
@@ -158,14 +164,26 @@ def parse_dashboard_json(
     entries = _extract_value_entries(text)
     observations: list[ObservationRecord] = []
     units: set[str] = set()
+    preliminary: list[date] = []
     for entry in entries:
         _require_requested_series(entry, selectors=selectors)
-        units.add(str(entry.get("@unit")))
         observed_at = _parse_dashboard_month(entry.get("@time"))
+        if entry.get("@isProvisional") != _FINAL_PRINT:
+            if start <= observed_at <= end:
+                preliminary.append(observed_at)
+            continue
+        units.add(str(entry.get("@unit")))
         value = _parse_dashboard_value(entry.get("$"))
         if value is None or not start <= observed_at <= end:
             continue
         observations.append(record_observation(series, observed_at=observed_at, value=value))
+    if preliminary:
+        _LOGGER.warning(
+            "e-Stat dashboard has only a preliminary print for %s: %s left unwritten "
+            "until the final print",
+            series.series_id,
+            ", ".join(month.isoformat() for month in sorted(preliminary)),
+        )
     if len(units) > 1:
         listed = ", ".join(sorted(units))
         raise IndicatorsProviderError(f"e-Stat dashboard mixed units in one series: {listed}")
@@ -231,8 +249,10 @@ def _require_requested_series(
 
     The selectors carry the series identity, so a row that answers a different
     cycle, adjustment, indicator, or region means the filter did not apply. Mixing
-    those into one series is worse than failing the refresh. A preliminary row is
-    rejected on the same ground: it is a different print of the same month.
+    those into one series is worse than failing the refresh. ``@isProvisional`` is
+    not checked here: a preliminary row is the requested series, just an earlier
+    print of one month, so it is skipped by the caller rather than failing the
+    fetch that carries every final print alongside it.
     """
 
     expected = (
@@ -240,7 +260,6 @@ def _require_requested_series(
         ("@cycle", selectors["Cycle"]),
         ("@isSeasonal", selectors["IsSeasonalAdjustment"]),
         ("@regionCode", selectors["RegionCode"]),
-        ("@isProvisional", _FINAL_PRINT),
     )
     for attribute, wanted in expected:
         actual = entry.get(attribute)
