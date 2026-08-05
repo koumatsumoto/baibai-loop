@@ -7,7 +7,7 @@ interface StaleBadgeProps {
   className?: string
 }
 
-// The one stale indicator across the Baibai App, styled with the semantic warning token.
+// The one stale indicator across Baibai Loop, styled with the semantic warning token.
 export function StaleBadge({ detail, className }: StaleBadgeProps) {
   return (
     <Badge className={cn('border-warning/50 text-warning', className)} variant="outline">

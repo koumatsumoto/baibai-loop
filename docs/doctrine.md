@@ -1,18 +1,18 @@
 ---
 title: "Doctrine"
-summary: "Baibai-Loop の投資思想・大戦略・原則・語彙の正本。割安な優良銘柄を長期で積み立て、見積りの精度を運用の中で磨いていく単一ループを定義する。"
+summary: "Baibai Loop の投資思想・大戦略・原則・語彙の正本。割安な優良銘柄を長期で積み立て、見積りの精度を運用の中で磨いていく単一ループを定義する。"
 doc_type: doctrine
 status: active
 last_reviewed: 2026-07-20
 ---
 
-# Doctrine — Baibai-Loop の投資思想と大戦略
+# Doctrine — Baibai Loop の投資思想と大戦略
 
 このリポジトリが **何を信じ、何を狙い、どの原則と語彙で判断するか** を定める正本。構造（3 層・engine/app package・CLI/SQLite 契約）は [`architecture.md`](./architecture.md)、資本とポジションの管理は [`portfolio-management.md`](./portfolio-management.md)、各運用の手順は [`.agents/skills/`](../.agents/skills/) の各 SKILL.md を参照する。
 
-運用モデルは **AI 主導・人間裁定**：AI がマクロ経済を分析してトレンドを読み、市場で過小評価されているお買い得銘柄を機械抽出し、長期積立・配当還元を前提とした長期保有に耐える銘柄を個別にリサーチして売買提案まで作る。人間はその提案を判断し、発注する。Baibai-Loop はこの分業に一貫性を持たせ、判断を後から検証できるようにするための基盤であり、投資助言サービスではない。
+運用モデルは **AI 主導・人間裁定**：AI がマクロ経済を分析してトレンドを読み、市場で過小評価されているお買い得銘柄を機械抽出し、長期積立・配当還元を前提とした長期保有に耐える銘柄を個別にリサーチして売買提案まで作る。人間はその提案を判断し、発注する。Baibai Loop はこの分業に一貫性を持たせ、判断を後から検証できるようにするための基盤であり、投資助言サービスではない。
 
-人間はこの分業を Baibai App（`baibai-app`）で消費し、ダッシュボードで portfolio と提案の現状を把握し、macro context を理解し、screening 結果を確認したうえで個別銘柄researchと最終投資判断に進む。
+人間はこの分業を Baibai Loop（`baibai-app`）で消費し、ダッシュボードで portfolio と提案の現状を把握し、macro context を理解し、screening 結果を確認したうえで個別銘柄researchと最終投資判断に進む。
 
 最上位成果は予算消化や注文数ではなく、永久的な資本毀損を抑えながら、その時点で最も割安な候補を人間が納得して判断できることである。候補は永久損失、5年期待総合return/FV乖離、portfolioへの追加価値、購入可能性の順で比較する。資金目安、既存保有、予約は判断材料だが、価値順位を先に歪めない。
 
@@ -28,7 +28,7 @@ AIは観測・分析・提案に責任を持ち、人間は`approve / defer / re
 
 ## 2. 運用モデル — 単一ループと見積りの改善
 
-Baibai-Loop が回すのは 1 つの長期投資ループである。その中核技能（見積り）を実現結果と突き合わせて磨くフィードバックを、ループ自体に組み込む。
+Baibai Loop が回すのは 1 つの長期投資ループである。その中核技能（見積り）を実現結果と突き合わせて磨くフィードバックを、ループ自体に組み込む。
 
 ```mermaid
 flowchart LR
@@ -109,14 +109,14 @@ validation や hash のように監査にも使える手段でも、現在の候
 ### 柱 4: application DB 正本、Git は method / config
 
 - **(a)** task、macro context、shortlist、research、bargain assessment、trade proposal、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
-- **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行い、`baibai-app` は application DB と各 read store を読むだけの UI（Baibai App）とする。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
+- **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行い、`baibai-app` は application DB と各 read store を読むだけの UI とする。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
 - **(c)** GitHub Issue や Markdown / YAML を application data の正本にはしない。GitHub は開発作業に使い、運用 workspace は `operation_session`、確定した entity は各 DB table に置く。外部 SaaS を正本にすると local-first の運用と application service の境界が崩れるため採用しない。
 
 ### 柱 5: 計測ファーストのデータ基盤
 
 - **(a)** 主軸は、全上場銘柄の実データを保持する **データ層（L1）** と、決定論的なscreen・導出指標・モデル見積りからなる **分析層（L2）** であり、application DBの判断層（L3）はその消費者にあたる（3層の詳細は[`architecture.md`](./architecture.md)）。L2出力は`observed / derived / estimate`を区別し、決定論的に生成されてもE[r]やFV anchorを事実とは呼ばない。人間/AIの解釈は`judgment`としてthesisへ置く。計測手段を持たない機械的機能は追加しない。計測の対象は **長期戦略が依存するもの**（見積り精度・実現利回り・valuation の収束）に限る。**長期 horizon（3 か月以上）の見積り較正リプレイ**（過去 asof の point-in-time 再構成 × 実現リターンの突き合わせ。estimate calibration）はこの正式な計測経路であり、**短期（3 か月未満）horizon の forward-backtest による screen 成績最適化は行わない**。較正リプレイには誠実性の規律を課す: 有意性・統計的優位を主張しない（cohort の窓は重複し独立でないため、効果量と cohort 勝率で判断する）／仮説と採否基準は検証前に事前登録し、時間分割（design/confirm）の両方で整合した変更だけ採用する（grid search をしない）／survivorship・coverage の欠けを計数で開示する／累積リターン・年率・シャープ等を実績（track record）として掲げない。
 - **(b)** スコアは軸ごとの座標（業種相対・自己レンジ相対の percentile）であり、単一の合成点や売買指示には決して畳まない。**単位（%/年）・成分分解（reversion / carry）・前提（anchor・実現率・cap）を持つ機械見積り（E[r]・FV アンカー）は「単一の合成点」とはみなさない** — ただし (i) 出力に成分と前提を必ず併記する、(ii) 較正リプレイで予測と実現を突き合わせ続ける、(iii) 採否と投入額の判断は人間に残る、を必須条件とする。正直な軸別の事実 + 人間の判断という役割分担が、AI の強み（機械可読な事実の整理・統合）を活かしつつ、弱み（判断の責任を負えないこと）を遮断する。
-- **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開は、1 人・ローカル完結の運用では不要（YAGNI）。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはBaibai Appの範囲内であり、write masterはローカルの`baibai-engine`に置く。
+- **(c)** 機械学習によるスコアリングは、サンプルが 3 桁に満たない 1 人運用では過剰適合が必然で、判断の帰責も壊れる。固定閾値と見積り calibration で改善は十分に回る。外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開は、1 人・ローカル完結の運用では不要（YAGNI）。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはBaibai Loopの範囲内であり、write masterはローカルの`baibai-engine`に置く。
 
 <a id="vocabulary"></a>
 
@@ -130,8 +130,9 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 2. **判断文書**は内容・役割で命名し、形式（packet / record / report）で命名しない（macro context, thesis, thesis review, holding review）
 3. **機械成果物**は工程 + 出力で命名し、judgment と呼ばない（screening run, selection, machine recommendation, longlist）
 4. **活動・工程名**（screening, research, macro analysis）は workflow doc と CLI domain・package 名に使い、artifact 名には使わない
-5. **表示物（projection）**は canonical ではない（Baibai App の画面、cloud serving の view JSON）
-6. **UI タブは分析対象**で命名する（Macro = 市場環境の top-down 分析対象、Stocks = 個別銘柄の bottom-up 分析対象）。プロダクト名は Baibai App
+5. **表示物（projection）**は canonical ではない（Baibai Loop の画面、cloud serving の view JSON）
+6. **UI タブは分析対象**で命名する（Macro = 市場環境の top-down 分析対象、Stocks = 個別銘柄の bottom-up 分析対象）
+7. **人間が読む面のプロダクト名は Baibai Loop** の 1 語だけを使う。システム・UI・docs を別名で呼び分けない。`baibai-loop` / `baibai_app` / `baibai-app` は distribution・package・CLI の識別子であり、人間向けの表記には使わない
 
 ### パイプライン状態機械
 
@@ -220,7 +221,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - 銘柄全体を対象にした**短期（3 か月未満）horizon** の forward-backtest による screen 成績最適化（長期 horizon の見積り較正リプレイは柱 5 の正式な計測経路であり、非目標ではない）。
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
-- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはBaibai Appの範囲内であり、write masterはローカルの`baibai-engine`に置く。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
+- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開。`baibai-app`のread-only API / UIと、閲覧専用read modelへの一方向publishはBaibai Loopの範囲内であり、write masterはローカルの`baibai-engine`に置く。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
 
 ## 9. 参考
 

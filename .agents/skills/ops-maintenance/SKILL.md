@@ -15,7 +15,7 @@ push の経路は 2 本ある。run が起動すれば run 自身が結果を通
 
 失敗時の入口:
 
-- **source 取得失敗**: Baibai App Macro タブ上部の要約カード（取得失敗・stale 件数）→ 該当行。系列別の成否は `provider_runs`。取得失敗を「未公表」と混同しない。Tier 1 が取れないときは [`data-sources.md`](../../../docs/reference/data-sources.md) の Tier 2 例外運用。
+- **source 取得失敗**: Baibai Loop Macro タブ上部の要約カード（取得失敗・stale 件数）→ 該当行。系列別の成否は `provider_runs`。取得失敗を「未公表」と混同しない。Tier 1 が取れないときは [`data-sources.md`](../../../docs/reference/data-sources.md) の Tier 2 例外運用。
 - **validation 失敗**: application service / DB constraint / model validation の error path を読み、schema・validator の意味を推測で変えない（必要なら issue）。
 - **automation 失敗**: screening CLI は [`screening-runtime.md`](../../../docs/reference/screening-runtime.md)、バッチ経路は [`architecture.md#cloud-serving-layer`](../../../docs/architecture.md#cloud-serving-layer)、CI/local parity は [`python-foundation.md`](../../../docs/reference/python-foundation.md)。
 

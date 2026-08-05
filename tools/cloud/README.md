@@ -381,7 +381,7 @@ runner 未割当、job の強制終了）は通知経路の外側にある。`#b
 
 ## システム状態の配信 — `views/system.json` と `system/latest-run.json`
 
-Baibai App の `/system`（ヘッダ歯車メニュー → システム状態）は、判断用 3 タブから運用状態を
+Baibai Loop の `/system`（ヘッダ歯車メニュー → システム状態）は、判断用 3 タブから運用状態を
 切り離して置く画面である。材料は 2 つで、更新される時点が違う。
 
 | object | 書く側 | 内容 | 失敗 run での更新 |

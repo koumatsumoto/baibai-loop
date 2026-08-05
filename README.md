@@ -1,6 +1,6 @@
-# Baibai-Loop
+# Baibai Loop
 
-Baibai-Loopは、一人で日本株を長期運用するための意思決定基盤です。AIが市場観測、割安候補抽出、一次情報確認、3年・5年評価、独立反証、指値・数量提案、保有見直しを行い、人間が最終判断とbroker発注を行います。自動売買システムではありません。
+Baibai Loopは、一人で日本株を長期運用するための意思決定基盤です。AIが市場観測、割安候補抽出、一次情報確認、3年・5年評価、独立反証、指値・数量提案、保有見直しを行い、人間が最終判断とbroker発注を行います。自動売買システムではありません。
 
 成功は注文数や予算消化では測りません。永久的な資本毀損を抑え、その時点で最もお買い得な候補を納得可能な根拠とともに判断し、税・費用込みの長期総合returnを配当込みTOPIXと比較して、3年・5年単位で見積り能力を改善できることを成果とします。
 
@@ -42,7 +42,7 @@ AIは提案までを担当し、人間だけが`approve / defer / reject`とbrok
 
 ## Read-only 運用 UI
 
-frontend を build して Baibai App を起動します。
+frontend を build して Baibai Loop を起動します。
 
 ```bash
 cd ui
@@ -68,7 +68,7 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 | path | 役割 |
 | --- | --- |
 | `src/baibai_engine/` | domain、application service、application DB、read API |
-| `src/baibai_app/` / `ui/` | read-only UI（Baibai App） |
+| `src/baibai_app/` / `ui/` | read-only UI |
 | `method/` | Git 管理の screening rules / macro panel / research playbook |
 | `data/` | application DBとrebuildable data/run store |
 | `reports/` | dated 計測記録（改善ループの一次資料） |
@@ -94,7 +94,7 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 | `baibai-engine proposal` | trade proposalと人間のcurrent decision |
 | `baibai-engine task` | task current state |
 | `baibai-engine db` | application DB init/info/backup |
-| `baibai-app` | 127.0.0.1固定のread-only UI（Baibai App） |
+| `baibai-app` | 127.0.0.1固定のread-only UI |
 
 日常運用の完全なcommand順は[`.agents/skills/`](./.agents/skills/)の各SKILL.md、各optionはpublic `--help`を正本とします。
 

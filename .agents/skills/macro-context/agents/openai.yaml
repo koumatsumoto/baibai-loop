@@ -1,6 +1,6 @@
 interface:
   display_name: "Baibai Macro Context"
   short_description: "市場環境評価レポートの執筆と publish"
-  default_prompt: "Use $macro-context to run this Baibai-Loop operation."
+  default_prompt: "Use $macro-context to run this Baibai Loop operation."
 policy:
   allow_implicit_invocation: true

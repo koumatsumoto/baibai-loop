@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "baibai-loop"
 version = "0.1.0"
-description = "Automation utilities for the Baibai-Loop Japanese equity trading workflow."
+description = "Automation utilities for the Baibai Loop Japanese equity trading workflow."
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [

@@ -1,4 +1,4 @@
-"""The shapes and colors every Baibai App brand asset is built from.
+"""The shapes and colors every Baibai Loop brand asset is built from.
 
 `tools/generate_brand_assets.py` renders them, and it needs Pillow — which stays out of the
 project's lock so no daily workflow installs a native image library. So the decisions live

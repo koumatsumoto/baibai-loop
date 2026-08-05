@@ -238,7 +238,7 @@ candidates:
 
 
 def test_screening_api_falls_back_to_selection_bound_run(app_method_root: Path) -> None:
-    """A selection-less newer revision (determinism re-run) must not blank the Baibai App."""
+    """A selection-less newer revision (determinism re-run) must not blank the Baibai Loop UI."""
 
     runs_path = app_method_root / "data/screening/runs.sqlite"
     app_path = app_method_root / "data/app/baibai.sqlite"

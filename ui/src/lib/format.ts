@@ -1,4 +1,4 @@
-// Single source for how the Baibai App renders values. Every timestamp is JST market
+// Single source for how Baibai Loop renders values. Every timestamp is JST market
 // data, so all datetime rendering is anchored to Asia/Tokyo and never depends on the
 // viewer's browser timezone.
 

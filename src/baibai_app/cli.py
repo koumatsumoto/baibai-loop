@@ -1,4 +1,4 @@
-"""CLI for serving the local read-only Baibai App."""
+"""CLI for serving the local read-only Baibai Loop UI."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ _DEFAULT_PORT = 8712
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-app")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    serve = subparsers.add_parser("serve", help="serve the local read-only Baibai App")
+    serve = subparsers.add_parser("serve", help="serve the local read-only Baibai Loop UI")
     serve.add_argument("--root", type=Path, default=Path.cwd())
     serve.add_argument("--db", type=Path)
     serve.add_argument("--runs-db", type=Path)

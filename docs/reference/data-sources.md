@@ -13,7 +13,7 @@ related_docs:
 
 # データソース一覧とスコアリング
 
-Baibai-Loop で使うデータソースを、客観性を優先した基準で選定して記録する。ニュース媒体の意見に偏らないよう **一次統計（中央銀行・政府・国際機関）中心** で構成し、一次統計で拾えない地政学イベントのみを補助ソースで補完する。
+Baibai Loop で使うデータソースを、客観性を優先した基準で選定して記録する。ニュース媒体の意見に偏らないよう **一次統計（中央銀行・政府・国際機関）中心** で構成し、一次統計で拾えない地政学イベントのみを補助ソースで補完する。
 
 各 artifact（[`../architecture.md`](../architecture.md) の Store contract / Data layers）のデータソース対応:
 
@@ -38,7 +38,7 @@ portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gro
 
 ## 取得データの保存方針
 
-J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai-Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。screening のL1 storeは`data/screening/market.sqlite`、run storeは`data/screening/runs.sqlite`、削除可能なbyproductは`.cache/`に置く。`method/`は screening rules・macro panel・playbook 専用である。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)。
+J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。screening のL1 storeは`data/screening/market.sqlite`、run storeは`data/screening/runs.sqlite`、削除可能なbyproductは`.cache/`に置く。`method/`は screening rules・macro panel・playbook 専用である。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)。
 
 保存済み cache は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 

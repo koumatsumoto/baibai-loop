@@ -1,1 +1,1 @@
-"""Baibai-Loop automation package."""
+"""Baibai Loop automation package."""

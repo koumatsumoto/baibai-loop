@@ -10,7 +10,7 @@ last_reviewed: 2026-07-29
 
 opportunity pathでprimary-research setを調べ終えた後の統合判断。「今どれが最もお買い得か」と「どう買うか / なぜ買わないか」を1つのimmutable revisionへ固定する。shortlistが「どれを調べるか」の判断であるのに対し、これは「調べ終えて何を結論したか」の判断であり、購入提案を作らないサイクル（`no_actionable_bargain` / `defer`）にも成立する。
 
-application DBの`bargain_assessment`が正本で、Baibai AppのStocks面がindex → 詳細で読む口になる。
+application DBの`bargain_assessment`が正本で、Baibai LoopのStocks面がindex → 詳細で読む口になる。
 
 ## Artifact boundary
 
@@ -128,6 +128,6 @@ UV_CACHE_DIR=/tmp/uv-cache uv run baibai-engine research assessment-publish \
 
 draftとworkspace上のcomparison / non-promoted thesisは`.cache`配下のephemeral artifactでcommitしない。publish後、canonical homeを持たないnon-promoted laneと調査全文だけをoperation sessionの`artifacts`へsnapshotする。promote済みthesis / reviewと作成済みproposalはIDと1〜3行の結果だけを`canonical_refs`へ置き、payloadを複製しない。
 
-publish済みassessmentはBaibai Appの`/stocks`にindexとして並び、`/stocks/assessments/{assessment_id}`が詳細を描画する。cloud配信は`views/assessment--{assessment_id}.json`をWorkerが`/api/assessments/{assessment_id}`へmapする。
+publish済みassessmentはBaibai Loopの`/stocks`にindexとして並び、`/stocks/assessments/{assessment_id}`が詳細を描画する。cloud配信は`views/assessment--{assessment_id}.json`をWorkerが`/api/assessments/{assessment_id}`へmapする。
 
 broker操作とledger更新は人間の結果報告後だけ行う。
