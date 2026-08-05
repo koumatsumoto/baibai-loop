@@ -34,6 +34,7 @@ from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXProvider,
     JPXProviderError,
+    _EarningsCalendarFile,
 )
 from baibai_engine.screening.providers.jquants import (
     JQuantsProvider,
@@ -178,6 +179,21 @@ class ScreeningProviderTests(unittest.TestCase):
         buffer = BytesIO()
         pd.DataFrame(rows).to_excel(buffer, index=False, header=False)
         return buffer.getvalue()
+
+    @staticmethod
+    def _earnings_file(
+        url: str, published_on: date | None, dates_by_ticker: dict[str, date]
+    ) -> _EarningsCalendarFile:
+        return _EarningsCalendarFile(
+            url=url,
+            published_on=published_on,
+            entries=tuple(
+                JPXEarningsCalendarEntry(ticker=ticker, announcement_date=on_date)
+                for ticker, on_date in dates_by_ticker.items()
+            ),
+            raw_record_count=len(dates_by_ticker),
+            excluded_record_count=0,
+        )
 
     def test_parse_sec_code_supports_alpha_numeric_code(self) -> None:
         self.assertEqual(parse_sec_code("130A0"), "130A")
@@ -1694,17 +1710,18 @@ class ScreeningProviderTests(unittest.TestCase):
             ]
         )
 
-        entries, raw_count, excluded_count = provider._parse_earnings_calendar_excel(
+        parsed = provider._parse_earnings_calendar_excel(
             content,
             "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx",
         )
 
         self.assertEqual(
-            [(entry.ticker, entry.announcement_date) for entry in entries],
+            [(entry.ticker, entry.announcement_date) for entry in parsed.entries],
             [("130A", date(2026, 7, 15)), ("7203", date(2026, 7, 16))],
         )
-        self.assertEqual(raw_count, 3)
-        self.assertEqual(excluded_count, 1)
+        self.assertEqual(parsed.raw_record_count, 3)
+        self.assertEqual(parsed.excluded_record_count, 1)
+        self.assertIsNone(parsed.published_on)
 
     def test_jpx_earnings_parser_fails_on_layout_and_invalid_date(self) -> None:
         provider = JPXProvider(Path("/tmp"))
@@ -1724,36 +1741,104 @@ class ScreeningProviderTests(unittest.TestCase):
                 url,
             )
 
-    def test_jpx_earnings_snapshot_fails_on_conflict_and_all_past(self) -> None:
+    def test_jpx_earnings_snapshot_fails_when_every_date_is_past(self) -> None:
         provider = JPXProvider(Path("/tmp"))
-        urls = (
-            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan1.xlsx",
-            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/b/kessan2.xlsx",
-        )
+        url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan.xlsx"
         with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(url,)),
             patch.object(
                 provider,
                 "_download_earnings_calendar",
-                side_effect=(
-                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 15)),), 1, 0),
-                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 16)),), 1, 0),
-                ),
-            ),
-            self.assertRaisesRegex(JPXProviderError, "conflicting JPX earnings dates"),
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
-
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(urls[0],)),
-            patch.object(
-                provider,
-                "_download_earnings_calendar",
-                return_value=((JPXEarningsCalendarEntry("130A", date(2026, 7, 13)),), 1, 0),
+                return_value=self._earnings_file(url, None, {"130A": date(2026, 7, 13)}),
             ),
             self.assertRaisesRegex(JPXProviderError, "only past dates"),
         ):
             provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+    def test_jpx_earnings_snapshot_keeps_the_freshest_publication_on_conflict(self) -> None:
+        rolling = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/k.xlsx"
+        archive = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/k06.xlsx"
+        older = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/k05.xlsx"
+        files = {
+            rolling: self._earnings_file(rolling, None, {"130A": date(2026, 7, 15)}),
+            archive: self._earnings_file(
+                archive, date(2026, 7, 30), {"130A": date(2026, 7, 16), "7203": date(2026, 7, 21)}
+            ),
+            older: self._earnings_file(
+                older, date(2026, 7, 2), {"7203": date(2026, 7, 22), "6758": date(2026, 7, 23)}
+            ),
+        }
+        # Any index ordering must resolve to the same snapshot.
+        for urls in ((rolling, archive, older), (older, archive, rolling)):
+            provider = JPXProvider(Path("/tmp"))
+            with (
+                patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
+                patch.object(
+                    provider, "_download_earnings_calendar", side_effect=lambda url: files[url]
+                ),
+            ):
+                snapshot = provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+            self.assertEqual(
+                [(entry.ticker, entry.announcement_date) for entry in snapshot.entries],
+                [
+                    ("130A", date(2026, 7, 15)),
+                    ("7203", date(2026, 7, 21)),
+                    ("6758", date(2026, 7, 23)),
+                ],
+            )
+            self.assertEqual(snapshot.rejected_record_count, 2)
+            self.assertEqual(snapshot.raw_record_count, 5)
+
+    def test_jpx_earnings_parser_reads_publication_stamp_but_not_cohort_titles(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
+        header = ["決算発表予定日", "コード"]
+
+        stamped = provider._parse_earnings_calendar_excel(
+            self._earnings_xlsx(
+                [
+                    ["2027年3月期第1四半期決算（2026年8月6日開示予定分）", ""],
+                    ["2026年7月30日 現在", ""],
+                    header,
+                    ["2026-08-07", "130A"],
+                ]
+            ),
+            url,
+        )
+        self.assertEqual(stamped.published_on, date(2026, 7, 30))
+
+        english_only = provider._parse_earnings_calendar_excel(
+            self._earnings_xlsx([["As of 2026/7/2", ""], header, ["2026-08-07", "130A"]]),
+            url,
+        )
+        self.assertEqual(english_only.published_on, date(2026, 7, 2))
+
+        untitled = provider._parse_earnings_calendar_excel(
+            self._earnings_xlsx(
+                [
+                    ["６月に四半期末を迎えた決算発表予定会社の一覧", ""],
+                    header,
+                    ["2026-08-07", "130A"],
+                ]
+            ),
+            url,
+        )
+        self.assertIsNone(untitled.published_on)
+
+    def test_jpx_earnings_parser_fails_on_conflict_inside_one_file(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        with self.assertRaisesRegex(JPXProviderError, "conflicting JPX earnings dates"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx(
+                    [
+                        ["決算発表予定日", "コード"],
+                        ["2026-08-06", "130A"],
+                        ["2026-08-07", "130A"],
+                    ]
+                ),
+                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/k.xlsx",
+            )
 
     def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
         html = b"""

@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from html.parser import HTMLParser
 from io import BytesIO
@@ -33,6 +33,12 @@ JPX_EARNINGS_CALENDAR_INDEX_URL = (
     "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
 )
 _JPX_EARNINGS_PATH_PREFIX = "/listing/event-schedules/financial-announcement/"
+# Publication stamp carried by the archived cohort files, matched on
+# whitespace-stripped cells.
+_JPX_PUBLICATION_DATE_PATTERN = re.compile(
+    r"(?:(\d{4})年(\d{1,2})月(\d{1,2})日現在|asof(\d{4})/(\d{1,2})/(\d{1,2}))",
+    re.IGNORECASE,
+)
 _TRADING_HALT_EMPTY_MARKER = "現在、該当する情報はありません。"
 _HTTP_TIMEOUT_SECONDS = 30
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +80,22 @@ class JPXEarningsCalendarSnapshot:
     @property
     def max_date(self) -> date:
         return max(entry.announcement_date for entry in self.entries)
+
+
+@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
+class _EarningsCalendarFile:
+    """One cohort Excel from the JPX financial-announcement index.
+
+    `published_on` is the `YYYY年M月D日現在` stamp the archived cohort files
+    carry. The rolling file that JPX refreshes every business day carries no
+    stamp, so `None` means "current" and outranks every stamped file.
+    """
+
+    url: str
+    published_on: date | None
+    entries: tuple[JPXEarningsCalendarEntry, ...]
+    raw_record_count: int
+    excluded_record_count: int
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -342,21 +364,31 @@ class JPXProvider:
                 return cached
         self._raise_if_cache_only("jpx_earnings_calendar", asof_date.isoformat())
         source_urls = self._resolve_earnings_calendar_urls()
+        files = [self._download_earnings_calendar(url) for url in source_urls]
+        raw_count = sum(source.raw_record_count for source in files)
+        excluded_count = sum(source.excluded_record_count for source in files)
         entries: dict[str, date] = {}
-        raw_count = 0
-        excluded_count = 0
-        for url in source_urls:
-            parsed, raw, excluded = self._download_earnings_calendar(url)
-            raw_count += raw
-            excluded_count += excluded
-            for entry in parsed:
+        superseded: list[str] = []
+        # Issuers reschedule, so cohort files published on different days
+        # legitimately disagree. The freshest publication wins; ties keep the
+        # index document order.
+        for source in sorted(files, key=_earnings_source_precedence):
+            for entry in source.entries:
                 previous = entries.get(entry.ticker)
-                if previous is not None and previous != entry.announcement_date:
-                    raise JPXProviderError(
-                        "conflicting JPX earnings dates for "
-                        f"{entry.ticker}: {previous} and {entry.announcement_date}"
+                if previous is None:
+                    entries[entry.ticker] = entry.announcement_date
+                    continue
+                if previous != entry.announcement_date:
+                    superseded.append(
+                        f"{entry.ticker}: kept {previous}, dropped "
+                        f"{entry.announcement_date} from {source.url}"
                     )
-                entries[entry.ticker] = entry.announcement_date
+        if superseded:
+            _LOGGER.warning(
+                "JPX earnings calendar superseded %d stale date(s): %s",
+                len(superseded),
+                "; ".join(superseded[:20]),
+            )
         normalized_entries = tuple(
             JPXEarningsCalendarEntry(ticker=ticker, announcement_date=on_date)
             for ticker, on_date in sorted(entries.items(), key=lambda item: (item[1], item[0]))
@@ -370,7 +402,7 @@ class JPXProvider:
             source_urls=source_urls,
             raw_record_count=raw_count,
             excluded_record_count=excluded_count,
-            rejected_record_count=0,
+            rejected_record_count=len(superseded),
         )
         if self._sqlite_path is not None:
             from ..sqlite_cache import store_jpx_earnings_calendar_snapshot
@@ -467,9 +499,7 @@ class JPXProvider:
             )
         return tuple(urls)
 
-    def _download_earnings_calendar(
-        self, url: str
-    ) -> tuple[tuple[JPXEarningsCalendarEntry, ...], int, int]:
+    def _download_earnings_calendar(self, url: str) -> _EarningsCalendarFile:
         self._validate_allowed_url(url)
         parsed_url = urlparse(url)
         if not parsed_url.path.lower().startswith(_JPX_EARNINGS_PATH_PREFIX):
@@ -484,9 +514,7 @@ class JPXProvider:
             )
         return self._parse_earnings_calendar_excel(response.content, url)
 
-    def _parse_earnings_calendar_excel(
-        self, content: bytes, url: str
-    ) -> tuple[tuple[JPXEarningsCalendarEntry, ...], int, int]:
+    def _parse_earnings_calendar_excel(self, content: bytes, url: str) -> _EarningsCalendarFile:
         try:
             import pandas as pd
         except ModuleNotFoundError as exc:
@@ -498,8 +526,11 @@ class JPXProvider:
         header_index: int | None = None
         code_column: int | None = None
         date_column: int | None = None
+        published_on: date | None = None
         for row_index, (_, raw_row) in enumerate(frame.iterrows()):
             cells = [re.sub(r"\s+", "", str(value)) for value in raw_row.tolist()]
+            if published_on is None:
+                published_on = _parse_jpx_publication_date(cells)
             code_candidates = [
                 index
                 for index, value in enumerate(cells)
@@ -546,7 +577,13 @@ class JPXProvider:
                 entries.append(
                     JPXEarningsCalendarEntry(ticker=ticker, announcement_date=announcement_date)
                 )
-        return tuple(entries), raw_count, excluded_count
+        return _EarningsCalendarFile(
+            url=url,
+            published_on=published_on,
+            entries=tuple(entries),
+            raw_record_count=raw_count,
+            excluded_record_count=excluded_count,
+        )
 
     def _download_rows(self, source_name: str, url: str) -> list[dict[str, str]]:
         self._validate_allowed_url(url)
@@ -864,6 +901,32 @@ def parse_jpx_code(code: object) -> str:
     if len(raw) == 5 and raw[:4].isalnum() and raw.endswith("0"):
         return normalize_ticker(raw[:4])
     raise JPXProviderError(f"invalid JPX code: {code!r}")
+
+
+def _parse_jpx_publication_date(cells: Sequence[str]) -> date | None:
+    """Read the `YYYY年M月D日現在` / `As of YYYY/M/D` stamp from a pre-header row.
+
+    Matching is anchored on the stamp wording rather than on any date-shaped
+    text so cohort titles such as `2027年3月期第1四半期決算` are never mistaken
+    for a publication date. An unrecognised stamp yields `None`, which ranks the
+    file alongside the rolling daily file instead of dating it wrongly.
+    """
+    for value in cells:
+        match = _JPX_PUBLICATION_DATE_PATTERN.search(value)
+        if match is None:
+            continue
+        year, month, day = (int(part) for part in match.groups() if part is not None)
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+    return None
+
+
+def _earnings_source_precedence(source: _EarningsCalendarFile) -> tuple[int, int]:
+    if source.published_on is None:
+        return (0, 0)
+    return (1, -source.published_on.toordinal())
 
 
 def _parse_jpx_earnings_date(raw: str, *, url: str, ticker: str) -> date:
