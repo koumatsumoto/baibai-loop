@@ -43,7 +43,7 @@ def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendar
         source_urls=("https://www.jpx.co.jp/kessan.xlsx",),
         raw_record_count=2,
         excluded_record_count=1,
-        rejected_record_count=0,
+        superseded_record_count=0,
     )
 
 

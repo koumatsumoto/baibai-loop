@@ -63,12 +63,12 @@ def store_jpx_earnings_calendar_snapshot(
         conn.commit()
         _LOGGER.info(
             "stored JPX earnings calendar snapshot: sources=%s raw=%d valid=%d "
-            "excluded=%d rejected=%d min=%s max=%s",
+            "excluded=%d superseded=%s min=%s max=%s",
             ",".join(snapshot.source_urls),
             snapshot.raw_record_count,
             snapshot.valid_record_count,
             snapshot.excluded_record_count,
-            snapshot.rejected_record_count,
+            snapshot.superseded_record_count,
             snapshot.min_date.isoformat(),
             snapshot.max_date.isoformat(),
         )

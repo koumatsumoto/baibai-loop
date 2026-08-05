@@ -32,8 +32,10 @@ from baibai_engine.screening.providers.edinet import (
 from baibai_engine.screening.providers.edinet_csv import parse_csv_zip_metric_record
 from baibai_engine.screening.providers.jpx import (
     JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
     JPXProvider,
     JPXProviderError,
+    _EarningsCalendarFile,
 )
 from baibai_engine.screening.providers.jquants import (
     JQuantsProvider,
@@ -178,6 +180,32 @@ class ScreeningProviderTests(unittest.TestCase):
         buffer = BytesIO()
         pd.DataFrame(rows).to_excel(buffer, index=False, header=False)
         return buffer.getvalue()
+
+    @staticmethod
+    def _earnings_url(cohort_suffix: str = "") -> str:
+        return (
+            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/"
+            f"att/kessan{cohort_suffix}.xlsx"
+        )
+
+    @staticmethod
+    def _earnings_file(
+        url: str,
+        published_on: date | None,
+        dates_by_ticker: dict[str, date],
+        *,
+        prefix: str = "att",
+    ) -> _EarningsCalendarFile:
+        return _EarningsCalendarFile(
+            url=url.replace("/att/", f"/{prefix}/"),
+            published_on=published_on,
+            entries=tuple(
+                JPXEarningsCalendarEntry(ticker=ticker, announcement_date=on_date)
+                for ticker, on_date in dates_by_ticker.items()
+            ),
+            raw_record_count=len(dates_by_ticker),
+            excluded_record_count=0,
+        )
 
     def test_parse_sec_code_supports_alpha_numeric_code(self) -> None:
         self.assertEqual(parse_sec_code("130A0"), "130A")
@@ -1694,17 +1722,18 @@ class ScreeningProviderTests(unittest.TestCase):
             ]
         )
 
-        entries, raw_count, excluded_count = provider._parse_earnings_calendar_excel(
+        parsed = provider._parse_earnings_calendar_excel(
             content,
             "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx",
         )
 
         self.assertEqual(
-            [(entry.ticker, entry.announcement_date) for entry in entries],
+            [(entry.ticker, entry.announcement_date) for entry in parsed.entries],
             [("130A", date(2026, 7, 15)), ("7203", date(2026, 7, 16))],
         )
-        self.assertEqual(raw_count, 3)
-        self.assertEqual(excluded_count, 1)
+        self.assertEqual(parsed.raw_record_count, 3)
+        self.assertEqual(parsed.excluded_record_count, 1)
+        self.assertIsNone(parsed.published_on)
 
     def test_jpx_earnings_parser_fails_on_layout_and_invalid_date(self) -> None:
         provider = JPXProvider(Path("/tmp"))
@@ -1724,36 +1753,242 @@ class ScreeningProviderTests(unittest.TestCase):
                 url,
             )
 
-    def test_jpx_earnings_snapshot_fails_on_conflict_and_all_past(self) -> None:
+    def test_jpx_earnings_snapshot_fails_when_every_date_is_past(self) -> None:
         provider = JPXProvider(Path("/tmp"))
-        urls = (
-            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan1.xlsx",
-            "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/b/kessan2.xlsx",
-        )
+        url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/a/kessan.xlsx"
         with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(url,)),
             patch.object(
                 provider,
                 "_download_earnings_calendar",
-                side_effect=(
-                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 15)),), 1, 0),
-                    ((JPXEarningsCalendarEntry("130A", date(2026, 7, 16)),), 1, 0),
-                ),
-            ),
-            self.assertRaisesRegex(JPXProviderError, "conflicting JPX earnings dates"),
-        ):
-            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
-
-        with (
-            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=(urls[0],)),
-            patch.object(
-                provider,
-                "_download_earnings_calendar",
-                return_value=((JPXEarningsCalendarEntry("130A", date(2026, 7, 13)),), 1, 0),
+                return_value=self._earnings_file(url, None, {"130A": date(2026, 7, 13)}),
             ),
             self.assertRaisesRegex(JPXProviderError, "only past dates"),
         ):
             provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+    def _merge_earnings_files(
+        self, files: tuple[_EarningsCalendarFile, ...], asof_date: date
+    ) -> JPXEarningsCalendarSnapshot:
+        """Merge the given cohort files under every index ordering.
+
+        The index order is JPX's to choose, so a snapshot that depends on it is
+        a defect. This asserts the invariant and returns the one snapshot.
+        """
+        by_url = {source.url: source for source in files}
+        snapshots: list[JPXEarningsCalendarSnapshot] = []
+        for urls in (tuple(by_url), tuple(reversed(tuple(by_url)))):
+            provider = JPXProvider(Path("/tmp"))
+            with (
+                patch.object(provider, "_resolve_earnings_calendar_urls", return_value=urls),
+                patch.object(
+                    provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
+                ),
+            ):
+                snapshots.append(provider.get_earnings_calendar_snapshot(asof_date))
+        self.assertEqual(snapshots[0].entries, snapshots[1].entries)
+        return snapshots[0]
+
+    def test_jpx_earnings_snapshot_keeps_the_freshest_publication_on_conflict(self) -> None:
+        snapshot = self._merge_earnings_files(
+            (
+                self._earnings_file(self._earnings_url(), None, {"130A": date(2026, 7, 15)}),
+                self._earnings_file(
+                    self._earnings_url("06_0731"),
+                    date(2026, 7, 30),
+                    {"130A": date(2026, 7, 16), "7203": date(2026, 7, 21)},
+                ),
+                self._earnings_file(
+                    self._earnings_url("05_0703"),
+                    date(2026, 7, 2),
+                    {"7203": date(2026, 7, 22), "6758": date(2026, 7, 23)},
+                ),
+            ),
+            date(2026, 7, 14),
+        )
+
+        self.assertEqual(
+            [(entry.ticker, entry.announcement_date) for entry in snapshot.entries],
+            [
+                ("130A", date(2026, 7, 15)),
+                ("7203", date(2026, 7, 21)),
+                ("6758", date(2026, 7, 23)),
+            ],
+        )
+        self.assertEqual(snapshot.superseded_record_count, 2)
+        self.assertEqual(snapshot.raw_record_count, 5)
+
+    def test_jpx_earnings_snapshot_keeps_the_rolling_file_above_an_unstamped_archive(self) -> None:
+        # A stamp JPX stops writing in a form we parse must not promote the
+        # archive to "current"; precedence identifies the rolling file by name.
+        snapshot = self._merge_earnings_files(
+            (
+                self._earnings_file(self._earnings_url(), None, {"130A": date(2026, 7, 15)}),
+                self._earnings_file(
+                    self._earnings_url("06_0731"),
+                    None,
+                    {"130A": date(2026, 7, 16)},
+                    # Sorts ahead of the rolling URL, so only the rolling rank can
+                    # be what puts the rolling date on top.
+                    prefix="a",
+                ),
+            ),
+            date(2026, 7, 14),
+        )
+
+        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 15))
+
+    def test_jpx_earnings_snapshot_keeps_a_dated_archive_above_an_unstamped_one(self) -> None:
+        snapshot = self._merge_earnings_files(
+            (
+                self._earnings_file(
+                    self._earnings_url("06_0731"), date(2026, 7, 30), {"130A": date(2026, 7, 15)}
+                ),
+                self._earnings_file(
+                    self._earnings_url("05_0703"), None, {"130A": date(2026, 7, 16)}
+                ),
+            ),
+            date(2026, 7, 14),
+        )
+
+        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 15))
+
+    def test_jpx_earnings_snapshot_ignores_a_stale_file_with_no_forward_dates(self) -> None:
+        # A rolling file JPX failed to refresh holds only past dates and must not
+        # blank out a still-scheduled announcement.
+        snapshot = self._merge_earnings_files(
+            (
+                self._earnings_file(self._earnings_url(), None, {"130A": date(2026, 7, 10)}),
+                self._earnings_file(
+                    self._earnings_url("06_0731"), date(2026, 7, 9), {"130A": date(2026, 7, 20)}
+                ),
+            ),
+            date(2026, 7, 14),
+        )
+
+        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
+
+    def test_jpx_earnings_snapshot_resolves_files_it_cannot_rank_the_same_way(self) -> None:
+        # Two archives stamped the same day cannot be separated by publication,
+        # so the snapshot must still not depend on the index listing order.
+        snapshot = self._merge_earnings_files(
+            (
+                self._earnings_file(
+                    self._earnings_url("06_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 20)}
+                ),
+                self._earnings_file(
+                    self._earnings_url("07_0715"), date(2026, 7, 15), {"130A": date(2026, 7, 25)}
+                ),
+            ),
+            date(2026, 7, 14),
+        )
+
+        self.assertEqual(snapshot.entries[0].announcement_date, date(2026, 7, 20))
+
+    def test_jpx_earnings_snapshot_warns_when_the_index_layout_breaks_precedence(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        files = (
+            self._earnings_file(
+                self._earnings_url("06_0731"), None, {"130A": date(2026, 7, 20)}, prefix="att"
+            ),
+            self._earnings_file(
+                self._earnings_url("06_0731"), None, {"7203": date(2026, 7, 21)}, prefix="att2"
+            ),
+        )
+        by_url = {source.url: source for source in files}
+        with (
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=tuple(by_url)),
+            patch.object(
+                provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
+            ),
+            self.assertLogs("baibai_engine.screening.providers.jpx", level="WARNING") as logs,
+        ):
+            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+        messages = "\n".join(logs.output)
+        self.assertIn("no rolling `kessan` file", messages)
+        self.assertIn("no readable publication stamp", messages)
+
+    def test_jpx_earnings_snapshot_warns_when_several_rolling_files_are_listed(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        files = (
+            self._earnings_file(
+                self._earnings_url(), None, {"130A": date(2026, 7, 20)}, prefix="att"
+            ),
+            self._earnings_file(
+                self._earnings_url(), None, {"7203": date(2026, 7, 21)}, prefix="att2"
+            ),
+        )
+        by_url = {source.url: source for source in files}
+        with (
+            patch.object(provider, "_resolve_earnings_calendar_urls", return_value=tuple(by_url)),
+            patch.object(
+                provider, "_download_earnings_calendar", side_effect=lambda url: by_url[url]
+            ),
+            self.assertLogs("baibai_engine.screening.providers.jpx", level="WARNING") as logs,
+        ):
+            provider.get_earnings_calendar_snapshot(date(2026, 7, 14))
+
+        self.assertIn("several rolling `kessan` files", "\n".join(logs.output))
+
+    def test_jpx_earnings_parser_reads_publication_stamp_but_not_cohort_titles(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        url = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
+        header = ["決算発表予定日", "コード"]
+
+        stamped = provider._parse_earnings_calendar_excel(
+            self._earnings_xlsx(
+                [
+                    ["2027年3月期第1四半期決算（2026年8月6日開示予定分）", ""],
+                    ["2026年7月30日 現在", ""],
+                    header,
+                    ["2026-08-07", "130A"],
+                ]
+            ),
+            url,
+        )
+        self.assertEqual(stamped.published_on, date(2026, 7, 30))
+
+        english_only = provider._parse_earnings_calendar_excel(
+            self._earnings_xlsx([["As of 2026/7/2", ""], header, ["2026-08-07", "130A"]]),
+            url,
+        )
+        self.assertEqual(english_only.published_on, date(2026, 7, 2))
+
+        untitled = provider._parse_earnings_calendar_excel(
+            self._earnings_xlsx(
+                [
+                    ["６月に四半期末を迎えた決算発表予定会社の一覧", ""],
+                    header,
+                    ["2026-08-07", "130A"],
+                ]
+            ),
+            url,
+        )
+        self.assertIsNone(untitled.published_on)
+
+        # An impossible date in one cell must not hide a readable stamp beside it.
+        beside_a_bad_cell = provider._parse_earnings_calendar_excel(
+            self._earnings_xlsx(
+                [["2026年13月40日 現在", "As of 2026/7/2"], header, ["2026-08-07", "130A"]]
+            ),
+            url,
+        )
+        self.assertEqual(beside_a_bad_cell.published_on, date(2026, 7, 2))
+
+    def test_jpx_earnings_parser_fails_on_conflict_inside_one_file(self) -> None:
+        provider = JPXProvider(Path("/tmp"))
+        with self.assertRaisesRegex(JPXProviderError, "conflicting JPX earnings dates"):
+            provider._parse_earnings_calendar_excel(
+                self._earnings_xlsx(
+                    [
+                        ["決算発表予定日", "コード"],
+                        ["2026-08-06", "130A"],
+                        ["2026-08-07", "130A"],
+                    ]
+                ),
+                "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/k.xlsx",
+            )
 
     def test_jpx_earnings_index_resolves_all_allowed_cohort_links(self) -> None:
         html = b"""
