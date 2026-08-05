@@ -1,9 +1,11 @@
 name: ci
 
-# The merge ref this workflow checks is the tree that lands on main, so a second
-# run after the merge would re-check bytes that already passed here. main keeps
-# its cover from the next pull request — every later merge ref contains it — and
-# from the daily batch, which runs main and reports to Discord.
+# The merge ref this workflow checks is the tree that lands on main while the base
+# holds still, so a second run after the merge would re-check bytes that already
+# passed here. What that leaves uncovered is a base that moved between this run and
+# the merge: the next pull request's own merge ref carries the result, and the daily
+# batch reports whether main still imports and runs. Neither re-runs these gates, so
+# a lint-, type- or test-only breakage on main waits for that next pull request.
 on:
   pull_request:
     branches: [main]
@@ -68,22 +70,15 @@ jobs:
           done
 
       - name: Tests with coverage
-        # The suite spends most of its wall clock waiting on sqlite rather than on the CPU,
-        # so workers pay off well past the core count. pytest-cov measures the xdist workers
-        # because it starts coverage inside each one; `coverage run -m pytest` would only
-        # see the controller process and report a near-empty run.
-        run: uv run pytest -n auto --cov --cov-report=term-missing
-
-      # TEMPORARY: measures the worker count this runner actually wants. Removed
-      # before merge once the winning value is written into the step above.
-      - name: Measure worker counts
-        run: |
-          echo "nproc=$(nproc) cpu_count=$(python3 -c 'import os; print(os.cpu_count(), os.process_cpu_count())')"
-          for workers in 4 8 16; do
-            start=$SECONDS
-            uv run pytest -n "$workers" --cov --cov-report= -q > /dev/null
-            echo "workers=$workers elapsed=$((SECONDS - start))s"
-          done
+        # The worker count is fixed here rather than left to `auto`, which resolves to the
+        # runner's 2 cores. The suite waits on sqlite more than it computes, so oversubscribing
+        # pays until memory and switching take over: measured on this runner, 2 workers take
+        # 85s, 4 take 74s, 8 take 92s and 16 take 130s. Developer machines keep `auto` from
+        # `addopts`, where a wider box is worth using.
+        #
+        # pytest-cov measures the xdist workers because it starts coverage inside each one;
+        # `coverage run -m pytest` would only see the controller and report a near-empty run.
+        run: uv run pytest -n 4 --cov --cov-report=term-missing
 
       - name: Brand asset contract
         # tools/generate_brand_assets.py needs Pillow, which stays out of the lock so no daily
@@ -103,7 +98,11 @@ jobs:
           uv run --with pillow python -c 'import PIL.Image'
           uv run --with pillow pytest -n 0 tests/test_brand_assets.py
 
+      # The scanners share this job to avoid a second billed runner, so they are asked
+      # even after an earlier gate has failed. A red test would otherwise hide a CVE
+      # until the next push, which a separate job never did.
       - name: Bandit
+        if: ${{ !cancelled() }}
         # Whole directories, not named files: a script added under tools/ is scanned from
         # its first commit instead of waiting for someone to remember this list.
         run: >-
@@ -111,6 +110,7 @@ jobs:
           src/baibai_engine src/baibai_app tools
 
       - name: Dependency audit
+        if: ${{ !cancelled() }}
         # The audited surface is the lockfile exported to requirements, not the runner's
         # installed set, so a CVE in the environment's own tooling cannot fail a repository
         # whose dependencies are clean. `docs/reference/python-foundation.md` §8 holds the

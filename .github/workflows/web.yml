@@ -5,6 +5,9 @@ name: web
 # and no job has to re-derive that from git. The filter is exact here because it
 # only goes silent on diffs past 3,000 files, which a tree this size cannot reach
 # — tests/test_cloud_workflow_contracts.py holds that budget.
+#
+# This file is filtered on pull requests so its own edits are gated, and left out
+# of the push filter so that editing CI never publishes production.
 on:
   pull_request:
     branches: [main]
@@ -17,16 +20,17 @@ on:
     paths:
       - ui/**
       - cloud/worker/**
-      - .github/workflows/web.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Pull requests supersede themselves; anything that can reach the deploy step
-# queues behind the run in front of it instead of racing it.
+# Pull requests supersede themselves. Runs that can reach the deploy step queue
+# behind one another, and runs that cannot are kept out of that queue entirely:
+# a group holds one pending run, so a branch dispatch sharing it would evict a
+# real deploy that is waiting its turn.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-production-deploy', github.workflow) }}
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || github.ref == 'refs/heads/main' && format('{0}-production-deploy', github.workflow) || format('{0}-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -49,12 +53,6 @@ jobs:
         working-directory: ui
         run: npm ci
 
-      # Both lockfiles live under the filtered paths, so every edit to one arrives
-      # here. `--package-lock-only` audits the resolved tree without a second install.
-      - name: UI dependency audit
-        working-directory: ui
-        run: npm audit --package-lock-only --audit-level=high
-
       - name: Lint UI
         working-directory: ui
         run: npm run lint
@@ -70,10 +68,6 @@ jobs:
       - name: Install Worker dependencies
         working-directory: cloud/worker
         run: npm ci
-
-      - name: Worker dependency audit
-        working-directory: cloud/worker
-        run: npm audit --package-lock-only --audit-level=high
 
       - name: Check Worker generated types
         working-directory: cloud/worker
@@ -94,9 +88,13 @@ jobs:
       # A queued run can hold a web tree that main has already moved past. Publishing it
       # would roll production backwards, so the run compares its own tree against main
       # and steps aside rather than deploying.
+      #
+      # The event test is an allowlist rather than "not a pull request": `github.ref` is
+      # the default branch for schedule, workflow_run and repository_dispatch too, so a
+      # trigger added later must be named here before it can reach production.
       - name: Verify current production target
         id: deploy-target
-        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
         env:
           TARGET_SHA: ${{ github.sha }}
         run: |
@@ -117,7 +115,7 @@ jobs:
           echo "current=$current" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Worker and UI assets
-        if: ${{ success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy-target.outputs.current == 'true' }}
+        if: ${{ success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && steps.deploy-target.outputs.current == 'true' }}
         working-directory: cloud/worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -12,10 +12,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   audit:
     runs-on: ubuntu-latest
@@ -34,6 +30,13 @@ jobs:
 
       - name: Sync
         run: uv sync --frozen --all-groups
+
+      # Pull requests are where a widened credential boundary is refused, and their
+      # merge ref is main only until main moves under them. This asks the question
+      # again of main itself, so a tree that runs with R2, provider, Discord and
+      # Cloudflare credentials is never more than a week from having been checked.
+      - name: Workflow trust boundary
+        run: uv run python tools/drift/check_workflow_trust.py
 
       - name: Dependency audit
         run: |

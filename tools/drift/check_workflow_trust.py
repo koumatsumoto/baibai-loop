@@ -186,7 +186,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "a03ce272b9ff4dbf79507d93e6dcce195e003bd39c7e432765010fc22eb1857f"
     ),
     ("web.yml", "quality", "Deploy Worker and UI assets"): (
-        "c53d6171beaeff25240ce537806cbc89964336bfe1866ac6a6ef6a09b49c009e"
+        "a2b8d961cc3c8b6a859c25410a6850b9bdfa8210bd63e2d4c79018048fe15c49"
     ),
 }
 _RESTRICTED_ENV_NAMES = frozenset(

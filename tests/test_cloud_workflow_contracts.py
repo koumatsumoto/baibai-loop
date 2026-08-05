@@ -108,11 +108,9 @@ def test_web_workflow_keeps_all_gates_before_the_only_deploy_step() -> None:
     steps = _steps(_workflow("web.yml"), "quality")
     names = [str(step.get("name", "")) for step in steps]
     gates = [
-        "UI dependency audit",
         "Lint UI",
         "Build UI",
         "Test UI",
-        "Worker dependency audit",
         "Check Worker generated types",
         "Typecheck Worker",
         "Test Worker",
@@ -125,21 +123,33 @@ def test_web_workflow_keeps_all_gates_before_the_only_deploy_step() -> None:
     assert names.count("Deploy Worker and UI assets") == 1
     deploy = steps[deploy_index]
     assert deploy["if"] == (
-        "${{ success() && github.event_name != 'pull_request' "
+        "${{ success() "
+        "&& (github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
         "&& github.ref == 'refs/heads/main' "
         "&& steps.deploy-target.outputs.current == 'true' }}"
     )
     assert deploy["run"] == "npx wrangler deploy"
 
 
+def test_nothing_answering_from_outside_the_tree_stands_in_front_of_production() -> None:
+    """`npm audit` answers from GitHub's advisory database, not from the tree.
+
+    A disclosure lands without anyone touching the repository, so an audit in this
+    job would turn someone else's publication into an outage on a fix that has
+    nothing to do with it. Lockfile resolutions are refused by node-audit.yml,
+    whose trigger is the lockfiles themselves.
+    """
+    steps = _steps(_workflow("web.yml"), "quality")
+
+    assert not [step for step in steps if "audit" in str(step.get("run", ""))]
+
+
 @pytest.mark.parametrize(
     "failed_gate",
     [
-        "UI dependency audit",
         "Lint UI",
         "Build UI",
         "Test UI",
-        "Worker dependency audit",
         "Check Worker generated types",
         "Typecheck Worker",
         "Test Worker",
@@ -160,28 +170,48 @@ def test_each_failed_web_gate_leaves_deploy_call_count_zero(failed_gate: str) ->
     assert deploy_calls == 0
 
 
-def test_manual_non_main_dispatch_cannot_enable_deploy() -> None:
-    workflow = _workflow("web.yml")
-    steps = _steps(workflow, "quality")
-    by_name = {str(step.get("name", "")): step for step in steps}
+def test_only_named_events_can_reach_production() -> None:
+    """`github.ref` is the default branch for schedule, workflow_run and friends.
 
-    assert "workflow_dispatch" in workflow["on"]
+    Testing "not a pull request" would therefore hand production to any trigger
+    added to `on:` later. The condition names the two events that may deploy, and
+    the trigger set is pinned so a third one cannot arrive unnoticed.
+    """
+    workflow = _workflow("web.yml")
+    triggers = workflow["on"]
+    assert isinstance(triggers, dict)
+    by_name = {str(step.get("name", "")): step for step in _steps(workflow, "quality")}
+
+    assert set(triggers) == {"pull_request", "push", "workflow_dispatch"}
     for gated in ("Verify current production target", "Deploy Worker and UI assets"):
         condition = str(by_name[gated]["if"])
-        assert "github.event_name != 'pull_request'" in condition
+        assert (
+            "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+        ) in condition
         assert "github.ref == 'refs/heads/main'" in condition
 
 
 def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
+    """Editing this workflow is gated before merge but never publishes by itself.
+
+    On `push` the filter is exactly what `wrangler deploy` ships, so a CI-only
+    edit cannot reach production; on `pull_request` the file is included so its
+    own change still has to pass the job it defines.
+    """
     triggers = _workflow("web.yml")["on"]
     assert isinstance(triggers, dict)
-    published = ["ui/**", "cloud/worker/**", ".github/workflows/web.yml"]
+    published = ["ui/**", "cloud/worker/**"]
 
     for event in ("pull_request", "push"):
         scope = triggers[event]
         assert isinstance(scope, dict)
         assert scope["branches"] == ["main"]
-        assert scope["paths"] == published
+    pull_request = triggers["pull_request"]
+    push = triggers["push"]
+    assert isinstance(pull_request, dict)
+    assert isinstance(push, dict)
+    assert pull_request["paths"] == [*published, ".github/workflows/web.yml"]
+    assert push["paths"] == published
 
 
 def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
@@ -189,18 +219,29 @@ def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
 
     GitHub evaluates the filter against the first 3,000 files of the generated
     diff and skips the workflow, with no check left behind to notice, when a
-    matching file falls outside that window. A diff names a file at most twice —
-    a rename is reported as its delete and its add — so a tree under half the
-    limit cannot produce a diff that reaches it. Growing past this budget means
-    the filter has to give way to in-job detection before it starts hiding the
-    web gates.
+    matching file falls outside that window. A diff is bounded by the files
+    present before it plus the files present after — deletions are why it can
+    name more files than the tree holds — so while every commit keeps the tree
+    under this budget no diff between two of them can reach 3,000. The largest
+    first-parent diff on main so far is 708 files against a tree of 640.
+
+    Growing past this budget means the filter has to give way to in-job detection
+    before it starts hiding the web gates. GitHub's troubleshooting page still
+    quotes the older 300-file window, so a shrinking limit would also be silent;
+    the workflow-syntax reference is the one that carries 3,000.
     """
     tracked = _git(ROOT, "ls-files").splitlines()
 
-    assert len(tracked) * 2 < 3000
+    assert len(tracked) < 1000
 
 
-def test_deploy_eligible_runs_share_one_production_lock() -> None:
+def test_runs_that_cannot_deploy_stay_out_of_the_production_queue() -> None:
+    """A concurrency group holds one pending run and evicts the previous one.
+
+    A dispatch on a feature branch sharing the production group would therefore
+    cancel a queued deploy, leaving production behind main with only a notice
+    annotation on a green run as evidence.
+    """
     workflow = _workflow("web.yml")
     jobs = workflow["jobs"]
     assert isinstance(jobs, dict)
@@ -213,8 +254,9 @@ def test_deploy_eligible_runs_share_one_production_lock() -> None:
     assert set(jobs) == {"quality"}
     assert "needs" not in quality
     assert "concurrency" not in quality
-    assert "production-deploy" in group
     assert "github.event.pull_request.number" in group
+    assert "github.ref == 'refs/heads/main' && format('{0}-production-deploy'" in group
+    assert "format('{0}-{1}', github.workflow, github.run_id)" in group
     assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
 

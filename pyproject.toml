@@ -201,7 +201,9 @@ skips = ["B101"]
 [tool.mutmut]
 paths_to_mutate = ["src/baibai_engine", "src/baibai_app"]
 tests_dir = "tests"
-runner = "python -m pytest -q -m 'not slow'"
+# mutmut runs the suite once per mutant and parallelises the mutants itself, so the
+# workers `addopts` asks for would multiply against that rather than add to it.
+runner = "python -m pytest -q -m 'not slow' -n 0"
 
 # Import-direction contracts encode the subsystem dependency DAG
 # (macro / screening / position / research / shared) so a structural edit that
