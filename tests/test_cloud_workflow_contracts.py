@@ -47,33 +47,6 @@ def _commit(repo: Path, path: str, content: str, message: str) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
-def _run_deploy_scope(repo: Path, *, before: str, current: str) -> tuple[int, str]:
-    steps = _steps(_workflow("web.yml"), "scope")
-    scope = next(step for step in steps if step.get("id") == "deploy-scope")
-    output = repo / "github-output"
-    output.unlink(missing_ok=True)
-    env = os.environ.copy()
-    env.update(
-        {
-            "EVENT_NAME": "push",
-            "GIT_REF": "refs/heads/main",
-            "PUSH_BEFORE_SHA": before,
-            "CURRENT_SHA": current,
-            "GITHUB_OUTPUT": str(output),
-        }
-    )
-    result = subprocess.run(
-        ("bash", "-e", "-u", "-o", "pipefail", "-c", str(scope["run"])),
-        cwd=repo,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    written = output.read_text(encoding="utf-8") if output.exists() else ""
-    return result.returncode, written
-
-
 def _run_deploy_target(repo: Path, *, target: str) -> tuple[int, str]:
     steps = _steps(_workflow("web.yml"), "quality")
     target_step = next(step for step in steps if step.get("id") == "deploy-target")
@@ -93,7 +66,7 @@ def _run_deploy_target(repo: Path, *, target: str) -> tuple[int, str]:
     return result.returncode, written
 
 
-def _deploy_scope_repo(tmp_path: Path) -> tuple[Path, str]:
+def _web_history_repo(tmp_path: Path) -> tuple[Path, str]:
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init")
@@ -150,10 +123,25 @@ def test_web_workflow_keeps_all_gates_before_the_only_deploy_step() -> None:
     assert names.count("Deploy Worker and UI assets") == 1
     deploy = steps[deploy_index]
     assert deploy["if"] == (
-        "${{ success() && needs.scope.outputs.deploy == 'true' "
+        "${{ success() "
+        "&& (github.event_name == 'push' || github.event_name == 'workflow_dispatch') "
+        "&& github.ref == 'refs/heads/main' "
         "&& steps.deploy-target.outputs.current == 'true' }}"
     )
     assert deploy["run"] == "npx wrangler deploy"
+
+
+def test_nothing_answering_from_outside_the_tree_stands_in_front_of_production() -> None:
+    """`npm audit` answers from GitHub's advisory database, not from the tree.
+
+    A disclosure lands without anyone touching the repository, so an audit in this
+    job would turn someone else's publication into an outage on a fix that has
+    nothing to do with it. Lockfile resolutions are refused by node-audit.yml,
+    whose trigger is the lockfiles themselves.
+    """
+    steps = _steps(_workflow("web.yml"), "quality")
+
+    assert not [step for step in steps if "audit" in str(step.get("run", ""))]
 
 
 @pytest.mark.parametrize(
@@ -182,80 +170,98 @@ def test_each_failed_web_gate_leaves_deploy_call_count_zero(failed_gate: str) ->
     assert deploy_calls == 0
 
 
-def test_manual_non_main_dispatch_cannot_enable_deploy() -> None:
-    steps = _steps(_workflow("web.yml"), "scope")
-    scope = next(step for step in steps if step.get("id") == "deploy-scope")
-    run = str(scope["run"])
+def test_only_named_events_can_reach_production() -> None:
+    """`github.ref` is the default branch for schedule, workflow_run and friends.
 
-    assert "deploy=false" in run
-    assert '"$EVENT_NAME" == "workflow_dispatch"' in run
-    assert '"$GIT_REF" == "refs/heads/main"' in run
-    assert "workflow_dispatch" in _workflow("web.yml")["on"]
+    Testing "not a pull request" would therefore hand production to any trigger
+    added to `on:` later. The condition names the two events that may deploy, and
+    the trigger set is pinned so a third one cannot arrive unnoticed.
+    """
+    workflow = _workflow("web.yml")
+    triggers = workflow["on"]
+    assert isinstance(triggers, dict)
+    by_name = {str(step.get("name", "")): step for step in _steps(workflow, "quality")}
 
-
-def test_deploy_scope_uses_full_history_and_fails_closed() -> None:
-    steps = _steps(_workflow("web.yml"), "scope")
-    checkout = next(
-        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
-    )
-    scope = next(step for step in steps if step.get("id") == "deploy-scope")
-
-    assert checkout["with"] == {"fetch-depth": "0"}
-    assert "push before SHA is unavailable" in str(scope["run"])
-    assert "failed to determine production deploy scope" in str(scope["run"])
+    assert set(triggers) == {"pull_request", "push", "workflow_dispatch"}
+    for gated in ("Verify current production target", "Deploy Worker and UI assets"):
+        condition = str(by_name[gated]["if"])
+        assert (
+            "(github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+        ) in condition
+        assert "github.ref == 'refs/heads/main'" in condition
 
 
-def test_multi_commit_non_web_push_does_not_deploy(tmp_path: Path) -> None:
-    repo, before = _deploy_scope_repo(tmp_path)
-    _commit(repo, "docs.txt", "first\n", "first docs change")
-    current = _commit(repo, "docs.txt", "second\n", "second docs change")
+def test_web_trigger_covers_every_tree_the_job_publishes() -> None:
+    """Editing this workflow is gated before merge but never publishes by itself.
 
-    code, output = _run_deploy_scope(repo, before=before, current=current)
+    On `push` the filter is exactly what `wrangler deploy` ships, so a CI-only
+    edit cannot reach production; on `pull_request` the file is included so its
+    own change still has to pass the job it defines.
+    """
+    triggers = _workflow("web.yml")["on"]
+    assert isinstance(triggers, dict)
+    published = ["ui/**", "cloud/worker/**"]
 
-    assert code == 0
-    assert output == "deploy=false\n"
-
-
-def test_multi_commit_push_with_web_change_deploys(tmp_path: Path) -> None:
-    repo, before = _deploy_scope_repo(tmp_path)
-    _commit(repo, "ui/index.ts", "export {};\n", "web change")
-    current = _commit(repo, "docs.txt", "after web\n", "follow-up docs change")
-
-    code, output = _run_deploy_scope(repo, before=before, current=current)
-
-    assert code == 0
-    assert output == "deploy=true\n"
-
-
-def test_unavailable_push_before_sha_fails_without_deploy(tmp_path: Path) -> None:
-    repo, _before = _deploy_scope_repo(tmp_path)
-    current = _git(repo, "rev-parse", "HEAD")
-
-    code, output = _run_deploy_scope(repo, before="0" * 40, current=current)
-
-    assert code != 0
-    assert "deploy=true" not in output
+    for event in ("pull_request", "push"):
+        scope = triggers[event]
+        assert isinstance(scope, dict)
+        assert scope["branches"] == ["main"]
+    pull_request = triggers["pull_request"]
+    push = triggers["push"]
+    assert isinstance(pull_request, dict)
+    assert isinstance(push, dict)
+    assert pull_request["paths"] == [*published, ".github/workflows/web.yml"]
+    assert push["paths"] == published
 
 
-def test_only_deploy_eligible_quality_jobs_share_production_lock() -> None:
+def test_tracked_tree_stays_inside_the_path_filter_evaluation_limit() -> None:
+    """Keep web.yml's `paths` filter exact rather than quietly selective.
+
+    GitHub evaluates the filter against the first 3,000 files of the generated
+    diff and skips the workflow, with no check left behind to notice, when a
+    matching file falls outside that window. A diff is bounded by the files
+    present before it plus the files present after — deletions are why it can
+    name more files than the tree holds — so while every commit keeps the tree
+    under this budget no diff between two of them can reach 3,000. The largest
+    first-parent diff on main so far is 708 files against a tree of 640.
+
+    Growing past this budget means the filter has to give way to in-job detection
+    before it starts hiding the web gates. GitHub's troubleshooting page still
+    quotes the older 300-file window, so a shrinking limit would also be silent;
+    the workflow-syntax reference is the one that carries 3,000.
+    """
+    tracked = _git(ROOT, "ls-files").splitlines()
+
+    assert len(tracked) < 1000
+
+
+def test_runs_that_cannot_deploy_stay_out_of_the_production_queue() -> None:
+    """A concurrency group holds one pending run and evicts the previous one.
+
+    A dispatch on a feature branch sharing the production group would therefore
+    cancel a queued deploy, leaving production behind main with only a notice
+    annotation on a green run as evidence.
+    """
     workflow = _workflow("web.yml")
     jobs = workflow["jobs"]
     assert isinstance(jobs, dict)
     quality = jobs["quality"]
     assert isinstance(quality, dict)
-    concurrency = quality["concurrency"]
+    concurrency = workflow["concurrency"]
     assert isinstance(concurrency, dict)
     group = str(concurrency["group"])
 
-    assert quality["needs"] == "scope"
-    assert "needs.scope.outputs.deploy == 'true'" in group
-    assert "production-deploy" in group
-    assert "github.run_id" in group
+    assert set(jobs) == {"quality"}
+    assert "needs" not in quality
+    assert "concurrency" not in quality
+    assert "github.event.pull_request.number" in group
+    assert "github.ref == 'refs/heads/main' && format('{0}-production-deploy'" in group
+    assert "format('{0}-{1}', github.workflow, github.run_id)" in group
     assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
 
 def test_docs_only_advance_keeps_web_target_current(tmp_path: Path) -> None:
-    repo, target = _deploy_scope_repo(tmp_path)
+    repo, target = _web_history_repo(tmp_path)
     _commit(repo, "ui/index.ts", "export {};\n", "web target")
     target = _git(repo, "rev-parse", "HEAD")
     _commit(repo, "docs.txt", "current\n", "advance docs only")
@@ -267,7 +273,7 @@ def test_docs_only_advance_keeps_web_target_current(tmp_path: Path) -> None:
 
 
 def test_later_web_change_marks_old_target_stale(tmp_path: Path) -> None:
-    repo, _baseline = _deploy_scope_repo(tmp_path)
+    repo, _baseline = _web_history_repo(tmp_path)
     target = _commit(repo, "ui/index.ts", "export const version = 1;\n", "web target")
     _commit(repo, "ui/index.ts", "export const version = 2;\n", "newer web target")
 

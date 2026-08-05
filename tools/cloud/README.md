@@ -52,7 +52,7 @@ uploadせず停止する。
 tools/cloud/seed.sh
 ```
 
-production deployは`.github/workflows/web.yml`が所有する。PRはUI lint/build/testとWorker types/typecheck/test/dry-runまで、mainの`ui/`または`cloud/worker/`変更とmainを明示したmanual dispatchは同じgateの後にdeployする。deploy対象jobは共通のproduction concurrency groupで直列化し、deploy直前のremote `main`と`ui/`・`cloud/worker/`のtreeが一致するrunだけを反映する。docs-only等の後続commitはdeployを失わせず、後続web変更があるrunだけをstaleとしてskipする。Cloudflare API tokenは対象accountだけに絞った`Workers Scripts Write`を使い、repository Actionsのvariable `R2_ACCOUNT_ID`とsecret `CLOUDFLARE_API_TOKEN`を設定する。tokenはdeploy stepだけへ渡す。初回deployはworkflowをmainから手動実行する。
+production deployは`.github/workflows/web.yml`が所有する。workflowは`ui/`・`cloud/worker/`の変更でだけ起き、PRはUI lint/build/testとWorker types/typecheck/test/dry-runまで、mainの`ui/`または`cloud/worker/`変更とmainを明示したmanual dispatchは同じgateの後にdeployする。npm auditはこのjobに置かない。advisoryはrepositoryの外で公表されるので、publishの前に立てると無関係な緊急修正を止める（`node-audit.yml`がlockfile変更時に、`security.yml`が週次に問う）。deploy対象jobは共通のproduction concurrency groupで直列化し、deploy直前のremote `main`と`ui/`・`cloud/worker/`のtreeが一致するrunだけを反映する。docs-only等の後続commitはdeployを失わせず、後続web変更があるrunだけをstaleとしてskipする。Cloudflare API tokenは対象accountだけに絞った`Workers Scripts Write`を使い、repository Actionsのvariable `R2_ACCOUNT_ID`とsecret `CLOUDFLARE_API_TOKEN`を設定する。tokenはdeploy stepだけへ渡す。初回deployはworkflowをmainから手動実行する。
 
 ```bash
 gh workflow run web.yml --ref main

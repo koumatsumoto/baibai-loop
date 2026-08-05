@@ -1,0 +1,47 @@
+name: node-audit
+
+# An advisory is published against a lockfile nobody touched, so asking on every
+# change under `ui/` or `cloud/worker/` would let someone else's disclosure block
+# unrelated work — and asking inside the job that publishes production would let it
+# hold back an urgent fix. The trigger is the lockfiles themselves: this refuses a
+# resolution that arrives carrying a high advisory. Advisories against a lockfile
+# that is standing still belong to the weekly sweep in security.yml.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ui/package-lock.json
+      - cloud/worker/package-lock.json
+      - .github/workflows/node-audit.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # `--package-lock-only` reads the resolution without installing it; the same
+      # job's `npm ci` in web.yml is what proves the lockfile is installable.
+      # `!cancelled()` keeps one ecosystem's finding from hiding the other's.
+      - name: UI dependency audit
+        if: ${{ !cancelled() }}
+        working-directory: ui
+        run: npm audit --package-lock-only --audit-level=high
+
+      - name: Worker dependency audit
+        if: ${{ !cancelled() }}
+        working-directory: cloud/worker
+        run: npm audit --package-lock-only --audit-level=high

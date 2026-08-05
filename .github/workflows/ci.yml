@@ -1,10 +1,15 @@
 name: ci
 
+# The merge ref this workflow checks is the tree that lands on main while the base
+# holds still, so a second run after the merge would re-check bytes that already
+# passed here. What that leaves uncovered is a base that moved between this run and
+# the merge: the next pull request's own merge ref carries the result, and the daily
+# batch reports whether main still imports and runs. Neither re-runs these gates, so
+# a lint-, type- or test-only breakage on main waits for that next pull request.
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,14 +19,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Every Python gate shares one job because Actions bills per job, rounded up to
+  # the minute: a second runner costs a whole minute before it checks anything.
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
 
       # The notification scripts run on the runner's system python3, before
       # setup-python and uv sync. This preserves failure reporting during setup
@@ -65,9 +70,16 @@ jobs:
           done
 
       - name: Tests with coverage
-        run: |
-          uv run coverage run -m pytest
-          uv run coverage report -m
+        # The worker count is fixed here rather than left to `auto`, which resolves to the
+        # runner's 2 cores. The suite waits on sqlite more than it computes, so a little
+        # oversubscription is worth taking while a lot is not: measured on this runner, 8
+        # workers take 92s and 16 take 130s, while 2 and 4 both land in the 74-95s the
+        # runner varies across, so 4 is the modest end of that. Developer machines keep
+        # `auto` from `addopts`, where a wider box is worth using.
+        #
+        # pytest-cov measures the xdist workers because it starts coverage inside each one;
+        # `coverage run -m pytest` would only see the controller and report a near-empty run.
+        run: uv run pytest -n 4 --cov --cov-report=term-missing
 
       - name: Brand asset contract
         # tools/generate_brand_assets.py needs Pillow, which stays out of the lock so no daily
@@ -85,7 +97,35 @@ jobs:
         # where Pillow is missing or broken passes this step by skipping every test in the file.
         run: |
           uv run --with pillow python -c 'import PIL.Image'
-          uv run --with pillow pytest tests/test_brand_assets.py
+          uv run --with pillow pytest -n 0 tests/test_brand_assets.py
+
+      # The scanners share this job to avoid a second billed runner, so they are asked
+      # even after an earlier gate has failed. A red test would otherwise hide a CVE
+      # until the next push, which a separate job never did.
+      - name: Bandit
+        if: ${{ !cancelled() }}
+        # Whole directories, not named files: a script added under tools/ is scanned from
+        # its first commit instead of waiting for someone to remember this list.
+        run: >-
+          uv run bandit -c pyproject.toml -q -r
+          src/baibai_engine src/baibai_app tools
+
+      - name: Dependency audit
+        if: ${{ !cancelled() }}
+        # The audited surface is the lockfile exported to requirements, not the runner's
+        # installed set, so a CVE in the environment's own tooling cannot fail a repository
+        # whose dependencies are clean. `docs/reference/python-foundation.md` §8 holds the
+        # reasoning for this export pipeline.
+        run: |
+          uv export \
+            --format requirements.txt \
+            --locked \
+            --all-groups \
+            --no-emit-project \
+            --no-hashes \
+            --output-file /tmp/baibai-loop-requirements.txt
+          uv run pip-audit \
+            -r /tmp/baibai-loop-requirements.txt
 
       - name: Build package
         run: uv build --wheel
