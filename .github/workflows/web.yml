@@ -1,69 +1,38 @@
 name: web
 
+# The path filter is the deploy scope. GitHub diffs the pull request three-dot or
+# the push range itself, so a run existing at all already means the web tree moved,
+# and no job has to re-derive that from git. The filter is exact here because it
+# only goes silent on diffs past 3,000 files, which a tree this size cannot reach
+# — tests/test_cloud_workflow_contracts.py holds that budget.
 on:
   pull_request:
     branches: [main]
+    paths:
+      - ui/**
+      - cloud/worker/**
+      - .github/workflows/web.yml
   push:
     branches: [main]
+    paths:
+      - ui/**
+      - cloud/worker/**
+      - .github/workflows/web.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Pull requests supersede themselves; anything that can reach the deploy step
+# queues behind the run in front of it instead of racing it.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-production-deploy', github.workflow) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  scope:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      deploy: ${{ steps.deploy-scope.outputs.deploy }}
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Detect production deploy scope
-        id: deploy-scope
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          GIT_REF: ${{ github.ref }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-          CURRENT_SHA: ${{ github.sha }}
-        run: |
-          deploy=false
-          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$GIT_REF" == "refs/heads/main" ]]; then
-            deploy=true
-          elif [[ "$EVENT_NAME" == "push" && "$GIT_REF" == "refs/heads/main" ]]; then
-            if ! git cat-file -e "$PUSH_BEFORE_SHA^{commit}" 2>/dev/null; then
-              echo "::error::push before SHA is unavailable: $PUSH_BEFORE_SHA"
-              exit 1
-            fi
-            if ! git cat-file -e "$CURRENT_SHA^{commit}" 2>/dev/null; then
-              echo "::error::current SHA is unavailable: $CURRENT_SHA"
-              exit 1
-            fi
-            if git diff --quiet "$PUSH_BEFORE_SHA" "$CURRENT_SHA" -- ui cloud/worker; then
-              deploy=false
-            else
-              diff_status=$?
-              if [[ $diff_status -eq 1 ]]; then
-                deploy=true
-              else
-                echo "::error::failed to determine production deploy scope"
-                exit 1
-              fi
-            fi
-          fi
-          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
-
   quality:
-    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    concurrency:
-      group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || needs.scope.outputs.deploy == 'true' && format('{0}-production-deploy', github.workflow) || format('{0}-{1}', github.workflow, github.run_id) }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,6 +48,12 @@ jobs:
       - name: Install UI dependencies
         working-directory: ui
         run: npm ci
+
+      # Both lockfiles live under the filtered paths, so every edit to one arrives
+      # here. `--package-lock-only` audits the resolved tree without a second install.
+      - name: UI dependency audit
+        working-directory: ui
+        run: npm audit --package-lock-only --audit-level=high
 
       - name: Lint UI
         working-directory: ui
@@ -96,6 +71,10 @@ jobs:
         working-directory: cloud/worker
         run: npm ci
 
+      - name: Worker dependency audit
+        working-directory: cloud/worker
+        run: npm audit --package-lock-only --audit-level=high
+
       - name: Check Worker generated types
         working-directory: cloud/worker
         run: npm run types:check
@@ -112,9 +91,12 @@ jobs:
         working-directory: cloud/worker
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"
 
+      # A queued run can hold a web tree that main has already moved past. Publishing it
+      # would roll production backwards, so the run compares its own tree against main
+      # and steps aside rather than deploying.
       - name: Verify current production target
         id: deploy-target
-        if: ${{ needs.scope.outputs.deploy == 'true' }}
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
         env:
           TARGET_SHA: ${{ github.sha }}
         run: |
@@ -135,7 +117,7 @@ jobs:
           echo "current=$current" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Worker and UI assets
-        if: ${{ success() && needs.scope.outputs.deploy == 'true' && steps.deploy-target.outputs.current == 'true' }}
+        if: ${{ success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy-target.outputs.current == 'true' }}
         working-directory: cloud/worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

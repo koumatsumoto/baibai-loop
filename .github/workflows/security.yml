@@ -1,19 +1,20 @@
 name: security
 
+# Dependency advisories are the one finding that appears without anything in the
+# repository changing, so they get a clock of their own. Every gate that reacts to
+# a change instead — Bandit, and the audits' own reaction to a lockfile edit — runs
+# on the pull request that carries the change, in ci and web.
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   schedule:
     - cron: "17 3 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   audit:
@@ -22,46 +23,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # PR merge commits expose base/head as their two parents at this depth.
-          # Multi-commit pushes that exceed it fail closed into running the audit.
-          fetch-depth: 2
-
-      - name: Detect Node audit scope
-        id: node-audit-scope
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-          CURRENT_SHA: ${{ github.sha }}
-        run: |
-          if [[ "$EVENT_NAME" == "schedule" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            BASE_SHA="$PR_BASE_SHA"
-            HEAD_SHA="$PR_HEAD_SHA"
-          else
-            BASE_SHA="$PUSH_BEFORE_SHA"
-            HEAD_SHA="$CURRENT_SHA"
-          fi
-
-          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null ||
-            ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
-            ui/package-lock.json cloud/worker/package-lock.json; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -74,21 +35,7 @@ jobs:
       - name: Sync
         run: uv sync --frozen --all-groups
 
-      - name: Bandit
-        # Whole directories, not named files: a script added under tools/ is scanned from
-        # its first commit instead of waiting for someone to remember this list.
-        run: >-
-          uv run bandit -c pyproject.toml -q -r
-          src/baibai_engine src/baibai_app tools
-
       - name: Dependency audit
-        # CVE-2026-3219: pip 26.0.1 treats archives that identify as both tar
-        # and zip as zip during install. No fix version is published yet
-        # (pip-audit reports `fix_versions: []`). The project uses uv with
-        # locked deps so pip itself is never used at runtime; exposure to the
-        # malicious-archive vector requires manually invoking pip on an
-        # untrusted file. Re-evaluate when a pip fix lands by removing
-        # --ignore-vuln. Tracking via pip-audit GHSA-58qw-9mgm-455v.
         run: |
           uv export \
             --format requirements.txt \
@@ -100,19 +47,20 @@ jobs:
           uv run pip-audit \
             -r /tmp/baibai-loop-requirements.txt
 
-      # Keep Node audits after the Python scanners and use an explicit status
-      # function so one ecosystem's finding does not hide the other reports.
+      # This workflow reports rather than gates, so each ecosystem is asked even after
+      # another one has already found something. An advisory hidden behind an earlier
+      # failure would wait a week for the next sweep.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        if: ${{ !cancelled() && steps.node-audit-scope.outputs.run == 'true' }}
+        if: ${{ !cancelled() }}
         with:
           node-version: 24
 
       - name: UI dependency audit
-        if: ${{ !cancelled() && steps.node-audit-scope.outputs.run == 'true' }}
+        if: ${{ !cancelled() }}
         working-directory: ui
         run: npm audit --package-lock-only --audit-level=high
 
       - name: Worker dependency audit
-        if: ${{ !cancelled() && steps.node-audit-scope.outputs.run == 'true' }}
+        if: ${{ !cancelled() }}
         working-directory: cloud/worker
         run: npm audit --package-lock-only --audit-level=high

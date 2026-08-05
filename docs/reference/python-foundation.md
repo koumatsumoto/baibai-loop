@@ -136,7 +136,7 @@ provider では次を守る。
 
 pytest は CI / config / marker / xfail の strict 系を個別に有効化する。`addopts` に `--strict-config` と `--strict-markers` を入れ、ini で `xfail_strict = true` を設定する。`--strict` の集約 alias は pytest 9 では曖昧になるため使わず、明示指定で厳密度の意図を保つ。
 
-coverage は `coverage.py` を直接使う。pytest-cov は便利だが、この repo の CI では `coverage run -m pytest` と `coverage report` で足りる。
+suite は pytest-xdist の worker で並列実行する。実測では CPU 時間が壁時計時間の 3 分の 1 しかなく、残りは sqlite の I/O 待ちなので、worker 数は core 数を超えても効く。coverage は pytest-cov 経由で計測する。pytest-cov は各 worker の中で coverage を開始するのに対し、`coverage run -m pytest` は controller process しか見ず、並列実行では空に近い結果を報告する。計測値は直列実行と一致する。
 
 coverage gate は現在 80%。これは理想値ではなく、既存 suite の実測に合わせた初期 baseline である。今後は以下の順で ratchet する。
 
@@ -167,11 +167,7 @@ CodeQL は採用しない。GitHub の Code scanning は private repository で�
 
 `pip-audit --local` は実行環境の `pip` 自体も監査対象に含めるため、project dependency ではない pip の CVE で CI が落ちることがある。repo の依存監査としては lockfile export を正とする。
 
-Node audit はいずれかの lockfile の変更時と週次 schedule に既存 security job 内で実行する。変更判定に
-必要な commit が shallow checkout に無い場合は audit を省略せず実行する。workflow-level path
-filterや専用jobを増やさず、gateのfail-closed性とjob単位課金の抑制を両立する。security jobは
-`--package-lock-only`でinstallを重複させず、lockfileの再現性と実動互換性はweb jobの`npm ci`
-以降で検証する。
+scanner は「答えが何によって動くか」で置き場所が決まる。Bandit は pinned version で source を読むので、答えは変更でしか動かない。pull request 上の ci job が唯一の実行点で、週次に置いても新しい発見は出せない。advisory は repository が動かないまま公表されるので、pip-audit と npm audit は変更時に加えて週次 sweep でも実行する。Node audit の変更時実行は web job が担う。両 lockfile が web workflow の `paths` filter の下にあり、片方でも動けば job が起きるため、job 内で lockfile 差分を判定する必要がない。監査は `--package-lock-only` で install を重複させず、lockfile の再現性と実動互換性は同じ job の `npm ci` 以降が検証する。
 
 参考:
 
@@ -188,8 +184,7 @@ uv run ruff check .
 uv run mypy
 uv run lint-imports
 for gate in tools/drift/check_*.py; do uv run python "$gate"; done
-uv run coverage run -m pytest
-uv run coverage report -m
+uv run pytest -n auto --cov --cov-report=term-missing
 uv run bandit -c pyproject.toml -q -r src/baibai_engine src/baibai_app tools
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
@@ -221,7 +216,13 @@ npm test
 npx wrangler deploy --dry-run --outdir /tmp/baibai-worker-bundle
 ```
 
-この §9 は gate の唯一の正本で、Python quality と notification script の stdlib-only import contract は `.github/workflows/ci.yml`、UI / Worker は `.github/workflows/web.yml`、security（Bandit / pip-audit / npm audit）は `.github/workflows/security.yml` を正本とする。3 workflowはpull request / main pushで常に実行し、securityは週次にも実行する。Node auditはlockfile変更時と週次だけ実行し、変更判定不能時はfail closedで実行する。GitHubのworkflow-level path filterは変更fileの評価上限によりgateを無音でskipし得るため使わない。pull request の同一 workflow は新しい commit が来たら旧 run を cancel し、main push と schedule は互いに cancel しない。web workflowのproduction deployは同じjobのUI/Worker gateとdry-runが成功したmainのweb変更、またはmainを明示したmanual dispatchだけで実行する。push差分を解決できなければdeployせずworkflowを失敗させ、deploy対象jobはproduction concurrency groupで直列化する。deploy直前にremote `main`と対象runの`ui/`・`cloud/worker/` treeを再照合し、後続web変更があるrunはdeployしない。Cloudflare credentialはdeploy stepだけへ渡す。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actionsでは`astral-sh/setup-uv`を使い、root `pyproject.toml`のexact `tool.uv.required-version`を全workflowの正本とする。`python -m pip install uv`よりCIのintentが明確で、uv cacheも扱いやすい。
+この §9 は gate の唯一の正本で、Python quality（Bandit と pip-audit を含む）と notification script の stdlib-only import contract は `.github/workflows/ci.yml`、UI / Worker と Node audit は `.github/workflows/web.yml`、依存 advisory の週次 sweep は `.github/workflows/security.yml` を正本とする。
+
+Actions は job 単位で分単位切り上げ課金されるため、gate の構成は 1 run の速さではなく run 数と job 数で決める。Python gate は 1 job に同居し、環境構築を 2 度払わない。ci は pull request と manual dispatch に答え、main push では走らない。pull request が検査する merge ref は main へ載る tree そのもので、merge 後の再実行は同じ byte に課金するだけだからである。main は次の pull request（その merge ref が main を含む）と、main を実行して Discord へ報告する daily batch が覆う。main push を保つのは web だけで、その push は検査ではなく production を publish する操作である。
+
+web の trigger は `ui/**`・`cloud/worker/**`・自身の定義 file を `paths` filter に置き、run が存在すること自体が web tree の変化を意味する。GitHub は filter を diff 先頭 3,000 file までで評価し、一致 file がその窓の外にあると workflow を無音で skip する。diff は 1 file を最大 2 回（rename の delete と add）数えるので、tracked file 数がその半分を超えなければ filter は正確であり、その budget は `tests/test_cloud_workflow_contracts.py` が保つ。budget を超えるときは filter を job 内判定へ戻す。
+
+pull request の同一 workflow は新しい commit が来たら旧 run を cancel し、schedule と deploy 経路は互いに cancel しない。web の production deploy は同じ job の UI / Worker gate・Node audit・dry-run が成功した main の run、または main を明示した manual dispatch だけで実行し、deploy に到達し得る run は production concurrency group で直列化する。deploy 直前に remote `main` と対象 run の `ui/`・`cloud/worker/` tree を再照合し、後続 web 変更がある run は deploy しない。Cloudflare credential は deploy step だけへ渡す。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actionsでは`astral-sh/setup-uv`を使い、root `pyproject.toml`のexact `tool.uv.required-version`を全workflowの正本とする。`python -m pip install uv`よりCIのintentが明確で、uv cacheも扱いやすい。
 
 参考:
 
