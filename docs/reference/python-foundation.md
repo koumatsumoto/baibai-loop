@@ -13,7 +13,7 @@ source_paths:
 
 # Python foundation
 
-このリポジトリの Python 基盤の正本。対象は `src/baibai_engine/**` と `tests/**`。Baibai-Loop は外部データを取り込み、SQLite store と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
+このリポジトリの Python 基盤の正本。対象は `src/baibai_engine/**` と `tests/**`。Baibai Loop は外部データを取り込み、SQLite store と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
 
 ## 1. Runtime policy
 

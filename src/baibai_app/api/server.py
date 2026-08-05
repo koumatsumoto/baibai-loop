@@ -69,7 +69,7 @@ def create_app(
 
     resolved_root = root.resolve()
     app = FastAPI(
-        title="Baibai-Loop Baibai App",
+        title="Baibai Loop",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,

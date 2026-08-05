@@ -12,7 +12,7 @@ export function AppLayout() {
   return (
     <>
       <AppShell />
-      <Suspense fallback={<LoadingPage label="Baibai App を読み込んでいます" />}>
+      <Suspense fallback={<LoadingPage label="Baibai Loop を読み込んでいます" />}>
         <Outlet />
       </Suspense>
     </>

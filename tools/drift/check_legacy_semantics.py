@@ -11,10 +11,14 @@ _BEHAVIOR_LEGACY = re.compile(
     r"durability_gate|execution lifecycle|"
     # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
     # the judgment artifact is the thesis, the pre-cap rank pool is the longlist,
-    # the OP3 output is the shortlist, and the read-only UI is Baibai App. The Git
-    # method tree is method/ (records/ was renamed), so reject any records/ path.
+    # and the OP3 output is the shortlist. The Git method tree is method/, so
+    # reject any records/ path.
     r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
     r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"
+    # The single human-facing product name is Baibai Loop. `baibai-loop` (the
+    # distribution) stays lowercase, so the hyphenated brand form is matched
+    # case-sensitively while the rest of this pattern keeps IGNORECASE.
+    r"Baibai App|(?-i:Baibai-Loop)|"
     # Retired macro context contract: the report declares no shelf life
     # (`valid_until`), core sections carry an economic connection rather than an
     # investment one, and there is one full-depth report instead of a

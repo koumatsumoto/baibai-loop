@@ -1,12 +1,12 @@
 ---
-title: "Baibai-Loop docs portal"
+title: "Baibai Loop docs portal"
 summary: "やりたいことから思想、運用skill、静的contractの唯一の正本へ案内する入口。"
 doc_type: portal
 status: active
 last_reviewed: 2026-08-03
 ---
 
-# Baibai-Loop docs
+# Baibai Loop docs
 
 このportalは「何を知りたいか」から唯一の正本へ案内する。**運用手順の正本は skill（`.agents/skills/`、1 運用 = 1 skill）**、referenceはartifact・式・error/warningの意味、DB constraint・engine model・public `--help`は厳密な機械契約を持つ。上位docへ下位仕様を複製しない。
 

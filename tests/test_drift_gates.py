@@ -180,6 +180,29 @@ def test_legacy_semantics_gate_rejects_records_path_in_reference(tmp_path: Path)
     ]
 
 
+def test_legacy_semantics_gate_rejects_retired_product_names(tmp_path: Path) -> None:
+    """The human-facing product name is Baibai Loop, so the old brand forms must not return."""
+
+    path = tmp_path / "docs" / "demo.md"
+    path.parent.mkdir(parents=True)
+    for retired in ("Baibai App", "Baibai-Loop"):
+        path.write_text(f"{retired} の Macro タブを開く。\n", encoding="utf-8")
+        assert check_legacy_semantics.check(tmp_path) == [
+            f"docs/demo.md: obsolete operation instruction {retired!r}"
+        ]
+
+
+def test_legacy_semantics_gate_allows_lowercase_distribution_name(tmp_path: Path) -> None:
+    """`baibai-loop` names the distribution, so only the capitalized brand form is retired."""
+
+    path = tmp_path / "docs" / "demo.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "repository root は baibai-loop で、package は baibai_app。\n", encoding="utf-8"
+    )
+    assert check_legacy_semantics.check(tmp_path) == []
+
+
 def test_legacy_semantics_gate_allows_generic_records_word(tmp_path: Path) -> None:
     path = tmp_path / "docs" / "demo.md"
     path.parent.mkdir(parents=True)

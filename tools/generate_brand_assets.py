@@ -2,7 +2,7 @@
 # requires-python = ">=3.14"
 # dependencies = ["pillow>=12.0.0"]
 # ///
-"""Generate every Baibai App brand asset from the single source logo.
+"""Generate every Baibai Loop brand asset from the single source logo.
 
 The web UI needs the same mark in five shapes — a header image, a favicon, two
 maskable PWA icons and an iOS home-screen icon — each with its own size, padding

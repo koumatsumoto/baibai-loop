@@ -103,7 +103,7 @@ uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 202
 
 `macro.sqlite` は schema / series registry と各 provider（PDF / API / CSV）から再構築する L1 store であり、定期 backup は持たない。ただし PMI 履歴のように publisher が古い URL を落とすと再取得できない部分があるため、R2 への push は上書き対象の 1 世代を `<key>.bak` として残す（[`tools/cloud/README.md`](../../tools/cloud/README.md)）。
 
-### Baibai App で期間と粒度を読む
+### Baibai Loop で期間と粒度を読む
 
 `baibai-app` の Macro ページは期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` を全チャートへ適用する。`/api/macro` も同じ query parameter を受け、週次・月次・年次は各期間の最終観測値を返す。UIの既定は `max + monthly`、API parameterを省略した場合は `1y + daily` である。`series.yaml` に `tradingview_symbol` がある系列だけ、チャートカードから TradingView の該当 symbol を新規 tab で開く。
 
@@ -156,9 +156,9 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 
 percentile の実効窓を短縮した系列は、provider の履歴が伸びて default に届いたら override を外す（`window_years` が default と一致しているかを規則改版時に確認する）。
 
-reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが Baibai App 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
+reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-app` 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
 
-Baibai App の Macro タブは、この読み値と指標チャートを **1 つの一覧**として表示する。読み値と `method/macro-panel.yaml` の panel は同じ登録系列を 2 通りに射影したものなので、行は panel の 7 group の順に並べ、`series_id` で読み値を join して 1 行に sparkline・最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開くと拡大チャートと全項目が出る。**sparkline の期間は画面の期間・粒度で、percentile の実効窓は系列ごと**という別物なので、列見出しの ⓘ でその不一致を明示する。
+Baibai Loop の Macro タブは、この読み値と指標チャートを **1 つの一覧**として表示する。読み値と `method/macro-panel.yaml` の panel は同じ登録系列を 2 通りに射影したものなので、行は panel の 7 group の順に並べ、`series_id` で読み値を join して 1 行に sparkline・最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開くと拡大チャートと全項目が出る。**sparkline の期間は画面の期間・粒度で、percentile の実効窓は系列ごと**という別物なので、列見出しの ⓘ でその不一致を明示する。
 
 行に出る状態は 4 つで、**取得失敗・`stale`・`insufficient_history` の 3 つは取得側の問題**（percentile の解釈可能性を壊す）、**`|z_score|` ≥ 3 の分布の端は読み値そのもの**である。極端な z を health に混ぜない：端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。ページ上部の要約カードは 4 分類の件数だけを持ち、同じ分類が一覧の絞り込みでもあるため、件数から該当行へ 1 クリックで辿れる。view が未生成のときは読み値の列だけが空欄になり、チャートとレポート index は通常表示する。
 
@@ -280,7 +280,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 
 - **screening select**: head レポートの `as_of` が判断 asof から 45 日より古ければ `macro_context_stale` warning を出す。レポート自身が書いた無効化条件が満たされていれば `macro_context_invalidated` warning を出す。warning は context-level summary の材料であり、E[r]順位・candidateの事実層・候補抽出のいずれも変えない。`as_of` が判断 asof より未来のときだけ hard error にする
 - **opportunity cycle（OP3）/ スポット判断**: head が古い、または深度契約を満たさないと判断したら、shortlist 作成の前に書き直す。判断の前提が古いままかは判断する人が決める
-- **Baibai App**: Macro タブが head の `as_of` を表示し、読む人が古さを目で確認できる
+- **Baibai Loop**: Macro タブが head の `as_of` を表示し、読む人が古さを目で確認できる
 
 ### 分析の独立性
 

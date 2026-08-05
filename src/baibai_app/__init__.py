@@ -1,1 +1,1 @@
-"""Read-only application composition surface for the local Baibai App."""
+"""Read-only application composition surface for `baibai-app`."""

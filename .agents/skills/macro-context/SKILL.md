@@ -50,7 +50,7 @@ description: 市場環境の評価（macro context report）を人間の判断�
 
     fail 項目は修正してから進む。
 11. **publish**: `inputs.indicator_series` は手書きせず `tools/scaffold_macro_context_inputs.py`（セクション → series の spec から生成）を使う。draft の反復中は `baibai-engine macro context publish <draft> --check` で store に触れず検証し（--check は文書契約と gate のみ。reading rules revision の実在・compare-and-swap・前回 scorecard digest 照合は実 publish でだけ検証される）、確定したら確認済み head を `--expected-head` へ渡して publish する（head が無い初回だけ省略）。
-12. **cloud 反映**: `tools/cloud/r2_transfer.sh push-app` → `gh workflow run cloud-materialize` → success 確認（Baibai App の Macro タブが新 head を配信する）。
+12. **cloud 反映**: `tools/cloud/r2_transfer.sh push-app` → `gh workflow run cloud-materialize` → success 確認（Baibai Loop の Macro タブが新 head を配信する）。
 
 ## 禁止
 

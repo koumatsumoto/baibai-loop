@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-summary: "Baibai-Loop の package、store、CLI、read-only app 契約の正本。"
+summary: "Baibai Loop の package、store、CLI、read-only app 契約の正本。"
 doc_type: architecture
 status: active
 last_reviewed: 2026-07-23
@@ -8,7 +8,7 @@ last_reviewed: 2026-07-23
 
 # Architecture
 
-Baibai-Loop は単一 distribution の中で、唯一の writer である `baibai_engine` と read-only UI「Baibai App」の `baibai_app` を分離する。application data は application DB、再生成可能な分析結果は専用 store、method / config は Git を正本とする。
+Baibai Loop は単一 distribution の中で、唯一の writer である `baibai_engine` と、read-only UI を提供する `baibai_app` を分離する。application data は application DB、再生成可能な分析結果は専用 store、method / config は Git を正本とする。
 
 ```text
 baibai-loop
@@ -48,9 +48,9 @@ baibai-loop
 | `proposals` | trade proposal と人間の current decision | `baibai-engine proposal` |
 | `appdb` | application DB path、migration、backup、writer connection | `baibai-engine db` |
 | `read_api` | app が使う query-only view | engine 内部 |
-| `baibai_app` | Dashboard / Macro / Stocks の read-only UI（Baibai App） | `baibai-app` |
+| `baibai_app` | Dashboard / Macro / Stocks の read-only UI | `baibai-app` |
 
-engine 内の domain は app に依存しない。app は `read_api` と query source を通じて DB を read-only mode で開き、migration、write service、外部 networkへ到達しない。
+engine 内の domain は app に依存しない。app が DB へ触れる経路は `read_api` と query source だけで、その不変条件は[Read-only app invariants](#read-only-app-invariants)を正本とする。
 
 `read_api` の store 欠損時の扱いは 1 つの規則で決まる: **publish 済みの内容を答える reader は空 view へ degrade し、書き込みを門番する reader は raise する**。前者は `read_rows` を通し、file 欠損と table 欠損（= writer がこの copy でまだ走っていない）を空として扱う。列名の誤り・構文エラー・store 破損は degrade せず raise するので、壊れた query が同じ沈黙に隠れない。後者は日次 batch の `market_calendar_business_day` と `previous_run_revision_id` で、休場日に見えて run を skip するのでなく故障を名指しして止まる。この規則は `tests/test_read_api_degrade.py` が全 public reader を走査して守る。
 
@@ -72,7 +72,7 @@ Git に残す `method/` は screening rules・Macro panel・macro reading rules 
 public entry point は次の2本だけである。
 
 - `baibai-engine <domain> <command>`: query と application service 経由の write
-- `baibai-app`: local read-only UI（Baibai App）
+- `baibai-app`: local read-only UI
 
 主要 domain は `screening / macro / operation / position / proposal / research / task / db`。schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run / select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の意味を変えない。
 

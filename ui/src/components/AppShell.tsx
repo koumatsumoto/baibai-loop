@@ -58,9 +58,9 @@ export function AppShell() {
   return (
     <header className="sticky top-0 z-40 border-b bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/88">
       <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
-        <Link aria-label="Baibai App ホーム" className="flex shrink-0 items-center gap-2.5 font-semibold tracking-tight" to="/">
+        <Link aria-label="Baibai Loop ホーム" className="flex shrink-0 items-center gap-2.5 font-semibold tracking-tight" to="/">
           <BrandMark />
-          <span className="hidden sm:inline">Baibai App</span>
+          <span className="hidden sm:inline">Baibai Loop</span>
         </Link>
         <nav className="flex h-full min-w-0 flex-1 items-center gap-0 overflow-x-auto sm:gap-1" aria-label="メインナビゲーション">
           {NAV_TABS.map((item) => {

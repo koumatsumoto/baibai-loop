@@ -103,7 +103,7 @@ class DbMarketPriceSource:
 
 
 class DbOperationsSource:
-    """Read proposal, operation, and outcome state for the Baibai App."""
+    """Read proposal, operation, and outcome state for the read-only UI."""
 
     def __init__(self, db_path: Path) -> None:
         self._path = db_path.resolve()

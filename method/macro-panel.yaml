@@ -1,4 +1,4 @@
-# Baibai App の Macro タブ指標オーバービューのグループ構成。
+# Baibai Loop の Macro タブ指標オーバービューのグループ構成。
 # 全登録 series をちょうど 1 グループへ配し、上流→下流（doctrine §7）で読める
 # 完全・排他な分類にする。網羅性は tests/test_macro_panel.py の partition test が保証する。
 # label は省略し、系列名は series registry の name を単一の正とする。

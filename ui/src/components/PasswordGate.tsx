@@ -23,7 +23,7 @@ export function PasswordForm({ value, notice, onValueChange, onSubmit }: Passwor
         <div className="grid gap-4">
           <div className="flex items-center gap-2.5 font-semibold tracking-tight">
             <BrandMark />
-            <span>Baibai App</span>
+            <span>Baibai Loop</span>
           </div>
           <div className="grid gap-1.5">
             <div className="flex items-center gap-2 font-medium">

@@ -1,7 +1,7 @@
 {
-  "name": "Baibai App",
-  "short_name": "Baibai",
-  "description": "Baibai-Loop の read-only 運用ダッシュボード",
+  "name": "Baibai Loop",
+  "short_name": "Baibai Loop",
+  "description": "Baibai Loop の read-only 運用ダッシュボード",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

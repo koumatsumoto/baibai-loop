@@ -1,4 +1,4 @@
-"""Local read-only HTTP API for the Baibai App."""
+"""Local read-only HTTP API served by `baibai-app`."""
 
 from .server import create_app
 
