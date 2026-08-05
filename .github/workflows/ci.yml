@@ -71,10 +71,11 @@ jobs:
 
       - name: Tests with coverage
         # The worker count is fixed here rather than left to `auto`, which resolves to the
-        # runner's 2 cores. The suite waits on sqlite more than it computes, so oversubscribing
-        # pays until memory and switching take over: measured on this runner, 2 workers take
-        # 85s, 4 take 74s, 8 take 92s and 16 take 130s. Developer machines keep `auto` from
-        # `addopts`, where a wider box is worth using.
+        # runner's 2 cores. The suite waits on sqlite more than it computes, so a little
+        # oversubscription is worth taking while a lot is not: measured on this runner, 8
+        # workers take 92s and 16 take 130s, while 2 and 4 both land in the 74-95s the
+        # runner varies across, so 4 is the modest end of that. Developer machines keep
+        # `auto` from `addopts`, where a wider box is worth using.
         #
         # pytest-cov measures the xdist workers because it starts coverage inside each one;
         # `coverage run -m pytest` would only see the controller and report a near-empty run.

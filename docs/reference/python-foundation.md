@@ -136,7 +136,7 @@ provider では次を守る。
 
 pytest は CI / config / marker / xfail の strict 系を個別に有効化する。`addopts` に `--strict-config` と `--strict-markers` を入れ、ini で `xfail_strict = true` を設定する。`--strict` の集約 alias は pytest 9 では曖昧になるため使わず、明示指定で厳密度の意図を保つ。
 
-suite は pytest-xdist の worker で並列実行する。CPU 時間は壁時計時間の 3 分の 1 しかなく残りは sqlite の I/O 待ちなので、core 数を超える worker がしばらく効き、その先で memory と切り替えに負ける。`addopts` の `-n auto` は開発機の広さを使うための既定で、CI は runner 実測で選んだ固定値を渡す（2 core の runner で worker 2 / 4 / 8 / 16 がそれぞれ 85 / 74 / 92 / 130 秒）。単一 process が要る実行（`-s`、`--pdb`、逐次の進捗表示）は `-n 0` で戻す。
+suite は pytest-xdist の worker で並列実行する。CPU 時間は壁時計時間の 3 分の 1 しかなく残りは sqlite の I/O 待ちなので、core 数を超える worker がしばらく効き、その先で memory と切り替えに負ける。`addopts` の `-n auto` は開発機の広さを使うための既定で、CI は runner 実測で選んだ固定値を渡す。2 core の runner では worker 8 が 92 秒・16 が 130 秒と明確に悪化し、2 と 4 はどちらも runner のばらつき（74〜95 秒）の中に入る。過剰にしない側の 4 を取る。単一 process が要る実行（`-s`、`--pdb`、逐次の進捗表示）は `-n 0` で戻す。
 
 coverage は pytest-cov 経由で計測する。pytest-cov は各 worker の中で coverage を開始するのに対し、`coverage run -m pytest` は controller process しか見ず、並列実行では空に近い結果を報告する。計測値は直列実行と一致する。
 

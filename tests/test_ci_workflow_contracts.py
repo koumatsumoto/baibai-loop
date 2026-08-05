@@ -82,8 +82,10 @@ def test_every_python_gate_shares_the_one_billed_runner() -> None:
 def test_ci_pins_the_worker_count_its_runner_measured_fastest() -> None:
     """`auto` resolves to the runner's 2 cores; the suite waits on sqlite, not the CPU.
 
-    Measured on the runner: 2 workers 85s, 4 workers 74s, 8 workers 92s, 16 workers
-    130s. Developer machines keep `auto` from `addopts`, where the box is wider.
+    Measured on the runner, oversubscribing stops paying well before it stops being
+    tried: 8 workers take 92s and 16 take 130s, while 2 and 4 both fall inside the
+    74-95s the runner varies across. Developer machines keep `auto` from `addopts`,
+    where the box is wider.
     """
     run = str(_by_name("ci.yml", "quality")["Tests with coverage"]["run"])
 
