@@ -165,6 +165,11 @@ addopts = [
   "--strict-config",
   "--strict-markers",
   "--maxfail=1",
+  # The suite waits on sqlite far more than it computes, so a developer machine
+  # runs it several times faster spread across workers. `-n 0` restores a single
+  # process for the runs that need one: `-s`, `--pdb`, and live progress output.
+  "-n",
+  "auto",
 ]
 xfail_strict = true
 markers = [

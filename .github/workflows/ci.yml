@@ -74,6 +74,17 @@ jobs:
         # see the controller process and report a near-empty run.
         run: uv run pytest -n auto --cov --cov-report=term-missing
 
+      # TEMPORARY: measures the worker count this runner actually wants. Removed
+      # before merge once the winning value is written into the step above.
+      - name: Measure worker counts
+        run: |
+          echo "nproc=$(nproc) cpu_count=$(python3 -c 'import os; print(os.cpu_count(), os.process_cpu_count())')"
+          for workers in 4 8 16; do
+            start=$SECONDS
+            uv run pytest -n "$workers" --cov --cov-report= -q > /dev/null
+            echo "workers=$workers elapsed=$((SECONDS - start))s"
+          done
+
       - name: Brand asset contract
         # tools/generate_brand_assets.py needs Pillow, which stays out of the lock so no daily
         # workflow installs a native image library and pip-audit never carries it. That leaves
@@ -90,7 +101,7 @@ jobs:
         # where Pillow is missing or broken passes this step by skipping every test in the file.
         run: |
           uv run --with pillow python -c 'import PIL.Image'
-          uv run --with pillow pytest tests/test_brand_assets.py
+          uv run --with pillow pytest -n 0 tests/test_brand_assets.py
 
       - name: Bandit
         # Whole directories, not named files: a script added under tools/ is scanned from
