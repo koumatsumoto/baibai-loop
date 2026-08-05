@@ -13,9 +13,11 @@ import sqlite3
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 import pytest
 import yaml
+from pydantic import BaseModel
 
 import baibai_engine.research.opportunity as opportunity_module
 import baibai_engine.research.store as research_store_module
@@ -1853,6 +1855,38 @@ def test_scaffolded_drafts_promote_without_repairing_their_own_structure(
     assert plan_code == 0
     assert plan_payload["independent_review_ref"] == str(review_path)
     assert "thesis_not_decision_ready" not in plan_payload["defer_reasons"]
+
+
+def test_review_scaffold_header_names_the_closed_vocabulary_fields(
+    tmp_path: Path,
+) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    _seed_bars(sqlite_path, [("2331", "2026-07-10", 1000.0, 1.0)])
+    workspace = _prepared_workspace(tmp_path, sqlite_path)
+    _fill_ready_workspace(workspace)
+
+    assert (
+        opportunity_main(
+            ["review-scaffold", "--workspace", str(workspace), "--ticker", "2331", "--force"],
+            now=FIXED_NOW,
+        )
+        == 0
+    )
+
+    header = (workspace / "2331" / LANE_REVIEW_NAME).read_text(encoding="utf-8")
+    assert "# - primary_source_check: verified | partially_verified | unverified" in header
+    assert "# - alternative_candidate_check: compared | unavailable" in header
+
+
+def test_enum_field_header_skips_fields_without_a_choice() -> None:
+    class _Draft(BaseModel):
+        verdict: Literal["pass", "fail"]
+        role: Literal["only_one"]
+        note: str
+
+    header = opportunity_module._enum_field_header(_Draft)
+
+    assert header == "# - verdict: pass | fail\n"
 
 
 def test_review_scaffold_goes_stale_when_thesis_hash_changes(

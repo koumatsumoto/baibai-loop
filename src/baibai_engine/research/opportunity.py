@@ -27,9 +27,10 @@ from datetime import date, datetime, time
 from decimal import ROUND_HALF_UP, Decimal
 from math import isfinite
 from pathlib import Path
+from typing import get_args
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
@@ -54,6 +55,7 @@ from .portfolio_exposure import (
 )
 from .store import ResearchConflictError, ResearchStoreService, ResearchValidationError
 from .thesis import (
+    IndependentReview,
     ScreeningEstimate,
     ThesisError,
     evaluate_thesis,
@@ -103,6 +105,8 @@ _THESIS_DRAFT_HEADER = """\
 # - facts[trailing-per] は 5y base break-even check が読む観測 trailing multiple。
 #   TODO を比率へ置き換え、利益側の一次 source を source_ids へ追加する。
 # - independent_review_ref は review-scaffold が書き出す隣接ファイル名。変更しない。
+# - 引用符なしの散文（assumption / summary / countercase 等）に「: 」を書かない。
+#   YAML が mapping と解釈して load が落ちる。区切りには「 — 」を使う。
 """
 
 _REVIEW_DRAFT_HEADER = """\
@@ -110,6 +114,8 @@ _REVIEW_DRAFT_HEADER = """\
 # - reviewed_at は JST の現在時刻以前。
 # - reviewed_thesis_sha256 は生成時点の thesis core hash に束縛される。thesis を
 #   編集したら review-scaffold --force で作り直す（古い hash のままだと promote が拒否）。
+# - 引用符なしの散文（strongest_countercase 等）に「: 」を書かない。YAML が mapping と
+#   解釈して load が落ちる。区切りには「 — 」を使う。
 """
 
 
@@ -1125,8 +1131,28 @@ def scaffold_review(
         "proposal_changed": False,
         "change_rationale": None,
     }
-    write_text_atomic(review_path, _REVIEW_DRAFT_HEADER + _dump_yaml(review_draft))
+    header = _REVIEW_DRAFT_HEADER + _enum_field_header(IndependentReview)
+    write_text_atomic(review_path, header + _dump_yaml(review_draft))
     return {"review_draft": str(review_path), "reviewed_thesis_sha256": core_hash}
+
+
+def _enum_field_header(model: type[BaseModel]) -> str:
+    """List the draft's closed-vocabulary fields and their allowed values.
+
+    A scaffolded `null` carries no type, so a reviewer filling in `primary_source_check`
+    or `alternative_candidate_check` cannot tell a three-way verdict from free prose
+    until validation rejects the draft. The values are read off the model rather than
+    written down, so a vocabulary change reaches the draft without a second edit.
+    """
+
+    lines = []
+    for name, field in model.model_fields.items():
+        choices = get_args(field.annotation)
+        # A single-valued Literal is not a choice — the scaffold already writes it.
+        if len(choices) < 2 or not all(isinstance(choice, str) for choice in choices):
+            continue
+        lines.append(f"# - {name}: {' | '.join(str(choice) for choice in choices)}\n")
+    return "".join(lines)
 
 
 def _thesis_core_hash_if_valid(thesis_path: Path) -> str | None:
