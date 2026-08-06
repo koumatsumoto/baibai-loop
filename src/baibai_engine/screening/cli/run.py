@@ -13,6 +13,10 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.screening.buyback_authorization import (
+    build_buyback_authorization,
+    read_buyback_status_filings,
+)
 from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.candidate_build import build_screened_candidate
 from baibai_engine.screening.config import (
@@ -256,6 +260,9 @@ def run_command(
     margin_latest, margin_prior_26w = read_margin_supply_demand_inputs(
         config.sqlite_cache_dir / "market.sqlite", asof_date
     )
+    buyback_filings = read_buyback_status_filings(
+        config.sqlite_cache_dir / "market.sqlite", through=asof_date
+    )
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -318,6 +325,17 @@ def run_command(
                     summaries=summaries_by_ticker.get(ticker, ()),
                 ),
                 normalized_per_3fy=normalized_profit.normalized_per_3fy,
+                buyback_authorization=build_buyback_authorization(
+                    asof=asof_date,
+                    latest_filing_date=(
+                        None
+                        if buyback_filings is None
+                        else buyback_filings.latest_filing_by_ticker.get(ticker)
+                    ),
+                    observed_from=None
+                    if buyback_filings is None
+                    else buyback_filings.observed_from,
+                ),
             )
         )
 
