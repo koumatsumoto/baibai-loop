@@ -180,6 +180,20 @@ evidence pattern（playbook）を追加・変更・削除するときは、scree
 
 primary-research lane の research FV と screening FV の bridge は、有効観測（同一 thesis 再実行・scaffold-only・未 review・遡及記入を除く）が 5 件以上になったら乖離率の中央値・範囲・要因件数・coverage を記述集計する。この集計だけで screening 式を変えず、変更仮説は別 issue で事前登録して design/confirm へ進める。四半期ごとに shortlist rejected と assessment reject / defer の `reject_class` 頻度を集計し、機械化可能な型を warning / flag 候補として事前登録する（分類で自動除外・ranking 変更はしない）。
 
+<a id="rejection-cost-preregistration"></a>
+
+#### 棄却のコストに関する事前登録
+
+`screening shortlist outcome` は selected / rejected / machine top-N に加えて、rejected を `reject_class` 別に集計する（`rejected_by_class`）。**次の判定基準を計測の実行前にここへ固定する。**
+
+- **3m / 6m は alert のみ**。手順・閾値の変更根拠にしない（doctrine 柱 5）。
+- **手順変更の検討に進む条件**: 1y 以上の horizon で、cohort 数 8 以上・rejected の中央超過が selected の中央超過を上回る状態が、時間で 2 分割した両期間に同方向で出ること。片側のみは `inconclusive` とする。
+- **`reject_class` 別の解釈**: 母数が 10 件未満の class は中央超過を算出せず件数だけを並べる。特定の class が上の条件を満たした場合に限り、その class の判定手順を見直す issue を起票する。分類そのものを自動除外・ranking へ入れることはしない。
+- **深掘りまで進んで棄却した lane**（bargain assessment の reject / defer）は母数が桁で少ないので、統計ではなく個票で追う。`tools.research_price_watch` が研究 FV と現在価格の位置を毎営業日出すので、価格が研究 FV を下回った lane を再評価の入口にする。
+- **基準を後から動かさない**。動かす場合は、動かしたことと理由を次の dated report に明記する。
+
+初回の採点可能日は 2026-10-17（最古 shortlist 2026-07-17 + 3m）である。
+
 ### 誠実性の規律
 
 1. 有意性・統計的優位を主張しない。効果量と cohort 勝率で判断し、そう書く。

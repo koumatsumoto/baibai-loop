@@ -120,16 +120,10 @@ def build_watch(
     asof: date,
 ) -> dict[str, object]:
     latest = _load_latest_promoted_theses(app_db_path, asof=asof)
-    watched = {
-        ticker: candidate
-        for ticker, candidate in latest.items()
-        if candidate.document.judgment.recommendation in {"buy", "defer"}
-    }
-    excluded_reject = sorted(
-        ticker
-        for ticker, candidate in latest.items()
-        if candidate.document.judgment.recommendation == "reject"
-    )
+    # reject も watch する。深掘りの結論は「この価格では買わない」であって「二度と見ない」
+    # ではなく、bargain assessment は研究 FV を再評価条件として名指ししている。除外すると
+    # 一次情報まで降りて出した FV が、価格が降りてきたときに誰も読まない値になる。
+    watched = dict(latest)
 
     ledger = LedgerStoreService(app_db_path).load()
     state = replay_events_through(ledger.events, ledger.as_of)
@@ -174,10 +168,23 @@ def build_watch(
             "watched_tickers": sorted(watched),
             "reservation_history_tickers": sorted(reservation_tickers),
             "ledger_only_tickers": sorted(reservation_tickers - all_thesis_tickers),
-            "excluded_latest_reject_tickers": excluded_reject,
             "resolved_count": len(resolved),
             "unresolved_count": len(unresolved),
         },
+        # 買い直しの合図は未保有 lane だけに出す。保有中の「FV 未満」は value 保有の
+        # 定常状態で毎日出続けるので、混ぜると本命の 1 行が恒常ノイズに埋もれる。
+        # 保有側の FV 到達は holding review が close >= FV で判定する別 trigger である。
+        "triggered": [
+            {
+                "ticker": row["ticker"],
+                "current_close_yen": row["current_close_yen"],
+                "thesis_fair_value_yen": row["thesis_fair_value_yen"],
+                "thesis_recommendation_at_as_of": row["thesis_recommendation_at_as_of"],
+                "trigger_basis": "unheld_close_at_or_below_research_fv",
+            }
+            for row in resolved
+            if row["close_at_or_below_research_fv"] and row["current_portfolio_status"] == "unheld"
+        ],
         "diagnostics": {
             "re_research_required_for_all_rows": True,
             "decision_status": "not_evaluated",
@@ -447,6 +454,12 @@ def _watch_row(
         "close_as_of": observation.close_as_of.isoformat() if observation.close_as_of else None,
         "thesis_fair_value_yen": _decimal_number(fair_value),
         "thesis_fv_gap_pct": gap,
+        # 終値が研究 FV 以下か。未保有 lane では買い直しを考える合図になるが、保有中は
+        # FV 未満が value 保有の定常状態なので、これ単独では事象にならない。保有側の
+        # 「FV 到達」は holding review の定義 close >= FV であって逆向きである。
+        "close_at_or_below_research_fv": (
+            None if unresolved is not None or gap is None else gap >= 0
+        ),
         "thesis_entry_price_basis_yen": _decimal_number(thesis.estimates.entry_price_basis_yen),
         "thesis_recommendation_at_as_of": thesis.judgment.recommendation,
         "thesis_as_of": thesis.input_snapshot.as_of.isoformat(),

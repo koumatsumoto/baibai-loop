@@ -23,6 +23,29 @@ push の経路は 2 本ある。run が起動すれば run 自身が結果を通
 
 失敗 run は publish が skip され正本は変わらない。復旧後の再実行は `gh workflow run cloud-daily-batch`（必要なら `MANUAL_ASOF` dispatch input）。**古い workflow revision の rerun は使わない**（main の現行コードで dispatch し直す）。復旧 dispatch が成功すれば watchdog の窓に入るので、当日中の復旧なら警報は出ない。
 
+## 研究済み FV への価格到達（毎営業日）
+
+深掘りを終えた lane は、buy / defer / reject を問わず研究 FV を持つ。価格がそこへ降りてきたことに気づく経路が無いと、一次情報まで降りて出した FV が誰も読まない値になる。batch 監視と同じ頻度で次を回す。
+
+```bash
+uv run python -m tools.research_price_watch \
+  --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --asof <最新完全営業日>
+```
+
+`triggered` に出るのは **未保有で終値が研究 FV 以下**の lane だけである。保有中の「FV 未満」は value 保有の定常状態で毎日出続けるため、ここには入れない（保有側の FV 到達は close ≥ FV で、`holding-review` の trigger である）。
+
+triggered は注文ではなく「読み直す理由が発生した」の合図なので、`research` skill の再評価へ入り、thesis の前提が今も成立するかを確かめてから plan-limit を起こす。出力は全行 `re_research_required: true` を返す（thesis の鮮度に関わらず再研究を挟む規律であって、行を選り分ける flag ではない）。価格だけを見て発注しない。
+
+## 指値規律の成績（注文が決着したとき）
+
+注文が約定または失効したら、その 1 件だけでなく全体を並べ直す。
+
+```bash
+uv run python -m tools.measure_limit_outcomes --asof <最新完全営業日>
+```
+
+`summary.decision_bound_orders` が repository の判断経路を通った注文の成績で、`all_ledger_orders` は既存保有の取り込みを含む。**取り込み分の約定を規律の成績に数えない。** `chase_policy_decision.ready` が true になったら、gap を追う指値へ変えるかを別 issue で事前登録して判断する。false のうちは個票を並べるだけにして、少数の失効で規律を外さない。
+
 ## Store 同期（`tools/cloud/r2_transfer.sh`）
 
 | store | 正本 | 転送規律 |

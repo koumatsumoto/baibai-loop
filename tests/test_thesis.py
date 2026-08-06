@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.decision_cli import main as decision_main
@@ -108,7 +109,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "e3d49503aa054e7b012be18a26a5da32ceaa45ae8cba7666cf02de8848d71427"
+        result.thesis_sha256 == "e6336dac91dc76ecde51e1edeb403a7eb5ee46000882d7ae1f8436d9fd013167"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -127,21 +128,21 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     break_even = result.five_year_base_break_even
     assert break_even is not None
     assert break_even.break_even_terminal_valuation_multiple == pytest.approx(
-        Decimal("1.0135050773543111")
+        Decimal("1.0405761127787602")
     )
     assert break_even.break_even_annual_earnings_growth_pct == pytest.approx(
-        Decimal("3.2942026976003037")
+        Decimal("3.8402039539315667")
     )
     assert result_to_payload(result)["five_year_base_break_even"] == {
-        "required_total_value_yen": 1516.3466,
-        "required_total_return_cagr_pct": 8.0,
+        "required_total_value_yen": 1551.7737,
+        "required_total_return_cagr_pct": 8.5,
         "base_terminal_valuation_multiple": 1.1,
-        "break_even_terminal_valuation_multiple": 1.0135,
-        "terminal_multiple_downside_buffer": 0.0865,
+        "break_even_terminal_valuation_multiple": 1.0406,
+        "terminal_multiple_downside_buffer": 0.0594,
         "terminal_multiple_status": "within_model_bounds",
         "base_annual_earnings_growth_pct": 5.0,
-        "break_even_annual_earnings_growth_pct": 3.2942,
-        "earnings_growth_downside_buffer_pct_points": 1.7058,
+        "break_even_annual_earnings_growth_pct": 3.8402,
+        "earnings_growth_downside_buffer_pct_points": 1.1598,
         "earnings_growth_status": "within_model_bounds",
         "observed_trailing_multiple_status": "resolved",
         "observed_trailing_multiple_fact_id": "trailing-per",
@@ -181,6 +182,43 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     assert isinstance(changed_bridge, dict)
     changed_bridge["primary_driver"] = "growth"
     assert thesis_core_hash(_document(changed)) != bridged_hash
+
+
+def test_retired_estimate_field_keeps_published_hash_and_leaves_new_thesis_unchanged() -> None:
+    without_key = _raw()
+    baseline = thesis_core_hash(_document(without_key))
+
+    published = copy.deepcopy(without_key)
+    published_estimates = published["estimates"]
+    assert isinstance(published_estimates, dict)
+    published_estimates["deep_discount_bps"] = None
+
+    # 退役前に published された thesis は key を持つ。読めて、当時の key 集合で hash される。
+    legacy_document = _document(published)
+    assert thesis_core_hash(legacy_document) != baseline
+
+    # key を持たない thesis の hash は退役の前後で変わらない。
+    assert thesis_core_hash(_document(_raw())) == baseline
+
+
+def test_retired_estimate_field_is_not_serialized_so_dump_round_trip_keeps_the_hash() -> None:
+    raw = _raw()
+    baseline = thesis_core_hash(_document(raw))
+    dumped = _document(raw).model_dump(mode="json")
+    estimates = dumped["estimates"]
+    assert isinstance(estimates, dict)
+    assert "deep_discount_bps" not in estimates
+    assert thesis_core_hash(ThesisDocument.model_validate(dumped)) == baseline
+
+
+def test_retired_estimate_field_rejects_a_value() -> None:
+    raw = _raw()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["deep_discount_bps"] = 1200
+
+    with pytest.raises(ValidationError):
+        _document(raw)
 
 
 @pytest.mark.parametrize(

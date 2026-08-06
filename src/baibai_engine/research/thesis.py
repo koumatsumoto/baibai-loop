@@ -409,6 +409,13 @@ class EstimatesNamespace(BaseModel):
     ]
     scenarios: tuple[ScenarioEstimate, ...]
     screening_fv_bridge: ScreeningFVBridge | None = None
+    # published thesis の一部はこの key を持つ。payload は `thesis_core_sha256` で review と
+    # bargain assessment に束縛されて書き換えられないので、読めないと holding review・
+    # proposal・assessment・price watch がその thesis に対して同時に止まる。値は null だけを
+    # 受け、serialize からは外し、hash では「読み込んだ payload が key を持つ場合だけ」
+    # 書き戻す。**この規則は payload を生の JSON から validate する経路でだけ正しい**
+    # — `model_dump` を経由すると key が落ちる。store の読み手は全て生 payload を渡す。
+    deep_discount_bps: None = Field(default=None, exclude=True)
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
     @classmethod
@@ -530,11 +537,37 @@ class JudgmentNamespace(BaseModel):
     strongest_countercase: Annotated[str, Field(min_length=1)]
     sizing_action: Literal["normal", "reduced", "none"]
     ai_value_capture: AIValueCaptureJudgment
+    # `starter` は要求利回りが full の下限に届かない境界帯を、縮小 lot と bucket 上限つきで
+    # 建てる宣言である。閾値は position policy が持ち、資本を約束する gate は proposal 側に
+    # 置く。ここで宣言だけを固定するのは、後から「どの判断が緩和経路だったか」を実現結果と
+    # 突き合わせるためである。
+    position_intent: Literal["full", "starter"] = "full"
+    # starter の再評価を発火させる日付。band を開く条件そのものなので starter では必須。
+    starter_catalyst_date: date | None = None
 
     @field_validator("proposed_at", mode="before")
     @classmethod
     def _parse_time(cls, value: object) -> datetime:
         return _datetime(value)
+
+    @field_validator("starter_catalyst_date", mode="before")
+    @classmethod
+    def _parse_catalyst_date(cls, value: object) -> object:
+        return None if value is None else _date(value)
+
+    @model_validator(mode="after")
+    def _coherent_starter(self) -> JudgmentNamespace:
+        if self.position_intent == "full":
+            if self.starter_catalyst_date is not None:
+                raise ValueError("starter_catalyst_date belongs to a starter position intent")
+            return self
+        if self.starter_catalyst_date is None:
+            raise ValueError("starter position intent requires a dated catalyst")
+        if self.sizing_action != "reduced":
+            raise ValueError("starter position intent requires reduced sizing")
+        if self.permanent_loss_conclusion == "elevated":
+            raise ValueError("starter position intent requires a non-elevated permanent loss")
+        return self
 
 
 class ReviewedScenario(BaseModel):
@@ -909,10 +942,21 @@ def thesis_core_hash(document: ThesisDocument) -> str:
         input_snapshot = payload.get("input_snapshot")
         if isinstance(input_snapshot, dict):
             input_snapshot.pop("screening_estimate", None)
-    if document.estimates.screening_fv_bridge is None:
-        estimates = payload.get("estimates")
-        if isinstance(estimates, dict):
+    estimates = payload.get("estimates")
+    if isinstance(estimates, dict):
+        if document.estimates.screening_fv_bridge is None:
             estimates.pop("screening_fv_bridge", None)
+        # 退役 field を持っていた payload だけ、当時と同じ key 集合で hash する。
+        # 持っていなかった thesis の hash は変わらない。
+        if "deep_discount_bps" in document.estimates.model_fields_set:
+            estimates["deep_discount_bps"] = None
+    judgment = payload.get("judgment")
+    if isinstance(judgment, dict) and document.judgment.position_intent == "full":
+        # 既定値の intent は key ごと落とす。この 2 key を持たない payload と同じ hash に
+        # なり、intent を宣言した thesis だけが束縛対象へ入る。値ベースの規則なので
+        # `model_dump` を挟んでも結果が変わらない。
+        judgment.pop("position_intent", None)
+        judgment.pop("starter_catalyst_date", None)
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (OverflowError, ValueError) as error:

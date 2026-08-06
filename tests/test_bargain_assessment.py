@@ -157,7 +157,7 @@ def test_scaffold_fills_machine_values_from_the_thesis_and_leaves_judgment_blank
     lane = draft["lanes"][0]
     assert lane["ticker"] == "2331"
     assert lane["machine"]["five_year_base_cagr_pct"] == pytest.approx(9.57)
-    assert lane["machine"]["required_return_pct"] == pytest.approx(8.0)
+    assert lane["machine"]["required_return_pct"] == pytest.approx(8.5)
     assert lane["machine"]["fair_value_yen"] == pytest.approx(1300.0)
     assert lane["business_model"] == "TODO"
     assert draft["macro_context_id"] == "macro-context-2026-07-21-test"

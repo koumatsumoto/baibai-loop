@@ -66,6 +66,7 @@ from .thesis import (
 
 TOOL_VERSION = "opportunity-v1"
 BOARD_LOT: int = PORTFOLIO_POLICY["order_constraints"]["board_lot"]
+STARTER_MAX_ORDER_NOTIONAL_YEN: int = PORTFOLIO_POLICY["starter_band"]["max_order_notional_yen"]
 # 対象 sizing 帯 (20-30万円 / 100株 = ¥2000-3000/株) はちょうど JPX 現物の ¥1 tick 帯。
 # max acceptable price の ceiling floor 丸めはこの帯で正確な ¥1 を使う。
 PLANNING_TICK_SIZE_YEN = Decimal("1")
@@ -1340,6 +1341,13 @@ def plan_limit(
         defer_reasons.append("active_reservation_exists")
     expires_at = datetime.combine(target_session, time(15, 30), tzinfo=JST)
 
+    if document.judgment.position_intent == "starter":
+        # 有効な金額枠を output へ書く。proposal 側は保存された budget から数量を再計算して
+        # 突き合わせるので、渡された枠のまま書くと starter の数量が再現できず approve が
+        # 落ちる。下限も同時に下げないと budget_min <= budget_max の不変条件が壊れる。
+        budget_max_yen = min(budget_max_yen, STARTER_MAX_ORDER_NOTIONAL_YEN)
+        budget_min_yen = min(budget_min_yen, budget_max_yen)
+
     base_output: dict[str, object] = {
         "ticker": ticker,
         "thesis_ref": str(thesis),
@@ -1379,6 +1387,18 @@ def plan_limit(
     assert price is not None  # close_decimal is derived only from a resolved price
     warnings: list[str] = []
     lot_notional = close_decimal * BOARD_LOT
+    if document.judgment.position_intent == "starter" and lot_notional > budget_max_yen:
+        # starter は「観測をゼロから非ゼロにする」ための枠なので、1 単元が上限を超える
+        # 銘柄は 1 単元へ切り上げず defer にする。切り上げると縮小 lot の意味が消える。
+        return {
+            "status": "defer",
+            **base_output,
+            "limit_price_yen": None,
+            "quantity": 0,
+            "notional_yen": 0,
+            "warnings": [],
+            "defer_reasons": ["starter_lot_exceeds_notional_cap"],
+        }
     if lot_notional <= budget_max_yen:
         # floor(budget_max / lot_notional) on the exact Decimal notional; truncating
         # the notional to int first could select one lot too many and overshoot.

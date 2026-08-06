@@ -82,6 +82,13 @@ def _longlist_row(ticker: str, rank: int) -> dict[str, object]:
         "durability_warnings": [],
         "event_warnings": ["stale_financials"],
         "selection_reasons": ["valuation_reversion"],
+        # 判断時の入力であって焼き込み対象ではない。allowlist が落とすことを下の test が固定する。
+        "buyback_authorization": {
+            "status": "lapsed",
+            "latest_filing_date": "2026-04-13",
+            "filing_age_days": 113,
+            "observed_from": "2025-08-01",
+        },
         "fv_convergence": {
             "status": "clear",
             "warning_code": None,
@@ -162,6 +169,9 @@ def test_publish_keeps_the_machine_coordinates_the_judgment_was_compared_against
     assert by_ticker["2331"]["event_warnings"] == ["stale_financials"]
     assert by_ticker["2331"]["fv_convergence"]["status"] == "clear"
     assert "estimate_snapshot" not in by_ticker["2331"]
+    # longlist view が増えても判断記録は追随しない。取得枠 annotation は判断時に
+    # selection から読む入力であり、shortlist entry へは焼き込まない。
+    assert "buyback_authorization" not in by_ticker["2331"]
     # A ticker the selection did not rank has nothing to burn in.
     assert by_ticker["0001"] is None
 

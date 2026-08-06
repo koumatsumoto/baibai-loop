@@ -268,6 +268,7 @@ def test_resolved_join_keeps_history_and_excludes_ledger_only_rows(
         "close_as_of": "2026-07-03",
         "thesis_fair_value_yen": 1300,
         "thesis_fv_gap_pct": 30.0,
+        "close_at_or_below_research_fv": True,
         "thesis_entry_price_basis_yen": 1032,
         "thesis_recommendation_at_as_of": "buy",
         "thesis_as_of": "2026-07-03",
@@ -409,7 +410,7 @@ def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
     assert selected["2331"].document.judgment.recommendation == "reject"
 
 
-def test_latest_reject_is_excluded_from_watch_rows(
+def test_latest_reject_stays_on_the_watch_with_its_research_fair_value(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     thesis_root = _thesis_root(tmp_path, recommendation="reject")
@@ -425,8 +426,11 @@ def test_latest_reject_is_excluded_from_watch_rows(
 
     assert exit_code == 0, stderr
     assert stderr == ""
-    assert payload["rows"] == []
-    assert payload["coverage"]["excluded_latest_reject_tickers"] == ["2331"]
+    rows = payload["rows"]
+    assert isinstance(rows, list)
+    # 「この価格では買わない」は「二度と見ない」ではない。研究 FV を watch に残す。
+    assert [row["ticker"] for row in rows] == ["2331"]
+    assert rows[0]["thesis_recommendation_at_as_of"] == "reject"
 
 
 @pytest.mark.parametrize(
@@ -700,8 +704,9 @@ def test_reject_thesis_is_bound_by_db_revision_not_legacy_review_ref(
     )
 
     assert exit_code == 0, stderr
-    assert payload["rows"] == []
-    assert payload["coverage"]["excluded_latest_reject_tickers"] == ["2331"]
+    rows = payload["rows"]
+    assert isinstance(rows, list)
+    assert [row["ticker"] for row in rows] == ["2331"]
     assert stderr == ""
 
 
@@ -750,3 +755,21 @@ def test_error_has_no_stdout_or_traceback(
     assert payload == {}
     assert stderr.startswith("error: application database does not exist")
     assert "Traceback" not in stderr
+
+
+def test_a_held_ticker_below_its_research_fair_value_is_not_a_buy_side_trigger(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """保有中の「FV 未満」は value 保有の定常状態で、毎日出続けるので事象ではない。"""
+
+    sqlite_path = tmp_path / "market.sqlite"
+    _market_sqlite(sqlite_path, close_by_key={("2331", ASOF): 1000.0})
+
+    exit_code, payload, stderr = _run(tmp_path, capsys, sqlite_path=sqlite_path)
+
+    assert exit_code == 0, stderr
+    rows = payload["rows"]
+    assert isinstance(rows, list)
+    assert rows[0]["current_portfolio_status"] == "held"
+    assert rows[0]["close_at_or_below_research_fv"] is True
+    assert payload["triggered"] == []

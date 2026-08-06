@@ -2496,7 +2496,7 @@ def test_plan_limit_active_candidate_reservation_defers_without_second_order(
     assert code == 0
     assert payload["status"] == "defer"
     assert payload["close_yen"] == 1000
-    assert payload["max_acceptable_price_yen"] == 1109
+    assert payload["max_acceptable_price_yen"] == 1083
     assert payload["limit_price_yen"] is None
     assert payload["quantity"] == 0
     assert payload["notional_yen"] == 0

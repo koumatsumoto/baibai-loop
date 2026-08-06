@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
+from .buyback_authorization import BuybackAuthorization
 from .earnings_lag import EarningsLag
 from .estimates import ExpectedReturnEstimate, estimate_expected_return
 from .schema import (
@@ -35,6 +36,7 @@ def build_screened_candidate(
     next_earnings_date: date | None = None,
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
+    buyback_authorization: BuybackAuthorization | None = None,
 ) -> ScreenedCandidate:
     return ScreenedCandidate(
         ticker=ticker,
@@ -79,6 +81,7 @@ def build_screened_candidate(
             ),
             normalized_per_3fy=normalized_per_3fy,
             earnings_lag=earnings_lag,
+            buyback_authorization=buyback_authorization,
         ),
         next_earnings_date=next_earnings_date,
         split_adjustment_flag=derived.split_adjustment_flag,
@@ -94,6 +97,7 @@ def candidate_metrics_map(
     estimate: ExpectedReturnEstimate | None = None,
     normalized_per_3fy: float | None = None,
     earnings_lag: EarningsLag | None = None,
+    buyback_authorization: BuybackAuthorization | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         "sales_ttm": financial.sales_ttm,
@@ -174,6 +178,25 @@ def candidate_metrics_map(
         "er_model_version": estimate.model_version if estimate else None,
         "er_unit": estimate.unit if estimate else None,
         "er_assumptions": estimate.assumptions if estimate else None,
+        # 自己株式取得枠の現在状態 (buyback_authorization.py)。carry の buyback 成分は
+        # 過去 1 年の株数変化なので、枠が続いているかは別の観測でしか分からない。
+        # annotation であり ranking・gate・E[r] へは入らない。
+        "buyback_authorization_status": (
+            None if buyback_authorization is None else buyback_authorization.status
+        ),
+        "buyback_status_latest_filing_date": (
+            None
+            if buyback_authorization is None
+            else _date_iso(buyback_authorization.latest_filing_date)
+        ),
+        "buyback_status_filing_age_days": (
+            None if buyback_authorization is None else buyback_authorization.latest_filing_age_days
+        ),
+        "buyback_status_observed_from": (
+            None
+            if buyback_authorization is None
+            else _date_iso(buyback_authorization.observed_from)
+        ),
     }
 
 

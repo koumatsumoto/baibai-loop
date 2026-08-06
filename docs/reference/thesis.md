@@ -97,6 +97,15 @@ max_acceptable_price = floor_to_tick(
 | adjusted-only、non-1 adjustment factor、価格basis不明 | `defer` |
 | 同一tickerのactive reservationあり | `defer`。元注文の再表示と追加注文を区別できないため新規注文を作らない |
 | thesis/review not readyまたはhash mismatch | `defer` |
+| `judgment.position_intent: starter` で1単元の想定約定額が starter の1注文上限を超える | `defer`（`starter_lot_exceeds_notional_cap`）。1単元へ切り上げると縮小lotの意味が消えるため |
+
+## Position intent
+
+`judgment.position_intent`は`full`（既定）と`starter`を取る。`starter`は要求利回りが full の水準に届かない境界帯を、縮小 lot と bucket 上限つきで建てる宣言であり、`sizing_action: reduced`、非`elevated`な永久損失結論、`judgment.starter_catalyst_date`（再評価を発火させる日付）を同時に要求する。帯・1注文上限・bucket上限の数値と撤退基準は[`portfolio-management.md`](../portfolio-management.md#starter-band)を正本とし、機械gateは`plan-limit`の数量と`proposal create`が持つ。thesis側で帯を強制しないのは、published済みthesisを後からinvalidにするとholding reviewとassessmentが同時に止まるためである。
+
+`position_intent`が既定の`full`のときは、この2 fieldをcore hashから外す。2 keyを持たないpayloadと同じhashになり、intentを宣言したthesisだけがhashの束縛対象へ入る。値で決まる規則なので、`model_dump`を挟んでも結果は変わらない。
+
+core hashには例外が1つある。`estimates.deep_discount_bps`はschemaに無い値だが、この keyを持つpayloadが存在し、そのhashを再現する必要がある。読み込んだpayloadがkeyを持つ場合だけhashへ書き戻すため、**published payloadは必ず生のJSONからvalidateする**。`model_dump`を経由するとkeyが落ちてhashが変わる。
 
 quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、既存保有、他tickerのreservationは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。同一tickerのactive reservationだけは注文の重複を防ぐため`defer`にし、human resultによる約定またはreleaseのledger反映後に再実行する。
 

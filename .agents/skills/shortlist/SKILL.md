@@ -35,20 +35,30 @@ description: 買い機会の発見と絞り込み。screening run → select →
    coverage が future-dated / stale JPX なら停止（historical backfill 以外で `--allow-stale-jpx` を使わない）。
 2. `uv run baibai-engine screening run --asof <ASOF>` → `run_revision_id` を保持。
 3. `uv run baibai-engine screening select --asof <ASOF> --run-revision-id <ID> --longlist-top 20 --output-path <workdir>/selection.yaml` → `selection_id` を保持。longlist 20 件は点検 view であり全件深掘りの命令ではない。`--longlist-top` は publish 時の機械行焼き込みの入力でもあるので省略しない（省略すると run が prune された後にレビュー面の機械値が消える）。
-4. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 longlist の top-N なので、重なり率をこの 2 つの間で比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
-5. **開示スキャン**: selected 候補（full review では全候補）の直近開示をタイトルレベルで確認し、as-of 財務に無い material 開示（業績修正・資本政策・TOB 等）を narrative の `why` / `counter` へ反映する。
-6. **annotation 消化**（不変条件: 判断面へ annotation を足す変更は、この表へ消化規則を同時に足す）:
+4. **供給文脈**: 手順 3 で保持した `selection_id` を渡して当日の座標を控える。
+
+   ```bash
+   uv run python -m tools.measure_supply_context --selection-id <ID>
+   ```
+
+   当日 selection 上位 5 の平均 E[r] が 80 か月 panel のどこにいるかと、最新月末 panel 基準の hurdle 超え件数が出る。cycle が購入ゼロで終わったときに「市況で候補が薄いのか、pipeline が拾えていないのか」を分ける座標なので、**2 つを 1 語へ畳まず両方を報告へ載せる**。逆を向くことは普通に起きる。
+
+5. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。あわせて `uv run python -m tools.research_price_watch --asof <ASOF>` を回し、深掘り済み ticker の現在価格と研究 FV の位置を控える（手順 7 の再研究判定に使う）。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 longlist の top-N なので、重なり率をこの 2 つの間で比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
+6. **開示スキャン**: selected 候補（full review では全候補）の直近開示をタイトルレベルで確認し、as-of 財務に無い material 開示（業績修正・資本政策・TOB 等）を narrative の `why` / `counter` へ反映する。
+7. **annotation 消化**（不変条件: 判断面へ annotation を足す変更は、この表へ消化規則を同時に足す）:
 
    | annotation | 消化規則 |
    | --- | --- |
    | FV convergence warning（`price_at_or_above_all_fv_anchors`） | selected / rejected を問わず明示消化する。黙殺しない |
    | `margin_short_to_adv` / `margin_week_end` | 需給の確認材料。単独で自動除外・rank 変更に使わない |
+   | `buyback_authorization_status`（`selection.yaml` の `longlist[].buyback_authorization` / `recommendations[]`。shortlist entry へは焼き込まれない判断時の入力なので、消化した内容は narrative へ書く） | E[r] の buyback carry が forward の現金還元か、過去の資本配分の記録かを分ける。`active` = 直近 45 日に自己株券買付状況報告書あり（取得期間中）。`lapsed` = 提出はあるが古い。`none` = 観測窓 1 年に提出なし。`unknown` = store の観測窓が as-of から 1 年に届かない（historical run は常にこれ）。**`lapsed` / `none` は自動除外の理由にしない** — 単発で終わった還元も較正では母集団を上回る（[診断](../../../reports/2026-08-06-bargain-capture-diagnosis.md) §6.1）。carry を「これから受け取る現金」として narrative に書くときだけ、一次開示で取得枠を確認する |
+   | 直近 cycle で棄却済み（`bargain_assessment` の reject / defer lane） | 深掘りを終えた ticker が翌 cycle も上位へ戻るのは E[r] 主キーの正常な挙動だが、**新しい材料が無いまま research 枠を再消費しない**。`tools.research_price_watch` の `rows[].thesis_fair_value_yen` と当日終値、`triggered`、直近開示を突き合わせ、(a) 価格が研究 FV を下回った (b) 新規の material 開示がある (c) 前回の unknown 軸を解消する決算が出た のいずれも無ければ既定で rejected（`reject_class: event_wait`）とし、reason に前回結論の日付と再評価 trigger を書く。selected にするなら**前回結論から何が変わったか**を narrative に明記する |
    | E[r] 履歴帯（較正 quintile 文脈） | 帯の記述統計としてのみ参照。個別銘柄の予測として書かない |
    | `data_quality_flags` / `durability_warnings` | flag が upside / downside をどちら向きに歪めるかを narrative に書く |
    | `stale_fin_flag` / `fin_latest_disclosed_date` | `true` は「予定日が過ぎたのにその開示が機械行に無い」。延期・決算期変更・provider 欠落を**一次開示で切り分けてから** narrative を書き、切り分け前の数字のまま selected にしない。`null` は判定材料が無いという意味で、`false`（照合して一致）と読み替えない |
    | `next_earnings_status` | `announced` = 予定日を過ぎている。`scheduled` = 予定日が先。ただし前倒し開示した銘柄もカレンダーが更新されるまで `scheduled` に見えるので、`fin_latest_disclosed_date` が予定日の直前なら一次開示で確認する。`estimated` は推定日なので event risk 判定に使わず着手順の目安に留める。`unknown` は次回時期が不明 |
 
-7. **OP3 深度契約**: selected 各銘柄について次を 1 項目ずつ機械的に突合する（印象で「満たしているはず」としない）。
+8. **OP3 深度契約**: selected 各銘柄について次を 1 項目ずつ機械的に突合する（印象で「満たしているはず」としない）。
 
    1. `upside` から希望的前提を剥がしても現行事業の正常化だけで期待値が正か
    2. 利益がピーク外挿でなく複数期レンジの正常利益か（循環のどこにいるかを書く）
@@ -62,10 +72,10 @@ description: 買い機会の発見と絞り込み。screening run → select →
    8. macro connection の research hint / sizing caution / estimate_caveats / bargain_topography のうち該当分を消化したか（該当なしの判断も書く）
    9. rejected 全件に具体的理由と `reject_class`（disposition_reason が正本、class は集計専用）
 
-8. **publish**: [`tools/shortlist/draft-template.yaml`](../../../tools/shortlist/draft-template.yaml) を写して記入し、source `selection_id` へ束縛して `uv run baibai-engine screening shortlist publish <draft>`。publisher が longlist 行（rank・FV アンカー・参考価格・warning）を entry へ焼き込むので、run が prune された後もレビュー面が判断根拠を読める。件数契約（8〜10 件）は **narrative 付き selected entry 数の目安**であり、entries 総数ではない（rejected を含む entries は longlist 全件で可）。基準を下げて枠を埋めない（selected 0 件も正常で、その cycle は shortlist が正本判断になり session をここで complete する）。draft に `er_annual` を書かない（publisher が bound run から焼き込む）。
-9. **検証**: publish された全 entry の焼き込み E[r] を bound run と機械照合する。stderr に印字される follow-up task 提案（rejected の決算日 re-entry trigger）から `task add` を実行する。
-10. **cloud 反映**: `tools/cloud/r2_transfer.sh push-app` → `gh workflow run cloud-materialize` → run の completed success を確認。
-11. **checkpoint と報告**: session checkpoint を更新し、レビュー面（`/stocks/shortlist`）へ誘導する報告を出す。各 ticker に TradingView link（`https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`）を付け、件数契約からの逸脱・機械順位との乖離・残 risk を明記する。人間の選択を待つ（session は active のまま `research` skill へ）。
+9. **publish**: [`tools/shortlist/draft-template.yaml`](../../../tools/shortlist/draft-template.yaml) を写して記入し、source `selection_id` へ束縛して `uv run baibai-engine screening shortlist publish <draft>`。publisher が longlist 行（rank・FV アンカー・参考価格・warning）を entry へ焼き込むので、run が prune された後もレビュー面が判断根拠を読める。件数契約（8〜10 件）は **narrative 付き selected entry 数の目安**であり、entries 総数ではない（rejected を含む entries は longlist 全件で可）。基準を下げて枠を埋めない（selected 0 件も正常で、その cycle は shortlist が正本判断になり session をここで complete する）。draft に `er_annual` を書かない（publisher が bound run から焼き込む）。
+10. **検証**: publish された全 entry の焼き込み E[r] を bound run と機械照合する。stderr に印字される follow-up task 提案（rejected の決算日 re-entry trigger）から `task add` を実行する。
+11. **cloud 反映**: `tools/cloud/r2_transfer.sh push-app` → `gh workflow run cloud-materialize` → run の completed success を確認。
+12. **checkpoint と報告**: session checkpoint を更新し、レビュー面（`/stocks/shortlist`）へ誘導する報告を出す。各 ticker に TradingView link（`https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`）を付け、件数契約からの逸脱・機械順位との乖離・残 risk を明記する。人間の選択を待つ（session は active のまま `research` skill へ）。
 
 ## 既知の gotcha
 

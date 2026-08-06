@@ -35,7 +35,7 @@ def test_max_price_is_recalculated_from_5y_base_and_required_return() -> None:
 
     max_price = max_acceptable_price(document, tick_size_yen=Decimal("1"))
 
-    assert max_price == 1109
+    assert max_price == 1083
     assert max_price != document.estimates.entry_price_basis_yen
 
 
@@ -47,7 +47,7 @@ def test_max_price_floors_to_a_legal_tick_rather_than_rounding_up() -> None:
     fine = max_acceptable_price(document, tick_size_yen=Decimal("1"))
     coarse = max_acceptable_price(document, tick_size_yen=Decimal("100"))
 
-    assert coarse == 1100
+    assert coarse == 1000
     assert coarse <= fine
 
 
