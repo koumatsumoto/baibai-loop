@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.sqlite_cache import open_connection
+from baibai_engine.screening.sqlite_coverage import core as coverage_core
 from baibai_engine.screening.sqlite_coverage import verify_screening_sqlite_coverage
 from tests.helpers.screening_sqlite import add_source_coverage as _add_source_coverage
 
@@ -348,6 +349,54 @@ class SQLiteCoverageTests(unittest.TestCase):
             self.assertEqual(len(issues), 1)
             self.assertEqual(issues[0].source, "sqlite")
             self.assertIn("SQLite coverage query failed", issues[0].reason)
+
+    def test_a_damaged_page_stops_the_run_before_any_coverage_question(self) -> None:
+        """A store that opens but is damaged still has to be refused.
+
+        The file-is-not-a-database case above never reaches the pragma, so it says
+        nothing about what the completeness check does when it runs and answers
+        something other than 'ok'.
+        """
+        with _complete_coverage_database() as sqlite_path:
+            payload = bytearray(sqlite_path.read_bytes())
+            page_size = int.from_bytes(payload[16:18], "big")
+            # Overwrite a page well past the header so the file still opens.
+            corrupt_at = page_size * 12
+            payload[corrupt_at : corrupt_at + page_size] = b"\xff" * page_size
+            sqlite_path.write_bytes(bytes(payload))
+
+            issues = _verify_screening_sqlite_coverage(sqlite_path, date(2026, 5, 8))
+
+            self.assertEqual(len(issues), 1)
+            self.assertEqual(issues[0].source, "sqlite")
+            self.assertIn("quick_check", issues[0].reason)
+
+    def test_store_completeness_is_checked_with_quick_check_only(self) -> None:
+        """The deep check costs ~11s on the production store and runs twice a batch.
+
+        Reading the emitted SQL is what pins the choice: both pragmas answer 'ok'
+        on a healthy store, so an assertion on the result would pass either way.
+        """
+        asof = date(2026, 5, 8)
+        statements: list[str] = []
+        real_connect = coverage_core._connect_readonly
+
+        def _tracing_connect(path: Path) -> sqlite3.Connection:
+            conn = real_connect(path)
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        with (
+            _complete_coverage_database() as sqlite_path,
+            patch.object(coverage_core, "_connect_readonly", _tracing_connect),
+        ):
+            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
+
+        self.assertEqual(issues, ())
+        pragmas = [
+            line for line in statements if "quick_check" in line or "integrity_check" in line
+        ]
+        self.assertEqual(pragmas, ["PRAGMA quick_check"])
 
     def test_complete_required_windows_has_no_issues(self) -> None:
         asof = date(2026, 5, 8)

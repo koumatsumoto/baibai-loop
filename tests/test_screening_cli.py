@@ -65,6 +65,7 @@ from baibai_engine.screening.sqlite_reader import read_edinet_metrics
 class FakeJQuantsProvider:
     business_day: bool = True
     calls: list[tuple[str, date | None, date | None]] = field(default_factory=list)
+    revision_overlap_days: list[int] = field(default_factory=list)
 
     def get_mkt_calendar(self, start: date, end: date) -> list[JQuantsMarketCalendarDay]:
         self.calls.append(("get_mkt_calendar", start, end))
@@ -114,9 +115,20 @@ class FakeJQuantsProvider:
             for index in range(total)
         ]
 
+    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
+        self.calls.append(("ensure_eq_bars_daily_range", start, end))
+        return len(self.get_eq_bars_daily_range(start, end))
+
     def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
         self.calls.append(("get_adjustment_factor_bars_range", start, end))
         return []
+
+    def refresh_fin_summary_range(
+        self, start: date, end: date, *, revision_overlap_days: int
+    ) -> int:
+        self.calls.append(("refresh_fin_summary_range", start, end))
+        self.revision_overlap_days.append(revision_overlap_days)
+        return len(self.get_fin_summary_range(start, end))
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
         self.calls.append(("get_fin_summary_range", start, end))

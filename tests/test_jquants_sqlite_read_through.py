@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from datetime import date, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -15,6 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.market.sqlite import range_covered
 from baibai_engine.screening.providers.jquants import JQuantsProvider, JQuantsProviderError
 from baibai_engine.screening.sqlite_cache import (
     open_connection,
@@ -466,6 +468,327 @@ class JQuantsProviderSQLiteReadThroughTests(unittest.TestCase):
             self.assertGreaterEqual(len(bars), 3)
             sleep.assert_called_once_with(3.0)
 
+
+class _FinRecordingClient(_RecordingClient):
+    """Answers summary ranges with a row, so a fetch actually establishes coverage.
+
+    The shared fake returns nothing, which records a zero-count window and leaves
+    the range still unreadable — fine where the fetch is not the subject, useless
+    for asking what the planner requested.
+    """
+
+    def get_fin_summary_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
+        self.fin_calls.append((start_dt, end_dt))
+        return [
+            {
+                "Code": "13010",
+                "DisclosedDate": start_dt,
+                "NetSales": 100,
+                "TypeOfCurrentPeriod": "FY",
+            }
+        ]
+
+
+class FinSummaryFetchWindowTests(unittest.TestCase):
+    """What a summaries fetch asks J-Quants for, given what the store already holds.
+
+    The window the caller passes is anchored on the as-of and slides daily, so a
+    planner that walked it would re-read up to a month to add a day. These pin the
+    planner to the store's own coverage instead.
+    """
+
+    _START = date(2024, 5, 1)
+    _END = date(2026, 5, 1)
+
+    def _seed_coverage(self, sqlite_path: Path, windows: list[tuple[date, date, bool]]) -> None:
+        """Record coverage windows, with rows only where the window claims some.
+
+        A window recorded `ok` while holding nothing is a real state — a trim that
+        recounted to zero leaves exactly that — so it is seeded without rows.
+        """
+        conn = open_connection(sqlite_path)
+        for index, (low, high, has_rows) in enumerate(windows):
+            if has_rows:
+                conn.execute(
+                    "INSERT INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, eps_ttm, fiscal_period, fiscal_year_end"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    (f"130{index}", low.isoformat(), 10.0, "FY", high.isoformat()),
+                )
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=f"get_fin_summary_range:{low.isoformat()}..{high.isoformat()}",
+                record_count=1 if has_rows else 0,
+                min_date=low.isoformat(),
+                max_date=high.isoformat(),
+            )
+        conn.commit()
+        conn.close()
+
+    def _requested(self, windows: list[tuple[date, date, bool]]) -> list[tuple[str, str]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            self._seed_coverage(sqlite_path, windows)
+            client = _FinRecordingClient()
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
+            )
+            with patch("baibai_engine.market.provider.time.sleep"):
+                provider.get_fin_summary_range(self._START, self._END)
+            return client.fin_calls
+
+    def test_a_fully_covered_window_is_not_requested_at_all(self) -> None:
+        self.assertEqual(self._requested([(self._START, self._END, True)]), [])
+
+    def test_an_empty_store_requests_the_whole_window(self) -> None:
+        """Nothing held means nothing skipped; the chunking is unchanged.
+
+        The request is still split into rate-limit-sized chunks, so what matters is
+        that they tile the window end to end with no day left out.
+        """
+        requested = self._requested([])
+
+        self.assertEqual(requested[0][0], self._START.isoformat())
+        self.assertEqual(requested[-1][1], self._END.isoformat())
+        for (_, earlier_end), (later_start, _) in pairwise(requested):
+            self.assertEqual(
+                date.fromisoformat(later_start),
+                date.fromisoformat(earlier_end) + timedelta(days=1),
+            )
+
+    def test_one_stale_day_requests_one_day(self) -> None:
+        self.assertEqual(
+            self._requested([(self._START, self._END - timedelta(days=1), True)]),
+            [("2026-05-01", "2026-05-01")],
+        )
+
+    def test_a_ten_day_stop_requests_exactly_those_ten_days(self) -> None:
+        self.assertEqual(
+            self._requested([(self._START, self._END - timedelta(days=10), True)]),
+            [("2026-04-22", "2026-05-01")],
+        )
+
+    def test_abutting_windows_leave_nothing_to_request(self) -> None:
+        boundary = date(2025, 6, 1)
+        self.assertEqual(
+            self._requested(
+                [
+                    (self._START, boundary, True),
+                    (boundary + timedelta(days=1), self._END, True),
+                ]
+            ),
+            [],
+        )
+
+    def test_a_gap_between_windows_requests_only_the_gap(self) -> None:
+        boundary = date(2025, 6, 1)
+        self.assertEqual(
+            self._requested(
+                [
+                    (self._START, boundary, True),
+                    (boundary + timedelta(days=6), self._END, True),
+                ]
+            ),
+            [("2025-06-02", "2025-06-06")],
+        )
+
+    def test_a_window_recorded_ok_with_no_rows_is_requested_again(self) -> None:
+        """`_trim_ok_coverage_around` leaves these behind on purpose.
+
+        `range_covered` refuses to read through a zero-count window, so a planner
+        that counted it as held would skip the fetch and then find the reader still
+        unable to serve the range — every run, with no way to recover.
+        """
+        boundary = date(2025, 6, 1)
+        self.assertEqual(
+            self._requested(
+                [
+                    (self._START, boundary, True),
+                    (boundary + timedelta(days=1), date(2025, 6, 20), False),
+                    (date(2025, 6, 21), self._END, True),
+                ]
+            ),
+            [("2025-06-02", "2025-06-20")],
+        )
+
+    def test_the_head_is_requested_when_coverage_starts_late(self) -> None:
+        self.assertEqual(
+            self._requested([(self._START + timedelta(days=30), self._END, True)]),
+            [("2024-05-01", "2024-05-30")],
+        )
+
+    def _refreshed(
+        self, windows: list[tuple[date, date, bool]], *, overlap: int
+    ) -> list[tuple[str, str]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            self._seed_coverage(sqlite_path, windows)
+            client = _FinRecordingClient()
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
+            )
+            with patch("baibai_engine.market.provider.time.sleep"):
+                provider.refresh_fin_summary_range(
+                    self._START, self._END, revision_overlap_days=overlap
+                )
+            return client.fin_calls
+
+    def test_a_refresh_rereads_the_trailing_window_even_when_covered(self) -> None:
+        """The overlap is the only path by which a late-published filing lands."""
+        self.assertEqual(
+            self._refreshed([(self._START, self._END, True)], overlap=7),
+            [("2026-04-24", "2026-05-01")],
+        )
+
+    def test_a_refresh_merges_the_overlap_with_an_adjacent_gap(self) -> None:
+        self.assertEqual(
+            self._refreshed([(self._START, self._END - timedelta(days=1), True)], overlap=7),
+            [("2026-04-24", "2026-05-01")],
+        )
+
+    def test_a_stop_longer_than_the_overlap_is_fetched_whole_and_once(self) -> None:
+        """The gap decides the width; the overlap never truncates it, nor repeats it."""
+        self.assertEqual(
+            self._refreshed([(self._START, self._END - timedelta(days=30), True)], overlap=7),
+            [("2026-04-02", "2026-05-01")],
+        )
+
+    def test_a_refresh_never_asks_for_the_same_range_twice(self) -> None:
+        """A gap away from the tail leaves two ranges; neither may repeat the other."""
+        boundary = date(2025, 6, 1)
+        requested = self._refreshed(
+            [
+                (self._START, boundary, True),
+                (boundary + timedelta(days=6), self._END - timedelta(days=1), True),
+            ],
+            overlap=7,
+        )
+
+        self.assertEqual(len(requested), len(set(requested)))
+        self.assertEqual(requested, [("2025-06-02", "2025-06-06"), ("2026-04-24", "2026-05-01")])
+
+    def test_a_refresh_paces_between_two_separate_ranges(self) -> None:
+        """Two ranges either side of a gap are still two requests to one API."""
+        boundary = date(2025, 6, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            self._seed_coverage(
+                sqlite_path,
+                [
+                    (self._START, boundary, True),
+                    (boundary + timedelta(days=6), self._END - timedelta(days=1), True),
+                ],
+            )
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=_FinRecordingClient(), sqlite_path=sqlite_path
+            )
+
+            with patch("baibai_engine.market.provider.time.sleep") as sleep:
+                provider.refresh_fin_summary_range(self._START, self._END, revision_overlap_days=7)
+
+            sleep.assert_called_once_with(3.0)
+
+    def test_a_refresh_then_a_normalized_read_covers_both_windows(self) -> None:
+        """Bootstrap asks for a 730-day window and a 2,200-day one from this source.
+
+        Narrowing the requests must still leave `verify-cache-coverage` satisfied on
+        both, or the batch stops right after the fetch that was supposed to fix it.
+        """
+        normalized_start = self._END - timedelta(days=2200)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            open_connection(sqlite_path).close()
+            client = _FinRecordingClient()
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
+            )
+
+            with patch("baibai_engine.market.provider.time.sleep"):
+                provider.refresh_fin_summary_range(self._START, self._END, revision_overlap_days=7)
+                provider.get_fy_summary_range(normalized_start, self._END)
+
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                self.assertTrue(
+                    range_covered(conn, "jquants_fin_summaries", self._START, self._END)
+                )
+                self.assertTrue(
+                    range_covered(conn, "jquants_fin_summaries", normalized_start, self._END)
+                )
+            finally:
+                conn.close()
+
+
+class CachedRangeInspectionCostTests(unittest.TestCase):
+    """Deciding what to fetch must not cost a model per stored row.
+
+    The bar window is over three million rows in production and the decision is a
+    boolean; building the rows to reach it is what made a warm bootstrap spend
+    ~26s reading data it already had.
+    """
+
+    def _covered_bar_store(self, tmp: str) -> Path:
+        sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+        conn = open_connection(sqlite_path)
+        _insert_daily_bars(conn, [("2024-03-19", "2024-04-18")])
+        conn.commit()
+        conn.close()
+        return sqlite_path
+
+    def test_ensuring_a_covered_bar_range_builds_no_bars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = self._covered_bar_store(tmp)
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=_RecordingClient(), sqlite_path=sqlite_path
+            )
+
+            with patch("baibai_engine.market.provider.read_daily_bars", side_effect=AssertionError):
+                rows = provider.ensure_eq_bars_daily_range(date(2024, 3, 19), date(2024, 4, 18))
+
+            self.assertEqual(rows, 31)
+
+    def test_skipping_cached_bar_chunks_builds_no_bars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = self._covered_bar_store(tmp)
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=_RecordingClient(), sqlite_path=sqlite_path
+            )
+
+            with (
+                patch("baibai_engine.market.provider.read_daily_bars", side_effect=AssertionError),
+                patch("baibai_engine.market.provider.time.sleep"),
+            ):
+                provider._fetch_missing_range_chunks(
+                    "get_eq_bars_daily_range", date(2024, 3, 19), date(2024, 5, 20)
+                )
+
+    def test_skipping_cached_summary_chunks_builds_no_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            store_jquants_fin_summaries(
+                sqlite_path,
+                [{"Code": "13010", "DisclosedDate": "2024-04-18", "NetSales": 100}],
+                requested_start=date(2024, 4, 1),
+                requested_end=date(2024, 4, 30),
+            )
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=_FinRecordingClient(), sqlite_path=sqlite_path
+            )
+
+            with (
+                patch(
+                    "baibai_engine.screening.sqlite_reader.read_fin_summaries",
+                    side_effect=AssertionError,
+                ),
+                patch("baibai_engine.market.provider.time.sleep"),
+            ):
+                provider._fetch_missing_range_chunks(
+                    "get_fin_summary_range", date(2024, 4, 1), date(2024, 5, 31)
+                )
+
+
+class JQuantsProviderMiscTests(unittest.TestCase):
     def test_provider_works_when_sqlite_path_is_none(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _RecordingClient()

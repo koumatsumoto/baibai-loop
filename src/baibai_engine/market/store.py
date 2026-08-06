@@ -75,6 +75,53 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     return bars
 
 
+def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
+    """Answer whether the cache can serve `[start, end]` without building the rows.
+
+    `read_daily_bars` answers the same question, but only as a side effect of
+    materialising every row in the window. A 1,200-day window is ~3.4M rows, and
+    the callers that only need the yes/no (the fetch planner, the chunk skip test)
+    would pay for a model per row to read one boolean.
+
+    Coverage here is about which dates are present, so a row that cannot be turned
+    into a bar is not detected: `read_daily_bars` raises on one, this does not. The
+    screen builds its inputs through that reader, which is where such a row surfaces.
+    """
+    if not sqlite_path.exists():
+        return False
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return False
+    try:
+        return daily_bars_covered_by_data(conn, start, end)
+    finally:
+        conn.close()
+
+
+def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
+    """Count usable bar rows in `[start, end]`; 0 when the store cannot be read.
+
+    Rows without a close are excluded, which is the same set `read_daily_bars`
+    yields. Counting every row instead would inflate the reported number by the
+    rows the screen cannot price from — on the production window, by 141,098 of
+    3,509,554 — and make one run's log incomparable with the last.
+    """
+    if not sqlite_path.exists():
+        return 0
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM jquants_daily_bars "
+            "WHERE traded_at BETWEEN ? AND ? AND close IS NOT NULL",
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()
+    finally:
+        conn.close()
+    return int(row[0] or 0) if row is not None else 0
+
+
 def read_adjustment_factor_bars(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsDailyBar] | None:

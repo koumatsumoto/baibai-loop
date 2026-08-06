@@ -427,6 +427,44 @@ def _materialize_masters(rows: list[tuple[Any, ...]]) -> list[SecurityMaster]:
     ]
 
 
+def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:
+    """Answer whether the cache can serve `[start, end]` without building the rows.
+
+    Deliberately the same predicate `read_fin_summaries` gates on, asked without
+    the materialisation: a chunk-skip test and a fetch planner need the boolean,
+    not the summaries. Sharing `range_covered` is what keeps them agreeing with
+    the reader — a window recorded `ok` with zero rows is not a claim, and a
+    planner that treated it as one would leave the reader unable to serve the
+    range it just fetched.
+    """
+    if not sqlite_path.exists():
+        return False
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return False
+    try:
+        return range_covered(conn, "jquants_fin_summaries", start, end)
+    finally:
+        conn.close()
+
+
+def count_fin_summaries(sqlite_path: Path, start: date, end: date) -> int:
+    """Count stored summary rows in `[start, end]`; 0 when the store cannot be read."""
+    if not sqlite_path.exists():
+        return 0
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?",
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()
+    finally:
+        conn.close()
+    return int(row[0] or 0) if row is not None else 0
+
+
 def read_fin_summaries(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsFinancialSummary] | None:

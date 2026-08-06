@@ -46,6 +46,10 @@ class _BootstrapJQuants:
         del start, end
         return []
 
+    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
+        del start, end
+        return 0
+
     def get_adjustment_factor_bars_range(self, start: date, end: date):
         del start, end
         return []
@@ -53,6 +57,12 @@ class _BootstrapJQuants:
     def get_fin_summary_range(self, start: date, end: date):
         del start, end
         return []
+
+    def refresh_fin_summary_range(
+        self, start: date, end: date, *, revision_overlap_days: int
+    ) -> int:
+        del start, end, revision_overlap_days
+        return 0
 
     def get_fy_summary_range(self, start: date, end: date):
         del start, end

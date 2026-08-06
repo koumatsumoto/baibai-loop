@@ -29,6 +29,7 @@ import pytest
 from baibai_engine.market.sqlite import open_connection
 from baibai_engine.screening import cli as screening_cli
 from baibai_engine.screening.cli import app
+from baibai_engine.screening.cli.cache import FIN_SUMMARY_REVISION_OVERLAP_DAYS
 from baibai_engine.screening.metrics import BARS_INPUT_WINDOW_DAYS, FIN_INPUT_WINDOW_DAYS
 from baibai_engine.screening.sqlite_reader import read_edinet_metrics
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
@@ -110,14 +111,40 @@ def test_main_bootstrap_cache_fetches_each_source_window_around_the_argv_asof() 
     assert result.exit_code == 0, result.stderr
     asof = date(2026, 5, 8)
     assert ("get_eq_master", asof, asof) in jquants.calls
+    # Bootstrap covers the windows and reports counts; it never asks for the rows.
+    # The bar window alone is millions of them and the command prints one number.
     assert (
-        "get_eq_bars_daily_range",
+        "ensure_eq_bars_daily_range",
         asof - timedelta(days=BARS_INPUT_WINDOW_DAYS),
+        asof,
+    ) in jquants.calls
+    assert (
+        "refresh_fin_summary_range",
+        asof - timedelta(days=FIN_INPUT_WINDOW_DAYS),
         asof,
     ) in jquants.calls
     assert edinet.bootstrap_calls == [(asof - timedelta(days=FIN_INPUT_WINDOW_DAYS), asof)]
     assert jpx.bootstrap_calls == [asof]
     assert "bootstrap-cache done" in result.stdout
+
+
+def test_main_bootstrap_cache_asks_for_the_revision_overlap_once() -> None:
+    """The 730-day and 2,200-day windows share one source and one trailing week.
+
+    Requesting the overlap on each would pay J-Quants twice for the same days,
+    which is most of what deriving the window from coverage was meant to save.
+    """
+    jquants = FakeJQuantsProvider()
+
+    result = _run_cli(
+        ["bootstrap-cache", "--asof", "2026-05-08"],
+        jquants=jquants,
+        edinet=_SeamEDINETProvider(),
+        jpx=FakeJPXProvider(),
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert jquants.revision_overlap_days == [FIN_SUMMARY_REVISION_OVERLAP_DAYS]
 
 
 def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_asof() -> None:

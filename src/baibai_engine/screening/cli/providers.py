@@ -32,6 +32,8 @@ class JQuantsAdapter(Protocol):
 
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]: ...
 
+    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int: ...
+
     def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]: ...
 
     def get_fin_summary_range(
@@ -39,6 +41,14 @@ class JQuantsAdapter(Protocol):
         start: date,
         end: date,
     ) -> list[JQuantsFinancialSummary]: ...
+
+    def refresh_fin_summary_range(
+        self,
+        start: date,
+        end: date,
+        *,
+        revision_overlap_days: int,
+    ) -> int: ...
 
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
 

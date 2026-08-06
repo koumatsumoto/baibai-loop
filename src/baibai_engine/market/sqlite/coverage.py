@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 from typing import Any
@@ -377,14 +378,39 @@ _RANGE_SOURCES_REQUIRING_ROWS = frozenset(
 )
 
 
-def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
-    """True when source_coverage rows collectively span the requested range.
+def merge_date_ranges(ranges: Iterable[tuple[date, date]]) -> tuple[tuple[date, date], ...]:
+    """Sort and fuse ranges that touch, so abutting fetches read as one window.
 
-    Used for fetch-provenance sources (financial summaries, market calendar)
-    whose completeness cannot be re-derived from row presence: a missing filing
-    is indistinguishable from "no filing was due". jquants_daily_bars is instead
-    checked by `daily_bars_covered_by_data`, because every trading day must carry
-    a full-market row set, so its completeness IS observable from the data.
+    Touching means the next range starts on the day after the previous one ends;
+    a range starting two days later leaves a real missing day and stays separate.
+    Every caller shares this rule so a range the reader considers continuous is
+    never re-requested as two, and a day nobody fetched is never assumed present.
+    """
+    ordered = sorted((low, high) for low, high in ranges if low <= high)
+    if not ordered:
+        return ()
+    merged: list[tuple[date, date]] = [ordered[0]]
+    for low, high in ordered[1:]:
+        current_low, current_high = merged[-1]
+        if low > current_high + timedelta(days=1):
+            merged.append((low, high))
+        else:
+            merged[-1] = (current_low, max(current_high, high))
+    return tuple(merged)
+
+
+def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date, date], ...]:
+    """Merge the coverage windows a source can actually be read through.
+
+    A window counts only when it is `ok`, and for the sources that require rows,
+    only when it holds some: `_trim_ok_coverage_around` deliberately leaves `ok`
+    windows whose recount came out zero, and those are not a claim on anything.
+    Abutting windows are merged, so two fetches that stopped either side of a
+    chunk boundary describe one continuous range.
+
+    This is the single definition of "the store already has this". `range_covered`
+    answers a yes/no from it and `missing_intervals` answers what is left to fetch,
+    so a planner can never decide a range is held while the reader disagrees.
     """
     try:
         rows = conn.execute(
@@ -393,9 +419,7 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
             (source,),
         ).fetchall()
     except sqlite3.OperationalError:
-        return False
-    if not rows:
-        return False
+        return ()
     intervals: list[tuple[date, date]] = []
     for coverage_start, coverage_end, record_count, status in rows:
         if status != "ok":
@@ -405,29 +429,55 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
         if not coverage_start or not coverage_end:
             continue
         try:
-            intervals.append((date.fromisoformat(coverage_start), date.fromisoformat(coverage_end)))
+            parsed = (date.fromisoformat(coverage_start), date.fromisoformat(coverage_end))
         except ValueError:
             continue
-    if not intervals:
-        return False
-    intervals.sort()
-    covered_until: date | None = None
-    for chunk_start, chunk_end in intervals:
-        if chunk_end < start:
+        intervals.append(parsed)
+    return merge_date_ranges(intervals)
+
+
+def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date) -> bool:
+    """True when source_coverage rows collectively span the requested range.
+
+    Used for fetch-provenance sources (financial summaries, market calendar)
+    whose completeness cannot be re-derived from row presence: a missing filing
+    is indistinguishable from "no filing was due". jquants_daily_bars is instead
+    checked by `daily_bars_covered_by_data`, because every trading day must carry
+    a full-market row set, so its completeness IS observable from the data.
+    """
+    return any(
+        interval_start <= start and interval_end >= end
+        for interval_start, interval_end in covered_intervals(conn, source)
+    )
+
+
+def missing_intervals(
+    conn: sqlite3.Connection, source: str, start: date, end: date
+) -> tuple[tuple[date, date], ...]:
+    """The sub-ranges of `[start, end]` the store cannot serve yet.
+
+    This is the complement of `covered_intervals` inside the request, which makes
+    a fetch cost what the store is actually missing instead of what the caller
+    happened to ask for. A window the batch skipped shows up here exactly as wide
+    as the outage; a store that has never been filled yields the whole request.
+    """
+    if start > end:
+        return ()
+    gaps: list[tuple[date, date]] = []
+    cursor = start
+    for interval_start, interval_end in covered_intervals(conn, source):
+        if interval_end < cursor:
             continue
-        if chunk_start > end:
+        if interval_start > end:
             break
-        if covered_until is None:
-            if chunk_start > start:
-                return False
-            covered_until = chunk_end
-        elif chunk_start > covered_until + timedelta(days=1):
-            return False
-        else:
-            covered_until = max(covered_until, chunk_end)
-        if covered_until >= end:
-            return True
-    return False
+        if interval_start > cursor:
+            gaps.append((cursor, interval_start - timedelta(days=1)))
+        cursor = max(cursor, interval_end + timedelta(days=1))
+        if cursor > end:
+            return tuple(gaps)
+    if cursor <= end:
+        gaps.append((cursor, end))
+    return tuple(gaps)
 
 
 # daily_bars completeness is derived from the actual rows (the single source of
