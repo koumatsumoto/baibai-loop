@@ -198,3 +198,4 @@ carry 上位 1/3 に固定して reversion の分位を見ると 3y は +10.93% 
 - panel が 1 か月増えるたびに 5 節と 6 節を **全期間と `--asof-from 2021-07-01` の両方で**再計算する。特に §6.2 は非 COVID の 3y cohort が 10 を超えたら再判定する（現在 n=101 行・cohort 数不足）。
 - §5 の cohort 一致は最小群サイズの感度とセットで更新する。3y で負けた 2 cohort（2023-04-28 / 2023-07-31）が最新側であることは、今の regime に近い月ほど差が縮む可能性を示す。
 - EDINET 220 の観測窓が 2 年に伸びたら、6.1 の streak 代理変数を実際の取得枠状態へ置き換えて再検証する。
+- **starter band の撤退基準 (b) の初回判定は、最初の starter 約定から 1 年後**である。`proposal.payload` の `position_intent` / `starter_catalyst_date` と `ledger_event.proposal_id` から cohort を組み、full cohort と並べる。件数が 1 桁のうちは中央超過を算出せず、並べるだけにする。約定が 0 件のままなら「帯を開いても通らなかった」という結論であり、その場合は band の条件側を見直す。

@@ -96,6 +96,33 @@ def _load_forward_returns(
     return resolved
 
 
+def require_single_rules_hash(calibration_dir: Path) -> str:
+    """全 panel が同じ screening rules で作られているか。
+
+    rules を動かした後に一部だけ再構築すると、別の母集団定義で作られた月が混ざる。混ぜて
+    平均しても値は出てしまい、しかも権威ありげな percentile として報告へ載る。
+    """
+
+    hashes: dict[str, list[str]] = {}
+    metas = sorted(calibration_dir.glob("panel-*.meta.yaml"))
+    if not metas:
+        raise SignalCohortMeasurementError(f"no panel metadata under {calibration_dir}")
+    for path in metas:
+        meta = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(meta, Mapping):
+            raise SignalCohortMeasurementError(f"panel metadata is not a mapping: {path.name}")
+        value = meta.get("rules_hash")
+        if not isinstance(value, str) or not value:
+            raise SignalCohortMeasurementError(f"panel metadata carries no rules_hash: {path.name}")
+        hashes.setdefault(value, []).append(path.name)
+    if len(hashes) > 1:
+        summary = ", ".join(
+            f"{value}={len(names)} panel(s)" for value, names in sorted(hashes.items())
+        )
+        raise SignalCohortMeasurementError(f"panels mix screening rules revisions: {summary}")
+    return next(iter(hashes))
+
+
 def _load_panel(
     calibration_dir: Path,
     forward: Mapping[tuple[str, str], Mapping[str, float]],
@@ -322,6 +349,7 @@ def build_measurement(
     for horizon in horizons:
         if horizon not in HORIZON_YEARS:
             raise SignalCohortMeasurementError(f"unsupported horizon: {horizon}")
+    rules_hash = require_single_rules_hash(calibration_dir)
     forward = _load_forward_returns(calibration_dir, horizons)
     rows = _load_panel(calibration_dir, forward)
     if asof_from is not None:
@@ -336,6 +364,7 @@ def build_measurement(
         "calibration_dir": str(calibration_dir),
         "metric_basis": "price_return_only",
         "population": "liquidity_passing_panel_rows",
+        "rules_hash": rules_hash,
         # cohort 比較は両群がこの件数を満たす as-of だけを数える。候補が薄い月は
         # treatment が痩せて落ちるため、閾値そのものが標本を選ぶ。読むときは併記する。
         "min_group_rows": MIN_GROUP_ROWS,

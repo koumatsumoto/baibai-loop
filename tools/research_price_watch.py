@@ -171,16 +171,19 @@ def build_watch(
             "resolved_count": len(resolved),
             "unresolved_count": len(unresolved),
         },
+        # 買い直しの合図は未保有 lane だけに出す。保有中の「FV 未満」は value 保有の
+        # 定常状態で毎日出続けるので、混ぜると本命の 1 行が恒常ノイズに埋もれる。
+        # 保有側の FV 到達は holding review が close >= FV で判定する別 trigger である。
         "triggered": [
             {
                 "ticker": row["ticker"],
                 "current_close_yen": row["current_close_yen"],
                 "thesis_fair_value_yen": row["thesis_fair_value_yen"],
                 "thesis_recommendation_at_as_of": row["thesis_recommendation_at_as_of"],
-                "current_portfolio_status": row["current_portfolio_status"],
+                "trigger_basis": "unheld_close_at_or_below_research_fv",
             }
             for row in resolved
-            if row["fair_value_reached"]
+            if row["close_at_or_below_research_fv"] and row["current_portfolio_status"] == "unheld"
         ],
         "diagnostics": {
             "re_research_required_for_all_rows": True,
@@ -451,9 +454,12 @@ def _watch_row(
         "close_as_of": observation.close_as_of.isoformat() if observation.close_as_of else None,
         "thesis_fair_value_yen": _decimal_number(fair_value),
         "thesis_fv_gap_pct": gap,
-        # 終値が研究 FV 以下へ降りてきたか。買い注文ではなく「読み直す理由が発生した」の
-        # 合図であり、指値も数量もここでは決めない。
-        "fair_value_reached": unresolved is None and gap is not None and gap >= 0,
+        # 終値が研究 FV 以下か。未保有 lane では買い直しを考える合図になるが、保有中は
+        # FV 未満が value 保有の定常状態なので、これ単独では事象にならない。保有側の
+        # 「FV 到達」は holding review の定義 close >= FV であって逆向きである。
+        "close_at_or_below_research_fv": (
+            None if unresolved is not None or gap is None else gap >= 0
+        ),
         "thesis_entry_price_basis_yen": _decimal_number(thesis.estimates.entry_price_basis_yen),
         "thesis_recommendation_at_as_of": thesis.judgment.recommendation,
         "thesis_as_of": thesis.input_snapshot.as_of.isoformat(),

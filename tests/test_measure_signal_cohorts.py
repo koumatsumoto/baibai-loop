@@ -30,7 +30,12 @@ PANEL_COLUMNS = (
 FORWARD_COLUMNS = ("asof", "ticker", "horizon", "price_return", "status")
 
 
-def _write_panel(directory: Path, asof: str, rows: list[dict[str, Any]]) -> None:
+def _write_panel(
+    directory: Path, asof: str, rows: list[dict[str, Any]], *, rules_hash: str = "abc123"
+) -> None:
+    (directory / f"panel-{asof}.meta.yaml").write_text(
+        f"asof: '{asof}'\nrules_hash: {rules_hash}\n", encoding="utf-8"
+    )
     path = directory / f"panel-{asof}.csv"
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=PANEL_COLUMNS)

@@ -32,7 +32,9 @@ uv run python -m tools.research_price_watch \
   --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --asof <最新完全営業日>
 ```
 
-`triggered` に行が出たら、その ticker は **終値が研究 FV 以下**である。これは注文ではなく「読み直す理由が発生した」の合図なので、`research` skill の再評価（保有なら `holding-review`）へ入り、thesis の前提が今も成立するかを確かめてから plan-limit を起こす。`rows[].thesis_as_of` が古い lane は `re_research_required` が立つので、価格だけを見て発注しない。
+`triggered` に出るのは **未保有で終値が研究 FV 以下**の lane だけである。保有中の「FV 未満」は value 保有の定常状態で毎日出続けるため、ここには入れない（保有側の FV 到達は close ≥ FV で、`holding-review` の trigger である）。
+
+triggered は注文ではなく「読み直す理由が発生した」の合図なので、`research` skill の再評価へ入り、thesis の前提が今も成立するかを確かめてから plan-limit を起こす。出力は全行 `re_research_required: true` を返す（thesis の鮮度に関わらず再研究を挟む規律であって、行を選り分ける flag ではない）。価格だけを見て発注しない。
 
 ## Store 同期（`tools/cloud/r2_transfer.sh`）
 

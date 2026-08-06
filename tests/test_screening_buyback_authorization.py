@@ -10,6 +10,8 @@ from baibai_engine.screening.buyback_authorization import (
     index_buyback_status_filings,
     read_buyback_status_filings,
 )
+from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.screening.selection import build_selection_payload, candidate_record_from_mapping
 from baibai_engine.screening.sqlite_cache import open_connection, store_edinet_documents
 
 ASOF = date(2026, 8, 4)
@@ -201,3 +203,52 @@ def test_an_ingestion_stall_at_the_recent_end_falls_back_to_the_previous_month(
 
     assert read is not None
     assert read.observed_from == date(2026, 6, 1)
+
+
+def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
+    """判断面に出ない annotation は、skill が消化を要求しても実行不能な指示になる。"""
+
+    rules = load_screening_rules(DEFAULT_RULES_PATH)
+    candidates = [
+        {
+            "ticker": "1111",
+            "name": "name-1111",
+            "sector_33": "機械",
+            "market_cap_oku": 300,
+            "avg_turnover_oku": 2.0,
+            "listing_span_days": 1200,
+            "jpx_flags": [],
+            "evidence_hits": [{"name": "cashflow-yield-discount"}],
+            "metrics": {
+                "ocf_yield": 0.11,
+                "er_annual": 0.09,
+                "buyback_authorization_status": "lapsed",
+                "buyback_status_latest_filing_date": "2026-04-13",
+                "buyback_status_filing_age_days": 113,
+                "buyback_status_observed_from": "2025-08-01",
+            },
+        }
+    ]
+
+    payload = build_selection_payload(
+        asof_date=ASOF,
+        candidates=tuple(candidate_record_from_mapping(item) for item in candidates),
+        macro_context=None,
+        rules=rules,
+        top=5,
+        profile="balanced",
+        candidates_ref="test.yaml",
+        macro_context_ref=None,
+        longlist_top=5,
+    )
+
+    recommendation = payload["recommendations"][0]
+    assert recommendation["buyback_authorization_status"] == "lapsed"
+    assert recommendation["buyback_status_filing_age_days"] == 113
+    longlist_row = payload["longlist"][0]
+    assert longlist_row["buyback_authorization"] == {
+        "status": "lapsed",
+        "latest_filing_date": "2026-04-13",
+        "filing_age_days": 113,
+        "observed_from": "2025-08-01",
+    }

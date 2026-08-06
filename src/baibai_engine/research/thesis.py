@@ -409,11 +409,12 @@ class EstimatesNamespace(BaseModel):
     ]
     scenarios: tuple[ScenarioEstimate, ...]
     screening_fv_bridge: ScreeningFVBridge | None = None
-    # 指値ラダー経路と一緒に退役した field。published thesis は `thesis_core_sha256` で
-    # review と bargain assessment に束縛され payload を書き換えられないので、当時の key を
-    # 読めなくすると holding review・proposal・assessment・price watch が同時に止まる。
-    # 受けるのは null だけ。serialize からは外し、hash では「読み込んだ payload が key を
-    # 持っていた場合だけ」書き戻して当時の hash を再現する。
+    # published thesis の一部はこの key を持つ。payload は `thesis_core_sha256` で review と
+    # bargain assessment に束縛されて書き換えられないので、読めないと holding review・
+    # proposal・assessment・price watch がその thesis に対して同時に止まる。値は null だけを
+    # 受け、serialize からは外し、hash では「読み込んだ payload が key を持つ場合だけ」
+    # 書き戻す。**この規則は payload を生の JSON から validate する経路でだけ正しい**
+    # — `model_dump` を経由すると key が落ちる。store の読み手は全て生 payload を渡す。
     deep_discount_bps: None = Field(default=None, exclude=True)
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
@@ -951,8 +952,9 @@ def thesis_core_hash(document: ThesisDocument) -> str:
             estimates["deep_discount_bps"] = None
     judgment = payload.get("judgment")
     if isinstance(judgment, dict) and document.judgment.position_intent == "full":
-        # full は既定なので key を落とし、starter 導入前に published された thesis の
-        # hash を動かさない。starter は key を残して束縛対象に含める。
+        # 既定値の intent は key ごと落とす。この 2 key を持たない payload と同じ hash に
+        # なり、intent を宣言した thesis だけが束縛対象へ入る。値ベースの規則なので
+        # `model_dump` を挟んでも結果が変わらない。
         judgment.pop("position_intent", None)
         judgment.pop("starter_catalyst_date", None)
     try:

@@ -27,6 +27,11 @@ from typing import TextIO
 
 import yaml
 
+from tools.measure_signal_cohorts import (
+    SignalCohortMeasurementError,
+    require_single_rules_hash,
+)
+
 DEFAULT_CALIBRATION_DIR = Path("data/screening/calibration")
 DEFAULT_RUNS_DB = Path("data/screening/runs.sqlite")
 # selection.liquidity と同じ関門。method/screening-rules の値と揃える。
@@ -51,10 +56,22 @@ def _optional_float(value: str | None) -> float | None:
 
 
 def _percentile_rank(history: Sequence[float], value: float) -> float:
-    """history の中で value 以下が占める割合。両端は 0 / 100 になる。"""
+    """history のうち value を下回る要素が占める割合。両端は 0 / 100 になる。
+
+    history は「比較対象の過去」であり、value 自身を含めない。2 座標で母数の作り方が
+    違うと同じ percentile という語が別物を指すので、どちらも同じ定義で計算する。
+    """
 
     below = sum(1 for item in history if item < value)
     return round(below / len(history) * 100, 1)
+
+
+def _history_median(values: Sequence[float]) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
 
 
 def _panel_history(
@@ -154,11 +171,17 @@ def build_supply_context(
     resolved_selection_id, run_asof, current_top5 = _current_top5(
         runs_db, selection_id=selection_id
     )
+    rules_hash = require_single_rules_hash(calibration_dir)
     latest_count_asof, latest_count = count_history[-1]
     top5_values = [value for _, value in top5_history]
-    count_values = [float(value) for _, value in count_history]
+    # 件数座標は最新月末 panel 自身の値なので、順位付けの母数からは外す。top-5 は当日 run の
+    # 値で panel に含まれないため、そちらは元から外れている。両者で母数の作り方を揃える。
+    count_values = [float(value) for _, value in count_history[:-1]]
+    if not count_values:
+        raise SupplyContextError("a single panel cannot place its own count in history")
     return {
         "kind": "supply-context",
+        "rules_hash": rules_hash,
         "hurdle_annual_ratio": hurdle,
         "history_panels": len(top5_history),
         "history_asof_start": top5_history[0][0],
@@ -168,16 +191,14 @@ def build_supply_context(
             "selection_id": resolved_selection_id,
             "run_asof": run_asof,
             "value": round(current_top5, 4),
-            "history_median": round(sorted(top5_values)[len(top5_values) // 2], 4),
+            "history_median": round(_history_median(top5_values), 4),
             "percentile_rank": _percentile_rank(top5_values, current_top5),
         },
         "hurdle_clearing_count": {
             "basis": "latest_month_end_panel",
             "panel_asof": latest_count_asof,
             "value": latest_count,
-            "history_median": sorted(count_history, key=lambda item: item[1])[
-                len(count_history) // 2
-            ][1],
+            "history_median": _history_median(count_values),
             "percentile_rank": _percentile_rank(count_values, float(latest_count)),
         },
         "reading": (
@@ -208,7 +229,7 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
             selection_id=args.selection_id,
             hurdle=args.hurdle,
         )
-    except (SupplyContextError, OSError, sqlite3.Error) as error:
+    except (SupplyContextError, SignalCohortMeasurementError, OSError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)

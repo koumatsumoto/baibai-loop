@@ -268,7 +268,7 @@ def test_resolved_join_keeps_history_and_excludes_ledger_only_rows(
         "close_as_of": "2026-07-03",
         "thesis_fair_value_yen": 1300,
         "thesis_fv_gap_pct": 30.0,
-        "fair_value_reached": True,
+        "close_at_or_below_research_fv": True,
         "thesis_entry_price_basis_yen": 1032,
         "thesis_recommendation_at_as_of": "buy",
         "thesis_as_of": "2026-07-03",
@@ -755,3 +755,21 @@ def test_error_has_no_stdout_or_traceback(
     assert payload == {}
     assert stderr.startswith("error: application database does not exist")
     assert "Traceback" not in stderr
+
+
+def test_a_held_ticker_below_its_research_fair_value_is_not_a_buy_side_trigger(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """保有中の「FV 未満」は value 保有の定常状態で、毎日出続けるので事象ではない。"""
+
+    sqlite_path = tmp_path / "market.sqlite"
+    _market_sqlite(sqlite_path, close_by_key={("2331", ASOF): 1000.0})
+
+    exit_code, payload, stderr = _run(tmp_path, capsys, sqlite_path=sqlite_path)
+
+    assert exit_code == 0, stderr
+    rows = payload["rows"]
+    assert isinstance(rows, list)
+    assert rows[0]["current_portfolio_status"] == "held"
+    assert rows[0]["close_at_or_below_research_fv"] is True
+    assert payload["triggered"] == []
