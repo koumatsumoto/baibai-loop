@@ -82,6 +82,10 @@ def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
     materialising every row in the window. A 1,200-day window is ~3.4M rows, and
     the callers that only need the yes/no (the fetch planner, the chunk skip test)
     would pay for a model per row to read one boolean.
+
+    Coverage here is about which dates are present, so a row that cannot be turned
+    into a bar is not detected: `read_daily_bars` raises on one, this does not. The
+    screen builds its inputs through that reader, which is where such a row surfaces.
     """
     if not sqlite_path.exists():
         return False
@@ -95,7 +99,13 @@ def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
 
 
 def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
-    """Count stored bar rows in `[start, end]`; 0 when the store cannot be read."""
+    """Count usable bar rows in `[start, end]`; 0 when the store cannot be read.
+
+    Rows without a close are excluded, which is the same set `read_daily_bars`
+    yields. Counting every row instead would inflate the reported number by the
+    rows the screen cannot price from — on the production window, by 141,098 of
+    3,509,554 — and make one run's log incomparable with the last.
+    """
     if not sqlite_path.exists():
         return 0
     conn = connect_current(sqlite_path)
@@ -103,7 +113,8 @@ def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
         return 0
     try:
         row = conn.execute(
-            "SELECT COUNT(*) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
+            "SELECT COUNT(*) FROM jquants_daily_bars "
+            "WHERE traded_at BETWEEN ? AND ? AND close IS NOT NULL",
             (start.isoformat(), end.isoformat()),
         ).fetchone()
     finally:

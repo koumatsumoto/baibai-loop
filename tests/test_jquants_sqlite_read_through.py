@@ -654,6 +654,41 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
             [("2026-04-02", "2026-05-01")],
         )
 
+    def test_a_refresh_never_asks_for_the_same_range_twice(self) -> None:
+        """A gap away from the tail leaves two ranges; neither may repeat the other."""
+        boundary = date(2025, 6, 1)
+        requested = self._refreshed(
+            [
+                (self._START, boundary, True),
+                (boundary + timedelta(days=6), self._END - timedelta(days=1), True),
+            ],
+            overlap=7,
+        )
+
+        self.assertEqual(len(requested), len(set(requested)))
+        self.assertEqual(requested, [("2025-06-02", "2025-06-06"), ("2026-04-24", "2026-05-01")])
+
+    def test_a_refresh_paces_between_two_separate_ranges(self) -> None:
+        """Two ranges either side of a gap are still two requests to one API."""
+        boundary = date(2025, 6, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            self._seed_coverage(
+                sqlite_path,
+                [
+                    (self._START, boundary, True),
+                    (boundary + timedelta(days=6), self._END - timedelta(days=1), True),
+                ],
+            )
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=_FinRecordingClient(), sqlite_path=sqlite_path
+            )
+
+            with patch("baibai_engine.market.provider.time.sleep") as sleep:
+                provider.refresh_fin_summary_range(self._START, self._END, revision_overlap_days=7)
+
+            sleep.assert_called_once_with(3.0)
+
     def test_a_refresh_then_a_normalized_read_covers_both_windows(self) -> None:
         """Bootstrap asks for a 730-day window and a 2,200-day one from this source.
 

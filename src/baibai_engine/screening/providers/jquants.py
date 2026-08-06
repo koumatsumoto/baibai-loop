@@ -302,19 +302,23 @@ class JQuantsProvider(JQuantsMarketProvider):
         each paying for the same trailing week.
         """
         window = f"{start.isoformat()}..{end.isoformat()}"
+        self._raise_if_cache_only("jquants_fin_summaries", window)
         if self._sqlite_path is None:
             return len(self._load_or_fetch_range("get_fin_summary_range", start, end))
-        self._raise_if_cache_only("jquants_fin_summaries", window)
         from baibai_engine.market.sqlite import merge_date_ranges
 
-        from ..sqlite_reader import count_fin_summaries
+        from ..sqlite_reader import count_fin_summaries, fin_summaries_covered
 
         overlap_start = max(start, end - timedelta(days=revision_overlap_days))
         planned = merge_date_ranges(
             [*self._missing_subranges("get_fin_summary_range", start, end), (overlap_start, end)]
         )
-        for subrange_start, subrange_end in planned:
-            self._load_or_fetch_range("get_fin_summary_range", subrange_start, subrange_end)
+        self._fetch_ranges_paced("get_fin_summary_range", planned, skip_cached_chunks=False)
+        if not fin_summaries_covered(self._sqlite_path, start, end):
+            raise JQuantsProviderError(
+                "SQLite cache remained incomplete after fetching jquants_fin_summaries "
+                f"for {window}"
+            )
         return count_fin_summaries(self._sqlite_path, start, end)
 
     def _range_chunk_is_cached(self, method: str, start: date, end: date) -> bool:
