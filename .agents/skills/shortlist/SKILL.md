@@ -43,7 +43,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
 
    当日 selection 上位 5 の平均 E[r] が 80 か月 panel のどこにいるかと、最新月末 panel 基準の hurdle 超え件数が出る。cycle が購入ゼロで終わったときに「市況で候補が薄いのか、pipeline が拾えていないのか」を分ける座標なので、**2 つを 1 語へ畳まず両方を報告へ載せる**。逆を向くことは普通に起きる。
 
-5. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 longlist の top-N なので、重なり率をこの 2 つの間で比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
+5. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。あわせて `uv run python -m tools.research_price_watch --asof <ASOF>` を回し、深掘り済み ticker の現在価格と研究 FV の位置を控える（手順 7 の再研究判定に使う）。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 longlist の top-N なので、重なり率をこの 2 つの間で比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
 6. **開示スキャン**: selected 候補（full review では全候補）の直近開示をタイトルレベルで確認し、as-of 財務に無い material 開示（業績修正・資本政策・TOB 等）を narrative の `why` / `counter` へ反映する。
 7. **annotation 消化**（不変条件: 判断面へ annotation を足す変更は、この表へ消化規則を同時に足す）:
 
@@ -52,6 +52,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
    | FV convergence warning（`price_at_or_above_all_fv_anchors`） | selected / rejected を問わず明示消化する。黙殺しない |
    | `margin_short_to_adv` / `margin_week_end` | 需給の確認材料。単独で自動除外・rank 変更に使わない |
    | `buyback_authorization_status` | E[r] の buyback carry が forward の現金還元か、過去の資本配分の記録かを分ける。`active` = 直近 45 日に自己株券買付状況報告書あり（取得期間中）。`lapsed` = 提出はあるが古い。`none` = 観測窓 1 年に提出なし。`unknown` = store の観測窓が as-of から 1 年に届かない（historical run は常にこれ）。**`lapsed` / `none` は自動除外の理由にしない** — 単発で終わった還元も較正では母集団を上回る（[診断](../../../reports/2026-08-06-bargain-capture-diagnosis.md) §6.1）。carry を「これから受け取る現金」として narrative に書くときだけ、一次開示で取得枠を確認する |
+   | 直近 cycle で棄却済み（`bargain_assessment` の reject / defer lane） | 深掘りを終えた ticker が翌 cycle も上位へ戻るのは E[r] 主キーの正常な挙動だが、**新しい材料が無いまま research 枠を再消費しない**。`tools.research_price_watch` の `rows[].thesis_fair_value_yen` と当日終値、`triggered`、直近開示を突き合わせ、(a) 価格が研究 FV を下回った (b) 新規の material 開示がある (c) 前回の unknown 軸を解消する決算が出た のいずれも無ければ既定で rejected（`reject_class: event_wait`）とし、reason に前回結論の日付と再評価 trigger を書く。selected にするなら**前回結論から何が変わったか**を narrative に明記する |
    | E[r] 履歴帯（較正 quintile 文脈） | 帯の記述統計としてのみ参照。個別銘柄の予測として書かない |
    | `data_quality_flags` / `durability_warnings` | flag が upside / downside をどちら向きに歪めるかを narrative に書く |
    | `stale_fin_flag` / `fin_latest_disclosed_date` | `true` は「予定日が過ぎたのにその開示が機械行に無い」。延期・決算期変更・provider 欠落を**一次開示で切り分けてから** narrative を書き、切り分け前の数字のまま selected にしない。`null` は判定材料が無いという意味で、`false`（照合して一致）と読み替えない |

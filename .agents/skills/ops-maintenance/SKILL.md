@@ -36,6 +36,16 @@ uv run python -m tools.research_price_watch \
 
 triggered は注文ではなく「読み直す理由が発生した」の合図なので、`research` skill の再評価へ入り、thesis の前提が今も成立するかを確かめてから plan-limit を起こす。出力は全行 `re_research_required: true` を返す（thesis の鮮度に関わらず再研究を挟む規律であって、行を選り分ける flag ではない）。価格だけを見て発注しない。
 
+## 指値規律の成績（注文が決着したとき）
+
+注文が約定または失効したら、その 1 件だけでなく全体を並べ直す。
+
+```bash
+uv run python -m tools.measure_limit_outcomes --asof <最新完全営業日>
+```
+
+`summary.decision_bound_orders` が repository の判断経路を通った注文の成績で、`all_ledger_orders` は既存保有の取り込みを含む。**取り込み分の約定を規律の成績に数えない。** `chase_policy_decision.ready` が true になったら、gap を追う指値へ変えるかを別 issue で事前登録して判断する。false のうちは個票を並べるだけにして、少数の失効で規律を外さない。
+
 ## Store 同期（`tools/cloud/r2_transfer.sh`）
 
 | store | 正本 | 転送規律 |
