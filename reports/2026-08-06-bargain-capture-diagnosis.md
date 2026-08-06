@@ -16,14 +16,15 @@ last_reviewed: 2026-08-06
 
 ```yaml
 market_level_abstention: not_found
-candidate_supply_is_scarce: not_supported
+monthly_panel_hurdle_clearing_count: 76th_percentile
+daily_run_top5_expected_return: 15th_percentile
 buyback_residue_inflates_ranking: not_supported
 equity_anchor_cap_is_a_trap: inconclusive
 machine_top_outperforms_population: supported_with_regime_caveats
 published_thesis_read_path_is_broken: confirmed_and_fixed
 ```
 
-`equity_anchor_cap_is_a_trap` は当初 `not_supported` としたが、COVID entry を外すと符号が反転するため判定不能へ戻した（§6.2）。`machine_top_outperforms_population` の pooled 差は非 COVID 窓でも残るが、cohort 一致数は閾値と標本窓に依存する（§5）。
+供給は 2 座標に割れており、1 語へ畳まない（§4）。件数は最新月末 panel 基準の遅行座標、top-5 は当日 run と同じ基準の座標である。`equity_anchor_cap_is_a_trap` は当初 `not_supported` としたが、COVID entry を外すと符号が反転するため判定不能へ戻した（§6.2）。`machine_top_outperforms_population` の pooled 差は非 COVID 窓でも残るが、cohort 一致数は閾値と標本窓に依存する（§5）。
 
 ## 1. 再現手順
 
@@ -108,11 +109,13 @@ carry の buyback 成分は `clip(-net_share_change_yoy, ±5%)` で、取得枠�
 
 ここまでは #811 の観察どおりである。**しかし forward return は残像を支持しない。**
 
-| horizon | clip 到達群 | 中間群 | 非正群 | clip − 非正 | cohort 一致 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| 1y | +12.24%（n=2,952） | +13.14% | +4.33% | +7.9pt | 56/69 |
-| 3y | +13.72%（n=1,324） | +10.86% | +4.91% | +8.8pt | **44/45** |
-| 5y | +11.21%（n=421） | +10.02% | +5.20% | +6.0pt | **21/21** |
+| horizon | clip 到達群 | 中間群 | 非正群 | clip − 非正 | cohort 一致 | 株数変化 未観測 |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| 1y | +12.24%（n=2,952） | +13.14% | +4.48% | +7.8pt | 55/69 | +1.78%（n=4,834） |
+| 3y | +13.72%（n=1,324） | +10.86% | +5.09% | +8.6pt | **44/45** | +1.67%（n=3,180） |
+| 5y | +11.21%（n=421） | +10.02% | +5.39% | +5.8pt | **21/21** | +1.70%（n=1,487） |
+
+`net_share_change_yoy` の欠測行は control から外している。0 と読むと「株数が動かなかった」と「株数変化が分からない」が同じ群に入るが、未観測群の実現は +1.7% 前後で両者とは別物である。
 
 さらに、EDINET 提出の有無は 2025-08 以降しか観測できないため、代理変数として panel の `share_count_reduction_streak`（連続 FY 数）で「単発の株数減少（= 枠終了型に近い）」と「継続」を分けた。
 
@@ -185,7 +188,8 @@ carry 上位 1/3 に固定して reversion の分位を見ると 3y は +10.93% 
 - forward 窓は重なり独立でない。有意性・統計的優位・track record を主張しない。効果量と cohort 一致数で読む。
 - **cohort 一致数は最小群サイズの閾値が選ぶ標本に依存する。** 閾値は treatment が痩せる月＝候補が薄い月を落とすので、単独の見出し数値として使わない（§5 に感度表）。
 - **entry 側が偏っている。** 3y の treatment は 62%、5y は 81% が 2020-02〜2021-01 entry である。exit 側が上昇局面であることだけを断ると、読者は 5y 列を「長期でも独立に成立」と読む。
-- price-only であり配当を含まない。総合リターンはこれより高い。
+- **price-only であり配当を含まない。** store は FY 実績配当を加えた total return を horizon により 88〜93% の被覆で持つが、被覆が horizon で変わるため本 report は price-only を主 basis にした。carry 群（§6.1）は配当が多い側なので、price-only は差を**過小に**出す方向であり、結論の向きは変わらない。
+- 2 座標を並べる場所（§4）では、両者の percentile が同じ ranking 軸に載っていない。件数は月末 panel の集合、top-5 は selection rank 上位の平均で、母数の作り方が違う。
 - 実現値は 2023〜2026 の日本株上昇局面を含む。regime 統制された量は同一 as-of の母集団との差だけである。この読み方を当てると §6.2 は反転する。
 - 群の中央値は約 400〜88,000 行の記述統計であり、少数銘柄へ集中した portfolio の結果ではない。
 - 廃止で系列が切れた銘柄は resolved に入らない。`delisting_exclusion` の向き安定判定は本 report の座標では行っていない。

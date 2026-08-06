@@ -179,10 +179,12 @@ def test_buyback_group_uses_the_clip_and_reports_the_cohort_difference(tmp_path:
     comparisons = payload["comparisons"]
     assert isinstance(comparisons, dict)
     buyback = comparisons["buyback_component"][0]
-    at_clip, partial, non_positive = buyback["groups"]
+    at_clip, partial, non_positive, unknown = buyback["groups"]
     assert at_clip["resolved_rows"] == 12
     assert partial["resolved_rows"] == 0
     assert non_positive["resolved_rows"] == 12
+    assert unknown["group"] == "share_change_unobserved"
+    assert unknown["resolved_rows"] == 0
     assert buyback["cohort_agreement"]["cohorts_compared"] == 1
     assert buyback["cohort_agreement"]["cohorts_treatment_ahead"] == 1
     assert buyback["cohort_agreement"]["median_difference_pct_points"] == pytest.approx(20.0)

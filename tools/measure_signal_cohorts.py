@@ -51,7 +51,7 @@ class PanelRow:
     reversion_annual: float
     carry_annual: float
     dividend_yield: float
-    buyback_yield: float
+    buyback_yield: float | None
     upside_capped: float | None
     earnings_anchor_available: bool
     reduction_streak: int | None
@@ -161,7 +161,9 @@ def _panel_row(
     if er_annual is None:
         return None
     share_change = _optional_float(raw.get("net_share_change_yoy"))
-    buyback = 0.0 if share_change is None else max(-BUYBACK_CLIP, min(BUYBACK_CLIP, -share_change))
+    # 欠測を 0 と読むと「株数が動かなかった」と「株数変化が分からない」が control 群へ
+    # 一緒に入る。buyback 比較では欠測を None のまま持ち、どちらの群にも入れない。
+    buyback = None if share_change is None else max(-BUYBACK_CLIP, min(BUYBACK_CLIP, -share_change))
     per_forward = _optional_float(raw.get("per_forward"))
     per_trailing = _optional_float(raw.get("per_trailing"))
     streak = _optional_float(raw.get("share_count_reduction_streak"))
@@ -255,15 +257,18 @@ def _high_estimate_comparison(
 
 
 def _buyback_comparison(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
-    clipped = [row for row in rows if row.buyback_yield >= BUYBACK_CLIP - 1e-9]
-    partial = [row for row in rows if 0.0 < row.buyback_yield < BUYBACK_CLIP - 1e-9]
-    non_positive = [row for row in rows if row.buyback_yield <= 0.0]
+    known = [row for row in rows if row.buyback_yield is not None]
+    clipped = [row for row in known if (row.buyback_yield or 0.0) >= BUYBACK_CLIP - 1e-9]
+    partial = [row for row in known if 0.0 < (row.buyback_yield or 0.0) < BUYBACK_CLIP - 1e-9]
+    non_positive = [row for row in known if (row.buyback_yield or 0.0) <= 0.0]
+    unknown = [row for row in rows if row.buyback_yield is None]
     return {
         "horizon": horizon,
         "groups": [
             _group_summary(clipped, horizon, label="buyback_yield_at_clip"),
             _group_summary(partial, horizon, label="buyback_yield_partial"),
             _group_summary(non_positive, horizon, label="buyback_yield_non_positive"),
+            _group_summary(unknown, horizon, label="share_change_unobserved"),
         ],
         "cohort_agreement": _cohort_win_rate(
             clipped, non_positive, horizon, min_control_rows=MIN_GROUP_ROWS
@@ -300,7 +305,7 @@ def _buyback_continuity_comparison(rows: Sequence[PanelRow], horizon: str) -> Ma
     EDINET の取得枠状態は 2025-08 以降しか観測できないので、連続 FY 数を代理変数にして
     80 か月へ広げる。単発 = 枠を消化し終えた状態に近い。
     """
-    reducing = [row for row in rows if row.buyback_yield > 0.005]
+    reducing = [row for row in rows if (row.buyback_yield or 0.0) > 0.005]
     single = [row for row in reducing if row.reduction_streak == 1]
     repeated = [
         row for row in reducing if row.reduction_streak is not None and row.reduction_streak >= 2
