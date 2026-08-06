@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 import yaml
-
 from tools.measure_signal_cohorts import (
     SignalCohortMeasurementError,
     build_measurement,
