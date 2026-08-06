@@ -23,6 +23,17 @@ PORTFOLIO_POLICY: dict[str, Any] = {
     },
     "order_constraints": {"board_lot": 100, "price_guard_required": True},
     "valuation": {"market_price_max_age_days": 7},
+    # 要求利回りに届かない境界帯へ、縮小 lot と bucket 上限つきで入るための枠。
+    # 機械 E[r] 上位群は 3y/5y の全 cohort で母集団を上回る一方、正規化と据え置き倍率を
+    # 積んだ research の base は要求 8.5% に届かず全件棄却になっていた。その乖離を
+    # 観測ゼロのままにしないための bounded な経路であり、永久損失 7 軸・独立レビュー・
+    # human override は一切緩めない。計測は reports/2026-08-06-bargain-capture-diagnosis.md。
+    "starter_band": {
+        "required_return_floor_pct": 7.0,
+        "required_return_ceiling_pct": 8.5,
+        "max_order_notional_yen": 100_000,
+        "max_bucket_pct": 10.0,
+    },
 }
 
 _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
@@ -35,6 +46,10 @@ _REQUIRED_NUMERIC_PATHS: tuple[tuple[str, ...], ...] = (
     ("risk_budget", "max_adv_participation_pct"),
     ("order_constraints", "board_lot"),
     ("valuation", "market_price_max_age_days"),
+    ("starter_band", "required_return_floor_pct"),
+    ("starter_band", "required_return_ceiling_pct"),
+    ("starter_band", "max_order_notional_yen"),
+    ("starter_band", "max_bucket_pct"),
 )
 
 

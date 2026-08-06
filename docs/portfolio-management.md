@@ -33,6 +33,27 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 
 上限側の数値は機械にとって充填目標である。提案数量は`floor(1回あたり上限 / 1単元notional)`単元で、渡した金額まで埋まる。1単元が上限を超えれば`budget_guide_exceeded`、notionalが下限を割れば`budget_guide_under`のwarningが付き、いずれも発注を止めない。したがってこの数値を上げることは候補数を増やすことではなく1銘柄あたりの金額を増やすことであり、[Reservation and warnings](#reservation-and-warnings)のticker集中線に先に当たる。
 
+## Starter band
+
+要求利回りに届かない境界帯へ、縮小 lot と bucket 上限つきで入る経路。thesis が `judgment.position_intent: starter` を宣言したときだけ開く。
+
+| 条件 | 値 |
+| --- | --- |
+| 要求 5 年 base CAGR | `starter_band.required_return_floor_pct` 以上 `required_return_ceiling_pct` 未満 |
+| 永久損失結論 | `acceptable` または `unknown`（`elevated` は不可） |
+| sizing_action | `reduced` |
+| dated catalyst | `judgment.starter_catalyst_date` 必須。再評価を発火させる日付 |
+| 1 注文の想定約定額 | `starter_band.max_order_notional_yen` 以下。1 単元がこれを超える銘柄は `starter_lot_exceeds_notional_cap` で defer する |
+| starter 合計 | 総資本に対する `starter_band.max_bucket_pct` 以下。これは warning ではなく proposal を止める |
+
+数値は `src/baibai_engine/position/policy.py` の `starter_band` が正本で、[Capital guidance](#capital-guidance) の目安とは別に効く。
+
+永久損失 7 軸、独立レビュー、`approved_by: human` の evidence override は starter でも一切緩めない。緩めるのは要求利回りだけで、その代わりに 1 件あたりの金額と経路全体の資本を有界にする。
+
+撤退基準は 2 つ。**(a)** starter 銘柄に検証済みの永久損失兆候が出たら、FV 到達を待たずに holding review を起こす。**(b)** 1 年経過時点で starter cohort の中央超過が full cohort を下回っていたら、新規 starter を停止する。
+
+この帯を開く根拠は、機械 E[r] 上位群が 3y/5y の全 cohort で母集団を +9〜12pt 上回る一方、正規化と据え置き倍率を積んだ research の base が要求利回りに届かず全件棄却になっていたという計測である（[診断](../reports/2026-08-06-bargain-capture-diagnosis.md)）。狙いは購入件数ではなく、境界帯の実現結果を観測ゼロから非ゼロにすることである。
+
 ## Ranking versus affordability
 
 投資価値rankを決めてから購入可能性を確認する。holdingsとactive reservationsは`held / reserved / held_and_reserved / unheld`としてannotationする。

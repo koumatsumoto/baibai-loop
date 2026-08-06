@@ -536,11 +536,37 @@ class JudgmentNamespace(BaseModel):
     strongest_countercase: Annotated[str, Field(min_length=1)]
     sizing_action: Literal["normal", "reduced", "none"]
     ai_value_capture: AIValueCaptureJudgment
+    # `starter` は要求利回りが full の下限に届かない境界帯を、縮小 lot と bucket 上限つきで
+    # 建てる宣言である。閾値は position policy が持ち、資本を約束する gate は proposal 側に
+    # 置く。ここで宣言だけを固定するのは、後から「どの判断が緩和経路だったか」を実現結果と
+    # 突き合わせるためである。
+    position_intent: Literal["full", "starter"] = "full"
+    # starter の再評価を発火させる日付。band を開く条件そのものなので starter では必須。
+    starter_catalyst_date: date | None = None
 
     @field_validator("proposed_at", mode="before")
     @classmethod
     def _parse_time(cls, value: object) -> datetime:
         return _datetime(value)
+
+    @field_validator("starter_catalyst_date", mode="before")
+    @classmethod
+    def _parse_catalyst_date(cls, value: object) -> object:
+        return None if value is None else _date(value)
+
+    @model_validator(mode="after")
+    def _coherent_starter(self) -> JudgmentNamespace:
+        if self.position_intent == "full":
+            if self.starter_catalyst_date is not None:
+                raise ValueError("starter_catalyst_date belongs to a starter position intent")
+            return self
+        if self.starter_catalyst_date is None:
+            raise ValueError("starter position intent requires a dated catalyst")
+        if self.sizing_action != "reduced":
+            raise ValueError("starter position intent requires reduced sizing")
+        if self.permanent_loss_conclusion == "elevated":
+            raise ValueError("starter position intent requires a non-elevated permanent loss")
+        return self
 
 
 class ReviewedScenario(BaseModel):
@@ -923,6 +949,12 @@ def thesis_core_hash(document: ThesisDocument) -> str:
         # 持っていなかった thesis の hash は変わらない。
         if "deep_discount_bps" in document.estimates.model_fields_set:
             estimates["deep_discount_bps"] = None
+    judgment = payload.get("judgment")
+    if isinstance(judgment, dict) and document.judgment.position_intent == "full":
+        # full は既定なので key を落とし、starter 導入前に published された thesis の
+        # hash を動かさない。starter は key を残して束縛対象に含める。
+        judgment.pop("position_intent", None)
+        judgment.pop("starter_catalyst_date", None)
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (OverflowError, ValueError) as error:

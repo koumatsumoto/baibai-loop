@@ -18,6 +18,7 @@ from baibai_engine.appdb.json import canonical_json
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.time import JST
 from baibai_engine.position.ledger import PortfolioSnapshot, reconcile_portfolio
+from baibai_engine.position.policy import PORTFOLIO_POLICY
 from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.close_source import resolve_previous_business_day_close
 from baibai_engine.research.execution_policy import ExecutionPolicyError, max_acceptable_price
@@ -32,6 +33,14 @@ from baibai_engine.research.thesis import (
     ThesisDocument,
     evaluate_thesis,
 )
+
+STARTER_REQUIRED_RETURN_FLOOR_PCT: float = PORTFOLIO_POLICY["starter_band"][
+    "required_return_floor_pct"
+]
+STARTER_REQUIRED_RETURN_CEILING_PCT: float = PORTFOLIO_POLICY["starter_band"][
+    "required_return_ceiling_pct"
+]
+STARTER_MAX_BUCKET_PCT: float = PORTFOLIO_POLICY["starter_band"]["max_bucket_pct"]
 
 ProposalStatus = Literal["pending", "approved", "deferred", "rejected"]
 ProposalDecision = Literal["approve", "defer", "reject"]
@@ -223,6 +232,12 @@ class ProposalStoreService:
                     claimed_source_ref=planned_limit.source_ref,
                     claimed_thesis_core_sha256=planned_limit.thesis_core_sha256,
                 )
+                if thesis.judgment.position_intent == "starter":
+                    _require_starter_bucket_headroom(
+                        connection,
+                        snapshot=snapshot,
+                        planned_notional_yen=planned_limit.notional_yen,
+                    )
                 proposal_id = _allocate_proposal_id(
                     connection,
                     ticker=planned_limit.ticker,
@@ -231,6 +246,7 @@ class ProposalStoreService:
                 payload: dict[str, object] = {
                     "thesis_id": thesis_id,
                     "review_id": review.review_id,
+                    "position_intent": thesis.judgment.position_intent,
                     "planned_limit": _canonical_plan(planned_limit).model_dump(mode="python"),
                     "execution_proposal": _execution_proposal(planned_limit),
                 }
@@ -411,7 +427,67 @@ def _ready_thesis_and_review(
         raise ProposalValidationError(f"research thesis is not decision-ready: {detail}")
     if thesis.judgment.recommendation != "buy":
         raise ProposalValidationError("proposal requires a ready buy research thesis")
+    _require_required_return_within_intent(thesis)
     return thesis, review
+
+
+def _require_starter_bucket_headroom(
+    connection: sqlite3.Connection,
+    *,
+    snapshot: PortfolioSnapshot,
+    planned_notional_yen: int,
+) -> None:
+    """starter 経由で投じた資本の合計を総資本の一定割合以内に保つ。
+
+    これは warning ではなく hard gate である。要求利回りを下げる緩和が受け入れられるのは、
+    その経路で動く資本が有界であることが担保されている場合に限るからで、cap を越えたら
+    新規の starter を作らない。売却は差し引かないので、保守側に外れる。
+    """
+
+    deployed = 0
+    for row in connection.execute(
+        """
+        SELECT event.payload
+        FROM ledger_event AS event
+        JOIN proposal ON proposal.proposal_id = event.proposal_id
+        WHERE event.event_type = 'execution'
+          AND json_extract(proposal.payload, '$.position_intent') = 'starter'
+        """
+    ):
+        payload = json.loads(str(row["payload"]))
+        quantity = payload.get("quantity")
+        price = payload.get("price_yen")
+        if quantity is None or price is None:
+            raise ProposalConflictError("starter execution payload is missing price or quantity")
+        deployed += int(Decimal(str(price)) * Decimal(str(quantity)))
+    ceiling = int(
+        Decimal(str(snapshot.total_capital_yen)) * Decimal(str(STARTER_MAX_BUCKET_PCT)) / 100
+    )
+    if deployed + planned_notional_yen > ceiling:
+        raise ProposalValidationError(
+            "starter bucket would exceed its share of total capital: "
+            f"deployed={deployed} planned={planned_notional_yen} ceiling={ceiling}"
+        )
+
+
+def _require_required_return_within_intent(thesis: ThesisDocument) -> None:
+    """starter を宣言した thesis の要求利回りが、開いた帯の中に収まっているか。
+
+    thesis 側で帯を強制しないのは、published 済みの thesis を後から invalid にすると
+    holding review と assessment がまとめて止まるからである。資本を約束するのは proposal
+    なので gate はここに置く。`full` の要求利回りには機械の床を置かない — 帯を開く判断と
+    通常の要求水準そのものを動かす判断は別の議題で、後者はここでは決めない。
+    """
+
+    if thesis.judgment.position_intent != "starter":
+        return
+    required = thesis.estimates.required_5y_base_cagr_pct
+    if not (STARTER_REQUIRED_RETURN_FLOOR_PCT <= required < STARTER_REQUIRED_RETURN_CEILING_PCT):
+        raise ProposalValidationError(
+            "starter proposal requires a 5y base CAGR requirement inside "
+            f"[{STARTER_REQUIRED_RETURN_FLOOR_PCT}, {STARTER_REQUIRED_RETURN_CEILING_PCT}): "
+            f"{required}"
+        )
 
 
 def _revalidate_approval(
