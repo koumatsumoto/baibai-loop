@@ -27,6 +27,7 @@ _EVENT_RISK_TAGS = frozenset(
         "earnings_scheduled",
         "freshness_warning",
         "forecast_special_gain",
+        "forecast_full_year_loss",
         "stale_financials",
     }
 )
@@ -98,6 +99,12 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     # 会社予想 normalize (経常ベースへの丸め) へ誘導する。
     if mapping_or_empty(candidate.get("metrics")).get("forecast_special_gain_flag") is True:
         tags.append("forecast_special_gain")
+    # 会社自身が通期赤字を予想している行。赤字予想は forward PER を落として FV アンカーを
+    # 自己履歴 PBR だけにするので、収益基盤が縮んでも帳簿由来の implied upside が残る。
+    # 一過性の赤字 (引当・減損) と構造的な縮小をここでは区別できないため、除外でなく
+    # 注記にして research の一次資料読みへ渡す。
+    if mapping_or_empty(candidate.get("metrics")).get("forecast_full_year_loss_flag") is True:
+        tags.append("forecast_full_year_loss")
     # 発表は済んだのに store の開示がそこまで届いていない窓。この行の財務・FV アンカー・
     # E[r] は旧四半期のままなので、一次開示を先に読ませる。
     if mapping_or_empty(candidate.get("metrics")).get("stale_fin_flag") is True:
@@ -154,10 +161,11 @@ def _selection_candidate_summary(
         "dps_actual_annual": metrics.get("dps_actual_annual"),
         "dps_forecast_annual": metrics.get("dps_forecast_annual"),
         "dividend_yield": metrics.get("dividend_yield"),
-        # 取得枠の現在状態 (buyback_authorization.py が判定し、ここは転記だけ)。carry の
-        # buyback 成分は過去 1 年の株数変化なので、その carry を forward の現金還元として
-        # narrative に書けるかは枠が今も在るかで決まる。unknown は観測窓が届いていない
-        # 状態で、none (窓の中に提出が無い) と違う。
+        # 自己株券買付状況報告書の提出観測 (buyback_authorization.py が判定し、ここは転記
+        # だけ)。carry の buyback 成分は過去 1 年の株数変化なので、その carry を forward の
+        # 現金還元として narrative に書くなら取得期間の終了日と残枠を一次開示で確認する。
+        # recent_filing は提出の齢が浅いだけで枠が今も在ることではない。unknown は観測窓が
+        # 届いていない状態で、no_filing (窓の中に提出が無い) と違う。
         "buyback_authorization_status": metrics.get("buyback_authorization_status"),
         "buyback_status_latest_filing_date": metrics.get("buyback_status_latest_filing_date"),
         "buyback_status_filing_age_days": metrics.get("buyback_status_filing_age_days"),
@@ -217,8 +225,8 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
         # raw/unadjusted close は plan-limit が SQLite から再取得する。
         "market_price_yen": _screening_reference_close_yen(candidate, metrics),
         "fv_convergence": _fv_convergence_annotation(candidate, metrics),
-        # 取得枠の現在状態。longlist は OP3 が 20 件を点検する view なので、carry を
-        # forward の現金還元として narrative に書けるかの判断材料をここに置く。
+        # 自己株券買付状況報告書の提出観測。longlist は OP3 が 20 件を点検する view なので、
+        # carry を forward の現金還元として narrative に書けるかの判断材料をここに置く。
         "buyback_authorization": {
             "status": metrics.get("buyback_authorization_status"),
             "latest_filing_date": metrics.get("buyback_status_latest_filing_date"),

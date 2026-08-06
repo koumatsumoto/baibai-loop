@@ -19,6 +19,8 @@ from tools.research_price_watch import (
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite import open_connection
+from baibai_engine.operation.models import HumanConfirmation, OperationPayload
+from baibai_engine.operation.service import OperationService
 from baibai_engine.position.ledger import load_portfolio_ledger
 from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
@@ -27,6 +29,7 @@ from baibai_engine.research.thesis import (
     load_thesis,
     thesis_core_hash,
 )
+from baibai_engine.tasks.service import TaskService
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
 
@@ -773,3 +776,91 @@ def test_a_held_ticker_below_its_research_fair_value_is_not_a_buy_side_trigger(
     assert rows[0]["current_portfolio_status"] == "held"
     assert rows[0]["close_at_or_below_research_fv"] is True
     assert payload["triggered"] == []
+
+
+def test_an_unheld_lane_above_its_research_fair_value_does_not_trigger(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """発火条件は level なので、FV より上にいる日は行が出ても合図は出ない。"""
+
+    sqlite_path = tmp_path / "market.sqlite"
+    _market_sqlite(sqlite_path, close_by_key={("2331", ASOF): 1450.0})
+
+    exit_code, payload, stderr = _run(
+        tmp_path,
+        capsys,
+        sqlite_path=sqlite_path,
+        ledger=_opening_only_ledger(tmp_path),
+    )
+
+    assert exit_code == 0, stderr
+    rows = payload["rows"]
+    assert isinstance(rows, list)
+    assert rows[0]["current_portfolio_status"] == "unheld"
+    assert rows[0]["close_at_or_below_research_fv"] is False
+    assert payload["triggered"] == []
+
+
+def test_watch_survives_session_completion_and_task_cleanup(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """watch の寿命は publish された thesis に属し、session と task の整理から独立している。
+
+    再研究の trigger を session artifact や task payload に置くと、cycle を閉じる整理が
+    trigger ごと消す。ここで固定するのは、閉じた session と dropped な task を跨いでも
+    lane が watch に残り、価格が FV へ降りた日に発火することである。
+    """
+
+    sqlite_path = tmp_path / "market.sqlite"
+    _market_sqlite(sqlite_path, close_by_key={("2331", ASOF): 1000.0})
+    theses_root = _thesis_root(tmp_path, recommendation="reject")
+    db_path = tmp_path / "app.sqlite"
+
+    def _watch() -> dict[str, Any]:
+        exit_code, payload, stderr = _run(
+            tmp_path,
+            capsys,
+            theses_root=theses_root,
+            sqlite_path=sqlite_path,
+            ledger=_opening_only_ledger(tmp_path),
+        )
+        assert exit_code == 0, stderr
+        return payload
+
+    before = _watch()
+    assert [item["ticker"] for item in before["triggered"]] == ["2331"]
+
+    operations = OperationService(db_path)
+    session = operations.start(
+        session_kind="opportunity",
+        as_of=ASOF,
+        started_at=FIXED_NOW,
+        payload=OperationPayload(checkpoint="lane closed as reject"),
+    )
+    operations.complete(
+        session.operation_id,
+        OperationPayload(
+            checkpoint="closed",
+            artifacts=({"kind": "shortlist", "ref": "shortlist-test"},),
+            human_confirmation=HumanConfirmation(request="confirm", result="no order"),
+            result="no actionable bargain",
+            next="await the price watch",
+        ),
+        completed_at=FIXED_NOW,
+    )
+    tasks = TaskService(db_path)
+    follow_up = tasks.add(
+        title="2331 の再評価",
+        kind="follow-up",
+        due_date=ASOF,
+        created_at=ASOF,
+        ticker="2331",
+    )
+    tasks.close(follow_up.task_id, status="dropped", closed_at=ASOF)
+
+    after = _watch()
+
+    assert operations.get(session.operation_id).status == "completed"
+    assert tasks.get(follow_up.task_id).status == "dropped"
+    assert [item["ticker"] for item in after["triggered"]] == ["2331"]
+    assert after["rows"] == before["rows"]

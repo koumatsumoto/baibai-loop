@@ -48,6 +48,14 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 - 会社予想で **予想当期純利益 > 予想経常利益**（両方存在時）なら `forecast_special_gain` flag を立てる。税負担が通常正である以上、純利益>経常は特別益（事業売却益など）の存在をほぼ確定する 1 行チェック。純利益/経常は `forecast_eps` と同一予想期のペアで比較する。
 - 一時益で嵩上げされた forward PER・予想配当利回り・機械 E[r] carry の value trap を判断前に表面化させる **warning annotation** であり、ranking・E[r]・既存指標の計算は変えない（doctrine の warning/annotation 境界）。candidate metrics（`forecast_special_gain_flag`）・selection longlist の `event_warnings`・UI の `一時益予想` badge に出す。持続ベースへの補正（forecast 純利益を経常ベースへ丸める等）は方法変更のため [`estimate-calibration.md`](./estimate-calibration.md) の運用契約で事前登録して評価する。
 
+### 2.5 会社予想の通期赤字 annotation
+
+- 会社予想の**予想経常利益または予想当期純利益が負**なら `forecast_full_year_loss` flag を立てる。片方しか開示されない期があるので or で見る。予想が 1 つも無い行は False に置き、欠損を黒字予想へ畳まない。
+- 赤字予想は `forecast_eps` を負にするため forward PER が引けず、FV アンカーが**自己履歴 PBR だけ**に落ちる。その PBR レンジは黒字だった時代に市場が許容した倍率なので、収益基盤が構造的に縮んだ銘柄では帳簿だけが残って implied upside が膨らむ。
+- **除外でも減衰でもなく annotation にする。** 一過性の赤字（引当・減損）と構造的な縮小を機械では区別できないためであり、判定は一次開示を読む research が持つ。実測でも上位占有は起きていない — 2026-08-04 / 08-05 の longlist 20 件で該当は各 1 件（母集団 3,709 件中 119 件 = 3.2%）。
+- reversion の機械的な減衰は E[r] を動かす方法変更なので、[`estimate-calibration.md`](./estimate-calibration.md) の運用契約で事前登録し、赤字予想 cohort の forward 成績を較正 panel で測ってから判断する（現行 panel は forecast 系列を持たないため再構築が要る）。
+- candidate metrics（`forecast_full_year_loss_flag`）と selection longlist の `event_warnings` に出す。
+
 ## 3. Trailing PER の算出
 
 - 直近 4 四半期の合算 EPS を使用
@@ -119,18 +127,22 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 機械 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、buyback 側は過去 1 年の株数変化である。取得枠を消化し終えた会社もこの成分を持つため、carry を「これから受け取る現金還元」と読むと過大評価になる。
 
-EDINET の自己株券買付状況報告書（様式コード 220、訂正 230）は金商法 24 条の 6 第 1 項により取得期間中は毎月提出されるので、直近提出の有無が取得枠の現在状態の観測になる。`buyback_authorization_status` は次の 4 値を取り、併記する `buyback_status_latest_filing_date` / `buyback_status_filing_age_days` / `buyback_status_observed_from` を読み手が自分の閾値で使う。
+EDINET の自己株券買付状況報告書（様式コード 220、訂正 230）は金商法 24 条の 6 第 1 項により取得期間中は毎月提出されるので、提出の有無と齢が、取得枠がいつまで在ったかの観測になる。`buyback_authorization_status` は次の 4 値を取り、併記する `buyback_status_latest_filing_date` / `buyback_status_filing_age_days` / `buyback_status_observed_from` を読み手が自分の閾値で使う。
+
+値は**観測そのもの**を表し、枠が今も在るかの推論ではない。
 
 | 値 | 意味 |
 | --- | --- |
-| `active` | 直近 45 日以内に提出がある。報告月の翌月 15 日までという提出期限に対し、月初の as-of で前月分が未提出でも前々月分が窓に入る幅である |
-| `lapsed` | 観測窓に提出はあるが 45 日より古い |
-| `none` | 観測窓 365 日に提出が 1 件も無い |
+| `recent_filing` | 直近 45 日以内に提出がある。報告月の翌月 15 日までという提出期限に対し、月初の as-of で前月分が未提出でも前々月分が窓に入る幅である。**取得期間が終了した月の報告書もここに入る** |
+| `stale_filing` | 観測窓に提出はあるが 45 日より古い |
+| `no_filing` | 観測窓 365 日に提出が 1 件も無い |
 | `unknown` | store の提出観測が as-of から 365 日を覆えていない。historical backfill と、EDINET 提出行の保存開始前の as-of はここに入る |
+
+**`recent_filing` は「今も枠が在る」を意味しない。** 提出は報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。6088 は 2026-08-05 提出（齢 0 日）だが、その中身は取得期間 2026-05-11〜2026-07-31・金額進捗 99.99% で、同日に取得終了が開示されている。残枠と取得期間の終了日は本 annotation では読まないので、carry を forward の現金還元として扱うなら一次開示で確認する。
 
 観測窓は `edinet_document_lists` の取得記録ではなく提出行そのものの最古日から取る。文書一覧を fetch していても当該 doc type を保存していなかった期間があり、取得記録を窓とみなすと「提出なし」を捏造するためである。
 
-**この annotation は ranking・gate・E[r] を変えない。** 較正リプレイでは単発で終わった株数減少も母集団を上回るため、`lapsed` / `none` を自動除外や carry 減衰の根拠にしない（[診断](../../reports/2026-08-06-bargain-capture-diagnosis.md) §6.1）。
+**この annotation は ranking・gate・E[r] を変えない。** 較正リプレイでは単発で終わった株数減少も母集団を上回るため、`stale_filing` / `no_filing` を自動除外や carry 減衰の根拠にしない（[診断](../../reports/2026-08-06-bargain-capture-diagnosis.md) §6.1）。
 
 ## 8. 業種中央値の算出
 

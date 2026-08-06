@@ -1,12 +1,18 @@
-"""自己株式取得枠が今も動いているかを判断面へ出す annotation。
+"""自己株式取得枠の提出状況を判断面へ出す annotation。
 
 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、buyback 側は
 **過去 1 年の株数変化**である。取得枠を消化し終えた会社もこの成分を持ち続けるので、
 carry を「これから受け取る現金還元」と読むと過大評価になる。
 
-読み分けに必要な事実は EDINET にある。自己株券買付状況報告書 — doc_type 220、訂正は
+読み分けの手掛かりは EDINET にある。自己株券買付状況報告書 — doc_type 220、訂正は
 230 — は金商法 24 条の 6 第 1 項により、取締役会決議による取得の**取得期間中は毎月**
-提出される。したがって直近の提出があるかどうかが、取得枠が今も在るかの観測になる。
+提出される。したがって提出の有無と齢が、取得枠がいつまで在ったかの観測になる。
+
+**観測できるのは「直近の報告月に取得枠が在った」までで、「今も在る」ではない。** 提出は
+報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。実例:
+6088 は 2026-08-05 に提出 — 齢 0 日 — だが、その中身は「取得期間 2026-05-11〜2026-07-31、
+金額進捗 99.99%」で、同日に取得終了が開示されている。残枠と取得期間の終了日は本 module
+では読まないので、carry を forward の現金還元として扱うなら一次開示で確認する。
 
 **この annotation は E[r]・ranking・gate を変えない。** 較正リプレイでは、株数減少群は
 取得が単発で終わった銘柄も含めて母集団を上回っており、carry を落とす変更は実在する
@@ -33,12 +39,14 @@ from typing import Literal
 
 from baibai_engine.market.sqlite import connect_current
 
-type BuybackAuthorizationStatus = Literal["active", "lapsed", "none", "unknown"]
+# 値は観測そのものを表す。枠が今も在るかの推論は読み手が一次開示で決める。
+type BuybackAuthorizationStatus = Literal["recent_filing", "stale_filing", "no_filing", "unknown"]
 
-# 自己株券買付状況報告書は報告月の翌月 15 日までに提出される。取得期間中の会社は
-# 毎月提出するので、期間中であれば直近の提出はこの日数以内に収まる。月初の as-of で
-# 前月分が未提出でも、前々月分が窓に入る幅を取っている。
-ACTIVE_WINDOW_DAYS = 45
+# 自己株券買付状況報告書は報告月の翌月 15 日までに提出される。取得期間中の会社は毎月
+# 提出するので、期間中であれば直近の提出はこの日数以内に収まる。月初の as-of で前月分が
+# 未提出でも、前々月分が窓に入る幅を取っている。取得期間が終了した月の報告書もこの窓に
+# 入るので、`recent_filing` は「終了直後」を含む。
+RECENT_FILING_WINDOW_DAYS = 45
 
 # 「提出が 1 度も無い」と言うために必要な観測窓。1 年あれば、年 1 回だけ枠を設ける
 # 会社も窓の中に現れる。
@@ -62,7 +70,7 @@ class BuybackAuthorization:
     """1 ticker 分の取得枠 annotation。ranking・gate・E[r] へは入らない。"""
 
     status: BuybackAuthorizationStatus
-    # 直近の自己株券買付状況報告書の提出日。status が unknown / none なら None。
+    # 直近の自己株券買付状況報告書の提出日。status が unknown / no_filing なら None。
     latest_filing_date: date | None
     # as-of から見た提出の齢。読み手が自分の閾値で判断できるように生値を出す。
     latest_filing_age_days: int | None
@@ -191,14 +199,14 @@ def build_buyback_authorization(
         )
     if latest_filing_date is None or latest_filing_date > asof:
         return BuybackAuthorization(
-            status="none",
+            status="no_filing",
             latest_filing_date=None,
             latest_filing_age_days=None,
             observed_from=observed_from,
         )
     age_days = (asof - latest_filing_date).days
     return BuybackAuthorization(
-        status="active" if age_days <= ACTIVE_WINDOW_DAYS else "lapsed",
+        status=("recent_filing" if age_days <= RECENT_FILING_WINDOW_DAYS else "stale_filing"),
         latest_filing_date=latest_filing_date,
         latest_filing_age_days=age_days,
         observed_from=observed_from,
@@ -224,10 +232,10 @@ def _date(value: object) -> date | None:
 
 
 __all__ = [
-    "ACTIVE_WINDOW_DAYS",
     "BUYBACK_STATUS_CORRECTION_DOC_TYPE",
     "BUYBACK_STATUS_FILING_DOC_TYPE",
     "OBSERVATION_WINDOW_DAYS",
+    "RECENT_FILING_WINDOW_DAYS",
     "BuybackAuthorization",
     "BuybackAuthorizationStatus",
     "BuybackStatusFilingRead",

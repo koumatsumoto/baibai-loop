@@ -488,6 +488,35 @@ class ScreeningMetricsTests(unittest.TestCase):
             ).forecast_special_gain_flag
         )
 
+    def test_forecast_full_year_loss_flag_set_when_either_forecast_is_negative(self) -> None:
+        # 2491 の 2026-07-29 開示は経常 △700 / 純利益 △800。どちらか一方が負なら立てる。
+        self.assertTrue(
+            self._forecast_gain_snapshot(
+                forecast_profit=-800_000_000.0, forecast_ordinary_profit=-700_000_000.0
+            ).forecast_full_year_loss_flag
+        )
+        self.assertTrue(
+            self._forecast_gain_snapshot(
+                forecast_profit=-800_000_000.0, forecast_ordinary_profit=None
+            ).forecast_full_year_loss_flag
+        )
+        self.assertTrue(
+            self._forecast_gain_snapshot(
+                forecast_profit=None, forecast_ordinary_profit=-700_000_000.0
+            ).forecast_full_year_loss_flag
+        )
+
+    def test_forecast_full_year_loss_flag_clear_when_forecasts_are_positive(self) -> None:
+        snapshot = self._forecast_gain_snapshot(
+            forecast_profit=480_000_000.0, forecast_ordinary_profit=1_480_000_000.0
+        )
+        self.assertFalse(snapshot.forecast_full_year_loss_flag)
+
+    def test_forecast_full_year_loss_flag_clear_when_no_forecast_is_disclosed(self) -> None:
+        # 予想が 1 つも無い行は「黒字予想」ではない。欠損を黒字へ畳まないことを固定する。
+        snapshot = self._forecast_gain_snapshot(forecast_profit=None, forecast_ordinary_profit=None)
+        self.assertFalse(snapshot.forecast_full_year_loss_flag)
+
     def test_market_cap_adjusts_shares_for_split_after_disclosure(self) -> None:
         """開示後の分割 (権利落ち bar の adjustment_factor) を株数へ補正する。
 
