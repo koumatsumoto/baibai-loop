@@ -436,12 +436,16 @@ def _require_starter_bucket_headroom(
     *,
     snapshot: PortfolioSnapshot,
     planned_notional_yen: int,
+    excluded_proposal_id: str | None = None,
 ) -> None:
     """starter 経由で投じた資本の合計を総資本の一定割合以内に保つ。
 
     これは warning ではなく hard gate である。要求利回りを下げる緩和が受け入れられるのは、
     その経路で動く資本が有界であることが担保されている場合に限るからで、cap を越えたら
     新規の starter を作らない。売却は差し引かないので、保守側に外れる。
+
+    `excluded_proposal_id` は再検証中の proposal 自身。その約定を既存分として数えると、
+    同じ資本を planned と deployed の両方で数える。
     """
 
     deployed = 0
@@ -452,7 +456,9 @@ def _require_starter_bucket_headroom(
         JOIN proposal ON proposal.proposal_id = event.proposal_id
         WHERE event.event_type = 'execution'
           AND json_extract(proposal.payload, '$.position_intent') = 'starter'
-        """
+          AND (? IS NULL OR proposal.proposal_id <> ?)
+        """,
+        (excluded_proposal_id, excluded_proposal_id),
     ):
         payload = json.loads(str(row["payload"]))
         quantity = payload.get("quantity")
@@ -512,6 +518,15 @@ def _revalidate_approval(
         review_id=str(row["review_id"]),
         now=now,
     )
+    if thesis.judgment.position_intent == "starter":
+        # create から approve までの間に別の starter が約定していれば、bucket は
+        # 作成時より埋まっている。資本が動くのは approve 側なので、そこでも測り直す。
+        _require_starter_bucket_headroom(
+            connection,
+            snapshot=snapshot,
+            planned_notional_yen=planned_limit.notional_yen,
+            excluded_proposal_id=str(row["proposal_id"]),
+        )
     _validate_planned_limit(
         connection,
         planned_limit,

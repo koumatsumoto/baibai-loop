@@ -317,3 +317,97 @@ def _record_execution(path: Path, *, proposal_id: str, intent: str, notional_yen
 
 def _planned_input(planned: dict[str, object]) -> PlannedLimitInput:
     return PlannedLimitInput.model_validate(planned)
+
+
+def test_a_starter_proposal_is_created_at_the_capped_size_and_survives_approval(
+    tmp_path: Path,
+) -> None:
+    """成功パスを 1 周させる。gate の否定側だけを試すと、経路が動かないことに気づけない。"""
+
+    path = tmp_path / "app.sqlite"
+    thesis_path = _write_starter_workspace(tmp_path)
+    market = _market(path, close=1000)
+    _seed_app(path, thesis_path)
+    planned = plan_limit(
+        thesis=thesis_path,
+        db_path=path,
+        sqlite_path=market,
+        target_session=date(2026, 7, 13),
+        budget_min_yen=200_000,
+        budget_max_yen=300_000,
+        now=CREATED_AT,
+    )
+    service = ProposalStoreService(
+        path, market_db_path=market, clock=lambda: CREATED_AT + timedelta(hours=3)
+    )
+
+    proposal = service.create(
+        THESIS_ID,
+        _planned_input(planned),
+        reconcile_portfolio(LedgerStoreService(path).load()),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
+        created_at=CREATED_AT,
+    )
+
+    assert proposal.payload["position_intent"] == "starter"
+    stored = proposal.payload["planned_limit"]
+    assert isinstance(stored, dict)
+    # 保存する金額枠は starter の有効枠。approve の数量再計算がこれを読む。
+    assert stored["budget_max_yen"] == 100_000
+    assert stored["quantity"] == 100
+    assert stored["notional_yen"] == 100_000
+
+    decided = service.decide(
+        proposal.proposal_id,
+        "approve",
+        decided_at=CREATED_AT + timedelta(hours=2),
+        snapshot=reconcile_portfolio(LedgerStoreService(path).load()),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
+    )
+    assert decided.status == "approved"
+
+
+def test_approval_re_measures_the_starter_bucket_after_the_proposal_was_created(
+    tmp_path: Path,
+) -> None:
+    """create 後に別の starter が約定したら、approve は通さない。"""
+
+    path = tmp_path / "app.sqlite"
+    thesis_path = _write_starter_workspace(tmp_path)
+    market = _market(path, close=1000)
+    _seed_app(path, thesis_path)
+    planned = plan_limit(
+        thesis=thesis_path,
+        db_path=path,
+        sqlite_path=market,
+        target_session=date(2026, 7, 13),
+        budget_min_yen=200_000,
+        budget_max_yen=300_000,
+        now=CREATED_AT,
+    )
+    service = ProposalStoreService(
+        path, market_db_path=market, clock=lambda: CREATED_AT + timedelta(hours=3)
+    )
+    proposal = service.create(
+        THESIS_ID,
+        _planned_input(planned),
+        reconcile_portfolio(LedgerStoreService(path).load()),
+        snapshot_append_head=LedgerStoreService(path).append_head(),
+        created_at=CREATED_AT,
+    )
+    snapshot = reconcile_portfolio(LedgerStoreService(path).load())
+    _record_execution(
+        path,
+        proposal_id="prop-other-starter",
+        intent="starter",
+        notional_yen=snapshot.total_capital_yen * 10 // 100,
+    )
+
+    with pytest.raises(ProposalValidationError, match="starter bucket"):
+        service.decide(
+            proposal.proposal_id,
+            "approve",
+            decided_at=CREATED_AT + timedelta(hours=2),
+            snapshot=snapshot,
+            snapshot_append_head=LedgerStoreService(path).append_head(),
+        )
