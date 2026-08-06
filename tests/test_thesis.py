@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.research.decision_cli import main as decision_main
@@ -181,6 +182,43 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     assert isinstance(changed_bridge, dict)
     changed_bridge["primary_driver"] = "growth"
     assert thesis_core_hash(_document(changed)) != bridged_hash
+
+
+def test_retired_estimate_field_keeps_published_hash_and_leaves_new_thesis_unchanged() -> None:
+    without_key = _raw()
+    baseline = thesis_core_hash(_document(without_key))
+
+    published = copy.deepcopy(without_key)
+    published_estimates = published["estimates"]
+    assert isinstance(published_estimates, dict)
+    published_estimates["deep_discount_bps"] = None
+
+    # 退役前に published された thesis は key を持つ。読めて、当時の key 集合で hash される。
+    legacy_document = _document(published)
+    assert thesis_core_hash(legacy_document) != baseline
+
+    # key を持たない thesis の hash は退役の前後で変わらない。
+    assert thesis_core_hash(_document(_raw())) == baseline
+
+
+def test_retired_estimate_field_is_not_serialized_so_dump_round_trip_keeps_the_hash() -> None:
+    raw = _raw()
+    baseline = thesis_core_hash(_document(raw))
+    dumped = _document(raw).model_dump(mode="json")
+    estimates = dumped["estimates"]
+    assert isinstance(estimates, dict)
+    assert "deep_discount_bps" not in estimates
+    assert thesis_core_hash(ThesisDocument.model_validate(dumped)) == baseline
+
+
+def test_retired_estimate_field_rejects_a_value() -> None:
+    raw = _raw()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["deep_discount_bps"] = 1200
+
+    with pytest.raises(ValidationError):
+        _document(raw)
 
 
 @pytest.mark.parametrize(

@@ -409,6 +409,12 @@ class EstimatesNamespace(BaseModel):
     ]
     scenarios: tuple[ScenarioEstimate, ...]
     screening_fv_bridge: ScreeningFVBridge | None = None
+    # 指値ラダー経路と一緒に退役した field。published thesis は `thesis_core_sha256` で
+    # review と bargain assessment に束縛され payload を書き換えられないので、当時の key を
+    # 読めなくすると holding review・proposal・assessment・price watch が同時に止まる。
+    # 受けるのは null だけ。serialize からは外し、hash では「読み込んだ payload が key を
+    # 持っていた場合だけ」書き戻して当時の hash を再現する。
+    deep_discount_bps: None = Field(default=None, exclude=True)
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
     @classmethod
@@ -909,10 +915,14 @@ def thesis_core_hash(document: ThesisDocument) -> str:
         input_snapshot = payload.get("input_snapshot")
         if isinstance(input_snapshot, dict):
             input_snapshot.pop("screening_estimate", None)
-    if document.estimates.screening_fv_bridge is None:
-        estimates = payload.get("estimates")
-        if isinstance(estimates, dict):
+    estimates = payload.get("estimates")
+    if isinstance(estimates, dict):
+        if document.estimates.screening_fv_bridge is None:
             estimates.pop("screening_fv_bridge", None)
+        # 退役 field を持っていた payload だけ、当時と同じ key 集合で hash する。
+        # 持っていなかった thesis の hash は変わらない。
+        if "deep_discount_bps" in document.estimates.model_fields_set:
+            estimates["deep_discount_bps"] = None
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (OverflowError, ValueError) as error:
