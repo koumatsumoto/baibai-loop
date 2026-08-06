@@ -10,6 +10,7 @@ import copy
 import json
 import sqlite3
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,9 @@ from pydantic import ValidationError
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.position.drafts import apply_draft
 from baibai_engine.position.ledger import PortfolioLedgerDocument, reconcile_portfolio
+from baibai_engine.position.result_service import build_result_draft
 from baibai_engine.position.store import LedgerStoreService
 from baibai_engine.proposals.store import (
     PlannedLimitInput,
@@ -370,6 +373,40 @@ def test_a_starter_proposal_is_created_at_the_capped_size_and_survives_approval(
         snapshot_append_head=LedgerStoreService(path).append_head(),
     )
     assert decided.status == "approved"
+
+    # 承認で止めると、縮小 lot が ledger の注文として書けるかは未検証のまま残る。
+    # 人間が broker 結果を報告したときに通る経路まで 1 周させる。
+    execution = decided.payload["execution_proposal"]
+    assert isinstance(execution, dict)
+    orders = execution["orders"]
+    assert isinstance(orders, list)
+    order = orders[0]
+    assert isinstance(order, dict)
+    ledger_service = LedgerStoreService(path)
+    draft, event_ids = build_result_draft(
+        ledger_service,
+        service,
+        proposal_id=proposal.proposal_id,
+        status="open",
+        occurred_at=CREATED_AT + timedelta(hours=3),
+        ticker="2331",
+        quantity=int(str(order["quantity"])),
+        sector="サービス業",
+        price_guard_yen=Decimal(str(order["limit_price_yen"])),
+        expires_at=datetime.fromisoformat(str(order["expires_at"])),
+        now=CREATED_AT + timedelta(hours=4),
+    )
+
+    assert draft is not None
+    assert int(str(order["quantity"])) == 100
+    applied = apply_draft(ledger_service, draft, human_confirmed=True)
+    assert applied.event_ids == event_ids
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            "SELECT proposal_id FROM ledger_event WHERE proposal_id = ?",
+            (proposal.proposal_id,),
+        ).fetchall()
+    assert rows == [(proposal.proposal_id,)]
 
 
 def test_approval_re_measures_the_starter_bucket_after_the_proposal_was_created(
