@@ -27,6 +27,7 @@ _EVENT_RISK_TAGS = frozenset(
         "earnings_scheduled",
         "freshness_warning",
         "forecast_special_gain",
+        "forecast_full_year_loss",
         "stale_financials",
     }
 )
@@ -98,6 +99,12 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     # 会社予想 normalize (経常ベースへの丸め) へ誘導する。
     if mapping_or_empty(candidate.get("metrics")).get("forecast_special_gain_flag") is True:
         tags.append("forecast_special_gain")
+    # 会社自身が通期赤字を予想している行。赤字予想は forward PER を落として FV アンカーを
+    # 自己履歴 PBR だけにするので、収益基盤が縮んでも帳簿由来の implied upside が残る。
+    # 一過性の赤字 (引当・減損) と構造的な縮小をここでは区別できないため、除外でなく
+    # 注記にして research の一次資料読みへ渡す。
+    if mapping_or_empty(candidate.get("metrics")).get("forecast_full_year_loss_flag") is True:
+        tags.append("forecast_full_year_loss")
     # 発表は済んだのに store の開示がそこまで届いていない窓。この行の財務・FV アンカー・
     # E[r] は旧四半期のままなので、一次開示を先に読ませる。
     if mapping_or_empty(candidate.get("metrics")).get("stale_fin_flag") is True:

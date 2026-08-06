@@ -137,6 +137,7 @@ def candidate_metrics_map(
         "bs_carry_forward_fields": financial.bs_carry_forward_fields,
         "bs_carry_forward_lag_days": financial.bs_carry_forward_lag_days,
         "forecast_special_gain_flag": financial.forecast_special_gain_flag,
+        "forecast_full_year_loss_flag": financial.forecast_full_year_loss_flag,
         "dps_actual_annual": financial.dps_actual_annual,
         "dps_forecast_annual": financial.dps_forecast_annual,
         "dividend_yield": financial.dividend_yield,

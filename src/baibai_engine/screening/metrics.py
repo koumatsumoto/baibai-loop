@@ -739,6 +739,13 @@ def _build_financial_snapshot(
         and forecast_ordinary_profit is not None
         and forecast_profit > forecast_ordinary_profit
     )
+    # 会社予想の通期赤字。片方しか開示されない期があるので and でなく or で見る。予想が
+    # 1 つも無い行は「黒字予想」ではないので False のまま置く (欠損と黒字を畳まない)。
+    # 赤字予想は forecast EPS を負にして forward PER を落とし、FV アンカーを自己履歴 PBR
+    # だけにする。その倍率は黒字だった時代のものなので、判断前に事実として出す。
+    forecast_full_year_loss_flag = (forecast_profit is not None and forecast_profit < 0) or (
+        forecast_ordinary_profit is not None and forecast_ordinary_profit < 0
+    )
     # J-Quants の EPS (eps_ttm field) は期中累計で、年度途中の四半期開示では 12 か月分に
     # ならない (Q1 開示だと 3 か月分)。sales / cfo と同じ rolling 合成
     # (直近累計 + 前期通期 - 前年同期間累計) で TTM に直し、通期開示のときだけ
@@ -893,6 +900,7 @@ def _build_financial_snapshot(
         bs_carry_forward_fields=bs_carry_forward_fields or None,
         bs_carry_forward_lag_days=bs_carry_forward_lag_days,
         forecast_special_gain_flag=forecast_special_gain_flag,
+        forecast_full_year_loss_flag=forecast_full_year_loss_flag,
     )
 
 

@@ -170,6 +170,12 @@ class FinancialSnapshot:
     # 純利益>経常は特別益の存在をほぼ確定する。forward PER / 予想配当 / E[r] carry が
     # 一時益で嵩上げされた value trap を判断前に表面化させる warning (rank・E[r] は変えない)。
     forecast_special_gain_flag: bool = False
+    # 会社自身が通期の経常利益または当期純利益を赤字で予想している行の annotation。
+    # 赤字予想は forecast EPS を負にするので forward PER が引けず、FV アンカーは自己履歴
+    # PBR へ落ちる。その PBR レンジは黒字だった時代に市場が許容した倍率なので、収益基盤が
+    # 構造的に縮んだ銘柄では帳簿だけが残って implied upside が膨らむ。事実を機械行へ出して
+    # 読み手に渡す warning であり、rank・E[r] は変えない。
+    forecast_full_year_loss_flag: bool = False
 
     @field_validator(
         "per_forward",

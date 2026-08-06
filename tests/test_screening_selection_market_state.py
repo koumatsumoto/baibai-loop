@@ -225,6 +225,34 @@ class SelectionMarketStateTests(unittest.TestCase):
         assert isinstance(longlist, list)
         self.assertIn("forecast_special_gain", longlist[0]["event_warnings"])
 
+    def test_forecast_full_year_loss_flag_becomes_risk_tag(self) -> None:
+        # 会社自身の通期赤字予想は forward PER を落として FV アンカーを自己履歴 PBR だけに
+        # する。事実を triage と event_warnings に出し、rank と E[r] は変えない。
+        loss_hit = dict(_CALM_CANDIDATE)
+        loss_hit["metrics"] = {
+            "ocf_yield": 0.12,
+            "net_cash_to_market_cap": 0.3,
+            "er_annual": 0.05,
+            "forecast_full_year_loss_flag": True,
+        }
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=(candidate_record_from_mapping(loss_hit),),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+            longlist_top=10,
+        )
+        item = self._recommendations(payload)[0]
+        self.assertIn("forecast_full_year_loss", item["risk_tags"])
+        longlist = payload["longlist"]
+        assert isinstance(longlist, list)
+        self.assertIn("forecast_full_year_loss", longlist[0]["event_warnings"])
+
     def test_sweep_payload_records_market_regime(self) -> None:
         payload = build_selection_sweep_payload(
             asof_date=_ASOF,
