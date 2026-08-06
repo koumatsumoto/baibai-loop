@@ -75,14 +75,22 @@ def verify_screening_sqlite_coverage(
     try:
         conn = _connect_readonly(sqlite_path)
         try:
-            integrity_row = conn.execute("PRAGMA integrity_check").fetchone()
+            # `quick_check` rather than `integrity_check`: on the multi-GB market
+            # store the deep check costs ~11s against ~2s, and the batch pays it
+            # twice (once before `bootstrap-cache`, once on the recheck). What the
+            # deep check adds over the quick one is index-content cross-checking,
+            # and a store arriving from R2 has already passed `quick_check` on
+            # download. Index damage that survives both still surfaces here, as a
+            # read result: the density checks below count usable rows through the
+            # same indexes the screen reads.
+            integrity_row = conn.execute("PRAGMA quick_check").fetchone()
             if integrity_row is None or integrity_row[0] != "ok":
                 reason = integrity_row[0] if integrity_row else "<no result>"
                 return (
                     CacheCoverageIssue(
                         source="sqlite",
                         requirement=sqlite_path.as_posix(),
-                        reason=f"SQLite integrity_check failed: {reason}",
+                        reason=f"SQLite quick_check failed: {reason}",
                     ),
                 )
             schema_issue = _schema_version_issue(conn, sqlite_path)

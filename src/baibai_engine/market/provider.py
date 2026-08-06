@@ -34,6 +34,8 @@ from baibai_engine.market.sqlite import (
     store_jquants_market_calendar,
 )
 from baibai_engine.market.store import (
+    count_daily_bars,
+    daily_bars_covered,
     latest_daily_bar_date,
     latest_stored_daily_bar_date,
     read_daily_bars,
@@ -74,31 +76,52 @@ class JQuantsMarketProvider:
         self._sqlite_path = Path(sqlite_path) if sqlite_path is not None else None
         self._cache_only = cache_only
 
+    def _ensure_eq_bars_daily_range(self, start: date, end: date) -> None:
+        """Bring the SQLite cache to where it can serve `[start, end]`.
+
+        The whole fetch decision lives here so the row-returning read and the
+        count-only ensure below cannot drift apart. Coverage is asked through
+        `daily_bars_covered`, which reads the stored dates rather than building a
+        model per row: the answer is one boolean and the window is millions of rows.
+        """
+        if self._sqlite_path is None:
+            return
+        if daily_bars_covered(self._sqlite_path, start, end):
+            latest = latest_daily_bar_date(self._sqlite_path, start, end)
+            if self._cache_only or latest is None or latest >= end:
+                return
+            stored_latest = latest_stored_daily_bar_date(self._sqlite_path)
+            if stored_latest is not None and end < stored_latest:
+                # The window ends before days the store already holds, so the
+                # edge gap is a closed market rather than a tail the provider
+                # has since published. Reading it live would delete and rewrite
+                # a historical cross-section on every pass over a past window.
+                return
+            # The coverage check tolerates a holiday-sized edge gap, so an
+            # incremental asof can look covered while its own bar is not yet
+            # stored. On a fetch-capable run, refresh the tail from the last
+            # stored day so newly published trading days are picked up; a
+            # cache-only `screening run` trusts the validated coverage instead.
+            self._load_or_fetch_range("get_eq_bars_daily_range", latest, end)
+            return
+        self._raise_if_cache_only("jquants_daily_bars", f"{start.isoformat()}..{end.isoformat()}")
+        self._fetch_missing_range_chunks("get_eq_bars_daily_range", start, end)
+
+    def ensure_eq_bars_daily_range(self, start: date, end: date) -> int:
+        """Cover `[start, end]` and answer how many rows the store holds for it.
+
+        Bootstrap and backfill want the window filled and a number to report; they
+        never look at a bar. Handing them the models instead costs ~13s per call on
+        the production window and is discarded a line later.
+        """
+        self._ensure_eq_bars_daily_range(start, end)
+        if self._sqlite_path is None:
+            return len(self._load_or_fetch_range("get_eq_bars_daily_range", start, end))
+        return count_daily_bars(self._sqlite_path, start, end)
+
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
         if self._sqlite_path is not None:
-            cached = read_daily_bars(self._sqlite_path, start, end)
-            if cached is not None:
-                latest = latest_daily_bar_date(self._sqlite_path, start, end)
-                if self._cache_only or latest is None or latest >= end:
-                    return cached
-                stored_latest = latest_stored_daily_bar_date(self._sqlite_path)
-                if stored_latest is not None and end < stored_latest:
-                    # The window ends before days the store already holds, so the
-                    # edge gap is a closed market rather than a tail the provider
-                    # has since published. Reading it live would delete and rewrite
-                    # a historical cross-section on every pass over a past window.
-                    return cached
-                # `read_daily_bars` tolerates a holiday-sized edge gap, so an
-                # incremental asof can look covered while its own bar is not yet
-                # stored. On a fetch-capable run, refresh the tail from the last
-                # stored day so newly published trading days are picked up; a
-                # cache-only `screening run` trusts the validated coverage instead.
-                self._load_or_fetch_range("get_eq_bars_daily_range", latest, end)
-                refreshed = read_daily_bars(self._sqlite_path, start, end)
-                return refreshed if refreshed is not None else cached
-        self._raise_if_cache_only("jquants_daily_bars", f"{start.isoformat()}..{end.isoformat()}")
-        if self._sqlite_path is not None:
-            self._fetch_missing_range_chunks("get_eq_bars_daily_range", start, end)
+            self._ensure_eq_bars_daily_range(start, end)
             cached = read_daily_bars(self._sqlite_path, start, end)
             if cached is not None:
                 return cached
@@ -106,6 +129,7 @@ class JQuantsMarketProvider:
                 "SQLite cache remained incomplete after fetching jquants_daily_bars "
                 f"for {start.isoformat()}..{end.isoformat()}"
             )
+        self._raise_if_cache_only("jquants_daily_bars", f"{start.isoformat()}..{end.isoformat()}")
         records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)
         return [bar for record in records if (bar := normalize_daily_bar(record)) is not None]
 
@@ -143,6 +167,20 @@ class JQuantsMarketProvider:
                 time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
         return records
 
+    def _missing_subranges(
+        self, method: str, start: date, end: date
+    ) -> tuple[tuple[date, date], ...]:
+        """Which parts of the request a fetch still has to cover.
+
+        The base answer is the whole request, because bars decide chunk by chunk
+        from the stored rows and narrowing here would only repeat that test.
+        Sources whose completeness lives in `source_coverage` override this: their
+        request window is anchored on the as-of and slides a day at a time, so the
+        chunk grid slides with it and the last chunk re-fetches up to a month to
+        add a single day.
+        """
+        return ((start, end),)
+
     def _fetch_missing_range_chunks(self, method: str, start: date, end: date) -> None:
         if self._sqlite_path is None:
             return
@@ -151,22 +189,32 @@ class JQuantsMarketProvider:
             self._load_or_fetch(method, start_dt=start, end_dt=end)
             return
 
-        cursor = start
-        while cursor <= end:
-            chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
-            did_fetch = False
-            if not self._range_chunk_is_cached(method, cursor, chunk_end):
-                self._load_or_fetch(method, start_dt=cursor, end_dt=chunk_end)
-                did_fetch = True
-            cursor = chunk_end + timedelta(days=1)
-            if did_fetch and cursor <= end:
-                time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
+        # Pace provider fetches to avoid tripping J-Quants rate limits. The wait is
+        # taken before the next chunk rather than after the previous one so a run
+        # that ends on a fetch does not sleep on its way out.
+        pending_pause = False
+        for subrange_start, subrange_end in self._missing_subranges(method, start, end):
+            cursor = subrange_start
+            while cursor <= subrange_end:
+                chunk_end = min(cursor + timedelta(days=chunk_days - 1), subrange_end)
+                if not self._range_chunk_is_cached(method, cursor, chunk_end):
+                    if pending_pause:
+                        time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
+                    self._load_or_fetch(method, start_dt=cursor, end_dt=chunk_end)
+                    pending_pause = True
+                cursor = chunk_end + timedelta(days=1)
 
     def _range_chunk_is_cached(self, method: str, start: date, end: date) -> bool:
+        """Skip a chunk the store already holds, without materialising it.
+
+        The truth source stays what it was per method: bars are covered when the
+        stored dates say so, never when `source_coverage` says so. A store whose
+        bookkeeping has holes but whose rows are complete must not be re-fetched.
+        """
         if self._sqlite_path is None:
             return False
         if method == "get_eq_bars_daily_range":
-            return read_daily_bars(self._sqlite_path, start, end) is not None
+            return daily_bars_covered(self._sqlite_path, start, end)
         return False
 
     def _load_or_fetch(

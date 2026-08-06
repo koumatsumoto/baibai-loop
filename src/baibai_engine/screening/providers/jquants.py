@@ -9,7 +9,7 @@ extending `JQuantsMarketProvider`.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from pydantic import field_validator
@@ -285,12 +285,68 @@ class JQuantsProvider(JQuantsMarketProvider):
             and summary.fiscal_period == "FY"
         ]
 
+    def refresh_fin_summary_range(
+        self, start: date, end: date, *, revision_overlap_days: int
+    ) -> int:
+        """Bring the summaries store current for `[start, end]` and count what it holds.
+
+        Two things are fetched: what the coverage says is missing, and the trailing
+        ``revision_overlap_days`` regardless of coverage. The overlap is the only
+        way a filing the provider published late — for a date already fetched — ever
+        lands, and today that protection exists only as an accident of the sliding
+        chunk grid, which re-reads between 1 and 31 days depending on the as-of.
+
+        The two are merged before anything is requested, so a stop longer than the
+        overlap costs the outage and not the outage plus a week. Asking once, here,
+        is also what keeps the 730-day and 2,200-day windows of the same source from
+        each paying for the same trailing week.
+        """
+        window = f"{start.isoformat()}..{end.isoformat()}"
+        if self._sqlite_path is None:
+            return len(self._load_or_fetch_range("get_fin_summary_range", start, end))
+        self._raise_if_cache_only("jquants_fin_summaries", window)
+        from baibai_engine.market.sqlite import merge_date_ranges
+
+        from ..sqlite_reader import count_fin_summaries
+
+        overlap_start = max(start, end - timedelta(days=revision_overlap_days))
+        planned = merge_date_ranges(
+            [*self._missing_subranges("get_fin_summary_range", start, end), (overlap_start, end)]
+        )
+        for subrange_start, subrange_end in planned:
+            self._load_or_fetch_range("get_fin_summary_range", subrange_start, subrange_end)
+        return count_fin_summaries(self._sqlite_path, start, end)
+
     def _range_chunk_is_cached(self, method: str, start: date, end: date) -> bool:
         if self._sqlite_path is not None and method == "get_fin_summary_range":
-            from ..sqlite_reader import read_fin_summaries
+            from ..sqlite_reader import fin_summaries_covered
 
-            return read_fin_summaries(self._sqlite_path, start, end) is not None
+            return fin_summaries_covered(self._sqlite_path, start, end)
         return super()._range_chunk_is_cached(method, start, end)
+
+    def _missing_subranges(
+        self, method: str, start: date, end: date
+    ) -> tuple[tuple[date, date], ...]:
+        """Ask the summaries store what it lacks instead of walking the request.
+
+        The request window is ``asof - N days``, so its chunk grid shifts by a day
+        every run and the chunk holding the as-of covers up to 31 days that are
+        already stored. J-Quants expands a range into per-day calls, so that grid
+        costs a month of calls to add one day. Reading the coverage complement
+        instead makes the fetch as wide as the gap: one day on a daily run, exactly
+        the outage after a stop, and the full window on an empty store.
+        """
+        if self._sqlite_path is None or method != "get_fin_summary_range":
+            return super()._missing_subranges(method, start, end)
+        from baibai_engine.market.sqlite import connect_current, missing_intervals
+
+        conn = connect_current(self._sqlite_path)
+        if conn is None:
+            return super()._missing_subranges(method, start, end)
+        try:
+            return missing_intervals(conn, "jquants_fin_summaries", start, end)
+        finally:
+            conn.close()
 
     def _store_records(
         self,

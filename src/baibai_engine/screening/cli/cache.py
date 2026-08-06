@@ -685,6 +685,19 @@ def backfill_history_command(
 # hold at least that many weeks. The slack absorbs the weeks the exchange skips.
 _WEEKLY_MARGIN_BOOTSTRAP_DAYS = 230
 
+FIN_SUMMARY_REVISION_OVERLAP_DAYS = 7
+"""How far back a bootstrap re-reads financial summaries it already has.
+
+A correction is disclosed on its own date and arrives as a new row, so past days
+do not need re-reading for that. What this window catches is a filing the provider
+publishes for a date the batch has already fetched. One week spans a full
+disclosure cadence including a weekend and a closure.
+
+The store's own coverage is what decides how far back a *gap* is fetched, so this
+window is never the thing that recovers a stopped batch — using it that way would
+silently miss everything older than seven days the moment an outage ran longer.
+"""
+
 BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT = 3
 """連続失敗で打ち切る本数。
 
@@ -779,9 +792,11 @@ def bootstrap_cache_command(
             file=out,
             flush=True,
         )
-        bars = providers.jquants.get_eq_bars_daily_range(bars_start, asof_date)
+        # `ensure_*` rather than `get_*`: the window is over three million rows and
+        # the only thing wanted from it here is the count on the next line.
+        bar_rows = providers.jquants.ensure_eq_bars_daily_range(bars_start, asof_date)
         print(
-            f"bootstrap-cache jquants daily_bars: {len(bars)} row(s)",
+            f"bootstrap-cache jquants daily_bars: {bar_rows} row(s)",
             file=out,
             flush=True,
         )
@@ -803,9 +818,16 @@ def bootstrap_cache_command(
             file=out,
             flush=True,
         )
-        summaries = providers.jquants.get_fin_summary_range(fin_start, asof_date)
+        # The trailing window is re-read here and nowhere else in the run: the
+        # normalized-profit call below shares this source, and asking it there too
+        # would buy the same week twice.
+        summary_rows = providers.jquants.refresh_fin_summary_range(
+            fin_start,
+            asof_date,
+            revision_overlap_days=FIN_SUMMARY_REVISION_OVERLAP_DAYS,
+        )
         print(
-            f"bootstrap-cache jquants fin_summaries: {len(summaries)} row(s)",
+            f"bootstrap-cache jquants fin_summaries: {summary_rows} row(s)",
             file=out,
             flush=True,
         )

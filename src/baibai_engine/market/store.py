@@ -75,6 +75,42 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     return bars
 
 
+def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
+    """Answer whether the cache can serve `[start, end]` without building the rows.
+
+    `read_daily_bars` answers the same question, but only as a side effect of
+    materialising every row in the window. A 1,200-day window is ~3.4M rows, and
+    the callers that only need the yes/no (the fetch planner, the chunk skip test)
+    would pay for a model per row to read one boolean.
+    """
+    if not sqlite_path.exists():
+        return False
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return False
+    try:
+        return daily_bars_covered_by_data(conn, start, end)
+    finally:
+        conn.close()
+
+
+def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
+    """Count stored bar rows in `[start, end]`; 0 when the store cannot be read."""
+    if not sqlite_path.exists():
+        return 0
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ?",
+            (start.isoformat(), end.isoformat()),
+        ).fetchone()
+    finally:
+        conn.close()
+    return int(row[0] or 0) if row is not None else 0
+
+
 def read_adjustment_factor_bars(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsDailyBar] | None:
