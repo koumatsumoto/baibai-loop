@@ -23,6 +23,17 @@ push の経路は 2 本ある。run が起動すれば run 自身が結果を通
 
 失敗 run は publish が skip され正本は変わらない。復旧後の再実行は `gh workflow run cloud-daily-batch`（必要なら `MANUAL_ASOF` dispatch input）。**古い workflow revision の rerun は使わない**（main の現行コードで dispatch し直す）。復旧 dispatch が成功すれば watchdog の窓に入るので、当日中の復旧なら警報は出ない。
 
+## 研究済み FV への価格到達（毎営業日）
+
+深掘りを終えた lane は、buy / defer / reject を問わず研究 FV を持つ。価格がそこへ降りてきたことに気づく経路が無いと、一次情報まで降りて出した FV が誰も読まない値になる。batch 監視と同じ頻度で次を回す。
+
+```bash
+uv run python -m tools.research_price_watch \
+  --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --asof <最新完全営業日>
+```
+
+`triggered` に行が出たら、その ticker は **終値が研究 FV 以下**である。これは注文ではなく「読み直す理由が発生した」の合図なので、`research` skill の再評価（保有なら `holding-review`）へ入り、thesis の前提が今も成立するかを確かめてから plan-limit を起こす。`rows[].thesis_as_of` が古い lane は `re_research_required` が立つので、価格だけを見て発注しない。
+
 ## Store 同期（`tools/cloud/r2_transfer.sh`）
 
 | store | 正本 | 転送規律 |

@@ -120,16 +120,10 @@ def build_watch(
     asof: date,
 ) -> dict[str, object]:
     latest = _load_latest_promoted_theses(app_db_path, asof=asof)
-    watched = {
-        ticker: candidate
-        for ticker, candidate in latest.items()
-        if candidate.document.judgment.recommendation in {"buy", "defer"}
-    }
-    excluded_reject = sorted(
-        ticker
-        for ticker, candidate in latest.items()
-        if candidate.document.judgment.recommendation == "reject"
-    )
+    # reject も watch する。深掘りの結論は「この価格では買わない」であって「二度と見ない」
+    # ではなく、bargain assessment は研究 FV を再評価条件として名指ししている。除外すると
+    # 一次情報まで降りて出した FV が、価格が降りてきたときに誰も読まない値になる。
+    watched = dict(latest)
 
     ledger = LedgerStoreService(app_db_path).load()
     state = replay_events_through(ledger.events, ledger.as_of)
@@ -174,10 +168,20 @@ def build_watch(
             "watched_tickers": sorted(watched),
             "reservation_history_tickers": sorted(reservation_tickers),
             "ledger_only_tickers": sorted(reservation_tickers - all_thesis_tickers),
-            "excluded_latest_reject_tickers": excluded_reject,
             "resolved_count": len(resolved),
             "unresolved_count": len(unresolved),
         },
+        "triggered": [
+            {
+                "ticker": row["ticker"],
+                "current_close_yen": row["current_close_yen"],
+                "thesis_fair_value_yen": row["thesis_fair_value_yen"],
+                "thesis_recommendation_at_as_of": row["thesis_recommendation_at_as_of"],
+                "current_portfolio_status": row["current_portfolio_status"],
+            }
+            for row in resolved
+            if row["fair_value_reached"]
+        ],
         "diagnostics": {
             "re_research_required_for_all_rows": True,
             "decision_status": "not_evaluated",
@@ -447,6 +451,9 @@ def _watch_row(
         "close_as_of": observation.close_as_of.isoformat() if observation.close_as_of else None,
         "thesis_fair_value_yen": _decimal_number(fair_value),
         "thesis_fv_gap_pct": gap,
+        # 終値が研究 FV 以下へ降りてきたか。買い注文ではなく「読み直す理由が発生した」の
+        # 合図であり、指値も数量もここでは決めない。
+        "fair_value_reached": unresolved is None and gap is not None and gap >= 0,
         "thesis_entry_price_basis_yen": _decimal_number(thesis.estimates.entry_price_basis_yen),
         "thesis_recommendation_at_as_of": thesis.judgment.recommendation,
         "thesis_as_of": thesis.input_snapshot.as_of.isoformat(),
