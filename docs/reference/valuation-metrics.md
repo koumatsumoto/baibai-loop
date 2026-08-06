@@ -119,18 +119,22 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 機械 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、buyback 側は過去 1 年の株数変化である。取得枠を消化し終えた会社もこの成分を持つため、carry を「これから受け取る現金還元」と読むと過大評価になる。
 
-EDINET の自己株券買付状況報告書（様式コード 220、訂正 230）は金商法 24 条の 6 第 1 項により取得期間中は毎月提出されるので、直近提出の有無が取得枠の現在状態の観測になる。`buyback_authorization_status` は次の 4 値を取り、併記する `buyback_status_latest_filing_date` / `buyback_status_filing_age_days` / `buyback_status_observed_from` を読み手が自分の閾値で使う。
+EDINET の自己株券買付状況報告書（様式コード 220、訂正 230）は金商法 24 条の 6 第 1 項により取得期間中は毎月提出されるので、提出の有無と齢が、取得枠がいつまで在ったかの観測になる。`buyback_authorization_status` は次の 4 値を取り、併記する `buyback_status_latest_filing_date` / `buyback_status_filing_age_days` / `buyback_status_observed_from` を読み手が自分の閾値で使う。
+
+値は**観測そのもの**を表し、枠が今も在るかの推論ではない。
 
 | 値 | 意味 |
 | --- | --- |
-| `active` | 直近 45 日以内に提出がある。報告月の翌月 15 日までという提出期限に対し、月初の as-of で前月分が未提出でも前々月分が窓に入る幅である |
-| `lapsed` | 観測窓に提出はあるが 45 日より古い |
-| `none` | 観測窓 365 日に提出が 1 件も無い |
+| `recent_filing` | 直近 45 日以内に提出がある。報告月の翌月 15 日までという提出期限に対し、月初の as-of で前月分が未提出でも前々月分が窓に入る幅である。**取得期間が終了した月の報告書もここに入る** |
+| `stale_filing` | 観測窓に提出はあるが 45 日より古い |
+| `no_filing` | 観測窓 365 日に提出が 1 件も無い |
 | `unknown` | store の提出観測が as-of から 365 日を覆えていない。historical backfill と、EDINET 提出行の保存開始前の as-of はここに入る |
+
+**`recent_filing` は「今も枠が在る」を意味しない。** 提出は報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。6088 は 2026-08-05 提出（齢 0 日）だが、その中身は取得期間 2026-05-11〜2026-07-31・金額進捗 99.99% で、同日に取得終了が開示されている。残枠と取得期間の終了日は本 annotation では読まないので、carry を forward の現金還元として扱うなら一次開示で確認する。
 
 観測窓は `edinet_document_lists` の取得記録ではなく提出行そのものの最古日から取る。文書一覧を fetch していても当該 doc type を保存していなかった期間があり、取得記録を窓とみなすと「提出なし」を捏造するためである。
 
-**この annotation は ranking・gate・E[r] を変えない。** 較正リプレイでは単発で終わった株数減少も母集団を上回るため、`lapsed` / `none` を自動除外や carry 減衰の根拠にしない（[診断](../../reports/2026-08-06-bargain-capture-diagnosis.md) §6.1）。
+**この annotation は ranking・gate・E[r] を変えない。** 較正リプレイでは単発で終わった株数減少も母集団を上回るため、`stale_filing` / `no_filing` を自動除外や carry 減衰の根拠にしない（[診断](../../reports/2026-08-06-bargain-capture-diagnosis.md) §6.1）。
 
 ## 8. 業種中央値の算出
 

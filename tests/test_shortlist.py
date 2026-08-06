@@ -84,7 +84,7 @@ def _longlist_row(ticker: str, rank: int) -> dict[str, object]:
         "selection_reasons": ["valuation_reversion"],
         # 判断時の入力であって焼き込み対象ではない。allowlist が落とすことを下の test が固定する。
         "buyback_authorization": {
-            "status": "lapsed",
+            "status": "stale_filing",
             "latest_filing_date": "2026-04-13",
             "filing_age_days": 113,
             "observed_from": "2025-08-01",

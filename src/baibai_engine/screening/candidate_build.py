@@ -178,9 +178,10 @@ def candidate_metrics_map(
         "er_model_version": estimate.model_version if estimate else None,
         "er_unit": estimate.unit if estimate else None,
         "er_assumptions": estimate.assumptions if estimate else None,
-        # 自己株式取得枠の現在状態 (buyback_authorization.py)。carry の buyback 成分は
-        # 過去 1 年の株数変化なので、枠が続いているかは別の観測でしか分からない。
-        # annotation であり ranking・gate・E[r] へは入らない。
+        # 自己株券買付状況報告書の提出観測 (buyback_authorization.py)。carry の buyback 成分は
+        # 過去 1 年の株数変化なので、枠がいつまで在ったかは別の観測でしか分からない。値は提出の
+        # 有無と齢そのものであり、枠が今も在るかの推論ではない。annotation であり
+        # ranking・gate・E[r] へは入らない。
         "buyback_authorization_status": (
             None if buyback_authorization is None else buyback_authorization.status
         ),

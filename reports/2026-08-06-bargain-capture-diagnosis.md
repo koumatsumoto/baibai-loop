@@ -105,7 +105,7 @@ cohort 差の中央値は 3y +11.71pt、5y +9.00pt。COVID entry（as-of 2019-11
 
 ### 6.1 buyback carry の「残像」（#811 の前提）
 
-carry の buyback 成分は `clip(-net_share_change_yoy, ±5%)` で、取得枠の現在状態を見ない。EDINET 自己株券買付状況報告書（doc_type 220、`data/screening/market.sqlite` に 2025-08-01 以降 6,319 件）で as-of 2026-08-04 の状態を突き合わせると、8/4 shortlist 20 銘柄のうち 16 銘柄が clip 5% に貼り付き、**12 銘柄は buyback carry > 0.5% でありながら直近 75 日に 220 提出が無い**（4887 は 12 か月窓で提出ゼロ）。流動性通過の全候補でも、buyback carry > 0.5% の 291 銘柄中 active は 145（50%）にとどまる。
+carry の buyback 成分は `clip(-net_share_change_yoy, ±5%)` で、取得枠がいつまで在ったかを見ない。EDINET 自己株券買付状況報告書（doc_type 220、`data/screening/market.sqlite` に 2025-08-01 以降 6,319 件）で as-of 2026-08-04 の提出を突き合わせると、8/4 shortlist 20 銘柄のうち 16 銘柄が clip 5% に貼り付き、**12 銘柄は buyback carry > 0.5% でありながら直近 75 日に 220 提出が無い**（4887 は 12 か月窓で提出ゼロ）。流動性通過の全候補でも、buyback carry > 0.5% の 291 銘柄中で直近 75 日に提出があるのは 145（50%）にとどまる。
 
 ここまでは #811 の観察どおりである。**しかし forward return は残像を支持しない。**
 

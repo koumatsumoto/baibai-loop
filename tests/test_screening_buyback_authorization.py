@@ -4,8 +4,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.screening.buyback_authorization import (
-    ACTIVE_WINDOW_DAYS,
     OBSERVATION_WINDOW_DAYS,
+    RECENT_FILING_WINDOW_DAYS,
     build_buyback_authorization,
     index_buyback_status_filings,
     read_buyback_status_filings,
@@ -33,34 +33,34 @@ def _document(
     }
 
 
-def test_a_recent_filing_reads_as_an_authorization_that_is_still_running() -> None:
+def test_a_filing_inside_the_monthly_cadence_reads_as_a_recent_filing() -> None:
     annotation = build_buyback_authorization(
         asof=ASOF,
         latest_filing_date=ASOF - timedelta(days=30),
         observed_from=COVERED_FROM,
     )
 
-    assert annotation.status == "active"
+    assert annotation.status == "recent_filing"
     assert annotation.latest_filing_age_days == 30
 
 
-def test_a_filing_older_than_the_monthly_cadence_reads_as_lapsed() -> None:
+def test_a_filing_older_than_the_monthly_cadence_reads_as_a_stale_filing() -> None:
     annotation = build_buyback_authorization(
         asof=ASOF,
-        latest_filing_date=ASOF - timedelta(days=ACTIVE_WINDOW_DAYS + 1),
+        latest_filing_date=ASOF - timedelta(days=RECENT_FILING_WINDOW_DAYS + 1),
         observed_from=COVERED_FROM,
     )
 
-    assert annotation.status == "lapsed"
-    assert annotation.latest_filing_age_days == ACTIVE_WINDOW_DAYS + 1
+    assert annotation.status == "stale_filing"
+    assert annotation.latest_filing_age_days == RECENT_FILING_WINDOW_DAYS + 1
 
 
-def test_no_filing_inside_a_covered_window_reads_as_none() -> None:
+def test_an_absent_filing_inside_a_covered_window_reads_as_no_filing() -> None:
     annotation = build_buyback_authorization(
         asof=ASOF, latest_filing_date=None, observed_from=COVERED_FROM
     )
 
-    assert annotation.status == "none"
+    assert annotation.status == "no_filing"
     assert annotation.latest_filing_date is None
 
 
@@ -88,7 +88,7 @@ def test_a_filing_dated_after_the_asof_is_not_treated_as_current() -> None:
         observed_from=COVERED_FROM,
     )
 
-    assert annotation.status == "none"
+    assert annotation.status == "no_filing"
 
 
 def test_the_index_keeps_the_newest_filing_and_drops_rows_without_a_security_code() -> None:
@@ -222,7 +222,7 @@ def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
             "metrics": {
                 "ocf_yield": 0.11,
                 "er_annual": 0.09,
-                "buyback_authorization_status": "lapsed",
+                "buyback_authorization_status": "stale_filing",
                 "buyback_status_latest_filing_date": "2026-04-13",
                 "buyback_status_filing_age_days": 113,
                 "buyback_status_observed_from": "2025-08-01",
@@ -243,11 +243,11 @@ def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
     )
 
     recommendation = payload["recommendations"][0]
-    assert recommendation["buyback_authorization_status"] == "lapsed"
+    assert recommendation["buyback_authorization_status"] == "stale_filing"
     assert recommendation["buyback_status_filing_age_days"] == 113
     longlist_row = payload["longlist"][0]
     assert longlist_row["buyback_authorization"] == {
-        "status": "lapsed",
+        "status": "stale_filing",
         "latest_filing_date": "2026-04-13",
         "filing_age_days": 113,
         "observed_from": "2025-08-01",
