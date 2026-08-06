@@ -35,6 +35,8 @@ description: 買い機会の発見と絞り込み。screening run → select →
    coverage が future-dated / stale JPX なら停止（historical backfill 以外で `--allow-stale-jpx` を使わない）。
 2. `uv run baibai-engine screening run --asof <ASOF>` → `run_revision_id` を保持。
 3. `uv run baibai-engine screening select --asof <ASOF> --run-revision-id <ID> --longlist-top 20 --output-path <workdir>/selection.yaml` → `selection_id` を保持。longlist 20 件は点検 view であり全件深掘りの命令ではない。`--longlist-top` は publish 時の機械行焼き込みの入力でもあるので省略しない（省略すると run が prune された後にレビュー面の機械値が消える）。
+3.5. **供給文脈**: `uv run python -m tools.measure_supply_context` を回し、当日 selection 上位 5 の平均 E[r] が 80 か月 panel の中でどこにいるかと、最新月末 panel 基準の hurdle 超え件数を控える。cycle が購入ゼロで終わったときに「市況で候補が薄いのか、pipeline が拾えていないのか」を分ける座標なので、**2 つを 1 語へ畳まず両方を報告へ載せる**。逆を向くことは普通に起きる。
+
 4. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 longlist の top-N なので、重なり率をこの 2 つの間で比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
 5. **開示スキャン**: selected 候補（full review では全候補）の直近開示をタイトルレベルで確認し、as-of 財務に無い material 開示（業績修正・資本政策・TOB 等）を narrative の `why` / `counter` へ反映する。
 6. **annotation 消化**（不変条件: 判断面へ annotation を足す変更は、この表へ消化規則を同時に足す）:
