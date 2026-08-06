@@ -298,27 +298,55 @@ ComparisonName = Literal[
 ]
 
 
+def _resolved_asof_range(rows: Sequence[PanelRow], horizon: str) -> Mapping[str, object]:
+    """その horizon が解決している as-of の範囲と件数。
+
+    forward 窓が長いほど解決済み as-of は古い側へ寄る。5y は entry がほぼ 1 つの局面に
+    偏るので、範囲を出さずに cohort 数だけを見ると独立確認に見えてしまう。
+    """
+
+    asofs = sorted({row.asof for row in rows if horizon in row.forward})
+    if not asofs:
+        return {"asof_start": None, "asof_end": None, "asof_count": 0}
+    return {"asof_start": asofs[0], "asof_end": asofs[-1], "asof_count": len(asofs)}
+
+
 def build_measurement(
     *,
     calibration_dir: Path,
     horizons: Sequence[str],
     er_threshold: float,
+    asof_from: str | None = None,
+    asof_to: str | None = None,
 ) -> Mapping[str, object]:
     for horizon in horizons:
         if horizon not in HORIZON_YEARS:
             raise SignalCohortMeasurementError(f"unsupported horizon: {horizon}")
     forward = _load_forward_returns(calibration_dir, horizons)
     rows = _load_panel(calibration_dir, forward)
+    if asof_from is not None:
+        rows = [row for row in rows if row.asof >= asof_from]
+    if asof_to is not None:
+        rows = [row for row in rows if row.asof <= asof_to]
+    if not rows:
+        raise SignalCohortMeasurementError("the requested as-of window carries no panel rows")
     asofs = sorted({row.asof for row in rows})
     return {
         "kind": "signal-cohort-measurement",
         "calibration_dir": str(calibration_dir),
         "metric_basis": "price_return_only",
         "population": "liquidity_passing_panel_rows",
+        # cohort 比較は両群がこの件数を満たす as-of だけを数える。候補が薄い月は
+        # treatment が痩せて落ちるため、閾値そのものが標本を選ぶ。読むときは併記する。
+        "min_group_rows": MIN_GROUP_ROWS,
+        "asof_window_requested": {"from": asof_from, "to": asof_to},
         "panel_asof_start": asofs[0],
         "panel_asof_end": asofs[-1],
         "panel_asof_count": len(asofs),
         "panel_rows": len(rows),
+        "resolved_asof_range": {
+            horizon: _resolved_asof_range(rows, horizon) for horizon in horizons
+        },
         "comparisons": {
             "high_estimate": [
                 _high_estimate_comparison(rows, horizon, er_threshold=er_threshold)
@@ -335,6 +363,14 @@ def build_measurement(
             "price-only であり配当を含まない。",
             "解決した forward だけを数える。廃止で系列が切れた銘柄は母集団から落ちる。",
             "cohort の実現値は当時の市況を含む。母集団との差だけが regime 統制された量である。",
+            (
+                "cohort 一致は min_group_rows に依存する。treatment が痩せる月ほど落ちるので、"
+                "閾値を変えた値も見てから読む。"
+            ),
+            (
+                "解決済み as-of は horizon が長いほど古い側へ偏る。resolved_asof_range を"
+                "見ずに cohort 数だけを比べない。"
+            ),
         ],
     }
 
@@ -349,6 +385,8 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
     parser.add_argument("--calibration-dir", type=Path, default=DEFAULT_CALIBRATION_DIR)
     parser.add_argument("--horizon", action="append", dest="horizons", choices=DEFAULT_HORIZONS)
     parser.add_argument("--er-threshold", type=float, default=DEFAULT_ER_THRESHOLD)
+    parser.add_argument("--asof-from", help="この as-of 以降の panel だけを使う (YYYY-MM-DD)")
+    parser.add_argument("--asof-to", help="この as-of 以前の panel だけを使う (YYYY-MM-DD)")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
 
@@ -358,6 +396,8 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
             calibration_dir=args.calibration_dir,
             horizons=horizons,
             er_threshold=args.er_threshold,
+            asof_from=args.asof_from,
+            asof_to=args.asof_to,
         )
     except (SignalCohortMeasurementError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)

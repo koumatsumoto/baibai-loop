@@ -155,3 +155,49 @@ def test_the_reader_reports_an_absent_store_instead_of_an_empty_observation(
     tmp_path: Path,
 ) -> None:
     assert read_buyback_status_filings(tmp_path / "absent.sqlite", through=ASOF) is None
+
+
+def test_a_gap_in_the_ingested_months_shortens_the_observed_window(tmp_path: Path) -> None:
+    """途中に取得の穴があると、その月に提出した会社が一斉に「提出なし」へ落ちる。
+
+    左端だけを見ると穴に気づけないので、as-of から遡って連続している範囲を窓にする。
+    """
+
+    sqlite_path = tmp_path / "market.sqlite"
+    open_connection(sqlite_path).close()
+    for day in (date(2025, 9, 3), date(2026, 7, 1), date(2026, 8, 3)):
+        store_edinet_documents(
+            sqlite_path,
+            day,
+            [_document(sequence_number=1, doc_type_code="220", sec_code="60880")],
+        )
+
+    read = read_buyback_status_filings(sqlite_path, through=ASOF)
+
+    assert read is not None
+    # 2025-10 〜 2026-06 は 1 件も取り込まれていないので、窓は 2026-07 から。
+    assert read.observed_from == date(2026, 7, 1)
+    annotation = build_buyback_authorization(
+        asof=ASOF, latest_filing_date=None, observed_from=read.observed_from
+    )
+    assert annotation.status == "unknown"
+
+
+def test_an_ingestion_stall_at_the_recent_end_falls_back_to_the_previous_month(
+    tmp_path: Path,
+) -> None:
+    """当月分がまだ 1 件も出ていない状態は正常なので、直前月から連続性を見る。"""
+
+    sqlite_path = tmp_path / "market.sqlite"
+    open_connection(sqlite_path).close()
+    for day in (date(2026, 6, 2), date(2026, 7, 1)):
+        store_edinet_documents(
+            sqlite_path,
+            day,
+            [_document(sequence_number=1, doc_type_code="220", sec_code="60880")],
+        )
+
+    read = read_buyback_status_filings(sqlite_path, through=ASOF)
+
+    assert read is not None
+    assert read.observed_from == date(2026, 6, 1)

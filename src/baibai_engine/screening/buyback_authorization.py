@@ -116,11 +116,15 @@ def read_buyback_status_filings(
             "GROUP BY substr(sec_code, 1, 4)",
             (*doc_types, through_iso),
         ).fetchall()
-        observed = conn.execute(
-            "SELECT MIN(doc_date) FROM edinet_documents "
-            "WHERE doc_type_code IN (?, ?) AND doc_date <= ?",
-            (*doc_types, through_iso),
-        ).fetchone()
+        observed_months = [
+            str(month)
+            for (month,) in conn.execute(
+                "SELECT DISTINCT substr(doc_date, 1, 7) FROM edinet_documents "
+                "WHERE doc_type_code IN (?, ?) AND doc_date <= ? "
+                "ORDER BY 1",
+                (*doc_types, through_iso),
+            )
+        ]
     except sqlite3.OperationalError:
         return None
     finally:
@@ -129,8 +133,37 @@ def read_buyback_status_filings(
         latest_filing_by_ticker=index_buyback_status_filings(
             [{"sec_code": sec_code, "doc_date": filed} for sec_code, filed in rows]
         ),
-        observed_from=None if observed is None else _date(observed[0]),
+        observed_from=_continuous_observation_start(observed_months, through=through),
     )
+
+
+def _continuous_observation_start(observed_months: Sequence[str], *, through: date) -> date | None:
+    """as-of から遡って、提出が途切れずに観測できている最古の月初。
+
+    最古の 1 行だけを窓の左端にすると、2 通りの形で「提出なし」を捏造する。1 社の古い提出が
+    1 行あるだけで universe 全体が観測済みになり、EDINET 取得が数週間止まっても左端は古い
+    ままなので `unknown` へ落ちない。取得期間中の会社は毎月提出するので、月次の連続性が
+    そのまま観測の連続性になる。
+    """
+
+    months = set(observed_months)
+    if not months:
+        return None
+    cursor = through.replace(day=1)
+    if cursor.strftime("%Y-%m") not in months:
+        # 当月分はまだ 1 件も出ていないことがある。直前月まで下がって連続性を見る。
+        cursor = _previous_month(cursor)
+    start: date | None = None
+    while cursor.strftime("%Y-%m") in months:
+        start = cursor
+        cursor = _previous_month(cursor)
+    return start
+
+
+def _previous_month(first_of_month: date) -> date:
+    if first_of_month.month == 1:
+        return first_of_month.replace(year=first_of_month.year - 1, month=12)
+    return first_of_month.replace(month=first_of_month.month - 1)
 
 
 def build_buyback_authorization(
@@ -141,10 +174,11 @@ def build_buyback_authorization(
 ) -> BuybackAuthorization:
     """観測窓を踏まえて取得枠の状態を決める。
 
-    `observed_from` は store が自己株券買付状況報告書を実際に持っている最古の日付である。
+    `observed_from` は as-of から遡って提出が途切れずに観測できている最古の月初である。
     `edinet_document_lists` の取得記録ではなく提出行そのものから取るのは、doc 一覧を
     fetch していても当該 doc type を保存していなかった期間があるためで、そこを覆えていると
-    数えると「提出なし」を捏造する。
+    数えると「提出なし」を捏造する。連続性まで見るのは、途中に取得の穴があると、その月に
+    提出した会社が一斉に「提出なし」へ落ちるためである。
     """
 
     required_from = asof - timedelta(days=OBSERVATION_WINDOW_DAYS)

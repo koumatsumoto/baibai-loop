@@ -109,7 +109,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "e3d49503aa054e7b012be18a26a5da32ceaa45ae8cba7666cf02de8848d71427"
+        result.thesis_sha256 == "e6336dac91dc76ecde51e1edeb403a7eb5ee46000882d7ae1f8436d9fd013167"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -128,21 +128,21 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     break_even = result.five_year_base_break_even
     assert break_even is not None
     assert break_even.break_even_terminal_valuation_multiple == pytest.approx(
-        Decimal("1.0135050773543111")
+        Decimal("1.0405761127787602")
     )
     assert break_even.break_even_annual_earnings_growth_pct == pytest.approx(
-        Decimal("3.2942026976003037")
+        Decimal("3.8402039539315667")
     )
     assert result_to_payload(result)["five_year_base_break_even"] == {
-        "required_total_value_yen": 1516.3466,
-        "required_total_return_cagr_pct": 8.0,
+        "required_total_value_yen": 1551.7737,
+        "required_total_return_cagr_pct": 8.5,
         "base_terminal_valuation_multiple": 1.1,
-        "break_even_terminal_valuation_multiple": 1.0135,
-        "terminal_multiple_downside_buffer": 0.0865,
+        "break_even_terminal_valuation_multiple": 1.0406,
+        "terminal_multiple_downside_buffer": 0.0594,
         "terminal_multiple_status": "within_model_bounds",
         "base_annual_earnings_growth_pct": 5.0,
-        "break_even_annual_earnings_growth_pct": 3.2942,
-        "earnings_growth_downside_buffer_pct_points": 1.7058,
+        "break_even_annual_earnings_growth_pct": 3.8402,
+        "earnings_growth_downside_buffer_pct_points": 1.1598,
         "earnings_growth_status": "within_model_bounds",
         "observed_trailing_multiple_status": "resolved",
         "observed_trailing_multiple_fact_id": "trailing-per",

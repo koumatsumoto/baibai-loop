@@ -55,6 +55,11 @@ def _starter(**overrides: object) -> dict[str, object]:
     raw = _raw()
     judgment = raw["judgment"]
     assert isinstance(judgment, dict)
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    # 帯 [7.0, 8.5) の内側。full の床は 8.5 なので、fixture の既定値のままでは starter に
+    # ならない。
+    estimates["required_5y_base_cagr_pct"] = 8.0
     judgment["position_intent"] = "starter"
     judgment["sizing_action"] = "reduced"
     judgment["starter_catalyst_date"] = "2026-11-06"
@@ -310,7 +315,7 @@ def _record_execution(path: Path, *, proposal_id: str, intent: str, notional_yen
                 "2026-06-02T10:00:00+09:00",
                 0 if intent == "starter" else 1,
                 proposal_id,
-                json.dumps({"quantity": notional_yen, "price_yen": "1"}),
+                json.dumps({"side": "buy", "quantity": notional_yen, "price_yen": "1"}),
             ),
         )
 
@@ -396,10 +401,10 @@ def test_approval_re_measures_the_starter_bucket_after_the_proposal_was_created(
         created_at=CREATED_AT,
     )
     snapshot = reconcile_portfolio(LedgerStoreService(path).load())
-    _record_execution(
+    # 別 starter を approve 済み・未約定で置く。資本は約定より先に確定している。
+    _record_approved_starter(
         path,
         proposal_id="prop-other-starter",
-        intent="starter",
         notional_yen=snapshot.total_capital_yen * 10 // 100,
     )
 
@@ -410,4 +415,105 @@ def test_approval_re_measures_the_starter_bucket_after_the_proposal_was_created(
             decided_at=CREATED_AT + timedelta(hours=2),
             snapshot=snapshot,
             snapshot_append_head=LedgerStoreService(path).append_head(),
+        )
+
+
+def _record_approved_starter(path: Path, *, proposal_id: str, notional_yen: int) -> None:
+    """約定はまだ無いが approve 済みの starter proposal を置く。"""
+
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT INTO proposal (proposal_id, ticker, thesis_id, review_id, created_at, "
+            "status, decided_at, payload) VALUES (?, '9999', ?, ?, ?, 'approved', ?, ?)",
+            (
+                proposal_id,
+                THESIS_ID,
+                "review-2331-20260703",
+                "2026-06-01T10:00:00+09:00",
+                "2026-06-01T11:00:00+09:00",
+                json.dumps(
+                    {
+                        "position_intent": "starter",
+                        "planned_limit": {"notional_yen": notional_yen},
+                    }
+                ),
+            ),
+        )
+
+
+def test_a_hand_raised_budget_cannot_push_a_starter_order_past_its_notional_cap(
+    tmp_path: Path,
+) -> None:
+    """plan-limit の出力 YAML は編集できる。資本を約束する層でも 1 注文の金額を見る。"""
+
+    path = tmp_path / "app.sqlite"
+    thesis_path = _write_starter_workspace(tmp_path)
+    market = _market(path, close=1000)
+    _seed_app(path, thesis_path)
+    planned = plan_limit(
+        thesis=thesis_path,
+        db_path=path,
+        sqlite_path=market,
+        target_session=date(2026, 7, 13),
+        budget_min_yen=200_000,
+        budget_max_yen=300_000,
+        now=CREATED_AT,
+    )
+    # tool は上限どおり 1 単元に切っている。それを手で 4 倍へ戻す。
+    assert planned["notional_yen"] == 100_000
+    raised = {
+        **planned,
+        "budget_max_yen": 400_000,
+        "quantity": 400,
+        "notional_yen": 400_000,
+    }
+    service = ProposalStoreService(
+        path, market_db_path=market, clock=lambda: CREATED_AT + timedelta(hours=3)
+    )
+
+    with pytest.raises(ProposalValidationError, match="starter order exceeds"):
+        service.create(
+            THESIS_ID,
+            _planned_input(raised),
+            reconcile_portfolio(LedgerStoreService(path).load()),
+            snapshot_append_head=LedgerStoreService(path).append_head(),
+            created_at=CREATED_AT,
+        )
+
+
+def test_a_full_proposal_below_the_band_ceiling_must_declare_the_starter_intent(
+    tmp_path: Path,
+) -> None:
+    """帯を開く代償を負わずに要求利回りだけ下げる経路を残さない。"""
+
+    path = tmp_path / "app.sqlite"
+    raw = _raw()
+    estimates = raw["estimates"]
+    assert isinstance(estimates, dict)
+    estimates["required_5y_base_cagr_pct"] = 7.5
+    thesis_path = tmp_path / "starter-decision.yaml"
+    _rebind(raw, tmp_path)
+    thesis_path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+    market = _market(path, close=1000)
+    _seed_app(path, thesis_path)
+    planned = plan_limit(
+        thesis=thesis_path,
+        db_path=path,
+        sqlite_path=market,
+        target_session=date(2026, 7, 13),
+        budget_min_yen=200_000,
+        budget_max_yen=300_000,
+        now=CREATED_AT,
+    )
+    service = ProposalStoreService(
+        path, market_db_path=market, clock=lambda: CREATED_AT + timedelta(hours=3)
+    )
+
+    with pytest.raises(ProposalValidationError, match="full proposal requires"):
+        service.create(
+            THESIS_ID,
+            _planned_input(planned),
+            reconcile_portfolio(LedgerStoreService(path).load()),
+            snapshot_append_head=LedgerStoreService(path).append_head(),
+            created_at=CREATED_AT,
         )

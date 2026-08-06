@@ -2,17 +2,31 @@ review_id: review-2331-20260703
 reviewer_role: independent_second_pass
 reviewer_identity: independent-review-agent
 reviewer_run_id: review-run-20260703-2331
-reviewed_at: "2026-07-03T10:00:00+09:00"
-reviewed_thesis_sha256: "e3d49503aa054e7b012be18a26a5da32ceaa45ae8cba7666cf02de8848d71427"
+reviewed_at: '2026-07-03T10:00:00+09:00'
+reviewed_thesis_sha256: e6336dac91dc76ecde51e1edeb403a7eb5ee46000882d7ae1f8436d9fd013167
 primary_source_check: verified
-checked_source_ids: [primary-results, internal-screen]
+checked_source_ids:
+- primary-results
+- internal-screen
 recalculated_scenarios:
-  - {horizon_years: 3, name: bear, total_return_cagr_pct: -4.03}
-  - {horizon_years: 3, name: base, total_return_cagr_pct: 9.67}
-  - {horizon_years: 3, name: bull, total_return_cagr_pct: 20.55}
-  - {horizon_years: 5, name: bear, total_return_cagr_pct: -3.27}
-  - {horizon_years: 5, name: base, total_return_cagr_pct: 9.57}
-  - {horizon_years: 5, name: bull, total_return_cagr_pct: 19.31}
+- horizon_years: 3
+  name: bear
+  total_return_cagr_pct: -4.03
+- horizon_years: 3
+  name: base
+  total_return_cagr_pct: 9.67
+- horizon_years: 3
+  name: bull
+  total_return_cagr_pct: 20.55
+- horizon_years: 5
+  name: bear
+  total_return_cagr_pct: -3.27
+- horizon_years: 5
+  name: base
+  total_return_cagr_pct: 9.57
+- horizon_years: 5
+  name: bull
+  total_return_cagr_pct: 19.31
 strongest_countercase: Acquisition cash needs can invalidate profit-based valuation.
 alternative_candidate_check: compared
 proposal_changed: false

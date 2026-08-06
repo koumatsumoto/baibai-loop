@@ -66,6 +66,7 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
         ("cash_management", "override_max_days"),
         ("order_constraints", "board_lot"),
         ("valuation", "market_price_max_age_days"),
+        ("starter_band", "max_order_notional_yen"),
     )
     for path in positive_integer_paths:
         value = _value_at(policy, path)
@@ -77,11 +78,22 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
         ("risk_budget", "max_sector_concentration_pct"),
         ("risk_budget", "max_common_factor_concentration_pct"),
         ("risk_budget", "max_adv_participation_pct"),
+        ("starter_band", "required_return_floor_pct"),
+        ("starter_band", "required_return_ceiling_pct"),
+        ("starter_band", "max_bucket_pct"),
     )
     for path in percentage_paths:
         value = _value_at(policy, path)
         if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
             raise RuntimeError(f"PORTFOLIO_POLICY.{'.'.join(path)} must be within 0..100")
+    # 帯が空 (floor >= ceiling) なら starter は宣言できても常に拒否される。要求利回りを
+    # 下げる緩和で唯一有界性を担保するのが bucket 上限なので、桁ミスをここで止める。
+    floor = _value_at(policy, ("starter_band", "required_return_floor_pct"))
+    ceiling = _value_at(policy, ("starter_band", "required_return_ceiling_pct"))
+    if isinstance(floor, int | float) and isinstance(ceiling, int | float) and floor >= ceiling:
+        raise RuntimeError(
+            "PORTFOLIO_POLICY.starter_band.required_return_floor_pct must be below the ceiling"
+        )
     price_guard_required = _value_at(policy, ("order_constraints", "price_guard_required"))
     if not isinstance(price_guard_required, bool):
         raise RuntimeError(

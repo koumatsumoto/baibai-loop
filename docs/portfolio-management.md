@@ -52,6 +52,10 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 
 撤退基準は 2 つ。**(a)** starter 銘柄に検証済みの永久損失兆候が出たら、FV 到達を待たずに holding review を起こす。**(b)** 1 年経過時点で starter cohort の中央超過が full cohort を下回っていたら、新規 starter を停止する。
 
+(b) の計測経路は proposal から取る。`proposal.payload` に `position_intent` と `starter_catalyst_date` が入り、`ledger_event.proposal_id` が約定を結ぶので、starter で建てた entry 日・価格・数量と再評価の起点日は SQL で引ける。母数が 1 桁のうちは中央超過を算出せず、cohort を並べるだけにする（少数標本で効果量を主張しない）。
+
+各 starter は `starter_catalyst_date` を期日にした follow-up task を持つ。期日に thesis の前提が成立したかを確認しないまま保有を続けない — 帯を開く代償は縮小 lot だけでなく、再評価の義務でもある。
+
 この帯を開く根拠は、機械 E[r] 上位群が 3y/5y の全 cohort で母集団を +9〜12pt 上回る一方、正規化と据え置き倍率を積んだ research の base が要求利回りに届かず全件棄却になっていたという計測である（[診断](../reports/2026-08-06-bargain-capture-diagnosis.md)）。狙いは購入件数ではなく、境界帯の実現結果を観測ゼロから非ゼロにすることである。
 
 ## Ranking versus affordability

@@ -2,195 +2,273 @@ schema_version: 2
 input_snapshot:
   snapshot_version: 1
   producer_model_version: screening-selection-v1
-  ticker: "2331"
+  ticker: '2331'
   company_name: ALSOK
   sector: サービス業
-  common_factors: [labor-automation]
-  as_of: "2026-07-03"
+  common_factors:
+  - labor-automation
+  as_of: '2026-07-03'
   sources:
-    - source_id: primary-results
-      ticker: "2331"
-      source_tier: primary
-      ref: https://www.alsok.co.jp/ir/library/
-      retrieved_at: "2026-07-03T08:15:00+09:00"
-      as_of: "2026-06-30"
-      used_for: profit, cash flow, shares, debt, and governance facts
-    - source_id: internal-screen
-      ticker: "2331"
-      source_tier: local_data
-      provider: J-Quants
-      dataset: screening/market-daily
-      retrieved_at: "2026-07-03T08:30:00+09:00"
-      as_of: "2026-07-03"
-      used_for: valuation and liquidity metrics
+  - source_id: primary-results
+    ticker: '2331'
+    source_tier: primary
+    ref: https://www.alsok.co.jp/ir/library/
+    retrieved_at: '2026-07-03T08:15:00+09:00'
+    as_of: '2026-06-30'
+    used_for: profit, cash flow, shares, debt, and governance facts
+  - source_id: internal-screen
+    ticker: '2331'
+    source_tier: local_data
+    provider: J-Quants
+    dataset: screening/market-daily
+    retrieved_at: '2026-07-03T08:30:00+09:00'
+    as_of: '2026-07-03'
+    used_for: valuation and liquidity metrics
   facts:
-    - fact_id: decision-market-price
-      fact_kind: market_price
-      value: 1032
-      unit: JPY_per_share
-      as_of: "2026-07-03"
-      observed_at: "2026-07-03T08:30:00+09:00"
-      price_basis: last_close_adjusted
-      source_ids: [internal-screen]
-    - fact_id: trailing-per
-      fact_kind: valuation_metric
-      value: 10.32
-      unit: ratio
-      as_of: "2026-07-03"
-      source_ids: [primary-results, internal-screen]
-    - fact_id: normalized-profit
-      fact_kind: net_income_attributable_to_owners
-      value: 100000000000
-      unit: JPY
-      as_of: "2026-06-30"
-      source_ids: [primary-results]
-    - fact_id: shares-outstanding
-      fact_kind: shares_outstanding
-      value: 100000000
-      unit: shares
-      as_of: "2026-06-30"
-      source_ids: [primary-results]
+  - fact_id: decision-market-price
+    fact_kind: market_price
+    value: 1032
+    unit: JPY_per_share
+    as_of: '2026-07-03'
+    observed_at: '2026-07-03T08:30:00+09:00'
+    price_basis: last_close_adjusted
+    source_ids:
+    - internal-screen
+  - fact_id: trailing-per
+    fact_kind: valuation_metric
+    value: 10.32
+    unit: ratio
+    as_of: '2026-07-03'
+    source_ids:
+    - primary-results
+    - internal-screen
+  - fact_id: normalized-profit
+    fact_kind: net_income_attributable_to_owners
+    value: 100000000000
+    unit: JPY
+    as_of: '2026-06-30'
+    source_ids:
+    - primary-results
+  - fact_id: shares-outstanding
+    fact_kind: shares_outstanding
+    value: 100000000
+    unit: shares
+    as_of: '2026-06-30'
+    source_ids:
+    - primary-results
 derived:
   metrics:
-    - metric_id: normalized-eps
-      value: 1000
-      unit: JPY_per_share
-      as_of: "2026-07-03"
-      formula: ratio
-      formula_version: ratio-v1
-      input_fact_ids: [normalized-profit, shares-outstanding]
-      assumption: Normalized profit and share count use the latest disclosed period.
-      source_ids: [primary-results, internal-screen]
+  - metric_id: normalized-eps
+    value: 1000
+    unit: JPY_per_share
+    as_of: '2026-07-03'
+    formula: ratio
+    formula_version: ratio-v1
+    input_fact_ids:
+    - normalized-profit
+    - shares-outstanding
+    assumption: Normalized profit and share count use the latest disclosed period.
+    source_ids:
+    - primary-results
+    - internal-screen
 estimates:
   model_version: scenario-v1
   market_price_fact_id: decision-market-price
   entry_price_basis_yen: 1032
   entry_price_basis: observed_market_price
-  entry_price_source_ids: [primary-results, internal-screen]
-  entry_price_assumption: Observed decision-time market price used for scenario CAGR calculations.
-  required_5y_base_cagr_pct: 8.0
+  entry_price_source_ids:
+  - primary-results
+  - internal-screen
+  entry_price_assumption: Observed decision-time market price used for scenario CAGR
+    calculations.
+  required_5y_base_cagr_pct: 8.5
   current_fair_value_yen: 1300
   valuation_model_version: fv-v1
-  fair_value_source_ids: [primary-results]
+  fair_value_source_ids:
+  - primary-results
   scenarios:
-    - &scenario_3_bear
-      horizon_years: 3
-      name: bear
-      earnings_basis: net_income_attributable_to_owners
-      starting_earnings_fact_id: normalized-profit
-      starting_earnings_yen: 100000000000
-      annual_earnings_growth_pct: -2
-      starting_share_count_fact_id: shares-outstanding
-      starting_share_count: 100000000
-      annual_share_count_change_pct: 1
-      terminal_valuation_multiple: 0.9
-      cumulative_dividend_per_share_yen: 90
-      terminal_price_includes_dividends: false
-      claimed_terminal_earnings_yen: 94119200000
-      claimed_terminal_share_count: 103030100
-      claimed_terminal_price_yen: 822.1605
-      claimed_total_return_cagr_pct: -4.03
-      as_of: "2026-07-03"
-      unit: JPY_per_share_total_return
-      model_version: scenario-v1
-      assumption: Margin pressure and dilution reduce per-share value.
-      source_ids: [primary-results]
-    - <<: *scenario_3_bear
-      name: base
-      annual_earnings_growth_pct: 4
-      annual_share_count_change_pct: -0.5
-      terminal_valuation_multiple: 1.1
-      cumulative_dividend_per_share_yen: 105
-      claimed_terminal_earnings_yen: 112486400000
-      claimed_terminal_share_count: 98507487.5
-      claimed_terminal_price_yen: 1256.0978
-      claimed_total_return_cagr_pct: 9.67
-      assumption: Modest profit growth and buybacks improve per-share value.
-    - <<: *scenario_3_bear
-      name: bull
-      annual_earnings_growth_pct: 8
-      annual_share_count_change_pct: -1
-      terminal_valuation_multiple: 1.3
-      cumulative_dividend_per_share_yen: 120
-      claimed_terminal_earnings_yen: 125971200000
-      claimed_terminal_share_count: 97029900
-      claimed_terminal_price_yen: 1687.7536
-      claimed_total_return_cagr_pct: 20.55
-      assumption: Pricing and automation expand profits and capital returns.
-    - <<: *scenario_3_bear
-      horizon_years: 5
-      name: bear
-      annual_earnings_growth_pct: -1
-      annual_share_count_change_pct: 1
-      terminal_valuation_multiple: 0.8
-      cumulative_dividend_per_share_yen: 150
-      claimed_terminal_earnings_yen: 95099004990
-      claimed_terminal_share_count: 105101005.01
-      claimed_terminal_price_yen: 723.8675
-      claimed_total_return_cagr_pct: -3.27
-      assumption: Structural cost pressure persists for five years.
-    - <<: *scenario_3_bear
-      horizon_years: 5
-      name: base
-      annual_earnings_growth_pct: 5
-      annual_share_count_change_pct: -0.5
-      terminal_valuation_multiple: 1.1
-      cumulative_dividend_per_share_yen: 190
-      claimed_terminal_earnings_yen: 127628156250
-      claimed_terminal_share_count: 97524875.3122
-      claimed_terminal_price_yen: 1439.5401
-      claimed_total_return_cagr_pct: 9.57
-      assumption: Durable demand compounds profit with disciplined buybacks.
-    - <<: *scenario_3_bear
-      horizon_years: 5
-      name: bull
-      annual_earnings_growth_pct: 9
-      annual_share_count_change_pct: -1
-      terminal_valuation_multiple: 1.4
-      cumulative_dividend_per_share_yen: 230
-      claimed_terminal_earnings_yen: 153862395490
-      claimed_terminal_share_count: 95099004.99
-      claimed_terminal_price_yen: 2265.0853
-      claimed_total_return_cagr_pct: 19.31
-      assumption: Automation and pricing power compound shareholder value.
+  - horizon_years: 3
+    name: bear
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: normalized-profit
+    starting_earnings_yen: 100000000000
+    annual_earnings_growth_pct: -2
+    starting_share_count_fact_id: shares-outstanding
+    starting_share_count: 100000000
+    annual_share_count_change_pct: 1
+    terminal_valuation_multiple: 0.9
+    cumulative_dividend_per_share_yen: 90
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 94119200000
+    claimed_terminal_share_count: 103030100
+    claimed_terminal_price_yen: 822.1605
+    claimed_total_return_cagr_pct: -4.03
+    as_of: '2026-07-03'
+    unit: JPY_per_share_total_return
+    model_version: scenario-v1
+    assumption: Margin pressure and dilution reduce per-share value.
+    source_ids: &id001
+    - primary-results
+  - horizon_years: 3
+    name: base
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: normalized-profit
+    starting_earnings_yen: 100000000000
+    annual_earnings_growth_pct: 4
+    starting_share_count_fact_id: shares-outstanding
+    starting_share_count: 100000000
+    annual_share_count_change_pct: -0.5
+    terminal_valuation_multiple: 1.1
+    cumulative_dividend_per_share_yen: 105
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 112486400000
+    claimed_terminal_share_count: 98507487.5
+    claimed_terminal_price_yen: 1256.0978
+    claimed_total_return_cagr_pct: 9.67
+    as_of: '2026-07-03'
+    unit: JPY_per_share_total_return
+    model_version: scenario-v1
+    assumption: Modest profit growth and buybacks improve per-share value.
+    source_ids: *id001
+  - horizon_years: 3
+    name: bull
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: normalized-profit
+    starting_earnings_yen: 100000000000
+    annual_earnings_growth_pct: 8
+    starting_share_count_fact_id: shares-outstanding
+    starting_share_count: 100000000
+    annual_share_count_change_pct: -1
+    terminal_valuation_multiple: 1.3
+    cumulative_dividend_per_share_yen: 120
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 125971200000
+    claimed_terminal_share_count: 97029900
+    claimed_terminal_price_yen: 1687.7536
+    claimed_total_return_cagr_pct: 20.55
+    as_of: '2026-07-03'
+    unit: JPY_per_share_total_return
+    model_version: scenario-v1
+    assumption: Pricing and automation expand profits and capital returns.
+    source_ids: *id001
+  - horizon_years: 5
+    name: bear
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: normalized-profit
+    starting_earnings_yen: 100000000000
+    annual_earnings_growth_pct: -1
+    starting_share_count_fact_id: shares-outstanding
+    starting_share_count: 100000000
+    annual_share_count_change_pct: 1
+    terminal_valuation_multiple: 0.8
+    cumulative_dividend_per_share_yen: 150
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 95099004990
+    claimed_terminal_share_count: 105101005.01
+    claimed_terminal_price_yen: 723.8675
+    claimed_total_return_cagr_pct: -3.27
+    as_of: '2026-07-03'
+    unit: JPY_per_share_total_return
+    model_version: scenario-v1
+    assumption: Structural cost pressure persists for five years.
+    source_ids: *id001
+  - horizon_years: 5
+    name: base
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: normalized-profit
+    starting_earnings_yen: 100000000000
+    annual_earnings_growth_pct: 5
+    starting_share_count_fact_id: shares-outstanding
+    starting_share_count: 100000000
+    annual_share_count_change_pct: -0.5
+    terminal_valuation_multiple: 1.1
+    cumulative_dividend_per_share_yen: 190
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 127628156250
+    claimed_terminal_share_count: 97524875.3122
+    claimed_terminal_price_yen: 1439.5401
+    claimed_total_return_cagr_pct: 9.57
+    as_of: '2026-07-03'
+    unit: JPY_per_share_total_return
+    model_version: scenario-v1
+    assumption: Durable demand compounds profit with disciplined buybacks.
+    source_ids: *id001
+  - horizon_years: 5
+    name: bull
+    earnings_basis: net_income_attributable_to_owners
+    starting_earnings_fact_id: normalized-profit
+    starting_earnings_yen: 100000000000
+    annual_earnings_growth_pct: 9
+    starting_share_count_fact_id: shares-outstanding
+    starting_share_count: 100000000
+    annual_share_count_change_pct: -1
+    terminal_valuation_multiple: 1.4
+    cumulative_dividend_per_share_yen: 230
+    terminal_price_includes_dividends: false
+    claimed_terminal_earnings_yen: 153862395490
+    claimed_terminal_share_count: 95099004.99
+    claimed_terminal_price_yen: 2265.0853
+    claimed_total_return_cagr_pct: 19.31
+    as_of: '2026-07-03'
+    unit: JPY_per_share_total_return
+    model_version: scenario-v1
+    assumption: Automation and pricing power compound shareholder value.
+    source_ids: *id001
 permanent_loss_risks:
-  - &risk
-    axis: funding_liquidity
-    assessment: acceptable
-    evidence_status: verified
-    summary: Cash and committed funding cover the modeled stress period.
-    as_of: "2026-06-30"
-    source_ids: [primary-results]
-  - <<: *risk
-    axis: debt_repayment
-    summary: Scheduled debt service remains covered by operating cash flow.
-  - <<: *risk
-    axis: cash_flow
-    summary: Operating cash flow remains positive after normalized investment.
-  - <<: *risk
-    axis: dilution
-    summary: No material dilution program is disclosed.
-  - <<: *risk
-    axis: customer_concentration
-    assessment: unknown
-    evidence_status: partially_verified
-    summary: Public disclosure does not quantify the largest customer share.
-  - <<: *risk
-    axis: structural_decline
-    summary: Security demand is not structurally declining in the evidence window.
-  - <<: *risk
-    axis: governance_accounting
-    summary: No material governance or accounting warning is confirmed.
+- axis: funding_liquidity
+  assessment: acceptable
+  evidence_status: verified
+  summary: Cash and committed funding cover the modeled stress period.
+  as_of: '2026-06-30'
+  source_ids: &id002
+  - primary-results
+- axis: debt_repayment
+  assessment: acceptable
+  evidence_status: verified
+  summary: Scheduled debt service remains covered by operating cash flow.
+  as_of: '2026-06-30'
+  source_ids: *id002
+- axis: cash_flow
+  assessment: acceptable
+  evidence_status: verified
+  summary: Operating cash flow remains positive after normalized investment.
+  as_of: '2026-06-30'
+  source_ids: *id002
+- axis: dilution
+  assessment: acceptable
+  evidence_status: verified
+  summary: No material dilution program is disclosed.
+  as_of: '2026-06-30'
+  source_ids: *id002
+- axis: customer_concentration
+  assessment: unknown
+  evidence_status: partially_verified
+  summary: Public disclosure does not quantify the largest customer share.
+  as_of: '2026-06-30'
+  source_ids: *id002
+- axis: structural_decline
+  assessment: acceptable
+  evidence_status: verified
+  summary: Security demand is not structurally declining in the evidence window.
+  as_of: '2026-06-30'
+  source_ids: *id002
+- axis: governance_accounting
+  assessment: acceptable
+  evidence_status: verified
+  summary: No material governance or accounting warning is confirmed.
+  as_of: '2026-06-30'
+  source_ids: *id002
 judgment:
   recommendation: buy
-  proposed_at: "2026-07-03T09:00:00+09:00"
+  proposed_at: '2026-07-03T09:00:00+09:00'
   confidence: medium
   permanent_loss_conclusion: unknown
   strongest_countercase: FCF conversion may remain below normalized profit after acquisitions.
   sizing_action: reduced
   ai_value_capture:
     assessment_status: material
-    roles: [adopter]
+    roles:
+    - adopter
     competitive_advantage: favorable
     pricing_power: favorable
     capex_burden: neutral
@@ -198,16 +276,19 @@ judgment:
     value_capture_conclusion: captured
     decision_weight: supporting
     rationale: Security operations can convert automation into recurring service capacity.
-    source_ids: [primary-results]
+    source_ids:
+    - primary-results
 independent_review_ref: 2331-decision-review.yaml
 human_evidence_override:
   override_id: evidence-override-2331
-  reason: Customer concentration is unquantified, so proposal size is reduced to one lot.
+  reason: Customer concentration is unquantified, so proposal size is reduced to one
+    lot.
   decision_reference: user-confirmed-evidence-override-2331
-  proposal_sha256: "e3d49503aa054e7b012be18a26a5da32ceaa45ae8cba7666cf02de8848d71427"
+  proposal_sha256: e6336dac91dc76ecde51e1edeb403a7eb5ee46000882d7ae1f8436d9fd013167
   review_id: review-2331-20260703
-  review_sha256: "8a3a47ab787bfc0b2f396c911ad7e9e8932280b19dba9a4e22d8c0f39bfa3942"
+  review_sha256: fa19254298ce0c8574dff65355b69e832b04b08ccf9506e41dea57cc50e37b1d
   approved_by: human
-  acknowledged_risk_axes: [customer_concentration]
-  approved_at: "2026-07-03T10:30:00+09:00"
-  expires_at: "2026-07-31T15:30:00+09:00"
+  acknowledged_risk_axes:
+  - customer_concentration
+  approved_at: '2026-07-03T10:30:00+09:00'
+  expires_at: '2026-07-31T15:30:00+09:00'

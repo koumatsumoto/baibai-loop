@@ -41,6 +41,7 @@ STARTER_REQUIRED_RETURN_CEILING_PCT: float = PORTFOLIO_POLICY["starter_band"][
     "required_return_ceiling_pct"
 ]
 STARTER_MAX_BUCKET_PCT: float = PORTFOLIO_POLICY["starter_band"]["max_bucket_pct"]
+STARTER_MAX_ORDER_NOTIONAL_YEN: int = PORTFOLIO_POLICY["starter_band"]["max_order_notional_yen"]
 
 ProposalStatus = Literal["pending", "approved", "deferred", "rejected"]
 ProposalDecision = Literal["approve", "defer", "reject"]
@@ -219,6 +220,8 @@ class ProposalStoreService:
                     thesis_id,
                     now=operation_now,
                 )
+                if thesis.judgment.position_intent == "starter":
+                    _require_starter_order_within_cap(planned_limit.notional_yen)
                 _validate_planned_limit(
                     connection,
                     planned_limit,
@@ -247,6 +250,14 @@ class ProposalStoreService:
                     "thesis_id": thesis_id,
                     "review_id": review.review_id,
                     "position_intent": thesis.judgment.position_intent,
+                    # 再評価の起点。starter cohort の成績を後から測るとき、entry と
+                    # 「いつ結論が出るはずだったか」の両方が proposal 側に無いと、
+                    # thesis を辿り直さないと cohort を組めない。
+                    "starter_catalyst_date": (
+                        None
+                        if thesis.judgment.starter_catalyst_date is None
+                        else thesis.judgment.starter_catalyst_date.isoformat()
+                    ),
                     "planned_limit": _canonical_plan(planned_limit).model_dump(mode="python"),
                     "execution_proposal": _execution_proposal(planned_limit),
                 }
@@ -431,68 +442,118 @@ def _ready_thesis_and_review(
     return thesis, review
 
 
+def _require_starter_order_within_cap(planned_notional_yen: int) -> None:
+    """starter 1 件の想定約定額を上限内に保つ。
+
+    `plan-limit` も同じ上限で数量を切るが、そちらは助言側の tool であり、その出力 YAML は
+    人間と agent が編集できる。store は「入力ファイルを信用せず canonical から再導出する」
+    設計なのに、金額枠だけは再導出されない人間入力である。要求利回りを下げる緩和が
+    受け入れられる根拠の半分が 1 注文の金額の有界性なので、資本を約束する層でも見る。
+    """
+
+    if planned_notional_yen > STARTER_MAX_ORDER_NOTIONAL_YEN:
+        raise ProposalValidationError(
+            "starter order exceeds its notional cap: "
+            f"planned={planned_notional_yen} cap={STARTER_MAX_ORDER_NOTIONAL_YEN}"
+        )
+
+
 def _require_starter_bucket_headroom(
     connection: sqlite3.Connection,
     *,
     snapshot: PortfolioSnapshot,
     planned_notional_yen: int,
-    excluded_proposal_id: str | None = None,
 ) -> None:
-    """starter 経由で投じた資本の合計を総資本の一定割合以内に保つ。
+    """starter 経路で確定した資本の合計を、総資本の一定割合以内に保つ。
 
     これは warning ではなく hard gate である。要求利回りを下げる緩和が受け入れられるのは、
     その経路で動く資本が有界であることが担保されている場合に限るからで、cap を越えたら
-    新規の starter を作らない。売却は差し引かないので、保守側に外れる。
+    新規の starter を作らない。
 
-    `excluded_proposal_id` は再検証中の proposal 自身。その約定を既存分として数えると、
-    同じ資本を planned と deployed の両方で数える。
+    数えるのは proposal 単位で、買い約定があればその実額、まだ無く approve 済みなら計画額を
+    使う。約定だけを数えると、approve 済みで未約定の資本を 0 と見て 1 段遅れた状態を測る。
+    同じ proposal の計画額と約定額を足すと二重に数えるので、片方だけを採る。
     """
 
-    deployed = 0
+    committed = 0
     for row in connection.execute(
         """
-        SELECT event.payload
-        FROM ledger_event AS event
-        JOIN proposal ON proposal.proposal_id = event.proposal_id
-        WHERE event.event_type = 'execution'
-          AND json_extract(proposal.payload, '$.position_intent') = 'starter'
-          AND (? IS NULL OR proposal.proposal_id <> ?)
-        """,
-        (excluded_proposal_id, excluded_proposal_id),
+        SELECT proposal.proposal_id, proposal.status, proposal.payload
+        FROM proposal
+        WHERE json_extract(proposal.payload, '$.position_intent') = 'starter'
+        """
+    ):
+        executed = _starter_executed_cost_yen(connection, str(row["proposal_id"]))
+        if executed is not None:
+            committed += executed
+            continue
+        if str(row["status"]) != "approved":
+            continue
+        planned = (json.loads(str(row["payload"])) or {}).get("planned_limit")
+        if not isinstance(planned, Mapping):
+            raise ProposalConflictError("approved starter proposal carries no planned limit")
+        committed += int(Decimal(str(planned["notional_yen"])))
+    ceiling = int(
+        Decimal(str(snapshot.total_capital_yen)) * Decimal(str(STARTER_MAX_BUCKET_PCT)) / 100
+    )
+    if committed + planned_notional_yen > ceiling:
+        raise ProposalValidationError(
+            "starter bucket would exceed its share of total capital: "
+            f"committed={committed} planned={planned_notional_yen} ceiling={ceiling}"
+        )
+
+
+def _starter_executed_cost_yen(connection: sqlite3.Connection, proposal_id: str) -> int | None:
+    """proposal に紐づく買い約定の取得原価。約定が 1 件も無ければ None。
+
+    売り約定は取得原価ではないので数えない。売却で bucket を空けるかどうかは別の判断で、
+    ここでは「その proposal が資本を確定させたか」だけを見る。
+    """
+
+    cost: int | None = None
+    for row in connection.execute(
+        "SELECT payload FROM ledger_event "
+        "WHERE proposal_id = ? AND event_type = 'execution' "
+        "AND json_extract(payload, '$.side') = 'buy'",
+        (proposal_id,),
     ):
         payload = json.loads(str(row["payload"]))
         quantity = payload.get("quantity")
         price = payload.get("price_yen")
         if quantity is None or price is None:
             raise ProposalConflictError("starter execution payload is missing price or quantity")
-        deployed += int(Decimal(str(price)) * Decimal(str(quantity)))
-    ceiling = int(
-        Decimal(str(snapshot.total_capital_yen)) * Decimal(str(STARTER_MAX_BUCKET_PCT)) / 100
-    )
-    if deployed + planned_notional_yen > ceiling:
-        raise ProposalValidationError(
-            "starter bucket would exceed its share of total capital: "
-            f"deployed={deployed} planned={planned_notional_yen} ceiling={ceiling}"
-        )
+        cost = (cost or 0) + int(Decimal(str(price)) * Decimal(str(quantity)))
+    return cost
 
 
 def _require_required_return_within_intent(thesis: ThesisDocument) -> None:
-    """starter を宣言した thesis の要求利回りが、開いた帯の中に収まっているか。
+    """要求利回りが、宣言した position intent の帯に収まっているか。
 
-    thesis 側で帯を強制しないのは、published 済みの thesis を後から invalid にすると
-    holding review と assessment がまとめて止まるからである。資本を約束するのは proposal
-    なので gate はここに置く。`full` の要求利回りには機械の床を置かない — 帯を開く判断と
-    通常の要求水準そのものを動かす判断は別の議題で、後者はここでは決めない。
+    starter が縮小 lot と bucket 上限を負うのは要求利回りを下げる代償である。`full` に床が
+    無いと、同じ利回りを full と書くだけでその代償を回避できてしまい、bound が opt-in に
+    落ちる。両側を見て初めて帯が帯になる。
+
+    thesis 側で強制しないのは、published 済みの thesis を後から invalid にすると holding
+    review と assessment がまとめて止まるからである。資本を約束するのは proposal なので
+    gate はここに置く。
     """
 
-    if thesis.judgment.position_intent != "starter":
-        return
     required = thesis.estimates.required_5y_base_cagr_pct
-    if not (STARTER_REQUIRED_RETURN_FLOOR_PCT <= required < STARTER_REQUIRED_RETURN_CEILING_PCT):
+    if thesis.judgment.position_intent == "starter":
+        if not (
+            STARTER_REQUIRED_RETURN_FLOOR_PCT <= required < STARTER_REQUIRED_RETURN_CEILING_PCT
+        ):
+            raise ProposalValidationError(
+                "starter proposal requires a 5y base CAGR requirement inside "
+                f"[{STARTER_REQUIRED_RETURN_FLOOR_PCT}, {STARTER_REQUIRED_RETURN_CEILING_PCT}): "
+                f"{required}"
+            )
+        return
+    if required < STARTER_REQUIRED_RETURN_CEILING_PCT:
         raise ProposalValidationError(
-            "starter proposal requires a 5y base CAGR requirement inside "
-            f"[{STARTER_REQUIRED_RETURN_FLOOR_PCT}, {STARTER_REQUIRED_RETURN_CEILING_PCT}): "
-            f"{required}"
+            "full proposal requires a 5y base CAGR requirement of at least "
+            f"{STARTER_REQUIRED_RETURN_CEILING_PCT}: {required}. "
+            "Declare judgment.position_intent: starter to take the reduced-size band instead."
         )
 
 
@@ -519,14 +580,7 @@ def _revalidate_approval(
         now=now,
     )
     if thesis.judgment.position_intent == "starter":
-        # create から approve までの間に別の starter が約定していれば、bucket は
-        # 作成時より埋まっている。資本が動くのは approve 側なので、そこでも測り直す。
-        _require_starter_bucket_headroom(
-            connection,
-            snapshot=snapshot,
-            planned_notional_yen=planned_limit.notional_yen,
-            excluded_proposal_id=str(row["proposal_id"]),
-        )
+        _require_starter_order_within_cap(planned_limit.notional_yen)
     _validate_planned_limit(
         connection,
         planned_limit,
@@ -538,6 +592,15 @@ def _revalidate_approval(
         market_db_path=market_db_path,
         market_connection=market_connection,
     )
+    if thesis.judgment.position_intent == "starter":
+        # create から approve までの間に別の starter が確定していれば、bucket は作成時より
+        # 埋まっている。資本が動くのは approve 側なので、そこでも測り直す。snapshot が
+        # DB 由来であることは直前の planned-limit 検証が確かめているので、その後に置く。
+        _require_starter_bucket_headroom(
+            connection,
+            snapshot=snapshot,
+            planned_notional_yen=planned_limit.notional_yen,
+        )
 
 
 def _validate_planned_limit(
