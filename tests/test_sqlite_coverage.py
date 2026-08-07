@@ -353,9 +353,14 @@ class SQLiteCoverageTests(unittest.TestCase):
     def test_a_damaged_page_stops_the_run_before_any_coverage_question(self) -> None:
         """A store that opens but is damaged still has to be refused.
 
-        The file-is-not-a-database case above never reaches the pragma, so it says
-        nothing about what the completeness check does when it runs and answers
-        something other than 'ok'.
+        The file-is-not-a-database case above never reaches the completeness check
+        at all, so it says nothing about a store that opens and is then found bad.
+
+        Which of the two refusals fires depends on where the damage lands and on
+        the SQLite build: the check can answer something other than 'ok', or the
+        read can raise before it answers. Both stop the run with one `sqlite`
+        issue, and that — not the wording — is the property. Whether the check is
+        the quick or the deep one is pinned by the test below.
         """
         with _complete_coverage_database() as sqlite_path:
             payload = bytearray(sqlite_path.read_bytes())
@@ -369,7 +374,13 @@ class SQLiteCoverageTests(unittest.TestCase):
 
             self.assertEqual(len(issues), 1)
             self.assertEqual(issues[0].source, "sqlite")
-            self.assertIn("quick_check", issues[0].reason)
+            self.assertTrue(
+                any(
+                    marker in issues[0].reason
+                    for marker in ("quick_check failed", "SQLite coverage query failed")
+                ),
+                issues[0].reason,
+            )
 
     def test_store_completeness_is_checked_with_quick_check_only(self) -> None:
         """The deep check costs ~11s on the production store and runs twice a batch.
