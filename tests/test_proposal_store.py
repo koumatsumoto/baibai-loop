@@ -28,7 +28,12 @@ from baibai_engine.proposals.store import (
 from baibai_engine.research.opportunity import plan_limit
 from baibai_engine.research.opportunity_cli import main as research_main
 from baibai_engine.research.store import ResearchStoreService
-from baibai_engine.research.thesis import IndependentReview, ThesisDocument, ThesisResult
+from baibai_engine.research.thesis import (
+    IndependentReview,
+    ThesisDocument,
+    ThesisIdentity,
+    ThesisResult,
+)
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.fixed_now import FIXED_NOW
 
@@ -158,9 +163,10 @@ def test_create_and_decide_use_operation_clock_not_record_timestamps(
         *,
         review: IndependentReview | None = None,
         now: datetime | None = None,
+        identity: ThesisIdentity,
     ) -> ThesisResult:
         validation_instants.append(now)
-        return real_evaluate(document, review=review, now=now)
+        return real_evaluate(document, review=review, now=now, identity=identity)
 
     monkeypatch.setattr(proposal_store_module, "evaluate_thesis", recording_evaluate)
     service = ProposalStoreService(

@@ -12,6 +12,7 @@ from baibai_engine.research.execution_policy import (
 from baibai_engine.research.thesis import (
     ThesisDocument,
     ThesisResult,
+    UnpublishedThesis,
     evaluate_thesis,
     load_independent_review,
     load_thesis,
@@ -25,7 +26,12 @@ REVIEW = ROOT / "tests/fixtures/thesis/2331-decision-review.yaml"
 
 def _thesis() -> tuple[ThesisDocument, ThesisResult]:
     document = load_thesis(THESIS)
-    result = evaluate_thesis(document, review=load_independent_review(REVIEW), now=FIXED_NOW)
+    result = evaluate_thesis(
+        document,
+        review=load_independent_review(REVIEW),
+        now=FIXED_NOW,
+        identity=UnpublishedThesis.DRAFT,
+    )
     assert result.decision_readiness == "ready"
     return document, result
 

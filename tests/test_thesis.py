@@ -16,6 +16,7 @@ from baibai_engine.research.thesis import (
     ThesisDocument,
     ThesisError,
     ThesisResult,
+    UnpublishedThesis,
     _round_payload_decimal,
     evaluate_thesis,
     load_independent_review,
@@ -62,7 +63,9 @@ def _evaluate(
     now: datetime | None = None,
 ) -> ThesisResult:
     document, review = _bind_review(raw, review_raw)
-    return evaluate_thesis(document, review=review, now=now or FIXED_NOW)
+    return evaluate_thesis(
+        document, review=review, now=now or FIXED_NOW, identity=UnpublishedThesis.DRAFT
+    )
 
 
 def _five_year_base_raw(raw: dict[str, object]) -> dict[str, object]:
@@ -100,7 +103,10 @@ def _screening_fv_bridge() -> dict[str, object]:
 
 def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     result = evaluate_thesis(
-        load_thesis(FIXTURE), review=load_independent_review(REVIEW_FIXTURE), now=FIXED_NOW
+        load_thesis(FIXTURE),
+        review=load_independent_review(REVIEW_FIXTURE),
+        now=FIXED_NOW,
+        identity=UnpublishedThesis.DRAFT,
     )
 
     assert result.thesis_status == "ready_with_warnings"
@@ -109,7 +115,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "e6336dac91dc76ecde51e1edeb403a7eb5ee46000882d7ae1f8436d9fd013167"
+        result.thesis_sha256 == "d0d90322ede5fa841257429164d000a4d5f76520742bfb3862b4444333db1761"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -184,7 +190,14 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     assert thesis_core_hash(_document(changed)) != bridged_hash
 
 
-def test_retired_estimate_field_keeps_published_hash_and_leaves_new_thesis_unchanged() -> None:
+def test_retired_estimate_field_is_accepted_without_changing_the_draft_hash() -> None:
+    """退役 field は読めるが、hash の規則を 1 つも増やさない。
+
+    published thesis の identity は store の `core_sha256` が持つので、退役 field を
+    hash へ書き戻す必要が無い。draft の hash は field ごとの特例を持たない素の hash で、
+    key の有無で動かない。
+    """
+
     without_key = _raw()
     baseline = thesis_core_hash(_document(without_key))
 
@@ -193,12 +206,7 @@ def test_retired_estimate_field_keeps_published_hash_and_leaves_new_thesis_uncha
     assert isinstance(published_estimates, dict)
     published_estimates["deep_discount_bps"] = None
 
-    # 退役前に published された thesis は key を持つ。読めて、当時の key 集合で hash される。
-    legacy_document = _document(published)
-    assert thesis_core_hash(legacy_document) != baseline
-
-    # key を持たない thesis の hash は退役の前後で変わらない。
-    assert thesis_core_hash(_document(_raw())) == baseline
+    assert thesis_core_hash(_document(published)) == baseline
 
 
 def test_retired_estimate_field_is_not_serialized_so_dump_round_trip_keeps_the_hash() -> None:
@@ -382,7 +390,7 @@ def test_screening_fv_revision_uses_raw_decimal_values() -> None:
 
 def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:
     document = _document()
-    result = evaluate_thesis(document, now=FIXED_NOW)
+    result = evaluate_thesis(document, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT)
     break_even = result.five_year_base_break_even
     assert break_even is not None
     assert break_even.required_total_value_yen is not None
@@ -1060,12 +1068,21 @@ def test_evaluation_clock_requires_timezone_and_is_instant_equivalent() -> None:
     utc_now = jst_now.astimezone(UTC)
 
     assert jst_now.date() != utc_now.date()
-    jst_result = evaluate_thesis(document, review=review, now=jst_now)
-    utc_result = evaluate_thesis(document, review=review, now=utc_now)
+    jst_result = evaluate_thesis(
+        document, review=review, now=jst_now, identity=UnpublishedThesis.DRAFT
+    )
+    utc_result = evaluate_thesis(
+        document, review=review, now=utc_now, identity=UnpublishedThesis.DRAFT
+    )
 
     assert utc_result == jst_result
     with pytest.raises(ThesisError, match="timezone"):
-        evaluate_thesis(document, review=review, now=jst_now.replace(tzinfo=None))
+        evaluate_thesis(
+            document,
+            review=review,
+            now=jst_now.replace(tzinfo=None),
+            identity=UnpublishedThesis.DRAFT,
+        )
 
 
 def test_human_override_is_bound_to_exact_review_artifact() -> None:
@@ -1255,7 +1272,7 @@ def test_buy_candidate_requires_independent_second_pass() -> None:
     raw = _raw()
     raw["independent_review_ref"] = None
 
-    result = evaluate_thesis(_document(raw), now=FIXED_NOW)
+    result = evaluate_thesis(_document(raw), now=FIXED_NOW, identity=UnpublishedThesis.DRAFT)
 
     assert result.thesis_status == "review_required"
     assert result.errors == ("buy recommendation requires an independent second-pass review",)

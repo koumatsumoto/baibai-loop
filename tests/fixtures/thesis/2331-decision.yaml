@@ -284,9 +284,9 @@ human_evidence_override:
   reason: Customer concentration is unquantified, so proposal size is reduced to one
     lot.
   decision_reference: user-confirmed-evidence-override-2331
-  proposal_sha256: e6336dac91dc76ecde51e1edeb403a7eb5ee46000882d7ae1f8436d9fd013167
+  proposal_sha256: d0d90322ede5fa841257429164d000a4d5f76520742bfb3862b4444333db1761
   review_id: review-2331-20260703
-  review_sha256: fa19254298ce0c8574dff65355b69e832b04b08ccf9506e41dea57cc50e37b1d
+  review_sha256: e3f843dff78f1b0bc0c3cb92039f9f3dbf82deb08e56cf791a231105c98de065
   approved_by: human
   acknowledged_risk_axes:
   - customer_concentration

@@ -27,8 +27,10 @@ from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
+    UnpublishedThesis,
     _classify_current_thesis_eligibility,
     evaluate_thesis,
+    require_recorded_identity,
 )
 
 
@@ -276,7 +278,7 @@ def _load_db_thesis(
     allow_expired_override: bool,
 ) -> _LoadedThesis:
     thesis_row = connection.execute(
-        "SELECT payload FROM thesis WHERE thesis_id = ?", (thesis_id,)
+        "SELECT core_sha256, payload FROM thesis WHERE thesis_id = ?", (thesis_id,)
     ).fetchone()
     if thesis_row is None:
         raise HoldingReviewError(f"unknown research thesis: {thesis_id}")
@@ -288,7 +290,12 @@ def _load_db_thesis(
         raise HoldingReviewError("holding review requires exactly one independent review")
     thesis = ThesisDocument.model_validate(json.loads(str(thesis_row["payload"])))
     review = IndependentReview.model_validate(json.loads(str(review_rows[0]["payload"])))
-    eligibility = _classify_current_thesis_eligibility(thesis, review=review, now=now)
+    eligibility = _classify_current_thesis_eligibility(
+        thesis,
+        review=review,
+        now=now,
+        identity=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
+    )
     if eligibility.status == "current_ready":
         return _LoadedThesis(thesis, current_ready=True)
     if allow_expired_override and eligibility.status == "expired_override_only":
@@ -311,7 +318,8 @@ def _thesis_market_price(thesis: ThesisDocument) -> Decimal:
 
 
 def _base_5y_cagr(thesis: ThesisDocument, *, now: datetime) -> float:
-    result = evaluate_thesis(thesis, now=now)
+    # Only the scenarios are read here; the identity never leaves this call.
+    result = evaluate_thesis(thesis, now=now, identity=UnpublishedThesis.DRAFT)
     scenario = next(
         (item for item in result.scenarios if item.horizon_years == 5 and item.name == "base"), None
     )

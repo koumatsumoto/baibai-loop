@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation, localcontext
+from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -409,12 +410,10 @@ class EstimatesNamespace(BaseModel):
     ]
     scenarios: tuple[ScenarioEstimate, ...]
     screening_fv_bridge: ScreeningFVBridge | None = None
-    # published thesis の一部はこの key を持つ。payload は `thesis_core_sha256` で review と
-    # bargain assessment に束縛されて書き換えられないので、読めないと holding review・
-    # proposal・assessment・price watch がその thesis に対して同時に止まる。値は null だけを
-    # 受け、serialize からは外し、hash では「読み込んだ payload が key を持つ場合だけ」
-    # 書き戻す。**この規則は payload を生の JSON から validate する経路でだけ正しい**
-    # — `model_dump` を経由すると key が落ちる。store の読み手は全て生 payload を渡す。
+    # published thesis の一部はこの key を持つ。payload は immutable なので、受理をやめると
+    # holding review・proposal・assessment・price watch がその thesis に対して同時に止まる。
+    # 値は null だけを受け、serialize からは外す。identity は publish 時に記録されるので、
+    # この key が hash に影響することはない。
     deep_discount_bps: None = Field(default=None, exclude=True)
 
     @field_validator("scenarios", "entry_price_source_ids", "fair_value_source_ids", mode="before")
@@ -722,10 +721,18 @@ def load_independent_review(path: Path) -> IndependentReview:
 def evaluate_thesis(
     document: ThesisDocument,
     *,
+    identity: ThesisIdentity,
     review: IndependentReview | None = None,
     now: datetime | None = None,
 ) -> ThesisResult:
-    """Recalculate scenarios and determine whether the proposal is decision-ready."""
+    """Recalculate scenarios and determine whether the proposal is decision-ready.
+
+    `identity` is required and has no default on purpose. A published thesis must be
+    judged against the identity it was recorded with, and a draft has none to judge
+    against — but a forgotten optional argument would silently take the draft branch and
+    recompute, which is exactly how a published binding breaks. Making the caller say
+    which one it holds turns that mistake into a type error.
+    """
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -829,7 +836,7 @@ def evaluate_thesis(
     if override is not None and not set(exception_axes).issubset(override.acknowledged_risk_axes):
         errors.append("evidence override must acknowledge every incomplete or adverse risk axis")
 
-    core_hash = thesis_core_hash(document)
+    core_hash = thesis_core_hash(document) if identity is UnpublishedThesis.DRAFT else identity
     if document.judgment.recommendation == "buy":
         if review is None or document.independent_review_ref is None:
             errors.append("buy recommendation requires an independent second-pass review")
@@ -847,7 +854,7 @@ def evaluate_thesis(
                 warnings,
             )
             valid_evidence_override = _has_valid_evidence_override(
-                document, review=review, evaluated_at=evaluated_at
+                document, review=review, evaluated_at=evaluated_at, core_sha256=core_hash
             )
             if exception_axes and not valid_evidence_override:
                 errors.append(_INCOMPLETE_EVIDENCE_OVERRIDE_REQUIRED)
@@ -909,16 +916,18 @@ def _classify_current_thesis_eligibility(
     *,
     review: IndependentReview,
     now: datetime,
+    identity: ThesisIdentity,
 ) -> _CurrentThesisEligibility:
     """Classify current readiness without exposing override policy to consumers."""
     evaluated_at = _evaluation_instant(now)
-    result = evaluate_thesis(document, review=review, now=evaluated_at)
+    result = evaluate_thesis(document, review=review, now=evaluated_at, identity=identity)
     if not result.errors and result.decision_readiness == "ready":
         return _CurrentThesisEligibility("current_ready", result)
     override_status = _evidence_override_status(
         document,
         review=review,
         evaluated_at=evaluated_at,
+        core_sha256=result.thesis_sha256,
     )
     if (
         override_status == "expired"
@@ -936,32 +945,46 @@ def _evaluation_instant(now: datetime | None) -> datetime:
     return evaluated_at.astimezone(ZoneInfo("Asia/Tokyo"))
 
 
+class UnpublishedThesis(Enum):
+    """A thesis that has no recorded identity because it is not published yet."""
+
+    DRAFT = "draft"
+
+
+# Either the identity a published thesis was recorded with, or the marker that says the
+# caller holds a draft and the hash must be computed from the document.
+type ThesisIdentity = str | UnpublishedThesis
+
+
 def thesis_core_hash(document: ThesisDocument) -> str:
+    """The identity a review binds to, for a thesis that is not published yet.
+
+    A published thesis does not use this: `promote` records the hash it computed here
+    and every later reader passes that recorded value to `evaluate_thesis`. Deriving it
+    again would make the identity a property of the current model — adding or dropping a
+    field would move the hash of theses published years earlier, and the review,
+    proposal, holding review, bargain assessment and price watch bound to them would all
+    stop reading at once. Keeping the derivation for drafts only is what lets this stay a
+    plain hash with no per-field special cases.
+    """
     payload = document.model_dump(mode="json", exclude={"human_evidence_override"})
-    if document.input_snapshot.screening_estimate is None:
-        input_snapshot = payload.get("input_snapshot")
-        if isinstance(input_snapshot, dict):
-            input_snapshot.pop("screening_estimate", None)
-    estimates = payload.get("estimates")
-    if isinstance(estimates, dict):
-        if document.estimates.screening_fv_bridge is None:
-            estimates.pop("screening_fv_bridge", None)
-        # 退役 field を持っていた payload だけ、当時と同じ key 集合で hash する。
-        # 持っていなかった thesis の hash は変わらない。
-        if "deep_discount_bps" in document.estimates.model_fields_set:
-            estimates["deep_discount_bps"] = None
-    judgment = payload.get("judgment")
-    if isinstance(judgment, dict) and document.judgment.position_intent == "full":
-        # 既定値の intent は key ごと落とす。この 2 key を持たない payload と同じ hash に
-        # なり、intent を宣言した thesis だけが束縛対象へ入る。値ベースの規則なので
-        # `model_dump` を挟んでも結果が変わらない。
-        judgment.pop("position_intent", None)
-        judgment.pop("starter_catalyst_date", None)
     try:
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (OverflowError, ValueError) as error:
         raise ThesisError(f"thesis cannot be hashed: {error}") from error
     return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def require_recorded_identity(value: object, thesis_id: str) -> str:
+    """The identity a published thesis was recorded with, or a refusal.
+
+    Only a row written outside the application service can be missing it. Falling back
+    to recomputing would answer with the current model's hash — the drift the recorded
+    column exists to stop — so the readers refuse instead.
+    """
+    if not isinstance(value, str) or len(value) != 64:
+        raise ThesisError(f"thesis revision has no recorded identity: {thesis_id}")
+    return value
 
 
 def independent_review_hash(review: IndependentReview) -> str:
@@ -1599,12 +1622,14 @@ def _has_valid_evidence_override(
     *,
     review: IndependentReview,
     evaluated_at: datetime,
+    core_sha256: str,
 ) -> bool:
     return (
         _evidence_override_status(
             document,
             review=review,
             evaluated_at=evaluated_at,
+            core_sha256=core_sha256,
         )
         == "active"
     )
@@ -1615,13 +1640,14 @@ def _evidence_override_status(
     *,
     review: IndependentReview,
     evaluated_at: datetime,
+    core_sha256: str,
 ) -> Literal["absent", "invalid", "active", "expired"]:
     override = document.human_evidence_override
     if override is None:
         return "absent"
     bindings_valid = (
         document.judgment.proposed_at <= review.reviewed_at <= override.approved_at
-        and override.proposal_sha256 == thesis_core_hash(document)
+        and override.proposal_sha256 == core_sha256
         and override.review_id == review.review_id
         and override.review_sha256 == independent_review_hash(review)
         and document.judgment.sizing_action == "reduced"
