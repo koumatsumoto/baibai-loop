@@ -36,6 +36,7 @@ uv run baibai-engine screening shortlist outcome [--db PATH] [--runs-db PATH] [-
 uv run baibai-engine screening ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
 uv run baibai-engine screening market-snapshot [--asof YYYY-MM-DD] [--weeks N]
 uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
+uv run baibai-engine screening refresh-buyback-reports --asof YYYY-MM-DD [--lookback-days N] [--sqlite-path PATH]
 uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 ```
@@ -55,6 +56,12 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 `verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、通常指標用の日次足 1200 日・財務サマリー 730 日、`normalized_per_3fy` 用の両 source 2200 日 coverage、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot、rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。決算発表予定は論理 source `jpx_earnings_calendar` が `ok`、保存行数と coverage 件数が一致して 1 件以上、実データの最大日が asof 以後、取得が asof から 7 平日以内であることを要求する。`--allow-stale-jpx` は取得時刻だけを緩和し、空・部分保存・全件過去は許可しない。master は requested as-of のexact rowとcanonical coverageだけを照合し、range、status、row count、common-stock populationの一致を要求する。newer/prior snapshotを代用せず、別日snapshotの破損もrequested dateの判定へ混ぜない。日次足は SQLite 実データの行そのものから completeness を判定し（DB が SSOT、後述 §11.1）、財務サマリーは source_coverage の窓で判定する。`normalized_per_3fy` の追加窓も同じ authority で検証し、不足時に `null` や短い履歴へ黙って縮退しない。いずれも ticker/date 密度を追加で確認する。EDINET metrics は常に必須であり、raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
 
 `extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。対象日以前の直近正常 snapshot と `(ticker, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, source_document_revision, extractor_revision)` が一致する row は解析済み metric を再利用し、新規・変更候補だけをdownloadする。`source_document_revision` は訂正・取下げ・開示状態を含むcanonical document eventのhashである。`extractor_revision` は抽出 entry point (`screening/cli/edinet_extract.py`) の import closure をfile単位で辿って自動導出する。導出なので、抽出経路が依存を得たり失ったりすると manifest がそれに追随し、依存の追加漏れでstale rowが生き残ることがない。entry point がこの1 commandだけを持つ moduleに居るのは、closureの広さがそのまま再構築の頻度になるためである — `bootstrap-cache` / `verify-cache-coverage` / `backfill-history` と同居していた頃は、それらが引く J-Quants・JPX・coverage の変更でも全件再取得が起きていた。manifestの実体は `tests/test_edinet_revision.py` が両方向に固定する（値を決めうるmoduleが入っていること、決めえないmoduleが入っていないこと）。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
+
+`refresh-buyback-reports` は同じ document list から自己株券買付状況報告書（様式 220、訂正は 230）を選び、決議した株式数と価額・累計取得・当月取得・取得期間・報告月末の発行済株式総数と保有自己株式数を `edinet_buyback_reports` へ 1 銘柄 1 報告月で保存する。E[r] の carry は **trailing の株数変化**なので、取得を始めたばかりの会社はそこに現れず、終えた会社は現れ続ける。この表はその前を向いた側を持つ。**E[r]・ranking・gate は変えない**。
+
+数値は typed な XBRL fact ではなく TextBlock 内に区切り無しで連結されているため、label 起点で読む。comma 区切りの整数は 3 桁 group が境界を与えるので連結されても一意に分解できるが、様式が併記する百分率は区切りも小数桁の固定も無いので読まず、進捗は整数から導出する。読めなかった項目は欠損のまま置く — 残枠が読めないのに 0 を返すと「枠を使い切った」と主張することになる。累計 > 決議、自己株 > 発行済のような矛盾は label が別の行に噛んだ証拠なので、その読みを丸ごと捨てる。実測（2026-05 以降 120 件）で残枠が計算できたのは 80.8%、取得期間の終了日 92.5%、保有状況 95.8% である。
+
+1 件の取得失敗はその提出だけを飛ばし、rate limit は pass を終えて成果を残す（保存済みの提出は二度と取りに行かないので、次の run が続きから進む）。annotation であり判断入力ではないため、部分的な pass で日次 batch を落とさない。
 
 EDINET の当日分 document list は日中に更新されるため、`bootstrap-cache` は対象日を
 毎回取得し、未確定のまま保存した日付を次回実行時に再取得してから確定済みにする。

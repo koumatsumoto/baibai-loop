@@ -19,6 +19,7 @@ from baibai_engine.market.sqlite import (
     open_connection,
     source_coverage_sources,
 )
+from baibai_engine.screening.buyback_store import refresh_buyback_reports
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
@@ -547,4 +548,43 @@ def refresh_edinet_documents_command(
         file=out,
         flush=True,
     )
+    return 0
+
+
+def refresh_buyback_reports_command(
+    *,
+    asof_date: date,
+    lookback_days: int,
+    providers: ProviderBundle,
+    sqlite_path: Path,
+    stdout: TextIO | None = None,
+) -> int:
+    """Read the buyback authorization state out of the form-220 filings already listed.
+
+    Separate from `extract-edinet-metrics` because it reads a different form into a
+    different table, and because keeping it out of that command's module keeps it out of
+    the extractor's revision manifest.
+    """
+    out = stdout if stdout is not None else sys.stdout
+    if providers.edinet is None:
+        print("EDINET provider is not configured", file=sys.stderr)
+        return 1
+    since = asof_date - timedelta(days=lookback_days)
+    try:
+        summary = refresh_buyback_reports(sqlite_path, provider=providers.edinet, since=since)
+    except (EDINETProviderError, sqlite3.Error, SQLiteSchemaError) as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    print(
+        "refresh-buyback-reports: "
+        f"since={since.isoformat()} considered={summary.considered} "
+        f"stored={summary.stored} unreadable={summary.unreadable} "
+        f"without_month_end={summary.without_month_end} "
+        f"rate_limited={str(summary.rate_limited).lower()}",
+        file=out,
+        flush=True,
+    )
+    # A partial pass is reported, not failed. These values are an annotation: they never
+    # enter E[r], ranking, or a gate, so costing the day's publish over a backlog that
+    # the next run clears would trade a real output for a cosmetic one.
     return 0

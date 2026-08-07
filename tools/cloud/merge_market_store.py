@@ -42,6 +42,7 @@ from tools.cloud.store_merge import (
 # who knows whether its rows accumulate, and an unlisted one would otherwise be dropped
 # from the merge in silence. `test_every_market_table_is_merged` holds the two together.
 FACT_KEYS: Mapping[str, tuple[str, ...]] = {
+    "edinet_buyback_reports": ("ticker", "report_month_end"),
     "edinet_document_lists": ("doc_date",),
     "edinet_documents": ("doc_date", "sequence_number"),
     "edinet_metrics": ("asof_date", "ticker"),

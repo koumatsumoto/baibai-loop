@@ -197,6 +197,27 @@ def candidate_metrics_map(
             if buyback_authorization is None
             else _date_iso(buyback_authorization.observed_from)
         ),
+        # 様式そのものが出している枠の中身。提出の有無だけでは「枠が 99.99% 消化済み」と
+        # 「枠が始まったばかり」が同じ表示になる。欠損は「読めなかった」であって
+        # 「残っていない」ではない。
+        "buyback_remaining_share_ratio": (
+            None if buyback_authorization is None else buyback_authorization.remaining_share_ratio
+        ),
+        "buyback_trailing_3m_acquired_ratio": (
+            None
+            if buyback_authorization is None
+            else buyback_authorization.trailing_3m_acquired_ratio
+        ),
+        "buyback_authorization_window_end": (
+            None
+            if buyback_authorization is None
+            else _date_iso(buyback_authorization.authorization_window_end)
+        ),
+        "buyback_report_month_end": (
+            None
+            if buyback_authorization is None
+            else _date_iso(buyback_authorization.report_month_end)
+        ),
     }
 
 

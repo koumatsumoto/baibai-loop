@@ -47,6 +47,7 @@ _REQUIRED_TABLES = (
     "edinet_documents",
     "edinet_document_lists",
     "edinet_metrics",
+    "edinet_buyback_reports",
     "jpx_regulation_flags",
     "jpx_regulation_sources",
     "source_coverage",
@@ -395,6 +396,27 @@ CREATE TABLE IF NOT EXISTS source_coverage(
 
 CREATE INDEX IF NOT EXISTS idx_source_coverage_source_window
   ON source_coverage(source, coverage_start, coverage_end);
+
+CREATE TABLE IF NOT EXISTS edinet_buyback_reports(
+  ticker TEXT NOT NULL,
+  report_month_end TEXT NOT NULL,
+  doc_id TEXT NOT NULL,
+  filed_on TEXT NOT NULL,
+  window_start TEXT,
+  window_end TEXT,
+  resolved_shares INTEGER,
+  resolved_amount_yen INTEGER,
+  cumulative_shares INTEGER,
+  cumulative_amount_yen INTEGER,
+  month_shares INTEGER,
+  month_amount_yen INTEGER,
+  issued_shares INTEGER,
+  treasury_shares INTEGER,
+  PRIMARY KEY (ticker, report_month_end)
+);
+
+CREATE INDEX IF NOT EXISTS idx_edinet_buyback_reports_ticker
+  ON edinet_buyback_reports(ticker, report_month_end);
 """
 
 

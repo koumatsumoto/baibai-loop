@@ -129,6 +129,37 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE jquants_fin_summaries ADD COLUMN equity_to_asset_ratio REAL",
         ),
     ),
+    Migration(
+        version=19,
+        statements=(
+            # 自己株券買付状況報告書の毎月の状態。E[r] の carry は過去 1 年の株数変化なので、
+            # 「これから何株買う権限が残っているか」はそこからは分からない。1 銘柄 1 報告月で
+            # 持つのは、様式がその粒度で出るためである。
+            """
+            CREATE TABLE IF NOT EXISTS edinet_buyback_reports(
+              ticker TEXT NOT NULL,
+              report_month_end TEXT NOT NULL,
+              doc_id TEXT NOT NULL,
+              filed_on TEXT NOT NULL,
+              window_start TEXT,
+              window_end TEXT,
+              resolved_shares INTEGER,
+              resolved_amount_yen INTEGER,
+              cumulative_shares INTEGER,
+              cumulative_amount_yen INTEGER,
+              month_shares INTEGER,
+              month_amount_yen INTEGER,
+              issued_shares INTEGER,
+              treasury_shares INTEGER,
+              PRIMARY KEY (ticker, report_month_end)
+            )
+            """,
+            (
+                "CREATE INDEX IF NOT EXISTS idx_edinet_buyback_reports_ticker "
+                "ON edinet_buyback_reports(ticker, report_month_end)"
+            ),
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION

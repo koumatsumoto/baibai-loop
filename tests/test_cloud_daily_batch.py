@@ -149,6 +149,7 @@ def _success_script() -> dict[str, list[CommandResult]]:
     return {
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [OK],
+        "screening refresh-buyback-reports": [OK],
         "screening extract-edinet-metrics": [EXTRACT_OK],
         "screening run": [RUN_OK],
         "task reconcile-earnings": [OK],
@@ -222,6 +223,7 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening extract-edinet-metrics",
+        "screening refresh-buyback-reports",
         "screening run",
         "screening select",
         "macro list",
@@ -302,11 +304,12 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path
     )
 
     assert exit_code == 0
-    assert runner.call_keys()[:6] == [
+    assert runner.call_keys()[:7] == [
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
         "screening bootstrap-cache",
         "screening extract-edinet-metrics",
+        "screening refresh-buyback-reports",
         "screening verify-cache-coverage",
         "screening run",
     ]
@@ -354,6 +357,7 @@ def test_daily_batch_stops_when_coverage_stays_incomplete_after_bootstrap(tmp_pa
         "screening refresh-edinet-documents": [OK],
         "screening verify-cache-coverage": [incomplete, incomplete],
         "screening bootstrap-cache": [OK],
+        "screening refresh-buyback-reports": [OK],
         "screening extract-edinet-metrics": [EXTRACT_OK],
     }
     runner = _runner(script)
@@ -1101,7 +1105,7 @@ def test_every_batch_step_name_is_a_known_error_stage() -> None:
 
     # Guards the scan itself: a parser that silently matches nothing would make
     # this test pass while checking no step at all.
-    assert len(names) + len(dynamic) == 12, "the scan lost or gained call sites"
+    assert len(names) + len(dynamic) == 13, "the scan lost or gained call sites"
     unregistered = {name for name in names if _normalize_stage(name) not in set(ERROR_STAGES)}
     assert unregistered == set()
     assert len(dynamic) == 1

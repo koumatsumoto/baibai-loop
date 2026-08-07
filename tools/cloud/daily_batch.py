@@ -812,6 +812,17 @@ def _execute_daily_batch(
         edinet_quarantined_tickers,
         edinet_quarantine_sample,
     ) = _parse_edinet_quarantine_metrics(extract_result.stdout)
+    # The buyback authorisation state rides the same document list, but reads a
+    # different form into a different table. It runs after the metric extraction so a
+    # failure here never costs that extraction its work.
+    _run_step(
+        runner,
+        name="refresh-buyback-reports",
+        argv=(_ENGINE, "screening", "refresh-buyback-reports", "--asof", asof_arg),
+        cwd=root,
+        echo_stdout_prefixes=("refresh-buyback-reports: ",),
+    )
+
     if coverage_was_incomplete:
         _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
 

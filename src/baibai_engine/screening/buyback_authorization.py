@@ -1,4 +1,4 @@
-"""自己株式取得枠の提出状況を判断面へ出す annotation。
+"""自己株式取得枠の状態を判断面へ出す annotation。
 
 E[r] の carry は `dividend_yield + clip(-net_share_change_yoy, ±5%)` で、buyback 側は
 **過去 1 年の株数変化**である。取得枠を消化し終えた会社もこの成分を持ち続けるので、
@@ -8,11 +8,14 @@ carry を「これから受け取る現金還元」と読むと過大評価に�
 230 — は金商法 24 条の 6 第 1 項により、取締役会決議による取得の**取得期間中は毎月**
 提出される。したがって提出の有無と齢が、取得枠がいつまで在ったかの観測になる。
 
-**観測できるのは「直近の報告月に取得枠が在った」までで、「今も在る」ではない。** 提出は
-報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。実例:
-6088 は 2026-08-05 に提出 — 齢 0 日 — だが、その中身は「取得期間 2026-05-11〜2026-07-31、
-金額進捗 99.99%」で、同日に取得終了が開示されている。残枠と取得期間の終了日は本 module
-では読まないので、carry を forward の現金還元として扱うなら一次開示で確認する。
+提出の有無だけでは「直近の報告月に取得枠が在った」までしか言えない。提出は報告月の翌月に
+出るので、取得期間が終了した月の報告書も期間終了後に提出される。6088 は 2026-08-05 提出で
+齢 0 日だが、中身は取得期間 2026-05-11〜2026-07-31・金額進捗 99.99% で、同日に取得
+終了が開示されている。そこを埋めるのが `remaining_share_ratio` と
+`authorization_window_end` で、様式そのものが月次で出している値から読む。
+
+読めなかった値は欠損のまま置く。残枠が読めないのに 0 を返すと「枠を使い切った」と主張する
+ことになり、carry の読み方を逆に倒す。
 
 **この annotation は E[r]・ranking・gate を変えない。** 較正リプレイでは、株数減少群は
 取得が単発で終わった銘柄も含めて母集団を上回っており、carry を落とす変更は実在する
@@ -32,12 +35,14 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
 from baibai_engine.market.sqlite import connect_current
+
+from .buyback_store import StoredBuybackReport
 
 # 値は観測そのものを表す。枠が今も在るかの推論は読み手が一次開示で決める。
 type BuybackAuthorizationStatus = Literal["recent_filing", "stale_filing", "no_filing", "unknown"]
@@ -76,6 +81,16 @@ class BuybackAuthorization:
     latest_filing_age_days: int | None
     # 観測できた窓。status を解釈するときの前提そのものなので必ず併記する。
     observed_from: date | None
+    # 直近報告月末時点で、決議した株式数のうちまだ買っていない割合。1.0 なら手つかず、
+    # 0.0 なら使い切り。`None` は「読めなかった」であって「残っていない」ではない。
+    remaining_share_ratio: float | None = None
+    # 直近 3 報告月に取得した株数 ÷ 発行済株式総数。carry の buyback 成分は trailing の
+    # 株数変化なので、取得を始めたばかりの会社はそこにまだ現れない。こちらは現れる。
+    trailing_3m_acquired_ratio: float | None = None
+    # 取得期間の終了日。過ぎていれば、直近の提出があっても枠はもう無い。
+    authorization_window_end: date | None = None
+    # 上の 3 つが由来する報告月末。提出日とは 2 週間から 1 か月ずれる。
+    report_month_end: date | None = None
 
 
 def index_buyback_status_filings(
@@ -232,6 +247,7 @@ def _date(value: object) -> date | None:
 
 
 __all__ = [
+    "ACQUISITION_PACE_MONTHS",
     "BUYBACK_STATUS_CORRECTION_DOC_TYPE",
     "BUYBACK_STATUS_FILING_DOC_TYPE",
     "OBSERVATION_WINDOW_DAYS",
@@ -243,3 +259,49 @@ __all__ = [
     "index_buyback_status_filings",
     "read_buyback_status_filings",
 ]
+
+
+# 取得ペースを測る窓。様式は月次なので 3 報告月 = 概ね四半期で、carry の trailing 1 年より
+# ずっと手前の動きを拾う。
+ACQUISITION_PACE_MONTHS = 3
+
+
+def with_authorization_state(
+    annotation: BuybackAuthorization,
+    reports: Sequence[StoredBuybackReport],
+) -> BuybackAuthorization:
+    """提出の有無だけの annotation へ、様式が出している枠の状態を足す。
+
+    直近報告月の残枠と取得期間の終了日、そして直近 3 報告月の取得ペースを載せる。status
+    そのものは変えない — 観測窓の話と枠の中身の話は別で、畳むと「読めなかった」が
+    「枠が無い」に化ける。
+    """
+
+    if not reports:
+        return annotation
+    latest = reports[0]
+    remaining_ratio: float | None = None
+    if (
+        latest.resolved_shares is not None
+        and latest.cumulative_shares is not None
+        and latest.resolved_shares > 0
+    ):
+        remaining = max(latest.resolved_shares - latest.cumulative_shares, 0)
+        remaining_ratio = remaining / latest.resolved_shares
+    acquired = [
+        report.month_shares
+        for report in reports[:ACQUISITION_PACE_MONTHS]
+        if report.month_shares is not None
+    ]
+    pace: float | None = None
+    issued = latest.issued_shares
+    # 1 か月でも読めない月があれば合計は過少になるので、揃っているときだけ答える。
+    if issued and issued > 0 and len(acquired) == min(ACQUISITION_PACE_MONTHS, len(reports)):
+        pace = sum(acquired) / issued
+    return replace(
+        annotation,
+        remaining_share_ratio=remaining_ratio,
+        trailing_3m_acquired_ratio=pace,
+        authorization_window_end=latest.window_end,
+        report_month_end=latest.report_month_end,
+    )

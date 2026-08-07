@@ -122,6 +122,7 @@ ERROR_STAGES = (
     "bootstrap-cache",
     "extract-edinet-metrics",
     "refresh-edinet-documents",
+    "refresh-buyback-reports",
     "screening-run",
     "screening-select",
     "task-reconcile-earnings",
