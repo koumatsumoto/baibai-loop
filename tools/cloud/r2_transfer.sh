@@ -151,12 +151,42 @@ merge_market_store() {
   merge_store tools.cloud.merge_market_store "$1" "$2"
 }
 
+remote_version() {
+  # ETag identifies the stored object, so a push during the pull changes it.
+  aws s3api head-object \
+    --bucket "${stores_bucket}" \
+    --key "$1" \
+    --endpoint-url "${endpoint}" \
+    --query ETag \
+    --output text
+}
+
 pull_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  local key target
+  local key target index
+  # The stores download one after another, so a daily batch that pushes partway
+  # through leaves a local set whose members come from either side of that push:
+  # a run store that knows a screening run the market store has no bars for.
+  # `check_sqlite` reads each store on its own and passes such a set, and nothing
+  # downstream re-derives the combination, so screening would read a cross-section
+  # that never existed. Comparing each object's version before and after the
+  # downloads catches exactly that straddle, and the local stores stay untouched.
+  local -a versions=()
+  for key in "$@"; do
+    versions+=("$(remote_version "${key}")")
+  done
   for key in "$@"; do
     aws_s3 cp "s3://${stores_bucket}/${key}" "${transfer_staging}/${key}"
     check_sqlite "${transfer_staging}/${key}"
+  done
+  index=0
+  for key in "$@"; do
+    if [[ "$(remote_version "${key}")" != "${versions[index]}" ]]; then
+      printf 'refusing to replace local stores: %s changed on R2 during the pull. ' "${key}" >&2
+      printf 'Wait for the daily batch to finish and pull again.\n' >&2
+      exit 1
+    fi
+    index=$((index + 1))
   done
   for key in "$@"; do
     target="$(store_path "${key}")"

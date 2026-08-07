@@ -3,7 +3,6 @@ title: "Data sources"
 summary: "データソースの Tier 分類・キャッシュ方針・Tier 1 取得失敗時の扱いの正本。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-23
 source_paths:
   - "../../data/"
 related_docs:

@@ -44,7 +44,7 @@ triggered は注文ではなく「読み直す理由が発生した」の合図�
 uv run python -m tools.measure_limit_outcomes --asof <最新完全営業日>
 ```
 
-`summary.decision_bound_orders` が repository の判断経路を通った注文の成績で、`all_ledger_orders` は既存保有の取り込みを含む。**取り込み分の約定を規律の成績に数えない。** `chase_policy_decision.ready` が true になったら、gap を追う指値へ変えるかを別 issue で事前登録して判断する。false のうちは個票を並べるだけにして、少数の失効で規律を外さない。
+`summary.decision_bound_orders` が repository の判断経路を通った注文の成績で、`all_ledger_orders` は既存保有の取り込みを含む。**取り込み分の約定を規律の成績に数えない。** `forgone_pct` は失効後 20 立会日の窓が満ちた注文にだけ付き、途中の注文は `forgone_pending_window_orders` に数えられる（部分観測を「逃した幅」として読まない）。 `chase_policy_decision.ready` が true になったら、gap を追う指値へ変えるかを別 issue で事前登録して判断する。false のうちは個票を並べるだけにして、少数の失効で規律を外さない。
 
 ## Store 同期（`tools/cloud/r2_transfer.sh`）
 
@@ -53,6 +53,8 @@ uv run python -m tools.measure_limit_outcomes --asof <最新完全営業日>
 | market / machine（runs） | R2 | 読む前に `pull-market` / `pull-machine`。push は script が **R2 copy を merge してから upload**（merge-then-push）。ローカルだけで長く作業した store を直接 push しない |
 | macro（indicators） | R2 | 同上（`push-macro` は no-loss merge。誤値の訂正は削除でなく `macro retract` — 契約は [`macro.md`](../../../docs/reference/macro.md)） |
 | app（baibai.sqlite） | **local** | 判断はローカルが正本。publish 後に `push-app`（直 push）→ materialize。**pull しない** — `pull-app` はローカルに store があれば止まる（cloud copy で置換すると未 push の判断が消える）|
+
+**pull は batch の走行中を避ける。** 3 store は順に download されるので、その途中で batch が push すると batch 前後の世代が混ざった断面がローカルへ載る。`changed on R2 during the pull` で止まったらそれで、batch の完了を待って引き直す（ローカルの store は置換されていない）。避けるべき窓の導出は [`tools/cloud/README.md`](../../../tools/cloud/README.md)。
 
 cloud 障害は「store が code より古い」形で出ることが多い。再現はローカルへ R2 store を pull して read 経路を通す。
 

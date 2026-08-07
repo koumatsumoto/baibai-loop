@@ -3,7 +3,6 @@ title: "日経225オプション IV 3 系列の振る舞い"
 summary: "正本 store の全営業日 2,440 日で 3 系列がいつ出ていつ出ないか、何に依存するかを測った。iv30 は 83.0% の日に出て中央値 17.89、skew は 2,004 日すべて正、term は 40.6% の日が逆転する。水準判断の正本は reading の percentile で、本記録はその手前の性質を固定する。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-08-01
 ---
 
 # 日経225オプション IV 3 系列の振る舞い

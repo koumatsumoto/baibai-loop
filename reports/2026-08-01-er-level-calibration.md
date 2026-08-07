@@ -3,7 +3,6 @@ title: "実現 FY 配当を使った E[r] 絶対水準較正"
 summary: "FY 実績配当の近似 total-return 座標を構築し、11 cohort の 3y/5y production evidence で 0.10→0.14 候補を検証したが、horizon 方向不一致と誤差非改善により不採用とした。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-08-01
 ---
 
 # 実現 FY 配当を使った E[r] 絶対水準較正

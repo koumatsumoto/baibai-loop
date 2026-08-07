@@ -452,6 +452,78 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=13,
+        statements=(
+            # 基盤・手法の改善は operation session を使わず、self-contained issue →
+            # PR delivery で回す。session はどの kind でも同時に 1 件しか active に
+            # できない排他資源なので、使わない kind が開始できる状態は投資判断の
+            # trigger を締め出せることを意味する。CHECK からも外して、SQL を直に
+            # 書いても作れないようにする。
+            """
+            CREATE TABLE operation_session_next (
+                operation_id TEXT PRIMARY KEY,
+                session_kind TEXT NOT NULL CHECK (
+                    session_kind IN (
+                        'opportunity',
+                        'pending-result',
+                        'monthly-contribution',
+                        'earnings-material-event',
+                        'annual-outcome'
+                    )
+                ),
+                status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
+                as_of TEXT NOT NULL,
+                ticker TEXT,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                payload TEXT NOT NULL CHECK (json_valid(payload)),
+                CHECK (
+                    (status = 'active' AND completed_at IS NULL)
+                    OR (status = 'completed' AND completed_at IS NOT NULL)
+                )
+            ) STRICT
+            """,
+            """
+            INSERT INTO operation_session_next (
+                operation_id, session_kind, status, as_of, ticker,
+                started_at, completed_at, payload
+            )
+            SELECT operation_id, session_kind, status, as_of, ticker,
+                   started_at, completed_at, payload
+            FROM operation_session
+            """,
+            # DROP TABLE は DELETE trigger を発火しないので、completed row の
+            # immutability trigger は移送を妨げない。index と trigger は table と
+            # 一緒に落ちるため、同じ名前で作り直す。
+            "DROP TABLE operation_session",
+            "ALTER TABLE operation_session_next RENAME TO operation_session",
+            (
+                "CREATE UNIQUE INDEX operation_session_one_active_idx "
+                "ON operation_session(status) WHERE status = 'active'"
+            ),
+            (
+                "CREATE INDEX operation_session_kind_completed_idx "
+                "ON operation_session(session_kind, completed_at, operation_id)"
+            ),
+            """
+            CREATE TRIGGER operation_session_completed_no_update
+            BEFORE UPDATE ON operation_session
+            WHEN OLD.status = 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'completed operation session is immutable');
+            END
+            """,
+            """
+            CREATE TRIGGER operation_session_completed_no_delete
+            BEFORE DELETE ON operation_session
+            WHEN OLD.status = 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'completed operation session is immutable');
+            END
+            """,
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version

@@ -55,6 +55,10 @@ class OrderOutcome:
     window_end: date | None
     window_low_yen: float | None
     distance_to_limit_pct: float | None
+    # 失効後に実際に観測できた立会日数。`forgone_pct` は窓が満ちた注文にだけ付く。
+    # 4 日ぶんの上昇を 20 日窓の「逃した幅」として出すと、まだ測っていないものが
+    # 測り終えた値の顔で中央値へ入る。
+    post_expiry_sessions_observed: int
     post_window_high_close_yen: float | None
     forgone_pct: float | None
 
@@ -168,6 +172,10 @@ def _summarize(outcomes: Sequence[OrderOutcome]) -> dict[str, object]:
         "still_open": len(outcomes) - decided,
         "fill_rate_pct": None if not decided else round(len(filled) / decided * 100, 1),
         "median_low_above_limit_pct": None if not distances else round(median(distances), 2),
+        # 中央値の母数は窓が満ちた失効注文だけ。まだ窓の途中にある注文をここへ入れると、
+        # 直近の失効ほど「逃した幅が小さい」側へ寄る。
+        "forgone_measured_orders": len(forgone),
+        "forgone_pending_window_orders": len(unfilled) - len(forgone),
         "median_forgone_pct": None if not forgone else round(median(forgone), 2),
     }
 
@@ -193,6 +201,7 @@ def _order_outcome(
             window_end=min(fill.occurred_at.date() for fill in fills),
             window_low_yen=None,
             distance_to_limit_pct=None,
+            post_expiry_sessions_observed=0,
             post_window_high_close_yen=None,
             forgone_pct=None,
         )
@@ -208,6 +217,7 @@ def _order_outcome(
             window_end=None,
             window_low_yen=None,
             distance_to_limit_pct=None,
+            post_expiry_sessions_observed=0,
             post_window_high_close_yen=None,
             forgone_pct=None,
         )
@@ -215,7 +225,8 @@ def _order_outcome(
     bars = _bars(connection, reservation.ticker, placed_on, window_end)
     window_low = min((low for _, low, _ in bars), default=None)
     forward = _forward_closes(connection, reservation.ticker, window_end, POST_EXPIRY_SESSIONS)
-    high_close = max(forward, default=None)
+    complete_window = len(forward) == POST_EXPIRY_SESSIONS
+    high_close = max(forward, default=None) if complete_window else None
     return OrderOutcome(
         reservation_id=reservation.reservation_id,
         ticker=reservation.ticker,
@@ -230,6 +241,7 @@ def _order_outcome(
         distance_to_limit_pct=(
             None if window_low is None else _pct(window_low, reservation.price_guard_yen)
         ),
+        post_expiry_sessions_observed=len(forward),
         post_window_high_close_yen=high_close,
         # 失効後に届かなかった上昇幅。指値規律のコスト側で、fill 率と対で読む。
         forgone_pct=(None if high_close is None else _pct(high_close, reservation.price_guard_yen)),
@@ -248,6 +260,7 @@ def _order_payload(item: OrderOutcome) -> dict[str, object]:
         "window_end": None if item.window_end is None else item.window_end.isoformat(),
         "window_low_yen": item.window_low_yen,
         "distance_to_limit_pct": item.distance_to_limit_pct,
+        "post_expiry_sessions_observed": item.post_expiry_sessions_observed,
         "post_window_high_close_yen": item.post_window_high_close_yen,
         "forgone_pct": item.forgone_pct,
     }
@@ -260,18 +273,23 @@ def _parse_date(value: str) -> date:
         raise argparse.ArgumentTypeError("must be an ISO date") from error
 
 
-def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="python -m tools.measure_limit_outcomes",
         description=(
             "Aggregate fill rate and forgone upside across human-approved limit orders. "
             "Read-only: never infers a fill and never writes canonical records."
-        )
+        ),
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_APP_DB)
     parser.add_argument("--sqlite-path", type=Path, default=DEFAULT_MARKET_DB)
     parser.add_argument("--asof", type=_parse_date, required=True)
     parser.add_argument("--out", type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     try:
         payload = build_limit_outcomes(app_db=args.db, market_db=args.sqlite_path, asof=args.asof)

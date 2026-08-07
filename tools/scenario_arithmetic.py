@@ -109,8 +109,10 @@ def required_return_price(
     return round(total_value / (1 + required_cagr_pct / 100) ** 5, 4)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python tools/scenario_arithmetic.py", description=__doc__
+    )
     parser.add_argument("--entry-price", type=float, required=True, help="entry price in JPY")
     parser.add_argument(
         "--starting-earnings", type=float, required=True, help="starting earnings in JPY"
@@ -133,7 +135,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         help="discount the 5y base path back to the price returning this CAGR",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     try:
         specs = [parse_scenario(item) for item in args.scenario]

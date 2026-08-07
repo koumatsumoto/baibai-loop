@@ -3,7 +3,6 @@ title: "Estimate calibration"
 summary: "point-in-time panelと長期forward returnでE[r]・FV・selection方法を較正するcontract。"
 doc_type: reference
 status: active
-last_reviewed: 2026-08-03
 ---
 
 # estimate-calibration

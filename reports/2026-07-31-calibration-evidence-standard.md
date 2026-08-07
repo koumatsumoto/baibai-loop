@@ -3,7 +3,6 @@ title: "10 年履歴での較正 evidence 成立状況"
 summary: "grid を 80 cohort へ広げ、3y で 44・5y で 20 の満期済み cohort が指標を算出できる状態にした。3y 5 件・5y 4 件が全 blocker を抜けている。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-07-31
 ---
 
 # 10 年履歴での較正 evidence 成立状況

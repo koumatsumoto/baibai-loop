@@ -27,21 +27,33 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--db", type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    start = commands.add_parser("start")
+    start = commands.add_parser(
+        "start",
+        help="open a session for one trigger; at most one session is active across all kinds",
+    )
     start.add_argument("--kind", choices=SESSION_KINDS, required=True)
     start.add_argument("--as-of", type=date.fromisoformat, required=True)
     start.add_argument("--ticker")
     start.add_argument("--payload", type=Path)
 
-    checkpoint = commands.add_parser("checkpoint")
+    checkpoint = commands.add_parser(
+        "checkpoint",
+        help="replace the active session's payload with the current working state",
+    )
     checkpoint.add_argument("operation_id")
     checkpoint.add_argument("--payload", type=Path, required=True)
 
-    show = commands.add_parser("show")
+    show = commands.add_parser(
+        "show",
+        help="print one session, or list sessions filtered by status",
+    )
     show.add_argument("operation_id", nargs="?")
     show.add_argument("--status", choices=("active", "completed"))
 
-    complete = commands.add_parser("complete")
+    complete = commands.add_parser(
+        "complete",
+        help="close an active session once its kind's completion requirements hold",
+    )
     complete.add_argument("operation_id")
     complete.add_argument("--payload", type=Path, required=True)
     return parser

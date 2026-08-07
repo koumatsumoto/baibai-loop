@@ -3,7 +3,6 @@ title: "Holding review reference"
 summary: "保有・売却を thesis health と税引後の代替機会費用で hold/add/reduce/exit へ落とす契約と算術。FV 到達は review trigger、価格下落単独は売却理由にしない。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-12
 related_docs:
   - "../doctrine.md"
   - "../portfolio-management.md"

@@ -3,7 +3,6 @@ title: "Baibai Loop docs portal"
 summary: "やりたいことから思想、運用skill、静的contractの唯一の正本へ案内する入口。"
 doc_type: portal
 status: active
-last_reviewed: 2026-08-03
 ---
 
 # Baibai Loop docs
@@ -68,8 +67,7 @@ last_reviewed: 2026-08-03
 
 ## 文書共通contract
 
-- active docは`title / summary / doc_type / status / last_reviewed`を持つ（skillはfrontmatterのname / descriptionのみ）。
-- `last_reviewed`は本文、link、public CLIを実際に照合した日。
+- active docは`title / summary / doc_type / status`を持つ（skillはfrontmatterのname / descriptionのみ）。`title`と`summary`はこのportalとreference indexの表に出る。
 - model fieldを網羅転記せず、意味・計算式・設計理由だけを書く。
 - 現状とWHYを現在形で書き、Issue/PR由来、旧→新の変遷、進捗TODOを成果物本文に混ぜない。
 - `doctrine.md#vocabulary`、`doctrine.md#fact-analysis-separation`のanchorを維持する。

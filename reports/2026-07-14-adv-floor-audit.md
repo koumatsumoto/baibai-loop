@@ -25,14 +25,14 @@ rule を変更しない。
 ## 1. 現行 contract
 
 本番 rules は
-[`selection.liquidity.min_avg_turnover_oku: 1.0`](../records/_config/screening-rules/2026-07-06T000000+0900.yaml)
-を持つ。[`SelectionLiquidityRules.matches`](../src/baibai_loop/screening/rule_config.py) は、candidate の
+[`selection.liquidity.min_avg_turnover_oku: 1.0`](../method/screening-rules/2026-07-06T000000+0900.yaml)
+を持つ。[`SelectionLiquidityRules.matches`](../src/baibai_engine/screening/rule_config.py) は、candidate の
 `avg_turnover_oku` がこの値未満なら ranking 母集団から除外する。欠損 liquidity fact、
 `market_cap_oku < 100`、上場期間 182 日未満、required JPX flag、`metrics.er_annual` 欠損も独立に
 ranking 対象外になる。
 
 selection と比較中央値の母集団は同じ liquidity predicate を使うため、ADV floor の production
-変更は候補 filter だけではない。[`liquid_median_population`](../src/baibai_loop/screening/universe.py)
+変更は候補 filter だけではない。[`liquid_median_population`](../src/baibai_engine/screening/universe.py)
 が変わり、sector / market median、FV anchor、E[r] も再計算される。本監査はその再構築を行わず、
 保存済み E[r] を固定した一次近似だけを扱う。
 

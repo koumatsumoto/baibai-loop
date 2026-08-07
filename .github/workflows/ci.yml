@@ -62,11 +62,12 @@ jobs:
 
       - name: Drift gates
         # Every check under tools/drift/ runs: a gate is wired in by living there, not by
-        # being remembered here.
+        # being remembered here. They run as modules so a gate can import a sibling —
+        # running the file directly puts only its own directory on the import path.
         run: |
           for gate in tools/drift/check_*.py; do
             echo "== $gate"
-            uv run python "$gate"
+            uv run python -m "tools.drift.$(basename "$gate" .py)"
           done
 
       - name: Tests with coverage

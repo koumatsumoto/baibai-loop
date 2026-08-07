@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -519,3 +520,47 @@ def test_export_treats_an_absent_app_store_as_empty_judgment(
 
     assert (output_dir / "views/meta.json").exists()
     assert json.loads((output_dir / "views/dashboard.json").read_text(encoding="utf-8"))
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+WORKER_SOURCE = REPO_ROOT / "cloud/worker/src/index.ts"
+EXPORTER_SOURCE = REPO_ROOT / "tools/cloud/export_read_models.py"
+# `view('x.json')` / `view(`x--${id}.json`)` — the Worker's whole `views/` surface.
+_WORKER_VIEW = re.compile(r"view\([`']([^`']+)[`']\)")
+# `views_dir / "x.json"` and `views_dir / f"x--{...}.json"` in the exporter.
+_EXPORTED_VIEW = re.compile(r'views_dir / f?"([^"]+)"')
+
+
+def _view_shape(filename: str) -> str:
+    """Collapse an interpolated segment so both sides compare as the same view kind."""
+    return re.sub(r"\$?\{[^}]+\}", "*", filename)
+
+
+def _exported_views() -> set[str]:
+    source = EXPORTER_SOURCE.read_text(encoding="utf-8")
+    return {_view_shape(match) for match in _EXPORTED_VIEW.findall(source)}
+
+
+def test_every_worker_view_route_is_produced_by_the_exporter() -> None:
+    """A route whose view the export never writes is a permanent 404 in production.
+
+    The two files are the only places the `views/` key space is written down, and
+    neither imports the other, so nothing else notices when one of them moves.
+    """
+
+    source = WORKER_SOURCE.read_text(encoding="utf-8")
+    worker_views = {_view_shape(match) for match in _WORKER_VIEW.findall(source)}
+
+    assert worker_views, "the Worker route table must map at least one view"
+    assert worker_views <= _exported_views(), sorted(worker_views - _exported_views())
+
+
+def test_the_cloud_readme_lists_every_exported_view() -> None:
+    readme = (REPO_ROOT / "tools/cloud/README.md").read_text(encoding="utf-8")
+    # 一覧は placeholder を `<name>` で書くので、比較の前に同じ形へ寄せる。
+    documented = {
+        re.sub(r"<[^>]+>", "*", _view_shape(name))
+        for name in re.findall(r"`views/([^`]+)`", readme)
+    }
+
+    assert _exported_views() <= documented, sorted(_exported_views() - documented)

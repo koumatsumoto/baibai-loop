@@ -191,9 +191,9 @@ horizonが満期済みのcohortだけを指定する。
 - `metric_unresolved`
 - available masterを持つcohortでは`unresolved_forward_rows`
 
-[`calibration/cli.py`](../src/baibai_loop/screening/calibration/cli.py) は3y / 5yについて
+[`calibration/cli.py`](../src/baibai_engine/screening/calibration/cli.py) は3y / 5yについて
 `exact_date`、3 coverageの`complete`、unclamped input、complete partition、resolved forwardを要求する。
-[`calibration/forward.py`](../src/baibai_loop/screening/calibration/forward.py) は現状、3 coverageを
+[`calibration/forward.py`](../src/baibai_engine/screening/calibration/forward.py) は現状、3 coverageを
 `not_assessed`で生成し、missing / stale exitだけを`delisting_coverage_status: unknown`へ上げる。
 
 空panelでは入力窓を読まないため、今回の`input_range_clamped: false`は履歴十分性を証明しない。
@@ -202,17 +202,17 @@ master backfill後にbars 1,200暦日、financial summaries 730暦日の入力�
 ## 4. Root cause: master snapshot が履歴として残らない
 
 DB schema は`PRIMARY KEY (snapshot_date, ticker)`を持ち、複数snapshotを表現できる。
-[`sqlite_reader.read_eq_master_asof`](../src/baibai_loop/screening/sqlite_reader.py) も as-of 以下の最新
+[`sqlite_reader.read_eq_master_asof`](../src/baibai_engine/screening/sqlite_reader.py) も as-of 以下の最新
 snapshotを読み、日付一致を`exact_date`、不一致を`prior_snapshot`として区別する。
 
-一方、[`store_jquants_master`](../src/baibai_loop/screening/sqlite_cache/jquants.py) は保存前に次を実行する。
+一方、[`store_jquants_master`](../src/baibai_engine/screening/sqlite_cache/jquants.py) は保存前に次を実行する。
 
 ```sql
 DELETE FROM jquants_master_snapshots;
 ```
 
 同時に既存source coverageを削除し、`coverage_key: latest`だけを記録する。
-[`JQuantsProvider.get_eq_master`](../src/baibai_loop/screening/providers/jquants.py) も基準日を受け取らず、
+[`JQuantsProvider.get_eq_master`](../src/baibai_engine/screening/providers/jquants.py) も基準日を受け取らず、
 latest masterを取得する。
 
 したがって、現行の`bootstrap-cache --asof`を反復してもsnapshot historyは増えない。

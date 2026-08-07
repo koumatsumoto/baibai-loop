@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
 import yaml
 from tools.measure_limit_outcomes import (
+    POST_EXPIRY_SESSIONS,
     LimitOutcomeMeasurementError,
     build_limit_outcomes,
     main,
@@ -78,6 +79,18 @@ def _market(path: Path, bars: list[tuple[str, float, float]]) -> None:
         connection.close()
 
 
+def _post_expiry_sessions(
+    *, high_close: float, sessions: int = POST_EXPIRY_SESSIONS
+) -> list[tuple[str, float, float]]:
+    """Bars after the 2026-07-10 expiry, the last one carrying the highest close."""
+
+    days = [date(2026, 7, 13) + timedelta(days=offset) for offset in range(sessions)]
+    return [
+        (day.isoformat(), 1200.0, high_close if index == sessions - 1 else 1210.0)
+        for index, day in enumerate(days)
+    ]
+
+
 def test_an_expired_order_reports_how_far_the_low_stayed_above_the_limit(tmp_path: Path) -> None:
     app_db = tmp_path / "app.sqlite"
     market = tmp_path / "market.sqlite"
@@ -104,7 +117,7 @@ def test_an_expired_order_reports_how_far_the_low_stayed_above_the_limit(tmp_pat
         [
             ("2026-07-02", 1100.0, 1150.0),
             ("2026-07-09", 1050.0, 1080.0),
-            ("2026-07-15", 1200.0, 1250.0),
+            *_post_expiry_sessions(high_close=1250.0),
         ],
     )
 
@@ -115,8 +128,59 @@ def test_an_expired_order_reports_how_far_the_low_stayed_above_the_limit(tmp_pat
     assert order["window_low_yen"] == pytest.approx(1050.0)
     # 窓内の最安値 1,050 は指値 1,000 を 5% 上回った。
     assert order["distance_to_limit_pct"] == pytest.approx(5.0)
+    assert order["post_expiry_sessions_observed"] == POST_EXPIRY_SESSIONS
     # 失効後の最高終値 1,250 は指値の +25%。
     assert order["forgone_pct"] == pytest.approx(25.0)
+
+
+def test_a_forgone_move_is_absent_while_the_post_expiry_window_is_incomplete(
+    tmp_path: Path,
+) -> None:
+    """4 日ぶんの上昇を 20 日窓の「逃した幅」として出さない。
+
+    出すと、まだ測っていないものが測り終えた値の顔で中央値へ入り、直近の失効ほど
+    「逃した幅が小さい」側へ寄る。
+    """
+
+    app_db = tmp_path / "app.sqlite"
+    market = tmp_path / "market.sqlite"
+    _ledger(
+        app_db,
+        [
+            _reservation(
+                reservation_id="res-1",
+                occurred_at="2026-07-01T09:00:00+09:00",
+                limit_yen="1000",
+                decision_reference="issue-1",
+            ),
+            {
+                "event_id": "release-1",
+                "type": "release",
+                "occurred_at": "2026-07-10T15:30:00+09:00",
+                "reservation_id": "res-1",
+                "reason": "expired",
+            },
+        ],
+    )
+    _market(
+        market,
+        [
+            ("2026-07-09", 1050.0, 1080.0),
+            *_post_expiry_sessions(high_close=1250.0, sessions=4),
+        ],
+    )
+
+    payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
+
+    order = payload["orders"][0]
+    assert order["post_expiry_sessions_observed"] == 4
+    assert order["post_window_high_close_yen"] is None
+    assert order["forgone_pct"] is None
+    summary = payload["summary"]["all_ledger_orders"]
+    assert summary["expired"] == 1
+    assert summary["forgone_measured_orders"] == 0
+    assert summary["forgone_pending_window_orders"] == 1
+    assert summary["median_forgone_pct"] is None
 
 
 def test_a_filled_order_is_not_charged_a_forgone_move(tmp_path: Path) -> None:

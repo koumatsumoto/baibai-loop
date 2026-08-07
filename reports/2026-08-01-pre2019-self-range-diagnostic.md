@@ -3,7 +3,6 @@ title: "pre-2019 375-session self-range panel 診断"
 summary: "production と分離した診断 panel で2018年調整を含む20 cohortを構築した。2018-10〜12のE[r]上下差は1yで正、3yで2/3が正だが、深いstress一般やproduction parameterを支持する証拠ではない。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-08-01
 ---
 
 # pre-2019 375-session self-range panel 診断

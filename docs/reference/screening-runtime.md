@@ -3,7 +3,6 @@ title: "Screening runtime"
 summary: "screening CLI、provider、SQLite schema、cache coverage、runtime設定の実装仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-23
 ---
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
@@ -105,7 +104,7 @@ cache / SQLite の配置先は固定 (env override 廃止):
 
 - `EDINET_API_KEY`: `extract-edinet-metrics` 実行時に必要。`run` は SQLite の EDINET metrics を必須入力として扱うため、標準運用では `run` 前に EDINET metrics を抽出しておく
 - `SCREENING_RULES_PATH`: `select` / `run` が使う screening rules / selection profile YAML の既定 path override。CLI の明示 `--rules-path` を最優先し、次に env、最後に `method/screening-rules/` の既定を解決する
-- JPX 公開規制情報 URL（CSV / Excel / HTML）。`method/screening-rules/2026-06-19T000000+0900.yaml` の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し screening runをpublishしない:
+- JPX 公開規制情報 URL（CSV / Excel / HTML）。現行 rules の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し screening runをpublishしない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
   - `JPX_REORGANIZATION_URL` 整理銘柄
@@ -170,7 +169,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 
 ## 8. Rule Baselines
 
-閾値の正本は `method/screening-rules/2026-06-19T000000+0900.yaml`。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
+閾値の正本は `method/screening-rules/` の現行 revision で、その実 path は `rule_config.DEFAULT_RULES_PATH` が持つ（`--rules-path` / `SCREENING_RULES_PATH` で override した場合はそちら）。rules は dated revision で増えるので、file 名の実値をここへ書かない。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - scope / 絞り込み: `universe.required_jpx_flags`(記録対象の規制 flag)と `selection.liquidity`(時価総額・平均売買代金・上場期間・JPX 規制の分析層パラメータ)
 - evidence pattern (`playbook_id`) の screen 閾値: `valuation-reversion` / `cashflow-yield-discount` / `sales-discount-growth`

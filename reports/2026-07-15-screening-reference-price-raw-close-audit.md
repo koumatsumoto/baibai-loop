@@ -10,9 +10,9 @@
 
 ## 1. 現行contractと評価対象
 
-[`build_universe`](../src/baibai_loop/screening/universe.py)は各tickerの最新raw closeとsplit-normalized sharesから時価総額を作り、`market_cap_oku = round(raw_close * shares / 1e8)`と整数億円に丸める。[`_screening_reference_close_yen`](../src/baibai_loop/screening/selection/summaries.py)は、その丸め済み値を`round(market_cap_oku * 1e8 / shares, 4)`で株価へ戻す。この不可逆なround-tripが通常の差の原因である。
+[`build_universe`](../src/baibai_engine/screening/universe.py)は各tickerの最新raw closeとsplit-normalized sharesから時価総額を作り、`market_cap_oku = round(raw_close * shares / 1e8)`と整数億円に丸める。[`_screening_reference_close_yen`](../src/baibai_engine/screening/selection/summaries.py)は、その丸め済み値を`round(market_cap_oku * 1e8 / shares, 4)`で株価へ戻す。この不可逆なround-tripが通常の差の原因である。
 
-一方、[`estimate_expected_return`](../src/baibai_loop/screening/estimates.py)が使うFV anchorとE[r]は丸め前のraw closeから作られる。[`build_selection_payload`](../src/baibai_loop/screening/selection/payload.py)のaudit rankは`er_annual`降順、playbook順、evidence strength、tickerで確定した後に表示用`market_price_yen`を付与する。したがってreferenceをraw closeへ差し替えてもproduction audit rankとtop-20 membershipは変わらず、影響件数はcontract上0である。FV-gap順の仮想rerankはproductionに存在しないため行わない。
+一方、[`estimate_expected_return`](../src/baibai_engine/screening/estimates.py)が使うFV anchorとE[r]は丸め前のraw closeから作られる。[`build_selection_payload`](../src/baibai_engine/screening/selection/payload.py)のaudit rankは`er_annual`降順、playbook順、evidence strength、tickerで確定した後に表示用`market_price_yen`を付与する。したがってreferenceをraw closeへ差し替えてもproduction audit rankとtop-20 membershipは変わらず、影響件数はcontract上0である。FV-gap順の仮想rerankはproductionに存在しないため行わない。
 
 selection sort keyにreference priceが含まれないことはproduction実装のcontractとして確認する。機械計測では同一inputからproduction selectionを再構成して保存artifactとのrank・ticker・reference一致を検査し、主な実測指標を価格誤差とFV gap表示差とする。
 

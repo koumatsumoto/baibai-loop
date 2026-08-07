@@ -3,7 +3,6 @@ title: "priced master 未評価銘柄の有界バイアス判定"
 summary: "件数だけで cohort を落とす契約を、対象 row の同定・return 完全性・両側置換に対する結論方向の安定性で判定する契約へ改め、同条件の eligible を 3y 5→30、5y 4→12 に拡張した。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-08-01
 ---
 
 # priced master 未評価銘柄の有界バイアス判定

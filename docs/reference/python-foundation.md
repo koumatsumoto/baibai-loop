@@ -3,7 +3,6 @@ title: "Python foundation"
 summary: "Python の runtime・依存管理・lint・型検査・validation 境界・テスト・セキュリティ・CI 一致の正本。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-23
 source_paths:
   - "../../src/baibai_engine/"
   - "../../tests/"
@@ -185,13 +184,17 @@ uv run ruff format --check .
 uv run ruff check .
 uv run mypy
 uv run lint-imports
-for gate in tools/drift/check_*.py; do uv run python "$gate"; done
+for gate in tools/drift/check_*.py; do uv run python -m "tools.drift.$(basename "$gate" .py)"; done
 uv run pytest -n 4 --cov --cov-report=term-missing
+uv run --with pillow python -c 'import PIL.Image'
+uv run --with pillow pytest -n 0 tests/test_brand_assets.py
 uv run bandit -c pyproject.toml -q -r src/baibai_engine src/baibai_app tools
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
 uv build --wheel
 ```
+
+brand asset の 2 行が `--with pillow` を挟むのは、Pillow を lock の外に置いているためである。通常の `pytest` では `tests/test_brand_assets.py` が `importorskip` で丸ごと skip され、破れが緑のまま通る。import できることを先に確かめてから走らせて、この fail-open を塞ぐ。
 
 Node dependency gate は各 lockfile を直接監査する。
 

@@ -80,8 +80,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m tools.research_price_watch",
         description=(
-            "Emit a read-only YAML watch for latest promoted buy/defer research theses. "
-            "This command never proposes an order or updates canonical records."
+            "Emit a read-only YAML watch for the latest promoted research thesis of every "
+            "ticker, whichever lane it ended in — buy, defer, or reject. This command never "
+            "proposes an order or updates canonical records."
         ),
     )
     parser.add_argument("--db", type=Path, default=Path("data/app/baibai.sqlite"))

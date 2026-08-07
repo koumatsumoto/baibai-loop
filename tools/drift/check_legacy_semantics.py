@@ -27,7 +27,11 @@ _BEHAVIOR_LEGACY = re.compile(
     r"fx_liquidity|decision-grade|delta 更新|delta更新|"
     # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
     # skipping `/records/` fragments inside external URLs.
-    r"(?<!/)\brecords/|macro-dashboard",
+    r"(?<!/)\brecords/|macro-dashboard|"
+    # screening rules は dated revision で増え、現行 revision は
+    # `rule_config.DEFAULT_RULES_PATH` が解決する。file 名の実値を書いた doc は次の改訂で
+    # 存在しない path を「閾値の正本」として指すことになるので、revision を名指ししない。
+    r"method/screening-rules/\d{4}-\d{2}-\d{2}",
     re.IGNORECASE,
 )
 

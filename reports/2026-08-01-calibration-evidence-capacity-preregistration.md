@@ -3,7 +3,6 @@ title: "較正 evidence 容量拡張の事前登録"
 summary: "priced master 欠損の有界バイアス判定と、375-session self-range を使う pre-2019 診断 panel の規則・評価量・採否条件を計測前に固定する。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-08-01
 ---
 
 # 較正 evidence 容量拡張 — 事前登録
