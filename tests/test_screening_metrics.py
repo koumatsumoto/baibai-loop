@@ -15,8 +15,8 @@ from baibai_engine.screening.metrics import (
     _resolve_dividend_carry,
     build_metrics,
     build_normalized_profit_signals,
-    build_shares_outstanding_index,
     build_shareholder_return_change_signals,
+    build_shares_outstanding_index,
 )
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
