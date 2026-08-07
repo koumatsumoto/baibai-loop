@@ -382,7 +382,7 @@ class ScreeningRulesTests(unittest.TestCase):
 
     def test_cash_rich_asset_discount_hits(self) -> None:
         result = evaluate_screening(
-            _financial(cash_to_market_cap=0.45, price_to_equity=0.8, operating_profit=10.0),
+            _financial(cash_to_market_cap=0.45, pbr=0.8, operating_profit=10.0),
             _derived(sector_median_gap={}, self_range_percentile={}, sigma_gap={}),
             RULES,
         )
@@ -394,7 +394,7 @@ class ScreeningRulesTests(unittest.TestCase):
         result = evaluate_screening(
             _financial(
                 cash_to_market_cap=0.8,
-                price_to_equity=0.8,
+                pbr=0.8,
                 equity_ratio=0.2,
                 operating_profit=10.0,
             ),
@@ -409,7 +409,7 @@ class ScreeningRulesTests(unittest.TestCase):
         result = evaluate_screening(
             _financial(
                 cash_to_market_cap=0.8,
-                price_to_equity=0.8,
+                pbr=0.8,
                 equity_ratio=0.5,
                 operating_profit=10.0,
                 net_cash_to_market_cap=-0.1,

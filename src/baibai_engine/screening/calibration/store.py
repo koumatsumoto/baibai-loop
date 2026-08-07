@@ -161,7 +161,6 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         investment_securities=_opt_float(raw, "investment_securities"),
         asset_backed_ratio=_opt_float(raw, "asset_backed_ratio"),
         equity_ratio=_opt_float(raw, "equity_ratio"),
-        price_to_equity=_opt_float(raw, "price_to_equity"),
         dividend_yield=_opt_float(raw, "dividend_yield"),
         eps_yoy=_opt_float(raw, "eps_yoy"),
         sales_yoy=_opt_float(raw, "sales_yoy"),

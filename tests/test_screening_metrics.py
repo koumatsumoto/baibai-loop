@@ -53,6 +53,9 @@ def _summary(
     dps_forecast_annual: float | None = None,
     forecast_profit: float | None = None,
     forecast_ordinary_profit: float | None = None,
+    # 既定は「自己株式ゼロを観測した」。欠損 (None) は時価総額を出さない別の状態なので、
+    # それを試す test だけが明示的に None を渡す。
+    treasury_shares: float | None = 0.0,
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -74,6 +77,7 @@ def _summary(
         period_end=period_end,
         dps_actual_annual=dps_actual_annual,
         dps_forecast_annual=dps_forecast_annual,
+        treasury_shares=treasury_shares,
     )
 
 
@@ -608,12 +612,8 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
         return result.financials["130A"]
 
-    def test_price_to_equity_agrees_with_pbr_when_capital_is_observed(self) -> None:
-        """同じ「株価 / 1 株純資産」を測る 2 指標が一致することを不変条件にする。
-
-        時価総額が自己株式込みの発行済株式数、`equity` が非支配株主持分込みの純資産だと、
-        2 つは同じ概念を測りながら食い違う。分母を BPS と揃えれば比は 1 になる。
-        """
+    def test_market_cap_excludes_treasury_shares(self) -> None:
+        """時価総額の分母は市場が値付けできる株数 (発行済 - 自己株式) である。"""
         # 自己株 100 株 (10%)、非支配株主持分 200 (自己資本 800 / 純資産 1,000)。
         snapshot = self._capital_snapshot(
             shares_outstanding=1_000.0,
@@ -625,16 +625,15 @@ class ScreeningMetricsTests(unittest.TestCase):
             close=1.0,
         )
 
-        assert snapshot.pbr is not None
-        assert snapshot.price_to_equity is not None
-        self.assertAlmostEqual(snapshot.price_to_equity, snapshot.pbr, places=6)
         self.assertAlmostEqual(snapshot.market_cap or 0.0, 900.0, places=6)
-        self.assertAlmostEqual(snapshot.owners_equity or 0.0, 800.0, places=6)
         self.assertAlmostEqual(snapshot.equity_ratio or 0.0, 0.4, places=6)
-        self.assertEqual(snapshot.shares_outstanding_basis, "excluding_treasury")
 
-    def test_market_cap_keeps_issued_shares_when_treasury_is_unobserved(self) -> None:
-        """自己株式数が欠損する行を「自己株ゼロ」と読み替えない。"""
+    def test_market_cap_is_absent_when_treasury_is_unobserved(self) -> None:
+        """自己株式数が欠損する行で発行済を代用しない。
+
+        代用すると、どれだけ過大か分からない時価総額が現金比率・利回り・流動性 gate へ
+        入る。答えないことで、その銘柄は母集団から外れる。
+        """
         snapshot = self._capital_snapshot(
             shares_outstanding=1_000.0,
             treasury_shares=None,
@@ -645,8 +644,7 @@ class ScreeningMetricsTests(unittest.TestCase):
             close=1.0,
         )
 
-        self.assertAlmostEqual(snapshot.market_cap or 0.0, 1_000.0, places=6)
-        self.assertEqual(snapshot.shares_outstanding_basis, "issued")
+        self.assertIsNone(snapshot.market_cap)
 
     def test_equity_ratio_is_absent_rather_than_the_net_asset_ratio(self) -> None:
         """自己資本比率が観測できない行で純資産比率へ代用しない。
@@ -665,11 +663,9 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
 
         self.assertIsNone(snapshot.equity_ratio)
-        self.assertIsNone(snapshot.owners_equity)
-        self.assertIsNone(snapshot.price_to_equity)
 
-    def test_broken_treasury_count_falls_back_to_issued_shares(self) -> None:
-        """発行済を超える自己株式数で時価総額が消えたり符号が反転したりしない。"""
+    def test_broken_treasury_count_leaves_no_market_cap(self) -> None:
+        """発行済を超える自己株式数で負や過大な時価総額を作らない。"""
         snapshot = self._capital_snapshot(
             shares_outstanding=1_000.0,
             treasury_shares=1_200.0,
@@ -680,8 +676,7 @@ class ScreeningMetricsTests(unittest.TestCase):
             close=1.0,
         )
 
-        self.assertAlmostEqual(snapshot.market_cap or 0.0, 1_000.0, places=6)
-        self.assertEqual(snapshot.shares_outstanding_basis, "issued")
+        self.assertIsNone(snapshot.market_cap)
 
     def test_treasury_shares_follow_the_split_basis_of_issued_shares(self) -> None:
         """分割を跨ぐ行で自己株式数も換算する。片方だけだと差が壊れる。"""

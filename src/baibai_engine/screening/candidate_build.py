@@ -105,14 +105,7 @@ def candidate_metrics_map(
         "edinet_ocf_ttm": financial.edinet_ocf_ttm,
         "cash_eq": financial.cash_eq,
         "total_assets": financial.total_assets,
-        "equity": financial.equity,
-        # `equity` は非支配株主持分を含む純資産、`owners_equity` は自己資本。倍率は後者を
-        # 分母にする。`shares_outstanding_basis` が `issued` の行は自己株式数が観測できず
-        # 発行済のまま時価総額を作った行で、自己株ゼロの証明ではない。
-        "owners_equity": financial.owners_equity,
-        "shares_outstanding_basis": financial.shares_outstanding_basis,
         "cash_to_market_cap": financial.cash_to_market_cap,
-        "price_to_equity": financial.price_to_equity,
         "equity_ratio": financial.equity_ratio,
         "ocf_yield": financial.ocf_yield,
         "net_cash": financial.net_cash,

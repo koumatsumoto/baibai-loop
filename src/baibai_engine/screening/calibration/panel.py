@@ -150,7 +150,6 @@ class PanelRow:
     investment_securities: float | None
     asset_backed_ratio: float | None
     equity_ratio: float | None
-    price_to_equity: float | None
     dividend_yield: float | None
     eps_yoy: float | None
     sales_yoy: float | None
@@ -442,7 +441,6 @@ def build_panel(
                 investment_securities=financial.investment_securities,
                 asset_backed_ratio=financial.asset_backed_ratio,
                 equity_ratio=financial.equity_ratio,
-                price_to_equity=financial.price_to_equity,
                 dividend_yield=financial.dividend_yield,
                 eps_yoy=financial.eps_yoy,
                 sales_yoy=financial.sales_yoy,
@@ -607,7 +605,6 @@ def _unresolved_master_member_row(
         investment_securities=None,
         asset_backed_ratio=None,
         equity_ratio=None,
-        price_to_equity=None,
         dividend_yield=None,
         eps_yoy=None,
         sales_yoy=None,
