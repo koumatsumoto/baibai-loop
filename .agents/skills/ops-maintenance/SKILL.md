@@ -54,6 +54,8 @@ uv run python -m tools.measure_limit_outcomes --asof <最新完全営業日>
 | macro（indicators） | R2 | 同上（`push-macro` は no-loss merge。誤値の訂正は削除でなく `macro retract` — 契約は [`macro.md`](../../../docs/reference/macro.md)） |
 | app（baibai.sqlite） | **local** | 判断はローカルが正本。publish 後に `push-app`（直 push）→ materialize。**pull しない** — `pull-app` はローカルに store があれば止まる（cloud copy で置換すると未 push の判断が消える）|
 
+**pull は batch の走行中を避ける。** 3 store は順に download されるので、その途中で batch が push すると batch 前後の世代が混ざった断面がローカルへ載る。`changed on R2 during the pull` で止まったらそれで、batch の完了を待って引き直す（ローカルの store は置換されていない）。避けるべき窓の導出は [`tools/cloud/README.md`](../../../tools/cloud/README.md)。
+
 cloud 障害は「store が code より古い」形で出ることが多い。再現はローカルへ R2 store を pull して read 経路を通す。
 
 ## Materialize（serving 反映）

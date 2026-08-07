@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -40,12 +41,28 @@ if [[ "$1 $2" == "s3 ls" ]]; then
 fi
 if [[ "$1 $2" == "s3api head-object" ]]; then
   key=""
+  wants_etag=""
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--key" ]]; then
       key="$2"
     fi
+    if [[ "$1" == "--query" && "$2" == "ETag" ]]; then
+      wants_etag=1
+    fi
     shift
   done
+  if [[ -n "$wants_etag" ]]; then
+    # Counts the calls per key so a test can make one object change mid-pull:
+    # the version query runs once before the downloads and once after.
+    calls="${AWS_FAKE_STATE}/$(printf '%s' "$key" | tr / _)"
+    printf 'x' >> "$calls"
+    if [[ "$key" == "${AWS_FAKE_CHANGED_KEY:-}" ]]; then
+      printf '"etag-%s"\\n' "$(wc -c < "$calls" | tr -d ' ')"
+    else
+      printf '"etag-stable"\\n'
+    fi
+    exit 0
+  fi
   if [[ -n "${AWS_FAKE_EXISTING_KEY:-}" && "$key" == "$AWS_FAKE_EXISTING_KEY" ]]; then
     printf '{"ContentLength": 1}\\n'
     exit 0
@@ -107,10 +124,13 @@ esac
 
 
 def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
+    state = bin_dir.parent / "aws-state"
+    state.mkdir(exist_ok=True)
     environment = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "AWS_LOG": str(log),
+        "AWS_FAKE_STATE": str(state),
         "R2_ACCOUNT_ID": "account-for-test",
         "R2_ACCESS_KEY_ID": "access-for-test",
         "R2_SECRET_ACCESS_KEY": "secret-for-test",
@@ -133,6 +153,21 @@ def _transfer_commands(log: Path) -> list[str]:
         for line in log.read_text(encoding="utf-8").splitlines()
         if line != "--version" and not line.startswith("configure get ")
     ]
+
+
+def _fake_repo(tmp_path: Path) -> Path:
+    """A repository root the transfer script can write stores into.
+
+    The script resolves every store path from its own location, so a pull run from
+    the real checkout writes to the operational stores. Copying `tools/cloud/` into
+    a throwaway root lets a pull actually run and be inspected.
+    """
+    root = tmp_path / "repo"
+    (root / "tools/cloud").mkdir(parents=True)
+    for name in ("r2_transfer.sh", "sqlite_snapshot.py"):
+        shutil.copy(REPO_ROOT / "tools/cloud" / name, root / "tools/cloud" / name)
+    (root / "tools/cloud/r2_transfer.sh").chmod(0o755)
+    return root
 
 
 def _serving_export(tmp_path: Path) -> Path:
@@ -357,25 +392,23 @@ def test_pull_app_refuses_to_overwrite_a_local_application_store(tmp_path: Path)
     # published locally and only then pushed. Replacing it with the cloud copy
     # destroys anything published since the last push, and nothing can rebuild it.
     bin_dir, log = _fake_aws(tmp_path)
-    created = not APP_STORE.exists()
-    if created:
-        APP_STORE.parent.mkdir(parents=True, exist_ok=True)
-        APP_STORE.write_bytes(b"local")
-    try:
-        completed = subprocess.run(
-            [TRANSFER_SCRIPT, "pull-app"],
-            cwd=REPO_ROOT,
-            env=_environment(bin_dir, log),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    finally:
-        if created:
-            APP_STORE.unlink()
+    root = _fake_repo(tmp_path)
+    app_store = root / "data/app/baibai.sqlite"
+    app_store.parent.mkdir(parents=True)
+    app_store.write_bytes(b"local")
+
+    completed = subprocess.run(
+        [root / "tools/cloud/r2_transfer.sh", "pull-app"],
+        cwd=root,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
     assert completed.returncode == 2
     assert "refusing application store download overwrite" in completed.stderr
+    assert app_store.read_bytes() == b"local"
     assert not log.exists()
 
 
@@ -841,3 +874,71 @@ def test_market_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> N
         )
         for command in commands
     )
+
+
+def _machine_stores(root: Path) -> dict[str, Path]:
+    return {
+        "market.sqlite": root / "data/screening/market.sqlite",
+        "runs.sqlite": root / "data/screening/runs.sqlite",
+        "macro.sqlite": root / "data/indicators/macro.sqlite",
+    }
+
+
+def test_pull_machine_refuses_a_snapshot_that_straddles_a_push(tmp_path: Path) -> None:
+    """A batch that pushes partway through the pull would leave mixed generations.
+
+    Each store passes `check_sqlite` on its own, so nothing downstream notices that
+    the run store knows a screening run the market store has no bars for.
+    """
+
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    for path in _machine_stores(root).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"local")
+    environment = _environment(bin_dir, log)
+    environment["AWS_FAKE_CHANGED_KEY"] = "runs.sqlite"
+
+    completed = subprocess.run(
+        [root / "tools/cloud/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert "runs.sqlite changed on R2 during the pull" in completed.stderr
+    # No store is replaced, so the local set stays one consistent generation.
+    assert all(path.read_bytes() == b"local" for path in _machine_stores(root).values())
+    assert not list(root.glob(".r2-transfer.*"))
+    commands = _transfer_commands(log)
+    versions = [index for index, line in enumerate(commands) if "--query ETag" in line]
+    downloads = [index for index, line in enumerate(commands) if line.startswith("s3 cp s3://")]
+    # Every store's version is read before any download and re-read after all of
+    # them; a straddle is only visible from both sides.
+    assert len(downloads) == 3
+    assert versions[:3] == [0, 1, 2]
+    assert min(versions[3:]) > max(downloads)
+
+
+def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    for path in _machine_stores(root).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"local")
+
+    completed = subprocess.run(
+        [root / "tools/cloud/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert all(path.read_bytes() == b"x" for path in _machine_stores(root).values())
+    assert not list(root.glob(".r2-transfer.*"))

@@ -136,7 +136,7 @@ uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD
 uv run baibai-engine screening ticker-profile --ticker TICKER
 ```
 
-`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。日次batchと同時に実行して世代を跨がないよう、通常は18:30 JST前後とGitHub Actions実行中を避ける。
+`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。**batchが走っている間にpullすると、batch前のstoreとbatch後のstoreが混ざった断面がローカルへ載る**。`quick_check`は各storeを個別に見るのでこれを通し、screeningが読む価格・run・macro seriesの組み合わせが実在しない断面になる。避けるべき窓はcronの実値から導ける — 平日08:23 UTC（17:23 JST）に始まり、schedule遅延（実測median約2時間）とjob実行（`timeout-minutes: 60`）を足した**17:23〜21:30 JST**である。この窓を外すか、`gh run list --workflow cloud-daily-batch.yml --limit 1`で当日のrunが`completed`であることを確かめてからpullする。
 
 日次workflowを手動実行する。`asof`省略時は当日JSTをmarket calendarで判定し、非営業日は成功扱いでskipする。過去日を指定すると営業日gateをskipする。
 
