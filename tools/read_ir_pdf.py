@@ -115,8 +115,8 @@ def _page_texts(path: Path) -> tuple[str, ...]:
     return tuple(page.extract_text() or "" for page in reader.pages)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python tools/read_ir_pdf.py", description=__doc__)
     parser.add_argument("pdf", type=Path, help="path to a locally downloaded PDF")
     parser.add_argument("--pages", help="1-based page selection, e.g. 1-3,10")
     parser.add_argument("--search", nargs="+", help="keywords to locate with context")
@@ -126,7 +126,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_CONTEXT_CHARS,
         help=f"characters of context per hit (default {DEFAULT_CONTEXT_CHARS})",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     if not args.pdf.is_file():
         print(f"no such PDF: {args.pdf}", file=sys.stderr)

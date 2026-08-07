@@ -260,18 +260,23 @@ def _parse_date(value: str) -> date:
         raise argparse.ArgumentTypeError("must be an ISO date") from error
 
 
-def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="python -m tools.measure_limit_outcomes",
         description=(
             "Aggregate fill rate and forgone upside across human-approved limit orders. "
             "Read-only: never infers a fill and never writes canonical records."
-        )
+        ),
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_APP_DB)
     parser.add_argument("--sqlite-path", type=Path, default=DEFAULT_MARKET_DB)
     parser.add_argument("--asof", type=_parse_date, required=True)
     parser.add_argument("--out", type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     try:
         payload = build_limit_outcomes(app_db=args.db, market_db=args.sqlite_path, asof=args.asof)

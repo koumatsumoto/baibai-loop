@@ -208,19 +208,24 @@ def build_supply_context(
     }
 
 
-def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="python -m tools.measure_supply_context",
         description=(
             "Report where today's candidate supply sits inside its own panel history. "
             "Read-only: never changes screening rules, estimates, or stored runs."
-        )
+        ),
     )
     parser.add_argument("--calibration-dir", type=Path, default=DEFAULT_CALIBRATION_DIR)
     parser.add_argument("--runs-db", type=Path, default=DEFAULT_RUNS_DB)
     parser.add_argument("--selection-id")
     parser.add_argument("--hurdle", type=float, default=DEFAULT_HURDLE)
     parser.add_argument("--out", type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     try:
         payload = build_supply_context(

@@ -6,6 +6,7 @@ from pathlib import Path
 from tools.drift import (
     check_cli_doc,
     check_cli_help,
+    check_documented_commands,
     check_duplicate_constants,
     check_legacy_semantics,
     check_markdown_links,
@@ -19,6 +20,7 @@ def test_repository_passes_all_drift_gates() -> None:
     assert check_markdown_links.check(ROOT) == []
     assert check_cli_doc.check(ROOT) == []
     assert check_cli_help.check(ROOT) == []
+    assert check_documented_commands.check(ROOT) == []
     assert check_legacy_semantics.check(ROOT) == []
     assert check_duplicate_constants.check(ROOT) == []
     assert check_skill_inventory.check(ROOT) == []
@@ -288,3 +290,67 @@ def test_cli_help_gate_reaches_subcommands_behind_a_registered_delegation() -> N
         check_cli_help.DELEGATED_GROUPS["baibai-engine macro context"]
     )
     assert "publish" in check_cli_help._subparser_actions(context)[0].choices
+
+
+def _skill(root: Path, body: str) -> None:
+    path = root / ".agents" / "skills" / "demo" / "SKILL.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+
+
+def test_documented_command_gate_rejects_a_missing_required_option(tmp_path: Path) -> None:
+    _skill(tmp_path, "```bash\nuv run baibai-engine screening extract-edinet-metrics\n```\n")
+    assert check_documented_commands.check(tmp_path) == [
+        (
+            ".agents/skills/demo/SKILL.md: "
+            "`uv run baibai-engine screening extract-edinet-metrics` omits required --asof"
+        )
+    ]
+
+
+def test_documented_command_gate_accepts_a_complete_command(tmp_path: Path) -> None:
+    _skill(
+        tmp_path, "```bash\nuv run baibai-engine screening extract-edinet-metrics --asof <A>\n```\n"
+    )
+    assert check_documented_commands.check(tmp_path) == []
+
+
+def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None:
+    """手順の途中に 1 行で置かれた command も、fenced block と同じ実行対象である。"""
+
+    _skill(
+        tmp_path, "差分は `uv run python -m tools.research_price_watch --asof <A>` で確認する。\n"
+    )
+    assert check_documented_commands.check(tmp_path) == [
+        (
+            ".agents/skills/demo/SKILL.md: "
+            "`uv run python -m tools.research_price_watch --asof <A>` omits required --sqlite-path"
+        )
+    ]
+
+
+def test_documented_command_gate_skips_a_parent_option_when_finding_the_subcommand(
+    tmp_path: Path,
+) -> None:
+    """domain の option が subcommand より前に来ても、解決先を見失わない。"""
+
+    _skill(
+        tmp_path,
+        "```bash\nuv run baibai-engine proposal --db data/app/baibai.sqlite decide <ID>\n```\n",
+    )
+    assert check_documented_commands.check(tmp_path) == [
+        (
+            ".agents/skills/demo/SKILL.md: "
+            "`uv run baibai-engine proposal --db data/app/baibai.sqlite decide <ID>` "
+            "omits required --decision"
+        )
+    ]
+
+
+def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -> None:
+    _skill(
+        tmp_path,
+        "```bash\nuv run python -m tools.research_price_watch \\\n"
+        "  --sqlite-path data/screening/market.sqlite --asof <A>\n```\n",
+    )
+    assert check_documented_commands.check(tmp_path) == []
