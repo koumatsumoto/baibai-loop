@@ -117,14 +117,6 @@ jobs:
           tools/cloud/r2_transfer.sh pull-machine
           tools/cloud/r2_transfer.sh pull-app
 
-      - name: Preserve and verify market schema v13 rollback
-        id: preserve-market-v13
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh preserve-market-v13
-
       - name: Run daily batch
         id: batch
         shell: bash
@@ -164,23 +156,67 @@ jobs:
             exit "$code"
           fi
 
-      - name: Upload updated machine stores
-        id: upload-machine
+      # The store push moves 1.88GB and is bandwidth-bound; the views mirror moves
+      # 54MB across 3,740 objects and is request-bound. Run serially they add up
+      # (248s + 282s measured); run together each fills the other's waiting.
+      #
+      # Only `views/` joins the store push. It is rewritten every business day, so a
+      # run whose push fails leaves views the next run replaces. `history/` and
+      # `meta.json` are published afterwards, once the store holding this run is
+      # persisted, so no permanent record of an unpersisted run is ever written.
+      - name: Upload machine stores and serving views
+        id: upload-parallel
         if: steps.batch.outputs.published == 'true'
+        shell: bash
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh push-machine
+        run: |
+          # Each side writes to its own log so the two do not interleave into an
+          # unreadable stream; both are printed in full once they have finished.
+          machine_log="$RUNNER_TEMP/upload-machine.log"
+          views_log="$RUNNER_TEMP/upload-views.log"
+          tools/cloud/r2_transfer.sh push-machine >"$machine_log" 2>&1 &
+          machine_pid=$!
+          tools/cloud/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving" \
+            >"$views_log" 2>&1 &
+          views_pid=$!
+          machine_code=0
+          wait "$machine_pid" || machine_code=$?
+          views_code=0
+          wait "$views_pid" || views_code=$?
+          echo "::group::push-machine"
+          cat "$machine_log"
+          echo "::endgroup::"
+          echo "::group::upload-serving-views"
+          cat "$views_log"
+          echo "::endgroup::"
+          # Written before the exit so the notification can tell which side failed;
+          # a step killed by a timeout writes neither, which the notifier reads as
+          # unknown rather than as "did not upload".
+          if [[ $machine_code -eq 0 ]]; then
+            echo "machine=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "machine=failure" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ $views_code -eq 0 ]]; then
+            echo "views=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "views=failure" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ $machine_code -ne 0 || $views_code -ne 0 ]]; then
+            exit 1
+          fi
 
-      - name: Upload serving objects
-        id: upload-serving
-        if: steps.batch.outputs.published == 'true'
+      - name: Publish serving history and freshness
+        id: publish-serving
+        if: steps.upload-parallel.outcome == 'success'
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh upload-serving "$RUNNER_TEMP/serving"
+        run: tools/cloud/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
 
       - name: Report deferred batch failure
         id: deferred-report
@@ -220,8 +256,10 @@ jobs:
             --setup-outcome "${{ steps.setup.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
-            --upload-machine-outcome "${{ steps.upload-machine.outcome }}" \
-            --upload-serving-outcome "${{ steps.upload-serving.outcome }}" \
+            --upload-machine-outcome "${{ steps.upload-parallel.outputs.machine }}" \
+            --upload-serving-outcome "${{ steps.upload-parallel.outputs.views }}" \
+            --upload-parallel-outcome "${{ steps.upload-parallel.outcome }}" \
+            --publish-serving-outcome "${{ steps.publish-serving.outcome }}" \
             --asof "$MANUAL_ASOF" \
             --run-started-at "${{ steps.smoke.outputs.started_at }}" \
             --cancelled "${{ steps.cancellation.outputs.cancelled || 'false' }}" \

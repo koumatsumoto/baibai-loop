@@ -260,7 +260,23 @@ _NON_BATCH_STEPS: tuple[tuple[str, str], ...] = (
     ("pull-stores", "pull"),
     ("upload-machine", "upload-machine"),
     ("upload-serving", "upload-serving"),
+    ("publish-serving", "publish-serving"),
 )
+
+# The store push and the views mirror run inside one step and report themselves
+# through its outputs. Those outputs are absent whenever the step did not reach its
+# own last lines — a job timeout, a cancel, a dead runner — and the step's GitHub
+# outcome is the only account of that run. Reading the absence as "did not upload"
+# would report a run that may have half-replaced production views as one that
+# published nothing.
+_UPLOAD_BRANCH_KEYS = ("upload-machine", "upload-serving")
+
+
+def _upload_ended_without_reporting(step_outcomes: Mapping[str, str]) -> bool:
+    step_outcome = step_outcomes.get("upload-parallel", "skipped")
+    if step_outcome in {"skipped", "success"}:
+        return False
+    return any(step_outcomes.get(key, "") in {"", "unknown"} for key in _UPLOAD_BRANCH_KEYS)
 
 
 def derive_failed_step(step_outcomes: Mapping[str, str]) -> str:
@@ -269,23 +285,31 @@ def derive_failed_step(step_outcomes: Mapping[str, str]) -> str:
     for stage, key in _NON_BATCH_STEPS:
         if step_outcomes.get(key) == "failure":
             return stage
+    if _upload_ended_without_reporting(step_outcomes):
+        return "upload-machine"
     return ""
 
 
 def derive_publish_state(*, local_export: bool, step_outcomes: Mapping[str, str]) -> str:
-    """Derive the R2 publish state from the upload step outcomes + local export.
+    """Derive the R2 publish state from the upload outcomes + local export.
 
-    An upload failure wins (the remote may be partially updated); otherwise both
-    uploads succeeding means published; a local export that never uploaded is
-    generated; and no export is not_generated.
+    An upload failure wins, because the remote may be partially updated; so does an
+    upload step that ended without saying what it managed, for the same reason.
+    Otherwise every stage succeeding means published, a local export that never
+    uploaded is generated, and no export is not_generated.
     """
 
     upload_machine = step_outcomes.get("upload-machine", "skipped")
     upload_serving = step_outcomes.get("upload-serving", "skipped")
-    if upload_machine == "failure" or upload_serving == "failure":
+    publish_serving = step_outcomes.get("publish-serving", "skipped")
+    if "failure" in {upload_machine, upload_serving, publish_serving}:
+        return PUBLISH_UPLOAD_FAILED
+    if _upload_ended_without_reporting(step_outcomes):
         return PUBLISH_UPLOAD_FAILED
     if upload_machine == "success" and upload_serving == "success":
-        return PUBLISH_PUBLISHED
+        if publish_serving == "success":
+            return PUBLISH_PUBLISHED
+        return PUBLISH_UPLOAD_FAILED
     if local_export:
         return PUBLISH_GENERATED
     return PUBLISH_NOT_GENERATED
@@ -554,6 +578,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pull-outcome", type=str, default="skipped")
     parser.add_argument("--upload-machine-outcome", type=str, default="skipped")
     parser.add_argument("--upload-serving-outcome", type=str, default="skipped")
+    # The step that runs the two uploads together. Its own outcome is supplied by
+    # GitHub on every terminal state, so it is what stands in when the step ended
+    # before it could report which side got through.
+    parser.add_argument("--upload-parallel-outcome", type=str, default="skipped")
+    parser.add_argument("--publish-serving-outcome", type=str, default="skipped")
     parser.add_argument("--asof", type=str, default="")
     parser.add_argument("--run-started-at", type=str, default="")
     parser.add_argument("--cancelled", type=str, default="false")
@@ -572,6 +601,8 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
         "pull": args.pull_outcome,
         "upload-machine": args.upload_machine_outcome,
         "upload-serving": args.upload_serving_outcome,
+        "upload-parallel": args.upload_parallel_outcome,
+        "publish-serving": args.publish_serving_outcome,
     }
     try:
         summary = build_workflow_summary(

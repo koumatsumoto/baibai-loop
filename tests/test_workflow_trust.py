@@ -23,9 +23,9 @@ R2_CREDENTIAL_NAMES = {"R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KE
 EXPECTED_CREDENTIAL_NAMES = {
     "Pull stores": R2_CREDENTIAL_NAMES,
     "Pull the market store": R2_CREDENTIAL_NAMES,
-    "Preserve and verify market schema v13 rollback": R2_CREDENTIAL_NAMES,
     "Run daily batch": {"JQUANTS_API_KEY", "ESTAT_APP_ID", "EDINET_API_KEY"},
-    "Upload updated machine stores": R2_CREDENTIAL_NAMES,
+    "Upload machine stores and serving views": R2_CREDENTIAL_NAMES,
+    "Publish serving history and freshness": R2_CREDENTIAL_NAMES,
     "Upload serving objects": R2_CREDENTIAL_NAMES,
     "Upload run summary": R2_CREDENTIAL_NAMES,
     "Notify Discord #batch-runs": {"DISCORD_WEBHOOK_URL"},
@@ -38,17 +38,17 @@ EXPECTED_CREDENTIAL_NAMES = {
 EXPECTED_COMMAND_DIGESTS = {
     "Pull stores": "f10acd1ea74423745ea80b3d3ee8d4e94e18ec94147bde133706bebcfafecfc8",
     "Pull the market store": "938b1c2bd6098ce32f515950463f176acac30d0a9ad51381a3f441a4a64d437a",
-    "Preserve and verify market schema v13 rollback": (
-        "7e7969d7b402806371483432f9c55dd446a1ea9fd9793cb4f74a08d6abbe49eb"
-    ),
     "Run daily batch": "896f41273c2c8f78d3deadfa52f3df807c762249e968f71b0e95621058f9c0e3",
-    "Upload updated machine stores": (
-        "f1f3a93c42af5cf8e7095be379a2c7d8600f48d32e2f3dc6563d1eb850d958c5"
+    "Upload machine stores and serving views": (
+        "9b552c141448f5224054a84ef07fbbd3734544062a0515e091f2447cb4213c92"
     ),
-    "Upload serving objects": "4f0cae9992fdfac82bf5f4c3d3fd1f8aa6cc663398215685d742f640347b0a1d",
+    "Publish serving history and freshness": (
+        "71bc4dd9419cf796a7f8eb89501f7d0cd25e1984a516b37c827e5a388d898034"
+    ),
+    "Upload serving objects": "4dda53ab8d22b3cd5a70f98719f4cf0847360c2612a7cae07e3140baf3c660f3",
     "Upload run summary": "7ce1363c5436f3bfd4a93fe01d8c36520dd8d296c041950a167c418aae483cd6",
     "Notify Discord #batch-runs": (
-        "dc1f650cbda7dfcdff27cfd079e9a8461d4a8ffb27e97ab1634498bac32a7e71"
+        "96ef74cbfaa5c6cab4e92db31a5f2262f6e36578fea21ffcb0a79913030cb482"
     ),
     "Backfill and publish committed progress": (
         "e3a872c155847e6943dee858c4c1a28a4ad6dc2ef8560d67bdb305fc41eac589"
@@ -399,7 +399,6 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             None,
             {
                 "Pull the market store",
-                "Preserve and verify market schema v13 rollback",
                 "Backfill and publish committed progress",
             },
         ),
@@ -417,10 +416,9 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             None,
             {
                 "Pull stores",
-                "Preserve and verify market schema v13 rollback",
                 "Run daily batch",
-                "Upload updated machine stores",
-                "Upload serving objects",
+                "Upload machine stores and serving views",
+                "Publish serving history and freshness",
                 "Notify Discord #batch-runs",
                 "Upload run summary",
             },
@@ -432,10 +430,9 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             None,
             {
                 "Pull stores",
-                "Preserve and verify market schema v13 rollback",
                 "Run daily batch",
-                "Upload updated machine stores",
-                "Upload serving objects",
+                "Upload machine stores and serving views",
+                "Publish serving history and freshness",
                 "Notify Discord #batch-runs",
                 "Upload run summary",
             },
@@ -454,7 +451,6 @@ def _credential_invocations(stub: WorkflowCommandStub) -> dict[str, dict[str, st
             "Run daily batch",
             {
                 "Pull stores",
-                "Preserve and verify market schema v13 rollback",
                 "Run daily batch",
                 "Notify Discord #batch-runs",
                 "Upload run summary",

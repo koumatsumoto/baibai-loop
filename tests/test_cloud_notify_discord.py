@@ -234,7 +234,12 @@ def test_delivery_reports_only_the_type_of_an_unlisted_transport_exception() -> 
 # --- decision table -------------------------------------------------------
 
 
-UPLOADS_OK = {"upload-machine": "success", "upload-serving": "success"}
+UPLOADS_OK = {
+    "upload-machine": "success",
+    "upload-serving": "success",
+    "upload-parallel": "success",
+    "publish-serving": "success",
+}
 
 
 def _build(
@@ -281,6 +286,53 @@ def test_derive_publish_state_priority() -> None:
     assert derive_publish_state(local_export=True, step_outcomes=UPLOADS_OK) == PUBLISH_PUBLISHED
     assert derive_publish_state(local_export=True, step_outcomes={}) == "generated"
     assert derive_publish_state(local_export=False, step_outcomes={}) == PUBLISH_NOT_GENERATED
+
+
+def test_views_mirror_failure_alone_is_an_upload_failure() -> None:
+    """The mirror runs with `--delete`, so a half-applied one is a changed remote."""
+    assert (
+        derive_publish_state(
+            local_export=True,
+            step_outcomes={
+                "upload-machine": "success",
+                "upload-serving": "failure",
+                "upload-parallel": "failure",
+            },
+        )
+        == PUBLISH_UPLOAD_FAILED
+    )
+    assert derive_failed_step({"upload-machine": "success", "upload-serving": "failure"}) == (
+        "upload-serving"
+    )
+
+
+def test_an_upload_step_that_died_before_reporting_is_an_upload_failure() -> None:
+    """A job timeout or a cancel leaves the step's own outputs unwritten.
+
+    Reading that absence as "uploaded nothing" would describe a run that may have
+    replaced part of production as one that never touched it. The step outcome is
+    supplied by GitHub on every terminal state, so it is what decides here.
+    """
+    killed = {"upload-parallel": "cancelled"}
+
+    assert derive_publish_state(local_export=True, step_outcomes=killed) == PUBLISH_UPLOAD_FAILED
+    assert derive_failed_step(killed) == "upload-machine"
+
+
+def test_history_and_freshness_not_published_is_not_published(tmp_path: Path) -> None:
+    """`published` has to mean the durable record and the freshness claim went out."""
+    assert (
+        derive_publish_state(
+            local_export=True,
+            step_outcomes={
+                "upload-machine": "success",
+                "upload-serving": "success",
+                "upload-parallel": "success",
+                "publish-serving": "skipped",
+            },
+        )
+        == PUBLISH_UPLOAD_FAILED
+    )
 
 
 def test_batch_not_reached_is_failed_not_started(tmp_path: Path) -> None:
@@ -780,6 +832,10 @@ def test_main_delivers_and_writes_summary_on_success(tmp_path: Path, monkeypatch
             "success",
             "--upload-serving-outcome",
             "success",
+            "--upload-parallel-outcome",
+            "success",
+            "--publish-serving-outcome",
+            "success",
             "--asof",
             "2026-07-21",
             "--run-started-at",
@@ -817,6 +873,10 @@ def test_main_fails_the_run_when_delivery_fails(tmp_path: Path, monkeypatch) -> 
             "--upload-machine-outcome",
             "success",
             "--upload-serving-outcome",
+            "success",
+            "--upload-parallel-outcome",
+            "success",
+            "--publish-serving-outcome",
             "success",
             "--run-started-at",
             _now_iso(),
