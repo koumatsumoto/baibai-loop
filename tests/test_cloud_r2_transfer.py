@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TRANSFER_SCRIPT = REPO_ROOT / "tools/cloud/r2_transfer.sh"
@@ -19,6 +22,11 @@ def _fake_aws(tmp_path: Path) -> tuple[Path, Path]:
     executable.write_text(
         """#!/usr/bin/env bash
 printf "%s\\n" "$*" >> "$AWS_LOG"
+# Echo the transfer config this invocation would read, so a test can assert the
+# setting reached the CLI rather than only that a file was written somewhere.
+if [[ -n "${AWS_CONFIG_FILE:-}" && -f "${AWS_CONFIG_FILE}" ]]; then
+  cat "${AWS_CONFIG_FILE}"
+fi
 if [[ "$1 $2" == "s3 ls" ]]; then
   for argument in "$@"; do
     case "$argument" in
@@ -111,10 +119,23 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
     return environment
 
 
-def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
-    tmp_path: Path,
-) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
+def _transfer_commands(log: Path) -> list[str]:
+    """The transfers the run performed, without the diagnostic calls.
+
+    The publish path also asks the CLI for its version and for the concurrency it
+    resolved, so a real run's log can answer whether the setting took effect. Those
+    are not transfers and would otherwise have to be counted in every assertion.
+    """
+    if not log.exists():
+        return []
+    return [
+        line
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if line != "--version" and not line.startswith("configure get ")
+    ]
+
+
+def _serving_export(tmp_path: Path) -> Path:
     output = tmp_path / "serving"
     (output / "views").mkdir(parents=True)
     (output / "views/dashboard.json").write_text("{}", encoding="utf-8")
@@ -123,30 +144,173 @@ def test_upload_serving_replaces_views_appends_history_and_writes_meta_last(
     (output / "history/candidate-views/2026-07-21.json").write_text("{}", encoding="utf-8")
     (output / "history/longlists").mkdir(parents=True)
     (output / "history/longlists/2026-07-21.json").write_text("{}", encoding="utf-8")
+    return output
+
+
+def test_views_upload_replaces_the_mirror_and_leaves_meta_alone(tmp_path: Path) -> None:
+    """The stage that runs alongside the store push touches only the mutable image."""
+    bin_dir, log = _fake_aws(tmp_path)
+    output = _serving_export(tmp_path)
     env = _environment(bin_dir, log)
     env["GITHUB_ACTIONS"] = "true"
 
-    subprocess.run(
-        [TRANSFER_SCRIPT, "upload-serving", output],
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "upload-serving-views", output],
         cwd=REPO_ROOT,
         env=env,
         check=True,
+        capture_output=True,
+        text=True,
     )
 
-    commands = log.read_text(encoding="utf-8").splitlines()
-    assert len(commands) == 4
+    commands = _transfer_commands(log)
+    assert len(commands) == 1
     assert commands[0].startswith("s3 sync ")
     assert "s3://baibai-serving/views/" in commands[0]
     assert "--delete --exclude meta.json" in commands[0]
-    assert "s3://baibai-serving/history/candidate-views/" in commands[1]
+    assert "history/" not in commands[0]
+    # One view is mirrored; `meta.json` belongs to the tail stage and is not counted.
+    assert "serving views: objects=1 elapsed=" in result.stdout
+
+
+def test_serving_tail_appends_history_and_writes_meta_last(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = _serving_export(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "publish-serving-tail", output],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    commands = _transfer_commands(log)
+    assert len(commands) == 3
+    assert "s3://baibai-serving/history/candidate-views/" in commands[0]
+    assert "--delete" not in commands[0]
+    assert "s3://baibai-serving/history/longlists/" in commands[1]
     assert "--delete" not in commands[1]
-    assert "s3://baibai-serving/history/longlists/" in commands[2]
-    assert "--delete" not in commands[2]
-    assert commands[3].startswith("s3 cp ")
-    assert commands[3].endswith(
+    assert commands[2].startswith("s3 cp ")
+    assert commands[2].endswith(
         "s3://baibai-serving/views/meta.json --endpoint-url "
         "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
     )
+    assert "serving tail: objects=3 elapsed=" in result.stdout
+
+
+def test_serving_transfer_raises_concurrency_without_touching_the_caller_config(
+    tmp_path: Path,
+) -> None:
+    """The in-flight count is the only lever on a request-bound upload.
+
+    It has no command-line flag, and this script also runs on a developer machine,
+    so writing it into `~/.aws/config` would change transfers this repository has
+    nothing to do with.
+    """
+    bin_dir, log = _fake_aws(tmp_path)
+    output = _serving_export(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["HOME"] = str(home)
+
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "upload-serving-views", output],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "serving transfer: max_concurrent_requests=32" in result.stdout
+    assert not (home / ".aws" / "config").exists()
+    # The fake CLI echoes the config the run pointed it at, so the setting is
+    # observed where `aws` would read it rather than only where it was written.
+    assert "max_concurrent_requests = 32" in result.stdout
+
+
+def test_serving_concurrency_is_settable_without_a_code_change(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = _serving_export(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["R2_SERVING_UPLOAD_CONCURRENCY"] = "10"
+
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "upload-serving-views", output],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "serving transfer: max_concurrent_requests=10" in result.stdout
+
+
+def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path) -> None:
+    """Each process writes its own config, so neither can read the other's value.
+
+    The daily batch runs the views mirror beside the store push today, and a fixed
+    config path would silently become the last writer's setting the moment the push
+    side needed transfer settings too.
+    """
+    bin_dir, log = _fake_aws(tmp_path)
+    output = _serving_export(tmp_path)
+    base = _environment(bin_dir, log)
+    base["GITHUB_ACTIONS"] = "true"
+
+    processes = []
+    for concurrency in ("11", "22"):
+        env = {**base, "R2_SERVING_UPLOAD_CONCURRENCY": concurrency, "AWS_LOG": str(log)}
+        processes.append(
+            subprocess.Popen(
+                [TRANSFER_SCRIPT, "upload-serving-views", output],
+                cwd=REPO_ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        )
+    outputs = [process.communicate()[0] for process in processes]
+
+    assert all(process.returncode == 0 for process in processes)
+    assert "max_concurrent_requests = 11" in outputs[0]
+    assert "max_concurrent_requests = 22" not in outputs[0]
+    assert "max_concurrent_requests = 22" in outputs[1]
+    assert "max_concurrent_requests = 11" not in outputs[1]
+    # The trap removes each config, so neither survives its own process.
+    assert not list(Path(tempfile.gettempdir()).glob("baibai-r2-transfer.*"))
+
+
+def test_preserve_market_v13_is_no_longer_a_subcommand(tmp_path: Path) -> None:
+    """The store is past v13, so the object can never be produced again.
+
+    What remained was a download and a check on every run. The object stays in R2
+    and `download-market-v13-rollback` still verifies it at the moment it matters.
+    """
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "preserve-market-v13"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "usage:" in result.stderr
+    assert not log.exists() or log.read_text(encoding="utf-8") == ""
 
 
 def test_pull_longlist_history_uses_the_dedicated_serving_prefix(tmp_path: Path) -> None:
@@ -160,7 +324,7 @@ def test_pull_longlist_history_uses_the_dedicated_serving_prefix(tmp_path: Path)
         check=True,
     )
 
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert len(commands) == 1
     assert commands[0].startswith("s3 sync s3://baibai-serving/history/longlists/")
     assert output.is_dir()
@@ -241,7 +405,9 @@ def test_only_the_application_pull_names_the_application_store() -> None:
     assert naming_app == {"pull-app"}
 
 
-def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
+@pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])
+def test_serving_publish_rejects_an_export_without_meta(tmp_path: Path, subcommand: str) -> None:
+    """Both stages refuse a partial export, because the mirror runs with `--delete`."""
     bin_dir, log = _fake_aws(tmp_path)
     output = tmp_path / "serving"
     (output / "views").mkdir(parents=True)
@@ -249,7 +415,7 @@ def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
     env["GITHUB_ACTIONS"] = "true"
 
     completed = subprocess.run(
-        [TRANSFER_SCRIPT, "upload-serving", output],
+        [TRANSFER_SCRIPT, subcommand, output],
         cwd=REPO_ROOT,
         env=env,
         check=False,
@@ -262,14 +428,15 @@ def test_upload_serving_rejects_an_export_without_meta(tmp_path: Path) -> None:
     assert not log.exists()
 
 
-def test_serving_upload_is_github_actions_only(tmp_path: Path) -> None:
+@pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])
+def test_serving_publish_is_github_actions_only(tmp_path: Path, subcommand: str) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     output = tmp_path / "serving"
     (output / "views").mkdir(parents=True)
     (output / "views/meta.json").write_text("{}", encoding="utf-8")
 
     completed = subprocess.run(
-        [TRANSFER_SCRIPT, "upload-serving", output],
+        [TRANSFER_SCRIPT, subcommand, output],
         cwd=REPO_ROOT,
         env=_environment(bin_dir, log),
         check=False,
@@ -298,7 +465,7 @@ def test_run_summary_upload_writes_one_object_outside_the_views_prefix(
         check=True,
     )
 
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert len(commands) == 1
     assert commands[0].startswith("s3 cp ")
     # Not under views/, which `upload-serving` mirrors with --delete.
@@ -345,92 +512,6 @@ def test_run_summary_upload_is_github_actions_only(tmp_path: Path) -> None:
     assert not log.exists()
 
 
-def test_preserve_market_v13_uploads_once_and_verifies_download(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "preserve-market-v13"],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
-    key = "s3://baibai-stores/schema-migrations/market-v13.sqlite"
-    assert sum(key in command and command.startswith("s3 cp ") for command in commands) == 2
-
-
-def test_preserve_market_v13_refuses_v14_without_rollback_object(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["SQLITE_FAKE_VERSION"] = "14"
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "preserve-market-v13"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert "required immutable rollback object is missing" in completed.stderr
-    assert all("s3 cp" not in command for command in log.read_text(encoding="utf-8").splitlines())
-
-
-def test_preserve_market_v13_reuses_existing_immutable_object(tmp_path: Path) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["SQLITE_FAKE_VERSION"] = "14"
-    env["AWS_FAKE_EXISTING_KEY"] = "schema-migrations/market-v13.sqlite"
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "preserve-market-v13"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
-    uploads = [
-        command
-        for command in commands
-        if command.startswith("s3 cp ")
-        and command.rstrip().endswith(
-            "s3://baibai-stores/schema-migrations/market-v13.sqlite --endpoint-url "
-            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-        )
-    ]
-    assert uploads == []
-
-
-def test_preserve_market_v13_accepts_future_schema_with_existing_artifact(
-    tmp_path: Path,
-) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["SQLITE_FAKE_VERSION"] = "15"
-    env["AWS_FAKE_EXISTING_KEY"] = "schema-migrations/market-v13.sqlite"
-
-    completed = subprocess.run(
-        [TRANSFER_SCRIPT, "preserve-market-v13"],
-        cwd=REPO_ROOT,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0
-
-
 def test_download_market_v13_rollback_is_read_only_and_refuses_overwrite(
     tmp_path: Path,
 ) -> None:
@@ -458,7 +539,7 @@ def test_download_market_v13_rollback_is_read_only_and_refuses_overwrite(
     assert output.read_text(encoding="utf-8") == "x"
     assert second.returncode == 2
     assert "refusing rollback download overwrite" in second.stderr
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert all(
         not command.rstrip().endswith(
             "s3://baibai-stores/market.sqlite --endpoint-url "
@@ -500,7 +581,7 @@ def test_initial_seed_uploads_all_stores_when_contract_keys_are_absent(tmp_path:
     )
 
     assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert len([command for command in commands if "s3 cp" in command]) == 4
     # Nothing is being replaced, so no generation is kept.
     assert all(".bak" not in command for command in commands)
@@ -523,7 +604,7 @@ def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Pat
     )
 
     assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert len([command for command in commands if "s3 cp" in command]) == 4
 
 
@@ -559,7 +640,7 @@ def test_machine_store_push_uploads_three_stores_in_github_actions(tmp_path: Pat
     )
 
     assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert len([command for command in commands if "s3 cp" in command]) == 3
     assert all(".bak" not in command for command in commands)
 
@@ -582,7 +663,7 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     )
 
     assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     backups = [index for index, command in enumerate(commands) if ".bak" in command]
     uploads = [
         index
@@ -623,7 +704,7 @@ def test_store_backup_waits_past_the_cli_default_read_timeout(tmp_path: Path) ->
     )
 
     assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     backup = next(command for command in commands if command.startswith("s3api copy-object "))
     arguments = backup.split()
     assert int(arguments[arguments.index("--cli-read-timeout") + 1]) > 60
@@ -645,7 +726,7 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
     )
 
     assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     downloads = [
         index
         for index, command in enumerate(commands)
@@ -686,7 +767,7 @@ def test_macro_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> No
     )
 
     assert completed.returncode != 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert all(
         not command.rstrip().endswith(
             "s3://baibai-stores/macro.sqlite --endpoint-url "
@@ -712,7 +793,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     )
 
     assert completed.returncode == 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     downloads = [
         index
         for index, command in enumerate(commands)
@@ -752,7 +833,7 @@ def test_market_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> N
     )
 
     assert completed.returncode != 0
-    commands = log.read_text(encoding="utf-8").splitlines()
+    commands = _transfer_commands(log)
     assert all(
         not command.rstrip().endswith(
             "s3://baibai-stores/market.sqlite --endpoint-url "

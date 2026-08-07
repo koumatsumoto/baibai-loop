@@ -131,6 +131,8 @@ ERROR_STAGES = (
     "screening-prune",
     "upload-machine",
     "upload-serving",
+    "upload-parallel",
+    "publish-serving",
     "batch",
     # A step before the batch that the notification does not track by id
     # (checkout, setup-uv, the Playwright steps). Naming it "pre-batch" keeps the

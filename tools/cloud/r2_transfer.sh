@@ -6,6 +6,12 @@ stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 serving_bucket="${R2_SERVING_BUCKET:-baibai-serving}"
 copy_read_timeout=300
 transfer_staging=""
+transfer_config=""
+# The serving prefix is thousands of small objects, so its wall clock is request
+# latency and not bytes: 54MB across 3,740 objects took 282s, which is 13 requests
+# a second against the CLI's default of 10 in flight. The in-flight count is
+# therefore the only lever on that number.
+serving_upload_concurrency_default=32
 
 cleanup_staging() {
   if [[ -n "${transfer_staging}" && -d "${transfer_staging}" ]]; then
@@ -13,6 +19,10 @@ cleanup_staging() {
       "${repo_root}"/.r2-transfer.*) rm -r -- "${transfer_staging}" ;;
       *) printf 'refusing to remove unexpected staging path: %s\n' "${transfer_staging}" >&2 ;;
     esac
+  fi
+  if [[ -n "${transfer_config}" && -f "${transfer_config}" ]]; then
+    rm -f -- "${transfer_config}"
+    transfer_config=""
   fi
 }
 
@@ -39,6 +49,42 @@ load_credentials() {
 
 aws_s3() {
   aws s3 "$@" --endpoint-url "${endpoint}" --only-show-errors --no-progress
+}
+
+use_serving_transfer_settings() {
+  # `max_concurrent_requests` has no command-line flag, and `aws configure set`
+  # would write it into the caller's own `~/.aws/config`. This script also runs on
+  # a developer machine, so the setting is confined to a throwaway config this
+  # process points at. Credentials keep coming from the environment, which takes
+  # precedence, so the file carries transfer settings and nothing else. Two of
+  # these can run at once, so each gets its own file.
+  #
+  # The value is read here rather than at load time so `.env` (sourced by
+  # `load_credentials`, which runs first) can set it as well as the step env.
+  local concurrency
+  concurrency="${R2_SERVING_UPLOAD_CONCURRENCY:-${serving_upload_concurrency_default}}"
+  transfer_config="$(mktemp "${TMPDIR:-/tmp}/baibai-r2-transfer.XXXXXX")"
+  printf '[default]\ns3 =\n  max_concurrent_requests = %s\n' \
+    "${concurrency}" > "${transfer_config}"
+  export AWS_CONFIG_FILE="${transfer_config}"
+  # The version and the value the CLI actually resolves are printed because the
+  # setting has no flag to echo back: a runner whose CLI reads the config
+  # differently would otherwise transfer at the default and look identical.
+  printf 'serving transfer: max_concurrent_requests=%s aws=%s resolved=%s\n' \
+    "${concurrency}" \
+    "$(aws --version 2>&1)" \
+    "$(aws configure get s3.max_concurrent_requests 2>/dev/null || printf 'unset')"
+}
+
+# How many objects a stage is about to move. Reported next to the elapsed seconds
+# so a run's log answers whether raising the in-flight count changed anything.
+count_files() {
+  local directory="$1"
+  if [[ ! -d "${directory}" ]]; then
+    printf '0\n'
+    return 0
+  fi
+  find "${directory}" -type f | wc -l | tr -d ' \n'
 }
 
 remote_object_exists() {
@@ -176,44 +222,6 @@ seed_keys() {
   push_keys "$@"
 }
 
-preserve_market_v13() {
-  # v14 rebuilds EDINET document rows and cannot reconstruct the discarded shape.
-  # This fixed key is write-once: later runs verify it instead of replacing it.
-  local source backup_key version uploaded_snapshot verified_snapshot
-  source="$(store_path market.sqlite)"
-  backup_key="schema-migrations/market-v13.sqlite"
-  version="$(sqlite_schema_version "${source}")"
-  if [[ ! "${version}" =~ ^[0-9]+$ ]] || (( version < 13 )); then
-    printf 'market schema preflight expected v13 or newer, got v%s\n' "${version}" >&2
-    return 2
-  fi
-  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  uploaded_snapshot="${transfer_staging}/market-v13-upload.sqlite"
-  verified_snapshot="${transfer_staging}/market-v13-verify.sqlite"
-  if ! remote_object_exists "${backup_key}"; then
-    if [[ "${version}" != "13" ]]; then
-      printf 'required immutable rollback object is missing: s3://%s/%s\n' \
-        "${stores_bucket}" "${backup_key}" >&2
-      return 2
-    fi
-    snapshot_sqlite "${source}" "${uploaded_snapshot}"
-    aws_s3 cp "${uploaded_snapshot}" "s3://${stores_bucket}/${backup_key}"
-  fi
-  aws_s3 cp "s3://${stores_bucket}/${backup_key}" "${verified_snapshot}"
-  if [[ ! -s "${verified_snapshot}" ]]; then
-    printf 'rollback object is empty: s3://%s/%s\n' "${stores_bucket}" "${backup_key}" >&2
-    return 2
-  fi
-  check_sqlite_schema "${verified_snapshot}" 13
-  if [[ -f "${uploaded_snapshot}" ]] && ! cmp -s "${uploaded_snapshot}" "${verified_snapshot}"; then
-    printf 'rollback object differs from the uploaded snapshot: s3://%s/%s\n' \
-      "${stores_bucket}" "${backup_key}" >&2
-    return 2
-  fi
-  cleanup_staging
-  transfer_staging=""
-}
-
 download_market_v13_rollback() {
   local output="$1"
   local backup_key="schema-migrations/market-v13.sqlite"
@@ -235,14 +243,44 @@ download_market_v13_rollback() {
   transfer_staging=""
 }
 
-upload_serving() {
+require_complete_export() {
   local output_dir="$1"
   if [[ ! -f "${output_dir}/views/meta.json" ]]; then
     printf 'serving export is incomplete: %s/views/meta.json is missing\n' "${output_dir}" >&2
     return 2
   fi
+}
+
+upload_serving_views() {
+  # The mutable image of the current run: every view except the freshness claim,
+  # which is nearly all of what a run publishes. All of it is rewritten each
+  # business day, so this is the part worth overlapping with the store push and
+  # the part a failed run can leave behind without lasting harm.
+  local output_dir="$1"
+  require_complete_export "${output_dir}"
+  use_serving_transfer_settings
+  local started objects
+  started="${SECONDS}"
+  # `meta.json` is excluded from this mirror and published by the tail stage, so it
+  # is not one of the objects this stage moves. `require_complete_export` has
+  # already established that it is there to subtract.
+  objects="$(( $(count_files "${output_dir}/views") - 1 ))"
   aws_s3 sync "${output_dir}/views/" "s3://${serving_bucket}/views/" \
     --delete --exclude meta.json
+  printf 'serving views: objects=%s elapsed=%ss\n' "${objects}" "$((SECONDS - started))"
+}
+
+publish_serving_tail() {
+  # The parts that outlive the run: `history/` is append-only and never deleted,
+  # and `meta.json` is the freshness claim the UI reads. Both are published only
+  # once the store holding this run has been persisted, so a run whose store push
+  # failed leaves no permanent record of a run the store does not contain.
+  local output_dir="$1"
+  require_complete_export "${output_dir}"
+  use_serving_transfer_settings
+  local started objects
+  started="${SECONDS}"
+  objects="$(count_files "${output_dir}/history")"
   if [[ -d "${output_dir}/history/candidate-views" ]]; then
     aws_s3 sync "${output_dir}/history/candidate-views/" \
       "s3://${serving_bucket}/history/candidate-views/"
@@ -253,6 +291,7 @@ upload_serving() {
   fi
   # Freshness is published only after every view and history upload succeeds.
   aws_s3 cp "${output_dir}/views/meta.json" "s3://${serving_bucket}/views/meta.json"
+  printf 'serving tail: objects=%s elapsed=%ss\n' "$((objects + 1))" "$((SECONDS - started))"
 }
 
 pull_app() {
@@ -280,7 +319,7 @@ pull_longlist_history() {
 }
 
 upload_run_summary() {
-  # The workflow run summary lives outside `views/`, which `upload_serving`
+  # The workflow run summary lives outside `views/`, which `upload_serving_views`
   # mirrors with `--delete`: a failed run publishes no export, so its record has
   # to survive the next successful one. One object, always overwritten — the run
   # timeline stays in Discord and the Actions history.
@@ -293,7 +332,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-longlist-history DIR|preserve-market-v13|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-longlist-history DIR|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -313,9 +352,6 @@ case "${1:-}" in
   pull-longlist-history)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     pull_longlist_history "$2"
-    ;;
-  preserve-market-v13)
-    preserve_market_v13
     ;;
   download-market-v13-rollback)
     [[ $# -eq 2 ]] || { usage; exit 2; }
@@ -364,16 +400,27 @@ case "${1:-}" in
     push_keys baibai.sqlite
     ;;
   # The serving bucket has one writer: the batch that produces a complete export.
-  # `upload_serving` mirrors `views/` with `--delete`, so a partial local export would
-  # remove production views, and the local credential carries write permission because
-  # R2 grants it per token rather than per bucket. The boundary lives here instead.
-  upload-serving)
+  # The views mirror runs with `--delete`, so a partial local export would remove
+  # production views, and the local credential carries write permission because R2
+  # grants it per token rather than per bucket. The boundary lives here instead.
+  #
+  # The publish is two stages so the mutable image can overlap the store push while
+  # the durable record cannot: see the two functions for which is which.
+  upload-serving-views)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
       printf 'refusing serving upload outside GitHub Actions\n' >&2
       exit 2
     fi
-    upload_serving "$2"
+    upload_serving_views "$2"
+    ;;
+  publish-serving-tail)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+      printf 'refusing serving upload outside GitHub Actions\n' >&2
+      exit 2
+    fi
+    publish_serving_tail "$2"
     ;;
   upload-run-summary)
     [[ $# -eq 2 ]] || { usage; exit 2; }

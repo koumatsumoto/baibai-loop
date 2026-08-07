@@ -12,6 +12,7 @@ from tools.cloud import notify_discord
 from tools.cloud.batch_summary import (
     DELIVERY_DELIVERED,
     DELIVERY_FAILED,
+    ERROR_STAGES,
     EXECUTION_AVAILABLE,
     EXECUTION_NOT_STARTED,
     EXECUTION_UNAVAILABLE,
@@ -28,6 +29,7 @@ from tools.cloud.batch_summary import (
     write_json_atomic,
 )
 from tools.cloud.notify_discord import (
+    _NON_BATCH_STEPS,
     WEBHOOK_ENV_VAR,
     DeliveryError,
     _NoRedirect,
@@ -234,7 +236,12 @@ def test_delivery_reports_only_the_type_of_an_unlisted_transport_exception() -> 
 # --- decision table -------------------------------------------------------
 
 
-UPLOADS_OK = {"upload-machine": "success", "upload-serving": "success"}
+UPLOADS_OK = {
+    "upload-machine": "success",
+    "upload-serving": "success",
+    "upload-parallel": "success",
+    "publish-serving": "success",
+}
 
 
 def _build(
@@ -281,6 +288,99 @@ def test_derive_publish_state_priority() -> None:
     assert derive_publish_state(local_export=True, step_outcomes=UPLOADS_OK) == PUBLISH_PUBLISHED
     assert derive_publish_state(local_export=True, step_outcomes={}) == "generated"
     assert derive_publish_state(local_export=False, step_outcomes={}) == PUBLISH_NOT_GENERATED
+
+
+def test_every_step_the_notifier_can_name_is_a_nameable_error_stage() -> None:
+    """A step name the summary cannot carry turns a failure into no notification.
+
+    `derive_failed_step` feeds `BatchError.build`, which rejects a stage outside
+    the allowlist; the rejection propagates out of `main` before the webhook is
+    called, so the one failure mode the notification exists to report becomes
+    silence. Tracking a step without allowlisting it is the way that happens.
+    """
+    nameable = {stage for stage, _key in _NON_BATCH_STEPS}
+    nameable.add("upload-parallel")
+
+    assert nameable <= set(ERROR_STAGES)
+
+
+def test_a_failed_tail_publish_still_produces_a_notification(tmp_path: Path) -> None:
+    summary_path = tmp_path / "batch.json"
+    _write_batch_summary(summary_path, outcome=OUTCOME_SUCCEEDED)
+
+    summary = _build(
+        tmp_path,
+        summary_path=summary_path,
+        batch_exit_code="0",
+        local_export=True,
+        step_outcomes={
+            "upload-machine": "success",
+            "upload-serving": "success",
+            "upload-parallel": "success",
+            "publish-serving": "failure",
+        },
+    )
+
+    # Composing the summary is what used to raise: the stage name reached the
+    # allowlist check and was rejected, so the notifier exited before delivering.
+    assert summary.publish_state == PUBLISH_UPLOAD_FAILED
+    assert [error.stage for error in summary.workflow_errors] == ["publish-serving"]
+
+
+def test_a_cancelled_tail_publish_still_names_where_to_look() -> None:
+    assert derive_failed_step({"publish-serving": "cancelled"}) == "publish-serving"
+
+
+def test_an_upload_step_that_died_before_reporting_names_the_step_that_ran_both() -> None:
+    """Which side got further is unknown, so neither branch may be blamed."""
+    assert derive_failed_step({"upload-parallel": "cancelled"}) == "upload-parallel"
+
+
+def test_views_mirror_failure_alone_is_an_upload_failure() -> None:
+    """The mirror runs with `--delete`, so a half-applied one is a changed remote."""
+    assert (
+        derive_publish_state(
+            local_export=True,
+            step_outcomes={
+                "upload-machine": "success",
+                "upload-serving": "failure",
+                "upload-parallel": "failure",
+            },
+        )
+        == PUBLISH_UPLOAD_FAILED
+    )
+    assert derive_failed_step({"upload-machine": "success", "upload-serving": "failure"}) == (
+        "upload-serving"
+    )
+
+
+def test_an_upload_step_that_died_before_reporting_is_an_upload_failure() -> None:
+    """A job timeout or a cancel leaves the step's own outputs unwritten.
+
+    Reading that absence as "uploaded nothing" would describe a run that may have
+    replaced part of production as one that never touched it. The step outcome is
+    supplied by GitHub on every terminal state, so it is what decides here.
+    """
+    killed = {"upload-parallel": "cancelled"}
+
+    assert derive_publish_state(local_export=True, step_outcomes=killed) == PUBLISH_UPLOAD_FAILED
+    assert derive_failed_step(killed) == "upload-parallel"
+
+
+def test_history_and_freshness_not_published_is_not_published(tmp_path: Path) -> None:
+    """`published` has to mean the durable record and the freshness claim went out."""
+    assert (
+        derive_publish_state(
+            local_export=True,
+            step_outcomes={
+                "upload-machine": "success",
+                "upload-serving": "success",
+                "upload-parallel": "success",
+                "publish-serving": "skipped",
+            },
+        )
+        == PUBLISH_UPLOAD_FAILED
+    )
 
 
 def test_batch_not_reached_is_failed_not_started(tmp_path: Path) -> None:
@@ -780,6 +880,10 @@ def test_main_delivers_and_writes_summary_on_success(tmp_path: Path, monkeypatch
             "success",
             "--upload-serving-outcome",
             "success",
+            "--upload-parallel-outcome",
+            "success",
+            "--publish-serving-outcome",
+            "success",
             "--asof",
             "2026-07-21",
             "--run-started-at",
@@ -817,6 +921,10 @@ def test_main_fails_the_run_when_delivery_fails(tmp_path: Path, monkeypatch) -> 
             "--upload-machine-outcome",
             "success",
             "--upload-serving-outcome",
+            "success",
+            "--upload-parallel-outcome",
+            "success",
+            "--publish-serving-outcome",
             "success",
             "--run-started-at",
             _now_iso(),

@@ -87,15 +87,6 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: tools/cloud/r2_transfer.sh pull-market
 
-      # Writing to the store migrates it, so the rollback object has to be present
-      # and verified first, exactly as the daily batch does before its own writes.
-      - name: Preserve and verify market schema v13 rollback
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh preserve-market-v13
-
       - name: Record the window the store already covers
         run: |
           sqlite3 "file:data/screening/market.sqlite?mode=ro" \

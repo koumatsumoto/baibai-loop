@@ -47,14 +47,9 @@ _PROVIDERS = {
 }
 _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
     ("cloud-daily-batch.yml", "daily", "Pull stores"): _R2,
-    (
-        "cloud-daily-batch.yml",
-        "daily",
-        "Preserve and verify market schema v13 rollback",
-    ): _R2,
     ("cloud-daily-batch.yml", "daily", "Run daily batch"): _PROVIDERS,
-    ("cloud-daily-batch.yml", "daily", "Upload updated machine stores"): _R2,
-    ("cloud-daily-batch.yml", "daily", "Upload serving objects"): _R2,
+    ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): _R2,
+    ("cloud-daily-batch.yml", "daily", "Publish serving history and freshness"): _R2,
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): {
         "DISCORD_WEBHOOK_URL": "${{ secrets.DISCORD_WEBHOOK_URL }}"
     },
@@ -65,11 +60,6 @@ _EXPECTED_STEP_CREDENTIALS: dict[tuple[str, str, str], dict[str, str]] = {
         "Alert Discord #batch-runs when the batch is missing",
     ): {"DISCORD_WEBHOOK_URL": "${{ secrets.DISCORD_WEBHOOK_URL }}"},
     ("cloud-history-backfill.yml", "backfill", "Pull the market store"): _R2,
-    (
-        "cloud-history-backfill.yml",
-        "backfill",
-        "Preserve and verify market schema v13 rollback",
-    ): _R2,
     (
         "cloud-history-backfill.yml",
         "backfill",
@@ -143,20 +133,17 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     ("cloud-daily-batch.yml", "daily", "Pull stores"): (
         "07a280053b55c74bc983ebd91d5f8f7b3ada2e50c9117de655d1ff28120b0ea9"
     ),
-    ("cloud-daily-batch.yml", "daily", "Preserve and verify market schema v13 rollback"): (
-        "f81af85e12fbe61a8ed419d56a34f6a0aece9ff8c9ca1d34297061f974b64615"
-    ),
     ("cloud-daily-batch.yml", "daily", "Run daily batch"): (
         "6f0117793eecf3af161ca5651d6329c1d646da140dd628ce96a7452a099fa8ac"
     ),
-    ("cloud-daily-batch.yml", "daily", "Upload updated machine stores"): (
-        "1de8fefcc015bac98e2742825bf367c78fbd7573f424b291f49556ce543eb2c6"
+    ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): (
+        "e77b938fe7b7b68432b711c4d6ec20535ba7ff2128a497359d15627ee4cbf828"
     ),
-    ("cloud-daily-batch.yml", "daily", "Upload serving objects"): (
-        "df479f9ccf4f9aca46d4c7a354a66aae710783b17c807e2b8518f33fa0bb9cc8"
+    ("cloud-daily-batch.yml", "daily", "Publish serving history and freshness"): (
+        "086900ba54f73ca72c924e5410450e9982bf5bd724920001dd31bcd77c59effe"
     ),
     ("cloud-daily-batch.yml", "daily", "Notify Discord #batch-runs"): (
-        "ff8dbb534c9cec0563361e131189e97c5bbab2ad22c9fb9dce918ed3e216fb5e"
+        "fa9ad25402d2d470d75a752b50e4315a0c0b9037c7fefdf1ea169efbf39ea8f6"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload run summary"): (
         "68252336012dac8fc5d5bad8e447e96fa38f50b9c364b355633a9b24ef764a22"
@@ -172,18 +159,13 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
     (
         "cloud-history-backfill.yml",
         "backfill",
-        "Preserve and verify market schema v13 rollback",
-    ): "46539cf22f50ab68016f4cd79fe404baf4db309c32837cdf85c3a8f8871b728d",
-    (
-        "cloud-history-backfill.yml",
-        "backfill",
         "Backfill and publish committed progress",
     ): "28de80b3b8217905d8974f3524b461f0b18487fb5df5889218a4a9fd635b0255",
     ("cloud-materialize.yml", "materialize", "Pull stores"): (
         "406ddbcec94d613165754b844b043db53d1b436695f7c9bfc4272fe4af3a6ada"
     ),
     ("cloud-materialize.yml", "materialize", "Upload serving objects"): (
-        "a03ce272b9ff4dbf79507d93e6dcce195e003bd39c7e432765010fc22eb1857f"
+        "825f998fac18144c049f3c08bcbece65275eec15e1b798e5be46288c971a2008"
     ),
     ("web.yml", "quality", "Deploy Worker and UI assets"): (
         "a2b8d961cc3c8b6a859c25410a6850b9bdfa8210bd63e2d4c79018048fe15c49"

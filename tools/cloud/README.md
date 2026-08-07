@@ -15,7 +15,7 @@ R2 bucketとobject keyは次の固定契約を使う。どちらのbucketもPubl
 | `baibai-stores` | `runs.sqlite` | `cloud-daily-batch` |
 | `baibai-stores` | `macro.sqlite` | `cloud-daily-batch`（rolling窓）+ ローカル`push-macro`（全履歴。cloud copyのmerge後だけupload） |
 | `baibai-stores` | `baibai.sqlite` | ローカル`publish.sh`（replica） |
-| `baibai-stores` | `schema-migrations/market-v13.sqlite` | `cloud-daily-batch`（write-once rollback artifact） |
+| `baibai-stores` | `schema-migrations/market-v13.sqlite` | writer 無し（凍結された rollback artifact） |
 | `baibai-serving` | `views/*.json` | GitHub Actions materialize |
 | `baibai-serving` | `history/candidate-views/<asof>.json` | 日次batch、R2 lifecycleで31日後に削除 |
 | `baibai-serving` | `history/longlists/<asof>.json` | 日次batch、R2 lifecycleで400日後に削除 |
@@ -36,7 +36,9 @@ R2 lifecycle rule は `history/candidate-views/` を31日、`history/longlists/`
 
 R2 S3 endpointは`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`からscriptが組み立てる。credential、password、endpointの実値をGit、issue、logへ書かない。
 
-R2 API tokenのpermissionはtoken単位で、bucketごとにread/writeを分けられない。ローカルtokenはlonglist historyの取得のためservingをbucket scopeへ含むので、書き込み権も同時に持つ。servingの書き手を日次batch（`cloud-daily-batch`と`cloud-materialize`）だけに保つ境界は`r2_transfer.sh`側にあり、`upload-serving`と`upload-run-summary`は`GITHUB_ACTIONS=true`以外では拒否する。`upload-serving`は`views/`を`--delete`付きで同期するため、部分的なローカルexportでの実行は本番viewの削除になる。
+R2 API tokenのpermissionはtoken単位で、bucketごとにread/writeを分けられない。ローカルtokenはlonglist historyの取得のためservingをbucket scopeへ含むので、書き込み権も同時に持つ。servingの書き手を日次batch（`cloud-daily-batch`と`cloud-materialize`）だけに保つ境界は`r2_transfer.sh`側にあり、`upload-serving-views`・`publish-serving-tail`・`upload-run-summary`は`GITHUB_ACTIONS=true`以外では拒否する。`upload-serving-views`は`views/`を`--delete`付きで同期するため、部分的なローカルexportでの実行は本番viewの削除になる。
+
+servingのpublishは2段である。`upload-serving-views`が`views/`（3,743 objectのうち3,740）を差し替え、`publish-serving-tail`が`history/`と`views/meta.json`を出す。`views/`は毎営業日書き換わる揮発物なので、日次batchではstore pushと同時に走らせる。`history/`は追記のみで消えず、`meta.json`はfreshnessの表明なので、両方がstore永続化の成功後にしか出ない。これによりstore pushが失敗したrunは、storeに存在しないrunの永続記録を残さない。
 
 provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。加えて日次batchが当日cache不足で`bootstrap-cache`へ入ると、JPX規制provider（`universe.required_jpx_flags`の4 source: 特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）が公開JPXページのURLを要求する。これらは非secretのため`cloud-daily-batch.yml`の`Run daily batch` step envにliteralで置く（`JPX_SPECIAL_CAUTION_INDEX_URL` / `JPX_REORGANIZATION_URL` / `JPX_TRADING_HALT_URL` / `JPX_DELISTING_WARNING_URL`。雛形は`.env.sample`）。未配線だとbootstrapのJPX stepがfail-fastし、machine stores / serving uploadはskippedになる。
 
@@ -161,7 +163,7 @@ npx wrangler secret put VIEW_PASSWORD
 
 ## R2 transferの安全境界
 
-- `market.sqlite`のv13からv14へのmigration前に、workflowは`schema-migrations/market-v13.sqlite`を固定keyへ一度だけ保存する。既存objectは上書きせず、毎回再downloadして非空・`quick_check`・`user_version = 13`を検証してからbatchを開始する。v14 storeに対してartifactが存在しなければ処理を停止する。
+- `schema-migrations/market-v13.sqlite`は固定keyのrollback artifactとして残るが、writerはもう存在しない。現行schemaはv17で、artifactを作れるのはstoreがv13のときだけだからである。検証は復元が必要になった時点で`download-market-v13-rollback`が非空・`quick_check`・`user_version = 13`として行う。
 - upload前にPython `sqlite3.backup`でsnapshotを作り、WAL未checkpoint行を含めて`quick_check`する。
 - 複数storeのpushは全snapshotの作成・検査を終えてからuploadを始める。3 store一括のmachine store pushはGitHub Actionsからだけ許可する（`runs.sqlite`はcloudが唯一のwriterで、無条件uploadが古いローカルcopyで巻き戻すため）。`macro.sqlite` / `market.sqlite`はローカルからも`push-macro` / `push-market`でuploadできるが、いずれもcloud copyのmergeを通した後だけで、mergeがcloud側の行の取り残しを検出したら停止する。
 - pushは上書き対象のremote objectを`<key>.bak`へ1世代copyしてからuploadする（R2内のserver-side copy。存在判定は`s3api head-object`の完全一致で、`.bak`自身をkey本体と誤認しない）。storeは原則sourceから再構築できるが、PMI履歴のようにpublisherが古いURLを落とすと再取得できない部分があるため、破損・誤pruneしたsnapshotによる上書きから前回分へ戻せる状態を保つ。復元は`.bak`を本keyへcopyし直す（`aws s3api copy-object`を使う。`aws s3 cp`のS3→S3経路はobject sizeで実装が切り替わり、multipart copyはGetObjectTagging、single-part copyは`x-amz-tagging-directive`を要求してどちらもR2が実装しない。CopyObjectはdirectiveを送らず5GBまでのobjectで通る）。R2はcopyが終わるまで応答を返さず、その待ちはobject sizeに比例してGB級のstoreではaws CLI既定のread timeout 60秒に収まらないため、pushの世代保存も手動復元も`--cli-read-timeout`を既定より広げて呼ぶ。`market.sqlite`は10年履歴で約1.3GBあり、3 store合計のpush（snapshot作成・`.bak`のserver-side copy・upload）は実測で約2分である。
@@ -390,7 +392,7 @@ Baibai Loop の `/system`（ヘッダ歯車メニュー → システム状態�
 | `system/latest-run.json` | `cloud-daily-batch` の upload step | 通知と同じ `WorkflowRunSummary`（outcome / batch別結果 / error / run URL） | される |
 
 失敗した run は export を出さないので、`views/` の中だけでは batch の失敗が UI に届かない。
-`system/latest-run.json` は `views/` の外に置き、`upload-serving` の `--delete` 同期と
+`system/latest-run.json` は `views/` の外に置き、`upload-serving-views` の `--delete` 同期と
 lifecycle の対象外にして、次の成功 publish でも消えないようにする。upload は best-effort で、
 失敗しても run の outcome・通知の配送結果・publish 状態を変えない（GitHub Actions の log には残る）。
 
