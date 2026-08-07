@@ -2111,9 +2111,10 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
         *,
         review: IndependentReview | None = None,
         now: datetime | None = None,
+        core_sha256: str | None = None,
     ) -> ThesisResult:
         validation_instants.append(now)
-        return real_store_evaluate(document, review=review, now=now)
+        return real_store_evaluate(document, review=review, now=now, core_sha256=core_sha256)
 
     def service_factory(
         path: Path | None,

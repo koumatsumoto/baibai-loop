@@ -158,9 +158,10 @@ def test_create_and_decide_use_operation_clock_not_record_timestamps(
         *,
         review: IndependentReview | None = None,
         now: datetime | None = None,
+        core_sha256: str | None = None,
     ) -> ThesisResult:
         validation_instants.append(now)
-        return real_evaluate(document, review=review, now=now)
+        return real_evaluate(document, review=review, now=now, core_sha256=core_sha256)
 
     monkeypatch.setattr(proposal_store_module, "evaluate_thesis", recording_evaluate)
     service = ProposalStoreService(

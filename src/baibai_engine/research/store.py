@@ -25,6 +25,7 @@ from baibai_engine.research.thesis import (
     ThesisDocument,
     ThesisResult,
     evaluate_thesis,
+    thesis_core_hash,
 )
 
 _REVIEW_REQUIRED = "buy recommendation requires an independent second-pass review"
@@ -219,17 +220,23 @@ def _insert_thesis(
     document: ThesisDocument,
 ) -> bool:
     payload = canonical_json(publication.payload)
+    # The identity is recorded here rather than re-derived by every later reader. A
+    # derived identity is a property of the current model, so adding or dropping a
+    # schema field would move the hash of theses published long ago and detach the
+    # review, proposal, holding review, assessment and price watch bound to them.
     expected = (
         document.input_snapshot.ticker,
         document.input_snapshot.as_of.isoformat(),
         document.judgment.recommendation,
         document.judgment.proposed_at.isoformat(),
         publication.supersedes_id,
+        thesis_core_hash(document),
         payload,
     )
     existing = connection.execute(
         """
-        SELECT ticker, as_of, recommendation, published_at, supersedes_id, payload
+        SELECT ticker, as_of, recommendation, published_at, supersedes_id,
+               core_sha256, payload
         FROM thesis WHERE thesis_id = ?
         """,
         (publication.thesis_id,),
@@ -252,8 +259,9 @@ def _insert_thesis(
     connection.execute(
         """
         INSERT INTO thesis (
-            thesis_id, ticker, as_of, recommendation, published_at, supersedes_id, payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            thesis_id, ticker, as_of, recommendation, published_at, supersedes_id,
+            core_sha256, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (publication.thesis_id, *expected),
     )
@@ -262,11 +270,16 @@ def _insert_thesis(
 
 def _thesis_row(connection: sqlite3.Connection, thesis_id: str) -> sqlite3.Row:
     row = connection.execute(
-        "SELECT ticker, as_of, payload FROM thesis WHERE thesis_id = ?",
+        "SELECT ticker, as_of, core_sha256, payload FROM thesis WHERE thesis_id = ?",
         (thesis_id,),
     ).fetchone()
     if row is None:
         raise ResearchConflictError(f"unknown thesis revision: {thesis_id}")
+    if row["core_sha256"] is None:
+        # Only a row written outside the application service can reach this. Recomputing
+        # would silently answer with the current model's hash, which is the drift this
+        # column exists to stop.
+        raise ResearchConflictError(f"thesis revision has no recorded identity: {thesis_id}")
     return cast(sqlite3.Row, row)
 
 
@@ -279,7 +292,9 @@ def _insert_review(
 ) -> bool:
     thesis_row = _thesis_row(connection, publication.thesis_id)
     thesis = ThesisDocument.model_validate_json(str(thesis_row["payload"]))
-    _require_valid(evaluate_thesis(thesis, review=review, now=now))
+    _require_valid(
+        evaluate_thesis(thesis, review=review, now=now, core_sha256=str(thesis_row["core_sha256"]))
+    )
     payload = canonical_json(publication.payload)
     expected = (publication.thesis_id, review.reviewed_at.isoformat(), payload)
     existing = connection.execute(

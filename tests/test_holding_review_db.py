@@ -412,9 +412,10 @@ def test_holding_build_and_publish_forward_one_operation_instant(
         *,
         review: IndependentReview,
         now: datetime,
+        core_sha256: str | None = None,
     ) -> object:
         validation_instants.append(now)
-        return real_classify(document, review=review, now=now)
+        return real_classify(document, review=review, now=now, core_sha256=core_sha256)
 
     monkeypatch.setattr(
         holding_builder_module,

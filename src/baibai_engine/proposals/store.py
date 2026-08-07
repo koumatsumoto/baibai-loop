@@ -32,6 +32,7 @@ from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
     evaluate_thesis,
+    require_recorded_identity,
 )
 
 STARTER_REQUIRED_RETURN_FLOOR_PCT: float = PORTFOLIO_POLICY["starter_band"][
@@ -401,7 +402,7 @@ def _ready_thesis_and_review(
     now: datetime | None = None,
 ) -> tuple[ThesisDocument, IndependentReview]:
     thesis_row = connection.execute(
-        "SELECT payload FROM thesis WHERE thesis_id = ?",
+        "SELECT core_sha256, payload FROM thesis WHERE thesis_id = ?",
         (thesis_id,),
     ).fetchone()
     if thesis_row is None:
@@ -432,7 +433,12 @@ def _ready_thesis_and_review(
         if review_row is None:
             raise ProposalConflictError("proposal review no longer matches its thesis")
     review = IndependentReview.model_validate_json(str(review_row["payload"]))
-    result = evaluate_thesis(thesis, review=review, now=now)
+    result = evaluate_thesis(
+        thesis,
+        review=review,
+        now=now,
+        core_sha256=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
+    )
     if result.decision_readiness != "ready" or result.errors:
         detail = "; ".join(result.errors) or result.decision_readiness
         raise ProposalValidationError(f"research thesis is not decision-ready: {detail}")

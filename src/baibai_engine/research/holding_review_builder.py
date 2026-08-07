@@ -29,6 +29,7 @@ from baibai_engine.research.thesis import (
     ThesisDocument,
     _classify_current_thesis_eligibility,
     evaluate_thesis,
+    require_recorded_identity,
 )
 
 
@@ -276,7 +277,7 @@ def _load_db_thesis(
     allow_expired_override: bool,
 ) -> _LoadedThesis:
     thesis_row = connection.execute(
-        "SELECT payload FROM thesis WHERE thesis_id = ?", (thesis_id,)
+        "SELECT core_sha256, payload FROM thesis WHERE thesis_id = ?", (thesis_id,)
     ).fetchone()
     if thesis_row is None:
         raise HoldingReviewError(f"unknown research thesis: {thesis_id}")
@@ -288,7 +289,12 @@ def _load_db_thesis(
         raise HoldingReviewError("holding review requires exactly one independent review")
     thesis = ThesisDocument.model_validate(json.loads(str(thesis_row["payload"])))
     review = IndependentReview.model_validate(json.loads(str(review_rows[0]["payload"])))
-    eligibility = _classify_current_thesis_eligibility(thesis, review=review, now=now)
+    eligibility = _classify_current_thesis_eligibility(
+        thesis,
+        review=review,
+        now=now,
+        core_sha256=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
+    )
     if eligibility.status == "current_ready":
         return _LoadedThesis(thesis, current_ready=True)
     if allow_expired_override and eligibility.status == "expired_override_only":

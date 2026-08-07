@@ -34,7 +34,12 @@ from baibai_engine.appdb.read import connect_read_only
 from baibai_engine.appdb.write import connect_rw, initialize_database
 from baibai_engine.foundation.reject_classification import RejectClass
 
-from .thesis import ThesisDocument, ThesisError, evaluate_thesis
+from .thesis import (
+    ThesisDocument,
+    ThesisError,
+    evaluate_thesis,
+    require_recorded_identity,
+)
 
 BARGAIN_ASSESSMENT_SCHEMA_VERSION = 2
 
@@ -360,19 +365,19 @@ class BargainAssessmentService:
 
     def _stored_thesis(self, thesis_id: str) -> _StoredThesis:
         row = self._row(
-            "SELECT ticker, payload FROM thesis WHERE thesis_id = ?",
+            "SELECT ticker, core_sha256, payload FROM thesis WHERE thesis_id = ?",
             (thesis_id,),
         )
         if row is None:
             raise AssessmentConflictError(f"thesis is unavailable: {thesis_id}")
-        payload = json.loads(str(row[1]))
+        payload = json.loads(str(row[2]))
         try:
             document = ThesisDocument.model_validate(payload)
         except (ThesisError, ValueError) as error:
             raise AssessmentConflictError(f"thesis {thesis_id} cannot be read: {error}") from error
         return _StoredThesis(
             ticker=str(row[0]),
-            core_sha256=evaluate_thesis(document).thesis_sha256,
+            core_sha256=require_recorded_identity(row[1], thesis_id),
             document=document,
         )
 

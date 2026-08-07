@@ -102,9 +102,15 @@ max_acceptable_price = floor_to_tick(
 
 `judgment.position_intent`は`full`（既定）と`starter`を取る。`starter`は要求利回りが full の水準に届かない境界帯を、縮小 lot と bucket 上限つきで建てる宣言であり、`sizing_action: reduced`、非`elevated`な永久損失結論、`judgment.starter_catalyst_date`（再評価を発火させる日付）を同時に要求する。帯・1注文上限・bucket上限の数値と撤退基準は[`portfolio-management.md`](../portfolio-management.md#starter-band)を正本とし、機械gateは`plan-limit`の数量と`proposal create`が持つ。thesis側で帯を強制しないのは、published済みthesisを後からinvalidにするとholding reviewとassessmentが同時に止まるためである。
 
-`position_intent`が既定の`full`のときは、この2 fieldをcore hashから外す。2 keyを持たないpayloadと同じhashになり、intentを宣言したthesisだけがhashの束縛対象へ入る。値で決まる規則なので、`model_dump`を挟んでも結果は変わらない。
+## Core hash
 
-core hashには例外が1つある。`estimates.deep_discount_bps`はschemaに無い値だが、この keyを持つpayloadが存在し、そのhashを再現する必要がある。読み込んだpayloadがkeyを持つ場合だけhashへ書き戻すため、**published payloadは必ず生のJSONからvalidateする**。`model_dump`を経由するとkeyが落ちてhashが変わる。
+core hashはthesisの identity であり、review・proposal・holding review・bargain assessment・price watchはこれで対象revisionへ束縛される。
+
+**published thesisのidentityは`thesis.core_sha256`が正本である。** promoteが計算した値をそこへ記録し、以後の読み手は再計算せずその値を使う。導出のままにすると identity が「現在のモデルの性質」になり、schemaへfieldを足し引きするだけで何週間も前にpublishしたthesisのhashが動く。束縛が切れると上記5経路が同時に読めなくなり、気づくのは止まった後である。記録が無い行は再計算で埋めず名指しで拒否する（application service以外が書いた行しか到達しない経路で、再計算は現在のモデルのhashを黙って答えることになる）。
+
+まだpublishしていないdraftのhashはdocumentから計算する。この経路にはfieldごとの特例が1つも無く、`human_evidence_override`を除いた`model_dump`をそのままhashする。draftとreviewの整合は同一cycle内で同じ関数が両方を作ることで保たれる。
+
+`estimates.deep_discount_bps`はschemaに無い退役fieldだが、この keyを持つpublished payloadが存在するため、null限定・非serializeのfieldとして受理を続ける。identityは記録済みなので、この keyがhashに影響することはない。
 
 quantityを考える注文額の目安は[`portfolio-management`](../portfolio-management.md#capital-guidance)を正本とする。1単元が上限を超えても1単元と超過warningを出し、より安い次点へ自動変更しない。cash、dry powder、concentration、既存保有、他tickerのreservationは人間向けwarning/annotationであり、投資価値rankingや最大許容価格を変えない。同一tickerのactive reservationだけは注文の重複を防ぐため`defer`にし、human resultによる約定またはreleaseのledger反映後に再実行する。
 

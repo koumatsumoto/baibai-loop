@@ -109,7 +109,7 @@ def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     assert result.warnings == ("permanent-loss evidence incomplete: ['customer_concentration']",)
     assert result.screening_fv_revision_pct is None
     assert (
-        result.thesis_sha256 == "e6336dac91dc76ecde51e1edeb403a7eb5ee46000882d7ae1f8436d9fd013167"
+        result.thesis_sha256 == "d0d90322ede5fa841257429164d000a4d5f76520742bfb3862b4444333db1761"
     )
     assert [(item.horizon_years, item.name) for item in result.scenarios] == [
         (3, "bear"),
@@ -184,7 +184,14 @@ def test_optional_screening_fields_preserve_legacy_hash_and_bind_new_values() ->
     assert thesis_core_hash(_document(changed)) != bridged_hash
 
 
-def test_retired_estimate_field_keeps_published_hash_and_leaves_new_thesis_unchanged() -> None:
+def test_retired_estimate_field_is_accepted_without_changing_the_draft_hash() -> None:
+    """退役 field は読めるが、hash の規則を 1 つも増やさない。
+
+    published thesis の identity は store の `core_sha256` が持つので、退役 field を
+    hash へ書き戻す必要が無い。draft の hash は field ごとの特例を持たない素の hash で、
+    key の有無で動かない。
+    """
+
     without_key = _raw()
     baseline = thesis_core_hash(_document(without_key))
 
@@ -193,12 +200,7 @@ def test_retired_estimate_field_keeps_published_hash_and_leaves_new_thesis_uncha
     assert isinstance(published_estimates, dict)
     published_estimates["deep_discount_bps"] = None
 
-    # 退役前に published された thesis は key を持つ。読めて、当時の key 集合で hash される。
-    legacy_document = _document(published)
-    assert thesis_core_hash(legacy_document) != baseline
-
-    # key を持たない thesis の hash は退役の前後で変わらない。
-    assert thesis_core_hash(_document(_raw())) == baseline
+    assert thesis_core_hash(_document(published)) == baseline
 
 
 def test_retired_estimate_field_is_not_serialized_so_dump_round_trip_keeps_the_hash() -> None:

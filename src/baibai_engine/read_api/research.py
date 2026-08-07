@@ -42,7 +42,15 @@ def thesis_publication(
     rows = _publications(
         path,
         "thesis",
-        ("thesis_id", "ticker", "as_of", "recommendation", "published_at", "supersedes_id"),
+        (
+            "thesis_id",
+            "ticker",
+            "as_of",
+            "recommendation",
+            "published_at",
+            "supersedes_id",
+            "core_sha256",
+        ),
         where=("thesis_id = ?", (thesis_id,)),
         order="thesis_id",
     )
@@ -57,7 +65,15 @@ def list_thesis_publications(
     return _publications(
         path,
         "thesis",
-        ("thesis_id", "ticker", "as_of", "recommendation", "published_at", "supersedes_id"),
+        (
+            "thesis_id",
+            "ticker",
+            "as_of",
+            "recommendation",
+            "published_at",
+            "supersedes_id",
+            "core_sha256",
+        ),
         where=None if ticker is None else ("ticker = ?", (ticker,)),
         order="as_of DESC, published_at DESC, thesis_id DESC",
     )

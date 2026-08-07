@@ -36,6 +36,7 @@ from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
     evaluate_thesis,
+    require_recorded_identity,
 )
 
 _GAP_QUANTUM = Decimal("0.000001")
@@ -53,6 +54,9 @@ class _ThesisCandidate:
     document: ThesisDocument
     published_at: datetime = _MIN_UTC
     review: IndependentReview | None = None
+    # The identity the thesis was published with. `None` only for a draft read
+    # from a file, which has no stored record to bind to.
+    core_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +235,7 @@ def _load_latest_promoted_theses(
                 published_at=datetime.fromisoformat(str(publication["published_at"])),
                 document=document,
                 review=IndependentReview.model_validate(review_payload),
+                core_sha256=require_recorded_identity(publication["core_sha256"], thesis_id),
             )
         )
     latest = _select_latest_theses(candidates)
@@ -243,6 +248,7 @@ def _load_latest_promoted_theses(
             candidate.document,
             review=candidate.review,
             now=_historical_integrity_evaluated_at(candidate.document, candidate.review),
+            core_sha256=candidate.core_sha256,
         )
         if result.errors or result.decision_readiness != "ready":
             details = "; ".join(result.errors) or result.thesis_status

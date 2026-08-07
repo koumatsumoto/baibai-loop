@@ -23,7 +23,7 @@ from .assessment import (
     LaneMachineValues,
     derive_lane_machine_values,
 )
-from .thesis import ThesisDocument, evaluate_thesis
+from .thesis import ThesisDocument, require_recorded_identity
 
 _PROSE_PLACEHOLDER = "TODO"
 
@@ -113,12 +113,12 @@ def _research_questions_by_ticker(shortlist: dict[str, object]) -> dict[str, str
 def _lane_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, object]:
     row = _fetch(
         connection,
-        "SELECT ticker, payload FROM thesis WHERE thesis_id = ?",
+        "SELECT ticker, core_sha256, payload FROM thesis WHERE thesis_id = ?",
         (thesis_id,),
     )
     if row is None:
         raise AssessmentConflictError(f"thesis is unavailable: {thesis_id}")
-    document = ThesisDocument.model_validate(json.loads(str(row[1])))
+    document = ThesisDocument.model_validate(json.loads(str(row[2])))
     machine = derive_lane_machine_values(document)
     return {
         "ticker": str(row[0]),
@@ -127,7 +127,7 @@ def _lane_skeleton(connection: sqlite3.Connection, thesis_id: str) -> dict[str, 
         "disposition_reason": _PROSE_PLACEHOLDER,
         "reject_class": _PROSE_PLACEHOLDER,
         "thesis_id": thesis_id,
-        "thesis_core_sha256": evaluate_thesis(document).thesis_sha256,
+        "thesis_core_sha256": require_recorded_identity(row[1], thesis_id),
         "review_id": None,
         "machine": _machine_payload(machine),
         "business_model": _PROSE_PLACEHOLDER,

@@ -524,6 +524,34 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=14,
+        statements=(
+            # published thesis の core hash を、モデルから毎回導出するのではなく publish
+            # 時に焼き込む。導出のままだと schema へ field を足し引きするたびに published
+            # thesis の hash が動き、その thesis に束縛された review・proposal・holding
+            # review・bargain assessment・price watch が同時に読めなくなる。hash は
+            # 「publish された時点で何が書かれていたか」の事実であってモデルの性質ではない。
+            #
+            # 既存行の値は `thesis_review.reviewed_thesis_sha256` から取る。review が
+            # 束縛している hash がまさにその事実であり、17 本すべてで現行の導出と一致する
+            # ことを実 DB で確認してある。review の無い thesis は promote が作れないので
+            # backfill は全行を埋めるが、値が入らなかった行を読み手が黙って通さないよう、
+            # 欠損は `research/store.py` が名指しで拒否する。
+            #
+            # 列の追加で済ませ、table を作り直さない。`thesis` は `thesis_review` /
+            # `holding_review` / `proposal` から参照されており、作り直すとその 4 表すべてを
+            # 移送することになる。得られるのは NOT NULL 制約 1 つで、writer は
+            # application service だけなので割に合わない。
+            "ALTER TABLE thesis ADD COLUMN core_sha256 TEXT",
+            """
+            UPDATE thesis SET core_sha256 = (
+                SELECT json_extract(r.payload, '$.reviewed_thesis_sha256')
+                FROM thesis_review r WHERE r.thesis_id = thesis.thesis_id
+            )
+            """,
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version

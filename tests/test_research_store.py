@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import baibai_engine.research.store as research_store_module
+import baibai_engine.research.thesis as thesis_module
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.read_api import (
     list_holding_review_publications,
@@ -102,9 +103,10 @@ def test_atomic_publish_reads_one_operation_clock_for_every_validation(
         *,
         review: IndependentReview | None = None,
         now: datetime | None = None,
+        core_sha256: str | None = None,
     ) -> ThesisResult:
         validation_instants.append(now)
-        return real_evaluate(document, review=review, now=now)
+        return real_evaluate(document, review=review, now=now, core_sha256=core_sha256)
 
     monkeypatch.setattr(research_store_module, "evaluate_thesis", recording_evaluate)
 
@@ -143,3 +145,63 @@ def test_research_read_facade_returns_ids_and_uses_read_only_connection(
     assert not (tmp_path / "missing.sqlite").exists()
     assert list_thesis_publications(tmp_path / "missing.sqlite") == []
     assert not (tmp_path / "missing.sqlite").exists()
+
+
+def test_publish_records_the_identity_the_review_is_bound_to(tmp_path: Path) -> None:
+    path = tmp_path / "app.sqlite"
+    _seed(path)
+
+    with sqlite3.connect(path) as connection:
+        recorded = connection.execute(
+            "SELECT core_sha256 FROM thesis WHERE thesis_id = ?", (THESIS_ID,)
+        ).fetchone()[0]
+    review = _payload(REVIEW)
+
+    assert recorded == review["reviewed_thesis_sha256"]
+
+
+def test_schema_evolution_does_not_move_a_published_thesis_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The published binding must survive a field being added to or dropped from the model.
+
+    Deriving the identity from the current model is what broke it once: a retired
+    `estimates` key moved the hash of theses published weeks earlier, and the review,
+    proposal, holding review, assessment and price watch bound to them stopped reading
+    together. Here the derivation is replaced wholesale — the strongest form of "the
+    schema changed" — and the published thesis must still read.
+    """
+
+    path = tmp_path / "app.sqlite"
+    _seed(path)
+    before = list_thesis_publications(path)[0]
+
+    def evolved_schema_hash(document: ThesisDocument) -> str:
+        del document
+        return "f" * 64
+
+    monkeypatch.setattr(research_store_module, "thesis_core_hash", evolved_schema_hash)
+    monkeypatch.setattr(thesis_module, "thesis_core_hash", evolved_schema_hash)
+
+    after = list_thesis_publications(path)[0]
+    assert after["core_sha256"] == before["core_sha256"]
+    # The reviewer's binding still resolves, so every reader of this thesis keeps working.
+    review = list_thesis_review_publications(path)[0]
+    assert review["payload"]["reviewed_thesis_sha256"] == after["core_sha256"]
+
+
+def test_a_thesis_without_a_recorded_identity_is_refused_rather_than_recomputed(
+    tmp_path: Path,
+) -> None:
+    """Only a row written outside the service can lack it; recomputing would hide drift."""
+
+    path = tmp_path / "app.sqlite"
+    _seed(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE thesis SET core_sha256 = NULL WHERE thesis_id = ?", (THESIS_ID,))
+
+    with pytest.raises(Exception, match="no recorded identity"):
+        ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_review(
+            THESIS_ID, _payload(REVIEW)
+        )
