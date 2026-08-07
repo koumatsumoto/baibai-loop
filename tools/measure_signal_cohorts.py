@@ -34,6 +34,16 @@ MIN_LISTING_SPAN_DAYS = 182.0
 BUYBACK_CLIP = 0.05
 UPSIDE_CAP = 0.50
 DEFAULT_ER_THRESHOLD = 0.085
+# `price` は終値だけ、`total` は窓内に実現した配当を足したもの。carry は配当と自己株買いで
+# できているので、その効果量を price だけで測ると払われた現金の分だけ小さく出る。
+type MetricBasis = Literal["price", "total"]
+_METRIC_BASIS_LABEL: Mapping[MetricBasis, str] = {
+    "price": "price_return_only",
+    "total": "total_return_realized_dividends",
+}
+# total は窓内に FY 配当の観測が要る。窓が短いほど届かず、3m / 6m では price 側の半分にも
+# 満たない。母数比がこの水準を割る horizon は、両 basis の中央値を並べて読ませない。
+MIN_TOTAL_BASIS_COVERAGE = 0.75
 # cohort 内の群比較は、両群がこの件数を満たすときだけ数える。
 MIN_GROUP_ROWS = 10
 MIN_POPULATION_ROWS = 100
@@ -68,32 +78,51 @@ def _optional_float(value: str | None) -> float | None:
     return parsed
 
 
-def _annualized(price_return: float, years: int) -> float:
-    growth: float = (1.0 + price_return) ** (1.0 / years)
+def _annualized(cumulative_return: float, years: int) -> float:
+    growth: float = (1.0 + cumulative_return) ** (1.0 / years)
     return growth - 1.0
 
 
 def _load_forward_returns(
-    calibration_dir: Path, horizons: Sequence[str]
-) -> Mapping[tuple[str, str], Mapping[str, float]]:
+    calibration_dir: Path, horizons: Sequence[str], *, basis: MetricBasis
+) -> tuple[Mapping[tuple[str, str], Mapping[str, float]], Mapping[str, Mapping[str, int]]]:
+    """Resolved forward returns on the requested basis, plus what each basis resolves.
+
+    The two bases do not cover the same rows: `total` additionally needs realized
+    dividends over the window, so it resolves fewer. Returning both counts is what
+    keeps a `total` median from being read as the same sample measured differently.
+    """
     wanted = set(horizons)
     resolved: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
+    counts: dict[str, dict[str, int]] = {horizon: {"price": 0, "total": 0} for horizon in horizons}
     paths = sorted(calibration_dir.glob("forward-*.csv"))
     if not paths:
         raise SignalCohortMeasurementError(f"no forward rows under {calibration_dir}")
     for path in paths:
         with path.open(newline="", encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
-                if row.get("status") != "resolved":
-                    continue
                 horizon = row.get("horizon") or ""
                 if horizon not in wanted:
                     continue
-                price_return = _optional_float(row.get("price_return"))
-                if price_return is None:
+                price = (
+                    _optional_float(row.get("price_return"))
+                    if row.get("status") == "resolved"
+                    else None
+                )
+                total = (
+                    _optional_float(row.get("total_return"))
+                    if row.get("total_return_status") == "resolved"
+                    else None
+                )
+                if price is not None:
+                    counts[horizon]["price"] += 1
+                if total is not None:
+                    counts[horizon]["total"] += 1
+                value = price if basis == "price" else total
+                if value is None:
                     continue
-                resolved[(row.get("asof") or "", row.get("ticker") or "")][horizon] = price_return
-    return resolved
+                resolved[(row.get("asof") or "", row.get("ticker") or "")][horizon] = value
+    return resolved, counts
 
 
 def require_single_rules_hash(calibration_dir: Path) -> str:
@@ -343,11 +372,30 @@ def _resolved_asof_range(rows: Sequence[PanelRow], horizon: str) -> Mapping[str,
     return {"asof_start": asofs[0], "asof_end": asofs[-1], "asof_count": len(asofs)}
 
 
+def _basis_coverage(
+    counts: Mapping[str, Mapping[str, int]], horizons: Sequence[str]
+) -> Mapping[str, Mapping[str, object]]:
+    coverage: dict[str, Mapping[str, object]] = {}
+    for horizon in horizons:
+        price = counts[horizon]["price"]
+        total = counts[horizon]["total"]
+        ratio = None if price == 0 else round(total / price, 3)
+        coverage[horizon] = {
+            "price_resolved_rows": price,
+            "total_resolved_rows": total,
+            "total_to_price_ratio": ratio,
+            # 両 basis の中央値を「同じ群の別 basis」として並べてよいかの表明。
+            "bases_comparable": ratio is not None and ratio >= MIN_TOTAL_BASIS_COVERAGE,
+        }
+    return coverage
+
+
 def build_measurement(
     *,
     calibration_dir: Path,
     horizons: Sequence[str],
     er_threshold: float,
+    basis: MetricBasis = "price",
     asof_from: str | None = None,
     asof_to: str | None = None,
 ) -> Mapping[str, object]:
@@ -355,7 +403,7 @@ def build_measurement(
         if horizon not in HORIZON_YEARS:
             raise SignalCohortMeasurementError(f"unsupported horizon: {horizon}")
     rules_hash = require_single_rules_hash(calibration_dir)
-    forward = _load_forward_returns(calibration_dir, horizons)
+    forward, basis_counts = _load_forward_returns(calibration_dir, horizons, basis=basis)
     rows = _load_panel(calibration_dir, forward)
     if asof_from is not None:
         rows = [row for row in rows if row.asof >= asof_from]
@@ -367,7 +415,8 @@ def build_measurement(
     return {
         "kind": "signal-cohort-measurement",
         "calibration_dir": str(calibration_dir),
-        "metric_basis": "price_return_only",
+        "metric_basis": _METRIC_BASIS_LABEL[basis],
+        "basis_coverage": _basis_coverage(basis_counts, horizons),
         "population": "liquidity_passing_panel_rows",
         "rules_hash": rules_hash,
         # cohort 比較は両群がこの件数を満たす as-of だけを数える。候補が薄い月は
@@ -394,7 +443,15 @@ def build_measurement(
         },
         "integrity": [
             "forward 窓は重なるので独立でない。有意性と track record を主張しない。",
-            "price-only であり配当を含まない。",
+            (
+                "price basis は配当を含まない。carry は配当と自己株買いでできているので、"
+                "その効果量は price basis では払われた現金の分だけ小さく出る。"
+            ),
+            (
+                "total basis は窓内の実現配当だけを足し、端 FY の月割りをしない。母数は "
+                "price basis より小さく、その比は basis_coverage に出る。"
+                "bases_comparable が false の horizon で両 basis の中央値を並べない。"
+            ),
             "解決した forward だけを数える。廃止で系列が切れた銘柄は母集団から落ちる。",
             "cohort の実現値は当時の市況を含む。母集団との差だけが regime 統制された量である。",
             (
@@ -419,6 +476,12 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
     parser.add_argument("--calibration-dir", type=Path, default=DEFAULT_CALIBRATION_DIR)
     parser.add_argument("--horizon", action="append", dest="horizons", choices=DEFAULT_HORIZONS)
     parser.add_argument("--er-threshold", type=float, default=DEFAULT_ER_THRESHOLD)
+    parser.add_argument(
+        "--basis",
+        choices=("price", "total"),
+        default="price",
+        help="realized return basis:終値のみか、窓内の実現配当を含めるか（既定: price）",
+    )
     parser.add_argument("--asof-from", help="この as-of 以降の panel だけを使う (YYYY-MM-DD)")
     parser.add_argument("--asof-to", help="この as-of 以前の panel だけを使う (YYYY-MM-DD)")
     parser.add_argument("--out", type=Path)
@@ -430,6 +493,7 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
             calibration_dir=args.calibration_dir,
             horizons=horizons,
             er_threshold=args.er_threshold,
+            basis=args.basis,
             asof_from=args.asof_from,
             asof_to=args.asof_to,
         )

@@ -92,6 +92,8 @@ authoritative な delisting exit value source が無い限り、窓中に系列�
 
 `er_calibration` は価格収束成分 `er_reversion_annual` だけを price-only 実現値へ較正する。予測値は cohort 内の `er_reversion_annual` 中央値、実現値は同じ cohort の price return 中央値をそれぞれ引き、quintile ごとに median の相対値を比較する。`calibration_error` は `realized - predicted` である。配当と buyback の carry は price-only 実現値と同じ basis で観測できないため、この座標で絶対水準を較正しない。carry の妥当性は source と算出 contract を検証し、実現配当を備えた total-return dataset が利用できる場合に別の較正座標で扱う。
 
+cohort 比較（`tools.measure_signal_cohorts`）は `--basis price|total` の両方を取る。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
+
 `er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
 Shortlist の判断面が読む最新文脈の正本は `reports/data/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから 3y / 5y の quintile 表、各帯の上端、cohort as-of 範囲、`screening_rules_hash`、`er_model_version` を生成する。UI は artifact の2つの method identity が現在の production method に加えて、実際に表示する operative run の不変 method identity と一致するときだけ、3y の帯へその run の機械 E[r] を対応づけ、同じ帯の歴史実現中央値を参考表示する。E[r]、順位、gate、FV は変更しない。値は個別銘柄の予測ではなく、重複する月次窓と COVID 前後に偏る historical panel の cohort 中央値である。

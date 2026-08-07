@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,15 @@ PANEL_COLUMNS = (
     "er_carry_annual",
     "er_upside_capped",
 )
-FORWARD_COLUMNS = ("asof", "ticker", "horizon", "price_return", "status")
+FORWARD_COLUMNS = (
+    "asof",
+    "ticker",
+    "horizon",
+    "price_return",
+    "status",
+    "total_return",
+    "total_return_status",
+)
 
 
 def _write_panel(
@@ -221,3 +230,93 @@ def test_cli_writes_yaml_and_reports_a_missing_store(tmp_path: Path) -> None:
     assert payload["metric_basis"] == "price_return_only"
 
     assert main(["--calibration-dir", str(tmp_path / "absent"), "--horizon", "1y"]) == 1
+
+
+def _both_bases_store(tmp_path: Path) -> Path:
+    """One as-of where the two bases resolve different rows and different values."""
+
+    directory = _store(tmp_path)
+    _write_panel(
+        directory,
+        "2020-01-31",
+        [_liquid(f"{1000 + index}", "2020-01-31") for index in range(3)],
+    )
+    _write_forward(
+        directory,
+        "2020-01-31",
+        [
+            # 配当を受け取った行: total は price より高い。
+            {
+                "asof": "2020-01-31",
+                "ticker": "1000",
+                "horizon": "1y",
+                "price_return": "0.10",
+                "status": "resolved",
+                "total_return": "0.16",
+                "total_return_status": "resolved",
+            },
+            {
+                "asof": "2020-01-31",
+                "ticker": "1001",
+                "horizon": "1y",
+                "price_return": "0.20",
+                "status": "resolved",
+                "total_return": "0.26",
+                "total_return_status": "resolved",
+            },
+            # 価格は解決したが配当を観測できなかった行: total basis では落ちる。
+            {
+                "asof": "2020-01-31",
+                "ticker": "1002",
+                "horizon": "1y",
+                "price_return": "0.90",
+                "status": "resolved",
+                "total_return": "",
+                "total_return_status": "unresolved_missing_dividend",
+            },
+        ],
+    )
+    return directory
+
+
+def _population_group(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    comparison = payload["comparisons"]["high_estimate"][0]
+    return next(
+        group for group in comparison["groups"] if group["group"] == "liquidity_passing_population"
+    )
+
+
+def test_total_basis_uses_the_dividend_inclusive_return(tmp_path: Path) -> None:
+    directory = _both_bases_store(tmp_path)
+
+    price = build_measurement(
+        calibration_dir=directory, horizons=("1y",), er_threshold=0.085, basis="price"
+    )
+    total = build_measurement(
+        calibration_dir=directory, horizons=("1y",), er_threshold=0.085, basis="total"
+    )
+
+    # price は 3 行の中央値 20%、total は配当を観測できた 2 行の中央値 21%。
+    assert _population_group(price)["resolved_rows"] == 3
+    assert _population_group(price)["median_annualized_pct"] == 20.0
+    assert _population_group(total)["resolved_rows"] == 2
+    assert _population_group(total)["median_annualized_pct"] == 21.0
+    assert price["metric_basis"] == "price_return_only"
+    assert total["metric_basis"] == "total_return_realized_dividends"
+
+
+def test_basis_coverage_reports_both_denominators(tmp_path: Path) -> None:
+    """total の中央値を「同じ群の別 basis」として読ませないための母数表明。"""
+
+    directory = _both_bases_store(tmp_path)
+
+    payload = build_measurement(
+        calibration_dir=directory, horizons=("1y",), er_threshold=0.085, basis="total"
+    )
+
+    coverage = payload["basis_coverage"]["1y"]
+    assert coverage["price_resolved_rows"] == 3
+    assert coverage["total_resolved_rows"] == 2
+    assert coverage["total_to_price_ratio"] == 0.667
+    # 2/3 は 0.75 を割るので、両 basis を並べて読める horizon ではない。
+    assert coverage["bases_comparable"] is False
