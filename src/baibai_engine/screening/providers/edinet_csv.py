@@ -12,7 +12,7 @@ import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from baibai_engine.screening.schema import TTMQuality
+from baibai_engine.screening.metric_quality import TTMQuality
 
 from .edinet import EdinetMetricRecord, EDINETProviderError, _coalesce, _to_float
 

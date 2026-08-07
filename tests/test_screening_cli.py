@@ -1080,7 +1080,7 @@ class ScreeningCliTests(unittest.TestCase):
             finally:
                 conn.close()
 
-            screening_cli.cache._record_edinet_extraction_failure(
+            screening_cli.edinet_extract._record_edinet_extraction_failure(
                 sqlite_path=sqlite_path,
                 asof_date=date(2026, 4, 24),
                 message="provider unavailable",

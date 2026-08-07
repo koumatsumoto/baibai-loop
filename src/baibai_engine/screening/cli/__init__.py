@@ -9,10 +9,10 @@ from .cache import (
     backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
-    extract_edinet_metrics_command,
     invalidate_coverage_command,
     verify_cache_coverage_command,
 )
+from .edinet_extract import extract_edinet_metrics_command
 from .providers import ProviderBundle
 from .query import (
     market_snapshot_command,

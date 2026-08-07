@@ -37,12 +37,12 @@ from .cache import (
     backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
-    extract_edinet_metrics_command,
     invalidate_coverage_command,
     refresh_edinet_documents_command,
     verify_cache_coverage_command,
 )
 from .common import _parse_iso_date
+from .edinet_extract import extract_edinet_metrics_command
 from .providers import ProviderBundle
 from .prune import prune_command
 from .query import (

@@ -14,12 +14,24 @@ EXTRACTION_ARTIFACT_CONTRACT = "edinet-metric-extractor-v1"
 
 _ROOT_PACKAGE = "baibai_engine"
 # `extract-edinet-metrics` is implemented by `extract_edinet_metrics_command`, so the
-# module holding it is where the extraction path starts.
-_ENTRY_MODULES = ("baibai_engine.screening.cli.cache",)
+# module holding it is where the extraction path starts. That module holds nothing else:
+# the closure below is what decides when every stored metric row is discarded, and a
+# module shared with the other cache commands would drag their J-Quants, JPX and coverage
+# dependencies into it.
+_ENTRY_MODULES = ("baibai_engine.screening.cli.edinet_extract",)
 # Only these subtrees can decide which filings are selected or what values their rows
-# carry. Everything else the entry reaches (stdlib, requests, market SQLite plumbing)
-# either has no say in the values or is pinned by the environment rather than the tree.
-_TRACKED_PREFIXES = ("baibai_engine.screening", "baibai_engine.market.ticker")
+# carry. `market.ticker` normalizes the row key and `market.sqlite.convert` coerces the
+# numbers on the way into the store, so both sit on the value path even though the rest
+# of the market SQLite plumbing — connections, migrations, coverage bookkeeping — does
+# not. What the entry reaches outside these prefixes is pinned by
+# `tests/test_edinet_revision.py`, so a value-affecting helper cannot be moved out of the
+# manifest without a failing test.
+_TRACKED_PREFIXES = (
+    "baibai_engine.screening",
+    "baibai_engine.market.ticker",
+    "baibai_engine.market.jquants",
+    "baibai_engine.market.sqlite.convert",
+)
 
 
 def _package_root() -> Traversable:

@@ -17,7 +17,9 @@ import requests
 from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
-from ..schema import TTMQuality, normalize_ticker
+from baibai_engine.market.ticker import normalize_ticker
+
+from ..metric_quality import TTMQuality
 
 EDINET_API_BASE = "https://api.edinet-fsa.go.jp/api/v2"
 
@@ -187,7 +189,7 @@ class EDINETProvider:
         is_final: bool = False,
     ) -> list[dict[str, Any]]:
         if self._sqlite_path is not None and not force_refresh:
-            from ..sqlite_reader import read_edinet_documents
+            from ..edinet_store import read_edinet_documents
 
             cached = read_edinet_documents(self._sqlite_path, on_date)
             if cached is not None:
@@ -231,7 +233,7 @@ class EDINETProvider:
         for document in documents:
             document["doc_date"] = on_date.isoformat()
         if self._sqlite_path is not None:
-            from ..sqlite_cache import store_edinet_documents
+            from ..sqlite_cache.edinet import store_edinet_documents
 
             store_edinet_documents(
                 self._sqlite_path,
@@ -245,7 +247,7 @@ class EDINETProvider:
 
     def load_metric_records(self, asof_date: date) -> dict[str, EdinetMetricRecord]:
         if self._sqlite_path is not None:
-            from ..sqlite_reader import read_edinet_metrics
+            from ..edinet_store import read_edinet_metrics
 
             cached = read_edinet_metrics(self._sqlite_path, asof_date)
             if cached is not None:
@@ -273,7 +275,7 @@ class EDINETProvider:
             end: len(self.list_documents(end, force_refresh=True, is_final=False)),
         }
         if self._sqlite_path is not None:
-            from ..sqlite_reader import read_unfinalized_edinet_document_dates
+            from ..edinet_store import read_unfinalized_edinet_document_dates
 
             for unresolved in read_unfinalized_edinet_document_dates(self._sqlite_path, before=end):
                 fetched[unresolved] = len(

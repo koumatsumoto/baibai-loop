@@ -18,49 +18,66 @@ from baibai_engine.screening.schema import TTMQuality
 
 _ENGINE_ROOT = Path(__file__).resolve().parents[1] / "src" / "baibai_engine"
 
-# The import closure of `screening.cli.cache`, which implements
+# The import closure of `screening.cli.edinet_extract`, which implements
 # `extract-edinet-metrics`. Pinning it here is what makes a dependency appearing in or
 # disappearing from the extraction path visible: the manifest decides when a reusable
 # EDINET metric baseline is thrown away, so it must not drift silently in either
-# direction.
+# direction. Every entry can change what an EDINET metric row says.
 _EXPECTED_MANIFEST = (
+    "market/jquants.py",
+    "market/sqlite/convert.py",
     "market/ticker.py",
-    "screening/__init__.py",
-    "screening/cli/cache.py",
     "screening/cli/common.py",
-    "screening/cli/providers.py",
+    "screening/cli/edinet_extract.py",
     "screening/edinet_revision.py",
-    "screening/jpx_sources.py",
-    "screening/margin_metrics.py",
-    "screening/master_snapshot.py",
-    "screening/metrics.py",
+    "screening/edinet_store.py",
+    "screening/metric_quality.py",
     "screening/providers/edinet.py",
     "screening/providers/edinet_csv.py",
-    "screening/providers/jpx.py",
-    "screening/providers/jquants.py",
-    "screening/rule_config.py",
-    "screening/schema.py",
-    "screening/sqlite_cache/__init__.py",
+    "screening/source_coverage.py",
     "screening/sqlite_cache/edinet.py",
-    "screening/sqlite_cache/jpx.py",
-    "screening/sqlite_cache/jquants.py",
-    "screening/sqlite_coverage/__init__.py",
-    "screening/sqlite_coverage/core.py",
-    "screening/sqlite_coverage/edinet.py",
-    "screening/sqlite_coverage/jpx.py",
-    "screening/sqlite_coverage/jquants.py",
-    "screening/sqlite_coverage/shared.py",
-    "screening/sqlite_coverage/sources.py",
-    "screening/sqlite_reader.py",
     "screening/store_readiness.py",
 )
 
-# Screening modules the extraction path cannot reach. They carry ranking, narrative and
-# calibration logic that is edited far more often than the extraction path itself.
-_UNREACHABLE_ARTIFACTS = (
+# What the extraction reaches *outside* the tracked prefixes. Importing the entry also
+# executes package `__init__` files that pull in far more than this, so "the extraction
+# never imports it" is not the safety criterion — "the extraction never references a
+# symbol from it" is. These are referenced and deliberately untracked:
+#
+# - `market.sqlite.schema` / `.migrations`: connections and schema version. A schema
+#   change is already visible as a migration, not as a silently different row value.
+# - `market.sqlite.coverage`: coverage bookkeeping the store write records. The baseline
+#   read validates coverage with its own SQL (`edinet_store`), so a change here cannot
+#   make a row's values wrong without also making the snapshot unreadable.
+# - `market.sqlite`: the package facade, re-exports only.
+# - `market.bars`: the daily-bar dataclasses `market.jquants` declares. No EDINET row
+#   carries a bar.
+#
+# Pinning the set is what stops a value-affecting helper from being moved out of the
+# manifest: the closure would then reach a fifth module and this test fails.
+_UNTRACKED_REACHED_MODULES = frozenset(
+    {
+        "baibai_engine.market.bars",
+        "baibai_engine.market.sqlite",
+        "baibai_engine.market.sqlite.coverage",
+        "baibai_engine.market.sqlite.migrations",
+        "baibai_engine.market.sqlite.schema",
+    }
+)
+
+# Screening modules whose symbols the extraction never references. They carry ranking,
+# narrative, calibration, and the other providers' logic — all edited far more often than
+# the extraction path itself, and none of it able to change a stored EDINET metric row.
+# Several of them are still *imported* at runtime, because importing the entry executes
+# `screening/cli/__init__.py`; what keeps them out of the manifest is that no symbol of
+# theirs is named on the value path.
+_UNREFERENCED_ARTIFACTS = (
     "screening/shortlist.py",
     "screening/shortlist_outcome.py",
     "screening/earnings_lag.py",
+    "screening/cli/app.py",
+    "screening/cli/cache.py",
+    "screening/cli/providers.py",
     "screening/cli/query.py",
     "screening/cli/run.py",
     "screening/cli/prune.py",
@@ -68,6 +85,24 @@ _UNREACHABLE_ARTIFACTS = (
     "screening/selection/lenses.py",
     "screening/calibration/evaluation.py",
     "screening/calibration/panel.py",
+    # The candidate row model and the metrics computed from EDINET rows. Both read the
+    # stored values; neither writes them.
+    "screening/schema.py",
+    "screening/metrics.py",
+    "screening/margin_metrics.py",
+    "screening/rule_config.py",
+    # The other providers and their store slices.
+    "screening/providers/jpx.py",
+    "screening/providers/jquants.py",
+    "screening/jpx_sources.py",
+    "screening/master_snapshot.py",
+    "screening/sqlite_cache/jpx.py",
+    "screening/sqlite_cache/jquants.py",
+    "screening/sqlite_reader.py",
+    # Coverage verification, which reports what the store holds without producing rows.
+    "screening/sqlite_coverage/core.py",
+    "screening/sqlite_coverage/jpx.py",
+    "screening/sqlite_coverage/jquants.py",
 )
 
 
@@ -90,28 +125,47 @@ def test_manifest_matches_the_import_closure_of_the_extraction_entry() -> None:
     assert re.fullmatch(r"[0-9a-f]{64}", compute_extractor_revision())
 
 
-def test_manifest_excludes_screening_modules_the_extraction_path_cannot_reach() -> None:
+def test_manifest_excludes_screening_modules_the_extraction_never_references() -> None:
     manifest = set(extraction_artifact_manifest())
-    for artifact in _UNREACHABLE_ARTIFACTS:
+    for artifact in _UNREFERENCED_ARTIFACTS:
         assert (_ENGINE_ROOT / artifact).is_file(), f"{artifact} no longer exists"
         assert artifact not in manifest
 
 
-def test_manifest_excludes_the_argparse_layer_above_the_extraction_entry() -> None:
-    """`cli/app.py` supplies runtime arguments, not extraction logic.
+def test_manifest_excludes_the_commands_that_share_the_cli_with_the_extraction() -> None:
+    """The other cache commands cannot change what a stored EDINET metric row says.
 
-    The one argument it owns is the document lookback window, which decides *which*
-    filings are offered rather than what a filing's row says. A baseline row is reused
-    only while its candidate still carries the same source document revision, so
-    widening or narrowing the window adds or drops candidates without making a kept row
-    wrong — and hashing the whole CLI package would pull ranking, narrative and
-    calibration back into the revision, which is what this change removes.
+    `bootstrap-cache`, `verify-cache-coverage` and `backfill-history` read J-Quants,
+    JPX and coverage; the extraction reads EDINET. Sharing a module with them put all
+    of that into the manifest, and three of six consecutive daily runs then paid a full
+    re-download — twice for edits that touched no EDINET value at all. These are the
+    modules those edits landed in.
     """
-    app = "screening/cli/app.py"
+    manifest = set(extraction_artifact_manifest())
+    for artifact in (
+        "screening/cli/cache.py",
+        "screening/cli/providers.py",
+        "screening/sqlite_reader.py",
+        "screening/providers/jpx.py",
+        "screening/providers/jquants.py",
+        "screening/sqlite_cache/jpx.py",
+        "screening/sqlite_coverage/core.py",
+        "screening/metrics.py",
+        "screening/schema.py",
+    ):
+        assert (_ENGINE_ROOT / artifact).is_file(), f"{artifact} no longer exists"
+        assert artifact not in manifest
 
-    assert (_ENGINE_ROOT / app).is_file()
-    assert app not in set(extraction_artifact_manifest())
-    assert "screening/cli/cache.py" in set(extraction_artifact_manifest())
+    # The parsers that do decide a row's values stay in, so a real extraction change
+    # still discards the baseline.
+    for artifact in (
+        "screening/providers/edinet.py",
+        "screening/providers/edinet_csv.py",
+        "screening/sqlite_cache/edinet.py",
+        "screening/edinet_store.py",
+        "screening/metric_quality.py",
+    ):
+        assert artifact in manifest
 
 
 def test_manifest_modules_reach_dependencies_only_through_static_imports() -> None:
@@ -220,3 +274,34 @@ def test_metric_values_stay_pinned_to_the_narrowed_manifest() -> None:
     assert record.total_assets == 1400.0
     assert record.ttm_quality_fcf is TTMQuality.EXACT
     assert record.failure_reasons == ()
+
+
+def test_the_untracked_part_of_the_closure_is_exactly_the_reviewed_set() -> None:
+    """A value-affecting helper must not leave the manifest by changing package.
+
+    The manifest only hashes `_TRACKED_PREFIXES`, so moving a predicate or a coercion
+    into an untracked package removes it from the revision without changing the
+    manifest, the revision, or any other test. Pinning what the extraction reaches
+    outside those prefixes is what makes such a move fail.
+    """
+    from baibai_engine.screening import edinet_revision as revision
+
+    visited: set[str] = set()
+    untracked: set[str] = set()
+    pending = list(revision._ENTRY_MODULES)
+    while pending:
+        module = pending.pop()
+        if module in visited:
+            continue
+        resolved = revision._resolve_module(module)
+        if resolved is None:
+            continue
+        if not revision._is_tracked(module):
+            untracked.add(module)
+            continue
+        visited.add(module)
+        path, is_package = resolved
+        source = revision._artifact(path).read_bytes()
+        pending.extend(revision._imported_modules(source, module=module, is_package=is_package))
+
+    assert untracked == set(_UNTRACKED_REACHED_MODULES)
