@@ -67,7 +67,9 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> --batch manua
 tools/cloud/r2_transfer.sh upload-serving <dir>
 ```
 
-`<dir>` は使い捨ての作業ディレクトリにする。export は app / machine store を読むだけなので、machine 側が古いときは先に `pull-machine` を回す（app は pull しない）。upload 後は read 経路を 1 つ踏んで確認する。
+`<dir>` は使い捨ての作業ディレクトリにする。upload 後は read 経路を 1 つ踏んで確認する。
+
+**machine store が古いまま export しない。** export は app と machine の両方を読み、serving の `screening_latest.run` / `rows` は machine 側から来る。ローカルで `screening run` を打った直後にここを回すと、cloud の runs store に無い run が serving へ出る。`runs.sqlite` は cloud が唯一の writer なので push でも揃えられない（`push-machine` は Actions 専用）。判断（shortlist / session / task）だけを反映したいならそれで足りる — app 由来の view は正しく更新される。machine 側も揃えたいときは `pull-machine` を先に回すが、**ローカルの run は消える**ので、まだ参照する selection があるなら先に `selection show` で控える。
 
 ## 月次維持
 
