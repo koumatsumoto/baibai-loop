@@ -15,6 +15,7 @@ from baibai_engine.screening.metrics import (
     _resolve_dividend_carry,
     build_metrics,
     build_normalized_profit_signals,
+    build_shares_outstanding_index,
     build_shareholder_return_change_signals,
 )
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
@@ -718,6 +719,52 @@ class ScreeningMetricsTests(unittest.TestCase):
         financial = result.financials["130A"]
         # 1:2 分割後は発行済 200 株・自己株 20 株なので、時価総額は 50 x 180。
         self.assertAlmostEqual(financial.market_cap or 0.0, 50.0 * 180.0, places=3)
+
+    def test_universe_share_index_matches_the_snapshot_market_cap_basis(self) -> None:
+        """「時価総額」という同じ語が 2 つの値を指さないことを固定する。
+
+        universe の時価総額は `build_shares_outstanding_index` から作られて流動性 gate の
+        分母になり、`FinancialSnapshot.market_cap` は倍率と利回りの分母になる。別々に
+        計算されているので、株数の基準が片方だけ動くと同じ語が食い違う。
+        """
+        asof = date(2026, 7, 1)
+        close = 1_000.0
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=29 - index),
+                close=close,
+                turnover_value=300_000_000.0,
+            )
+            for index in range(30)
+        ]
+        summary = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=1_000_000.0,
+            ),
+            treasury_shares=250_000.0,
+            equity_to_asset_ratio=0.5,
+        )
+        summaries_by_ticker = {"130A": [summary]}
+        bars_by_ticker = {"130A": bars}
+
+        index = build_shares_outstanding_index(summaries_by_ticker, bars_by_ticker, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker=bars_by_ticker,
+            summaries_by_ticker=summaries_by_ticker,
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertAlmostEqual(index["130A"] or 0.0, 750_000.0, places=3)
+        assert snapshot.market_cap is not None
+        self.assertAlmostEqual(snapshot.market_cap, close * (index["130A"] or 0.0), places=3)
 
     def test_dividend_fields_split_normalization_and_carry_forward(self) -> None:
         """実績 DPS は分割跨ぎ行で x factor 換算、予想 DPS は None 化。

@@ -416,13 +416,22 @@ def build_shares_outstanding_index(
     bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
     asof_date: date,
 ) -> dict[str, float | None]:
+    """Shares the market can price: issued less treasury, on the as-of split basis.
+
+    universe の時価総額はこの index から作られ、流動性 gate (100 億円) の分母になる。
+    `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
+    2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
+    直近の非 null 行から carry-forward する。
+    """
     shares: dict[str, float | None] = {}
     for ticker, summaries in summaries_by_ticker.items():
         normalized = _normalize_summaries_to_asof_basis(
             summaries, bars_by_ticker.get(ticker, ()), asof_date
         )
         latest = _latest_summary(normalized)
-        shares[ticker] = latest.shares_outstanding if latest else None
+        issued, _ = _carry_forward(normalized, "shares_outstanding", latest)
+        treasury, _ = _carry_forward(normalized, "treasury_shares", latest)
+        shares[ticker] = _shares_excluding_treasury(issued, treasury)
     return shares
 
 
