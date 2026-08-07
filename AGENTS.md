@@ -63,6 +63,19 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイで見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善であり、契約と規律は [`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md) を正本とする。
 
+## store の正本とクラウド反映
+
+storeごとに正本の所在が違う。ローカルで進めたstoreをクラウドへ出すときは、**cloud copyを取り込んで包含したものでcloudを更新する** — cloud copyをstagingへ取り、現行schemaへ進め、mergeがcloud側の行の取り残しを検出しなかった場合だけuploadする。ローカルからの無条件uploadは日次batchの成果の巻き戻しになる。
+
+| store | 正本 | ローカルからの反映 |
+| --- | --- | --- |
+| `data/screening/market.sqlite` | cloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh push-market`（merge後だけupload） |
+| `data/indicators/macro.sqlite` | cloud（rolling窓）+ ローカルの全履歴 | `r2_transfer.sh push-macro`（merge後だけupload） |
+| `data/screening/runs.sqlite` | cloudのみ | しない（cloudが唯一のwriter） |
+| `data/app/baibai.sqlite` | ローカル（判断） | `tools/cloud/publish.sh` |
+
+**schemaを上げるcodeはmainへ入れてからpushする。** ローカルがmainより先のversionでstoreを置くと、次の日次batchがそのversionを知らずfail-fastする。手順と失敗時の見え方は [`tools/cloud/README.md`](./tools/cloud/README.md#ローカルからクラウドを更新する) を正本とする。
+
 ## Repository-local skills
 
 repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（一覧と選び方は上記「運用の入口」）。`.claude/skills/<name>`は同じdirectoryへのrelative symlinkであり、別内容として編集しない。skillが参照するreferenceとpublic `--help`を優先し、tests/fixturesやsrcから日常手順を推測しない。

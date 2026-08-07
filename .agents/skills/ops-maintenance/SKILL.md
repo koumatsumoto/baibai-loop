@@ -77,14 +77,23 @@ tools/cloud/r2_transfer.sh upload-serving <dir>
 
 `refresh-buyback-reports` は日次 batch が毎日回すが、初回だけは 6,500 件超の遡及があり、EDINET が
 `429` を返して途中で止まる。**止まっても成果は残る**（保存済みの提出は二度と取りに行かない）ので、
-`rate_limited=false` になるまで日を分けて繰り返す。
+`rate_limited=false` になるまで繰り返す。cloud へ載せるところまでが 1 セットである。
 
 ```bash
+tools/cloud/r2_transfer.sh pull-market
 uv run baibai-engine screening refresh-buyback-reports --asof <最新完全営業日> --lookback-days 400
+tools/cloud/r2_transfer.sh push-market
 ```
 
-`unreadable` は様式が読めなかった件数で、0 にはならない（取締役会決議の節を持たない提出が
-含まれる）。`stored` が増えなくなり `considered` が 0 になれば充填は完了である。
+**完了の判定は行数が動かなくなることで、`considered` が 0 になることではない。** store は 1 銘柄 1
+報告月につき勝った提出しか覚えないので、同じ月を別の提出（訂正）が上書きすると、上書きされた側は
+次の pass で「未保存」に見えて読み直される。したがって `considered` と `stored` は毎回同じ値で
+下げ止まる（実測 1,032 銘柄 6,067 行で `considered=515` / `stored=132`）。同じ pass を 2 回続けて
+`(銘柄, 報告月) → 提出` の対応が 1 件も変わらなければ不動点である。
+
+`unreadable` は様式が読めなかった件数で 0 にはならない（取締役会決議の節を持たない提出が含まれる）。
+`without_usable_month` は報告月が読めなかったか、読めた月が提出日より後だった件数で、後者は日付が
+別の行に噛んだ証拠なのでその読みを丸ごと捨てている。
 
 ## 月次維持
 

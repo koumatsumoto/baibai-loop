@@ -579,7 +579,7 @@ def refresh_buyback_reports_command(
         "refresh-buyback-reports: "
         f"since={since.isoformat()} considered={summary.considered} "
         f"stored={summary.stored} unreadable={summary.unreadable} "
-        f"without_month_end={summary.without_month_end} "
+        f"without_usable_month={summary.without_usable_month} "
         f"rate_limited={str(summary.rate_limited).lower()}",
         file=out,
         flush=True,

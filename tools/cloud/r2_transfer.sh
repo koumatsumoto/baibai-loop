@@ -147,6 +147,20 @@ merge_indicator_store() {
   merge_store tools.cloud.merge_indicator_store "$1" "$2"
 }
 
+# Move the downloaded copy to the schema this code writes, so the merge's source and
+# target agree. Without it a store published before a migration landed can only be
+# moved forward by the daily batch, and every schema change would block publishing
+# from a developer machine until the cloud had run. The copy lives in the transfer
+# staging directory, so the object in R2 is untouched.
+migrate_downloaded_store() {
+  local store="$1" path="$2"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python -m tools.cloud.migrate_store --store "${store}" --path "${path}"
+  )
+}
+
 merge_market_store() {
   merge_store tools.cloud.merge_market_store "$1" "$2"
 }
@@ -427,6 +441,7 @@ case "${1:-}" in
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
     check_sqlite "${transfer_staging}/market.sqlite"
+    migrate_downloaded_store market "${transfer_staging}/market.sqlite"
     merge_market_store "${transfer_staging}/market.sqlite" "$(store_path market.sqlite)"
     cleanup_staging
     transfer_staging=""
@@ -441,6 +456,7 @@ case "${1:-}" in
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     aws_s3 cp "s3://${stores_bucket}/macro.sqlite" "${transfer_staging}/macro.sqlite"
     check_sqlite "${transfer_staging}/macro.sqlite"
+    migrate_downloaded_store macro "${transfer_staging}/macro.sqlite"
     merge_indicator_store "${transfer_staging}/macro.sqlite" "$(store_path macro.sqlite)"
     cleanup_staging
     transfer_staging=""
