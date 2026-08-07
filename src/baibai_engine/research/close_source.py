@@ -29,7 +29,7 @@ from pathlib import Path
 # SQLITE_SCHEMA_VERSION を追随することは coupling test が CI で保証し、version bump を
 # 「silent degradation」ではなく赤い CI にする。実行時に不一致な store は no-coverage
 # (None) へ degrade し、古い schema literal で誤読しない。
-_EXPECTED_MARKET_SCHEMA_VERSION = 17
+_EXPECTED_MARKET_SCHEMA_VERSION = 18
 
 
 @dataclass(frozen=True, slots=True)

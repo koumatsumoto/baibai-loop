@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from enum import StrEnum
 from math import isfinite
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.dataclasses import dataclass
@@ -112,8 +112,15 @@ class FinancialSnapshot:
     cfo: float | None = None
     cash_eq: float | None = None
     total_assets: float | None = None
+    # `equity` は非支配株主持分を含む純資産、`owners_equity` は親会社株主に帰属する
+    # 自己資本。倍率と自己資本比率は後者を分母にする — `bps` が自己資本ベースなので、
+    # 純資産を使うと `pbr` と `price_to_equity` が同じ概念で食い違う。
     equity: float | None = None
+    owners_equity: float | None = None
     market_cap: float | None = None
+    # 時価総額の分母に自己株式を除いた株数を使えたか。`issued` は自己株式数が観測
+    # できず発行済のまま計算した行で、自己株ゼロの証明ではない。
+    shares_outstanding_basis: Literal["excluding_treasury", "issued"] = "issued"
     cash_to_market_cap: float | None = None
     price_to_equity: float | None = None
     equity_ratio: float | None = None
@@ -197,6 +204,7 @@ class FinancialSnapshot:
         "cash_eq",
         "total_assets",
         "equity",
+        "owners_equity",
         "market_cap",
         "cash_to_market_cap",
         "price_to_equity",

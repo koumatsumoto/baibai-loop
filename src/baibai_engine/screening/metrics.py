@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from itertools import pairwise
 from math import isfinite, sqrt
 from statistics import fmean, mean, median
+from typing import Literal
 
 from baibai_engine.market.bars import asof_basis_closes
 
@@ -395,6 +396,14 @@ def _normalize_summaries_to_asof_basis(
                 shares_outstanding=(
                     summary.shares_outstanding / factor
                     if summary.shares_outstanding is not None
+                    else None
+                ),
+                # 自己株式数は発行済と同じ株数なので同じ換算を掛ける。片方だけ換算すると
+                # 差である自己株控除後株式数が分割のたびに壊れる。`equity_to_asset_ratio`
+                # は比率なので分割で動かず、そのまま持ち越される。
+                treasury_shares=(
+                    summary.treasury_shares / factor
+                    if summary.treasury_shares is not None
                     else None
                 ),
             )
@@ -789,6 +798,24 @@ def _build_financial_snapshot(
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
     shares_outstanding, _shares_lag = _carry_forward(summaries, "shares_outstanding", latest)
+    treasury_shares, _treasury_lag = _carry_forward(summaries, "treasury_shares", latest)
+    equity_to_asset_ratio, _eq_ratio_lag = _carry_forward(
+        summaries, "equity_to_asset_ratio", latest
+    )
+    # 時価総額の分母は自己株式を除いた株数である。自己株式は議決権も配当請求権も持たない
+    # ので、含めると時価総額が過大になり現金比率・利回りが薄く、倍率が割高に見える。歪みが
+    # 最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業で、carry が
+    # 上位へ押し上げる群と重なる。自己株式数が観測できないときは発行済のまま置き、その事実を
+    # `shares_outstanding_basis` で読み手へ渡す(欠損を「自己株ゼロ」と読み替えない)。
+    shares_ex_treasury = _shares_excluding_treasury(shares_outstanding, treasury_shares)
+    shares_outstanding_basis: Literal["excluding_treasury", "issued"] = (
+        "excluding_treasury" if shares_ex_treasury is not shares_outstanding else "issued"
+    )
+    owners_equity = (
+        equity_to_asset_ratio * total_assets
+        if equity_to_asset_ratio is not None and total_assets is not None
+        else None
+    )
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
@@ -801,7 +828,7 @@ def _build_financial_snapshot(
     edinet_failure_reasons = ",".join(edinet.failure_reasons) if edinet else None
     if net_cash is None and cash is not None and debt is not None:
         net_cash = cash - debt
-    latest_market_cap = (latest_price * shares_outstanding) if shares_outstanding else None
+    latest_market_cap = (latest_price * shares_ex_treasury) if shares_ex_treasury else None
     latest_enterprise_value = (
         (latest_market_cap + debt - cash)
         if latest_market_cap is not None and debt is not None and cash is not None
@@ -842,9 +869,15 @@ def _build_financial_snapshot(
         total_assets=total_assets,
         equity=equity,
         market_cap=latest_market_cap,
+        shares_outstanding_basis=shares_outstanding_basis,
         cash_to_market_cap=_safe_ratio(cash_eq, latest_market_cap),
-        price_to_equity=_safe_ratio(latest_market_cap, equity),
-        equity_ratio=_safe_ratio(equity, total_assets),
+        # 自己資本 = 開示された自己資本比率 x 総資産。`equity` は非支配株主持分を含む
+        # 純資産なので、そのまま使うと `pbr`(自己資本ベース BPS が分母) と同じ概念を
+        # 測りながら値が食い違う。比率が観測できないときは None に落とし、純資産で
+        # 代用しない (代用は少数株主持分の大きい銘柄で自己資本比率を数 pt 過大にする)。
+        owners_equity=owners_equity,
+        price_to_equity=_safe_ratio(latest_market_cap, owners_equity),
+        equity_ratio=equity_to_asset_ratio,
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
         net_cash=net_cash,
         net_cash_to_market_cap=_safe_ratio(net_cash, latest_market_cap),
@@ -1314,6 +1347,25 @@ def _sigma_gap(history: Sequence[float], current: float | None) -> float | None:
     if stddev == 0:
         return 0.0
     return (current - avg) / stddev
+
+
+def _shares_excluding_treasury(
+    shares_outstanding: float | None, treasury_shares: float | None
+) -> float | None:
+    """発行済株式数から自己株式を除く。除けないときは発行済をそのまま返す。
+
+    自己株式数が観測できない行で 0 を仮定すると「自己株ゼロ」を捏造するので、発行済を
+    そのまま返して呼び出し側が `shares_outstanding_basis` で区別できるようにする。負の
+    自己株式数と、発行済を超える自己株式数は開示の破損なので発行済へ落とす — 差が 0 以下
+    になると時価総額が消えるか符号を反転させ、流動性母集団から銘柄が黙って抜ける。
+    """
+
+    if shares_outstanding is None:
+        return None
+    if treasury_shares is None or treasury_shares <= 0:
+        return shares_outstanding
+    remaining = shares_outstanding - treasury_shares
+    return remaining if remaining > 0 else shares_outstanding
 
 
 def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:

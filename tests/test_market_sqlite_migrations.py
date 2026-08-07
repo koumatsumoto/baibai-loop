@@ -139,6 +139,8 @@ def test_pending_migrations_preserve_metrics_with_legacy_revision(tmp_path: Path
     conn.execute("ALTER TABLE edinet_metrics DROP COLUMN extractor_revision")
     conn.execute("ALTER TABLE edinet_metrics DROP COLUMN source_document_revision")
     conn.execute("ALTER TABLE edinet_metrics DROP COLUMN investment_securities")
+    conn.execute("ALTER TABLE jquants_fin_summaries DROP COLUMN treasury_shares")
+    conn.execute("ALTER TABLE jquants_fin_summaries DROP COLUMN equity_to_asset_ratio")
     conn.execute("DROP TABLE edinet_document_lists")
     conn.execute("DROP TABLE edinet_documents")
     conn.execute(

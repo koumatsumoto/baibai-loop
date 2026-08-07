@@ -562,6 +562,163 @@ class ScreeningMetricsTests(unittest.TestCase):
         # None に落ち、per_forward は出ない (偽値を出さない)。
         self.assertIsNone(financial.per_forward)
 
+    def _capital_snapshot(
+        self,
+        *,
+        shares_outstanding: float,
+        treasury_shares: float | None,
+        equity_to_asset_ratio: float | None,
+        bps: float,
+        total_assets: float,
+        equity: float,
+        close: float,
+    ) -> FinancialSnapshot:
+        asof = date(2026, 7, 1)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=29 - index),
+                close=close,
+                turnover_value=300_000_000.0,
+            )
+            for index in range(30)
+        ]
+        summary = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=shares_outstanding,
+            ),
+            bps=bps,
+            total_assets=total_assets,
+            equity=equity,
+            treasury_shares=treasury_shares,
+            equity_to_asset_ratio=equity_to_asset_ratio,
+        )
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [summary]},
+            edinet_by_ticker={},
+        )
+        return result.financials["130A"]
+
+    def test_price_to_equity_agrees_with_pbr_when_capital_is_observed(self) -> None:
+        """同じ「株価 / 1 株純資産」を測る 2 指標が一致することを不変条件にする。
+
+        時価総額が自己株式込みの発行済株式数、`equity` が非支配株主持分込みの純資産だと、
+        2 つは同じ概念を測りながら食い違う。分母を BPS と揃えれば比は 1 になる。
+        """
+        # 自己株 100 株 (10%)、非支配株主持分 200 (自己資本 800 / 純資産 1,000)。
+        snapshot = self._capital_snapshot(
+            shares_outstanding=1_000.0,
+            treasury_shares=100.0,
+            equity_to_asset_ratio=0.4,
+            bps=800.0 / 900.0,
+            total_assets=2_000.0,
+            equity=1_000.0,
+            close=1.0,
+        )
+
+        assert snapshot.pbr is not None
+        assert snapshot.price_to_equity is not None
+        self.assertAlmostEqual(snapshot.price_to_equity, snapshot.pbr, places=6)
+        self.assertAlmostEqual(snapshot.market_cap or 0.0, 900.0, places=6)
+        self.assertAlmostEqual(snapshot.owners_equity or 0.0, 800.0, places=6)
+        self.assertAlmostEqual(snapshot.equity_ratio or 0.0, 0.4, places=6)
+        self.assertEqual(snapshot.shares_outstanding_basis, "excluding_treasury")
+
+    def test_market_cap_keeps_issued_shares_when_treasury_is_unobserved(self) -> None:
+        """自己株式数が欠損する行を「自己株ゼロ」と読み替えない。"""
+        snapshot = self._capital_snapshot(
+            shares_outstanding=1_000.0,
+            treasury_shares=None,
+            equity_to_asset_ratio=0.4,
+            bps=1.0,
+            total_assets=2_000.0,
+            equity=1_000.0,
+            close=1.0,
+        )
+
+        self.assertAlmostEqual(snapshot.market_cap or 0.0, 1_000.0, places=6)
+        self.assertEqual(snapshot.shares_outstanding_basis, "issued")
+
+    def test_equity_ratio_is_absent_rather_than_the_net_asset_ratio(self) -> None:
+        """自己資本比率が観測できない行で純資産比率へ代用しない。
+
+        純資産は非支配株主持分を含むので、代用は少数株主持分の大きい銘柄で自己資本比率を
+        数 pt 過大にする。過大は screening gate を通しやすくする向きなので黙って埋めない。
+        """
+        snapshot = self._capital_snapshot(
+            shares_outstanding=1_000.0,
+            treasury_shares=0.0,
+            equity_to_asset_ratio=None,
+            bps=1.0,
+            total_assets=2_000.0,
+            equity=1_000.0,
+            close=1.0,
+        )
+
+        self.assertIsNone(snapshot.equity_ratio)
+        self.assertIsNone(snapshot.owners_equity)
+        self.assertIsNone(snapshot.price_to_equity)
+
+    def test_broken_treasury_count_falls_back_to_issued_shares(self) -> None:
+        """発行済を超える自己株式数で時価総額が消えたり符号が反転したりしない。"""
+        snapshot = self._capital_snapshot(
+            shares_outstanding=1_000.0,
+            treasury_shares=1_200.0,
+            equity_to_asset_ratio=0.4,
+            bps=1.0,
+            total_assets=2_000.0,
+            equity=1_000.0,
+            close=1.0,
+        )
+
+        self.assertAlmostEqual(snapshot.market_cap or 0.0, 1_000.0, places=6)
+        self.assertEqual(snapshot.shares_outstanding_basis, "issued")
+
+    def test_treasury_shares_follow_the_split_basis_of_issued_shares(self) -> None:
+        """分割を跨ぐ行で自己株式数も換算する。片方だけだと差が壊れる。"""
+        asof = date(2026, 7, 1)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=29 - index),
+                close=100.0 if index < 27 else 50.0,
+                turnover_value=300_000_000.0,
+                adjustment_factor=0.5 if index == 27 else 1.0,
+            )
+            for index in range(30)
+        ]
+        summary = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=100.0,
+            ),
+            treasury_shares=10.0,
+            equity_to_asset_ratio=0.4,
+        )
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [summary]},
+            edinet_by_ticker={},
+        )
+
+        financial = result.financials["130A"]
+        # 1:2 分割後は発行済 200 株・自己株 20 株なので、時価総額は 50 x 180。
+        self.assertAlmostEqual(financial.market_cap or 0.0, 50.0 * 180.0, places=3)
+
     def test_dividend_fields_split_normalization_and_carry_forward(self) -> None:
         """実績 DPS は分割跨ぎ行で x factor 換算、予想 DPS は None 化。
         実績年間 DPS は FY 行にしか載らないため、直近が四半期行でも

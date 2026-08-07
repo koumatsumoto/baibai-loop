@@ -122,6 +122,13 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=17,
         statements=("ALTER TABLE edinet_metrics ADD COLUMN investment_securities REAL",),
     ),
+    Migration(
+        version=18,
+        statements=(
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN treasury_shares REAL",
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN equity_to_asset_ratio REAL",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION

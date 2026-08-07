@@ -59,8 +59,9 @@ def store_jquants_fin_summaries(
                   sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit,
                   profit, forecast_profit, forecast_ordinary_profit,
                   fiscal_period, fiscal_year_end, period_start, period_end,
-                  dps_actual_annual, dps_forecast_annual
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  dps_actual_annual, dps_forecast_annual,
+                  treasury_shares, equity_to_asset_ratio
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 rows,
             )
@@ -384,6 +385,11 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                 # 本決算開示では進行期ガイダンスが NxFDivAnn に入る (FEPS→NxFEPS と同型)。
                 to_float(first(record, "DivAnn")),
                 to_float(first(record, "FDivAnn", "NxFDivAnn")),
+                # TrShFY=期末自己株式数、EqAR=開示された自己資本比率。ShOutFY は自己株式を
+                # 含む発行済株式総数、Eq は非支配株主持分を含む純資産なので、時価総額と
+                # 自己資本比率をそれぞれ正しい分母で作るには両方が要る。
+                to_float(first(record, "TrShFY", "treasury_shares", "TreasuryStock")),
+                to_float(first(record, "EqAR", "equity_to_asset_ratio", "EquityToAssetRatio")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

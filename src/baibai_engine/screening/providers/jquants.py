@@ -99,6 +99,13 @@ class JQuantsFinancialSummary:
     period_end: date | None = None
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
+    # 期末自己株式数。`shares_outstanding` は自己株式を含む発行済株式総数なので、時価総額の
+    # 分母にはこれを引いた株数を使う。自己株式は議決権も配当請求権も持たないため、含めると
+    # 時価総額が過大になり、現金比率・利回りが薄く見える。
+    treasury_shares: float | None = None
+    # 開示された自己資本比率。`equity` は非支配株主持分を含む純資産なので、`equity / total_assets`
+    # は自己資本比率にならない。導出でなく開示値を持つのは、自己資本を別途持たずに済むため。
+    equity_to_asset_ratio: float | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod
@@ -122,6 +129,8 @@ class JQuantsFinancialSummary:
         "forecast_ordinary_profit",
         "dps_actual_annual",
         "dps_forecast_annual",
+        "treasury_shares",
+        "equity_to_asset_ratio",
     )
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
@@ -565,4 +574,12 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         # 進行期ガイダンス) の順で埋める (FEPS→NxFEPS と同型)。
         dps_actual_annual=to_float(coalesce_field(record, "DivAnn")),
         dps_forecast_annual=to_float(coalesce_field(record, "FDivAnn", "NxFDivAnn")),
+        # TrShFY = 期末自己株式数、EqAR = 開示された自己資本比率。ShOutFY (発行済・自己株
+        # 込み) と Eq (純資産) だけでは時価総額も自己資本比率も正しい分母で作れない。
+        treasury_shares=to_float(
+            coalesce_field(record, "TrShFY", "treasury_shares", "TreasuryStock")
+        ),
+        equity_to_asset_ratio=to_float(
+            coalesce_field(record, "EqAR", "equity_to_asset_ratio", "EquityToAssetRatio")
+        ),
     )
