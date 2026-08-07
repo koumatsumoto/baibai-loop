@@ -60,6 +60,15 @@ cloud 障害は「store が code より古い」形で出ることが多い。�
 
 app / macro を publish したら `gh workflow run cloud-materialize` を dispatch し、run の completed success を確認する。view shape を変える deploy では **code deploy → materialize の順**を守り、UI は旧 view で graceful degrade できることを確認する。
 
+**Actions が runner を取れないときはローカルで同じ 3 手順を回す。** workflow は pull → export → upload の 3 段でしかないので、正本がローカルにある状態なら pull を省いて残り 2 段を実行すれば結果は同じになる。
+
+```bash
+uv run python tools/cloud/export_read_models.py --output-dir <dir> --batch manual
+tools/cloud/r2_transfer.sh upload-serving <dir>
+```
+
+`<dir>` は使い捨ての作業ディレクトリにする。export は app / machine store を読むだけなので、machine 側が古いときは先に `pull-machine` を回す（app は pull しない）。upload 後は read 経路を 1 つ踏んで確認する。
+
 ## 月次維持
 
 - **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分。rules 改訂後は `--force` 再構築）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。
