@@ -208,13 +208,19 @@ uv run python tools/cloud/export_read_models.py --output-dir <dir> [--batch dail
 
 - `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
 - `views/screening_latest.json` は、有効な `reports/data/er-level-calibration-latest.yaml` と表示対象 operative run の method identity が一致する場合だけ E[r] historical quintile 文脈を含む。run identity 不明、欠損・不正・期限切れでは field を `null` にして既存 screening 表を維持する
+- `views/daily-delta.json`（前営業日の機械実行との差分。Dashboard の差分区画が読む）
+- `views/system.json`（4 store の as-of / 行数 / サイズと、取得が失敗したままの系列。`/system` が読む。後述の[システム状態の配信](#システム状態の配信--viewssystemjson-と-systemlatest-runjson)）
 - `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）
 - `views/macro-reading.json`（全登録系列の機械読み値。indicator store か reading rules が
   無ければ警告のうえ書かず、Macro タブは該当パネルだけを非表示にする）
+- `views/macro-context--<context_id>.json`（published macro context の本文。Macro report 画面が読む）
+- `views/assessment--<assessment_id>.json`（published bargain assessment の本文。Assessment 画面が読む）
 - `views/security--<ticker>.json`（保有 + 最新 run 掲載 + shortlist の ticker）
 - `views/meta.json`（生成時刻・実データ更新時刻・store 別 as-of・batch 種別。UI の鮮度表示と同じ契約）
 - `history/candidate-views/<asof>.json`（run とCandidates全件を型付きUI read modelへ変換した履歴。31 日で削除）
 - `history/longlists/<asof>.json`（latest runに束縛されたmachine selectionの `ticker` / `rank` / `er_annual`。selection欠損日と空longlistも空recordとして発行し、400日で削除）
+
+この一覧と Worker の route 表の対応は `tests/test_cloud_export.py` が守る。Worker が写像する view を exporter が書かないと、その route は本番で恒久的に 404 になる。
 
 書き出しの前に application store の `user_version` が code の schema version と一致することを確認し、不一致なら view を 1 件も作らず exit 1 で停止する（読み取り経路は read-only で migrate しないため、不一致は build の途中で素の SQL error になる）。store が無い root は judgment 空の正常状態として export する。
 
