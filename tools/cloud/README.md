@@ -111,22 +111,31 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 `cloud-history-backfill`は財務サマリーが律速で、実測は3.4年で2時間32分（うち財務2時間05分）である。job上限は5時間なので、大量欠損は3〜4年ずつに分けてdispatchする。coverageのmergeが繋ぐので分割しても結果は同じになる。source failureまでにcommitされたchunkは、store SHA-256が変わった場合だけ`quick_check`と`push-market`を通してR2へ保存し、workflow自体は元の非0で失敗する。変更が無いfailureはuploadをskipする。3つのcloud writerは`cloud-publish`の`queue: max`を共有し、1件だけを実行しながらpending runをFIFOで保持する。
 
-`push-market`はcloud copyをstagingへdownloadし、`merge_market_store.py`でローカルstoreへmergeしてからuploadする。storeの全12 tableが事実tableで、`source_coverage`も1日1行の粒度（`coverage_key`が日付）なので範囲のunion演算は要らない。主キーで`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。価格・財務・保有・被覆の範囲と件数は比較対象に残る。除外列は`merge_market_store.py`の`UNCOMPARED`に列挙してあり、事実列へ伸びていないことをtestが確かめる。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い行をuploadで失わない。source / targetとも現行schemaでなければ停止する——cloud copyが古いときの復旧はcloud側でstoreを開かせることであって、こちらでmigrateしてcloudが書いたことのない形を publish することではない。mergeの対象tableは`merge_market_store.py`の`FACT_KEYS`に列挙してあり、storeのtable一覧とずれたらtestが落ちる。
+`push-market`はcloud copyをstagingへdownloadし、`merge_market_store.py`でローカルstoreへmergeしてからuploadする。storeの全12 tableが事実tableで、`source_coverage`も1日1行の粒度（`coverage_key`が日付）なので範囲のunion演算は要らない。主キーで`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。価格・財務・保有・被覆の範囲と件数は比較対象に残る。除外列は`merge_market_store.py`の`UNCOMPARED`に列挙してあり、事実列へ伸びていないことをtestが確かめる。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い行をuploadで失わない。mergeはsource / targetの双方に現行schemaを要求し、download直後の`migrate_store.py`がcloud copyをそこまで進める（[ローカルからクラウドを更新する](#ローカルからクラウドを更新する)）。mergeの対象tableは`merge_market_store.py`の`FACT_KEYS`に列挙してあり、storeのtable一覧とずれたらtestが落ちる。
 
 `push-macro`はcloud copyをstagingへdownloadし、`merge_indicator_store.py`でローカルstoreへmergeしてからuploadする。mergeの対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。schema v5 rollout中はread-only source v4も同じ構造契約を検査して受理し、`jp.foreign_flows`のlegacy unit `jpy`を値非rescaleで`jpy-thousand`へ正規化して挿入する。targetは必ず現行schemaでなければならない。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
 
-### indicator storeのschemaがcloudとcodeでずれているとき
+### ローカルからクラウドを更新する
 
-**cloud copyのschemaはcloud側でstoreを開くことによって上がる。** `macro refresh`が`open_connection`を通り、そこでmigrationが走ってから書き込み、`push-machine`が現行schemaのsnapshotをuploadする。したがって「cloud copyがcodeより1つ以上古い」のはschema bumpから次の日次batchまでの**正常な過渡状態**であって、不正なpushの痕跡ではない。cronは平日だけなので、週末にschemaを上げると月曜の実行までこのラグが残る。
+**ローカルで開発してschemaやデータを進めたら、cloud copyを取り込んで包含したものでcloudを更新する。** これが`market.sqlite` / `macro.sqlite`の標準手順で、`push-market` / `push-macro`が3段を1コマンドで行う。
 
-この状態では`push-macro`が停止する。mergeはtargetに現行schemaを要求し、sourceは1 version前までしか受理しないため、2 version以上離れると`check_sqlite`を通ってもmergeで止まる。**復旧はcloud側でstoreを開かせることであって、cloud copyを手でmigrateすることではない。**
+1. **download** — cloud copyをstagingへ取る
+2. **migrate** — `migrate_store.py`がそのcopyを現行schemaへ進める。storeを開くことがmigrationなので、走るのは日次batchが走らせるのと同じcodeである。進めるのはstagingのcopyだけで、R2のobjectはmerge後のuploadまで変わらない
+3. **merge → upload** — cloud copyをローカルstoreへmergeし、cloud側の行が1行でも取り残されるなら停止する。全て取り込めた場合だけuploadする
 
 ```bash
-gh workflow run cloud-daily-batch.yml --ref main   # cloud copyがopenでmigrateされ現行schemaでpushされる
-tools/cloud/r2_transfer.sh push-macro              # その後で通る
+tools/cloud/r2_transfer.sh push-market
+tools/cloud/r2_transfer.sh push-macro
+gh workflow run cloud-materialize.yml --ref main   # 表示へ反映する場合
 ```
 
-**pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する唯一の経路（日次batchのpull → open → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。schemaがずれている間に妥当域外の値が入る心配も要らない — 書き込み経路は全て`open_connection`を通り、そこで必ずmigrationが先に走る。
+**cloud copyがcodeより古いのは正常な過渡状態である。** cloud copyのschemaは日次batchがstoreを開いたときに上がるので、schema bumpから次の実行までラグが残る。cronは平日だけなので、週末にschemaを上げると月曜まで続く。この間もmigrate段があるためpushは通り、日次batchを起こす必要はない。
+
+**publishするcodeは、cloudが動かすcodeでなければならない。** ローカルのschema versionがmainより先にあると、cloudが知らないversionのstoreを置くことになり、次の日次batchが`open_connection`のbaseline検査で停止する（`supported range`を挙げてfail-fastし、Discordに`[FAILED]`が出る。1世代の`.bak`も残る）。schemaを上げるcodeは**mainへ入れてからpushする**。
+
+**pull側にschema検査を置いてはならない。** 検査を置くと、ラグを解消する経路（pull → open → push）がstep 1で落ちて自己修復が止まり、storeを1行も書かない`cloud-materialize`まで道連れになる。schemaがずれている間に妥当域外の値が入る心配も要らない — 書き込み経路は全て`open_connection`を通り、そこで必ずmigrationが先に走る。
+
+`runs.sqlite`はこの手順を持たない。cloudが唯一のwriterなので、ローカルからのuploadは巻き戻しにしかならない。
 
 shortlist / research / macro-context の運用を始める前に、クラウド正本のmachine storeをローカルへ取得する。
 
