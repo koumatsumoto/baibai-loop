@@ -19,7 +19,14 @@ from baibai_engine.research.store import (
     ResearchStoreService,
     ResearchValidationError,
 )
-from baibai_engine.research.thesis import IndependentReview, ThesisDocument, ThesisResult
+from baibai_engine.research.thesis import (
+    IndependentReview,
+    ThesisDocument,
+    ThesisIdentity,
+    ThesisResult,
+    UnpublishedThesis,
+    evaluate_thesis,
+)
 from tests.helpers.fixed_now import FIXED_NOW
 
 THESIS = Path("tests/fixtures/thesis/2331-decision.yaml")
@@ -103,10 +110,10 @@ def test_atomic_publish_reads_one_operation_clock_for_every_validation(
         *,
         review: IndependentReview | None = None,
         now: datetime | None = None,
-        core_sha256: str | None = None,
+        identity: ThesisIdentity,
     ) -> ThesisResult:
         validation_instants.append(now)
-        return real_evaluate(document, review=review, now=now, core_sha256=core_sha256)
+        return real_evaluate(document, review=review, now=now, identity=identity)
 
     monkeypatch.setattr(research_store_module, "evaluate_thesis", recording_evaluate)
 
@@ -175,20 +182,33 @@ def test_schema_evolution_does_not_move_a_published_thesis_identity(
 
     path = tmp_path / "app.sqlite"
     _seed(path)
-    before = list_thesis_publications(path)[0]
+    published = list_thesis_publications(path)[0]
+    recorded = str(published["core_sha256"])
+    document = ThesisDocument.model_validate(published["payload"])
+    review = IndependentReview.model_validate(list_thesis_review_publications(path)[0]["payload"])
 
-    def evolved_schema_hash(document: ThesisDocument) -> str:
-        del document
+    def evolved_schema_hash(_document: ThesisDocument) -> str:
         return "f" * 64
 
-    monkeypatch.setattr(research_store_module, "thesis_core_hash", evolved_schema_hash)
     monkeypatch.setattr(thesis_module, "thesis_core_hash", evolved_schema_hash)
+    monkeypatch.setattr(research_store_module, "thesis_core_hash", evolved_schema_hash)
 
-    after = list_thesis_publications(path)[0]
-    assert after["core_sha256"] == before["core_sha256"]
-    # The reviewer's binding still resolves, so every reader of this thesis keeps working.
-    review = list_thesis_review_publications(path)[0]
-    assert review["payload"]["reviewed_thesis_sha256"] == after["core_sha256"]
+    # The derivation now answers something else entirely, so anything that recomputes
+    # fails the review binding. Reading the recorded identity keeps the thesis decidable.
+    recomputed = evaluate_thesis(
+        document, review=review, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT
+    )
+    assert "independent review hash does not match thesis" in recomputed.errors
+
+    resolved = evaluate_thesis(document, review=review, now=FIXED_NOW, identity=recorded)
+    assert resolved.errors == ()
+    assert resolved.decision_readiness == "ready"
+
+    # And the store reader must take the second path. `publish_review` validates the
+    # thesis it is binding to, so under the evolved derivation it succeeds only by
+    # reading the recorded identity.
+    ResearchStoreService(path, clock=lambda: FIXED_NOW).publish_review(THESIS_ID, _payload(REVIEW))
+    assert list_thesis_publications(path)[0]["core_sha256"] == recorded
 
 
 def test_a_thesis_without_a_recorded_identity_is_refused_rather_than_recomputed(

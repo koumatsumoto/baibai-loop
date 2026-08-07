@@ -37,6 +37,7 @@ from baibai_engine.foundation.reject_classification import RejectClass
 from .thesis import (
     ThesisDocument,
     ThesisError,
+    UnpublishedThesis,
     evaluate_thesis,
     require_recorded_identity,
 )
@@ -415,7 +416,8 @@ def _selected_tickers(payload: Mapping[str, object], shortlist_id: str) -> froze
 
 def derive_lane_machine_values(document: ThesisDocument) -> LaneMachineValues:
     """thesis から lane の機械値を導出する。scaffold と publish が同じ経路を使う。"""
-    result = evaluate_thesis(document)
+    # Only the scenarios are read here; the identity never leaves this call.
+    result = evaluate_thesis(document, identity=UnpublishedThesis.DRAFT)
     base = next(
         (
             scenario

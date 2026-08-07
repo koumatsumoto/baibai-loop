@@ -534,10 +534,12 @@ MIGRATIONS: tuple[Migration, ...] = (
             # 「publish された時点で何が書かれていたか」の事実であってモデルの性質ではない。
             #
             # 既存行の値は `thesis_review.reviewed_thesis_sha256` から取る。review が
-            # 束縛している hash がまさにその事実であり、17 本すべてで現行の導出と一致する
-            # ことを実 DB で確認してある。review の無い thesis は promote が作れないので
-            # backfill は全行を埋めるが、値が入らなかった行を読み手が黙って通さないよう、
-            # 欠損は `research/store.py` が名指しで拒否する。
+            # 束縛している hash がまさに「publish された時点の identity」であり、これが
+            # 唯一の出どころである。**現在の導出と一致することを当てにしない** — 特例を
+            # 外した時点で導出は過去の hash を再現しなくなっており、それこそがこの列を
+            # 置く理由である。review の無い thesis は promote が作れないので backfill は
+            # 全行を埋めるが、値が入らなかった行を読み手が黙って通さないよう、欠損は
+            # `require_recorded_identity` が名指しで拒否する。
             #
             # 列の追加で済ませ、table を作り直さない。`thesis` は `thesis_review` /
             # `holding_review` / `proposal` から参照されており、作り直すとその 4 表すべてを
@@ -549,6 +551,20 @@ MIGRATIONS: tuple[Migration, ...] = (
                 SELECT json_extract(r.payload, '$.reviewed_thesis_sha256')
                 FROM thesis_review r WHERE r.thesis_id = thesis.thesis_id
             )
+            """,
+            # 記録した identity は payload の内容を検査しない。導出だった頃は hash が
+            # 内容の checksum を兼ねていたので、publish 後に payload を書き換えれば
+            # 「review が束縛していない内容」として落ちた。その検査が無くなる分を、
+            # payload そのものを変更不能にすることで置き換える — completed operation
+            # session と同じ形である。`core_sha256` の書き込みはこの trigger の対象外
+            # なので、上の backfill も将来の列追加も妨げない。
+            """
+            CREATE TRIGGER thesis_payload_immutable
+            BEFORE UPDATE OF payload ON thesis
+            WHEN OLD.payload <> NEW.payload
+            BEGIN
+                SELECT RAISE(ABORT, 'published thesis payload is immutable');
+            END
             """,
         ),
     ),

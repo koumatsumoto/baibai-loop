@@ -35,6 +35,7 @@ from baibai_engine.read_api import (
 from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
+    ThesisError,
     evaluate_thesis,
     require_recorded_identity,
 )
@@ -52,11 +53,11 @@ class ResearchPriceWatchError(ValueError):
 class _ThesisCandidate:
     thesis_id: str | Path
     document: ThesisDocument
+    # The identity the thesis was published with. This tool only reads the store, so
+    # every candidate has one and the field carries no draft default.
+    core_sha256: str
     published_at: datetime = _MIN_UTC
     review: IndependentReview | None = None
-    # The identity the thesis was published with. `None` only for a draft read
-    # from a file, which has no stored record to bind to.
-    core_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         LedgerSchemaError,
         ResearchPriceWatchError,
         SQLiteSchemaError,
+        # A published thesis without a recorded identity refuses through this one.
+        ThesisError,
         OSError,
         sqlite3.Error,
     ) as error:
@@ -248,7 +251,7 @@ def _load_latest_promoted_theses(
             candidate.document,
             review=candidate.review,
             now=_historical_integrity_evaluated_at(candidate.document, candidate.review),
-            core_sha256=candidate.core_sha256,
+            identity=candidate.core_sha256,
         )
         if result.errors or result.decision_readiness != "ready":
             details = "; ".join(result.errors) or result.thesis_status

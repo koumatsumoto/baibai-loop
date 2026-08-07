@@ -58,6 +58,7 @@ from .thesis import (
     IndependentReview,
     ScreeningEstimate,
     ThesisError,
+    UnpublishedThesis,
     evaluate_thesis,
     load_independent_review,
     load_thesis,
@@ -1250,7 +1251,7 @@ def promote(
             "review changed the proposal; regenerate the thesis and re-review before promotion"
         )
 
-    result = evaluate_thesis(document, review=review, now=now)
+    result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
     if result.decision_readiness != "ready":
         raise OpportunityDataError(f"thesis is not decision-ready: {list(result.errors)}")
 
@@ -1314,7 +1315,7 @@ def plan_limit(
     review = load_independent_review(review_path) if review_path is not None else None
     defer_reasons: list[str] = []
 
-    result = evaluate_thesis(document, review=review, now=now)
+    result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
     if result.decision_readiness != "ready":
         defer_reasons.append("thesis_not_decision_ready")
 

@@ -216,7 +216,7 @@ class ProposalStoreService:
         ):
             connection.execute("BEGIN IMMEDIATE")
             try:
-                thesis, review = _ready_thesis_and_review(
+                thesis, review, identity = _ready_thesis_and_review(
                     connection,
                     thesis_id,
                     now=operation_now,
@@ -228,6 +228,7 @@ class ProposalStoreService:
                     planned_limit,
                     thesis=thesis,
                     review=review,
+                    identity=identity,
                     snapshot=snapshot,
                     snapshot_append_head=snapshot_append_head,
                     now=operation_now,
@@ -400,7 +401,7 @@ def _ready_thesis_and_review(
     *,
     review_id: str | None = None,
     now: datetime | None = None,
-) -> tuple[ThesisDocument, IndependentReview]:
+) -> tuple[ThesisDocument, IndependentReview, str]:
     thesis_row = connection.execute(
         "SELECT core_sha256, payload FROM thesis WHERE thesis_id = ?",
         (thesis_id,),
@@ -437,7 +438,7 @@ def _ready_thesis_and_review(
         thesis,
         review=review,
         now=now,
-        core_sha256=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
+        identity=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
     )
     if result.decision_readiness != "ready" or result.errors:
         detail = "; ".join(result.errors) or result.decision_readiness
@@ -445,7 +446,7 @@ def _ready_thesis_and_review(
     if thesis.judgment.recommendation != "buy":
         raise ProposalValidationError("proposal requires a ready buy research thesis")
     _require_required_return_within_intent(thesis)
-    return thesis, review
+    return thesis, review, result.thesis_sha256
 
 
 def _require_starter_order_within_cap(planned_notional_yen: int) -> None:
@@ -579,7 +580,7 @@ def _revalidate_approval(
     if not isinstance(raw_input, Mapping):
         raise ProposalConflictError("stored proposal payload is incomplete")
     planned_limit = CanonicalPlannedLimit.model_validate(raw_input)
-    thesis, review = _ready_thesis_and_review(
+    thesis, review, identity = _ready_thesis_and_review(
         connection,
         str(row["thesis_id"]),
         review_id=str(row["review_id"]),
@@ -592,6 +593,7 @@ def _revalidate_approval(
         planned_limit,
         thesis=thesis,
         review=review,
+        identity=identity,
         snapshot=snapshot,
         snapshot_append_head=snapshot_append_head,
         now=now,
@@ -615,6 +617,7 @@ def _validate_planned_limit(
     *,
     thesis: ThesisDocument,
     review: IndependentReview,
+    identity: str,
     snapshot: PortfolioSnapshot,
     snapshot_append_head: int,
     now: datetime,
@@ -624,7 +627,7 @@ def _validate_planned_limit(
     claimed_thesis_core_sha256: str | None = None,
 ) -> None:
     """Rebuild the load-bearing planning result from canonical current sources."""
-    result = evaluate_thesis(thesis, review=review, now=now)
+    result = evaluate_thesis(thesis, review=review, now=now, identity=identity)
     if (
         claimed_thesis_core_sha256 is not None
         and result.thesis_sha256 != claimed_thesis_core_sha256

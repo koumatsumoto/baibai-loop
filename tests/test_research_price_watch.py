@@ -358,6 +358,10 @@ def test_held_and_reserved_comes_only_from_replayed_state(
     ]
 
 
+# Every candidate the watch reads comes from the store, so it always has one.
+_IDENTITY = "c" * 64
+
+
 def test_latest_thesis_selection_uses_asof_not_path_or_mtime() -> None:
     document = load_thesis(THESIS)
     older = document.model_copy(
@@ -371,8 +375,8 @@ def test_latest_thesis_selection_uses_asof_not_path_or_mtime() -> None:
 
     selected = _select_latest_theses(
         [
-            _ThesisCandidate(Path("z-newer-mtime.yaml"), older),
-            _ThesisCandidate(Path("a-older-mtime.yaml"), newer),
+            _ThesisCandidate(Path("z-newer-mtime.yaml"), older, "0" * 64),
+            _ThesisCandidate(Path("a-older-mtime.yaml"), newer, "1" * 64),
         ]
     )
 
@@ -384,8 +388,8 @@ def test_same_ticker_same_asof_selects_latest_publication() -> None:
 
     selected = _select_latest_theses(
         [
-            _ThesisCandidate("thesis-first", document),
-            _ThesisCandidate("thesis-second", document),
+            _ThesisCandidate("thesis-first", document, _IDENTITY),
+            _ThesisCandidate("thesis-second", document, _IDENTITY),
         ]
     )
 
@@ -405,8 +409,8 @@ def test_latest_reject_does_not_fall_back_to_an_older_buy() -> None:
 
     selected = _select_latest_theses(
         [
-            _ThesisCandidate(Path("older-buy.yaml"), older_buy),
-            _ThesisCandidate(Path("latest-reject.yaml"), latest_reject),
+            _ThesisCandidate(Path("older-buy.yaml"), older_buy, _IDENTITY),
+            _ThesisCandidate(Path("latest-reject.yaml"), latest_reject, _IDENTITY),
         ]
     )
 
@@ -463,7 +467,7 @@ def test_exact_asof_invalidity_never_falls_back_to_an_older_close(
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -485,7 +489,7 @@ def test_missing_exact_asof_bar_never_falls_back_to_an_older_bar(tmp_path: Path)
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -520,7 +524,7 @@ def test_intermediate_factor_invalidates_the_whole_comparison_window(
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, earlier_thesis)},
+        theses={"2331": _ThesisCandidate(THESIS, earlier_thesis, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -537,7 +541,8 @@ def test_one_ticker_can_be_unresolved_without_suppressing_other_rows(tmp_path: P
     )
     document = load_thesis(THESIS)
     theses = {
-        ticker: _ThesisCandidate(Path(f"{ticker}.yaml"), document) for ticker in ("2331", "9999")
+        ticker: _ThesisCandidate(Path(f"{ticker}.yaml"), document, _IDENTITY)
+        for ticker in ("2331", "9999")
     }
 
     observations = _read_market_observations(sqlite_path, theses=theses, asof=ASOF)
@@ -556,7 +561,7 @@ def test_future_bar_is_ignored(tmp_path: Path) -> None:
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 
@@ -576,7 +581,7 @@ def test_calendar_internal_day_gap_fails_closed_despite_source_coverage(tmp_path
     with pytest.raises(ResearchPriceWatchError, match="missing row: 2026-07-02"):
         _read_market_observations(
             sqlite_path,
-            theses={"2331": _ThesisCandidate(THESIS, earlier_thesis)},
+            theses={"2331": _ThesisCandidate(THESIS, earlier_thesis, _IDENTITY)},
             asof=ASOF,
         )
 
@@ -597,7 +602,7 @@ def test_adjustment_factor_one_uses_a_narrow_float_tolerance(
 
     observation = _read_market_observations(
         sqlite_path,
-        theses={"2331": _ThesisCandidate(THESIS, document)},
+        theses={"2331": _ThesisCandidate(THESIS, document, _IDENTITY)},
         asof=ASOF,
     )["2331"]
 

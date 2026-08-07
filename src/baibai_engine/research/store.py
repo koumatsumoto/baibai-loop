@@ -24,7 +24,9 @@ from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
     ThesisResult,
+    UnpublishedThesis,
     evaluate_thesis,
+    require_recorded_identity,
     thesis_core_hash,
 )
 
@@ -115,7 +117,15 @@ class ResearchStoreService:
             now=operation_now,
         )
         review = IndependentReview.model_validate(review_payload)
-        _require_valid(evaluate_thesis(thesis, review=review, now=operation_now))
+        # Nothing is stored yet: this is the identity the insert below records.
+        _require_valid(
+            evaluate_thesis(
+                thesis,
+                review=review,
+                now=operation_now,
+                identity=UnpublishedThesis.DRAFT,
+            )
+        )
         review_publication = ReviewPublication(thesis_id, review_payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
@@ -195,7 +205,7 @@ def _validate_thesis(
     if not publication.thesis_id.strip():
         raise ResearchValidationError("thesis_id must not be empty")
     thesis = ThesisDocument.model_validate(publication.payload)
-    result = evaluate_thesis(thesis, now=now)
+    result = evaluate_thesis(thesis, now=now, identity=UnpublishedThesis.DRAFT)
     if result.errors and not (allow_review_required and result.errors == (_REVIEW_REQUIRED,)):
         _require_valid(result)
     return thesis, result
@@ -220,29 +230,27 @@ def _insert_thesis(
     document: ThesisDocument,
 ) -> bool:
     payload = canonical_json(publication.payload)
-    # The identity is recorded here rather than re-derived by every later reader. A
-    # derived identity is a property of the current model, so adding or dropping a
-    # schema field would move the hash of theses published long ago and detach the
-    # review, proposal, holding review, assessment and price watch bound to them.
-    expected = (
+    # The content decides whether this is the same revision. The identity is not part of
+    # that comparison: it is recorded once at publish and re-deriving it here would make
+    # a re-publish fail the moment the model gained or lost a field, which is the drift
+    # the recorded column exists to remove.
+    content = (
         document.input_snapshot.ticker,
         document.input_snapshot.as_of.isoformat(),
         document.judgment.recommendation,
         document.judgment.proposed_at.isoformat(),
         publication.supersedes_id,
-        thesis_core_hash(document),
         payload,
     )
     existing = connection.execute(
         """
-        SELECT ticker, as_of, recommendation, published_at, supersedes_id,
-               core_sha256, payload
+        SELECT ticker, as_of, recommendation, published_at, supersedes_id, payload
         FROM thesis WHERE thesis_id = ?
         """,
         (publication.thesis_id,),
     ).fetchone()
     if existing is not None:
-        if tuple(existing) == expected:
+        if tuple(existing) == content:
             return False
         raise ResearchConflictError(
             f"thesis differs from existing immutable revision: {publication.thesis_id}"
@@ -260,10 +268,10 @@ def _insert_thesis(
         """
         INSERT INTO thesis (
             thesis_id, ticker, as_of, recommendation, published_at, supersedes_id,
-            core_sha256, payload
+            payload, core_sha256
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (publication.thesis_id, *expected),
+        (publication.thesis_id, *content, thesis_core_hash(document)),
     )
     return True
 
@@ -275,11 +283,7 @@ def _thesis_row(connection: sqlite3.Connection, thesis_id: str) -> sqlite3.Row:
     ).fetchone()
     if row is None:
         raise ResearchConflictError(f"unknown thesis revision: {thesis_id}")
-    if row["core_sha256"] is None:
-        # Only a row written outside the application service can reach this. Recomputing
-        # would silently answer with the current model's hash, which is the drift this
-        # column exists to stop.
-        raise ResearchConflictError(f"thesis revision has no recorded identity: {thesis_id}")
+    require_recorded_identity(row["core_sha256"], thesis_id)
     return cast(sqlite3.Row, row)
 
 
@@ -293,7 +297,12 @@ def _insert_review(
     thesis_row = _thesis_row(connection, publication.thesis_id)
     thesis = ThesisDocument.model_validate_json(str(thesis_row["payload"]))
     _require_valid(
-        evaluate_thesis(thesis, review=review, now=now, core_sha256=str(thesis_row["core_sha256"]))
+        evaluate_thesis(
+            thesis,
+            review=review,
+            now=now,
+            identity=require_recorded_identity(thesis_row["core_sha256"], publication.thesis_id),
+        )
     )
     payload = canonical_json(publication.payload)
     expected = (publication.thesis_id, review.reviewed_at.isoformat(), payload)

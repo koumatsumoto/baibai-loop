@@ -11,6 +11,7 @@ import yaml
 
 from .thesis import (
     ThesisError,
+    UnpublishedThesis,
     evaluate_thesis,
     load_independent_review,
     load_thesis,
@@ -38,7 +39,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         document = load_thesis(args.thesis)
         review_path = _review_path(args.thesis, document.independent_review_ref)
         review = load_independent_review(review_path) if review_path is not None else None
-        result = evaluate_thesis(document, review=review, now=now)
+        # A draft file: there is no published record to bind to yet.
+        result = evaluate_thesis(document, review=review, now=now, identity=UnpublishedThesis.DRAFT)
         payload = result_to_payload(result)
     except ThesisError as error:
         print(f"error: {error}", file=sys.stderr)

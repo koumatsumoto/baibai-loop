@@ -27,6 +27,7 @@ from baibai_engine.position.store import load_ledger_in_transaction
 from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
+    UnpublishedThesis,
     _classify_current_thesis_eligibility,
     evaluate_thesis,
     require_recorded_identity,
@@ -293,7 +294,7 @@ def _load_db_thesis(
         thesis,
         review=review,
         now=now,
-        core_sha256=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
+        identity=require_recorded_identity(thesis_row["core_sha256"], thesis_id),
     )
     if eligibility.status == "current_ready":
         return _LoadedThesis(thesis, current_ready=True)
@@ -317,7 +318,8 @@ def _thesis_market_price(thesis: ThesisDocument) -> Decimal:
 
 
 def _base_5y_cagr(thesis: ThesisDocument, *, now: datetime) -> float:
-    result = evaluate_thesis(thesis, now=now)
+    # Only the scenarios are read here; the identity never leaves this call.
+    result = evaluate_thesis(thesis, now=now, identity=UnpublishedThesis.DRAFT)
     scenario = next(
         (item for item in result.scenarios if item.horizon_years == 5 and item.name == "base"), None
     )

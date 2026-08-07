@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation, localcontext
+from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -720,15 +721,17 @@ def load_independent_review(path: Path) -> IndependentReview:
 def evaluate_thesis(
     document: ThesisDocument,
     *,
+    identity: ThesisIdentity,
     review: IndependentReview | None = None,
     now: datetime | None = None,
-    core_sha256: str | None = None,
 ) -> ThesisResult:
     """Recalculate scenarios and determine whether the proposal is decision-ready.
 
-    `core_sha256` is the identity a published thesis was recorded with. Readers of the
-    store pass it so the binding survives schema evolution; a draft leaves it unset and
-    the hash is computed from the document.
+    `identity` is required and has no default on purpose. A published thesis must be
+    judged against the identity it was recorded with, and a draft has none to judge
+    against — but a forgotten optional argument would silently take the draft branch and
+    recompute, which is exactly how a published binding breaks. Making the caller say
+    which one it holds turns that mistake into a type error.
     """
 
     errors: list[str] = []
@@ -833,7 +836,7 @@ def evaluate_thesis(
     if override is not None and not set(exception_axes).issubset(override.acknowledged_risk_axes):
         errors.append("evidence override must acknowledge every incomplete or adverse risk axis")
 
-    core_hash = core_sha256 if core_sha256 is not None else thesis_core_hash(document)
+    core_hash = thesis_core_hash(document) if identity is UnpublishedThesis.DRAFT else identity
     if document.judgment.recommendation == "buy":
         if review is None or document.independent_review_ref is None:
             errors.append("buy recommendation requires an independent second-pass review")
@@ -913,11 +916,11 @@ def _classify_current_thesis_eligibility(
     *,
     review: IndependentReview,
     now: datetime,
-    core_sha256: str | None = None,
+    identity: ThesisIdentity,
 ) -> _CurrentThesisEligibility:
     """Classify current readiness without exposing override policy to consumers."""
     evaluated_at = _evaluation_instant(now)
-    result = evaluate_thesis(document, review=review, now=evaluated_at, core_sha256=core_sha256)
+    result = evaluate_thesis(document, review=review, now=evaluated_at, identity=identity)
     if not result.errors and result.decision_readiness == "ready":
         return _CurrentThesisEligibility("current_ready", result)
     override_status = _evidence_override_status(
@@ -940,6 +943,17 @@ def _evaluation_instant(now: datetime | None) -> datetime:
     if evaluated_at.tzinfo is None or evaluated_at.utcoffset() is None:
         raise ThesisError("evaluation instant must include a timezone")
     return evaluated_at.astimezone(ZoneInfo("Asia/Tokyo"))
+
+
+class UnpublishedThesis(Enum):
+    """A thesis that has no recorded identity because it is not published yet."""
+
+    DRAFT = "draft"
+
+
+# Either the identity a published thesis was recorded with, or the marker that says the
+# caller holds a draft and the hash must be computed from the document.
+type ThesisIdentity = str | UnpublishedThesis
 
 
 def thesis_core_hash(document: ThesisDocument) -> str:

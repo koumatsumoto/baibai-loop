@@ -21,6 +21,7 @@ from baibai_engine.research.store import ResearchStoreService
 from baibai_engine.research.thesis import (
     IndependentReview,
     ThesisDocument,
+    ThesisIdentity,
     independent_review_hash,
     thesis_core_hash,
 )
@@ -412,10 +413,10 @@ def test_holding_build_and_publish_forward_one_operation_instant(
         *,
         review: IndependentReview,
         now: datetime,
-        core_sha256: str | None = None,
+        identity: ThesisIdentity,
     ) -> object:
         validation_instants.append(now)
-        return real_classify(document, review=review, now=now, core_sha256=core_sha256)
+        return real_classify(document, review=review, now=now, identity=identity)
 
     monkeypatch.setattr(
         holding_builder_module,

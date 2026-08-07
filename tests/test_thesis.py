@@ -16,6 +16,7 @@ from baibai_engine.research.thesis import (
     ThesisDocument,
     ThesisError,
     ThesisResult,
+    UnpublishedThesis,
     _round_payload_decimal,
     evaluate_thesis,
     load_independent_review,
@@ -62,7 +63,9 @@ def _evaluate(
     now: datetime | None = None,
 ) -> ThesisResult:
     document, review = _bind_review(raw, review_raw)
-    return evaluate_thesis(document, review=review, now=now or FIXED_NOW)
+    return evaluate_thesis(
+        document, review=review, now=now or FIXED_NOW, identity=UnpublishedThesis.DRAFT
+    )
 
 
 def _five_year_base_raw(raw: dict[str, object]) -> dict[str, object]:
@@ -100,7 +103,10 @@ def _screening_fv_bridge() -> dict[str, object]:
 
 def test_golden_thesis_is_ready_with_explicit_evidence_warning() -> None:
     result = evaluate_thesis(
-        load_thesis(FIXTURE), review=load_independent_review(REVIEW_FIXTURE), now=FIXED_NOW
+        load_thesis(FIXTURE),
+        review=load_independent_review(REVIEW_FIXTURE),
+        now=FIXED_NOW,
+        identity=UnpublishedThesis.DRAFT,
     )
 
     assert result.thesis_status == "ready_with_warnings"
@@ -384,7 +390,7 @@ def test_screening_fv_revision_uses_raw_decimal_values() -> None:
 
 def test_break_even_values_reproduce_required_return_and_are_monotonic() -> None:
     document = _document()
-    result = evaluate_thesis(document, now=FIXED_NOW)
+    result = evaluate_thesis(document, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT)
     break_even = result.five_year_base_break_even
     assert break_even is not None
     assert break_even.required_total_value_yen is not None
@@ -1062,12 +1068,21 @@ def test_evaluation_clock_requires_timezone_and_is_instant_equivalent() -> None:
     utc_now = jst_now.astimezone(UTC)
 
     assert jst_now.date() != utc_now.date()
-    jst_result = evaluate_thesis(document, review=review, now=jst_now)
-    utc_result = evaluate_thesis(document, review=review, now=utc_now)
+    jst_result = evaluate_thesis(
+        document, review=review, now=jst_now, identity=UnpublishedThesis.DRAFT
+    )
+    utc_result = evaluate_thesis(
+        document, review=review, now=utc_now, identity=UnpublishedThesis.DRAFT
+    )
 
     assert utc_result == jst_result
     with pytest.raises(ThesisError, match="timezone"):
-        evaluate_thesis(document, review=review, now=jst_now.replace(tzinfo=None))
+        evaluate_thesis(
+            document,
+            review=review,
+            now=jst_now.replace(tzinfo=None),
+            identity=UnpublishedThesis.DRAFT,
+        )
 
 
 def test_human_override_is_bound_to_exact_review_artifact() -> None:
@@ -1257,7 +1272,7 @@ def test_buy_candidate_requires_independent_second_pass() -> None:
     raw = _raw()
     raw["independent_review_ref"] = None
 
-    result = evaluate_thesis(_document(raw), now=FIXED_NOW)
+    result = evaluate_thesis(_document(raw), now=FIXED_NOW, identity=UnpublishedThesis.DRAFT)
 
     assert result.thesis_status == "review_required"
     assert result.errors == ("buy recommendation requires an independent second-pass review",)

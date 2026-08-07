@@ -37,7 +37,9 @@ from baibai_engine.research.thesis import (
     IndependentReview,
     ScreeningEstimate,
     ThesisDocument,
+    ThesisIdentity,
     ThesisResult,
+    UnpublishedThesis,
     evaluate_thesis,
     thesis_core_hash,
 )
@@ -1809,7 +1811,12 @@ def test_scaffolded_drafts_promote_without_repairing_their_own_structure(
     independent_review = IndependentReview.model_validate(
         safe_load(review_path.read_text(encoding="utf-8"))
     )
-    assert evaluate_thesis(document, review=independent_review, now=FIXED_NOW).errors == ()
+    assert (
+        evaluate_thesis(
+            document, review=independent_review, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT
+        ).errors
+        == ()
+    )
 
     db_path = tmp_path / "app.sqlite"
     promote_code, promote_payload = _run(
@@ -2100,21 +2107,22 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
     def recording_pre_store_evaluate(
         document: ThesisDocument,
         *,
+        identity: ThesisIdentity,
         review: IndependentReview | None = None,
         now: datetime | None = None,
     ) -> ThesisResult:
         validation_instants.append(now)
-        return real_pre_store_evaluate(document, review=review, now=now)
+        return real_pre_store_evaluate(document, review=review, now=now, identity=identity)
 
     def recording_store_evaluate(
         document: ThesisDocument,
         *,
         review: IndependentReview | None = None,
         now: datetime | None = None,
-        core_sha256: str | None = None,
+        identity: ThesisIdentity,
     ) -> ThesisResult:
         validation_instants.append(now)
-        return real_store_evaluate(document, review=review, now=now, core_sha256=core_sha256)
+        return real_store_evaluate(document, review=review, now=now, identity=identity)
 
     def service_factory(
         path: Path | None,
@@ -2159,7 +2167,12 @@ def test_promote_ready_publishes_atomic_thesis_and_review(
     review = IndependentReview.model_validate(
         safe_load((workspace / "2331" / LANE_REVIEW_NAME).read_text(encoding="utf-8"))
     )
-    assert evaluate_thesis(thesis, review=review, now=FIXED_NOW).errors == ()
+    assert (
+        evaluate_thesis(
+            thesis, review=review, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT
+        ).errors
+        == ()
+    )
 
 
 def test_promote_publishes_a_researched_lane_with_no_selected_ticker(
@@ -2268,7 +2281,7 @@ def test_screening_fv_bridge_scaffold_fill_promote_and_validate_e2e(
         safe_load((workspace / "2331/thesis-draft.yaml").read_text(encoding="utf-8"))
     )
     review = IndependentReview.model_validate(promoted_review)
-    result = evaluate_thesis(thesis, review=review, now=FIXED_NOW)
+    result = evaluate_thesis(thesis, review=review, now=FIXED_NOW, identity=UnpublishedThesis.DRAFT)
     assert result.errors == ()
     assert result.screening_fv_revision_pct is not None
     assert round(float(result.screening_fv_revision_pct), 4) == -0.1746
