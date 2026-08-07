@@ -73,10 +73,10 @@ description: 買い機会の発見と絞り込み。screening run → select →
    8. macro connection の research hint / sizing caution / estimate_caveats / bargain_topography のうち該当分を消化したか（該当なしの判断も書く）
    9. rejected 全件に具体的理由と `reject_class`（disposition_reason が正本、class は集計専用）
 
-9. **publish**: [`tools/shortlist/draft-template.yaml`](../../../tools/shortlist/draft-template.yaml) を写して記入し、source `selection_id` へ束縛して `uv run baibai-engine screening shortlist publish <draft>`。publisher が longlist 行（rank・FV アンカー・参考価格・warning）を entry へ焼き込むので、run が prune された後もレビュー面が判断根拠を読める。件数契約（8〜10 件）は **narrative 付き selected entry 数の目安**であり、entries 総数ではない（rejected を含む entries は longlist 全件で可）。基準を下げて枠を埋めない（selected 0 件も正常で、その cycle は shortlist が正本判断になり session をここで complete する）。draft に `er_annual` を書かない（publisher が bound run から焼き込む）。
+9. **publish**: [`tools/shortlist/draft-template.yaml`](../../../tools/shortlist/draft-template.yaml) を写して記入し、source `selection_id` へ束縛して `uv run baibai-engine screening shortlist publish <draft>`。publisher が longlist 行（rank・FV アンカー・参考価格・warning）を entry へ焼き込むので、run が prune された後もレビュー面が判断根拠を読める。selected に入れるのは **narrative を書ける entry だけ**で、件数の下限は無い。基準を下げて枠を埋めない（selected 0 件も正常で、その cycle は shortlist が正本判断になり session をここで complete する）。rejected を含む entries は longlist 全件で可。draft に `er_annual` を書かない（publisher が bound run から焼き込む）。
 10. **検証**: publish された全 entry の焼き込み E[r] を bound run と機械照合する。stderr に印字される follow-up task 提案（rejected の決算日 re-entry trigger）から `task add` を実行する。
 11. **cloud 反映**: `tools/cloud/r2_transfer.sh push-app` → `gh workflow run cloud-materialize` → run の completed success を確認。
-12. **checkpoint と報告**: session checkpoint を更新し、レビュー面（`/stocks/shortlist`）へ誘導する報告を出す。各 ticker に TradingView link（`https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`）を付け、件数契約からの逸脱・機械順位との乖離・残 risk を明記する。人間の選択を待つ（session は active のまま `research` skill へ）。
+12. **checkpoint と報告**: session checkpoint を更新し、レビュー面（`/stocks/shortlist`）へ誘導する報告を出す。各 ticker に TradingView link（`https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`）を付け、機械順位との乖離・残 risk を明記する。人間の選択を待つ（session は active のまま `research` skill へ）。
 
 ## 既知の gotcha
 

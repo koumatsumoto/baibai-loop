@@ -3,7 +3,6 @@ title: "Reference index"
 summary: "artifact、式、data source、runtime、validationの安定contractを調べる入口。"
 doc_type: reference-index
 status: active
-last_reviewed: 2026-08-03
 ---
 
 # Reference

@@ -3,7 +3,6 @@ title: "Screening runtime"
 summary: "screening CLI、provider、SQLite schema、cache coverage、runtime設定の実装仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-23
 ---
 
 # screening-runtime — CLI / provider / SQLite の実装仕様

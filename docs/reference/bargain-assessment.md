@@ -3,7 +3,6 @@ title: "Bargain assessment"
 summary: "深掘りしたlaneの横比較、購入方法または見送り理由、content review束縛を1つのimmutable判断文書へ固定する契約。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-29
 ---
 
 # bargain assessment — 割安機会評価

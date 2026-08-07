@@ -3,7 +3,6 @@ title: "Valuation metrics"
 summary: "screeningで使うvaluation指標の定義、単位、欠損、算出仕様。"
 doc_type: reference
 status: active
-last_reviewed: 2026-08-02
 ---
 
 # valuation-metrics — valuation 指標の算出仕様

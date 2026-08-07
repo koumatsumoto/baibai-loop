@@ -3,7 +3,6 @@ title: "Architecture"
 summary: "Baibai Loop の package、store、CLI、read-only app 契約の正本。"
 doc_type: architecture
 status: active
-last_reviewed: 2026-07-23
 ---
 
 # Architecture

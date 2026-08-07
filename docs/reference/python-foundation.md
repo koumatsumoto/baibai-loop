@@ -3,7 +3,6 @@ title: "Python foundation"
 summary: "Python の runtime・依存管理・lint・型検査・validation 境界・テスト・セキュリティ・CI 一致の正本。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-23
 source_paths:
   - "../../src/baibai_engine/"
   - "../../tests/"

@@ -3,7 +3,6 @@ title: "TOPIX ベース market regime v2 の定義 — 事前登録"
 summary: "regime の状態定義と閾値を計測前に固定し、80 cohort で E[r] 実現率を測った。出荷軸で 3 条件すべてを満たさず、レジーム依存は観測されなかった。実現率のばらつきの主因は entry 時の相場でなく forward 窓に何が起きたかで、entry 時点のレジームでは捉えられない。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-07-31
 ---
 
 # TOPIX ベース market regime v2 の定義 — 事前登録

@@ -3,7 +3,6 @@ title: "Portfolio ledger reference"
 summary: "application DBのeventからcash、予約、約定、保有、income、cost、taxを再計算する契約。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-19
 ---
 
 # Portfolio ledger

@@ -3,7 +3,6 @@ title: "Portfolio management"
 summary: "投資価値rankingを先に行い、資金目安、human-confirmed ledger、保有規律、年次評価を運用する方針。"
 doc_type: governance
 status: active
-last_reviewed: 2026-07-30
 related_docs:
   - "./doctrine.md"
   - "../AGENTS.md"

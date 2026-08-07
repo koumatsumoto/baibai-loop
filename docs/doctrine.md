@@ -3,7 +3,6 @@ title: "Doctrine"
 summary: "Baibai Loop の投資思想・大戦略・原則・語彙の正本。割安な優良銘柄を長期で積み立て、見積りの精度を運用の中で磨いていく単一ループを定義する。"
 doc_type: doctrine
 status: active
-last_reviewed: 2026-07-20
 ---
 
 # Doctrine — Baibai Loop の投資思想と大戦略

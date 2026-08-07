@@ -3,7 +3,6 @@ title: "信用需給 4 軸の採否基準 — 事前登録"
 summary: "信用取引週末残高から作った 4 軸のうち採否基準を満たしたのは margin_std_long_share のみ。margin_long_to_adv は素の基準を満たすが時価総額を固定すると効果が消える規模の代理だった。margin_long_share は仮説と逆向きに一貫して強く出たため不採用とし、別の事前登録へ送る。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-07-31
 ---
 
 # 信用需給 4 軸の採否基準 — 事前登録

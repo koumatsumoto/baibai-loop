@@ -3,7 +3,6 @@ title: "廃止銘柄の除外を有界バイアスとして扱う判定の事前
 summary: "exit value を持たない廃止銘柄が cohort を production evidence から外す現行契約を、報告値と両側代入で結論の向きが一致するなら通す判定へ改める。基準は計測前に固定し、計測後の改定は開示する。"
 doc_type: measurement-record
 status: active
-last_reviewed: 2026-07-31
 ---
 
 # 廃止銘柄の除外を有界バイアスとして扱う判定 — 事前登録

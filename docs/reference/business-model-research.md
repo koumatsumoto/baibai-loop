@@ -3,7 +3,6 @@ title: "Business-model research guide"
 summary: "個別銘柄researchでbusiness model固有の問いを選び、claimの一次性とissuerからの独立性を分けて検証するpilot guide。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-15
 related_docs:
   - "./thesis.md"
   - "./bargain-assessment.md"

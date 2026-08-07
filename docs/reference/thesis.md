@@ -3,7 +3,6 @@ title: "Thesis reference"
 summary: "5年総合リターン、永久損失、証拠状態、独立反証を持つ投資判断のcanonical contract。"
 doc_type: reference
 status: active
-last_reviewed: 2026-07-15
 ---
 
 # Thesis
