@@ -276,17 +276,24 @@ def _upload_ended_without_reporting(step_outcomes: Mapping[str, str]) -> bool:
     step_outcome = step_outcomes.get("upload-parallel", "skipped")
     if step_outcome in {"skipped", "success"}:
         return False
-    return any(step_outcomes.get(key, "") in {"", "unknown"} for key in _UPLOAD_BRANCH_KEYS)
+    return any(step_outcomes.get(key, "") == "" for key in _UPLOAD_BRANCH_KEYS)
 
 
 def derive_failed_step(step_outcomes: Mapping[str, str]) -> str:
-    """Return the first non-batch step (in step order) whose outcome is failure."""
+    """Name the step a reader should open first, or "" when none stands out."""
 
     for stage, key in _NON_BATCH_STEPS:
         if step_outcomes.get(key) == "failure":
             return stage
     if _upload_ended_without_reporting(step_outcomes):
-        return "upload-machine"
+        # Neither side reported, so which one got further is unknown. The step that
+        # ran both is the honest answer; naming one branch would send the reader
+        # after a push that may have been fine while the mirror was mid-delete.
+        return "upload-parallel"
+    # A step that was cancelled rather than failed still stopped the publish, and
+    # the reader needs somewhere to start.
+    if step_outcomes.get("publish-serving", "skipped") not in {"skipped", "success"}:
+        return "publish-serving"
     return ""
 
 

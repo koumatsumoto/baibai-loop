@@ -137,7 +137,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "6f0117793eecf3af161ca5651d6329c1d646da140dd628ce96a7452a099fa8ac"
     ),
     ("cloud-daily-batch.yml", "daily", "Upload machine stores and serving views"): (
-        "e41cdc61d36ce87a74682ea64155b84532f7e0cef0d63fb37e49062fb0fd3c74"
+        "e77b938fe7b7b68432b711c4d6ec20535ba7ff2128a497359d15627ee4cbf828"
     ),
     ("cloud-daily-batch.yml", "daily", "Publish serving history and freshness"): (
         "086900ba54f73ca72c924e5410450e9982bf5bd724920001dd31bcd77c59effe"
@@ -165,7 +165,7 @@ _EXPECTED_CREDENTIAL_STEP_DIGESTS = {
         "406ddbcec94d613165754b844b043db53d1b436695f7c9bfc4272fe4af3a6ada"
     ),
     ("cloud-materialize.yml", "materialize", "Upload serving objects"): (
-        "3f97eb805713411e04729bb266ec1fb724a39b2f42eefe3ea369b33c035c4351"
+        "825f998fac18144c049f3c08bcbece65275eec15e1b798e5be46288c971a2008"
     ),
     ("web.yml", "quality", "Deploy Worker and UI assets"): (
         "a2b8d961cc3c8b6a859c25410a6850b9bdfa8210bd63e2d4c79018048fe15c49"

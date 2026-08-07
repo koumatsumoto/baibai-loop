@@ -47,6 +47,9 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Not a credential. This workflow is the one to compare in-flight counts
+          # on, because nothing else runs beside the upload here.
+          R2_SERVING_UPLOAD_CONCURRENCY: ${{ vars.R2_SERVING_UPLOAD_CONCURRENCY }}
         # Same two stages the daily batch publishes through, in the same order.
         # Nothing runs alongside them here, so they are simply sequential.
         run: |

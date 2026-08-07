@@ -40,7 +40,7 @@ EXPECTED_COMMAND_DIGESTS = {
     "Pull the market store": "938b1c2bd6098ce32f515950463f176acac30d0a9ad51381a3f441a4a64d437a",
     "Run daily batch": "896f41273c2c8f78d3deadfa52f3df807c762249e968f71b0e95621058f9c0e3",
     "Upload machine stores and serving views": (
-        "9b552c141448f5224054a84ef07fbbd3734544062a0515e091f2447cb4213c92"
+        "d39adb2a5f7b443c94f37d3f5653ef5705a1a373a5436b1dda2691c19a597008"
     ),
     "Publish serving history and freshness": (
         "71bc4dd9419cf796a7f8eb89501f7d0cd25e1984a516b37c827e5a388d898034"

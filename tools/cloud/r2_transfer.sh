@@ -8,11 +8,10 @@ copy_read_timeout=300
 transfer_staging=""
 transfer_config=""
 # The serving prefix is thousands of small objects, so its wall clock is request
-# latency and not bytes: 3,740 objects totalling 54MB took 282s, which is 13
-# requests a second against the CLI's default of 10 in flight. The in-flight count
-# is therefore the only lever on that number. It is read from the environment so
-# the value can be compared on a real bucket without a code change.
-serving_upload_concurrency="${R2_SERVING_UPLOAD_CONCURRENCY:-32}"
+# latency and not bytes: 54MB across 3,740 objects took 282s, which is 13 requests
+# a second against the CLI's default of 10 in flight. The in-flight count is
+# therefore the only lever on that number.
+serving_upload_concurrency_default=32
 
 cleanup_staging() {
   if [[ -n "${transfer_staging}" && -d "${transfer_staging}" ]]; then
@@ -59,20 +58,33 @@ use_serving_transfer_settings() {
   # process points at. Credentials keep coming from the environment, which takes
   # precedence, so the file carries transfer settings and nothing else. Two of
   # these can run at once, so each gets its own file.
+  #
+  # The value is read here rather than at load time so `.env` (sourced by
+  # `load_credentials`, which runs first) can set it as well as the step env.
+  local concurrency
+  concurrency="${R2_SERVING_UPLOAD_CONCURRENCY:-${serving_upload_concurrency_default}}"
   transfer_config="$(mktemp "${TMPDIR:-/tmp}/baibai-r2-transfer.XXXXXX")"
   printf '[default]\ns3 =\n  max_concurrent_requests = %s\n' \
-    "${serving_upload_concurrency}" > "${transfer_config}"
+    "${concurrency}" > "${transfer_config}"
   export AWS_CONFIG_FILE="${transfer_config}"
-  printf 'serving transfer: max_concurrent_requests=%s\n' "${serving_upload_concurrency}"
+  # The version and the value the CLI actually resolves are printed because the
+  # setting has no flag to echo back: a runner whose CLI reads the config
+  # differently would otherwise transfer at the default and look identical.
+  printf 'serving transfer: max_concurrent_requests=%s aws=%s resolved=%s\n' \
+    "${concurrency}" \
+    "$(aws --version 2>&1)" \
+    "$(aws configure get s3.max_concurrent_requests 2>/dev/null || printf 'unset')"
 }
 
+# How many objects a stage is about to move. Reported next to the elapsed seconds
+# so a run's log answers whether raising the in-flight count changed anything.
 count_files() {
   local directory="$1"
   if [[ ! -d "${directory}" ]]; then
     printf '0\n'
     return 0
   fi
-  find "${directory}" -type f | wc -l | tr -d ' '
+  find "${directory}" -type f | wc -l | tr -d ' \n'
 }
 
 remote_object_exists() {
@@ -240,16 +252,19 @@ require_complete_export() {
 }
 
 upload_serving_views() {
-  # The mutable image of the current run. It is 3,740 of the 3,743 objects a run
-  # publishes and every one of them is rewritten daily, so this is the part worth
-  # overlapping with the store push. Nothing here is a durable record: the next
-  # business day replaces all of it.
+  # The mutable image of the current run: every view except the freshness claim,
+  # which is nearly all of what a run publishes. All of it is rewritten each
+  # business day, so this is the part worth overlapping with the store push and
+  # the part a failed run can leave behind without lasting harm.
   local output_dir="$1"
   require_complete_export "${output_dir}"
   use_serving_transfer_settings
   local started objects
   started="${SECONDS}"
-  objects="$(count_files "${output_dir}/views")"
+  # `meta.json` is excluded from this mirror and published by the tail stage, so it
+  # is not one of the objects this stage moves. `require_complete_export` has
+  # already established that it is there to subtract.
+  objects="$(( $(count_files "${output_dir}/views") - 1 ))"
   aws_s3 sync "${output_dir}/views/" "s3://${serving_bucket}/views/" \
     --delete --exclude meta.json
   printf 'serving views: objects=%s elapsed=%ss\n' "${objects}" "$((SECONDS - started))"
@@ -304,7 +319,7 @@ pull_longlist_history() {
 }
 
 upload_run_summary() {
-  # The workflow run summary lives outside `views/`, which `upload_serving`
+  # The workflow run summary lives outside `views/`, which `upload_serving_views`
   # mirrors with `--delete`: a failed run publishes no export, so its record has
   # to survive the next successful one. One object, always overwritten — the run
   # timeline stays in Discord and the Actions history.

@@ -172,6 +172,10 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Not a credential. Unset resolves to the script's default, so comparing
+          # two in-flight counts on the real bucket is a repository variable rather
+          # than a code change.
+          R2_SERVING_UPLOAD_CONCURRENCY: ${{ vars.R2_SERVING_UPLOAD_CONCURRENCY }}
         run: |
           # Each side writes to its own log so the two do not interleave into an
           # unreadable stream; both are printed in full once they have finished.
@@ -186,12 +190,23 @@ jobs:
           wait "$machine_pid" || machine_code=$?
           views_code=0
           wait "$views_pid" || views_code=$?
-          echo "::group::push-machine"
-          cat "$machine_log"
-          echo "::endgroup::"
-          echo "::group::upload-serving-views"
-          cat "$views_log"
-          echo "::endgroup::"
+          # A side that succeeded is folded away; a side that failed is printed
+          # open, because a collapsed group is the first thing a reader opening a
+          # red run has to fight past.
+          for side in "machine:$machine_code:$machine_log" "views:$views_code:$views_log"; do
+            name="${side%%:*}"
+            rest="${side#*:}"
+            code="${rest%%:*}"
+            log="${rest#*:}"
+            if [[ "$code" -eq 0 ]]; then
+              echo "::group::$name"
+              cat "$log"
+              echo "::endgroup::"
+            else
+              echo "::error::$name upload failed with exit $code"
+              cat "$log"
+            fi
+          done
           # Written before the exit so the notification can tell which side failed;
           # a step killed by a timeout writes neither, which the notifier reads as
           # unknown rather than as "did not upload".
@@ -205,8 +220,14 @@ jobs:
           else
             echo "views=failure" >> "$GITHUB_OUTPUT"
           fi
-          if [[ $machine_code -ne 0 || $views_code -ne 0 ]]; then
-            exit 1
+          # The transfer script distinguishes its exits (2 is a refused contract,
+          # 126/127 a launch failure), so one of them is carried out rather than
+          # flattened to 1.
+          if [[ $machine_code -ne 0 ]]; then
+            exit "$machine_code"
+          fi
+          if [[ $views_code -ne 0 ]]; then
+            exit "$views_code"
           fi
 
       - name: Publish serving history and freshness

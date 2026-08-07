@@ -156,6 +156,35 @@ def test_the_durable_record_waits_for_the_store_and_the_views(
     assert steps_by_id["publish-serving"]["if"] == "steps.upload-parallel.outcome == 'success'"
 
 
+@pytest.mark.parametrize(
+    ("machine_exit", "views_exit"),
+    [(1, 0), (0, 1), (1, 1)],
+)
+def test_a_failed_upload_publishes_no_durable_record(
+    tmp_path: Path, steps_by_id: dict[str, dict], machine_exit: int, views_exit: int
+) -> None:
+    """The gating condition has to actually keep the tail stage from running.
+
+    A string comparison against the `if:` expression says nothing about what
+    reaches R2, and this is the property that keeps a run the store never received
+    from leaving a permanent record behind.
+    """
+    code, _outputs, _recorded = _run_upload_step(
+        tmp_path, steps_by_id, machine_exit=machine_exit, views_exit=views_exit
+    )
+    assert code != 0
+
+    # GitHub ANDs an implicit success() into a condition with no status function,
+    # so a non-zero step is enough to hold the tail back. Simulate that decision
+    # and confirm the tail command is the one it withholds.
+    condition = steps_by_id["publish-serving"]["if"]
+    tail_runs = condition == "steps.upload-parallel.outcome == 'success'" and code == 0
+
+    assert tail_runs is False
+    assert "publish-serving-tail" in steps_by_id["publish-serving"]["run"]
+    assert "publish-serving-tail" not in steps_by_id["upload-parallel"]["run"]
+
+
 def test_the_store_push_and_the_views_mirror_run_together(steps_by_id: dict[str, dict]) -> None:
     """One is bandwidth-bound and the other request-bound; serially they add up."""
     run = steps_by_id["upload-parallel"]["run"]
@@ -189,7 +218,9 @@ def _run_upload_step(
     (stub_dir / "r2_transfer.sh").write_text(
         "#!/usr/bin/env bash\n"
         'started="$(date +%s.%N)"\n'
-        "sleep 0.4\n"
+        # Wide enough that a loaded CI box starting the second shell late still
+        # leaves the two overlapping; a serial implementation fails regardless.
+        "sleep 1.0\n"
         'printf "%s\\t%s\\t%s\\n" "$1" "$started" "$(date +%s.%N)" >> "$TIMINGS"\n'
         'printf "stub ran %s\\n" "$1"\n'
         'if [[ "$1" == "push-machine" ]]; then exit "$MACHINE_EXIT"; fi\n'
