@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
-from enum import StrEnum
 from math import isfinite
 from typing import Annotated, Any
 
@@ -10,6 +9,9 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.market.ticker import normalize_ticker as normalize_ticker
+
+from .metric_quality import OperatingProfitSource as OperatingProfitSource
+from .metric_quality import TTMQuality as TTMQuality
 
 _MODEL_CONFIG = ConfigDict(
     strict=True,
@@ -23,19 +25,6 @@ type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
 type NonEmptyString = Annotated[str, Field(min_length=1)]
 type NonNegativeInt = Annotated[int, Field(ge=0)]
-
-
-class TTMQuality(StrEnum):
-    EXACT = "exact"
-    APPROXIMATED = "approximated"
-    UNAVAILABLE = "unavailable"
-
-
-class OperatingProfitSource(StrEnum):
-    OPERATING_PROFIT = "OperatingProfit"
-    ORDINARY_PROFIT = "OrdinaryProfit"
-    PROFIT = "Profit"
-    NULL = "null"
 
 
 def _validate_finite(value: float | None) -> float | None:
