@@ -45,7 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine macro context")
     parser.add_argument("--db", type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
-    publish = commands.add_parser("publish")
+    publish = commands.add_parser(
+        "publish",
+        help="publish a macro context report as the new immutable head",
+    )
     publish.add_argument("draft", type=Path)
     publish.add_argument("--expected-head")
     publish.add_argument(
@@ -57,13 +60,22 @@ def build_parser() -> argparse.ArgumentParser:
             "and the predecessor scorecard digest — still run only on real publish)"
         ),
     )
-    show = commands.add_parser("show")
+    show = commands.add_parser(
+        "show",
+        help="print one published report, by id or as the latest one",
+    )
     selection = show.add_mutually_exclusive_group(required=True)
     selection.add_argument("--latest", action="store_true")
     selection.add_argument("--context-id")
     show.add_argument("--asof", required=True, type=date.fromisoformat)
-    commands.add_parser("head")
-    scorecard = commands.add_parser("scorecard")
+    commands.add_parser(
+        "head",
+        help="print the current head id, for the compare-and-swap on the next publish",
+    )
+    scorecard = commands.add_parser(
+        "scorecard",
+        help="score a report's machine-checkable claims against the indicator store",
+    )
     scorecard.add_argument("--context-id", required=True)
     scorecard.add_argument("--asof", required=True, type=date.fromisoformat)
     scorecard.add_argument(

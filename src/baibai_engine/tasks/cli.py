@@ -20,7 +20,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine task")
     parser.add_argument("--db", type=Path)
     commands = parser.add_subparsers(dest="command", required=True)
-    add = commands.add_parser("add")
+    add = commands.add_parser(
+        "add",
+        help="add an operation task with a due date, trigger event, and close condition",
+    )
     add.add_argument("--title", required=True)
     add.add_argument("--kind", required=True, choices=_kinds())
     add.add_argument("--due", required=True, type=date.fromisoformat)
@@ -29,14 +32,28 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--event-label")
     add.add_argument("--body")
     add.add_argument("--related-ref", action="append", default=[])
-    list_parser = commands.add_parser("list")
+    list_parser = commands.add_parser(
+        "list",
+        help="list tasks in due order, optionally filtered by status",
+    )
     list_parser.add_argument("--status", choices=_statuses())
-    for command in ("done", "drop"):
-        close = commands.add_parser(command)
+    # 終端の 2 値は「判断が済んだ」と「問いが不成立になった」で、閉じた理由が違う。
+    close_help = {
+        "done": "close a task whose judgment and canonical update are complete",
+        "drop": "close a task whose question no longer holds",
+    }
+    for command, help_text in close_help.items():
+        close = commands.add_parser(command, help=help_text)
         close.add_argument("task_id")
-    reconcile = commands.add_parser("reconcile-earnings")
+    reconcile = commands.add_parser(
+        "reconcile-earnings",
+        help="align earnings-review tasks with the disclosed earnings calendar",
+    )
     reconcile.add_argument("--sqlite-path", type=Path, default=Path("data/screening/market.sqlite"))
-    edit = commands.add_parser("edit")
+    edit = commands.add_parser(
+        "edit",
+        help="change an open task's title, kind, due date, trigger event, body, or refs",
+    )
     edit.add_argument("task_id")
     edit.add_argument("--title")
     edit.add_argument("--kind", choices=_kinds())

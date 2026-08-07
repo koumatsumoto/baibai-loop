@@ -55,7 +55,7 @@ from .run import run_command
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m baibai_engine.screening.cli")
+    parser = argparse.ArgumentParser(prog="baibai-engine screening")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="run weekly screening")
@@ -298,7 +298,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="publish a shortlist judgment",
     )
     shortlist_commands = shortlist_parser.add_subparsers(dest="shortlist_command", required=True)
-    shortlist_publish = shortlist_commands.add_parser("publish")
+    shortlist_publish = shortlist_commands.add_parser(
+        "publish",
+        help="publish a shortlist draft as an immutable judgment bound to a screening run",
+    )
     shortlist_publish.add_argument("draft")
     shortlist_publish.add_argument("--db", help="application DB path")
     shortlist_publish.add_argument("--runs-db", help="screening run store path")

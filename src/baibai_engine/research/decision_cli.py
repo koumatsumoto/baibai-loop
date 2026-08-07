@@ -18,15 +18,22 @@ from .thesis import (
 )
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="baibai-engine research evaluate",
+        description="Evaluate a thesis draft against the decision gate without writing anything.",
+    )
+    parser.add_argument("thesis", type=Path)
+    return parser
+
+
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     """Evaluate a thesis file and print the domain result.
 
     ``now`` fixes the instant evidence and overrides are judged against, so a
     caller reproducing a dated situation gets the same verdict whenever it runs.
     """
-    parser = argparse.ArgumentParser(prog="baibai-engine research evaluate")
-    parser.add_argument("thesis", type=Path)
-    args = parser.parse_args(argv)
+    args = build_parser().parse_args(argv)
     try:
         document = load_thesis(args.thesis)
         review_path = _review_path(args.thesis, document.independent_review_ref)

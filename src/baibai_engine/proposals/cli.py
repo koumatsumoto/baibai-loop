@@ -31,17 +31,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--market-db", type=Path, default=Path("data/screening/market.sqlite"))
     commands = parser.add_subparsers(dest="command", required=True)
 
-    create = commands.add_parser("create")
+    create = commands.add_parser(
+        "create",
+        help="draft a pending order proposal bound to a published thesis; places no order",
+    )
     create.add_argument("--thesis-id", required=True)
     create.add_argument("--input", type=Path, required=True)
 
-    listing = commands.add_parser("list")
+    listing = commands.add_parser(
+        "list",
+        help="list order proposals, optionally filtered by decision status",
+    )
     listing.add_argument("--status", choices=("pending", "approved", "deferred", "rejected"))
 
-    show = commands.add_parser("show")
+    show = commands.add_parser(
+        "show",
+        help="print one proposal with its thesis binding and limit terms",
+    )
     show.add_argument("proposal_id")
 
-    decide = commands.add_parser("decide")
+    decide = commands.add_parser(
+        "decide",
+        help="record the owner's approve / defer / reject decision on a pending proposal",
+    )
     decide.add_argument("proposal_id")
     decide.add_argument("--decision", choices=("approve", "defer", "reject"), required=True)
     return parser

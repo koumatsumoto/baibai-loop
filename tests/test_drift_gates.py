@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from tools.drift import (
     check_cli_doc,
+    check_cli_help,
     check_duplicate_constants,
     check_legacy_semantics,
     check_markdown_links,
@@ -16,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_repository_passes_all_drift_gates() -> None:
     assert check_markdown_links.check(ROOT) == []
     assert check_cli_doc.check(ROOT) == []
+    assert check_cli_help.check(ROOT) == []
     assert check_legacy_semantics.check(ROOT) == []
     assert check_duplicate_constants.check(ROOT) == []
     assert check_skill_inventory.check(ROOT) == []
@@ -247,3 +250,41 @@ def test_markdown_link_gate_accepts_duplicate_heading_suffix(tmp_path: Path) -> 
         "[first](./docs/a.md#note) [second](./docs/a.md#note-1)\n", encoding="utf-8"
     )
     assert check_markdown_links.check(tmp_path) == []
+
+
+def _parser_with(*, described: bool) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="demo")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("publish", help="publish a draft" if described else None)
+    return parser
+
+
+def test_cli_help_gate_rejects_a_subcommand_without_a_description() -> None:
+    assert check_cli_help.undescribed_subcommands("demo", _parser_with(described=False)) == [
+        "demo publish: subcommand has no --help description"
+    ]
+
+
+def test_cli_help_gate_accepts_a_described_subcommand() -> None:
+    assert check_cli_help.undescribed_subcommands("demo", _parser_with(described=True)) == []
+
+
+def test_cli_help_gate_rejects_an_unregistered_delegating_stub() -> None:
+    parser = argparse.ArgumentParser(prog="demo")
+    commands = parser.add_subparsers(dest="command", required=True)
+    # 素通し stub は自分の parser を持たない。登録されていなければ、その配下の
+    # subcommand は 1 つも検査されないまま gate が緑になる。
+    commands.add_parser(
+        "group", help="a group whose arguments are parsed elsewhere", add_help=False
+    )
+    assert check_cli_help.undescribed_subcommands("demo", parser) == [
+        "demo group: delegating stub is not registered in DELEGATED_GROUPS"
+    ]
+
+
+def test_cli_help_gate_reaches_subcommands_behind_a_registered_delegation() -> None:
+    # 実際の delegation を 1 本辿り、stub の向こう側まで検査が届くことを確かめる。
+    context = check_cli_help.build_parser(
+        check_cli_help.DELEGATED_GROUPS["baibai-engine macro context"]
+    )
+    assert "publish" in check_cli_help._subparser_actions(context)[0].choices
