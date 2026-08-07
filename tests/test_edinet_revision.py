@@ -24,6 +24,8 @@ _ENGINE_ROOT = Path(__file__).resolve().parents[1] / "src" / "baibai_engine"
 # EDINET metric baseline is thrown away, so it must not drift silently in either
 # direction. Every entry can change what an EDINET metric row says.
 _EXPECTED_MANIFEST = (
+    "market/jquants.py",
+    "market/sqlite/convert.py",
     "market/ticker.py",
     "screening/cli/common.py",
     "screening/cli/edinet_extract.py",
@@ -32,14 +34,44 @@ _EXPECTED_MANIFEST = (
     "screening/metric_quality.py",
     "screening/providers/edinet.py",
     "screening/providers/edinet_csv.py",
+    "screening/source_coverage.py",
     "screening/sqlite_cache/edinet.py",
     "screening/store_readiness.py",
 )
 
-# Screening modules the extraction path cannot reach. They carry ranking, narrative,
-# calibration, and the other providers' logic — all edited far more often than the
-# extraction path itself, and none of it able to change a stored EDINET metric row.
-_UNREACHABLE_ARTIFACTS = (
+# What the extraction reaches *outside* the tracked prefixes. Importing the entry also
+# executes package `__init__` files that pull in far more than this, so "the extraction
+# never imports it" is not the safety criterion — "the extraction never references a
+# symbol from it" is. These are referenced and deliberately untracked:
+#
+# - `market.sqlite.schema` / `.migrations`: connections and schema version. A schema
+#   change is already visible as a migration, not as a silently different row value.
+# - `market.sqlite.coverage`: coverage bookkeeping the store write records. The baseline
+#   read validates coverage with its own SQL (`edinet_store`), so a change here cannot
+#   make a row's values wrong without also making the snapshot unreadable.
+# - `market.sqlite`: the package facade, re-exports only.
+# - `market.bars`: the daily-bar dataclasses `market.jquants` declares. No EDINET row
+#   carries a bar.
+#
+# Pinning the set is what stops a value-affecting helper from being moved out of the
+# manifest: the closure would then reach a fifth module and this test fails.
+_UNTRACKED_REACHED_MODULES = frozenset(
+    {
+        "baibai_engine.market.bars",
+        "baibai_engine.market.sqlite",
+        "baibai_engine.market.sqlite.coverage",
+        "baibai_engine.market.sqlite.migrations",
+        "baibai_engine.market.sqlite.schema",
+    }
+)
+
+# Screening modules whose symbols the extraction never references. They carry ranking,
+# narrative, calibration, and the other providers' logic — all edited far more often than
+# the extraction path itself, and none of it able to change a stored EDINET metric row.
+# Several of them are still *imported* at runtime, because importing the entry executes
+# `screening/cli/__init__.py`; what keeps them out of the manifest is that no symbol of
+# theirs is named on the value path.
+_UNREFERENCED_ARTIFACTS = (
     "screening/shortlist.py",
     "screening/shortlist_outcome.py",
     "screening/earnings_lag.py",
@@ -93,9 +125,9 @@ def test_manifest_matches_the_import_closure_of_the_extraction_entry() -> None:
     assert re.fullmatch(r"[0-9a-f]{64}", compute_extractor_revision())
 
 
-def test_manifest_excludes_screening_modules_the_extraction_path_cannot_reach() -> None:
+def test_manifest_excludes_screening_modules_the_extraction_never_references() -> None:
     manifest = set(extraction_artifact_manifest())
-    for artifact in _UNREACHABLE_ARTIFACTS:
+    for artifact in _UNREFERENCED_ARTIFACTS:
         assert (_ENGINE_ROOT / artifact).is_file(), f"{artifact} no longer exists"
         assert artifact not in manifest
 
@@ -242,3 +274,34 @@ def test_metric_values_stay_pinned_to_the_narrowed_manifest() -> None:
     assert record.total_assets == 1400.0
     assert record.ttm_quality_fcf is TTMQuality.EXACT
     assert record.failure_reasons == ()
+
+
+def test_the_untracked_part_of_the_closure_is_exactly_the_reviewed_set() -> None:
+    """A value-affecting helper must not leave the manifest by changing package.
+
+    The manifest only hashes `_TRACKED_PREFIXES`, so moving a predicate or a coercion
+    into an untracked package removes it from the revision without changing the
+    manifest, the revision, or any other test. Pinning what the extraction reaches
+    outside those prefixes is what makes such a move fail.
+    """
+    from baibai_engine.screening import edinet_revision as revision
+
+    visited: set[str] = set()
+    untracked: set[str] = set()
+    pending = list(revision._ENTRY_MODULES)
+    while pending:
+        module = pending.pop()
+        if module in visited:
+            continue
+        resolved = revision._resolve_module(module)
+        if resolved is None:
+            continue
+        if not revision._is_tracked(module):
+            untracked.add(module)
+            continue
+        visited.add(module)
+        path, is_package = resolved
+        source = revision._artifact(path).read_bytes()
+        pending.extend(revision._imported_modules(source, module=module, is_package=is_package))
+
+    assert untracked == set(_UNTRACKED_REACHED_MODULES)

@@ -451,25 +451,6 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
     )
 
 
-def date_covered(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
-    """True when a single successful coverage row spans `on_date`.
-
-    Unlike `range_covered` this does not stitch adjacent intervals together, because
-    the callers are per-date snapshots: two neighbouring days being present says
-    nothing about the day between them having been imported.
-    """
-    iso = on_date.isoformat()
-    try:
-        cursor = conn.execute(
-            "SELECT 1 FROM source_coverage WHERE source = ? "
-            "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
-            (source, iso, iso),
-        )
-    except sqlite3.OperationalError:
-        return False
-    return cursor.fetchone() is not None
-
-
 def missing_intervals(
     conn: sqlite3.Connection, source: str, start: date, end: date
 ) -> tuple[tuple[date, date], ...]:

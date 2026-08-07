@@ -21,7 +21,6 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.sqlite import (
     connect_current,
-    date_covered,
     optional_date,
     optional_float,
     range_covered,
@@ -680,7 +679,7 @@ def read_jpx_regulations(sqlite_path: Path, asof_date: date) -> JPXRegulationSna
     if conn is None:
         return None
     try:
-        if not date_covered(conn, "jpx_regulation_flags", asof_date):
+        if not _date_imported(conn, "jpx_regulation_flags", asof_date):
             return None
         rows = conn.execute(
             "SELECT source_name, ticker, flag FROM jpx_regulation_flags "
@@ -741,6 +740,20 @@ def _has_any_import(conn: sqlite3.Connection, source: str) -> bool:
             "SELECT 1 FROM source_coverage WHERE source = ? "
             "AND status = 'ok' AND record_count > 0 LIMIT 1",
             (source,),
+        )
+    except sqlite3.OperationalError:
+        return False
+    return cur.fetchone() is not None
+
+
+def _date_imported(conn: sqlite3.Connection, source: str, on_date: date) -> bool:
+    """True when `source_coverage` records `source` for `on_date`."""
+    iso = on_date.isoformat()
+    try:
+        cur = conn.execute(
+            "SELECT 1 FROM source_coverage WHERE source = ? "
+            "AND coverage_start <= ? AND coverage_end >= ? AND status = 'ok' LIMIT 1",
+            (source, iso, iso),
         )
     except sqlite3.OperationalError:
         return False

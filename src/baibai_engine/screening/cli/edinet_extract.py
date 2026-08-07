@@ -1,16 +1,16 @@
 """The `extract-edinet-metrics` command — the entry point of the EDINET metric path.
 
-The extractor's revision is the hash of this module's import closure, so what this file
-reaches decides when every stored EDINET metric row is discarded and several thousand
+The extractor's revision is the hash of the modules this file *references*, so what it
+names decides when every stored EDINET metric row is discarded and several thousand
 filings are downloaded again. It therefore lives on its own rather than beside the other
-cache commands: `bootstrap-cache`, `verify-cache-coverage` and `backfill-history` pull in
+cache commands: `bootstrap-cache`, `verify-cache-coverage` and `backfill-history` name
 J-Quants, JPX and coverage machinery that cannot change an EDINET metric row's value, and
 a module shared with them would put all of it into the closure.
 
-The same reasoning shapes the imports below. The store read comes from
-`edinet_baseline` rather than `sqlite_reader`, the store write from `sqlite_cache.edinet`
-rather than the package facade, and the provider is a protocol declared here rather than
-the CLI's shared adapter bundle — each of those alternatives reaches the other sources.
+The same reasoning shapes the imports below. The store read comes from `edinet_store`
+rather than `sqlite_reader`, the store write from `sqlite_cache.edinet` rather than the
+package facade, and the provider is a protocol declared here rather than the CLI's shared
+adapter bundle — each of those alternatives names the other sources.
 """
 
 from __future__ import annotations

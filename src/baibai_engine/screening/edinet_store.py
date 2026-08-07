@@ -18,10 +18,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.sqlite import connect_current, date_covered
+from baibai_engine.market.sqlite import connect_current
 
 from .edinet_revision import has_hard_metric_failure
 from .providers.edinet import EdinetMetricRecord, normalize_metric_record
+from .source_coverage import date_covered
 
 
 class EDINETMetricBaselineError(RuntimeError):
@@ -41,7 +42,7 @@ class EDINETMetricBaseline:
     rows: Mapping[str, EDINETMetricBaselineRow]
 
 
-def normalize_edinet_metric_sql_row(row: Sequence[Any]) -> EdinetMetricRecord:
+def _normalize_edinet_metric_sql_row(row: Sequence[Any]) -> EdinetMetricRecord:
     """Reuse the provider's normalize step so SQLite rows get the same coercion.
 
     The typed columns already match the normalizer's key set, so the payload it
@@ -148,7 +149,7 @@ def read_edinet_metric_baseline(
             baseline_rows: dict[str, EDINETMetricBaselineRow] = {}
             try:
                 for row in rows:
-                    record = normalize_edinet_metric_sql_row(row)
+                    record = _normalize_edinet_metric_sql_row(row)
                     if has_hard_metric_failure(record.failure_reasons):
                         raise EDINETMetricBaselineError(
                             f"EDINET metric baseline contains a hard parser failure for "
@@ -295,6 +296,6 @@ def read_edinet_metrics(
     # already match its key set).
     records: dict[str, EdinetMetricRecord] = {}
     for row in rows:
-        record = normalize_edinet_metric_sql_row(row)
+        record = _normalize_edinet_metric_sql_row(row)
         records[record.ticker] = record
     return records
