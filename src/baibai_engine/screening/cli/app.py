@@ -38,6 +38,7 @@ from .cache import (
     backfill_master_command,
     bootstrap_cache_command,
     invalidate_coverage_command,
+    refresh_buyback_reports_command,
     refresh_edinet_documents_command,
     verify_cache_coverage_command,
 )
@@ -154,6 +155,27 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=540,
         help="EDINET document-list lookback window in calendar days (default 540)",
+    )
+
+    buyback_parser = subparsers.add_parser(
+        "refresh-buyback-reports",
+        help="read the buyback authorization state out of listed form-220 filings",
+    )
+    buyback_parser.add_argument(
+        "--asof",
+        required=True,
+        help="latest reporting date to consider (YYYY-MM-DD)",
+    )
+    buyback_parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=540,
+        help="how far back to read filings from --asof, in calendar days (default 540)",
+    )
+    buyback_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
 
     invalidate_parser = subparsers.add_parser(
@@ -673,6 +695,14 @@ def main(argv: list[str] | None = None) -> int:
         return refresh_edinet_documents_command(
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
+        )
+
+    if args.command == "refresh-buyback-reports":
+        return refresh_buyback_reports_command(
+            asof_date=_parse_iso_date(args.asof),
+            lookback_days=args.lookback_days,
+            providers=providers,
+            sqlite_path=Path(args.sqlite_path),
         )
 
     if args.command == "backfill-history":

@@ -14,9 +14,12 @@ from baibai_engine.foundation.filesystem import write_text_atomic
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.buyback_authorization import (
+    ACQUISITION_PACE_MONTHS,
     build_buyback_authorization,
     read_buyback_status_filings,
+    with_authorization_state,
 )
+from baibai_engine.screening.buyback_store import read_buyback_reports
 from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.candidate_build import build_screened_candidate
 from baibai_engine.screening.config import (
@@ -263,6 +266,14 @@ def run_command(
     buyback_filings = read_buyback_status_filings(
         config.sqlite_cache_dir / "market.sqlite", through=asof_date
     )
+    # 枠の中身は別 table から読む。提出の有無と枠の状態は別の観測なので、片方が欠けても
+    # もう片方は出る。
+    buyback_reports = read_buyback_reports(
+        config.sqlite_cache_dir / "market.sqlite",
+        tickers=sorted(securities_by_ticker),
+        asof=asof_date,
+        months=ACQUISITION_PACE_MONTHS,
+    )
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -325,16 +336,19 @@ def run_command(
                     summaries=summaries_by_ticker.get(ticker, ()),
                 ),
                 normalized_per_3fy=normalized_profit.normalized_per_3fy,
-                buyback_authorization=build_buyback_authorization(
-                    asof=asof_date,
-                    latest_filing_date=(
-                        None
+                buyback_authorization=with_authorization_state(
+                    build_buyback_authorization(
+                        asof=asof_date,
+                        latest_filing_date=(
+                            None
+                            if buyback_filings is None
+                            else buyback_filings.latest_filing_by_ticker.get(ticker)
+                        ),
+                        observed_from=None
                         if buyback_filings is None
-                        else buyback_filings.latest_filing_by_ticker.get(ticker)
+                        else buyback_filings.observed_from,
                     ),
-                    observed_from=None
-                    if buyback_filings is None
-                    else buyback_filings.observed_from,
+                    buyback_reports.get(ticker, ()),
                 ),
             )
         )

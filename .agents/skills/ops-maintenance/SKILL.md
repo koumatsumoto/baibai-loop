@@ -73,6 +73,19 @@ tools/cloud/r2_transfer.sh upload-serving <dir>
 
 **machine store が古いまま export しない。** export は app と machine の両方を読み、serving の `screening_latest.run` / `rows` は machine 側から来る。ローカルで `screening run` を打った直後にここを回すと、cloud の runs store に無い run が serving へ出る。`runs.sqlite` は cloud が唯一の writer なので push でも揃えられない（`push-machine` は Actions 専用）。判断（shortlist / session / task）だけを反映したいならそれで足りる — app 由来の view は正しく更新される。machine 側も揃えたいときは `pull-machine` を先に回すが、**ローカルの run は消える**ので、まだ参照する selection があるなら先に `selection show` で控える。
 
+## 取得枠 store の初期充填
+
+`refresh-buyback-reports` は日次 batch が毎日回すが、初回だけは 6,500 件超の遡及があり、EDINET が
+`429` を返して途中で止まる。**止まっても成果は残る**（保存済みの提出は二度と取りに行かない）ので、
+`rate_limited=false` になるまで日を分けて繰り返す。
+
+```bash
+uv run baibai-engine screening refresh-buyback-reports --asof <最新完全営業日> --lookback-days 400
+```
+
+`unreadable` は様式が読めなかった件数で、0 にはならない（取締役会決議の節を持たない提出が
+含まれる）。`stored` が増えなくなり `considered` が 0 になれば充填は完了である。
+
 ## 月次維持
 
 - **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分。rules 改訂後は `--force` 再構築）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。
