@@ -60,6 +60,17 @@ cloud 障害は「store が code より古い」形で出ることが多い。�
 
 app / macro を publish したら `gh workflow run cloud-materialize` を dispatch し、run の completed success を確認する。view shape を変える deploy では **code deploy → materialize の順**を守り、UI は旧 view で graceful degrade できることを確認する。
 
+**Actions が runner を取れないときはローカルで同じ 3 手順を回す。** workflow は pull → export → upload の 3 段でしかないので、正本がローカルにある状態なら pull を省いて残り 2 段を実行すれば結果は同じになる。
+
+```bash
+uv run python tools/cloud/export_read_models.py --output-dir <dir> --batch manual
+tools/cloud/r2_transfer.sh upload-serving <dir>
+```
+
+`<dir>` は使い捨ての作業ディレクトリにする。upload 後は read 経路を 1 つ踏んで確認する。
+
+**machine store が古いまま export しない。** export は app と machine の両方を読み、serving の `screening_latest.run` / `rows` は machine 側から来る。ローカルで `screening run` を打った直後にここを回すと、cloud の runs store に無い run が serving へ出る。`runs.sqlite` は cloud が唯一の writer なので push でも揃えられない（`push-machine` は Actions 専用）。判断（shortlist / session / task）だけを反映したいならそれで足りる — app 由来の view は正しく更新される。machine 側も揃えたいときは `pull-machine` を先に回すが、**ローカルの run は消える**ので、まだ参照する selection があるなら先に `selection show` で控える。
+
 ## 月次維持
 
 - **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分。rules 改訂後は `--force` 再構築）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。

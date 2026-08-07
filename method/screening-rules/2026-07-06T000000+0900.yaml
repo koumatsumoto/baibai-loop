@@ -99,7 +99,7 @@ screening_playbooks:
     - 不動産業
     cash_to_market_cap_min: 0.4
     edinet_net_cash_to_market_cap_min_if_available: 0.0
-    price_to_equity_max: 1.0
+    pbr_max: 1.0
     equity_ratio_min: 0.3
     operating_profit_positive_required: true
     # 営業利益の急減 (operating_profit_yoy <= -0.3) で deterioration gate を

@@ -112,10 +112,8 @@ class FinancialSnapshot:
     cfo: float | None = None
     cash_eq: float | None = None
     total_assets: float | None = None
-    equity: float | None = None
     market_cap: float | None = None
     cash_to_market_cap: float | None = None
-    price_to_equity: float | None = None
     equity_ratio: float | None = None
     ocf_yield: float | None = None
     net_cash: float | None = None
@@ -196,10 +194,8 @@ class FinancialSnapshot:
         "cfo",
         "cash_eq",
         "total_assets",
-        "equity",
         "market_cap",
         "cash_to_market_cap",
-        "price_to_equity",
         "equity_ratio",
         "ocf_yield",
         "net_cash",

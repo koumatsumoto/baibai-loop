@@ -71,11 +71,11 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
             "ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, "
             "sales, cfo, cash_eq, total_assets, equity, operating_profit, ordinary_profit, "
             "profit, fiscal_period, fiscal_year_end, period_start, period_end, "
-            "dps_actual_annual, dps_forecast_annual"
+            "dps_actual_annual, dps_forecast_annual, treasury_shares, equity_to_asset_ratio"
         )
         conn.executemany(
             f"INSERT OR REPLACE INTO jquants_fin_summaries({fin_columns}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     "9001",
@@ -98,6 +98,8 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     "2026-03-31",
                     4.0,
                     4.5,
+                    0.0,
+                    1e10 / 1.5e10,
                 ),
                 (
                     "9002",
@@ -120,6 +122,8 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     "2026-03-31",
                     None,
                     None,
+                    0.0,
+                    5e9 / 2e10,
                 ),
             ],
         )

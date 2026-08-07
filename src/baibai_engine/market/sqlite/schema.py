@@ -93,6 +93,8 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "period_end",
         "dps_actual_annual",
         "dps_forecast_annual",
+        "treasury_shares",
+        "equity_to_asset_ratio",
     ),
     "jquants_master_snapshots": (
         "snapshot_date",
@@ -248,6 +250,11 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   period_end TEXT,
   dps_actual_annual REAL,
   dps_forecast_annual REAL,
+  -- 期末自己株式数と、開示された自己資本比率。`shares_outstanding` は自己株式を含む
+  -- 発行済株式総数、`equity` は非支配株主持分を含む純資産なので、時価総額と自己資本
+  -- 比率をそれぞれ正しい分母で作るには両方が要る。
+  treasury_shares REAL,
+  equity_to_asset_ratio REAL,
   PRIMARY KEY (ticker, disclosed_at)
 );
 

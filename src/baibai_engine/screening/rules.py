@@ -16,7 +16,7 @@ PLAYBOOK_SALES_DISCOUNT = "sales-discount-growth"
 
 REASON_SECTOR_SELF_RANGE = "sector_median_discount_and_self_range_bottom"
 REASON_VALUATION_SIGMA = "valuation_sigma_down"
-REASON_CASH_RICH = "cash_to_market_cap_price_to_equity_and_equity_ratio"
+REASON_CASH_RICH = "cash_to_market_cap_pbr_and_equity_ratio"
 REASON_CASHFLOW_YIELD = "ocf_yield_discount"
 REASON_SALES_DISCOUNT = "ps_discount_with_sales_growth"
 
@@ -180,8 +180,8 @@ def _cash_rich_asset_discount(
     if financial.cash_to_market_cap is None:
         null_reasons.append("cash_rich_missing_cash_to_market_cap")
         return None
-    if financial.price_to_equity is None:
-        null_reasons.append("cash_rich_missing_price_to_equity")
+    if financial.pbr is None:
+        null_reasons.append("cash_rich_missing_pbr")
         return None
     if financial.equity_ratio is None:
         null_reasons.append("cash_rich_missing_equity_ratio")
@@ -211,7 +211,7 @@ def _cash_rich_asset_discount(
         return None
     if (
         financial.cash_to_market_cap < playbook.cash_to_market_cap_min
-        or financial.price_to_equity > playbook.price_to_equity_max
+        or financial.pbr > playbook.pbr_max
         or financial.equity_ratio < playbook.equity_ratio_min
     ):
         return None
@@ -224,7 +224,7 @@ def _cash_rich_asset_discount(
             "net_cash_to_market_cap": financial.net_cash_to_market_cap,
             "debt": financial.debt,
             "cash": financial.cash,
-            "price_to_equity": financial.price_to_equity,
+            "pbr": financial.pbr,
             "equity_ratio": financial.equity_ratio,
             "operating_profit": financial.operating_profit,
         },

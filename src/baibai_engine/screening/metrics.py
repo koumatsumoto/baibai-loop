@@ -397,6 +397,14 @@ def _normalize_summaries_to_asof_basis(
                     if summary.shares_outstanding is not None
                     else None
                 ),
+                # 自己株式数は発行済と同じ株数なので同じ換算を掛ける。片方だけ換算すると
+                # 差である自己株控除後株式数が分割のたびに壊れる。`equity_to_asset_ratio`
+                # は比率なので分割で動かず、そのまま持ち越される。
+                treasury_shares=(
+                    summary.treasury_shares / factor
+                    if summary.treasury_shares is not None
+                    else None
+                ),
             )
         )
     return normalized
@@ -407,13 +415,22 @@ def build_shares_outstanding_index(
     bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
     asof_date: date,
 ) -> dict[str, float | None]:
+    """Shares the market can price: issued less treasury, on the as-of split basis.
+
+    universe の時価総額はこの index から作られ、流動性 gate (100 億円) の分母になる。
+    `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
+    2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
+    直近の非 null 行から carry-forward する。
+    """
     shares: dict[str, float | None] = {}
     for ticker, summaries in summaries_by_ticker.items():
         normalized = _normalize_summaries_to_asof_basis(
             summaries, bars_by_ticker.get(ticker, ()), asof_date
         )
         latest = _latest_summary(normalized)
-        shares[ticker] = latest.shares_outstanding if latest else None
+        issued, _ = _carry_forward(normalized, "shares_outstanding", latest)
+        treasury, _ = _carry_forward(normalized, "treasury_shares", latest)
+        shares[ticker] = _shares_excluding_treasury(issued, treasury)
     return shares
 
 
@@ -761,13 +778,13 @@ def _build_financial_snapshot(
     # どの field をいつの開示から引いたかを staleness fact として残す。
     bps, bps_lag = _carry_forward(summaries, "bps", latest)
     cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest)
-    equity, equity_lag = _carry_forward(summaries, "equity", latest)
     total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest)
+    equity_to_asset_ratio, eq_ratio_lag = _carry_forward(summaries, "equity_to_asset_ratio", latest)
     carried_lags = {
         "bps": bps_lag,
         "cash_eq": cash_eq_lag,
-        "equity": equity_lag,
         "total_assets": total_assets_lag,
+        "equity_to_asset_ratio": eq_ratio_lag,
     }
     bs_carry_forward_fields = ",".join(
         sorted(name for name, lag in carried_lags.items() if lag is not None and lag > 0)
@@ -789,6 +806,13 @@ def _build_financial_snapshot(
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
     shares_outstanding, _shares_lag = _carry_forward(summaries, "shares_outstanding", latest)
+    treasury_shares, _treasury_lag = _carry_forward(summaries, "treasury_shares", latest)
+    # 時価総額の分母は自己株式を除いた株数である。自己株式は議決権も配当請求権も持たない
+    # ので、含めると時価総額が過大になり現金比率・利回りが薄く、倍率が割高に見える。歪みが
+    # 最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業で、carry が
+    # 上位へ押し上げる群と重なる。自己株式数が観測できない行は時価総額を出さない — 発行済で
+    # 代用すると、どれだけ過大かが分からない値が現金比率・利回り・流動性 gate へ入る。
+    shares_ex_treasury = _shares_excluding_treasury(shares_outstanding, treasury_shares)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
@@ -801,7 +825,7 @@ def _build_financial_snapshot(
     edinet_failure_reasons = ",".join(edinet.failure_reasons) if edinet else None
     if net_cash is None and cash is not None and debt is not None:
         net_cash = cash - debt
-    latest_market_cap = (latest_price * shares_outstanding) if shares_outstanding else None
+    latest_market_cap = (latest_price * shares_ex_treasury) if shares_ex_treasury else None
     latest_enterprise_value = (
         (latest_market_cap + debt - cash)
         if latest_market_cap is not None and debt is not None and cash is not None
@@ -840,11 +864,13 @@ def _build_financial_snapshot(
         cfo=latest.cfo if latest else None,
         cash_eq=cash_eq,
         total_assets=total_assets,
-        equity=equity,
         market_cap=latest_market_cap,
         cash_to_market_cap=_safe_ratio(cash_eq, latest_market_cap),
-        price_to_equity=_safe_ratio(latest_market_cap, equity),
-        equity_ratio=_safe_ratio(equity, total_assets),
+        # 開示された自己資本比率をそのまま使う。`equity` は非支配株主持分を含む純資産なので
+        # `equity / total_assets` は自己資本比率にならない。比率が観測できないときは None へ
+        # 落とし、純資産比率で代用しない (代用は少数株主持分の大きい銘柄で比率を数 pt 過大に
+        # し、`equity_ratio_min` の gate を通しやすくする向きに効く)。
+        equity_ratio=equity_to_asset_ratio,
         ocf_yield=_safe_ratio(ocf_ttm, latest_market_cap),
         net_cash=net_cash,
         net_cash_to_market_cap=_safe_ratio(net_cash, latest_market_cap),
@@ -1314,6 +1340,24 @@ def _sigma_gap(history: Sequence[float], current: float | None) -> float | None:
     if stddev == 0:
         return 0.0
     return (current - avg) / stddev
+
+
+def _shares_excluding_treasury(
+    shares_outstanding: float | None, treasury_shares: float | None
+) -> float | None:
+    """市場が値付けできる株式数。自己株式数が観測できない行は答えない。
+
+    自己株式数の欠損を 0 で埋めると「自己株ゼロ」を捏造し、どれだけ過大か分からない
+    時価総額が現金比率・利回り・流動性 gate へ入る。発行済を超える自己株式数も開示の破損
+    なので答えない。どちらも時価総額が null になり、その銘柄は母集団に入らない。
+    """
+
+    if shares_outstanding is None:
+        return None
+    if treasury_shares is None:
+        return None
+    remaining = shares_outstanding - treasury_shares
+    return remaining if remaining > 0 else None
 
 
 def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:

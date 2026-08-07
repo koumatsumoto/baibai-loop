@@ -82,7 +82,6 @@ def _panel_row(
         investment_securities=investment_securities,
         asset_backed_ratio=asset_backed_ratio,
         equity_ratio=equity_ratio,
-        price_to_equity=None,
         dividend_yield=dividend_yield,
         eps_yoy=None,
         sales_yoy=None,
