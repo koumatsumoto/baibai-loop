@@ -19,7 +19,7 @@ report だけで production の metric、gate、E[r] policy を変更しない�
 
 ## 1. 現行 contract
 
-[`estimates.py`](../src/baibai_loop/screening/estimates.py) は資産 anchor の PBR と収益 anchor を
+[`estimates.py`](../src/baibai_engine/screening/estimates.py) は資産 anchor の PBR と収益 anchor を
 blend し、収益 anchor は `per_forward` を優先して欠損時だけ `per_trailing` へ fallback する。
 implied upside は ±50% で clip し、その 10% を年率 reversion とするため、reversion 寄与の上限は
 **+5.00pt / 年**である。E[r] はこれに予想 DPS 優先の dividend yield と、±5% で clip した
@@ -36,7 +36,7 @@ E[r] anchor には使わない。したがって、本監査は「earnings quali
 | `.cache/opportunity/2026-07-10-attempt-2/selection-output.yaml` | as-of 2026-07-10 | local-only / gitignore 対象 | audit pool 順位と E[r] |
 | `.cache/opportunity/2026-07-10-attempt-2/candidates.yaml` | as-of 2026-07-10 / run at 2026-07-12 20:54 JST | local-only / gitignore 対象 | PER、E[r] 成分、derived metric |
 | [`2026-07-04-preregistered-ranking-validation.md`](./2026-07-04-preregistered-ranking-validation.md) | design / confirm 6m | Git 管理の既存計測 | forward / trailing PER 軸比較 |
-| [`estimates.py`](../src/baibai_loop/screening/estimates.py) | base commit `4fe6f180` | Git 管理 | 現行 E[r] contract |
+| [`estimates.py`](../src/baibai_engine/screening/estimates.py) | base commit `4fe6f180` | Git 管理 | 現行 E[r] contract |
 
 検算時の SHA-256 は以下である。
 
@@ -121,7 +121,7 @@ corporate-action coverage の不足で blocked であり、この 2 銘柄を見
 - trailing / forward PER ratio は増益・回復・一時要因を区別せず、人手ラベル 2 件から threshold の
   有効性を評価できない。
 - 既存 `accruals_to_assets` もこの 2 件を分離しないが、単一 as-of を見た後の新 metric / gate 採用は
-  [`改善ループ`](../docs/operations/improvement-loop.md) の事前登録と design / confirm 規律を満たさない。
+  [`改善ループ`](../docs/reference/estimate-calibration.md#事前登録と-designconfirm) の事前登録と design / confirm 規律を満たさない。
 - 既存較正では forward PER 軸を外すより維持する方向であり、長期 authority は blocked である。
 
 したがって、`per_forward` 優先、reversion cap、selection rules、`accruals_to_assets` の扱いは変更しない。

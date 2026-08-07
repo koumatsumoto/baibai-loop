@@ -15,10 +15,10 @@ design / confirm 検証ではない。したがって、本 report の数値だ�
 
 ## 1. 現行 contract
 
-本番 rules は [`selection.liquidity.min_market_cap_oku: 100`](../records/_config/screening-rules/2026-07-06T000000+0900.yaml)
-を持ち、[`SelectionLiquidityRules.matches`](../src/baibai_loop/screening/rule_config.py) が
+本番 rules は [`selection.liquidity.min_market_cap_oku: 100`](../method/screening-rules/2026-07-06T000000+0900.yaml)
+を持ち、[`SelectionLiquidityRules.matches`](../src/baibai_engine/screening/rule_config.py) が
 `market_cap_oku < 100` を不通過にする。selection と比較母集団は同じ liquidity predicate を使う。
-[`liquid_median_population`](../src/baibai_loop/screening/universe.py) はこの母集団を sector / market
+[`liquid_median_population`](../src/baibai_engine/screening/universe.py) はこの母集団を sector / market
 median の計算へ渡すため、floor の変更は候補の追加だけでなく、全銘柄の相対 valuation と E[r]
 anchor を再計算する変更になる。
 
@@ -110,7 +110,7 @@ all-universe で他条件も通る 60 件を加えても、固定 E[r] では最
 3. [`estimate-calibration`](../docs/reference/estimate-calibration.md) が要求する 3y / 5y の
    membership、delisting、corporate-action coverage は現 provider で不足し、production decision
    evidence は blocked である。
-4. 既知の 1 as-of を見た後の閾値変更は、[`改善ループ`](../docs/operations/improvement-loop.md) の
+4. 既知の 1 as-of を見た後の閾値変更は、[`改善ループ`](../docs/reference/estimate-calibration.md#事前登録と-designconfirm) の
    事前登録・design / confirm 規律を満たさない。
 
 判定は「問題なし」ではなく、**構造的な hard gate は確認したが、production 変更の効果は未立証のため

@@ -14,7 +14,11 @@ _HEADING = re.compile(r"^#{1,6}\s+(?P<text>.+?)\s*$", re.MULTILINE)
 _HEADING_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _EXPLICIT_ANCHOR = re.compile(r'<a\s+id="(?P<id>[^"]+)"')
 _ROOT_FILES = ("README.md", "AGENTS.md", "CLAUDE.md")
-_SCAN_DIRECTORIES = ("docs", "data", ".agents/skills", ".claude/skills")
+# `tools` は architecture.md と ops-maintenance skill が cloud 運用の正本として名指しする
+# `tools/cloud/README.md` を含み、`reports` は改善サイクルが再現手順つきの一次資料として
+# 読む dated record を含む。どちらも実装へ降りる経路が切れると、その仕様がどこからも
+# 引けなくなる。
+_SCAN_DIRECTORIES = ("docs", "data", "reports", "tools", ".agents/skills", ".claude/skills")
 
 
 def _slug(text: str) -> str:

@@ -354,3 +354,34 @@ def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -
         "  --sqlite-path data/screening/market.sqlite --asof <A>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == []
+
+
+def test_markdown_link_gate_scans_dated_reports(tmp_path: Path) -> None:
+    """reports は改善サイクルの一次資料なので、実装へ降りる link が切れたら止める。"""
+
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / "2026-01-01-demo.md").write_text("[src](../src/gone.py)\n", encoding="utf-8")
+    assert check_markdown_links.check(tmp_path) == [
+        "reports/2026-01-01-demo.md: missing Markdown link target ../src/gone.py"
+    ]
+
+
+def test_legacy_semantics_gate_rejects_a_named_screening_rules_revision(tmp_path: Path) -> None:
+    """閾値の正本は現行 revision であって、doc に焼いた file 名ではない。"""
+
+    path = tmp_path / "docs" / "reference" / "demo.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "閾値の正本は `method/screening-rules/2026-07-06T000000+0900.yaml`。\n", encoding="utf-8"
+    )
+    assert check_legacy_semantics.check(tmp_path) == [
+        "docs/reference/demo.md: obsolete operation instruction 'method/screening-rules/2026-07-06'"
+    ]
+
+
+def test_legacy_semantics_gate_allows_the_screening_rules_directory(tmp_path: Path) -> None:
+    path = tmp_path / "docs" / "reference" / "demo.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("閾値の正本は `method/screening-rules/` の現行 revision。\n", encoding="utf-8")
+    assert check_legacy_semantics.check(tmp_path) == []

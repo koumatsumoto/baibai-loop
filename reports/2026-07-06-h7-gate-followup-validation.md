@@ -1,6 +1,6 @@
 # H7 rules variant と screen gate 選抜価値の後続検証（#301）
 
-#291 プログラム WU4 で「不確定 / プログラム外」と記録した 2 点（issue #301）の検証記録。計測は [`../docs/operations/improvement-loop.md`](../docs/operations/improvement-loop.md) のサイクルに従う。
+#291 プログラム WU4 で「不確定 / プログラム外」と記録した 2 点（issue #301）の検証記録。計測は [`../docs/operations/improvement-loop.md`](../docs/reference/estimate-calibration.md#改善サイクルの運用契約) のサイクルに従う。
 
 **着手条件からの逸脱（正直な記録）**: #301 は着手条件を「新ランキングの月次成績を 2–3 cohort 観測してから」としていたが、基盤改善プログラムの再開指示により観測を待たず着手する。design/confirm の事前登録判定は維持するため採否の誠実性は保たれるが、「新ランキングの実運用挙動を確認してから」という運用上の慎重さは放棄している。月次監視（top-5 逆転 #307）は継続する。
 
