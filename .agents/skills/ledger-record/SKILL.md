@@ -54,7 +54,7 @@ uv run baibai-engine position sell-result-draft --db data/app/baibai.sqlite --ti
 
 ```bash
 uv run baibai-engine position event-draft --type contribution --event-id <ID> \
-  --occurred-at <ISO8601> --amount-yen 100000 --db data/app/baibai.sqlite --out .cache/ledger/event-draft-<ASOF>.yaml
+  --occurred-at <ISO8601> --amount-yen <AMOUNT> --db data/app/baibai.sqlite --out .cache/ledger/event-draft-<ASOF>.yaml
 ```
 
 `contribution / withdrawal / income / cost / tax_confirmed` は確認した事実ごとに 1 event。risk override は `override-draft`、tax estimate 設定は `meta-draft`。購入や screening を強制しない。

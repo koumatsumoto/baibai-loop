@@ -385,3 +385,40 @@ def test_legacy_semantics_gate_allows_the_screening_rules_directory(tmp_path: Pa
     path.parent.mkdir(parents=True)
     path.write_text("閾値の正本は `method/screening-rules/` の現行 revision。\n", encoding="utf-8")
     assert check_legacy_semantics.check(tmp_path) == []
+
+
+def _policy_copy(root: Path) -> None:
+    policy = root / "src/baibai_engine/position/policy.py"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(
+        (ROOT / "src/baibai_engine/position/policy.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+
+def test_duplicate_policy_constant_gate_rejects_a_starter_band_edge(tmp_path: Path) -> None:
+    """帯の実値が skill へ写ると、片方だけ動かしたとき手順が現行の帯を外す。"""
+
+    _policy_copy(tmp_path)
+    path = tmp_path / ".agents" / "skills" / "research" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    for literal in ("要求 8.5% に届かないが", "7.0 以上"):
+        path.write_text(f"{literal}\n", encoding="utf-8")
+        assert check_duplicate_constants.check(tmp_path) != []
+
+
+def test_duplicate_policy_constant_gate_rejects_the_starter_order_cap(tmp_path: Path) -> None:
+    _policy_copy(tmp_path)
+    path = tmp_path / "docs" / "copied-cap.md"
+    path.parent.mkdir(parents=True)
+    for literal in ("100,000", "10万円"):
+        path.write_text(f"1 注文の上限は {literal} である\n", encoding="utf-8")
+        assert check_duplicate_constants.check(tmp_path) != []
+
+
+def test_duplicate_policy_constant_gate_allows_unrelated_amounts(tmp_path: Path) -> None:
+    _policy_copy(tmp_path)
+    path = tmp_path / "docs" / "unrelated.md"
+    path.parent.mkdir(parents=True)
+    path.write_text("10万株、10万件、100001 円、8.5 倍、7.0 年\n", encoding="utf-8")
+    assert check_duplicate_constants.check(tmp_path) == []

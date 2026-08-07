@@ -174,6 +174,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 割安機会評価 | bargain assessment | 判断文書 | L3 | 深掘りしたlaneの横比較・研究要点digest・購入方法または見送り理由を固定する1サイクルの統合判断。購入提案の無いサイクルにも成立する |
 | portfolio状態・保有判断 | position | 執行/保有 | L3 | human-confirmed ledger、holding review、outcome |
 | 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → longlist → shortlist → thesis → proposal を 1 trigger で進める operation session の kind |
+| 境界帯の建て方 | starter | 運用語（position の建て方） | L3 | 要求利回りの帯の下限以上・上限未満に居る lane を、全件見送りの代わりに縮小 lot で建てる建て方。パイプライン状態でも判断文書でもなく position の建て方を表すので、`ThesisJudgment.position_intent` の enum 値（`full` / `starter`）として持つ。帯・1 注文上限・bucket 上限の実値は `portfolio-management.md#starter-band` が正本 |
 
 `research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は `src/`（機械の実装）、`method/`（改善ループが調整する手法。screening rules・macro panel・macro reading rules・playbook の dated revision）、`docs/`（現在形の説明）の三分法で読む。
 
