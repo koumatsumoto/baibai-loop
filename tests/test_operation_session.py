@@ -55,8 +55,6 @@ def _complete_payload(kind: SessionKind) -> OperationPayload:
         "annual-outcome",
     }:
         values["canonical_refs"] = ("canonical-entity-1",)
-    if kind == "improvement":
-        values["handoff"] = {"loop": "improvement", "summary": "handoff accepted"}
     return OperationPayload.model_validate(values)
 
 
@@ -150,12 +148,12 @@ def test_completed_row_is_immutable_through_service_and_database(tmp_path: Path)
     db = tmp_path / "app.sqlite"
     service = OperationService(db)
     operation = service.start(
-        session_kind="improvement",
+        session_kind="annual-outcome",
         as_of=date(2026, 7, 19),
         started_at=NOW,
         payload=_active_payload(),
     )
-    service.complete(operation.operation_id, _complete_payload("improvement"), completed_at=NOW)
+    service.complete(operation.operation_id, _complete_payload("annual-outcome"), completed_at=NOW)
 
     with pytest.raises(OperationConflictError, match="immutable"):
         service.checkpoint(operation.operation_id, _active_payload("late update"))
@@ -192,9 +190,13 @@ def test_database_constraint_rejects_a_second_active_row(tmp_path: Path) -> None
                 INSERT INTO operation_session (
                     operation_id, session_kind, status, as_of, ticker,
                     started_at, completed_at, payload
-                ) VALUES (?, 'improvement', 'active', '2026-07-19', NULL, ?, NULL, ?)
+                ) VALUES (?, 'annual-outcome', 'active', '2026-07-19', NULL, ?, NULL, ?)
                 """,
-                ("op-20260719-improvement-1", NOW.isoformat(), operation.payload.model_dump_json()),
+                (
+                    "op-20260719-annual-outcome-1",
+                    NOW.isoformat(),
+                    operation.payload.model_dump_json(),
+                ),
             )
     finally:
         connection.close()
@@ -212,7 +214,7 @@ def test_cli_and_read_facade_expose_current_and_completed_payloads(
                 str(db),
                 "start",
                 "--kind",
-                "improvement",
+                "annual-outcome",
                 "--as-of",
                 "2026-07-19",
             ],
@@ -225,7 +227,7 @@ def test_cli_and_read_facade_expose_current_and_completed_payloads(
 
     final_path = tmp_path / "final.yaml"
     final_path.write_text(
-        yaml.safe_dump(_complete_payload("improvement").model_dump(mode="json")),
+        yaml.safe_dump(_complete_payload("annual-outcome").model_dump(mode="json")),
         encoding="utf-8",
     )
     assert (

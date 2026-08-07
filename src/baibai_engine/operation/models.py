@@ -13,7 +13,6 @@ SessionKind = Literal[
     "monthly-contribution",
     "earnings-material-event",
     "annual-outcome",
-    "improvement",
 ]
 OperationStatus = Literal["active", "completed"]
 
@@ -34,7 +33,6 @@ class OperationPayload(BaseModel):
     artifacts: tuple[dict[str, JsonValue], ...] = ()
     canonical_refs: tuple[str, ...] = ()
     human_confirmation: HumanConfirmation | None = None
-    handoff: dict[str, JsonValue] | None = None
     result: str | None = Field(default=None, min_length=1)
     next: str | None = Field(default=None, min_length=1)
 
@@ -73,7 +71,6 @@ SESSION_KINDS: tuple[SessionKind, ...] = (
     "monthly-contribution",
     "earnings-material-event",
     "annual-outcome",
-    "improvement",
 )
 
 

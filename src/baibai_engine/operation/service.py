@@ -196,8 +196,6 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         and not payload.canonical_refs
     ):
         missing.append("canonical_refs")
-    if session_kind == "improvement" and not payload.handoff:
-        missing.append("handoff")
     if missing:
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
 
