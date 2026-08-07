@@ -91,6 +91,7 @@ for argument in "$@"; do
     *sqlite_snapshot.py) script=snapshot ;;
     tools.cloud.merge_indicator_store) script=merge ;;
     tools.cloud.merge_market_store) script=merge ;;
+    tools.cloud.migrate_store) script=migrate ;;
   esac
 done
 case "${script}" in
@@ -111,6 +112,10 @@ case "${script}" in
   merge)
     printf 'merge %s\\n' "$*" >> "$AWS_LOG"
     exit "${MERGE_FAKE_EXIT:-0}"
+    ;;
+  migrate)
+    printf 'migrate %s\\n' "$*" >> "$AWS_LOG"
+    exit "${MIGRATE_FAKE_EXIT:-0}"
     ;;
   *)
     exit 2
@@ -811,10 +816,13 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
             "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
         )
     ]
+    migrations = [index for index, command in enumerate(commands) if command.startswith("migrate ")]
     assert len(downloads) == 1
     assert len(merges) == 1
     assert len(uploads) == 1
-    assert downloads[0] < merges[0] < uploads[0]
+    assert len(migrations) == 1
+    assert downloads[0] < migrations[0] < merges[0] < uploads[0]
+    assert "--store macro" in commands[migrations[0]]
     assert "--target" in commands[merges[0]]
     assert "data/indicators/macro.sqlite" in commands[merges[0]]
     # Only the indicator store is published; market and runs stay owned by the batch.
@@ -878,10 +886,17 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
             "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
         )
     ]
+    migrations = [index for index, command in enumerate(commands) if command.startswith("migrate ")]
     assert len(downloads) == 1
     assert len(merges) == 1
     assert len(uploads) == 1
-    assert downloads[0] < merges[0] < uploads[0]
+    # The merge requires source and target on the same schema, and the source is whatever
+    # R2 holds. Without this step a store published before a migration landed could only
+    # be moved forward by the daily batch, so every schema change would block publishing
+    # from a developer machine until the cloud had run.
+    assert len(migrations) == 1
+    assert downloads[0] < migrations[0] < merges[0] < uploads[0]
+    assert "--store market" in commands[migrations[0]]
     assert "data/screening/market.sqlite" in commands[merges[0]]
     # Only the market store is published; runs and the indicator store are untouched.
     assert all("runs.sqlite" not in command for command in commands)

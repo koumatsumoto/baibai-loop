@@ -24,7 +24,9 @@ from baibai_engine.screening.providers.edinet import (
 _PREFIX = "jpcrp-sbr_cor:"
 
 
-def _filing(*, month_end: str, resolved: str, cumulative: str, month: str) -> bytes:
+def _filing(
+    *, month_end: str, resolved: str, cumulative: str, month: str, with_period: bool = True
+) -> bytes:
     board = (
         f"（２）【取締役会決議による取得の状況】{month_end}現在 区分株式数（株）価額の総額（円）"
         "取締役会（2026年５月８日）での決議状況（取得期間　2026年５月11日～2026年７月31日）"
@@ -37,10 +39,13 @@ def _filing(*, month_end: str, resolved: str, cumulative: str, month: str) -> by
         "発行済株式総数10,000,000保有自己株式数500,000"
     )
     rows = [
-        (f"{_PREFIX}ReportingPeriodCoverPage", "", f"自　2026年７月１日　至　{month_end}"),
         (f"{_PREFIX}AcquisitionsByResolutionOfBoardOfDirectorsMeetingTextBlock", "", board),
         (f"{_PREFIX}HoldingOfTreasurySharesTextBlock", "", holding),
     ]
+    if with_period:
+        rows.insert(
+            0, (f"{_PREFIX}ReportingPeriodCoverPage", "", f"自　2026年７月１日　至　{month_end}")
+        )
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr(
@@ -199,6 +204,67 @@ def test_an_unreadable_filing_is_counted_and_does_not_stop_the_rest(tmp_path: Pa
 
     assert summary.unreadable == 1
     assert summary.stored == 1
+
+
+def test_a_month_ending_after_the_filing_is_rejected_not_stored(tmp_path: Path) -> None:
+    """The form reports a month that has closed, so a later one is a misread date.
+
+    Stored, it would file a stale reading as the newest month the ticker has, because the
+    month is what orders the rows. Observed on real filings: 5 of 4,298 backfilled rows
+    carried a reporting month after their own filing date.
+    """
+    path = tmp_path / "market.sqlite"
+    _store_with_documents(
+        path,
+        [
+            ("2026-02-05", "DOC-AHEAD", "63630", "220"),
+            ("2026-08-05", "DOC-JULY", "60880", "220"),
+        ],
+    )
+    provider = _Filings(
+        {
+            "DOC-AHEAD": _filing(
+                month_end="2026年12月31日",
+                resolved="600,000",
+                cumulative="503,000",
+                month="12,000",
+            ),
+            "DOC-JULY": _filing(
+                month_end="2026年７月31日",
+                resolved="600,000",
+                cumulative="533,500",
+                month="220,400",
+            ),
+        }
+    )
+
+    summary = refresh_buyback_reports(path, provider=provider, since=date(2026, 1, 1))
+
+    assert summary.without_usable_month == 1
+    assert summary.stored == 1
+    assert read_buyback_reports(path, tickers=["6363"], asof=date(2026, 12, 31), months=24) == {}
+
+
+def test_a_filing_whose_month_cannot_be_read_is_skipped(tmp_path: Path) -> None:
+    """Without a month the row has no identity, so there is nowhere to put it."""
+    path = tmp_path / "market.sqlite"
+    _store_with_documents(path, [("2026-08-05", "DOC-NO-MONTH", "60880", "220")])
+    provider = _Filings(
+        {
+            "DOC-NO-MONTH": _filing(
+                month_end="2026年７月31日",
+                resolved="600,000",
+                cumulative="533,500",
+                month="220,400",
+                with_period=False,
+            )
+        }
+    )
+
+    summary = refresh_buyback_reports(path, provider=provider, since=date(2026, 1, 1))
+
+    assert summary.without_usable_month == 1
+    assert summary.stored == 0
 
 
 def test_reads_are_bounded_by_the_as_of(tmp_path: Path) -> None:

@@ -41,7 +41,8 @@ class BuybackRefreshSummary:
     considered: int
     stored: int
     unreadable: int
-    without_month_end: int
+    # Read but unusable: no reporting month, or one that ends after the filing date.
+    without_usable_month: int
     # EDINET asked the run to back off before it reached the end of the list. What was
     # stored is kept; the next run picks up from there because stored filings are skipped.
     rate_limited: bool = False
@@ -146,7 +147,7 @@ def refresh_buyback_reports(
                 "SELECT ticker, doc_id FROM edinet_buyback_reports"
             ).fetchall()
         }
-        considered = stored = unreadable = without_month_end = 0
+        considered = stored = unreadable = without_usable_month = 0
         rate_limited = False
         for doc_id, ticker, filed_on in _candidate_filings(connection, since=since):
             if (ticker, doc_id) in already:
@@ -160,8 +161,8 @@ def refresh_buyback_reports(
             except (BuybackReportError, EDINETProviderError, OSError, ValueError):
                 unreadable += 1
                 continue
-            if report.report_month_end is None:
-                without_month_end += 1
+            if not _has_usable_month(report, filed_on=filed_on):
+                without_usable_month += 1
                 continue
             _store(connection, ticker=ticker, doc_id=doc_id, filed_on=filed_on, report=report)
             stored += 1
@@ -176,9 +177,23 @@ def refresh_buyback_reports(
         considered=considered,
         stored=stored,
         unreadable=unreadable,
-        without_month_end=without_month_end,
+        without_usable_month=without_usable_month,
         rate_limited=rate_limited,
     )
+
+
+def _has_usable_month(report: BuybackReport, *, filed_on: str) -> bool:
+    """Whether the reporting month can identify the row.
+
+    The month is half the primary key, so a filing without one has nowhere to go. A month
+    that ends after the filing date has somewhere to go and is worse for it: the form
+    reports a month that has closed, so a later one means the read latched onto a date
+    from elsewhere in the document — the authorization window, or a neighbouring row —
+    and storing it would file a stale reading as the newest one the ticker has.
+    """
+    if report.report_month_end is None:
+        return False
+    return report.report_month_end.isoformat() <= filed_on
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
