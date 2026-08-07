@@ -227,14 +227,34 @@ backup_remote_key() {
 
 push_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  local key source
+  # A push is three waits, and only one of them moves bytes over the link: the local
+  # full copy the snapshot makes, the server-side copy that keeps a generation, and
+  # the upload. Sending fewer bytes — compressed, or as a diff — shortens the third
+  # and leaves the other two exactly as they are, so the split is what says whether
+  # either is worth its machinery. The stores differ by a factor of 30 in size, and
+  # the two server-side phases scale with it, so the split is reported per key.
+  local key source started
+  local -a snapshot_seconds=()
   for key in "$@"; do
     source="$(store_path "${key}")"
+    started="${SECONDS}"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
+    snapshot_seconds+=("$((SECONDS - started))")
   done
+  local index=0
   for key in "$@"; do
+    started="${SECONDS}"
     backup_remote_key "${key}"
+    local backup_elapsed=$((SECONDS - started))
+    started="${SECONDS}"
     aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
+    printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss\n' \
+      "${key}" \
+      "$(wc -c < "${transfer_staging}/${key}" | tr -d ' \n')" \
+      "${snapshot_seconds[index]}" \
+      "${backup_elapsed}" \
+      "$((SECONDS - started))"
+    index=$((index + 1))
   done
   cleanup_staging
   transfer_staging=""

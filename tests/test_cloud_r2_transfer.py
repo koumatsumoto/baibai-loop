@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -300,6 +300,12 @@ def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path)
     output = _serving_export(tmp_path)
     base = _environment(bin_dir, log)
     base["GITHUB_ACTIONS"] = "true"
+    # Both processes write into a directory of their own so the survival check below
+    # sees these two configs and not whichever ones a parallel test happens to hold
+    # open in the shared temporary directory.
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    base["TMPDIR"] = str(scratch)
 
     processes = []
     for concurrency in ("11", "22"):
@@ -322,7 +328,7 @@ def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path)
     assert "max_concurrent_requests = 22" in outputs[1]
     assert "max_concurrent_requests = 11" not in outputs[1]
     # The trap removes each config, so neither survives its own process.
-    assert not list(Path(tempfile.gettempdir()).glob("baibai-r2-transfer.*"))
+    assert not list(scratch.glob("baibai-r2-transfer.*"))
 
 
 def test_preserve_market_v13_is_no_longer_a_subcommand(tmp_path: Path) -> None:
@@ -676,6 +682,37 @@ def test_machine_store_push_uploads_three_stores_in_github_actions(tmp_path: Pat
     commands = _transfer_commands(log)
     assert len([command for command in commands if "s3 cp" in command]) == 3
     assert all(".bak" not in command for command in commands)
+
+
+def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Path) -> None:
+    """A push is three waits and only one of them sends bytes over the link.
+
+    Compressing the snapshot or sending a diff shortens the upload alone. Without the
+    split the run's log cannot say whether that is most of the wait or a corner of it,
+    and the choice between the two would rest on an inference from throughput.
+    """
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+
+    result = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    reported = dict(
+        re.findall(
+            r"store push: key=(\S+) bytes=(\d+) snapshot=\d+s backup=\d+s upload=\d+s",
+            result.stdout,
+        )
+    )
+    # The staged snapshot is what gets uploaded, so its size is the transferred byte
+    # count. The fake snapshot writes one byte.
+    assert reported == {"market.sqlite": "1", "runs.sqlite": "1", "macro.sqlite": "1"}
 
 
 def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
