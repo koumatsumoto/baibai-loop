@@ -16,7 +16,7 @@ date: 2026-08-08
 
 事前登録の precedence が返す語は `insufficient` である。ただしこの語は所見を表していない。5 窓中 4 窓は sufficiency を満たしており、**その 4 窓を含む全 5 窓・60 cell が 1 つも effect gate を通らなかった**。sufficiency を落とした 1 窓を仮に満たしたとしても、pair delta median の符号が cell 間で割れるため precedence 2 により `inconclusive` になり、`adoption_candidate` には到達しない。
 
-4 窓の as-of 範囲は固定かつ全て満期済みなので、新規 cohort が増えてもこの 4 窓の値は動かない。したがって「新しい cohort で再判定する」経路が無く、再検定用の surface を残す理由も無い。
+4 窓の as-of 範囲は固定で、範囲内の cohort は全て満期済みである。新規 cohort は範囲の後ろに付くだけで窓へ入らないので、事前登録が再検定の理由に挙げる「新規満期 cohort」ではこの 4 窓は動かない。残る可能性は、窓の内側で forward coverage が backfill され pair 数と中央値がずれることだけで、それは §「design と time holdout が符号で割れる」の反転を埋めるには足りない。したがって再検定用の surface を残す理由が無い。
 
 ## 固定 scope と authority
 
