@@ -29,9 +29,31 @@ date: 2026-08-08
 
 判定語は変更の前後どちらの実行でも `insufficient` だった。
 
-固定 4 as-of × `3y` / `5y` の 8 cell は `normalized_per_3fy_exploration` を required metric に加えて **8/8 eligible**、`production_change_allowed: true` だった。今回の不採用は authority の不足ではない。
+### authority について測った範囲
 
-同じ 8 cell の内訳が policy の性格を先に示している。
+core 3 metric と raw axis の authority は、同じ store・同じ `rules_hash` に対する実 run で確立した。
+
+```bash
+.venv/bin/baibai-engine screening calibration-evaluate \
+  --calibration-dir data/screening/calibration --horizon 3y --horizon 5y \
+  --run-purpose production_decision \
+  --required-asof 2020-01-31 --required-asof 2020-05-29 \
+  --required-asof 2021-01-29 --required-asof 2021-05-31 \
+  --required-metric recommended_rank_top5 --required-metric recommended_rank_top10 \
+  --required-metric er_calibration --required-metric normalized_per_3fy
+```
+
+この run は `production_change_allowed: true` を返した。cohort integrity blocker（master snapshot、survivorship、adjustment factor、input range clamp、candidate partition、priced-master、退場代入の方向反転）はここで通っている。
+
+**policy metric `normalized_per_3fy_exploration` 自身の封印は、事前登録 §7 の 4 条件のうち 3 条件までしか実装していない。** replay harness が組み立てた `CohortIntegrity` は、core 3 metric の status を評価出力から読まずに `eligible` と書き込んでおり、cohort integrity blocker も harness 自身の forward status 検査に置き換わっている。未実装なのは §7 の 4 条件目、basis / 欠損代入 / 重みを跨いだ aggregate delta 符号の非反転である。符号の割れ自体は verdict の precedence 2 が読んでいるが、metric の eligibility には入っていない。
+
+したがって harness が出した 8 cell の `eligible` は **policy metric の authority が成立した証拠ではない**。同じ 4 as-of × `3y` / `5y` は、別 metric を required にした過去の実 run では 6/8 eligible だった（`reports/2026-08-02-normalized-per-production.md`）。不採用の根拠は authority ではなく §「窓別の結果」以降の effect 不成立に置く。
+
+この harness を雛形にする場合は、`CohortIntegrity` の `metric_statuses` を評価 payload から導出し、辞書リテラルで `eligible` を渡さないこと。採用方向へ倒れたときに自分で自分へ production authority を発行できてしまう。
+
+### 8 cell の membership
+
+harness が固定 8 cell で再生した membership 自体は独立検算と一致しており、policy の性格を先に示している。
 
 | as-of | exploration | source rank | comparator (rank 21) |
 | --- | --- | ---: | --- |

@@ -202,9 +202,17 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
+        # The two rejections have different fixes, so they get different messages:
+        # an operator who passed the core three and one unregistered name is told to
+        # add the core three unless the unregistered name is stated.
         unknown_metrics = set(required_metrics) - KNOWN_METRICS
-        missing_core_metrics = set(PRODUCTION_REQUIRED_METRICS) - set(required_metrics)
-        if unknown_metrics or missing_core_metrics:
+        if unknown_metrics:
+            print(
+                f"unknown required metrics: {', '.join(sorted(unknown_metrics))}",
+                file=sys.stderr,
+            )
+            return 1
+        if set(PRODUCTION_REQUIRED_METRICS) - set(required_metrics):
             print(
                 "production_decision required metrics must include "
                 f"{', '.join(PRODUCTION_REQUIRED_METRICS)}",

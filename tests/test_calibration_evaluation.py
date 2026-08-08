@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from contextlib import redirect_stderr
 from dataclasses import replace
 from datetime import date, datetime
 from io import StringIO
@@ -16,6 +17,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.screening.calibration.authority import (
+    KNOWN_METRICS,
+    PRODUCTION_REQUIRED_METRICS,
+)
 from baibai_engine.screening.calibration.cli import (
     _er_level_context_payload,
     _required_metric_statuses,
@@ -209,6 +214,41 @@ class RequiredMetricStatusTest(unittest.TestCase):
 
 
 class EvaluateCohortsTest(unittest.TestCase):
+    def test_replays_whose_verdict_was_negative_stay_out_of_the_payload(self) -> None:
+        # Each name below has a dated negative verdict. Recomputing one would put a
+        # rejected hypothesis back into the artifact the authority gate reads.
+        panel = [
+            replace(
+                _panel_row(
+                    f"{4000 + index}",
+                    per_trailing=10.0 + index,
+                    rank=index + 1 if index < 20 else None,
+                    er_annual=index / 100,
+                    er_reversion_annual=index / 200,
+                ),
+                margin_std_long_share=0.9 if index < 2 else 0.5,
+                margin_long_to_adv=float(index),
+            )
+            for index in range(120)
+        ]
+        forwards = [_forward_row(row.ticker, 0.1) for row in panel]
+
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        cohort = result["6m"]["cohorts"][0]
+        assert isinstance(cohort, dict)
+        selection = cohort["selection"]
+        assert isinstance(selection, dict)
+
+        # An unresolved cohort emits none of these keys either, so the absences
+        # below only mean something once the cohort has actually been computed.
+        self.assertEqual(cohort["metric_calculation_status"], "resolved")
+        for key in ("margin_deadline_gate", "crowded_value"):
+            self.assertNotIn(key, cohort)
+            self.assertNotIn(key, result["6m"]["aggregate"])
+        for key in ("reversion_ranked_top5", "reversion_carry_ranked_top5"):
+            self.assertNotIn(key, selection)
+        self.assertNotIn("margin_deadline_gate_top10", cohort["metric_statuses"])
+
     def test_new_margin_axes_and_every_registered_control_are_reported(self) -> None:
         panel: list[PanelRow] = []
         forwards: list[ForwardReturnRow] = []
@@ -785,6 +825,47 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         horizon = result["6m"]
         assert isinstance(horizon, dict)
         self.assertEqual(set(horizon), {"authority", "cohorts", "aggregate"})
+
+    def _rejected_metrics_message(self, required_metrics: list[str]) -> tuple[int, str]:
+        errors = StringIO()
+        with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+            exit_code = calibration_evaluate_command(
+                calibration_dir=Path(temp_dir),
+                horizons=["3y", "5y"],
+                output_path=Path(temp_dir) / "evaluation.yaml",
+                stdout=StringIO(),
+                run_purpose="production_decision",
+                required_asofs=["2021-06-30"],
+                required_metrics=required_metrics,
+            )
+        return exit_code, errors.getvalue()
+
+    def test_an_unregistered_required_metric_is_named_rather_than_blamed_on_the_core_three(
+        self,
+    ) -> None:
+        # This operator passed all three core metrics, so telling them to add the
+        # core three names nothing they can act on.
+        exit_code, message = self._rejected_metrics_message(
+            [*PRODUCTION_REQUIRED_METRICS, "not_a_registered_metric"]
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("unknown required metrics: not_a_registered_metric", message)
+
+    def test_a_missing_core_metric_still_names_the_core_three(self) -> None:
+        exit_code, message = self._rejected_metrics_message(["er_calibration"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("must include", message)
+        self.assertNotIn("unknown required metrics", message)
+
+    def test_the_full_rank_replay_metrics_stay_registered_for_authority(self) -> None:
+        # `selection_rank_top*` is emitted by every cohort, so leaving it out of the
+        # registry would reject a preregistration that names an output it can see.
+        self.assertLessEqual(
+            {"selection_rank_top5", "selection_rank_top10"},
+            KNOWN_METRICS,
+        )
 
     def test_calibration_evaluate_command_marks_short_horizon_as_diagnostic(self) -> None:
         panel: list[PanelRow] = []
