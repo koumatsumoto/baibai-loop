@@ -170,7 +170,7 @@ def plan_required_field_repair(
         predicate = " OR ".join(missing_predicates)
         rows = connection.execute(
             _REQUIRED_FIELD_VALUES_CTE + " , missing AS ("
-            f"SELECT ticker FROM y WHERE {predicate}) "  # nosec B608: fixed predicates above
+            f"SELECT ticker FROM y WHERE {predicate}) "  # nosec B608
             "SELECT DISTINCT s.disclosed_at FROM jquants_fin_summaries s "
             "JOIN missing m ON m.ticker = s.ticker "
             "WHERE s.disclosed_at BETWEEN ?4 AND ?5 ORDER BY s.disclosed_at",
@@ -195,8 +195,9 @@ def required_field_coverage(
     conn: sqlite3.Connection, *, start: date, asof: date
 ) -> RequiredFieldCoverage:
     params = (asof.isoformat(), start.isoformat(), asof.isoformat())
+    # Every SQL fragment is module-owned; dates remain bound parameters.
     row = conn.execute(
-        _REQUIRED_FIELD_VALUES_CTE + "SELECT COUNT(*), COALESCE(SUM(has_summary), 0), "
+        _REQUIRED_FIELD_VALUES_CTE + "SELECT COUNT(*), COALESCE(SUM(has_summary), 0), "  # nosec B608
         "COALESCE(SUM(shares IS NOT NULL), 0), "
         "COALESCE(SUM(treasury IS NOT NULL), 0), "
         "COALESCE(SUM(equity_ratio IS NOT NULL), 0), "
