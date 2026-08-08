@@ -46,9 +46,11 @@ jobs:
       # stdlib-only / no-3.13-syntax contract. Also captures the run start time.
       - name: Smoke-check notification scripts
         id: smoke
+        env:
+          PYTHONPATH: batch/src
         run: |
-          python3 -m py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py
-          python3 -c "import tools.cloud.batch_summary; import tools.cloud.notify_discord"
+          python3 -m py_compile batch/src/baibai_batch/observability/summary.py batch/src/baibai_batch/observability/discord.py
+          python3 -c "import baibai_batch.observability.summary; import baibai_batch.observability.discord"
           echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" >> "$GITHUB_OUTPUT"
 
       # Validate the untrusted dispatch value before any credential-bearing step.
@@ -57,8 +59,9 @@ jobs:
         id: validate-input
         env:
           MANUAL_ASOF: ${{ inputs.asof }}
+          PYTHONPATH: batch/src
         run: |
-          python3 -m tools.cloud.validate_workflow_inputs daily --asof "$MANUAL_ASOF"
+          python3 -m baibai_batch.validation.workflow_inputs daily --asof "$MANUAL_ASOF"
           echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -114,8 +117,8 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          tools/cloud/r2_transfer.sh pull-machine
-          tools/cloud/r2_transfer.sh pull-app
+          batch/scripts/r2_transfer.sh pull-machine
+          batch/scripts/r2_transfer.sh pull-app
 
       - name: Run daily batch
         id: batch
@@ -137,9 +140,7 @@ jobs:
             args+=(--asof "$MANUAL_ASOF")
           fi
           set +e
-          # -m 起動が必須: スクリプトパス起動は sys.path[0] が tools/cloud になり
-          # リポジトリルートが載らないため、tools.cloud.batch_summary の import で落ちる。
-          uv run python -m tools.cloud.daily_batch "${args[@]}"
+          uv run baibai-batch daily "${args[@]}"
           code=$?
           set -e
           # Finalize the outputs BEFORE any fatal exit so the notification step
@@ -181,9 +182,9 @@ jobs:
           # unreadable stream; both are printed in full once they have finished.
           machine_log="$RUNNER_TEMP/upload-machine.log"
           views_log="$RUNNER_TEMP/upload-views.log"
-          tools/cloud/r2_transfer.sh push-machine >"$machine_log" 2>&1 &
+          batch/scripts/r2_transfer.sh push-machine >"$machine_log" 2>&1 &
           machine_pid=$!
-          tools/cloud/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving" \
+          batch/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving" \
             >"$views_log" 2>&1 &
           views_pid=$!
           machine_code=0
@@ -237,7 +238,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
+        run: batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
 
       - name: Report deferred batch failure
         id: deferred-report
@@ -266,10 +267,11 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+          PYTHONPATH: batch/src
         run: |
           # $MANUAL_ASOF carries the dispatch input safely as a variable;
           # never interpolate inputs.* into this run block (script injection).
-          python3 -m tools.cloud.notify_discord \
+          python3 -m baibai_batch.observability.discord \
             --summary-path "$RUNNER_TEMP/batch-summary.json" \
             --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
             --local-export "${{ steps.batch.outputs.local_export }}" \
@@ -298,4 +300,4 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh upload-run-summary "$RUNNER_TEMP/workflow-run-summary.json"
+        run: batch/scripts/r2_transfer.sh upload-run-summary "$RUNNER_TEMP/workflow-run-summary.json"

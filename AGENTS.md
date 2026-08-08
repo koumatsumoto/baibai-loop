@@ -51,15 +51,15 @@ subsystem、public CLI、schema、persistence、dependency、state、運用手�
 
 | subsystem | src | store | CLI | 品質改善計器 |
 | --- | --- | --- | --- | --- |
-| macro | `src/baibai_engine/macro/` | `data/app/baibai.sqlite`（context）+ `data/indicators/macro.sqlite`（series） | `baibai-engine macro` | 見積り calibration（[`reference/macro.md`](./docs/reference/macro.md)、formal loop にしない） |
-| screening | `src/baibai_engine/screening/` | `data/screening/runs.sqlite`（machine）+ `data/app/baibai.sqlite`（shortlist）+ `method/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
-| research | `src/baibai_engine/research/` | `data/app/baibai.sqlite` + `method/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + holding-review composition |
-| position | `src/baibai_engine/position/` | `data/app/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
-| operation / proposal | `src/baibai_engine/operation/`, `src/baibai_engine/proposals/` | `data/app/baibai.sqlite` | `baibai-engine operation` / `baibai-engine proposal` | current workspace + immutable final result / trade decision current state |
-| market | `src/baibai_engine/market/` | （`data/screening/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
-| foundation | `src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
-| task | `src/baibai_engine/tasks/` | `data/app/baibai.sqlite` | `baibai-engine task` | current task state |
-| app | `src/baibai_app/` | application DBほかdomain storeをread-only合成 | `baibai-app` | read model / local API |
+| macro | `engine/src/baibai_engine/macro/` | `stores/application/baibai.sqlite`（context）+ `stores/macro/macro.sqlite`（series） | `baibai-engine macro` | 見積り calibration（[`reference/macro.md`](./docs/reference/macro.md)、formal loop にしない） |
+| screening | `engine/src/baibai_engine/screening/` | `stores/screening/runs.sqlite`（machine）+ `stores/application/baibai.sqlite`（shortlist）+ `method/` | `baibai-engine screening` | 見積り calibration（保有 outcome + 長期 horizon の較正リプレイ `calibration-build/evaluate`。短期 backtest はしない） |
+| research | `engine/src/baibai_engine/research/` | `stores/application/baibai.sqlite` + `method/research/playbooks/` | `baibai-engine research` / `baibai-engine research evaluate` | thesis + planning-only limit + holding-review composition |
+| position | `engine/src/baibai_engine/position/` | `stores/application/baibai.sqlite` | `baibai-engine position` (`ledger` / draft / `apply-draft` / `outcome`) | human-confirmed portfolio ledger + holding review + portfolio outcome |
+| operation / proposal | `engine/src/baibai_engine/operation/`, `engine/src/baibai_engine/proposals/` | `stores/application/baibai.sqlite` | `baibai-engine operation` / `baibai-engine proposal` | current workspace + immutable final result / trade decision current state |
+| market | `engine/src/baibai_engine/market/` | （`stores/market/market.sqlite` ほか、git 外） | — | 価格・calendar data 層（screening・保有計測の価格基盤） |
+| foundation | `engine/src/baibai_engine/foundation/` | — | — | 共有 primitive（import sink、固有の計器なし） |
+| task | `engine/src/baibai_engine/tasks/` | `stores/application/baibai.sqlite` | `baibai-engine task` | current task state |
+| app | `web/backend/src/baibai_web/` | application DBほかdomain storeをread-only合成 | `baibai-web` | read model / local API |
 
 品質改善は単一の見積り calibration に集約する: entry 時の見積り（RR・期待利回り・FV）を保有の実現結果と突き合わせ、加えて全銘柄の長期 horizon 較正リプレイで見積り手法そのものを較正して、macro 読み・screening 閾値・FV 推定・耐性判定を離散的に改善する（短期 horizon の screen 成績最適化はしない。doctrine 柱 5）。これは日常の判断triggerとは独立した基盤改善であり、契約と規律は [`docs/reference/estimate-calibration.md`](./docs/reference/estimate-calibration.md) を正本とする。
 
@@ -69,12 +69,12 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 
 | store | 正本 | ローカルからの反映 |
 | --- | --- | --- |
-| `data/screening/market.sqlite` | cloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh push-market`（merge後だけupload） |
-| `data/indicators/macro.sqlite` | cloud（rolling窓）+ ローカルの全履歴 | `r2_transfer.sh push-macro`（merge後だけupload） |
-| `data/screening/runs.sqlite` | cloudのみ | しない（cloudが唯一のwriter） |
-| `data/app/baibai.sqlite` | ローカル（判断） | `tools/cloud/publish.sh` |
+| `stores/market/market.sqlite` | cloud（日次batch）+ ローカルの深い履歴 | `r2_transfer.sh push-market`（merge後だけupload） |
+| `stores/macro/macro.sqlite` | cloud（rolling窓）+ ローカルの全履歴 | `r2_transfer.sh push-macro`（merge後だけupload） |
+| `stores/screening/runs.sqlite` | cloudのみ | しない（cloudが唯一のwriter） |
+| `stores/application/baibai.sqlite` | ローカル（判断） | `batch/scripts/publish.sh` |
 
-**schemaを上げるcodeはmainへ入れてからpushする。** ローカルがmainより先のversionでstoreを置くと、次の日次batchがそのversionを知らずfail-fastする。手順と失敗時の見え方は [`tools/cloud/README.md`](./tools/cloud/README.md#ローカルからクラウドを更新する) を正本とする。
+**schemaを上げるcodeはmainへ入れてからpushする。** ローカルがmainより先のversionでstoreを置くと、次の日次batchがそのversionを知らずfail-fastする。手順と失敗時の見え方は [`batch/OPERATIONS.md`](./batch/OPERATIONS.md#ローカルからクラウドを更新する) を正本とする。
 
 ## Repository-local skills
 
@@ -126,7 +126,7 @@ screening run storeはobserved / derived / estimateを区別する機械出力�
 Codex の managed sandbox で実行不能と分かっている操作は、sandbox 内で試してから再実行せず、初回から承認経路へ送る。
 
 - `gh`、`git fetch/pull/push` などの network 操作と、branch / stage / commit など `.git` への書き込み
-- local socket / browser を使う `baibai-app serve`、headless Chrome、FastAPI `TestClient` を含む `pytest`
+- local socket / browser を使う `baibai-web serve`、headless Chrome、FastAPI `TestClient` を含む `pytest`
 - `uv` が sandbox 外の cache へ書く操作。既存環境で足りる検証は `.venv/bin/{ruff,mypy,pytest,lint-imports}` を優先し、`uv` 自体が必要なら承認経路を使う
 - Markdown を含む `gh issue/pr` の本文は `--body-file` で渡し、backtick や `$()` を shell の二重引用符へ埋め込まない
 
@@ -142,12 +142,12 @@ uv run pytest
 uv run lint-imports
 ```
 
-macro subsystem（`src/baibai_engine/macro/`・`method/macro-*`・indicator registry）に触れた変更では、
+macro subsystem（`engine/src/baibai_engine/macro/`・`method/macro/`・indicator registry）に触れた変更では、
 加えて次を通す。git 管理外の 2 store を突き合わせる検査であり、CI には application store が無いので
 機械化できるのはここだけである。
 
 ```bash
-uv run python tools/validate_macro_stores.py
+uv run baibai-batch validate-macro-stores
 ```
 
 これはローカル用の subset。drift gate・bandit・pip-audit・UI build を含む完全な CI gate は [`docs/reference/python-foundation.md`](./docs/reference/python-foundation.md) §9 を正本とする。

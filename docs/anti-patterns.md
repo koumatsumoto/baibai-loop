@@ -134,7 +134,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 - [ ] screening run / macro context / research の field を新規に解釈・記述する前に、対応する
       engine modelとpublic CLI contractを読み返したか
-- [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`src/baibai_engine/screening/`)
+- [ ] 計算系 field (percentile / rank / change / hit) は src 実装 (`engine/src/baibai_engine/screening/`)
       で計算ロジックを確認したか
 - [ ] DB publication viewとmodelに従い、独自構造を勝手に追加していないか
 - [ ] `extra: forbid` の model に独自 key を追加していないか
@@ -268,7 +268,7 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       同一 pass の他 series を止めず、失敗を `provider_runs` と非0 exit の両方に残すか
 - [ ] indicator registry の `plausible_min` / `plausible_max` は有限かつ順序が正しく、標準の全系列で
       両端を宣言しているか。境界値は許可し、band 外が 1 点でもあれば部分 insert せず failed
-      provider run を残すか。band 変更前後に `tools/validate_macro_stores.py` で live store の
+      provider run を残すか。band 変更前後に `baibai-batch validate-macro-stores` で live store の
       全履歴・全 vintage が通ることを機械確認したか。複数行の途中違反を caller が catch 後に
       commit しても先行行が残らず、persistent trigger の欠落・改変・予期しない追加を
       schema version 一致だけで通さないか。`foreign_keys=OFF` の直接writerでもunknown seriesを
@@ -329,20 +329,20 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] 複数例外を捕捉する場合は必ず `except (A, B):` と書く。`except A, B:` は禁止。
       commit 前に `rg -n "except [A-Za-z0-9_.]+, [A-Za-z0-9_.]+" src tests` が 0 件であることを確認する
 - [ ] **CLI subcommand / selection 機能を削減する場合、以下を同 commit で揃える**:
-  - [ ] `src/baibai_engine/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
-  - [ ] `src/baibai_engine/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
-  - [ ] `src/baibai_engine/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
+  - [ ] `engine/src/baibai_engine/screening/cli/app.py` の subparser + `add_argument` 引数 + `main()` の dispatch
+  - [ ] `engine/src/baibai_engine/screening/cli/{__init__.py,query.py,cache.py,run.py}` の関数 / import
+  - [ ] `engine/src/baibai_engine/screening/cli/common.py` の専用 helper (`_parse_profiles_arg` のような callers が消えた helper)
   - [ ] `docs/` 全 grep (`rg <subcommand> docs/ method/ reports/`): runbook の bash example、reference の CLI 表、components / screening の説明文、`docs/reference/screening-runtime.md` の subcommand 一覧
   - [ ] `.agents/skills/`と`.claude/skills/`全grep: canonical skillとsymlinkが当該CLIを参照していないか
   - [ ] `docs/reference/screening-runtime.md` §3 (env var) / §8 (rules baseline) / §select の判断境界
   - [ ] 関連 test fixture (test_screening_cli の sweep / scorecard テスト等)
 - [ ] **screening evidence pattern を削減する場合、以下を同 commit で揃える**:
-  - [ ] `method/screening-rules/*.yaml` の `screening_playbooks.<playbook>` と
+  - [ ] `method/screening/rules/*.yaml` の `screening_playbooks.<playbook>` と
         `research_selection_playbook_order` から削除
-  - [ ] `src/baibai_engine/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
-  - [ ] `src/baibai_engine/screening/rule_config.py` の `<Name>Playbook` class と Union 型
+  - [ ] `engine/src/baibai_engine/screening/rules.py` の `match` 句 / PLAYBOOK_* / REASON_* / `_<playbook>_*` 関数
+  - [ ] `engine/src/baibai_engine/screening/rule_config.py` の `<Name>Playbook` class と Union 型
         (`screening_playbooks: Mapping[..., A | B | C]`) と `match` 句
-  - [ ] `src/baibai_engine/screening/selection/ranking.py` の sort key match arm
+  - [ ] `engine/src/baibai_engine/screening/selection/ranking.py` の sort key match arm
   - [ ] 削除根拠は保有 outcome の calibration で示す (安易な削除で有効な割安タイプを失わない)
 - [ ] **judgment-gate 系の必須 contract を追加する場合、bypass を test で塞ぐ**:
   - [ ] data 不在 label で hard trigger を回避できないか
@@ -415,10 +415,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 
 ### 再発防止チェックリスト
 
-- [ ] **YAML 読み込みは必ず `from baibai_engine.yaml_io import safe_load` 経由**で書く。
+- [ ] **YAML 読み込みは必ず `from baibai_engine.foundation.yaml_io import safe_load` 経由**で書く。
       `yaml.safe_load(...)` / `yaml.load(...)` を直接呼ぶ src コードは書かない
-- [ ] 新規 src モジュールで YAML 読み込みを足すときは `yaml_io.safe_load` が import されているか
-      確認する。`grep -rn "yaml.safe_load" src/` は常に zero を保つ
+- [ ] 新規 runtime モジュールで YAML 読み込みを足すときは `yaml_io.safe_load` が import されているか
+      確認する。`rg "yaml\\.safe_load" engine/src web/backend/src batch/src` は常に zero を保つ
 - [ ] perf 候補を挙げる前に **cProfile で実 hot path を確定**する。
       `python -c "import cProfile; cProfile.run('...')` で cumulative time を取り、
       改善対象が cumtime の何 % か数字で示す

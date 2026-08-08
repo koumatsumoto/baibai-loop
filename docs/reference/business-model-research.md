@@ -6,7 +6,7 @@ status: active
 related_docs:
   - "./thesis.md"
   - "./bargain-assessment.md"
-  - "../../method/playbooks/README.md"
+  - "../../method/research/playbooks/README.md"
 ---
 
 # Business-model research guide

@@ -32,7 +32,8 @@ classifiers = [
 
 [project.scripts]
 baibai-engine = "baibai_engine.cli:main"
-baibai-app = "baibai_app.cli:main"
+baibai-web = "baibai_web.cli:main"
+baibai-batch = "baibai_batch.cli:main"
 
 [dependency-groups]
 dev = [
@@ -68,16 +69,22 @@ security = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/baibai_engine", "src/baibai_app"]
+packages = [
+  "engine/src/baibai_engine",
+  "web/backend/src/baibai_web",
+  "batch/src/baibai_batch",
+]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/baibai_engine/py.typed" = "baibai_engine/py.typed"
-"src/baibai_engine/macro/indicators/schema.sql" = "baibai_engine/macro/indicators/schema.sql"
-"src/baibai_engine/macro/indicators/registry/us.yaml" = "baibai_engine/macro/indicators/registry/us.yaml"
-"src/baibai_engine/macro/indicators/registry/japan.yaml" = "baibai_engine/macro/indicators/registry/japan.yaml"
-"src/baibai_engine/macro/indicators/registry/global.yaml" = "baibai_engine/macro/indicators/registry/global.yaml"
-"src/baibai_engine/macro/indicators/registry/derived.yaml" = "baibai_engine/macro/indicators/registry/derived.yaml"
-"src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/macro/indicators/providers/pmi_release_urls.yaml"
+"engine/src/baibai_engine/py.typed" = "baibai_engine/py.typed"
+"engine/src/baibai_engine/macro/indicators/schema.sql" = "baibai_engine/macro/indicators/schema.sql"
+"engine/src/baibai_engine/macro/indicators/registry/us.yaml" = "baibai_engine/macro/indicators/registry/us.yaml"
+"engine/src/baibai_engine/macro/indicators/registry/japan.yaml" = "baibai_engine/macro/indicators/registry/japan.yaml"
+"engine/src/baibai_engine/macro/indicators/registry/global.yaml" = "baibai_engine/macro/indicators/registry/global.yaml"
+"engine/src/baibai_engine/macro/indicators/registry/derived.yaml" = "baibai_engine/macro/indicators/registry/derived.yaml"
+"engine/src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml" = "baibai_engine/macro/indicators/providers/pmi_release_urls.yaml"
+"web/backend/src/baibai_web/py.typed" = "baibai_web/py.typed"
+"batch/src/baibai_batch/py.typed" = "baibai_batch/py.typed"
 
 [tool.uv]
 required-version = "==0.12.1"
@@ -88,7 +95,11 @@ required-version = "==0.12.1"
 # detection, sweeps in the gitignored operational data/ store (SQLite market
 # history), inflating the archive by hundreds of MB.
 [tool.hatch.build.targets.sdist]
-only-include = ["src/baibai_engine", "src/baibai_app"]
+only-include = [
+  "engine/src/baibai_engine",
+  "web/backend/src/baibai_web",
+  "batch/src/baibai_batch",
+]
 
 [tool.ruff]
 # Runtime is Python 3.14, but Ruff's 3.14 formatter rewrites
@@ -97,7 +108,7 @@ only-include = ["src/baibai_engine", "src/baibai_app"]
 # parenthesized and reviewer-visible.
 target-version = "py313"
 line-length = 100
-src = ["src", "tests"]
+src = ["engine/src", "web/backend/src", "batch/src", "tools", "tests"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -139,7 +150,7 @@ show_error_codes = true
 pretty = true
 disallow_any_unimported = true
 no_implicit_optional = true
-packages = ["baibai_engine", "baibai_app", "tools"]
+packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]
 plugins = ["pydantic.mypy"]
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 # generate_brand_assets.py declares Pillow in PEP 723 inline metadata and runs under
@@ -148,7 +159,7 @@ enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 # resolve; everything else added under tools/ is checked without touching this list. A
 # second entry belongs here only for the same reason — a file whose dependencies this
 # environment deliberately does not have. Anything else is a type error to fix.
-exclude = ["^tools/generate_brand_assets\\.py$"]
+exclude = ["^tools/generators/generate_brand_assets\\.py$"]
 
 [[tool.mypy.overrides]]
 module = [
@@ -180,7 +191,11 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["src/baibai_engine", "src/baibai_app"]
+source = [
+  "engine/src/baibai_engine",
+  "web/backend/src/baibai_web",
+  "batch/src/baibai_batch",
+]
 
 [tool.coverage.report]
 fail_under = 80
@@ -200,7 +215,11 @@ exclude_dirs = ["/tests/", "/.venv/"]
 skips = ["B101"]
 
 [tool.mutmut]
-paths_to_mutate = ["src/baibai_engine", "src/baibai_app"]
+paths_to_mutate = [
+  "engine/src/baibai_engine",
+  "web/backend/src/baibai_web",
+  "batch/src/baibai_batch",
+]
 tests_dir = "tests"
 # mutmut runs the suite once per mutant and parallelises the mutants itself, so the
 # workers `addopts` asks for would multiply against that rather than add to it.
@@ -210,7 +229,7 @@ runner = "python -m pytest -q -m 'not slow' -n 0"
 # (macro / screening / position / research / shared) so a structural edit that
 # reintroduces a cross-subsystem edge fails CI rather than passing every other gate.
 [tool.importlinter]
-root_packages = ["baibai_engine", "baibai_app"]
+root_packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]
 
 [[tool.importlinter.contracts]]
 name = "macro layer stays independent of screening/position"
@@ -326,7 +345,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "app is never imported by the engine"
+name = "web is never imported by the engine"
 type = "forbidden"
 # app composes domain read APIs into local UI read models. Reverse imports
 # would make UI iteration ripple into domain packages and obstruct a storage swap.
@@ -338,20 +357,56 @@ source_modules = [
   "baibai_engine.position",
   "baibai_engine.research",
 ]
-forbidden_modules = ["baibai_app"]
+forbidden_modules = ["baibai_web"]
 
 [[tool.importlinter.contracts]]
-name = "app imports the engine only through read_api"
+name = "web imports the engine only through read_api"
 type = "forbidden"
-source_modules = ["baibai_app"]
+source_modules = ["baibai_web"]
+forbidden_modules = [
+  "baibai_engine.appdb",
+  "baibai_engine.batch_api",
+  "baibai_engine.cli",
+  "baibai_engine.foundation",
+  "baibai_engine.macro",
+  "baibai_engine.market",
+  "baibai_engine.position",
+  "baibai_engine.proposals",
+  "baibai_engine.research",
+  "baibai_engine.screening",
+  "baibai_engine.tasks",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "engine does not depend on delivery or developer systems"
+type = "forbidden"
+source_modules = ["baibai_engine"]
+forbidden_modules = ["baibai_web", "baibai_batch", "tools"]
+
+[[tool.importlinter.contracts]]
+name = "web does not depend on batch or developer tools"
+type = "forbidden"
+source_modules = ["baibai_web"]
+forbidden_modules = ["baibai_batch", "tools"]
+
+[[tool.importlinter.contracts]]
+name = "batch uses only explicit engine orchestration boundaries"
+type = "forbidden"
+source_modules = ["baibai_batch"]
 forbidden_modules = [
   "baibai_engine.appdb",
   "baibai_engine.foundation",
   "baibai_engine.macro",
   "baibai_engine.market",
+  "baibai_engine.operation",
   "baibai_engine.position",
+  "baibai_engine.proposals",
   "baibai_engine.research",
   "baibai_engine.screening",
+  "baibai_engine.tasks",
+  "baibai_web",
+  "tools",
 ]
 allow_indirect_imports = true
 

@@ -9,7 +9,7 @@ status: active
 
 ## Purpose and activation
 
-thesisは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。機械契約は`src/baibai_engine/research/thesis.py`、canonical revisionはapplication DBの`thesis_id`で識別する。独立reviewは同じpublish transactionで`review_id`を得て、DBの外部キーで対象thesis revisionへ束縛される。
+thesisは、実購入候補の判断根拠を短い要約と再計算可能な詳細へ固定する。機械契約は`engine/src/baibai_engine/research/thesis.py`、canonical revisionはapplication DBの`thesis_id`で識別する。独立reviewは同じpublish transactionで`review_id`を得て、DBの外部キーで対象thesis revisionへ束縛される。
 
 thesisは新規の購入判断と保有見直しの判断根拠を固定する。既存保有に判断根拠が必要になった場合は、その時点の一次情報と現値からthesisを作成する。
 

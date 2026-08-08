@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "computed_routes": [
+    "/api/health",
+    "/api/screening/history"
+  ],
+  "routes": {
+    "/api/dashboard": "views/dashboard.json",
+    "/api/daily-delta": "views/daily-delta.json",
+    "/api/screening/latest": "views/screening_latest.json",
+    "/api/operations": "views/operations.json",
+    "/api/meta": "views/meta.json",
+    "/api/system": "views/system.json",
+    "/api/macro/reading": "views/macro-reading.json"
+  },
+  "edge_routes": {
+    "/api/system/latest-run": "system/latest-run.json"
+  },
+  "patterns": {
+    "/api/screening/history/{as_of}": "history/candidate-views/{as_of}.json",
+    "/api/macro/context/{context_id}": "views/macro-context--{context_id}.json",
+    "/api/assessments/{assessment_id}": "views/assessment--{assessment_id}.json",
+    "/api/securities/{ticker}": "views/security--{ticker}.json",
+    "/api/macro?period={period}&granularity={granularity}": "views/macro--{period}-{granularity}.json"
+  }
+}

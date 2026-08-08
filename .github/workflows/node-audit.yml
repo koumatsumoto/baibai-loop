@@ -1,7 +1,7 @@
 name: node-audit
 
 # An advisory is published against a lockfile nobody touched, so asking on every
-# change under `ui/` or `cloud/worker/` would let someone else's disclosure block
+# change under `web/frontend/` or `web/edge/` would let someone else's disclosure block
 # unrelated work — and asking inside the job that publishes production would let it
 # hold back an urgent fix. The trigger is the lockfiles themselves: this refuses a
 # resolution that arrives carrying a high advisory. Advisories against a lockfile
@@ -10,8 +10,8 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - ui/package-lock.json
-      - cloud/worker/package-lock.json
+      - web/frontend/package-lock.json
+      - web/edge/package-lock.json
       - .github/workflows/node-audit.yml
 
 permissions:
@@ -38,10 +38,10 @@ jobs:
       # `!cancelled()` keeps one ecosystem's finding from hiding the other's.
       - name: UI dependency audit
         if: ${{ !cancelled() }}
-        working-directory: ui
+        working-directory: web/frontend
         run: npm audit --package-lock-only --audit-level=high
 
       - name: Worker dependency audit
         if: ${{ !cancelled() }}
-        working-directory: cloud/worker
+        working-directory: web/edge
         run: npm audit --package-lock-only --audit-level=high

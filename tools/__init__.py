@@ -1,1 +1,1 @@
-"""Repository-local development tools that are not shipped as product APIs."""
+"""Repository-development tooling; production packages must not import it."""

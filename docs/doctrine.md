@@ -108,7 +108,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 ### 柱 4: application DB 正本、Git は method / config
 
 - **(a)** task、macro context、shortlist、research、bargain assessment、trade proposal、portfolio ledger / outcome、operation session という application data は application DB を正本とする。再生成可能な screening run は専用 run store、market / macro series は各 L1 store に分離する。method、設定、playbook、コード、docs は Git に置く。機械契約は DB constraint、engine 内の model、application service の write-time validation が担う。
-- **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行う。`baibai-app` は application DB と各 read store を読むだけの UI で、閲覧専用 read model への publish も同じ読み取り側にあり、正本を書き換えない。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
+- **(b)** 書き込みは AI との会話を入口に `baibai-engine` CLI が行う。`baibai-web` は application DB と各 read store を読むだけの UI で、閲覧専用 read model への publish も同じ読み取り側にあり、正本を書き換えない。この分業により、同じ判断や運用状態の第二の正本を作らず、CLI と UI の意味を揃えられる。
 - **(c)** GitHub Issue や Markdown / YAML を application data の正本にはしない。GitHub は開発作業に使い、運用 workspace は `operation_session`、確定した entity は各 DB table に置く。外部 SaaS を正本にすると local-first の運用と application service の境界が崩れるため採用しない。
 
 ### 柱 5: 計測ファーストのデータ基盤
@@ -121,7 +121,7 @@ validation や hash のように監査にも使える手段でも、現在の候
 
 ## 4. 語彙と構成要素
 
-domain 語彙はこの節を正本とする。新しい domain 語は、まず命名文法に照らしてこの節へ行を追加してから使う（文法にない語を schema・CLI・UI・docs へ直接持ち込まない。退役語の再侵入は `tools/drift/check_legacy_semantics.py` が拒否する）。
+domain 語彙はこの節を正本とする。新しい domain 語は、まず命名文法に照らしてこの節へ行を追加してから使う（文法にない語を schema・CLI・UI・docs へ直接持ち込まない。退役語の再侵入は `tools/quality/drift/check_legacy_semantics.py` が拒否する）。
 
 ### 命名文法
 
@@ -131,7 +131,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 4. **活動・工程名**（screening, research, macro analysis）は workflow doc と CLI domain・package 名に使い、artifact 名には使わない
 5. **表示物（projection）**は canonical ではない（Baibai Loop の画面、cloud serving の view JSON）
 6. **UI タブは分析対象**で命名する（Macro = 市場環境の top-down 分析対象、Stocks = 個別銘柄の bottom-up 分析対象）
-7. **プロダクト名とプログラム識別子を混ぜない**。人間に見せる呼称は `Baibai Loop` の 1 語だけで別名を作らず、package・CLI とその責務を説明する文は識別子（`baibai_engine` / `baibai-engine` / `baibai_app` / `baibai-app`）を主語にする
+7. **プロダクト名とプログラム識別子を混ぜない**。人間に見せる呼称は `Baibai Loop` の 1 語だけで別名を作らず、package・CLI とその責務を説明する文は識別子（`baibai_engine` / `baibai-engine` / `baibai_web` / `baibai-web`）を主語にする
 
 ### パイプライン状態機械
 
@@ -163,7 +163,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 機械絞り込み候補 | longlist | パイプライン状態 | L2 出力 | diversity/cap 切断前の機械 rank 上位 N 件。OP3 レビューの入力母集団 |
 | 機械参考推奨 | machine recommendation | 機械成果物 | L2 出力 | cap 適用後の機械 top-N。calibration 監視用の参考値であり judgment ではない |
 | リサーチ候補選定 | select | 機械処理 | L2 | screening runの候補に機械 E[r] 降順の着手順位と lens 注記を付ける |
-| 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | OP3 gate で longlist から選んだ候補のcanonical snapshot。selected narrative と rejected 理由を持つ（`data/app/baibai.sqlite`） |
+| 深掘り候補一覧 | shortlist | パイプライン状態 + 判断 | L3 | OP3 gate で longlist から選んだ候補のcanonical snapshot。selected narrative と rejected 理由を持つ（`stores/application/baibai.sqlite`） |
 | 棄却理由分類 | reject class | 判断要約 | L3 | shortlist rejected entryとbargain assessment reject / defer laneの主因を共通enumで集計する。自由記述が判断の正本であり、分類は自動除外・ranking・売買判断に使わない |
 | 個別銘柄リサーチ | research | 活動 | L3 | 一次情報、FV、RR、期待利回り、耐性、反証を調べる工程 |
 | 投資仮説 | thesis | 判断文書 | L3 | 3年/5年scenario、永久損失、source、採否を固定するcanonical artifact。保有中は thesis health を問い、thesis break が売却の主因になる |
@@ -175,7 +175,7 @@ domain 語彙はこの節を正本とする。新しい domain 語は、まず�
 | 購入機会サイクル | opportunity | 運転（operation kind） | — | screening → longlist → shortlist → thesis → proposal を 1 trigger で進める operation session の kind |
 | 境界帯の建て方 | starter | 運用語（position の建て方） | L3 | 要求利回りの帯の下限以上・上限未満に居る lane を、全件見送りの代わりに縮小 lot で建てる建て方。パイプライン状態でも判断文書でもなく position の建て方を表すので、`ThesisJudgment.position_intent` の enum 値（`full` / `starter`）として持つ。帯・1 注文上限・bucket 上限の実値は `portfolio-management.md#starter-band` が正本 |
 
-`research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は `src/`（機械の実装）、`method/`（改善ループが調整する手法。screening rules・macro panel・macro reading rules・playbook の dated revision）、`docs/`（現在形の説明）の三分法で読む。
+`research`は個別銘柄を調べる活動（workflow・CLI domain・package 名）、`thesis`はその canonical 成果物である。`thesis break`と`thesis health`は保有判断の正準な投資概念であり、thesis artifact の状態を指す。Git tree は authoritative business system の `engine/`、read-only presentation の `web/`、non-request orchestration の `batch/`、developer tooling の `tools/` と、production methodology の `method/`、runtime state の `stores/`、historical evidence の `reports/` を責務ごとに読む。
 
 ### Evidence Taxonomy
 
@@ -221,7 +221,7 @@ L1 / L2の機械store（market / macro series / screening run）のobserved / de
 - 銘柄全体を対象にした**短期（3 か月未満）horizon** の forward-backtest による screen 成績最適化（長期 horizon の見積り較正リプレイは柱 5 の正式な計測経路であり、非目標ではない）。
 - ETF / 投資信託 / 海外株、口座・税制のモデル化。
 - broker状態の自動推定、broker会計の完全複製、ledger精密化の目的化。
-- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開（`baibai-app` の read-only API と閲覧専用 read model への publish は柱 4 (b) の読み取り側であり、範囲内）。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
+- 外部向けの汎用データ配信（feature store）・MCP server・書き込み API の公開（`baibai-web` の read-only API と閲覧専用 read model への publish は柱 4 (b) の読み取り側であり、範囲内）。SQLite は market data のローカル正本とし、AI は CLI と SQL で直接読む。
 
 ## 9. 参考
 

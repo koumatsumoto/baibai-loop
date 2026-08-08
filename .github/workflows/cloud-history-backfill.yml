@@ -60,8 +60,9 @@ jobs:
           BACKFILL_START: ${{ inputs.start }}
           BACKFILL_END: ${{ inputs.end }}
           MASTER_MONTH_END_FROM: ${{ inputs.master_month_end_from }}
+          PYTHONPATH: batch/src
         run: |
-          python3 -m tools.cloud.validate_workflow_inputs backfill \
+          python3 -m baibai_batch.validation.workflow_inputs backfill \
             --start "$BACKFILL_START" \
             --end "$BACKFILL_END" \
             --master-month-end-from "$MASTER_MONTH_END_FROM"
@@ -85,11 +86,11 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: tools/cloud/r2_transfer.sh pull-market
+        run: batch/scripts/r2_transfer.sh pull-market
 
       - name: Record the window the store already covers
         run: |
-          sqlite3 "file:data/screening/market.sqlite?mode=ro" \
+          sqlite3 "file:stores/market/market.sqlite?mode=ro" \
             "SELECT 'bars ' || MIN(traded_at) || '..' || MAX(traded_at) || ' (' || COUNT(*) || ')' \
              FROM jquants_daily_bars;
              SELECT 'fin  ' || MIN(disclosed_at) || '..' || MAX(disclosed_at) || ' (' || COUNT(*) || ')' \
@@ -109,4 +110,4 @@ jobs:
           if [[ -n "$MASTER_MONTH_END_FROM" ]]; then
             args+=(--master-month-end-from "$MASTER_MONTH_END_FROM")
           fi
-          uv run python -m tools.cloud.history_backfill "${args[@]}"
+          uv run baibai-batch history-backfill "${args[@]}"

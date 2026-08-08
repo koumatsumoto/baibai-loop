@@ -4,7 +4,9 @@ summary: "Python の runtime・依存管理・lint・型検査・validation 境�
 doc_type: reference
 status: active
 source_paths:
-  - "../../src/baibai_engine/"
+  - "../../engine/src/baibai_engine/"
+  - "../../web/backend/src/baibai_web/"
+  - "../../batch/src/baibai_batch/"
   - "../../tests/"
   - "../../pyproject.toml"
   - "../../uv.lock"
@@ -12,7 +14,7 @@ source_paths:
 
 # Python foundation
 
-このリポジトリの Python 基盤の正本。対象は `src/baibai_engine/**` と `tests/**`。Baibai Loop は外部データを取り込み、SQLite store と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
+このリポジトリの Python 基盤の正本。対象は `engine/src/baibai_engine/**`、`web/backend/src/baibai_web/**`、`batch/src/baibai_batch/**` と `tests/**`。Baibai Loop は外部データを取り込み、SQLite store と cache に永続化し、売買判断の事実レイヤーを作るため、Python 基盤では「新しさ」よりも **境界が検証され、静的に読め、CI で再現できること** を優先する。
 
 ## 1. Runtime policy
 
@@ -84,8 +86,8 @@ mypy strict を CI の主 type gate とする。Pyright の設定ファイルは
 - `warn_unreachable = true`: CLI 分岐や Protocol 変更で dead path を見つける。
 - `disallow_any_unimported = true`: stub 不足による stealth Any を検出する。
 - `plugins = ["pydantic.mypy"]`: Pydantic model の constructor と field 定義を mypy に理解させる。
-- `packages = ["baibai_engine", "baibai_app", "tools"]`: `tools/` の script も同じ strict gate に置く。file 名の列挙にすると、追加した script が誰かに思い出されるまで無検査で残る。
-- `exclude`: `tools/generate_brand_assets.py` だけを外す。この script は Pillow を PEP 723 の inline metadata で宣言して `uv run --script` で動くため、native image library を shared lock と全 workflow の install から外している。その代償として import が解決できない。
+- `packages = ["baibai_engine", "baibai_web", "baibai_batch", "tools"]`: 3 runtime package と developer tool を同じ strict gate に置く。file 名の列挙にすると、追加した module が誰かに思い出されるまで無検査で残る。
+- `exclude`: `tools/generators/generate_brand_assets.py` だけを外す。この script は Pillow を PEP 723 の inline metadata で宣言して `uv run --script` で動くため、native image library を shared lock と全 workflow の install から外している。その代償として import が解決できない。
 - `py.typed`: package consumer に型付き package として公開する。
 
 外部 SDK は完全な型を持たないことがある。`jquantsapi.*` などは override で missing import を許容するが、その Any は provider module の中で止める。application 層へは `Protocol` と domain model を通して渡す。
@@ -168,7 +170,7 @@ CodeQL は採用しない。GitHub の Code scanning は private repository で�
 
 `pip-audit --local` は実行環境の `pip` 自体も監査対象に含めるため、project dependency ではない pip の CVE で CI が落ちることがある。repo の依存監査としては lockfile export を正とする。
 
-scanner は「答えが何によって動くか」で置き場所が決まる。Bandit は pinned version で source を読むので、答えは変更でしか動かない。pull request 上の ci job が唯一の実行点で、週次に置いても新しい発見は出せない。advisory は repository が動かないまま公表されるので、pip-audit と npm audit は変更時に加えて週次 sweep でも実行する。Node audit の変更時実行は `.github/workflows/node-audit.yml` が担い、trigger は両 lockfile 自身に絞る。この検査の answer は repository の外（GitHub advisory database）で動くので、`ui/` の変更すべてを対象にすると他人の公表が無関係な UI 作業を止め、production を publish する job に置くと緊急修正の publish を止める。ここが拒否するのは「高 severity の advisory を連れてきた resolution」だけで、止まったままの lockfile に後から出る advisory は週次 sweep の findings である。監査は `--package-lock-only` で install を重複させず、lockfile の再現性と実動互換性は web job の `npm ci` 以降が検証する。
+scanner は「答えが何によって動くか」で置き場所が決まる。Bandit は pinned version で source を読むので、答えは変更でしか動かない。pull request 上の ci job が唯一の実行点で、週次に置いても新しい発見は出せない。advisory は repository が動かないまま公表されるので、pip-audit と npm audit は変更時に加えて週次 sweep でも実行する。Node audit の変更時実行は `.github/workflows/node-audit.yml` が担い、trigger は両 lockfile 自身に絞る。この検査の answer は repository の外（GitHub advisory database）で動くので、`web/frontend/` の変更すべてを対象にすると他人の公表が無関係な UI 作業を止め、production を publish する job に置くと緊急修正の publish を止める。ここが拒否するのは「高 severity の advisory を連れてきた resolution」だけで、止まったままの lockfile に後から出る advisory は週次 sweep の findings である。監査は `--package-lock-only` で install を重複させず、lockfile の再現性と実動互換性は web job の `npm ci` 以降が検証する。
 
 参考:
 
@@ -184,36 +186,44 @@ uv run ruff format --check .
 uv run ruff check .
 uv run mypy
 uv run lint-imports
-for gate in tools/drift/check_*.py; do uv run python -m "tools.drift.$(basename "$gate" .py)"; done
+for gate in tools/quality/drift/check_*.py; do uv run python -m "tools.quality.drift.$(basename "$gate" .py)"; done
 uv run pytest -n 4 --cov --cov-report=term-missing
 uv run --with pillow python -c 'import PIL.Image'
-uv run --with pillow pytest -n 0 tests/test_brand_assets.py
-uv run bandit -c pyproject.toml -q -r src/baibai_engine src/baibai_app tools
+uv run --with pillow pytest -n 0 tests/tools/test_brand_assets.py
+uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
-uv build --wheel
+distribution_dir="$(mktemp -d)"
+uv build --wheel --sdist --out-dir "$distribution_dir"
+wheel_path="$(find "$distribution_dir" -maxdepth 1 -type f -name '*.whl' -print -quit)"
+sdist_path="$(find "$distribution_dir" -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+uv run python tools/quality/check_distribution.py --wheel "$wheel_path" --sdist "$sdist_path"
+distribution_venv="$(mktemp -d)"
+uv venv "$distribution_venv"
+uv pip install --python "$distribution_venv/bin/python" "$wheel_path"
+"$distribution_venv/bin/python" tools/quality/check_distribution.py --installed
 ```
 
-brand asset の 2 行が `--with pillow` を挟むのは、Pillow を lock の外に置いているためである。通常の `pytest` では `tests/test_brand_assets.py` が `importorskip` で丸ごと skip され、破れが緑のまま通る。import できることを先に確かめてから走らせて、この fail-open を塞ぐ。
+brand asset の 2 行が `--with pillow` を挟むのは、Pillow を lock の外に置いているためである。通常の `pytest` では `tests/tools/test_brand_assets.py` が `importorskip` で丸ごと skip され、破れが緑のまま通る。import できることを先に確かめてから走らせて、この fail-open を塞ぐ。
 
 Node dependency gate は各 lockfile を直接監査する。
 
 ```bash
-cd ui
+cd web/frontend
 npm audit --package-lock-only --audit-level=high
-cd ../cloud/worker
+cd ../edge
 npm audit --package-lock-only --audit-level=high
 ```
 
-UI（`ui/`）と Cloudflare Worker（`cloud/worker/`）は、同じ web job で次の順に検証する。UI は依存を 1 回だけ install して lint / build / test を通し、その build artifact を含む checkout のまま Worker の型生成・型検査・test・dry-run bundle を検証する。
+UI（`web/frontend/`）と Cloudflare Worker（`web/edge/`）は、同じ web job で次の順に検証する。UI は依存を 1 回だけ install して lint / build / test を通し、その build artifact を含む checkout のまま Worker の型生成・型検査・test・dry-run bundle を検証する。
 
 ```bash
-cd ui
+cd web/frontend
 npm ci
 npm run lint
 npm run build
 npm test
-cd ../cloud/worker
+cd ../edge
 npm ci
 npm run types:check
 npm run typecheck
@@ -227,9 +237,9 @@ Actions は job 単位で分単位切り上げ課金されるため、gate の�
 
 この構成が残す穴は「run 後に base が動いてから merge した tree」で、GitHub は base の前進では pull request workflow を再実行しない。plan 上 branch protection（up-to-date 必須）が使えないため強制もできない。この tree を再検査するのは次の pull request の merge ref で、daily batch が毎営業日確認するのは main が import して走ることだけである。lint / 型 / test だけの破れは次の pull request まで残る。credential 境界だけは待たせずに済ませるため、週次 sweep が main に対して `check_workflow_trust` を実行する。main push を保つのは web だけで、その push は検査ではなく production を publish する操作である。
 
-web の trigger は `paths` filter に置き、run が存在すること自体が web tree の変化を意味する。`push` の filter は `wrangler deploy` が publish する tree（`ui/**`・`cloud/worker/**`）に一致させ、CI file だけの編集が production を publish しないようにする。`pull_request` はそこへ自身の定義 file を加え、workflow 自身の変更もその workflow で通す。GitHub は filter を diff 先頭 3,000 file までで評価し、一致 file がその窓の外にあると workflow を無音で skip する。diff は「前の tree の file + 後の tree の file」で抑えられるので、各 commit が tracked file の budget を守る限り 3,000 に届かない。budget は `tests/test_cloud_workflow_contracts.py` が保ち、超えるときは filter を job 内判定へ戻す。
+web の trigger は `paths` filter に置き、run が存在すること自体が web tree の変化を意味する。`push` の filter は `wrangler deploy` が publish する tree（`web/frontend/**`・`web/edge/**`）に一致させ、CI file だけの編集が production を publish しないようにする。`pull_request` はそこへ自身の定義 file を加え、workflow 自身の変更もその workflow で通す。GitHub は filter を diff 先頭 3,000 file までで評価し、一致 file がその窓の外にあると workflow を無音で skip する。diff は「前の tree の file + 後の tree の file」で抑えられるので、各 commit が tracked file の budget を守る限り 3,000 に届かない。budget は `tests/batch/test_cloud_workflow_contracts.py` が保ち、超えるときは filter を job 内判定へ戻す。
 
-pull request の同一 workflow は新しい commit が来たら旧 run を cancel し、schedule と deploy 経路は互いに cancel しない。concurrency group は pending run を 1 本しか保持しないので、deploy に到達し得ない run（main 以外を指した manual dispatch）は production group へ入れない。入れると待機中の実 deploy を追い出し、production が main より古いまま緑の run だけが残る。deploy は `push` と `workflow_dispatch` を名指しで許可する。`github.ref` は schedule や workflow_run でも default branch になるため、「pull request でない」という条件では後から足した trigger に production を渡してしまう。deploy は同じ job の UI / Worker gate と dry-run が成功した main の run だけで実行し、deploy 直前に remote `main` と対象 run の `ui/`・`cloud/worker/` tree を再照合して、後続 web 変更がある run は deploy しない。Cloudflare credential は deploy step だけへ渡す。
+pull request の同一 workflow は新しい commit が来たら旧 run を cancel し、schedule と deploy 経路は互いに cancel しない。concurrency group は pending run を 1 本しか保持しないので、deploy に到達し得ない run（main 以外を指した manual dispatch）は production group へ入れない。入れると待機中の実 deploy を追い出し、production が main より古いまま緑の run だけが残る。deploy は `push` と `workflow_dispatch` を名指しで許可する。`github.ref` は schedule や workflow_run でも default branch になるため、「pull request でない」という条件では後から足した trigger に production を渡してしまう。deploy は同じ job の UI / Worker gate と dry-run が成功した main の run だけで実行し、deploy 直前に remote `main` と対象 run の `web/frontend/`・`web/edge/` tree を再照合して、後続 web 変更がある run は deploy しない。Cloudflare credential は deploy step だけへ渡す。
 
 Bandit と pip-audit は ci の 1 job に同居するが `!cancelled()` を付ける。runner を 2 台に増やさないために同じ job へ置くのであって、赤い test が CVE を隠してよいわけではない。同じ理由で週次 sweep も両 ecosystem を必ず問う。`README.md` / `AGENTS.md` はローカル用の subset だけを載せてここを参照する。GitHub Actionsでは`astral-sh/setup-uv`を使い、root `pyproject.toml`のexact `tool.uv.required-version`を全workflowの正本とする。`python -m pip install uv`よりCIのintentが明確で、uv cacheも扱いやすい。
 
@@ -238,7 +248,7 @@ Bandit と pip-audit は ci の 1 job に同居するが `!cancelled()` を付�
 - https://docs.astral.sh/uv/guides/integration/github/
 - https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#filtering-and-diff-limits
 
-全workflowの外部Actionは上流releaseのfull commit SHAへ固定し、同じ行のコメントにrelease tagを残す。repository Actions設定のSHA pin enforcementと`tools/drift/check_workflow_trust.py`を併用し、tag/branch参照、`run:`へのdispatch input直接展開、credentialのjob scope化を拒否する。Dependabotの更新でも、上流releaseとcommitの対応を確認してgateのallowlistとworkflowを同時に更新する。
+全workflowの外部Actionは上流releaseのfull commit SHAへ固定し、同じ行のコメントにrelease tagを残す。repository Actions設定のSHA pin enforcementと`tools/quality/drift/check_workflow_trust.py`を併用し、tag/branch参照、`run:`へのdispatch input直接展開、credentialのjob scope化を拒否する。Dependabotの更新でも、上流releaseとcommitの対応を確認してgateのallowlistとworkflowを同時に更新する。
 
 ## 10. Review rule
 

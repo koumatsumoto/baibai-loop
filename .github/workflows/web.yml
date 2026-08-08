@@ -4,7 +4,7 @@ name: web
 # the push range itself, so a run existing at all already means the web tree moved,
 # and no job has to re-derive that from git. The filter is exact here because it
 # only goes silent on diffs past 3,000 files, which a tree this size cannot reach
-# — tests/test_cloud_workflow_contracts.py holds that budget.
+# — tests/batch/test_cloud_workflow_contracts.py holds that budget.
 #
 # This file is filtered on pull requests so its own edits are gated, and left out
 # of the push filter so that editing CI never publishes production.
@@ -12,14 +12,14 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - ui/**
-      - cloud/worker/**
+      - web/frontend/**
+      - web/edge/**
       - .github/workflows/web.yml
   push:
     branches: [main]
     paths:
-      - ui/**
-      - cloud/worker/**
+      - web/frontend/**
+      - web/edge/**
   workflow_dispatch:
 
 permissions:
@@ -46,43 +46,43 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: |
-            ui/package-lock.json
-            cloud/worker/package-lock.json
+            web/frontend/package-lock.json
+            web/edge/package-lock.json
 
       - name: Install UI dependencies
-        working-directory: ui
+        working-directory: web/frontend
         run: npm ci
 
       - name: Lint UI
-        working-directory: ui
+        working-directory: web/frontend
         run: npm run lint
 
       - name: Build UI
-        working-directory: ui
+        working-directory: web/frontend
         run: npm run build
 
       - name: Test UI
-        working-directory: ui
+        working-directory: web/frontend
         run: npm test
 
       - name: Install Worker dependencies
-        working-directory: cloud/worker
+        working-directory: web/edge
         run: npm ci
 
       - name: Check Worker generated types
-        working-directory: cloud/worker
+        working-directory: web/edge
         run: npm run types:check
 
       - name: Typecheck Worker
-        working-directory: cloud/worker
+        working-directory: web/edge
         run: npm run typecheck
 
       - name: Test Worker
-        working-directory: cloud/worker
+        working-directory: web/edge
         run: npm test
 
       - name: Dry-run Worker deploy
-        working-directory: cloud/worker
+        working-directory: web/edge
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"
 
       # A queued run can hold a web tree that main has already moved past. Publishing it
@@ -101,7 +101,7 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           current_sha="$(git rev-parse FETCH_HEAD)"
           current=false
-          if git diff --quiet "$TARGET_SHA" "$current_sha" -- ui cloud/worker; then
+          if git diff --quiet "$TARGET_SHA" "$current_sha" -- web/frontend web/edge; then
             current=true
           else
             diff_status=$?
@@ -116,7 +116,7 @@ jobs:
 
       - name: Deploy Worker and UI assets
         if: ${{ success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && steps.deploy-target.outputs.current == 'true' }}
-        working-directory: cloud/worker
+        working-directory: web/edge
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}

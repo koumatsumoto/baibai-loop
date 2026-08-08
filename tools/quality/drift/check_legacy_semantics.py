@@ -1,0 +1,114 @@
+"""Reject obsolete operational instructions from current documentation."""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+_BEHAVIOR_LEGACY = re.compile(
+    r"ai-value-bargain-selection|financial-pro-review|"
+    r"durability_gate|execution lifecycle|"
+    # Retired domain vocabulary (doctrine #vocabulary is the naming authority):
+    # the judgment artifact is the thesis, the pre-cap rank pool is the longlist,
+    # and the OP3 output is the shortlist. The Git method tree is method/, so
+    # reject any records/ path.
+    r"decision.packet|packet.scaffold|packet.draft|--packet-id|research_packet|"
+    r"audit.pool|--audit-top|reviewed.shortlist|cockpit|"
+    # The single human-facing product name is Baibai Loop. `baibai-loop` (the
+    # distribution) stays lowercase, so the hyphenated brand form is matched
+    # case-sensitively while the rest of this pattern keeps IGNORECASE.
+    r"Baibai App|(?-i:Baibai-Loop)|"
+    # Retired macro context contract: the report declares no shelf life
+    # (`valid_until`), core sections carry an economic connection rather than an
+    # investment one, and there is one full-depth report instead of a
+    # decision-grade / delta pair.
+    r"valid_until|investment_connection|scenarios_connections|japan_specific|"
+    r"fx_liquidity|decision-grade|delta 更新|delta更新|"
+    # `(?<!/)` keeps retired path references (`records/`, `` `records/` ``) while
+    # skipping `/records/` fragments inside external URLs.
+    r"(?<!/)\brecords/|macro-dashboard|"
+    # screening rules は dated revision で増え、現行 revision は
+    # `rule_config.DEFAULT_RULES_PATH` が解決する。file 名の実値を書いた doc は次の改訂で
+    # 存在しない path を「閾値の正本」として指すことになるので、revision を名指ししない。
+    r"method/screening/rules/\d{4}-\d{2}-\d{2}",
+    re.IGNORECASE,
+)
+
+_REPOSITORY_PATH_LEGACY = re.compile(
+    r"(?:^|[\s`\"'(])src/baibai_(?:engine|app)|(?:^|[\s`\"'(])ui/|"
+    r"(?:^|[\s`])cd\s+ui(?:/|\s|$)|(?:\.\./)+ui(?:/|\s|[\"'])|"
+    r"reports/\d{4}-\d{2}-\d{2}-|"
+    r"cloud/worker|tools/cloud|data/(?:app|screening|indicators)|"
+    r"method/(?:macro-panel|screening-rules|macro-reading|playbooks)",
+    re.IGNORECASE,
+)
+
+# Documentation surfaces that state current behaviour. reports/ holds dated
+# measurement records that intentionally keep the vocabulary of their time, so it
+# is excluded; everything an agent reads as current instruction is scanned.
+_SCAN_DIRECTORIES = (
+    "docs",
+    ".agents/skills",
+    "engine",
+    "web",
+    "batch",
+    "tools",
+    "method",
+    "stores",
+    ".github",
+)
+_ROOT_FILES = ("README.md", "AGENTS.md", "CLAUDE.md")
+_PATH_ROOT_FILES = (
+    *_ROOT_FILES,
+    "pyproject.toml",
+    ".pre-commit-config.yaml",
+    ".gitignore",
+    ".env.sample",
+)
+_CURRENT_SUFFIXES = {".md", ".py", ".sh", ".yaml", ".yml", ".json", ".toml", ".ts", ".tsx"}
+_IGNORED_PARTS = {"node_modules", ".playwright-cli", "__pycache__"}
+_PATH_PATTERN_OWNERS = {
+    Path("engine/src/baibai_engine/foundation/repository_layout.py"),
+    Path("tools/quality/drift/check_legacy_semantics.py"),
+}
+
+
+def check(root: Path) -> list[str]:
+    behavior_paths = [root / name for name in _ROOT_FILES]
+    current_paths = [root / name for name in _PATH_ROOT_FILES if (root / name).is_file()]
+    for directory_name in _SCAN_DIRECTORIES:
+        directory = root / directory_name
+        if directory.is_dir():
+            paths = [
+                path
+                for path in sorted(directory.rglob("*"))
+                if path.suffix in _CURRENT_SUFFIXES and not (_IGNORED_PARTS & set(path.parts))
+            ]
+            current_paths.extend(paths)
+            behavior_paths.extend(path for path in paths if path.suffix == ".md")
+    errors: list[str] = []
+    for path in behavior_paths:
+        if not path.is_file():
+            continue
+        if match := _BEHAVIOR_LEGACY.search(path.read_text(encoding="utf-8")):
+            errors.append(
+                f"{path.relative_to(root)}: obsolete operation instruction {match.group(0)!r}"
+            )
+    for path in current_paths:
+        relative_path = path.relative_to(root)
+        if relative_path in _PATH_PATTERN_OWNERS:
+            continue
+        if match := _REPOSITORY_PATH_LEGACY.search(path.read_text(encoding="utf-8")):
+            errors.append(f"{relative_path}: obsolete repository path {match.group(0)!r}")
+    return errors
+
+
+def main() -> int:
+    errors = check(Path.cwd())
+    print("\n".join(errors), file=sys.stderr)
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

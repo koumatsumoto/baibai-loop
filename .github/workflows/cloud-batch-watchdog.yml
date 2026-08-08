@@ -41,9 +41,11 @@ jobs:
       # surface at the moment an alert is due.
       - name: Smoke-check watchdog scripts
         id: smoke
+        env:
+          PYTHONPATH: batch/src
         run: |
-          python3 -m py_compile tools/cloud/batch_watchdog.py tools/cloud/validate_workflow_inputs.py
-          python3 -c "import tools.cloud.batch_watchdog; import tools.cloud.validate_workflow_inputs"
+          python3 -m py_compile batch/src/baibai_batch/jobs/watchdog.py batch/src/baibai_batch/validation/workflow_inputs.py
+          python3 -c "import baibai_batch.jobs.watchdog; import baibai_batch.validation.workflow_inputs"
 
       # Validate the untrusted dispatch value before any credential-bearing step.
       # The scheduled event supplies an empty value, which is valid.
@@ -51,8 +53,10 @@ jobs:
         id: validate-input
         env:
           WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
+          PYTHONPATH: batch/src
         run: |
-          python3 -m tools.cloud.validate_workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+          python3 -m baibai_batch.validation.workflow_inputs watchdog \
+            --check-date "$WATCHDOG_CHECK_DATE"
           echo "check_date=$WATCHDOG_CHECK_DATE" >> "$GITHUB_OUTPUT"
 
       - name: Fetch daily batch run history
@@ -71,9 +75,10 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           WATCHDOG_CHECK_DATE: ${{ steps.validate-input.outputs.check_date }}
+          PYTHONPATH: batch/src
         run: |
           # $WATCHDOG_CHECK_DATE carries the dispatch input safely as a variable;
           # never interpolate inputs.* into this run block (script injection).
-          python3 -m tools.cloud.batch_watchdog \
+          python3 -m baibai_batch.jobs.watchdog \
             --runs-json "$RUNNER_TEMP/daily-batch-runs.json" \
             --check-date "$WATCHDOG_CHECK_DATE"

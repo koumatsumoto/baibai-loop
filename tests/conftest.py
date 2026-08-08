@@ -24,9 +24,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # their default from these env vars; the indicators store has no env override and is
 # guarded by fingerprint detection alone.
 _REAL_DB_DEFAULTS = (
-    Path("data/app/baibai.sqlite"),
-    Path("data/screening/runs.sqlite"),
-    Path("data/indicators/macro.sqlite"),
+    Path("stores/application/baibai.sqlite"),
+    Path("stores/screening/runs.sqlite"),
+    Path("stores/macro/macro.sqlite"),
 )
 
 
@@ -71,19 +71,19 @@ def _guard_real_databases() -> Iterator[None]:
 
 
 def _seed_app_method_root(root: Path) -> None:
-    config_dir = root / "method"
+    config_dir = root / "web/config"
     config_dir.mkdir(parents=True)
     (config_dir / "macro-panel.yaml").write_text(
-        Path("method/macro-panel.yaml").read_text(encoding="utf-8"),
+        Path("web/config/macro-panel.yaml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     reading_rules = root / MACRO_READING_RULES_PATH
     reading_rules.parent.mkdir(parents=True, exist_ok=True)
     reading_rules.write_text(MACRO_READING_RULES_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    indicators_dir = root / "data/indicators"
+    indicators_dir = root / "stores/macro"
     indicators_dir.mkdir(parents=True, exist_ok=True)
     initialize_indicators_db(indicators_dir / "macro.sqlite").close()
-    db_path = root / "data/app/baibai.sqlite"
+    db_path = root / "stores/application/baibai.sqlite"
     ledger = load_portfolio_ledger(FIXTURES / "portfolio-ledger/representative.yaml")
     seed_ledger(
         db_path,
@@ -105,7 +105,7 @@ def _seed_app_method_root(root: Path) -> None:
     )
     tasks = yaml.safe_load(_TASKS)["tasks"]
     seed_tasks(db_path, (Task.model_validate(item) for item in tasks))
-    run_store = ScreeningRunStore(root / "data/screening/runs.sqlite")
+    run_store = ScreeningRunStore(root / "stores/screening/runs.sqlite")
     for text in (
         _CANDIDATES.replace("screening-20260708", "screening-20260701").replace(
             "2026-07-08", "2026-07-01"
@@ -139,9 +139,9 @@ def _app_method_root_template(tmp_path_factory: pytest.TempPathFactory) -> Itera
 def app_method_root(tmp_path: Path, _app_method_root_template: Path) -> Path:
     root = tmp_path / "repo"
     shutil.copytree(_app_method_root_template, root)
-    template_db = _app_method_root_template / "data/app/baibai.sqlite"
+    template_db = _app_method_root_template / "stores/application/baibai.sqlite"
     assert root != _app_method_root_template
-    assert not (root / "data/app/baibai.sqlite").samefile(template_db)
+    assert not (root / "stores/application/baibai.sqlite").samefile(template_db)
     return root
 
 

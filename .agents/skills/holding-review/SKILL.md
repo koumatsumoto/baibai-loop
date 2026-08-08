@@ -13,19 +13,19 @@ description: 保有銘柄の見直し。決算・material event・FV 到達・�
 2. **market price を先に固定する**:
 
    ```bash
-   uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite \
-     --sqlite data/screening/market.sqlite --asof <最新完全営業日> --out .cache/ledger/market-price-draft-<ASOF>.yaml
-   uv run baibai-engine position apply-draft .cache/ledger/market-price-draft-<ASOF>.yaml --db data/app/baibai.sqlite --confirmed
+   uv run baibai-engine position market-price-draft --db stores/application/baibai.sqlite \
+     --sqlite stores/market/market.sqlite --asof <最新完全営業日> --out .cache/ledger/market-price-draft-<ASOF>.yaml
+   uv run baibai-engine position apply-draft .cache/ledger/market-price-draft-<ASOF>.yaml --db stores/application/baibai.sqlite --confirmed
    ```
 
 3. **workspace**（保有 lane は screening selection を要求しない）:
 
    ```bash
-   uv run baibai-engine research holding-prepare --db data/app/baibai.sqlite --asof <ASOF> \
+   uv run baibai-engine research holding-prepare --db stores/application/baibai.sqlite --asof <ASOF> \
      --ticker XXXX --workspace .cache/opportunity/<ASOF>/holding-XXXX
-   uv run baibai-engine research thesis-scaffold --workspace <同上> --db data/app/baibai.sqlite \
-     --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session <次session>
-   uv run baibai-engine research review-scaffold --workspace <同上> --db data/app/baibai.sqlite --ticker XXXX
+   uv run baibai-engine research thesis-scaffold --workspace <同上> --db stores/application/baibai.sqlite \
+     --ticker XXXX --sqlite-path stores/market/market.sqlite --target-session <次session>
+   uv run baibai-engine research review-scaffold --workspace <同上> --db stores/application/baibai.sqlite --ticker XXXX
    ```
 
 4. 一次情報の **material delta だけ**を更新する（決算実数・guidance・資本政策。thesis 執筆規約と機械 gate は research skill 手順 4〜5 と同じ）。独立反証を通して promote する。
@@ -34,11 +34,11 @@ description: 保有銘柄の見直し。決算・material event・FV 到達・�
 5. **review の構築と publish**（人間確認後だけ publish）:
 
    ```bash
-   uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite \
+   uv run baibai-engine position holding-review-build --db stores/application/baibai.sqlite \
      --thesis-id <THESIS_ID> --position-id <POSITION_ID> --out .cache/holding-review/review-XXXX-<ASOF>.yaml
-   uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input .cache/holding-review/review-XXXX-<ASOF>.yaml
+   uv run baibai-engine position holding-review --db stores/application/baibai.sqlite --input .cache/holding-review/review-XXXX-<ASOF>.yaml
    uv run baibai-engine position holding-review publish .cache/holding-review/review-XXXX-<ASOF>.yaml \
-     --db data/app/baibai.sqlite --thesis-id <THESIS_ID>
+     --db stores/application/baibai.sqlite --thesis-id <THESIS_ID>
    ```
 
    load-bearing scalar・thesis revision・ledger state・税引後代替価値を publish 前に検証する。

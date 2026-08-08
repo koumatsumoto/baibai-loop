@@ -19,7 +19,7 @@ status: active
 | 人間から注文結果を受け取った | skill [`ledger-record`](../.agents/skills/ledger-record/SKILL.md) | [`portfolio ledger`](./reference/portfolio-ledger.md) |
 | 決算後に保有を見直す | skill [`holding-review`](../.agents/skills/holding-review/SKILL.md) | [`holding review`](./reference/holding-review.md)、[`thesis`](./reference/thesis.md) |
 | 市場環境レポートを書く | skill [`macro-context`](../.agents/skills/macro-context/SKILL.md) | [`macro`](./reference/macro.md)、[`data-sources`](./reference/data-sources.md) |
-| batch・store・障害対応 | skill [`ops-maintenance`](../.agents/skills/ops-maintenance/SKILL.md) | [`tools/cloud/README.md`](../tools/cloud/README.md)、[`python-foundation`](./reference/python-foundation.md) |
+| batch・store・障害対応 | skill [`ops-maintenance`](../.agents/skills/ops-maintenance/SKILL.md) | [`batch/OPERATIONS.md`](../batch/OPERATIONS.md)、[`python-foundation`](./reference/python-foundation.md) |
 | 見積り方法を改善する | [`estimate calibration`](./reference/estimate-calibration.md) の運用契約 | 対象referenceとreports/ |
 | CLI/modelを変更する | [`architecture`](./architecture.md) | 対象reference、[`python-foundation`](./reference/python-foundation.md) |
 | 初めてrepoを触る | [`doctrine`](./doctrine.md) → [`architecture`](./architecture.md) | 対象skillとreference |
