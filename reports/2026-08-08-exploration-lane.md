@@ -124,16 +124,25 @@ pair delta median は 60 cell 中 46 cell で厳密に `0.0000` だった。正�
 
 ## 独立検算
 
-`2020-01-31` / `3y` / price basis を、評価 module を通さず panel / forward CSV から再計算した。
+2 つの cohort を、評価 module を通さず panel / forward CSV から再計算した。band 内の rank も basis も horizon も異なる組を選んでいる。
 
-- decile 母集団 937 銘柄、decile size 94、cutoff 8.6974
-- band metric count 13
+`2020-01-31` / `3y` / price basis。
+
+- decile 母集団 937 銘柄、decile size 94、cutoff 8.6974、band metric count 13
 - exploration `5975`（rank 24、`normalized_per_3fy=5.677354`）、comparator `5406`
 - 母集団 1,276 銘柄、median return +0.003870
 - exploration return −0.253696 → excess −0.257566
 - comparator return +0.374753 → excess +0.370883
 
-評価出力と一致した。
+`2021-01-29` / `5y` / total basis。
+
+- decile 母集団 820 銘柄、decile size 82、cutoff 8.060658、band metric count 11
+- exploration `8058`（rank 25、`normalized_per_3fy=7.394150`）、comparator `7860`
+- 母集団 1,108 銘柄、median return +0.488741
+- exploration return +3.965061 → excess +3.476320
+- comparator return +0.187451 → excess −0.301290
+
+どちらも評価出力と一致した。後者は exploration 側が母集団中央値を +347pt 上回る大勝ちで、cohort 等重みの median excess を押し上げる型の例である。同じ ticker が複数の月で選ばれるため、こうした 1 銘柄が窓全体の見かけを作る。ticker 等重みを併記する理由がここにある。
 
 ## 再現
 
