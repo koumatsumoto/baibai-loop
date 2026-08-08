@@ -27,9 +27,11 @@ import re
 import zipfile
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 
 _BOARD_BLOCK = "AcquisitionsByResolutionOfBoardOfDirectorsMeetingTextBlock"
 _HOLDING_BLOCK = "HoldingOfTreasurySharesTextBlock"
+_DISPOSALS_BLOCK = "DisposalsOfTreasurySharesTextBlock"
 _REPORTING_PERIOD = "ReportingPeriodCoverPage"
 
 # A comma-grouped integer. The three-digit groups are what make a run of concatenated
@@ -54,6 +56,22 @@ _HOLDING = re.compile(
     rf"発行済株式総数{_SPACE}(?P<issued>{_INT})保有自己株式数{_SPACE}(?P<treasury>{_INT})"
 )
 _PERIOD_END = re.compile(rf"至{_SPACE}(?P<end>{_DATE})")
+_DISPOSAL_ROW = re.compile(rf"[０-９0-9]{{1,2}}月[０-９0-9]{{1,2}}日{_SPACE}(?P<shares>{_INT})")
+_ZERO_DISPOSAL_ROW = re.compile(r"[-－―─]+月[-－―─]+日")
+_NO_DISPOSITION = re.compile(r"【処理状況】\s*該当事項はありません")
+_DISPOSAL_CATEGORY = re.compile(
+    r"(?P<recruitment>引き受ける者の募集を行った取得自己株式)"
+    r"|(?P<cancellation>消却の処分を行った取得自己株式)"
+    r"|(?P<reorganization>合併、株式交換、株式交付、会社分割に係る移転を行った取得自己株式)"
+    r"|(?P<other>その他(?:（|\()[^）)]*(?:）|\)))"
+    r"|(?P<total>合計)"
+)
+
+type BuybackDispositionPurpose = Literal[
+    "cancellation",
+    "employee_compensation_esop",
+    "other_rerelease",
+]
 
 
 class BuybackReportError(ValueError):
@@ -79,6 +97,10 @@ class BuybackReport:
     month_amount_yen: int | None = None
     issued_shares: int | None = None
     treasury_shares: int | None = None
+    # Actual treasury-share actions in this monthly filing.  This is not the board's
+    # future intent; it records how shares had been used by the filing date.
+    disposition_purposes: tuple[BuybackDispositionPurpose, ...] = ()
+    disposition_observed: bool = False
 
     @property
     def remaining_shares(self) -> int | None:
@@ -148,6 +170,7 @@ def parse_buyback_report(content: bytes) -> BuybackReport:
     blocks = _text_blocks(content)
     board = _named(blocks, _BOARD_BLOCK)
     holding = _named(blocks, _HOLDING_BLOCK)
+    disposals = _named(blocks, _DISPOSALS_BLOCK)
     period = _named(blocks, _REPORTING_PERIOD)
 
     fields: dict[str, object] = {}
@@ -167,9 +190,64 @@ def parse_buyback_report(content: bytes) -> BuybackReport:
     if match := _HOLDING.search(holding):
         fields["issued_shares"] = _to_int(match.group("issued"))
         fields["treasury_shares"] = _to_int(match.group("treasury"))
+    disposition = classify_buyback_disposition(disposals)
+    if disposition is not None:
+        fields["disposition_observed"] = True
+        fields["disposition_purposes"] = disposition
 
     report = BuybackReport(**fields)  # type: ignore[arg-type]
     return _drop_inconsistent(report)
+
+
+def classify_buyback_disposition(
+    text: str,
+) -> tuple[BuybackDispositionPurpose, ...] | None:
+    """Classify actual cancellation/re-release rows in a form-220 disposal block.
+
+    ``None`` means the block was unavailable.  An empty tuple means it was observed and
+    reported no positive action.  Category labels alone are not evidence because the
+    statutory table prints every category with dashes when nothing happened.
+    """
+
+    if not text:
+        return None
+    if _NO_DISPOSITION.search(text):
+        return ()
+    categories = list(_DISPOSAL_CATEGORY.finditer(text))
+    expected_categories = ("recruitment", "cancellation", "reorganization", "other", "total")
+    if tuple(match.lastgroup for match in categories) != expected_categories:
+        return None
+    purposes: set[BuybackDispositionPurpose] = set()
+    for index, match in enumerate(categories):
+        category = match.lastgroup
+        if category == "total":
+            continue
+        end = categories[index + 1].start() if index + 1 < len(categories) else len(text)
+        segment = text[match.end() : end]
+        positive_rows = [
+            row for row in _DISPOSAL_ROW.finditer(segment) if _to_int(row.group("shares")) > 0
+        ]
+        if not positive_rows and _ZERO_DISPOSAL_ROW.search(segment) is None:
+            # A known heading with an unrecognized/truncated row is unknown, not an
+            # observed zero.  Form layout changes must not silently become evidence.
+            return None
+        if not positive_rows:
+            continue
+        if category == "cancellation":
+            purposes.add("cancellation")
+        elif category == "other" and any(
+            keyword in match.group(0)
+            for keyword in ("従業員", "持株会", "株式報酬", "ストックオプション")
+        ):
+            purposes.add("employee_compensation_esop")
+        else:
+            purposes.add("other_rerelease")
+    order: tuple[BuybackDispositionPurpose, ...] = (
+        "cancellation",
+        "employee_compensation_esop",
+        "other_rerelease",
+    )
+    return tuple(purpose for purpose in order if purpose in purposes)
 
 
 def _drop_inconsistent(report: BuybackReport) -> BuybackReport:
@@ -213,6 +291,8 @@ def _drop_inconsistent(report: BuybackReport) -> BuybackReport:
                 "month_amount_yen",
                 "issued_shares",
                 "treasury_shares",
+                "disposition_purposes",
+                "disposition_observed",
             )
         }
     )

@@ -153,6 +153,11 @@ def test_a_correction_replaces_the_month_it_corrects(tmp_path: Path) -> None:
             ("2026-08-20", "DOC-JULY-FIX", "60880", "230"),
         ],
     )
+    with open_connection(path) as connection:
+        connection.execute(
+            "UPDATE edinet_documents SET parent_doc_id = 'DOC-JULY' WHERE doc_id = 'DOC-JULY-FIX'"
+        )
+        connection.commit()
     provider = _Filings(
         {
             "DOC-JULY": _filing(
@@ -177,6 +182,67 @@ def test_a_correction_replaces_the_month_it_corrects(tmp_path: Path) -> None:
             "SELECT doc_id, cumulative_shares FROM edinet_buyback_reports"
         ).fetchall()
     assert rows == [("DOC-JULY-FIX", 540_000)]
+
+    # A later refresh still sees the superseded original in the document list.  It must
+    # not downgrade the stored correction merely because only the winning doc id is in
+    # the one-row-per-month table.
+    again = refresh_buyback_reports(path, provider=provider, since=date(2026, 1, 1))
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT doc_id, cumulative_shares FROM edinet_buyback_reports"
+        ).fetchall() == [("DOC-JULY-FIX", 540_000)]
+    assert again.considered == 0
+    assert again.stored == 0
+    assert provider.requested == ["DOC-JULY-FIX"]
+
+
+def test_same_day_correction_wins_repeated_refreshes_independent_of_doc_id(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    _store_with_documents(
+        path,
+        [
+            ("2026-08-05", "ZZZ-ORIGINAL", "60880", "220"),
+            ("2026-08-05", "AAA-CORRECTION", "60880", "230"),
+            ("2026-08-05", "BBB-CORRECTION-LATEST", "60880", "230"),
+        ],
+    )
+    with open_connection(path) as connection:
+        connection.execute(
+            "UPDATE edinet_documents SET parent_doc_id = 'ZZZ-ORIGINAL' "
+            "WHERE doc_id IN ('AAA-CORRECTION', 'BBB-CORRECTION-LATEST')"
+        )
+        connection.commit()
+    provider = _Filings(
+        {
+            "ZZZ-ORIGINAL": _filing(
+                month_end="2026年７月31日",
+                resolved="600,000",
+                cumulative="533,500",
+                month="220,400",
+            ),
+            "AAA-CORRECTION": _filing(
+                month_end="2026年７月31日",
+                resolved="600,000",
+                cumulative="540,000",
+                month="226,900",
+            ),
+            "BBB-CORRECTION-LATEST": _filing(
+                month_end="2026年７月31日",
+                resolved="600,000",
+                cumulative="545,000",
+                month="231,900",
+            ),
+        }
+    )
+
+    for _ in range(3):
+        refresh_buyback_reports(path, provider=provider, since=date(2026, 1, 1))
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT doc_id, cumulative_shares FROM edinet_buyback_reports"
+        ).fetchall() == [("BBB-CORRECTION-LATEST", 545_000)]
+    assert provider.requested == ["BBB-CORRECTION-LATEST"]
 
 
 def test_an_unreadable_filing_is_counted_and_does_not_stop_the_rest(tmp_path: Path) -> None:
@@ -299,6 +365,30 @@ def test_reads_are_bounded_by_the_as_of(tmp_path: Path) -> None:
     reports = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 7, 15), months=6)["6088"]
 
     assert [report.report_month_end for report in reports] == [date(2026, 6, 30)]
+
+
+def test_a_closed_report_month_is_not_visible_before_its_filing_date(tmp_path: Path) -> None:
+    path = tmp_path / "market.sqlite"
+    _store_with_documents(path, [("2026-08-05", "DOC-JULY", "60880", "220")])
+    refresh_buyback_reports(
+        path,
+        provider=_Filings(
+            {
+                "DOC-JULY": _filing(
+                    month_end="2026年７月31日",
+                    resolved="600,000",
+                    cumulative="533,500",
+                    month="220,400",
+                )
+            }
+        ),
+        since=date(2026, 1, 1),
+    )
+
+    assert read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 4), months=6) == {}
+    visible = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 5), months=6)["6088"]
+    assert visible[0].doc_id == "DOC-JULY"
+    assert visible[0].filed_on == date(2026, 8, 5)
 
 
 def _annotation() -> BuybackAuthorization:

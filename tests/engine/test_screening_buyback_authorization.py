@@ -33,6 +33,39 @@ def _document(
     }
 
 
+def _seed_complete_document_days(sqlite_path: Path, start: date, end: date) -> None:
+    """Mark every daily EDINET list in the interval final with matching row counts."""
+
+    connection = open_connection(sqlite_path)
+    try:
+        cursor = start
+        while cursor <= end:
+            day = cursor.isoformat()
+            count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM edinet_documents WHERE doc_date = ?", (day,)
+                ).fetchone()[0]
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO edinet_document_lists("
+                "doc_date, process_datetime, result_count, fetched_at_utc, is_final"
+                ") VALUES (?, NULL, ?, '2026-08-05T00:00:00+00:00', 1)",
+                (day, count),
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO source_coverage("
+                "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
+                "record_count, status, error"
+                ") VALUES ('edinet_documents', ?, ?, ?, "
+                "'2026-08-05T00:00:00+00:00', ?, 'ok', NULL)",
+                (day, day, day, count),
+            )
+            cursor += timedelta(days=1)
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def test_a_filing_inside_the_monthly_cadence_reads_as_a_recent_filing() -> None:
     annotation = build_buyback_authorization(
         asof=ASOF,
@@ -75,6 +108,20 @@ def test_a_window_shorter_than_the_observation_requirement_reads_as_unknown() ->
     assert annotation.observed_from == short_window_start
 
 
+def test_an_observed_filing_is_kept_even_before_no_filing_coverage_matures() -> None:
+    short_window_start = ASOF - timedelta(days=30)
+
+    annotation = build_buyback_authorization(
+        asof=ASOF,
+        latest_filing_date=ASOF - timedelta(days=10),
+        observed_from=short_window_start,
+    )
+
+    assert annotation.status == "recent_filing"
+    assert annotation.latest_filing_date == ASOF - timedelta(days=10)
+    assert annotation.observed_from == short_window_start
+
+
 def test_an_unobserved_store_never_claims_that_no_authorization_exists() -> None:
     annotation = build_buyback_authorization(asof=ASOF, latest_filing_date=None, observed_from=None)
 
@@ -104,7 +151,7 @@ def test_the_index_keeps_the_newest_filing_and_drops_rows_without_a_security_cod
     assert latest == {"6088": date(2026, 7, 1)}
 
 
-def test_the_reader_returns_the_observed_window_from_the_filings_themselves(
+def test_the_reader_returns_the_observed_window_from_validated_daily_lists(
     tmp_path: Path,
 ) -> None:
     sqlite_path = tmp_path / "market.sqlite"
@@ -123,6 +170,7 @@ def test_the_reader_returns_the_observed_window_from_the_filings_themselves(
         date(2026, 8, 3),
         [_document(sequence_number=1, doc_type_code="230", sec_code="60880")],
     )
+    _seed_complete_document_days(sqlite_path, date(2026, 7, 1), ASOF)
 
     read = read_buyback_status_filings(sqlite_path, through=ASOF)
 
@@ -159,25 +207,22 @@ def test_the_reader_reports_an_absent_store_instead_of_an_empty_observation(
     assert read_buyback_status_filings(tmp_path / "absent.sqlite", through=ASOF) is None
 
 
-def test_a_gap_in_the_ingested_months_shortens_the_observed_window(tmp_path: Path) -> None:
-    """途中に取得の穴があると、その月に提出した会社が一斉に「提出なし」へ落ちる。
-
-    左端だけを見ると穴に気づけないので、as-of から遡って連続している範囲を窓にする。
-    """
+def test_a_gap_in_the_daily_lists_shortens_the_observed_window(tmp_path: Path) -> None:
+    """途中の日次一覧欠落は、それ以前を no-filing coverage に数えない。"""
 
     sqlite_path = tmp_path / "market.sqlite"
     open_connection(sqlite_path).close()
-    for day in (date(2025, 9, 3), date(2026, 7, 1), date(2026, 8, 3)):
-        store_edinet_documents(
-            sqlite_path,
-            day,
-            [_document(sequence_number=1, doc_type_code="220", sec_code="60880")],
-        )
+    store_edinet_documents(
+        sqlite_path,
+        date(2025, 9, 3),
+        [_document(sequence_number=1, doc_type_code="220", sec_code="60880")],
+    )
+    _seed_complete_document_days(sqlite_path, date(2026, 7, 1), ASOF)
 
     read = read_buyback_status_filings(sqlite_path, through=ASOF)
 
     assert read is not None
-    # 2025-10 〜 2026-06 は 1 件も取り込まれていないので、窓は 2026-07 から。
+    # 2025-10 〜 2026-06 の日次一覧が無いので、窓は 2026-07 から。
     assert read.observed_from == date(2026, 7, 1)
     annotation = build_buyback_authorization(
         asof=ASOF, latest_filing_date=None, observed_from=read.observed_from
@@ -185,24 +230,75 @@ def test_a_gap_in_the_ingested_months_shortens_the_observed_window(tmp_path: Pat
     assert annotation.status == "unknown"
 
 
-def test_an_ingestion_stall_at_the_recent_end_falls_back_to_the_previous_month(
-    tmp_path: Path,
-) -> None:
-    """当月分がまだ 1 件も出ていない状態は正常なので、直前月から連続性を見る。"""
+def test_a_missing_recent_daily_list_invalidates_negative_coverage(tmp_path: Path) -> None:
+    """as-of 当日の一覧が無ければ、その時点で「提出なし」とは言えない。"""
 
     sqlite_path = tmp_path / "market.sqlite"
     open_connection(sqlite_path).close()
-    for day in (date(2026, 6, 2), date(2026, 7, 1)):
-        store_edinet_documents(
-            sqlite_path,
-            day,
-            [_document(sequence_number=1, doc_type_code="220", sec_code="60880")],
-        )
+    _seed_complete_document_days(sqlite_path, date(2026, 6, 1), ASOF - timedelta(days=1))
 
     read = read_buyback_status_filings(sqlite_path, through=ASOF)
 
     assert read is not None
-    assert read.observed_from == date(2026, 6, 1)
+    assert read.observed_from is None
+
+
+def test_monthly_form_220_sentinels_do_not_prove_universe_coverage(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    open_connection(sqlite_path).close()
+    cursor = ASOF - timedelta(days=OBSERVATION_WINDOW_DAYS)
+    sequence = 1
+    while cursor <= ASOF:
+        if cursor.day == 1:
+            store_edinet_documents(
+                sqlite_path,
+                cursor,
+                [_document(sequence_number=sequence, doc_type_code="220", sec_code="99990")],
+                is_final=True,
+            )
+            sequence += 1
+        cursor += timedelta(days=1)
+
+    read = read_buyback_status_filings(sqlite_path, through=ASOF)
+
+    assert read is not None
+    assert read.observed_from is None
+
+
+def test_count_mismatch_breaks_the_validated_observation_window(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    open_connection(sqlite_path).close()
+    _seed_complete_document_days(sqlite_path, ASOF - timedelta(days=2), ASOF)
+    with open_connection(sqlite_path) as connection:
+        connection.execute(
+            "UPDATE source_coverage SET record_count = 1 "
+            "WHERE source = 'edinet_documents' AND coverage_key = ?",
+            ((ASOF - timedelta(days=1)).isoformat(),),
+        )
+        connection.commit()
+
+    read = read_buyback_status_filings(sqlite_path, through=ASOF)
+
+    assert read is not None
+    assert read.observed_from == ASOF
+
+
+def test_partial_daily_coverage_breaks_the_validated_observation_window(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "market.sqlite"
+    open_connection(sqlite_path).close()
+    _seed_complete_document_days(sqlite_path, ASOF - timedelta(days=2), ASOF)
+    with open_connection(sqlite_path) as connection:
+        connection.execute(
+            "UPDATE source_coverage SET status = 'partial', error = 'truncated' "
+            "WHERE source = 'edinet_documents' AND coverage_key = ?",
+            ((ASOF - timedelta(days=1)).isoformat(),),
+        )
+        connection.commit()
+
+    read = read_buyback_status_filings(sqlite_path, through=ASOF)
+
+    assert read is not None
+    assert read.observed_from == ASOF
 
 
 def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:

@@ -153,13 +153,13 @@ EDINET の自己株券買付状況報告書（様式コード 220、訂正 230�
 | `recent_filing` | 直近 45 日以内に提出がある。報告月の翌月 15 日までという提出期限に対し、月初の as-of で前月分が未提出でも前々月分が窓に入る幅である。**取得期間が終了した月の報告書もここに入る** |
 | `stale_filing` | 観測窓に提出はあるが 45 日より古い |
 | `no_filing` | 観測窓 365 日に提出が 1 件も無い |
-| `unknown` | store の提出観測が as-of から 365 日を覆えていない。historical backfill と、EDINET 提出行の保存開始前の as-of はここに入る |
+| `unknown` | 提出が見つからず、store の提出観測も as-of から 365 日を覆えていない。観測済みの提出は no-filing 窓が未成熟でも `recent_filing` / `stale_filing` として残る |
 
-**`recent_filing` は「今も枠が在る」を意味しない。** 提出は報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。6088 は 2026-08-05 提出（齢 0 日）だが、その中身は取得期間 2026-05-11〜2026-07-31・金額進捗 99.99% で、同日に取得終了が開示されている。残枠と取得期間の終了日は本 annotation では読まないので、carry を forward の現金還元として扱うなら一次開示で確認する。
+**`recent_filing` は「今も枠が在る」を意味しない。** 提出は報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。`buyback_remaining_share_ratio` と `buyback_authorization_window_end` が、直近報告月末の残枠と取得期間を別々に示す。提出日と報告月末の双方が as-of 以下の報告だけを使い、提出前の内容を historical 診断へ混ぜない。残枠・期間が欠損なら、使い切りとも継続中とも推定しない。
 
-観測窓は `edinet_document_lists` の取得記録ではなく提出行そのものの最古日から取る。文書一覧を fetch していても当該 doc type を保存していなかった期間があり、取得記録を窓とみなすと「提出なし」を捏造するためである。
+`no_filing` の観測窓は、EDINET の全様式を含む日次一覧について `is_final`、一覧 metadata 件数、永続行数、`source_coverage` の status・件数が一致し、as-of から日単位で連続する範囲だけを使う。Form 220 / 230 が1件ある日はその提出の positive evidence にはなるが、universe 全体の「提出なし」を証明しない。途中の欠落・partial・件数不一致・未確定日はそこで窓を切る。
 
-**この annotation は ranking・gate・E[r] を変えない。** 較正リプレイでは単発で終わった株数減少も母集団を上回るため、`stale_filing` / `no_filing` を自動除外や carry 減衰の根拠にしない（[診断](../../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md) §6.1）。
+**この annotation は ranking・gate・E[r] を変えない。** 3m / 6m の authorization 診断は正方向だが、1y 以上の同一母集団比較と 3y / 5y の完全な point-in-time evidence が存在しないため、終了済み枠を自動除外や carry 減衰へ接続しない（[診断](../../reports/studies/2026-08-09-buyback-authorization-calibration/report.md)）。shortlist は期間満了・残枠消化・取得目的・消却を一次開示で確認し、終了済み carry を forward 還元として narrative に残さない。
 
 ## 8. 業種中央値の算出
 

@@ -120,10 +120,11 @@ def index_buyback_status_filings(
 def read_buyback_status_filings(
     sqlite_path: Path, *, through: date
 ) -> BuybackStatusFilingRead | None:
-    """ticker 別の最新提出日と、store が実際に観測できている最古の提出日。
+    """ticker 別の最新提出日と、検証済み日次一覧が連続する最古の日。
 
-    観測窓を提出行そのものから取るのは、EDINET 文書一覧を fetch していても当該 doc type を
-    保存していなかった期間があるためで、一覧の取得記録を窓とみなすと「提出なし」を捏造する。
+    特定様式の提出行は positive evidence にしかならない。提出がないことを主張するには、
+    EDINET の全様式を含む日次一覧について final、metadata count、永続行数、source coverage
+    が一致した日だけを universe-wide coverage として数える。
     """
 
     if not sqlite_path.exists():
@@ -140,15 +141,7 @@ def read_buyback_status_filings(
             "GROUP BY substr(sec_code, 1, 4)",
             (*doc_types, through_iso),
         ).fetchall()
-        observed_months = [
-            str(month)
-            for (month,) in conn.execute(
-                "SELECT DISTINCT substr(doc_date, 1, 7) FROM edinet_documents "
-                "WHERE doc_type_code IN (?, ?) AND doc_date <= ? "
-                "ORDER BY 1",
-                (*doc_types, through_iso),
-            )
-        ]
+        observed_from = _validated_document_observation_start(conn, through=through)
     except sqlite3.OperationalError:
         return None
     finally:
@@ -157,37 +150,44 @@ def read_buyback_status_filings(
         latest_filing_by_ticker=index_buyback_status_filings(
             [{"sec_code": sec_code, "doc_date": filed} for sec_code, filed in rows]
         ),
-        observed_from=_continuous_observation_start(observed_months, through=through),
+        observed_from=observed_from,
     )
 
 
-def _continuous_observation_start(observed_months: Sequence[str], *, through: date) -> date | None:
-    """as-of から遡って、提出が途切れずに観測できている最古の月初。
+def _validated_document_observation_start(
+    conn: sqlite3.Connection, *, through: date
+) -> date | None:
+    """Return the start of the contiguous, fully validated daily document-list suffix."""
 
-    最古の 1 行だけを窓の左端にすると、2 通りの形で「提出なし」を捏造する。1 社の古い提出が
-    1 行あるだけで universe 全体が観測済みになり、EDINET 取得が数週間止まっても左端は古い
-    ままなので `unknown` へ落ちない。取得期間中の会社は毎月提出するので、月次の連続性が
-    そのまま観測の連続性になる。
-    """
-
-    months = set(observed_months)
-    if not months:
-        return None
-    cursor = through.replace(day=1)
-    if cursor.strftime("%Y-%m") not in months:
-        # 当月分はまだ 1 件も出ていないことがある。直前月まで下がって連続性を見る。
-        cursor = _previous_month(cursor)
+    rows = conn.execute(
+        "SELECT l.doc_date, l.result_count, l.is_final, "
+        "c.coverage_start, c.coverage_end, c.record_count, c.status, c.error, "
+        "(SELECT COUNT(*) FROM edinet_documents d WHERE d.doc_date = l.doc_date) "
+        "FROM edinet_document_lists l LEFT JOIN source_coverage c "
+        "ON c.source = 'edinet_documents' AND c.coverage_key = l.doc_date "
+        "WHERE l.doc_date <= ? ORDER BY l.doc_date DESC",
+        (through.isoformat(),),
+    ).fetchall()
+    by_day = {str(row[0]): row for row in rows}
+    cursor = through
     start: date | None = None
-    while cursor.strftime("%Y-%m") in months:
+    while (row := by_day.get(cursor.isoformat())) is not None:
+        expected = int(row[1])
+        valid = (
+            int(row[2]) == 1
+            and row[3] == cursor.isoformat()
+            and row[4] == cursor.isoformat()
+            and row[5] is not None
+            and int(row[5]) == expected
+            and row[6] == "ok"
+            and row[7] is None
+            and int(row[8]) == expected
+        )
+        if not valid:
+            break
         start = cursor
-        cursor = _previous_month(cursor)
+        cursor -= timedelta(days=1)
     return start
-
-
-def _previous_month(first_of_month: date) -> date:
-    if first_of_month.month == 1:
-        return first_of_month.replace(year=first_of_month.year - 1, month=12)
-    return first_of_month.replace(month=first_of_month.month - 1)
 
 
 def build_buyback_authorization(
@@ -198,13 +198,22 @@ def build_buyback_authorization(
 ) -> BuybackAuthorization:
     """観測窓を踏まえて取得枠の状態を決める。
 
-    `observed_from` は as-of から遡って提出が途切れずに観測できている最古の月初である。
-    `edinet_document_lists` の取得記録ではなく提出行そのものから取るのは、doc 一覧を
-    fetch していても当該 doc type を保存していなかった期間があるためで、そこを覆えていると
-    数えると「提出なし」を捏造する。連続性まで見るのは、途中に取得の穴があると、その月に
-    提出した会社が一斉に「提出なし」へ落ちるためである。
+    `observed_from` は as-of から遡って、final な日次一覧と source coverage と永続行数が
+    一致し続ける最古の日である。途中の欠落・partial・件数不一致・未確定日はそこで窓を切り、
+    特定様式の提出行があるだけでは universe 全体を観測済みとみなさない。
     """
 
+    # A filing observed by the as-of is positive evidence even when the store has not
+    # accumulated a full no-filing window.  The year-long window is required only for
+    # the negative claim that no authorization filing exists.
+    if latest_filing_date is not None and latest_filing_date <= asof:
+        age_days = (asof - latest_filing_date).days
+        return BuybackAuthorization(
+            status=("recent_filing" if age_days <= RECENT_FILING_WINDOW_DAYS else "stale_filing"),
+            latest_filing_date=latest_filing_date,
+            latest_filing_age_days=age_days,
+            observed_from=observed_from,
+        )
     required_from = asof - timedelta(days=OBSERVATION_WINDOW_DAYS)
     if observed_from is None or observed_from > required_from:
         return BuybackAuthorization(
@@ -213,18 +222,10 @@ def build_buyback_authorization(
             latest_filing_age_days=None,
             observed_from=observed_from,
         )
-    if latest_filing_date is None or latest_filing_date > asof:
-        return BuybackAuthorization(
-            status="no_filing",
-            latest_filing_date=None,
-            latest_filing_age_days=None,
-            observed_from=observed_from,
-        )
-    age_days = (asof - latest_filing_date).days
     return BuybackAuthorization(
-        status=("recent_filing" if age_days <= RECENT_FILING_WINDOW_DAYS else "stale_filing"),
-        latest_filing_date=latest_filing_date,
-        latest_filing_age_days=age_days,
+        status="no_filing",
+        latest_filing_date=None,
+        latest_filing_age_days=None,
         observed_from=observed_from,
     )
 

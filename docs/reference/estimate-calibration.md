@@ -94,6 +94,8 @@ authoritative な delisting exit value source が無い限り、窓中に系列�
 
 cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|total` の両方を取る。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
 
+buyback authorization の診断は `tools.experiments.measure_buyback_authorization` が production panel と forward store を read-only で結合する。Form 220 は提出日と報告月末がともに cohort as-of 以下の行だけを使い、`net_share_change_yoy` 単独、直近3報告月の取得ペース単独、終了済み carry を0にする composition を同じ resolved row で比較する。3m / 6m は regression alert、1y は leading evidenceである。3y / 5y双方の全対象 identity が point-in-time source、resolved return、比較両群を満たすことは production 検討の必要条件にすぎず、artifact 自体は採用権限を持たない。production 変更は本書の事前登録・design/confirm・coverage gateを別途通す。処理状況の消却・従業員報酬/持株会・その他再放出は実行済み行を分類し、将来の取得目的とは呼ばない。source ZIP、既知の全 table category、明示的なゼロ行のいずれかが欠ける場合は目的なしでなく未観測にする。
+
 `er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
 Shortlist の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから 3y / 5y の quintile 表、各帯の上端、cohort as-of 範囲、`screening_rules_hash`、`er_model_version` を生成する。UI は artifact の2つの method identity が現在の production method に加えて、実際に表示する operative run の不変 method identity と一致するときだけ、3y の帯へその run の機械 E[r] を対応づけ、同じ帯の歴史実現中央値を参考表示する。E[r]、順位、gate、FV は変更しない。値は個別銘柄の予測ではなく、重複する月次窓と COVID 前後に偏る historical panel の cohort 中央値である。
@@ -132,6 +134,8 @@ uv run baibai-engine screening calibration-evaluate \
 uv run baibai-engine screening backfill-master --month-end-from 2022-09-01 --month-end-to 2026-06-30
 uv run baibai-engine screening calibration-build --start 2023-01-01 --end 2026-04-30 --force
 uv run baibai-engine screening calibration-evaluate --out .cache/calibration-eval.yaml
+uv run python -m tools.experiments.measure_buyback_authorization \
+  --out .cache/buyback-authorization-calibration.yaml
 uv run baibai-engine screening calibration-evaluate \
   --run-purpose production_decision \
   --required-asof 2021-06-30 \
