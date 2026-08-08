@@ -106,7 +106,9 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 cache schema version は `11`。panel は、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、および赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PERを記録する。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。
 
-信用需給では、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share` は判断面へ出す文脈 annotation であり、除外 gate も rank も動かさない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+信用需給では、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は recommendation だけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・longlist は同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+
+`rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
 
 ### pre-2019 診断 panel
 
