@@ -336,29 +336,6 @@ def test_two_concurrent_publishes_do_not_share_a_transfer_config(tmp_path: Path)
     assert not list(scratch.glob("baibai-r2-transfer.*"))
 
 
-def test_preserve_market_v13_is_no_longer_a_subcommand(tmp_path: Path) -> None:
-    """The store is past v13, so the object can never be produced again.
-
-    What remained was a download and a check on every run. The object stays in R2
-    and `download-market-v13-rollback` still verifies it at the moment it matters.
-    """
-    bin_dir, log = _fake_aws(tmp_path)
-    env = _environment(bin_dir, log)
-    env["GITHUB_ACTIONS"] = "true"
-
-    result = subprocess.run(
-        [TRANSFER_SCRIPT, "preserve-market-v13"],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 2
-    assert "usage:" in result.stderr
-    assert not log.exists() or log.read_text(encoding="utf-8") == ""
-
-
 def test_pull_longlist_history_uses_the_dedicated_serving_prefix(tmp_path: Path) -> None:
     bin_dir, log = _fake_aws(tmp_path)
     output = tmp_path / "longlist-history"
@@ -554,43 +531,6 @@ def test_run_summary_upload_is_github_actions_only(tmp_path: Path) -> None:
     assert completed.returncode == 2
     assert "outside GitHub Actions" in completed.stderr
     assert not log.exists()
-
-
-def test_download_market_v13_rollback_is_read_only_and_refuses_overwrite(
-    tmp_path: Path,
-) -> None:
-    bin_dir, log = _fake_aws(tmp_path)
-    output = tmp_path / "rollback.sqlite"
-
-    first = subprocess.run(
-        [TRANSFER_SCRIPT, "download-market-v13-rollback", output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    second = subprocess.run(
-        [TRANSFER_SCRIPT, "download-market-v13-rollback", output],
-        cwd=REPO_ROOT,
-        env=_environment(bin_dir, log),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert first.returncode == 0
-    assert output.read_text(encoding="utf-8") == "x"
-    assert second.returncode == 2
-    assert "refusing rollback download overwrite" in second.stderr
-    commands = _transfer_commands(log)
-    assert all(
-        not command.rstrip().endswith(
-            "s3://baibai-stores/market.sqlite --endpoint-url "
-            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-        )
-        for command in commands
-    )
 
 
 def test_initial_seed_refuses_to_overwrite_an_existing_store(tmp_path: Path) -> None:

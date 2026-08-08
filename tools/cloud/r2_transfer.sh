@@ -286,27 +286,6 @@ seed_keys() {
   push_keys "$@"
 }
 
-download_market_v13_rollback() {
-  local output="$1"
-  local backup_key="schema-migrations/market-v13.sqlite"
-  transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  local verified_snapshot="${transfer_staging}/market-v13.sqlite"
-  aws_s3 cp "s3://${stores_bucket}/${backup_key}" "${verified_snapshot}"
-  if [[ ! -s "${verified_snapshot}" ]]; then
-    printf 'rollback object is empty: s3://%s/%s\n' "${stores_bucket}" "${backup_key}" >&2
-    return 2
-  fi
-  check_sqlite_schema "${verified_snapshot}" 13
-  mkdir -p "$(dirname "${output}")"
-  if [[ -e "${output}" ]]; then
-    printf 'refusing rollback download overwrite: %s\n' "${output}" >&2
-    return 2
-  fi
-  mv "${verified_snapshot}" "${output}"
-  cleanup_staging
-  transfer_staging=""
-}
-
 require_complete_export() {
   local output_dir="$1"
   if [[ ! -f "${output_dir}/views/meta.json" ]]; then
@@ -396,7 +375,7 @@ upload_run_summary() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-longlist-history DIR|download-market-v13-rollback FILE|seed-all|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-longlist-history DIR|seed-all|push-machine|push-market|push-macro|push-app|upload-serving-views DIR|publish-serving-tail DIR|upload-run-summary FILE}\n' "$0" >&2
 }
 
 load_credentials
@@ -416,10 +395,6 @@ case "${1:-}" in
   pull-longlist-history)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     pull_longlist_history "$2"
-    ;;
-  download-market-v13-rollback)
-    [[ $# -eq 2 ]] || { usage; exit 2; }
-    download_market_v13_rollback "$2"
     ;;
   seed-all)
     seed_keys market.sqlite runs.sqlite macro.sqlite baibai.sqlite

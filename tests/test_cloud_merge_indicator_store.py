@@ -218,13 +218,13 @@ def _read_range(path: Path) -> tuple[object, ...]:
         connection.close()
 
 
-def test_merge_reads_a_source_one_schema_behind_the_target(tmp_path: Path) -> None:
-    """The rollout shape: a local store on the new schema pushing against a cloud copy.
+def test_merge_refuses_a_source_behind_the_target(tmp_path: Path) -> None:
+    """Both stores must be on the schema this code writes, whatever the gap.
 
-    The cloud copy is whatever the last push left, so the first push after a schema
-    change always meets a source one version behind.
+    The source is the copy R2 holds, and the transfer script moves it forward before the
+    merge sees it. Accepting a behind source here instead would mean merging under two
+    different shapes and deciding which one the payload comparison speaks about.
     """
-
     source = tmp_path / "source.sqlite"
     target = tmp_path / "target.sqlite"
     observation = _observation("jp.10y", date(2026, 7, 23), 1.62)
@@ -232,21 +232,10 @@ def test_merge_reads_a_source_one_schema_behind_the_target(tmp_path: Path) -> No
     _build_store(target, series_ids=("jp.10y",), observations=())
     downgrade_to_previous_schema(source)
 
-    report = merge_stores(source, target)
-
-    assert report.inserted == 1
-    assert _rows(target, "SELECT observed_at, value FROM observations") == [("2026-07-23", 1.62)]
-
-
-def test_merge_refuses_a_source_two_schemas_behind_the_target(tmp_path: Path) -> None:
-    source = tmp_path / "source.sqlite"
-    target = tmp_path / "target.sqlite"
-    _build_store(source, series_ids=("jp.10y",), observations=())
-    _build_store(target, series_ids=("jp.10y",), observations=())
-    _downgrade_store_to_v4(source, legacy_foreign_flow_unit=False)
-
-    with pytest.raises(MergeError, match="schema is 4 but this code expects"):
+    with pytest.raises(MergeError, match=r"schema is \d+ but this code expects"):
         merge_stores(source, target)
+
+    assert _rows(target, "SELECT observed_at, value FROM observations") == []
 
 
 def test_merge_carries_the_cloud_fetch_record_of_a_registered_series(tmp_path: Path) -> None:
@@ -675,28 +664,3 @@ def _contract_trigger_sql(connection: sqlite3.Connection) -> tuple[str, ...]:
             ") ORDER BY name"
         )
     )
-
-
-def _downgrade_store_to_v4(
-    path: Path,
-    *,
-    legacy_foreign_flow_unit: bool,
-) -> None:
-    with sqlite3.connect(path) as connection:
-        trigger_sql = _contract_trigger_sql(connection)
-        for trigger in (
-            "validate_observation_plausibility_before_insert",
-            "validate_observation_plausibility_before_update",
-            "validate_series_contract_before_update",
-        ):
-            connection.execute(f"DROP TRIGGER {trigger}")
-        if legacy_foreign_flow_unit:
-            connection.execute(
-                "UPDATE observations SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
-            )
-            connection.execute(
-                "UPDATE series SET unit = 'jpy' WHERE series_id = 'jp.foreign_flows'"
-            )
-        for statement in trigger_sql:
-            connection.execute(statement)
-        connection.execute("PRAGMA user_version = 4")

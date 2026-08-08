@@ -14,7 +14,8 @@ report absent source series as skipped retirement instead of reviving them.
 
 Facts are keyed, so the merge is an ``INSERT OR IGNORE`` per table after proving that every
 shared key has the same full payload. A row only the source has is then added verbatim with
-its vintage (apart from explicitly versioned legacy-unit normalization).
+its vintage. Both stores must be on the schema this code writes; the transfer script moves
+the downloaded copy there before the merge sees it.
 """
 
 from __future__ import annotations
@@ -32,7 +33,6 @@ from baibai_engine.macro.indicators.db import (
     SQLITE_SCHEMA_VERSION,
     IndicatorsSchemaError,
     validate_current_schema,
-    validate_schema_contract,
 )
 from tools.cloud.store_merge import (
     MergeError,
@@ -99,12 +99,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
         _require_schema(connection, path=target)
         connection.execute("ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro",))
         try:
-            _require_schema(
-                connection,
-                path=source,
-                schema="source",
-                allow_previous_read_only=True,
-            )
+            _require_schema(connection, path=source, schema="source")
             require_identical_columns(connection, (*FACT_KEYS, *REGISTRY_TABLES))
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
@@ -241,25 +236,15 @@ def _require_schema(
     *,
     path: Path,
     schema: str = "main",
-    allow_previous_read_only: bool = False,
 ) -> int:
     version = _count(connection, f"PRAGMA {_schema_name(schema)}.user_version")
-    compatible_previous = allow_previous_read_only and version == SQLITE_SCHEMA_VERSION - 1
-    if version != SQLITE_SCHEMA_VERSION and not compatible_previous:
+    if version != SQLITE_SCHEMA_VERSION:
         raise MergeError(
             f"indicator store schema is {version} but this code expects "
             f"{SQLITE_SCHEMA_VERSION}: {path}"
         )
-    expected_version = version if compatible_previous else SQLITE_SCHEMA_VERSION
     try:
-        if expected_version == SQLITE_SCHEMA_VERSION:
-            validate_current_schema(connection, schema=schema)
-        else:
-            validate_schema_contract(
-                connection,
-                schema=schema,
-                expected_version=expected_version,
-            )
+        validate_current_schema(connection, schema=schema)
     except IndicatorsSchemaError as error:
         raise MergeError(f"indicator store schema contract is invalid: {path}: {error}") from error
     return version
