@@ -137,7 +137,6 @@ uv run baibai-engine macro refresh <series_id> ... --all-history --end YYYY-MM-D
 uv run baibai-engine macro reading --asof YYYY-MM-DD   # 履歴不足・異常値を確認
 # series を追加した場合は、ここで registry を main へ入れてから push する
 tools/cloud/r2_transfer.sh push-macro
-gh workflow run cloud-materialize.yml --ref main
 ```
 
 market storeの履歴を深くしてクラウドへ載せる。日次batchは前へしか伸ばさないので、過去へ伸ばす経路は2つある。**ローカルに既にその履歴があるなら取り直さない** — providerを一度も呼ばずに数分で載る。ローカルにも無い履歴だけ`cloud-history-backfill`をdispatchして取る。
@@ -152,9 +151,11 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 ### merge が検査するもの
 
-`push-market`のmergeは`merge_market_store.py`である。storeのtableは全て事実tableで、`source_coverage`も1日1行の粒度（`coverage_key`が日付）なので範囲のunion演算は要らない。主キーで`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。価格・財務・保有・被覆の範囲と件数は比較対象に残る。除外列は`merge_market_store.py`の`UNCOMPARED`に列挙してあり、事実列へ伸びていないことをtestが確かめる。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い行をuploadで失わない。mergeの対象tableは`merge_market_store.py`の`FACT_KEYS`に列挙してあり、storeのtable一覧とずれたらtestが落ちる。
+どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
 
-`push-macro`のmergeは`merge_indicator_store.py`である。対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。merge後にsource側だけに残る行が1行でもあれば停止するので、日次batchが取得済みでローカルに無い観測（rolling窓の最新日など）をuploadで失わない。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
+`push-market`のmergeは`merge_market_store.py`である。storeのtableは全て事実tableで、`source_coverage`も1日1行の粒度（`coverage_key`が日付）なので範囲のunion演算は要らない。主キーで`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。価格・財務・保有・被覆の範囲と件数は比較対象に残る。除外列は`merge_market_store.py`の`UNCOMPARED`に列挙してあり、事実列へ伸びていないことをtestが確かめる。mergeの対象tableは`merge_market_store.py`の`FACT_KEYS`に列挙してあり、storeのtable一覧とずれたらtestが落ちる。
+
+`push-macro`のmergeは`merge_indicator_store.py`である。対象は事実を積み上げるtable（`observations` / `provider_runs`）だけで、主キーで`INSERT OR IGNORE`する。同じ主キーを両側が持つ場合は全payloadの一致をmerge前後に検証し、値・単位・source等が異なれば片方を正本と推測せずtransaction全体を停止する。source / target はschema version・列構成に加えて`schema.sql`由来の全persistent triggerとregistry state contractをcanonical定義へ完全一致させる。targetが保持する全series metadataは両端が有限なplausible rangeを持つことを前提とし、source / target observationをtransaction先頭でtargetのunitとrangeに照合する。いずれかの契約違反があればtargetを変更せず停止する。`series` / `aliases`はsourceから取り込まない。通常のopenは登録外seriesのfacts・metadata・aliasesを保持し、明示的な`macro refresh`だけが現行registryに無いseriesをpruneするため、古いbranchのread後もtargetに残る新系列へcloud factsをmergeできる。source の registry generation が target より新しい場合と、同世代なのに `source.series` membership がtargetから欠ける場合は、facts未取得のseriesでもmergeを拒否する。target が source より新しい世代でmetadataが無いseriesのrowだけを意図した退役としてskip件数に含める。`market.sqlite` / `runs.sqlite`は`push-macro`が触らない。
 
 ### 日次 workflow を手動実行する
 
