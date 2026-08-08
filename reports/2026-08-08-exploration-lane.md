@@ -54,7 +54,9 @@ sufficiency は reported case で判定する。
 | 3y holdout | 3y | 19 | 18 (95%) | 14 | 12 | **fail** | fail |
 | 5y aggregate | 5y | 21 | 19 (90%) | 16 | 14 | pass | fail |
 
-`3y holdout` だけが sufficiency を外した。理由は total basis の unique exploration ticker が 7 で、floor 8 に 1 銘柄足りないことだけである。integrity failure は全窓で 0 件、`entry_price_gap` も 0 件だった。
+満期 cohort は、price basis の流動性母集団が親 axis 計測と同じ最小標本 100 行を満たした cohort である。**各窓の as-of 範囲に入る panel 数と満期 cohort 数は 5 窓すべてで一致する**（38 / 18 / 21 / 19 / 21）ので、被覆率の分母が未満期の除外で縮んではいない。
+
+`3y holdout` だけが sufficiency を外した。理由は total basis の unique exploration ticker が 7 で、floor 8 に 1 銘柄足りないことだけである。integrity failure は全窓で 0 件、`entry_price_gap` も 0 件だった。同窓の price 被覆率 0.778 は floor 0.75 を僅差で満たしている。
 
 `price / total` × `reported / 全損 / 中立` × `cohort / ticker 等重み` の 60 cell のうち、**effect gate を通ったのは 0 cell**。
 
