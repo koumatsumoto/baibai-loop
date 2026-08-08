@@ -11,6 +11,7 @@ from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_batch.storage.merge_market_store import (
     FACT_KEYS,
+    SOURCE_MISSING_ALLOWED,
     UNCOMPARED,
     MergeError,
     main,
@@ -47,6 +48,52 @@ def _add_coverage(path: Path, source: str, coverage_key: str, *, record_count: i
             coverage_key=coverage_key,
             record_count=record_count,
             fetched_at_utc="2026-07-31T00:00:00+00:00",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _add_edinet_metric(path: Path, *, extractor_revision: str, sales_ttm: float = 100.0) -> None:
+    conn = open_connection(path)
+    try:
+        conn.execute(
+            "INSERT INTO edinet_metrics("
+            "asof_date, ticker, sales_ttm, source_document_revision, extractor_revision"
+            ") VALUES (?, ?, ?, ?, ?)",
+            ("2026-08-07", "1301", sales_ttm, "same-document", extractor_revision),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _add_fin_summary(
+    path: Path,
+    *,
+    ticker: str = "1301",
+    disclosed_at: str = "2020-02-07",
+    treasury_shares: float | None,
+    equity_to_asset_ratio: float | None,
+    forecast_profit: float | None = None,
+    forecast_ordinary_profit: float | None = None,
+) -> None:
+    conn = open_connection(path)
+    try:
+        conn.execute(
+            "INSERT INTO jquants_fin_summaries("
+            "ticker, disclosed_at, sales, forecast_profit, forecast_ordinary_profit, "
+            "treasury_shares, equity_to_asset_ratio"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                ticker,
+                disclosed_at,
+                100.0,
+                forecast_profit,
+                forecast_ordinary_profit,
+                treasury_shares,
+                equity_to_asset_ratio,
+            ),
         )
         conn.commit()
     finally:
@@ -288,6 +335,451 @@ def test_two_stores_that_read_the_same_day_at_different_times_still_merge(
     assert kept[0] == "2026-07-31T13:30:36+00:00"
 
 
+def test_edinet_reader_revision_does_not_conflict_when_document_facts_agree(
+    tmp_path: Path,
+) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_edinet_metric(source, extractor_revision="source-reader")
+    _add_edinet_metric(target, extractor_revision="target-reader")
+
+    report = merge_stores(source, target)
+
+    assert report.inserted == 0
+    conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    try:
+        kept = conn.execute("SELECT extractor_revision FROM edinet_metrics").fetchone()
+    finally:
+        conn.close()
+    assert kept == ("target-reader",)
+
+
+def test_edinet_fact_disagreement_still_conflicts_across_reader_revisions(
+    tmp_path: Path,
+) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_edinet_metric(source, extractor_revision="source-reader", sales_ttm=100.0)
+    _add_edinet_metric(target, extractor_revision="target-reader", sales_ttm=200.0)
+
+    with pytest.raises(MergeError, match="payload disagrees"):
+        merge_stores(source, target)
+
+
+def test_fin_summary_source_may_lack_facts_held_by_rebuilt_target(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(source, treasury_shares=None, equity_to_asset_ratio=None)
+    _add_fin_summary(
+        target,
+        treasury_shares=10.0,
+        equity_to_asset_ratio=0.5,
+        forecast_profit=30.0,
+        forecast_ordinary_profit=40.0,
+    )
+
+    report = merge_stores(source, target)
+
+    assert report.inserted == 0
+    conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    try:
+        kept = conn.execute(
+            "SELECT forecast_profit, forecast_ordinary_profit, treasury_shares, "
+            "equity_to_asset_ratio FROM jquants_fin_summaries"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert kept == (30.0, 40.0, 10.0, 0.5)
+
+
+def test_fin_summary_coverage_accepts_a_recounted_source_subset(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(source, treasury_shares=None, equity_to_asset_ratio=None)
+    _add_fin_summary(target, treasury_shares=None, equity_to_asset_ratio=None)
+    _add_fin_summary(
+        target,
+        ticker="1302",
+        disclosed_at="2020-03-06",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    for path, record_count in ((source, 1), (target, 2)):
+        conn = open_connection(path)
+        try:
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=coverage_key,
+                record_count=record_count,
+                min_date="2020-01-01",
+                max_date="2020-12-31",
+                fetched_at_utc="2026-08-08T00:00:00+00:00",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    report = merge_stores(source, target)
+
+    assert report.inserted == 0
+
+
+def test_fin_summary_coverage_accepts_a_recounted_source_superset(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(source, treasury_shares=None, equity_to_asset_ratio=None)
+    _add_fin_summary(
+        source,
+        ticker="1302",
+        disclosed_at="2020-03-06",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    _add_fin_summary(target, treasury_shares=None, equity_to_asset_ratio=None)
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    for path, record_count in ((source, 2), (target, 1)):
+        conn = open_connection(path)
+        try:
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=coverage_key,
+                record_count=record_count,
+                min_date="2020-01-01",
+                max_date="2020-12-31",
+                fetched_at_utc="2026-08-08T00:00:00+00:00",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    report = merge_stores(source, target)
+
+    assert report.inserted == 1
+    conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    try:
+        rows = conn.execute("SELECT ticker FROM jquants_fin_summaries ORDER BY ticker").fetchall()
+        claim = conn.execute(
+            "SELECT record_count FROM source_coverage "
+            "WHERE source = 'jquants_fin_summaries' AND coverage_key = ?",
+            (coverage_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert rows == [("1301",), ("1302",)]
+    assert claim == (2,)
+
+
+def test_fin_summary_coverage_recounts_equal_claims_with_different_rows(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(
+        source,
+        ticker="1301",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    _add_fin_summary(
+        target,
+        ticker="1302",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    for path in (source, target):
+        conn = open_connection(path)
+        try:
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=coverage_key,
+                record_count=1,
+                min_date="2020-01-01",
+                max_date="2020-12-31",
+                fetched_at_utc="2026-08-08T00:00:00+00:00",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    merge_stores(source, target)
+
+    conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    try:
+        kept = conn.execute("SELECT ticker FROM jquants_fin_summaries ORDER BY ticker").fetchall()
+        claim = conn.execute(
+            "SELECT record_count FROM source_coverage "
+            "WHERE source = 'jquants_fin_summaries' AND coverage_key = ?",
+            (coverage_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert kept == [("1301",), ("1302",)]
+    assert claim == (2,)
+
+
+def test_fin_summary_coverage_recounts_a_source_only_range_after_merge(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(
+        source,
+        ticker="1301",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    _add_fin_summary(
+        target,
+        ticker="1301",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    _add_fin_summary(
+        target,
+        ticker="1302",
+        disclosed_at="2020-03-06",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    conn = open_connection(source)
+    try:
+        add_source_coverage(
+            conn,
+            source="jquants_fin_summaries",
+            coverage_key=coverage_key,
+            record_count=1,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+            fetched_at_utc="2026-08-08T00:00:00+00:00",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    merge_stores(source, target)
+
+    conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    try:
+        kept = conn.execute("SELECT ticker FROM jquants_fin_summaries ORDER BY ticker").fetchall()
+        claim = conn.execute(
+            "SELECT record_count FROM source_coverage "
+            "WHERE source = 'jquants_fin_summaries' AND coverage_key = ?",
+            (coverage_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert kept == [("1301",), ("1302",)]
+    assert claim == (2,)
+
+
+def test_fin_summary_coverage_recounts_a_target_only_range_after_merge(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(
+        source,
+        ticker="1301",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    _add_fin_summary(
+        target,
+        ticker="1302",
+        treasury_shares=None,
+        equity_to_asset_ratio=None,
+    )
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    conn = open_connection(target)
+    try:
+        add_source_coverage(
+            conn,
+            source="jquants_fin_summaries",
+            coverage_key=coverage_key,
+            record_count=1,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+            fetched_at_utc="2026-08-08T00:00:00+00:00",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    merge_stores(source, target)
+
+    conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    try:
+        kept = conn.execute("SELECT ticker FROM jquants_fin_summaries ORDER BY ticker").fetchall()
+        claim = conn.execute(
+            "SELECT record_count FROM source_coverage "
+            "WHERE source = 'jquants_fin_summaries' AND coverage_key = ?",
+            (coverage_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert kept == [("1301",), ("1302",)]
+    assert claim == (2,)
+
+
+@pytest.mark.parametrize("status", ["partial", "failed"])
+def test_fin_summary_non_ok_coverage_with_matching_payload_still_merges(
+    tmp_path: Path, status: str
+) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    for path in (source, target):
+        conn = open_connection(path)
+        try:
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=coverage_key,
+                record_count=0,
+                min_date="2020-01-01",
+                max_date="2020-12-31",
+                status=status,
+                error="one rejected row",
+                fetched_at_utc="2026-08-08T00:00:00+00:00",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    report = merge_stores(source, target)
+
+    assert report.inserted == 0
+
+
+def test_fin_summary_source_only_non_ok_coverage_is_preserved(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    conn = open_connection(source)
+    try:
+        add_source_coverage(
+            conn,
+            source="jquants_fin_summaries",
+            coverage_key=coverage_key,
+            record_count=0,
+            min_date="2020-01-01",
+            max_date="2020-12-31",
+            status="partial",
+            error="one rejected row",
+            fetched_at_utc="2026-08-08T00:00:00+00:00",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    report = merge_stores(source, target)
+
+    assert report.inserted == 1
+    conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    try:
+        kept = conn.execute(
+            "SELECT record_count, status, error FROM source_coverage "
+            "WHERE source = 'jquants_fin_summaries' AND coverage_key = ?",
+            (coverage_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert kept == (0, "partial", "one rejected row")
+
+
+@pytest.mark.parametrize(
+    ("placement", "status", "error"),
+    [
+        ("source", "ok", "provider failed"),
+        ("target", "ok", "provider failed"),
+        ("both", "ok", "provider failed"),
+        ("source", "unknown", "provider failed"),
+        ("source", "partial", None),
+        ("source", "failed", ""),
+    ],
+)
+def test_fin_summary_coverage_rejects_unclassified_status_error_states(
+    tmp_path: Path,
+    placement: str,
+    status: str,
+    error: str | None,
+) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    paths = {
+        "source": (source,),
+        "target": (target,),
+        "both": (source, target),
+    }[placement]
+    for path in paths:
+        conn = open_connection(path)
+        try:
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=coverage_key,
+                record_count=0,
+                min_date="2020-01-01",
+                max_date="2020-12-31",
+                status=status,
+                error=error,
+                fetched_at_utc="2026-08-08T00:00:00+00:00",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    with pytest.raises(MergeError, match="payload disagrees"):
+        merge_stores(source, target)
+
+
+def test_fin_summary_coverage_rejects_a_count_not_proven_by_stored_rows(
+    tmp_path: Path,
+) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(source, treasury_shares=None, equity_to_asset_ratio=None)
+    _add_fin_summary(target, treasury_shares=None, equity_to_asset_ratio=None)
+    coverage_key = "get_fin_summary_range:2020-01-01..2020-12-31"
+    for path, record_count in ((source, 1), (target, 2)):
+        conn = open_connection(path)
+        try:
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=coverage_key,
+                record_count=record_count,
+                min_date="2020-01-01",
+                max_date="2020-12-31",
+                fetched_at_utc="2026-08-08T00:00:00+00:00",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    with pytest.raises(MergeError, match="coverage count does not match stored rows"):
+        merge_stores(source, target)
+
+
+@pytest.mark.parametrize(
+    ("source_treasury", "target_treasury"),
+    [(10.0, None), (10.0, 20.0)],
+)
+def test_fin_summary_missing_allowance_is_directional_and_rejects_fact_conflicts(
+    tmp_path: Path,
+    source_treasury: float,
+    target_treasury: float | None,
+) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _add_fin_summary(source, treasury_shares=source_treasury, equity_to_asset_ratio=0.5)
+    _add_fin_summary(target, treasury_shares=target_treasury, equity_to_asset_ratio=0.5)
+
+    with pytest.raises(MergeError, match="payload disagrees"):
+        merge_stores(source, target)
+
+
 def test_the_exempt_columns_are_only_the_ones_named(tmp_path: Path) -> None:
     """A column added to a table must be compared unless someone exempts it deliberately."""
 
@@ -298,6 +790,11 @@ def test_the_exempt_columns_are_only_the_ones_named(tmp_path: Path) -> None:
             present = {str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")')}
             assert set(exempt) <= present, table
             assert set(exempt) & set(FACT_KEYS[table]) == set(), table
+        for table, source_missing in SOURCE_MISSING_ALLOWED.items():
+            present = {str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")')}
+            assert set(source_missing) <= present, table
+            assert set(source_missing) & set(FACT_KEYS[table]) == set(), table
     finally:
         conn.close()
     assert set(UNCOMPARED) <= set(FACT_KEYS)
+    assert set(SOURCE_MISSING_ALLOWED) <= set(FACT_KEYS)

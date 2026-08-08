@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 (cd "${repo_root}" && uv run python -m baibai_batch.validation.repository_layout)
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 serving_bucket="${R2_SERVING_BUCKET:-baibai-serving}"
+generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 copy_read_timeout=300
 transfer_staging=""
 transfer_config=""
@@ -188,6 +189,46 @@ remote_version() {
     --output text
 }
 
+generation_path() {
+  # Store keys pass through store_path's fixed allowlist before they reach this helper.
+  printf '%s/%s.etag\n' "${generation_dir}" "$1"
+}
+
+clear_pulled_versions() {
+  local key
+  for key in "$@"; do
+    store_path "${key}" >/dev/null
+    rm -f -- "$(generation_path "${key}")"
+  done
+}
+
+record_pulled_version() {
+  local key="$1" version="$2" path temporary
+  store_path "${key}" >/dev/null
+  mkdir -p "${generation_dir}"
+  path="$(generation_path "${key}")"
+  temporary="$(mktemp "${generation_dir}/.${key}.XXXXXX")"
+  printf '%s\n' "${version}" > "${temporary}"
+  mv -f "${temporary}" "${path}"
+}
+
+pulled_version() {
+  local key="$1" path version
+  store_path "${key}" >/dev/null
+  path="$(generation_path "${key}")"
+  if [[ ! -s "${path}" ]]; then
+    printf 'no pulled R2 generation recorded for %s; pull it again before pushing\n' \
+      "${key}" >&2
+    return 1
+  fi
+  version="$(<"${path}")"
+  if [[ -z "${version}" ]]; then
+    printf 'empty pulled R2 generation recorded for %s\n' "${key}" >&2
+    return 1
+  fi
+  printf '%s\n' "${version}"
+}
+
 pull_keys() {
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key target index
@@ -199,6 +240,7 @@ pull_keys() {
   # that never existed. Comparing each object's version before and after the
   # downloads catches exactly that straddle, and the local stores stay untouched.
   local -a versions=()
+  clear_pulled_versions "$@"
   for key in "$@"; do
     versions+=("$(remote_version "${key}")")
   done
@@ -220,6 +262,11 @@ pull_keys() {
     mkdir -p "$(dirname "${target}")"
     mv -f "${transfer_staging}/${key}" "${target}"
   done
+  index=0
+  for key in "$@"; do
+    record_pulled_version "${key}" "${versions[index]}"
+    index=$((index + 1))
+  done
   cleanup_staging
   transfer_staging=""
 }
@@ -240,19 +287,30 @@ backup_remote_key() {
   # timeout, which surfaces as `Read timeout on endpoint URL` and aborts the whole push.
   # The wider limit below is a ceiling, not a delay — retries stay at the CLI default so a
   # copy that is genuinely stuck still fails the step inside the job's time budget.
-  local key="$1"
+  local key="$1" expected_version="${2:-}"
   if remote_object_exists "${key}"; then
+    local -a source_condition=()
+    if [[ -n "${expected_version}" ]]; then
+      source_condition+=(--copy-source-if-match "${expected_version}")
+    fi
     aws s3api copy-object \
       --bucket "${stores_bucket}" \
       --key "${key}.bak" \
       --copy-source "${stores_bucket}/${key}" \
+      "${source_condition[@]}" \
       --endpoint-url "${endpoint}" \
       --cli-read-timeout "${copy_read_timeout}" \
       >/dev/null
   fi
 }
 
-push_keys() {
+_push_keys() {
+  local expected_version="$1"
+  shift
+  if [[ -n "${expected_version}" && $# -ne 1 ]]; then
+    printf 'conditional store push requires exactly one key\n' >&2
+    return 2
+  fi
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   # A push is three waits, and only one of them moves bytes over the link: the local
   # full copy the snapshot makes, the server-side copy that keeps a generation, and
@@ -271,10 +329,23 @@ push_keys() {
   local index=0
   for key in "$@"; do
     started="${SECONDS}"
-    backup_remote_key "${key}"
+    backup_remote_key "${key}" "${expected_version}"
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
-    aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
+    if [[ -n "${expected_version}" ]]; then
+      # PutObject's If-Match is checked atomically when R2 commits the object. The
+      # earlier read avoids an expensive snapshot after an already-visible race;
+      # this condition closes the remaining race through backup and upload.
+      aws s3api put-object \
+        --bucket "${stores_bucket}" \
+        --key "${key}" \
+        --body "${transfer_staging}/${key}" \
+        --if-match "${expected_version}" \
+        --endpoint-url "${endpoint}" \
+        >/dev/null
+    else
+      aws_s3 cp "${transfer_staging}/${key}" "s3://${stores_bucket}/${key}"
+    fi
     printf 'store push: key=%s bytes=%s snapshot=%ss backup=%ss upload=%ss\n' \
       "${key}" \
       "$(wc -c < "${transfer_staging}/${key}" | tr -d ' \n')" \
@@ -285,6 +356,47 @@ push_keys() {
   done
   cleanup_staging
   transfer_staging=""
+}
+
+push_keys() {
+  _push_keys "" "$@"
+}
+
+push_key_if_version() {
+  local key="$1" expected_version="$2" current_version
+  current_version="$(remote_version "${key}")"
+  if [[ "${current_version}" != "${expected_version}" ]]; then
+    printf 'refusing store push: %s changed on R2 during the merge. ' "${key}" >&2
+    printf 'Merge the latest cloud copy and try again.\n' >&2
+    return 1
+  fi
+  _push_keys "${expected_version}" "${key}"
+}
+
+push_pulled_keys() {
+  local key index current_version
+  local -a keys=("$@")
+  local -a versions=()
+  for key in "${keys[@]}"; do
+    versions+=("$(pulled_version "${key}")")
+  done
+  # Check the whole set before any key is written. Each conditional push checks its
+  # key again and binds the final PUT, so a later race cannot overwrite that writer.
+  index=0
+  for key in "${keys[@]}"; do
+    current_version="$(remote_version "${key}")"
+    if [[ "${current_version}" != "${versions[index]}" ]]; then
+      printf 'refusing machine-store push: %s changed on R2 after the pull. ' "${key}" >&2
+      printf 'Pull a fresh store set and run the batch again.\n' >&2
+      return 1
+    fi
+    index=$((index + 1))
+  done
+  index=0
+  for key in "${keys[@]}"; do
+    push_key_if_version "${key}" "${versions[index]}"
+    index=$((index + 1))
+  done
 }
 
 seed_keys() {
@@ -417,7 +529,7 @@ case "${1:-}" in
       printf 'refusing machine-store push outside GitHub Actions\n' >&2
       exit 2
     fi
-    push_keys market.sqlite runs.sqlite macro.sqlite
+    push_pulled_keys market.sqlite runs.sqlite macro.sqlite
     ;;
   push-market)
     # Deep history is fetched where there is time for it — hours of provider calls for a
@@ -427,13 +539,14 @@ case "${1:-}" in
     # left behind. That check is what makes this safe to run outside GitHub Actions,
     # where an unconditional upload would roll the daily batch back.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+    market_version="$(remote_version market.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/market.sqlite" "${transfer_staging}/market.sqlite"
     check_sqlite "${transfer_staging}/market.sqlite"
     migrate_downloaded_store market "${transfer_staging}/market.sqlite"
     merge_market_store "${transfer_staging}/market.sqlite" "$(store_path market.sqlite)"
     cleanup_staging
     transfer_staging=""
-    push_keys market.sqlite
+    push_key_if_version market.sqlite "${market_version}"
     ;;
   push-macro)
     # Deep history is fetched locally with `macro refresh --all-history`, which the
@@ -442,13 +555,14 @@ case "${1:-}" in
     # publishable once it contains the cloud copy: pull it, merge it in, and let the
     # merge refuse the upload if any cloud row would be left behind.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
+    macro_version="$(remote_version macro.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/macro.sqlite" "${transfer_staging}/macro.sqlite"
     check_sqlite "${transfer_staging}/macro.sqlite"
     migrate_downloaded_store macro "${transfer_staging}/macro.sqlite"
     merge_indicator_store "${transfer_staging}/macro.sqlite" "$(store_path macro.sqlite)"
     cleanup_staging
     transfer_staging=""
-    push_keys macro.sqlite
+    push_key_if_version macro.sqlite "${macro_version}"
     ;;
   push-app)
     push_keys baibai.sqlite

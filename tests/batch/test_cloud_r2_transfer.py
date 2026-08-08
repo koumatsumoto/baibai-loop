@@ -56,7 +56,9 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
     # the version query runs once before the downloads and once after.
     calls="${AWS_FAKE_STATE}/$(printf '%s' "$key" | tr / _)"
     printf 'x' >> "$calls"
-    if [[ "$key" == "${AWS_FAKE_CHANGED_KEY:-}" ]]; then
+    if [[ -n "${AWS_FAKE_ETAG_OVERRIDE:-}" ]]; then
+      printf '%s\n' "${AWS_FAKE_ETAG_OVERRIDE}"
+    elif [[ "$key" == "${AWS_FAKE_CHANGED_KEY:-}" ]]; then
       printf '"etag-%s"\\n' "$(wc -c < "$calls" | tr -d ' ')"
     else
       printf '"etag-stable"\\n'
@@ -69,6 +71,10 @@ if [[ "$1 $2" == "s3api head-object" ]]; then
   fi
   printf 'An error occurred (404) when calling the HeadObject operation\\n' >&2
   exit 254
+fi
+if [[ "$1 $2" == "s3api put-object" && -n "${AWS_FAKE_REJECT_CONDITIONAL_PUT:-}" ]]; then
+  printf 'An error occurred (PreconditionFailed) when calling PutObject\n' >&2
+  exit 255
 fi
 if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then
   printf 'x' > "$4"
@@ -139,11 +145,16 @@ esac
 def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
     state = bin_dir.parent / "aws-state"
     state.mkdir(exist_ok=True)
+    generation_dir = bin_dir.parent / "r2-generations"
+    generation_dir.mkdir(exist_ok=True)
+    for key in ("market.sqlite", "runs.sqlite", "macro.sqlite"):
+        (generation_dir / f"{key}.etag").write_text('"etag-stable"\n', encoding="utf-8")
     environment = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "AWS_LOG": str(log),
         "AWS_FAKE_STATE": str(state),
+        "R2_GENERATION_DIR": str(generation_dir),
         "R2_ACCOUNT_ID": "account-for-test",
         "R2_ACCESS_KEY_ID": "access-for-test",
         "R2_SECRET_ACCESS_KEY": "secret-for-test",
@@ -671,8 +682,34 @@ def test_machine_store_push_uploads_three_stores_in_github_actions(tmp_path: Pat
 
     assert completed.returncode == 0
     commands = _transfer_commands(log)
-    assert len([command for command in commands if "s3 cp" in command]) == 3
+    uploads = [command for command in commands if command.startswith("s3api put-object ")]
+    assert len(uploads) == 3
+    assert all('--if-match "etag-stable"' in command for command in uploads)
     assert all(".bak" not in command for command in commands)
+
+
+def test_machine_store_push_rejects_a_generation_replaced_by_manual_publish(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    env["AWS_FAKE_ETAG_OVERRIDE"] = '"etag-after-manual-publish"'
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-machine"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "market.sqlite changed on R2 after the pull" in completed.stderr
+    commands = _transfer_commands(log)
+    assert not any(command.startswith("s3api copy-object ") for command in commands)
+    assert not any(command.startswith("s3api put-object ") for command in commands)
 
 
 def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Path) -> None:
@@ -729,11 +766,7 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     uploads = [
         index
         for index, command in enumerate(commands)
-        if "s3 cp" in command
-        and command.endswith(
-            "s3://baibai-stores/macro.sqlite --endpoint-url "
-            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-        )
+        if command.startswith("s3api put-object ") and "--key macro.sqlite" in command
     ]
     assert len(backups) == 1
     assert len(uploads) == 1
@@ -743,6 +776,7 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     assert commands[backups[0]].startswith("s3api copy-object ")
     assert "--key macro.sqlite.bak" in commands[backups[0]]
     assert "--copy-source baibai-stores/macro.sqlite" in commands[backups[0]]
+    assert '--copy-source-if-match "etag-stable"' in commands[backups[0]]
     assert backups[0] < uploads[0]
 
 
@@ -797,10 +831,7 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
     uploads = [
         index
         for index, command in enumerate(commands)
-        if command.rstrip().endswith(
-            "s3://baibai-stores/macro.sqlite --endpoint-url "
-            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-        )
+        if command.startswith("s3api put-object ") and "--key macro.sqlite" in command
     ]
     migrations = [index for index, command in enumerate(commands) if command.startswith("migrate ")]
     assert len(downloads) == 1
@@ -811,6 +842,7 @@ def test_macro_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> N
     assert "--store macro" in commands[migrations[0]]
     assert "--target" in commands[merges[0]]
     assert "stores/macro/macro.sqlite" in commands[merges[0]]
+    assert '--if-match "etag-stable"' in commands[uploads[0]]
     # Only the indicator store is published; market and runs stay owned by the batch.
     assert all("market.sqlite" not in command for command in commands)
     assert all("runs.sqlite" not in command for command in commands)
@@ -832,11 +864,8 @@ def test_macro_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> No
 
     assert completed.returncode != 0
     commands = _transfer_commands(log)
-    assert all(
-        not command.rstrip().endswith(
-            "s3://baibai-stores/macro.sqlite --endpoint-url "
-            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-        )
+    assert not any(
+        command.startswith("s3api put-object ") and "--key macro.sqlite" in command
         for command in commands
     )
 
@@ -867,10 +896,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     uploads = [
         index
         for index, command in enumerate(commands)
-        if command.rstrip().endswith(
-            "s3://baibai-stores/market.sqlite --endpoint-url "
-            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-        )
+        if command.startswith("s3api put-object ") and "--key market.sqlite" in command
     ]
     migrations = [index for index, command in enumerate(commands) if command.startswith("migrate ")]
     assert len(downloads) == 1
@@ -884,6 +910,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     assert downloads[0] < migrations[0] < merges[0] < uploads[0]
     assert "--store market" in commands[migrations[0]]
     assert "stores/market/market.sqlite" in commands[merges[0]]
+    assert '--if-match "etag-stable"' in commands[uploads[0]]
     # Only the market store is published; runs and the indicator store are untouched.
     assert all("runs.sqlite" not in command for command in commands)
     assert all("macro.sqlite" not in command for command in commands)
@@ -905,12 +932,59 @@ def test_market_push_uploads_nothing_when_the_merge_refuses(tmp_path: Path) -> N
 
     assert completed.returncode != 0
     commands = _transfer_commands(log)
-    assert all(
-        not command.rstrip().endswith(
-            "s3://baibai-stores/market.sqlite --endpoint-url "
-            "https://account-for-test.r2.cloudflarestorage.com --only-show-errors --no-progress"
-        )
+    assert not any(
+        command.startswith("s3api put-object ") and "--key market.sqlite" in command
         for command in commands
+    )
+
+
+def test_market_push_stops_before_backup_when_cloud_changes_during_merge(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_CHANGED_KEY"] = "market.sqlite"
+    env["AWS_FAKE_EXISTING_KEY"] = "market.sqlite"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-market"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "market.sqlite changed on R2 during the merge" in completed.stderr
+    commands = _transfer_commands(log)
+    assert not any(command.startswith("s3api copy-object ") for command in commands)
+    assert not any(command.startswith("s3api put-object ") for command in commands)
+
+
+def test_market_push_condition_rejects_a_race_after_the_last_version_read(
+    tmp_path: Path,
+) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    env = _environment(bin_dir, log)
+    env["AWS_FAKE_REJECT_CONDITIONAL_PUT"] = "1"
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "push-market"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    commands = _transfer_commands(log)
+    upload = next(command for command in commands if command.startswith("s3api put-object "))
+    assert "--key market.sqlite" in upload
+    assert '--if-match "etag-stable"' in upload
+    assert not any(
+        command.startswith("s3 cp ") and "s3://baibai-stores/market.sqlite" in command
+        for command in commands
+        if not command.startswith("s3 cp s3://")
     )
 
 
@@ -950,6 +1024,8 @@ def test_pull_machine_refuses_a_snapshot_that_straddles_a_push(tmp_path: Path) -
     assert "runs.sqlite changed on R2 during the pull" in completed.stderr
     # No store is replaced, so the local set stays one consistent generation.
     assert all(path.read_bytes() == b"local" for path in _machine_stores(root).values())
+    generation_dir = Path(environment["R2_GENERATION_DIR"])
+    assert not any(generation_dir.glob("*.etag"))
     assert not list(root.glob(".r2-transfer.*"))
     commands = _transfer_commands(log)
     versions = [index for index, line in enumerate(commands) if "--query ETag" in line]
@@ -968,10 +1044,11 @@ def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Pat
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"local")
 
+    environment = _environment(bin_dir, log)
     completed = subprocess.run(
         [root / "batch/scripts/r2_transfer.sh", "pull-machine"],
         cwd=root,
-        env=_environment(bin_dir, log),
+        env=environment,
         check=False,
         capture_output=True,
         text=True,
@@ -979,4 +1056,12 @@ def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Pat
 
     assert completed.returncode == 0, completed.stderr
     assert all(path.read_bytes() == b"x" for path in _machine_stores(root).values())
+    generation_dir = Path(environment["R2_GENERATION_DIR"])
+    assert {
+        path.name: path.read_text(encoding="utf-8") for path in generation_dir.glob("*.etag")
+    } == {
+        "market.sqlite.etag": '"etag-stable"\n',
+        "runs.sqlite.etag": '"etag-stable"\n',
+        "macro.sqlite.etag": '"etag-stable"\n',
+    }
     assert not list(root.glob(".r2-transfer.*"))
