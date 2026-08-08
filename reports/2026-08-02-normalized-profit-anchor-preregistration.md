@@ -166,4 +166,6 @@ H-3は1250 capを観測し得る断面へ固定する。
   --panel-variant self_range_2500 --force
 ```
 
+H-3が`negative`（`self_range_2500`は採用不可）で確定したため、`self_range_1250` / `self_range_2500` のpanel variantは通常treeに無い。上の2つのbuildを再実行するには、その退役より前のcommitをcheckoutする。
+
 evaluationは§5の8窓をbaseline / 1250 / 2500へ同一指定し、各artifactを別pathへ出す。

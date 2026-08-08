@@ -114,7 +114,7 @@ cache schema version は `11`。panel は、production の730日財務入力を�
 
 `--panel-variant pre2019_self_range_375` は self-range を 375 sessions、bar 入力を 600 暦日に固定する診断専用 contract である。通常 store と異なる `--calibration-dir` が必須で、variant と窓は `rules_hash` に含まれ、全 row が `self_range_degraded: true` を持つ。この store を `--run-purpose production_decision` で評価すると拒否する。production panel の既定窓、screening rules、authority 条件は変わらない。
 
-各rowの`self_range_observed_sessions`は self-range の上限へ実際に届いたかを示し、短い履歴をfull-windowとして扱わない。production self-rangeは750 sessionsである。
+この variant でも各rowの`self_range_observed_sessions`が、その contract の上限へ実際に届いたかを示す。短い履歴をfull-windowとして扱わないための列であり、production self-rangeは750 sessionsのままである。
 
 ```bash
 uv run baibai-engine screening calibration-build \
