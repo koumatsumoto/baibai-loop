@@ -34,6 +34,8 @@ from baibai_engine.screening.providers.jquants import (
 )
 from baibai_engine.screening.sqlite_coverage import (
     CacheCoverageIssue,
+    plan_required_field_repair,
+    read_required_field_coverage,
     verify_screening_sqlite_coverage,
 )
 from baibai_engine.screening.sqlite_reader import (
@@ -72,6 +74,16 @@ def verify_cache_coverage_command(
         required_jpx_sources=required_jpx_sources,
         allow_stale_jpx=allow_stale_jpx,
     )
+    field_coverage = read_required_field_coverage(
+        sqlite_path,
+        start=asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS),
+        asof=asof_date,
+    )
+    if field_coverage is not None:
+        print(
+            "financial required-field coverage: " + field_coverage.summary_line(),
+            file=out,
+        )
     if issues:
         _print_cache_coverage_issues(issues, asof_date=asof_date, stream=out)
         return 1
@@ -426,6 +438,28 @@ def bootstrap_cache_command(
             file=out,
             flush=True,
         )
+        repair_plan = plan_required_field_repair(
+            sqlite_path,
+            start=fin_start,
+            asof=asof_date,
+        )
+        repair_ranges = repair_plan.ranges if repair_plan is not None else ()
+        if repair_plan is not None:
+            print(
+                "bootstrap-cache financial required-field coverage before: "
+                + repair_plan.coverage.summary_line(),
+                file=out,
+                flush=True,
+            )
+            if repair_ranges:
+                first_start = repair_ranges[0][0].isoformat()
+                print(
+                    "bootstrap-cache financial required-field repair: "
+                    f"blocking={','.join(repair_plan.coverage.blocking_fields)} "
+                    f"resume_from={first_start} remaining_ranges={len(repair_ranges)}",
+                    file=out,
+                    flush=True,
+                )
         # The trailing window is re-read here and nowhere else in the run: the
         # normalized-profit call below shares this source, and asking it there too
         # would buy the same week twice.
@@ -433,12 +467,36 @@ def bootstrap_cache_command(
             fin_start,
             asof_date,
             revision_overlap_days=FIN_SUMMARY_REVISION_OVERLAP_DAYS,
+            repair_ranges=repair_ranges,
+            progress=lambda index, total, chunk_start, chunk_end: print(
+                "bootstrap-cache jquants fin_summaries chunk "
+                f"{index}/{total}: {chunk_start.isoformat()}..{chunk_end.isoformat()}",
+                file=out,
+                flush=True,
+            ),
         )
         print(
             f"bootstrap-cache jquants fin_summaries: {summary_rows} row(s)",
             file=out,
             flush=True,
         )
+        repaired_coverage = read_required_field_coverage(
+            sqlite_path,
+            start=fin_start,
+            asof=asof_date,
+        )
+        if repaired_coverage is not None:
+            print(
+                "bootstrap-cache financial required-field coverage after: "
+                + repaired_coverage.summary_line(),
+                file=out,
+                flush=True,
+            )
+            if repaired_coverage.blocking_fields:
+                raise JQuantsProviderError(
+                    "financial required-field repair remained incomplete for "
+                    + ",".join(repaired_coverage.blocking_fields)
+                )
         print(
             "bootstrap-cache jquants normalized_profit_fy_summaries: "
             f"{normalized_start.isoformat()}..{asof_date.isoformat()} start",

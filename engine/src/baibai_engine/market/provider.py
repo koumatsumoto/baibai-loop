@@ -11,7 +11,7 @@ screening.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
@@ -201,6 +201,7 @@ class JQuantsMarketProvider:
         ranges: Sequence[tuple[date, date]],
         *,
         skip_cached_chunks: bool,
+        progress: Callable[[int, int, date, date], None] | None = None,
     ) -> None:
         """Fetch every range in chunks, with one pace between consecutive requests.
 
@@ -211,13 +212,10 @@ class JQuantsMarketProvider:
         its way out.
         """
         chunk_days = self._RANGE_CHUNK_DAYS.get(method)
-        pending_pause = False
+        requests: list[tuple[date, date]] = []
         for subrange_start, subrange_end in ranges:
             if chunk_days is None:
-                if pending_pause:
-                    time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
-                self._load_or_fetch(method, start_dt=subrange_start, end_dt=subrange_end)
-                pending_pause = True
+                requests.append((subrange_start, subrange_end))
                 continue
             cursor = subrange_start
             while cursor <= subrange_end:
@@ -225,11 +223,15 @@ class JQuantsMarketProvider:
                 if not skip_cached_chunks or not self._range_chunk_is_cached(
                     method, cursor, chunk_end
                 ):
-                    if pending_pause:
-                        time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
-                    self._load_or_fetch(method, start_dt=cursor, end_dt=chunk_end)
-                    pending_pause = True
+                    requests.append((cursor, chunk_end))
                 cursor = chunk_end + timedelta(days=1)
+        total = len(requests)
+        for index, (chunk_start, chunk_end) in enumerate(requests, start=1):
+            if index > 1:
+                time.sleep(self._INTER_CHUNK_SLEEP_SECONDS)
+            self._load_or_fetch(method, start_dt=chunk_start, end_dt=chunk_end)
+            if progress is not None:
+                progress(index, total, chunk_start, chunk_end)
 
     def _fetch_missing_range_chunks(self, method: str, start: date, end: date) -> None:
         if self._sqlite_path is None:

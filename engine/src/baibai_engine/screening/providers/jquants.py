@@ -8,7 +8,7 @@ extending `JQuantsMarketProvider`.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date, timedelta
 from typing import Any
 
@@ -295,7 +295,13 @@ class JQuantsProvider(JQuantsMarketProvider):
         ]
 
     def refresh_fin_summary_range(
-        self, start: date, end: date, *, revision_overlap_days: int
+        self,
+        start: date,
+        end: date,
+        *,
+        revision_overlap_days: int,
+        repair_ranges: Sequence[tuple[date, date]] = (),
+        progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int:
         """Bring the summaries store current for `[start, end]` and count what it holds.
 
@@ -320,9 +326,18 @@ class JQuantsProvider(JQuantsMarketProvider):
 
         overlap_start = max(start, end - timedelta(days=revision_overlap_days))
         planned = merge_date_ranges(
-            [*self._missing_subranges("get_fin_summary_range", start, end), (overlap_start, end)]
+            [
+                *self._missing_subranges("get_fin_summary_range", start, end),
+                (overlap_start, end),
+                *repair_ranges,
+            ]
         )
-        self._fetch_ranges_paced("get_fin_summary_range", planned, skip_cached_chunks=False)
+        self._fetch_ranges_paced(
+            "get_fin_summary_range",
+            planned,
+            skip_cached_chunks=False,
+            progress=progress,
+        )
         if not fin_summaries_covered(self._sqlite_path, start, end):
             raise JQuantsProviderError(
                 "SQLite cache remained incomplete after fetching jquants_fin_summaries "

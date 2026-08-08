@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
@@ -48,6 +48,8 @@ class JQuantsAdapter(Protocol):
         end: date,
         *,
         revision_overlap_days: int,
+        repair_ranges: Sequence[tuple[date, date]] = (),
+        progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int: ...
 
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...

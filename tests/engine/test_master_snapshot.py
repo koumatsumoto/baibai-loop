@@ -37,8 +37,9 @@ class _MasterClient:
 
 
 class _BootstrapJQuants:
-    def __init__(self, provider: JQuantsProvider) -> None:
+    def __init__(self, provider: JQuantsProvider, sqlite_path: Path) -> None:
         self.provider = provider
+        self.sqlite_path = sqlite_path
 
     def get_eq_master(self, requested_asof: date):
         return self.provider.get_eq_master(requested_asof)
@@ -60,10 +61,35 @@ class _BootstrapJQuants:
         return []
 
     def refresh_fin_summary_range(
-        self, start: date, end: date, *, revision_overlap_days: int
+        self,
+        start: date,
+        end: date,
+        *,
+        revision_overlap_days: int,
+        repair_ranges=(),
+        progress=None,
     ) -> int:
-        del start, end, revision_overlap_days
-        return 0
+        del start, revision_overlap_days, repair_ranges
+        conn = open_connection(self.sqlite_path)
+        tickers = [
+            str(row[0])
+            for row in conn.execute(
+                "SELECT ticker FROM jquants_master_snapshots "
+                "WHERE snapshot_date = ? AND is_common_stock = 1",
+                (end.isoformat(),),
+            )
+        ]
+        conn.executemany(
+            "INSERT OR REPLACE INTO jquants_fin_summaries("
+            "ticker, disclosed_at, shares_outstanding, treasury_shares, "
+            "equity_to_asset_ratio) VALUES (?, ?, ?, ?, ?)",
+            [(ticker, end.isoformat(), 10_000_000.0, 1_000_000.0, 0.5) for ticker in tickers],
+        )
+        conn.commit()
+        conn.close()
+        if progress is not None:
+            progress(1, 1, end, end)
+        return len(tickers)
 
     def get_fy_summary_range(self, start: date, end: date):
         del start, end
@@ -503,7 +529,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             client = _MasterClient()
             provider = JQuantsProvider("token", Path(tmp) / "raw", client=client, sqlite_path=db)
             bundle = ProviderBundle(
-                jquants=_BootstrapJQuants(provider),
+                jquants=_BootstrapJQuants(provider, db),
                 edinet=None,
                 jpx=_BootstrapJPX(),
             )
