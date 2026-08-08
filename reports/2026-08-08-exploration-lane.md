@@ -16,7 +16,9 @@ date: 2026-08-08
 
 事前登録の precedence が返す語は `insufficient` である。ただしこの語は所見を表していない。5 窓中 4 窓は sufficiency を満たしており、**その 4 窓を含む全 5 窓・60 cell が 1 つも effect gate を通らなかった**。sufficiency を落とした 1 窓を仮に満たしたとしても、pair delta median の符号が cell 間で割れるため precedence 2 により `inconclusive` になり、`adoption_candidate` には到達しない。
 
-4 窓の as-of 範囲は固定で、範囲内の cohort は全て満期済みである。新規 cohort は範囲の後ろに付くだけで窓へ入らないので、事前登録が再検定の理由に挙げる「新規満期 cohort」ではこの 4 窓は動かない。残る可能性は、窓の内側で forward coverage が backfill され pair 数と中央値がずれることだけで、それは §「design と time holdout が符号で割れる」の反転を埋めるには足りない。したがって再検定用の surface を残す理由が無い。
+窓の as-of 範囲は固定で、新規 cohort は範囲の後ろに付くだけなので窓へは入らない。ただし窓の値が凍っているわけではない。forward row は build のたびに再計算されるため、配当や退場 exit の backfill で total basis の pair 数と中央値は動く。実際、判定語を作った `3y holdout` の不足は配当被覆 2 件で説明でき、それが解ければ floor を超える（§「`3y holdout` の不足は配当被覆であり、凍った事実ではない」）。
+
+その反実仮想でも符号の割れにより `inconclusive` にしかならず、事前登録 §10 は `inconclusive` でも policy 専用 code を消すと定めている。**削除の根拠は「再判定の経路が無い」ではなく「再判定しても採用に届かない」である。**
 
 ## 固定 scope と authority
 
@@ -49,6 +51,10 @@ core 3 metric と raw axis の authority は、同じ store・同じ `rules_hash
 
 したがって harness が出した 8 cell の `eligible` は **policy metric の authority が成立した証拠ではない**。同じ 4 as-of × `3y` / `5y` は、別 metric を required にした過去の実 run では 6/8 eligible だった（`reports/2026-08-02-normalized-per-production.md`）。不採用の根拠は authority ではなく §「窓別の結果」以降の effect 不成立に置く。
 
+封印の弱さは具体的にも出る。**total basis の観測が両 lane で揃っているのは 4 as-of のうち `2021-01-29` と `2021-05-31` の 2 つだけ**で、`2020-01-31` と `2020-05-29` は両 lane とも `unresolved_missing_dividend` である。`reproducible` が pair object の有無しか見ないため、この 2 as-of でも `eligible` が立っていた。
+
+未実装の 4 条件目（符号の非反転）は、独立に計算すると **データ上は成立していた** — 封印 8 cell の delta を basis × 代入 × 重みの 12 通りで見て、非ゼロ符号は全て正（`3y` total median +0.891669、`5y` +1.888805、price は 4 cohort 中 2 つが同一銘柄で median 0）。結論は変わらないが、gate は条件を確かめずに通していた。効果が逆の世界では fail-open になる。
+
 この harness を雛形にする場合は、`CohortIntegrity` の `metric_statuses` を評価 payload から導出し、辞書リテラルで `eligible` を渡さないこと。採用方向へ倒れたときに自分で自分へ production authority を発行できてしまう。
 
 ### 8 cell の membership
@@ -78,9 +84,57 @@ sufficiency は reported case で判定する。
 
 満期 cohort は、price basis の流動性母集団が親 axis 計測と同じ最小標本 100 行を満たした cohort である。**各窓の as-of 範囲に入る panel 数と満期 cohort 数は 5 窓すべてで一致する**（38 / 18 / 21 / 19 / 21）ので、被覆率の分母が未満期の除外で縮んではいない。
 
-`3y holdout` だけが sufficiency を外した。理由は total basis の unique exploration ticker が 7 で、floor 8 に 1 銘柄足りないことだけである。integrity failure は全窓で 0 件、`entry_price_gap` も 0 件だった。同窓の price 被覆率 0.778 は floor 0.75 を僅差で満たしている。
+`3y holdout` だけが sufficiency を外した。不足条件は total basis の unique exploration ticker が 7 で floor 8 に 1 銘柄届かないことだけである。`entry_price_gap` と integrity failure は全窓で 0 件。同窓の price 被覆率 0.778 は floor 0.75 を僅差で満たしている。
 
 `price / total` × `reported / 全損 / 中立` × `cohort / ticker 等重み` の 60 cell のうち、**effect gate を通ったのは 0 cell**。
+
+### 未解決 status の開示
+
+事前登録 §3 は「未解決 status を別表で開示する」と定めている。harness はこの表を出さなかったので、ここに置く。母数は 5 窓の選出 pair の両 lane 観測。
+
+| basis | resolved | 未解決の内訳 |
+| --- | ---: | --- |
+| price | 205 | `unresolved_stale_exit` 13 |
+| total | 192 | `unresolved_price_return` 13 / `unresolved_missing_dividend` 11 / `unresolved_no_fy_observation` 2 |
+
+price の 13 件は退場で exit を持たない行であり、事前登録どおり全損 / 中立の両代入へ乗る。total の `unresolved_price_return` 13 件は同じ行の price 側が未解決なので同様に乗る。
+
+残る 13 観測（`unresolved_missing_dividend` 11 + `unresolved_no_fy_observation` 2）は **price が resolved のまま total だけ解けなかった行**で、reported からも両代入からも外れる。
+
+| window | 件数 | 内訳 |
+| --- | ---: | --- |
+| 1y design | 1 | `2021-07-30` comparator 4541 |
+| 1y holdout | 2 | `2024-05-31` comparator 1887 / `2025-06-30` exploration 6104 |
+| 3y design | 4 | `2020-01-31` 両 lane / `2020-05-29` 両 lane |
+| 3y holdout | 2 | `2022-05-31` exploration 1980 / `2023-04-28` comparator 1662 |
+| 5y aggregate | 4 | `2020-01-31` 両 lane / `2020-05-29` 両 lane |
+
+これらを代入対象にも integrity failure にもしていないのは、事前登録の 2 つの規定がそう読めるためである。
+
+- 2 つの代入は `unresolved_missing_exit` / `unresolved_stale_exit` を名指しした**退場の bracket** である。price が解けている行は上場したままなので、全損代入で `-1.0` を与えると起きていない退場を作る。
+- §5 が `total_resolved_pairs / price_resolved_pairs >= 0.75` という被覆率 gate を置いていることは、total basis の解決が price より少ないことを 25% まで許す設計を意味する。total の未解決を一律 integrity failure にすると、この gate は恒久的に 1.0 になり binding しない。
+
+一方で、これらが「未知 status」でないことは開示不足の言い訳にならない。**この 13 観測を出さないまま「floor 8 に 1 銘柄足りないだけ」と書けば、不足の性質を実際より固いものに見せる。**
+
+### `3y holdout` の不足は配当被覆であり、凍った事実ではない
+
+同窓で total basis から外れた 2 as-of（`2022-05-31` exploration 1980、`2023-04-28` comparator 1662）は、いずれも `unresolved_missing_dividend` である。forward row は build のたびに再計算されるので、この 2 行の FY 配当が後から入れば **total pair 12 → 14、unique exploration ticker 7 → 9** となり floor 8 を超える。新規 cohort を待つ必要はない。
+
+その反実仮想では `3y holdout` が sufficiency を満たし、precedence 1 は発火しない。次に効くのは precedence 2 で、非ゼロの pair delta median は正 10 cell・負 4 cell（負は全て `3y holdout`）に割れるので **`inconclusive`** になる。事前登録 §10 は `inconclusive` でも policy 専用 code を通常 tree から消すと定めているため、**処分は変わらない**。変わるのは処分の理由付けで、「再判定の経路が無い」ではなく「解決しても `inconclusive` にしかならない」が正しい。
+
+### 事前登録が求めた併記統計量
+
+§4 は `unique_pair_tuples` と `max_exploration_ticker_share` の併記も求めている。harness はこれも出さなかったので、ここに置く（reported case）。
+
+| window | price uniq pair / max share | total uniq pair / max share |
+| --- | --- | --- |
+| 1y design | 29 / 0.152 | 28 / 0.156 |
+| 1y holdout | 18 / 0.167 | 16 / 0.188 |
+| 3y design | 16 / 0.176 | 14 / 0.200 |
+| 3y holdout | 13 / 0.357 | 11 / 0.417 |
+| 5y aggregate | 15 / 0.188 | 13 / 0.214 |
+
+`3y holdout` の集中（total basis で 1 銘柄が pair の 41.7%）が突出しており、同窓の unique ticker 不足と同じ原因を指している。
 
 ## 事前登録した統計量が 0 に貼りつく理由
 
@@ -180,7 +234,11 @@ pair delta median は 60 cell 中 46 cell で厳密に `0.0000` だった。正�
 
 precedence 1 は sufficiency 不足を最優先で `insufficient` に落とす。今回はその条件が **1 窓の 1 basis の unique ticker 数が 7 だった** ことだけで成立し、残り 4 窓の決定的な effect 不成立を語彙の上で覆い隠した。
 
-窓別 sufficiency を窓別 verdict へ落としてから全体を畳む方が、同じ規律を保ったまま所見を正しく表す。次に同じ形の事前登録を書くときは、precedence を「窓ごとに判定 → 全窓の語を統合」の 2 段にする。今回の採否は事前登録どおり運用し、この点は後の設計へ回す。
+窓別 sufficiency を窓別 verdict へ落としてから全体を畳む方が、同じ規律を保ったまま所見を正しく表す。今回の採否は事前登録どおり運用したうえで、次回以降の規律として `docs/reference/estimate-calibration.md` の事前登録節へ「語彙は窓ごとに決めてから全体へ畳む」を加えた。満期済み窓を根拠に cleanup するときは残る変動幅を示す、という条件も同じ節に置く。
+
+## 事前登録の membership 表への訂正
+
+事前登録 §9 の「top-20 に既に含まれる良好 decile 銘柄数 median 5.5」だけ分母が違う。同じ表の他行は exploration が立った 76 cohort だが、この行は 80 cohort 全体の median である。76 cohort に絞ると median は **5.0**（min 2 / max 10 は一致、mean 5.68）。事前登録は committed のまま残し、訂正はここに置く。どちらの分母でも「top-20 が既に同 axis の良好 decile を複数含む」という読みは変わらない。
 
 ## 残すもの / 消すもの
 
