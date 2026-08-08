@@ -109,7 +109,7 @@ pair delta median は 60 cell 中 46 cell で厳密に `0.0000` だった。正�
 
 ## 同じ銘柄が繰り返し選ばれる
 
-76 cohort の exploration は 44 銘柄しかなく、`3932` が 7 回、`7189` と `9107` が各 5 回、`5563` が 4 回選ばれている。`3y holdout` では 12 pair 中 6 pair が `3932` で、この集中が同窓の unique ticker を 7 まで下げた直接の原因である。
+76 cohort の exploration は 44 銘柄しかなく、`3932` が 7 回、`7189` と `9107` が各 5 回、`5563` が 4 回選ばれている。`3y holdout` の total basis で報告できた 12 pair のうち 5 pair が `3932` で、残りも 6 銘柄しかない。この集中が同窓の unique ticker を 7 まで下げた直接の原因である。
 
 これは operational hypothesis にも直接効く。lane が毎月ほぼ同じ境界銘柄を出すなら、判断入口へ足されるのは「新しい候補」ではなく「先月 reject した同じ銘柄」になりやすい。事前登録で記録済みの membership 事実（exploration ticker の 87% が他 cohort の baseline top-20 にも現れる）と同じ方向を指す。
 
