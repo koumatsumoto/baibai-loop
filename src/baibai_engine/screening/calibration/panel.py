@@ -54,12 +54,7 @@ from .identity import rules_contract_hash
 # select リプレイで記録する production-diversity 推奨順位の深さ。
 RECOMMENDED_RANK_DEPTH = 50
 
-PanelVariant = Literal[
-    "production",
-    "pre2019_self_range_375",
-    "self_range_1250",
-    "self_range_2500",
-]
+PanelVariant = Literal["production", "pre2019_self_range_375"]
 PopulationCoverageStatus = Literal[
     "evaluated", "priced_master_without_universe", "master_without_universe_unpriced"
 ]
@@ -87,26 +82,8 @@ PRE2019_SELF_RANGE_POLICY = PanelBuildPolicy(
     bars_input_window_days=600,
     production_authority=False,
 )
-SELF_RANGE_1250_POLICY = PanelBuildPolicy(
-    variant="self_range_1250",
-    valuation_history_sessions=1250,
-    bars_input_window_days=2000,
-    production_authority=False,
-)
-SELF_RANGE_2500_POLICY = PanelBuildPolicy(
-    variant="self_range_2500",
-    valuation_history_sessions=2500,
-    bars_input_window_days=4000,
-    production_authority=False,
-)
 PANEL_BUILD_POLICIES: dict[PanelVariant, PanelBuildPolicy] = {
-    policy.variant: policy
-    for policy in (
-        PRODUCTION_PANEL_POLICY,
-        PRE2019_SELF_RANGE_POLICY,
-        SELF_RANGE_1250_POLICY,
-        SELF_RANGE_2500_POLICY,
-    )
+    policy.variant: policy for policy in (PRODUCTION_PANEL_POLICY, PRE2019_SELF_RANGE_POLICY)
 }
 
 

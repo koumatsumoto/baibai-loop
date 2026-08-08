@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from contextlib import redirect_stderr
 from dataclasses import replace
 from datetime import date, datetime
 from io import StringIO
@@ -16,18 +17,19 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.screening.calibration.authority import (
+    KNOWN_METRICS,
+    PRODUCTION_REQUIRED_METRICS,
+)
 from baibai_engine.screening.calibration.cli import (
     _er_level_context_payload,
     _required_metric_statuses,
     calibration_evaluate_command,
 )
 from baibai_engine.screening.calibration.evaluation import (
-    DECILES,
     MIN_AXIS_SAMPLE,
-    _margin_deadline_gate_adoption_sign,
     _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
-    _reversion_plus_capped_carry,
     _spearman,
     evaluate_cohorts,
 )
@@ -212,31 +214,40 @@ class RequiredMetricStatusTest(unittest.TestCase):
 
 
 class EvaluateCohortsTest(unittest.TestCase):
-    def test_margin_deadline_gate_recompacts_the_rank_and_improves_traps(self) -> None:
-        panel: list[PanelRow] = []
-        forwards: list[ForwardReturnRow] = []
-        for index in range(120):
-            ticker = f"{3000 + index}"
-            rank = index + 1 if index < 20 else None
-            panel.append(
-                replace(
-                    _panel_row(ticker, per_trailing=10.0, rank=rank),
-                    margin_std_long_share=0.9 if index < 2 else 0.5,
-                )
+    def test_replays_whose_verdict_was_negative_stay_out_of_the_payload(self) -> None:
+        # Each name below has a dated negative verdict. Recomputing one would put a
+        # rejected hypothesis back into the artifact the authority gate reads.
+        panel = [
+            replace(
+                _panel_row(
+                    f"{4000 + index}",
+                    per_trailing=10.0 + index,
+                    rank=index + 1 if index < 20 else None,
+                    er_annual=index / 100,
+                    er_reversion_annual=index / 200,
+                ),
+                margin_std_long_share=0.9 if index < 2 else 0.5,
+                margin_long_to_adv=float(index),
             )
-            realized = -0.5 if index < 2 else 0.2 if index in {10, 11} else 0.0
-            forwards.append(_forward_row(ticker, realized))
+            for index in range(120)
+        ]
+        forwards = [_forward_row(row.ticker, 0.1) for row in panel]
 
         result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
         cohort = result["6m"]["cohorts"][0]
-        gate = cohort["margin_deadline_gate"]
-        top10 = gate["top10"]
+        assert isinstance(cohort, dict)
+        selection = cohort["selection"]
+        assert isinstance(selection, dict)
 
-        self.assertTrue(top10["complete"])
-        self.assertTrue(top10["changed"])
-        self.assertEqual(gate["excluded_count"], 2)
-        self.assertLess(top10["trap_rate_delta"], 0)
-        self.assertEqual(cohort["metric_statuses"]["margin_deadline_gate_top10"], "eligible")
+        # An unresolved cohort emits none of these keys either, so the absences
+        # below only mean something once the cohort has actually been computed.
+        self.assertEqual(cohort["metric_calculation_status"], "resolved")
+        for key in ("margin_deadline_gate", "crowded_value"):
+            self.assertNotIn(key, cohort)
+            self.assertNotIn(key, result["6m"]["aggregate"])
+        for key in ("reversion_ranked_top5", "reversion_carry_ranked_top5"):
+            self.assertNotIn(key, selection)
+        self.assertNotIn("margin_deadline_gate_top10", cohort["metric_statuses"])
 
     def test_new_margin_axes_and_every_registered_control_are_reported(self) -> None:
         panel: list[PanelRow] = []
@@ -314,7 +325,7 @@ class EvaluateCohortsTest(unittest.TestCase):
         self.assertGreater(cohort["axes"]["normalized_per_3fy"]["decile_spread_median"], 0)
         self.assertEqual(cohort["metric_statuses"]["normalized_per_3fy"], "eligible")
         self.assertEqual(hypotheses["normalized_per_3fy_coverage"], 1.0)
-        self.assertEqual(hypotheses["self_range_coverage"]["at_least_1250"], 1.0)
+        self.assertEqual(hypotheses["self_range_coverage"]["at_least_750"], 1.0)
         self.assertNotIn("cycle_peak_top_er_decile", aggregate)
 
     def test_normalized_per_metric_is_unresolved_without_sample(self) -> None:
@@ -547,57 +558,6 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         pop_top5 = selection["er_population_top5"]
         assert isinstance(pop_top5, dict)
         self.assertEqual(pop_top5["median_excess"], er_top5["median_excess"])
-
-    def test_reversion_ranked_virtual_replay_orders_by_reversion_not_er(self) -> None:
-        # screen 通過 20 銘柄で er_annual と er_reversion_annual の順位を逆にし、
-        # forward return を reversion 順に揃える → reversion_ranked_top5 は
-        # er_ranked_top5 (carry が押し上げた高 er 群 = 低リターン側) を上回る。
-        panel: list[PanelRow] = []
-        forwards: list[ForwardReturnRow] = []
-        n = 120
-        for i in range(n):
-            ticker = f"{3000 + i}"
-            row = _panel_row(ticker, per_trailing=10.0, rank=(i + 1 if i < 20 else None))
-            if i < 20:
-                row = replace(
-                    row,
-                    er_annual=0.02 + 0.004 * i,
-                    er_reversion_annual=0.02 - 0.001 * i,
-                    er_carry_annual=0.005 * i,
-                    pass_screen=True,
-                )
-            panel.append(row)
-            forwards.append(_forward_row(ticker, -0.001 * i))
-        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
-        horizon = result["6m"]
-        assert isinstance(horizon, dict)
-        cohorts = horizon["cohorts"]
-        assert isinstance(cohorts, list)
-        selection = cohorts[0]["selection"]
-        assert isinstance(selection, dict)
-        reversion_top5 = selection["reversion_ranked_top5"]
-        er_top5 = selection["er_ranked_top5"]
-        assert isinstance(reversion_top5, dict)
-        assert isinstance(er_top5, dict)
-        self.assertEqual(reversion_top5["n"], 5)
-        reversion_median = reversion_top5["median_excess"]
-        er_median = er_top5["median_excess"]
-        assert isinstance(reversion_median, float)
-        assert isinstance(er_median, float)
-        # reversion top-5 は i=0..4 (return 最高群)、er top-5 は i=19..15 (最低群)。
-        self.assertGreater(reversion_median, er_median)
-        view_top5 = selection["reversion_carry_ranked_top5"]
-        assert isinstance(view_top5, dict)
-        self.assertEqual(view_top5["n"], 5)
-
-    def test_reversion_carry_key_caps_carry_contribution(self) -> None:
-        base = _panel_row("9999", per_trailing=10.0, rank=1)
-        capped = replace(base, er_reversion_annual=0.01, er_carry_annual=0.94)
-        uncapped = replace(base, er_reversion_annual=0.01, er_carry_annual=0.10)
-        missing_carry = replace(base, er_reversion_annual=0.01, er_carry_annual=None)
-        self.assertAlmostEqual(_reversion_plus_capped_carry(capped), 0.01 + 0.5 * 0.15)
-        self.assertAlmostEqual(_reversion_plus_capped_carry(uncapped), 0.01 + 0.5 * 0.10)
-        self.assertAlmostEqual(_reversion_plus_capped_carry(missing_carry), 0.01)
 
     def test_er_calibration_compares_centered_reversion_with_centered_price_return(self) -> None:
         panel: list[PanelRow] = []
@@ -865,6 +825,47 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         horizon = result["6m"]
         assert isinstance(horizon, dict)
         self.assertEqual(set(horizon), {"authority", "cohorts", "aggregate"})
+
+    def _rejected_metrics_message(self, required_metrics: list[str]) -> tuple[int, str]:
+        errors = StringIO()
+        with TemporaryDirectory() as temp_dir, redirect_stderr(errors):
+            exit_code = calibration_evaluate_command(
+                calibration_dir=Path(temp_dir),
+                horizons=["3y", "5y"],
+                output_path=Path(temp_dir) / "evaluation.yaml",
+                stdout=StringIO(),
+                run_purpose="production_decision",
+                required_asofs=["2021-06-30"],
+                required_metrics=required_metrics,
+            )
+        return exit_code, errors.getvalue()
+
+    def test_an_unregistered_required_metric_is_named_rather_than_blamed_on_the_core_three(
+        self,
+    ) -> None:
+        # This operator passed all three core metrics, so telling them to add the
+        # core three names nothing they can act on.
+        exit_code, message = self._rejected_metrics_message(
+            [*PRODUCTION_REQUIRED_METRICS, "not_a_registered_metric"]
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("unknown required metrics: not_a_registered_metric", message)
+
+    def test_a_missing_core_metric_still_names_the_core_three(self) -> None:
+        exit_code, message = self._rejected_metrics_message(["er_calibration"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("must include", message)
+        self.assertNotIn("unknown required metrics", message)
+
+    def test_the_full_rank_replay_metrics_stay_registered_for_authority(self) -> None:
+        # `selection_rank_top*` is emitted by every cohort, so leaving it out of the
+        # registry would reject a preregistration that names an output it can see.
+        self.assertLessEqual(
+            {"selection_rank_top5", "selection_rank_top10"},
+            KNOWN_METRICS,
+        )
 
     def test_calibration_evaluate_command_marks_short_horizon_as_diagnostic(self) -> None:
         panel: list[PanelRow] = []
@@ -1166,10 +1167,6 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DelistingExclusionSensitivityTests(unittest.TestCase):
     """Whether the names that left the market could have produced the conclusions."""
 
@@ -1247,31 +1244,6 @@ class DelistingExclusionSensitivityTests(unittest.TestCase):
         imputations = sensitivity["imputations"]
         self.assertLess(imputations["total_loss"]["recommended_rank_top5"], 0)
         self.assertGreater(imputations["neutral"]["recommended_rank_top5"], 0)
-
-    def test_margin_gate_trap_regression_blocks_optional_authority(self) -> None:
-        passing = {
-            "median_excess_delta": -0.005,
-            "trap_rate_delta": 0.0,
-        }
-        trap_regression = {
-            "median_excess_delta": -0.005,
-            "trap_rate_delta": 0.01,
-        }
-        self.assertEqual(_margin_deadline_gate_adoption_sign(passing), 1.0)
-        self.assertEqual(_margin_deadline_gate_adoption_sign(trap_regression), 0.0)
-
-        as_reported = {
-            "recommended_rank_top5": None,
-            "recommended_rank_top10": None,
-            "er_calibration": None,
-            "margin_deadline_gate_top10": 1.0,
-        }
-        imputed = {
-            "total_loss": as_reported,
-            "neutral": {**as_reported, "margin_deadline_gate_top10": 0.0},
-        }
-        stability = _metric_direction_stability(as_reported, imputed)
-        self.assertFalse(stability["margin_deadline_gate_top10"])
 
     def test_normalized_per_direction_flip_blocks_optional_authority(self) -> None:
         as_reported = {"normalized_per_3fy": 0.1}
@@ -1408,56 +1380,5 @@ class PricedMasterWithoutUniverseSensitivityTests(unittest.TestCase):
         self.assertGreater(sensitivity["imputations"]["total_loss"]["recommended_rank_top5"], 0)
 
 
-class CrowdedValueInteractionTest(unittest.TestCase):
-    """The direct test of a value trap made of positioning, not of fundamentals."""
-
-    @staticmethod
-    def _cohort(*, crowded_return: float) -> tuple[list[PanelRow], list[ForwardReturnRow]]:
-        # A cohort where the cheap end splits evenly by margin crowding. Only the
-        # crowded half's forward return varies between the two cases.
-        panel: list[PanelRow] = []
-        forwards: list[ForwardReturnRow] = []
-        total = MIN_AXIS_SAMPLE + 20
-        decile = total // DECILES
-        for index in range(total):
-            ticker = f"{3000 + index}"
-            cheap = index >= total - decile
-            crowded = index >= total - decile // 2
-            row = replace(
-                _panel_row(ticker, per_trailing=10.0, er_annual=0.5 if cheap else 0.01),
-                margin_long_to_adv=20.0 if crowded else 0.5,
-            )
-            panel.append(row)
-            forwards.append(_forward_row(ticker, crowded_return if crowded else 0.0))
-        return panel, forwards
-
-    def _crowded_value(self, *, crowded_return: float) -> dict[str, object]:
-        panel, forwards = self._cohort(crowded_return=crowded_return)
-        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
-        return result["6m"]["cohorts"][0]["crowded_value"]  # type: ignore[index,return-value]
-
-    def test_a_crowded_cheap_half_that_lags_is_reported_as_a_negative_difference(self) -> None:
-        crowded_value = self._crowded_value(crowded_return=-0.20)
-
-        self.assertEqual(crowded_value["crowded"]["n"], 6)
-        self.assertEqual(crowded_value["uncrowded"]["n"], 6)
-        difference = crowded_value["crowded_minus_uncrowded"]
-        assert isinstance(difference, float)
-        self.assertLess(difference, 0.0)
-
-    def test_a_crowded_cheap_half_that_leads_is_reported_as_a_positive_difference(self) -> None:
-        # The measurement must be able to reject the hypothesis, not only confirm
-        # it: the same code path has to report the opposite sign when the data says
-        # so, or a favourable result would be an artifact of the implementation.
-        crowded_value = self._crowded_value(crowded_return=0.20)
-
-        difference = crowded_value["crowded_minus_uncrowded"]
-        assert isinstance(difference, float)
-        self.assertGreater(difference, 0.0)
-
-    def test_a_cohort_without_margin_data_reports_nothing(self) -> None:
-        panel, forwards = self._cohort(crowded_return=-0.20)
-        blank = [replace(row, margin_long_to_adv=None) for row in panel]
-        result = evaluate_cohorts({"2025-06-30": blank}, {"2025-06-30": forwards}, horizons=["6m"])
-
-        self.assertEqual(result["6m"]["cohorts"][0]["crowded_value"], {})  # type: ignore[index]
+if __name__ == "__main__":
+    unittest.main()

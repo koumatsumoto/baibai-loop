@@ -26,8 +26,6 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.calibration.panel import (
     PRE2019_SELF_RANGE_POLICY,
-    SELF_RANGE_1250_POLICY,
-    SELF_RANGE_2500_POLICY,
     build_panel,
     rules_content_hash,
 )
@@ -754,20 +752,6 @@ class CalibrationPanelTest(unittest.TestCase):
                 result.diagnostics.rules_hash,
                 rules_content_hash(rules),
             )
-
-    def test_long_self_range_variants_have_distinct_diagnostic_contracts(self) -> None:
-        rules = load_screening_rules()
-
-        self.assertEqual(SELF_RANGE_1250_POLICY.valuation_history_sessions, 1250)
-        self.assertEqual(SELF_RANGE_1250_POLICY.bars_input_window_days, 2000)
-        self.assertEqual(SELF_RANGE_2500_POLICY.valuation_history_sessions, 2500)
-        self.assertEqual(SELF_RANGE_2500_POLICY.bars_input_window_days, 4000)
-        self.assertFalse(SELF_RANGE_1250_POLICY.production_authority)
-        self.assertFalse(SELF_RANGE_2500_POLICY.production_authority)
-        self.assertNotEqual(
-            rules_content_hash(rules, SELF_RANGE_1250_POLICY),
-            rules_content_hash(rules, SELF_RANGE_2500_POLICY),
-        )
 
     def test_pre2019_variant_cannot_use_the_production_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

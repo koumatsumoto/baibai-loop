@@ -48,6 +48,8 @@ H-1の不採用は、`margin_std_long_share` と将来returnの関連を否定�
   --out /tmp/margin-supply-demand-long-authority.yaml
 ```
 
+H-1 が `negative` で確定したため、`margin_deadline_gate_top10` の評価枝と authority 登録は通常 tree に無い。上の authority run を再実行するには、その退役より前の commit を checkout する。
+
 - cache schema: `8`
 - panel: 80 cohort
 - forward: 1,509,220行、resolved 1,055,260行。schema v7時点と一致

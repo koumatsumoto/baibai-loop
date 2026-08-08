@@ -102,17 +102,19 @@ artifact は生成日から45日だけ有効とし、月次の calibration 更�
 
 forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
 
-`er_level_calibration`、`margin_deadline_gate_top10`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
+`er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
 
 cache schema version は `11`。panel は、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、および赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PERを記録する。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。
 
-信用需給では、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share >= 0.75` の recommendation-only virtual gateは、candidates・full rankを変えずに除外後を詰めた top-5 / top-10 をbaselineと比較する。production判断では、virtual gateは`margin_deadline_gate_top10`、空売り残/ADVのraw annotationは`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+信用需給では、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は recommendation だけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・longlist は同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
+
+`rules_hash` は `ScreeningRules` の JSON dump 全体から作る。したがって **panel の値を 1 つも変えられない変更（無効な knob の削除・field の並べ替え）でも hash は動き、store 全体が再構築対象になる**。rules model の形を変えるときは、その再構築コストを変更の便益と比べる。
 
 ### pre-2019 診断 panel
 
 `--panel-variant pre2019_self_range_375` は self-range を 375 sessions、bar 入力を 600 暦日に固定する診断専用 contract である。通常 store と異なる `--calibration-dir` が必須で、variant と窓は `rules_hash` に含まれ、全 row が `self_range_degraded: true` を持つ。この store を `--run-purpose production_decision` で評価すると拒否する。production panel の既定窓、screening rules、authority 条件は変わらない。
 
-同じ分離契約で `self_range_1250`（1,250 sessions / 2,000暦日）と`self_range_2500`（2,500 sessions / 4,000暦日）を診断できる。各rowの`self_range_observed_sessions`は上限へ実際に届いたかを示し、短い履歴をfull-windowとして扱わない。いずれもdiagnostic-onlyで、production self-rangeは750 sessionsのままである。
+この variant でも各rowの`self_range_observed_sessions`が、その contract の上限へ実際に届いたかを示す。短い履歴をfull-windowとして扱わないための列であり、production self-rangeは750 sessionsのままである。
 
 ```bash
 uv run baibai-engine screening calibration-build \
@@ -167,6 +169,8 @@ evidence pattern（playbook）を追加・変更・削除するときは、scree
 - cohort を時間で design / confirm に 2 分割し、**両方で同方向・基準充足のときだけ採用**。片側のみは不確定、両側逆は棄却。grid search（基準を後から動かす網羅探索）をしない。
 - **control cell の判定は「0 許容の全 cell 通過」を既定にしない**（偽陰性へ構造的に偏る）。noise floor（例: trap delta ≤ +2pt）または k-of-n cell 通過と、cell ごとの最小 matched weight を**事前登録で宣言**する。
 - 判定語彙は `negative` / `insufficient` / `adoption_candidate` / `inconclusive` の 4 種。同一仮説の再検定は新 evidence（新規満期 cohort・contract レベルの capacity 変更）がある場合に限る。
+- **語彙は窓ごとに決めてから全体へ畳む。** 窓を跨いで「どれか 1 つでも被覆不足なら全体 `insufficient`」とすると、1 窓の 1 basis の件数不足が、他窓で確定した効果の不成立を語彙の上で覆い隠す。各窓を `insufficient` / `inconclusive` / `negative` / `adoption_candidate` へ落としたうえで統合し、全体を `insufficient` と呼ぶのは、**効果が確定した窓が 1 つも無い**ときに限る。
+- **満期済み窓を根拠に cleanup するときは、残る変動幅を示す。** as-of 範囲が固定で満期済みでも値は不動ではない。forward row は build のたびに再計算され、FY 配当や退場銘柄の exit が backfill されれば `total` basis の pair 数と中央値は動く。したがって次の bullet の `insufficient` 保持規則より削除を優先してよいのは、**その窓の効果が確定しており、かつ窓内の coverage backfill では結論が反転しないことを示した**ときに限る。示せないなら保持規則が優先する。
 - `negative` / `inconclusive` が確定した軸は、判定 PR で panel 列・派生計算・評価枝・専用 test を削除し、dated report と git history を反証証跡の正本とする（残すのは `adoption_candidate` / `insufficient` / control 再利用列 / production annotation 入力列のみ）。
 - rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`data/screening/calibration-<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
 - 機械レバー（screen / select / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は保有 outcome と運用の事後検証で改める。

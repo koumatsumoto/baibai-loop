@@ -19,7 +19,6 @@ KNOWN_METRICS = frozenset(
         "er_level_calibration",
         "selection_rank_top5",
         "selection_rank_top10",
-        "margin_deadline_gate_top10",
         "margin_short_to_adv",
         "normalized_per_3fy",
     )
