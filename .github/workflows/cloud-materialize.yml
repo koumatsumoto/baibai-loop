@@ -36,11 +36,11 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          tools/cloud/r2_transfer.sh pull-machine
-          tools/cloud/r2_transfer.sh pull-app
+          batch/scripts/r2_transfer.sh pull-machine
+          batch/scripts/r2_transfer.sh pull-app
 
       - name: Materialize read models
-        run: uv run python tools/cloud/export_read_models.py --output-dir "$RUNNER_TEMP/serving" --batch manual
+        run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving" --batch manual
 
       - name: Upload serving objects
         env:
@@ -53,5 +53,5 @@ jobs:
         # Same two stages the daily batch publishes through, in the same order.
         # Nothing runs alongside them here, so they are simply sequential.
         run: |
-          tools/cloud/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving"
-          tools/cloud/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"
+          batch/scripts/r2_transfer.sh upload-serving-views "$RUNNER_TEMP/serving"
+          batch/scripts/r2_transfer.sh publish-serving-tail "$RUNNER_TEMP/serving"

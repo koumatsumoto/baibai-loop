@@ -13,7 +13,7 @@ status: active
 
 ## ① データ：indicator series を引く
 
-指標データは `baibai-engine macro`（`src/baibai_engine/macro/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
+指標データは `baibai-engine macro`（`engine/src/baibai_engine/macro/indicators/`）で、再現可能かつ出所（provenance）付きで取得・キャッシュする。
 
 ```bash
 uv run baibai-engine macro list --category rates       # 登録 series を見る
@@ -28,7 +28,7 @@ uv run baibai-engine macro refresh us.10y --all-history --end 2026-07-20        
 
 `refresh --all-history` は provider ごとの取得可能な先頭日から強制再取得する。派生系列（`derived` provider）は外部ソースを持たず入力系列の重なりが履歴なので、どの base 系列よりも古い床から入力を読み直して全期間を再計算する（base 系列を先に同期してから回す）。月次整列は月内の各入力の最終観測を使う。market data を月末まで使う数式は選択入力の最終観測日を出力日とし、月初への backdate を防ぐ。数式変更で observation grid を置換する系列は provider spec で個別に宣言し、既存 period を欠く候補なら削除前に失敗して履歴を保持する。FRED 系列は現在の `fredgraph.csv` が返す先頭日を再現可能な境界とし、その日より前の観測を残さない。各系列の observation は registry の `source_url` と一致する cache だけを保持し、同内容の連続 vintage は provider run に取得記録を残して observation から除く。値・単位・期間・取得状態・source が変わる revision と、値が変化して同じ水準へ戻る revision は保持する。JP provider の契約期間や公表 archive が先頭日を制限する場合は、実際の取得範囲と制約を運用記録へ残す。
 
-observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。したがって **同じ refresh を何度実行しても、ソースが改定した series の観測だけが新 vintage として増え、それ以外はテーブルが不変**になる（べき等）。ローカルで `--all-history` seed → cloud で日次 refresh、cloud の多重実行や手動 rerun も同じ性質で安全に収束する。cloud 正本の履歴を後から深くするときは、ローカルで `--all-history` を回してから `tools/cloud/r2_transfer.sh push-macro` で載せる（cloud copy を merge してから upload するので、日次 refresh が取った最新観測を失わない）。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
+observation は `(series_id, observed_at, vintage_at)` を主キーに upsert する。多くの provider は取得時刻を vintage として刻むが、挿入前に vintage を除いた内容（値・単位・期間・取得状態・source）を既存最新 vintage と比較し、変化が無ければその再取得行を捨てる。したがって **同じ refresh を何度実行しても、ソースが改定した series の観測だけが新 vintage として増え、それ以外はテーブルが不変**になる（べき等）。ローカルで `--all-history` seed → cloud で日次 refresh、cloud の多重実行や手動 rerun も同じ性質で安全に収束する。cloud 正本の履歴を後から深くするときは、ローカルで `--all-history` を回してから `batch/scripts/r2_transfer.sh push-macro` で載せる（cloud copy を merge してから upload するので、日次 refresh が取った最新観測を失わない）。日次バッチは asof を終端とする frequency 別の窓（daily 14 日・weekly 60 日・monthly 以下 370 暦日）を毎回丸ごと再取得するため、窓内で起きた一時的な取得失敗は次の成功実行が同じ窓を引き直して自動でバックフィルする。窓を超える長期の取得断や旧 vintage の全面リベースが必要なときだけ `refresh --all-history` を運用レバーとして使う。
 
 誤って入った observation は削除では消えない。cloud との merge は双方の fact を必ず戻す no-loss 契約なので、ローカルで消しても次の push で復活する。この契約は本物の履歴を守るためのものなので緩めず、代わりに **今わかっていることを新しい vintage として上に積む**: `baibai-engine macro retract <series_id> --observed-at <date> --expected-vintage <ts>` が対象 observation 日の**最新 vintage を撤回**し、その 1 つ下にあった状態を現在時刻の vintage で書き直す。撤回する vintage を名指すのは publish の `--expected-head` と同じ compare-and-swap で、これが無いと同じコマンドの 2 回目が「復元した行の下にある誤値」を読んで書き戻してしまう。名指してあれば 2 回目は拒否になる。**撤回対象が derived 系列の入力なら、その derived 系列の同じ日も先に撤回する必要があり、コマンドが書き込み前に拒否して対象を印字する**（derived は自分の観測を持つので、入力を撤回しても計算済みの値は消えず、再計算でも直らない）。
 
@@ -50,8 +50,8 @@ registry の band を追加・変更する前後は、git 管理外の live stor
 同じ validator が **application store の発行済み macro context revision を全件 load** する。code / registry が不変の発行済みレポートより先へ進む drift は CI では検出できず（workflow には application store が無い）、両 store が揃うのは local だけなので、この検査は push 前の運用計器として置く。現行契約の revision が 1 件でも read 経路で load できなければ非 0 で終了する（`screening select` と scorecard が使うのと同じ経路であり、落ちれば日次バッチが止まる）。**registry の系列を退役・改名する前後は必ず回す**。退役系列を引用するレポートは load できる限り warning で報告し、fail にはしない——退役は正常な運用であり、履歴の書き換えは選択肢に無い。scorecard 条件の系列が退役している場合はそのレポートが今後採点不能になるため、warning でその旨を明示する。application store が無い checkout（fresh clone）は skip する。
 
 ```bash
-uv run python tools/validate_macro_stores.py \
-  --db data/indicators/macro.sqlite --app-db data/app/baibai.sqlite
+uv run baibai-batch validate-macro-stores \
+  --db stores/macro/macro.sqlite --app-db stores/application/baibai.sqlite
 ```
 
 ### データソース registry
@@ -78,17 +78,17 @@ uv run python tools/validate_macro_stores.py \
 
 `macro refresh` は複数 series を 1 pass で取得し、1 series の失敗は他 series を止めない。失敗した series は最後にまとめて stderr へ列挙し、exit code は非 0 になる（1 つの壊れたソースが同一グループの残り全系列を stale にしない）。1 pass は 1 つの fetch context を共有するので、複数 series が同じ bulk ファイルを参照しても download は 1 回、browser fallback を要する provider の起動も 1 回で済む。取得値は store へ入る前に有限値であることを検証し、NaN / ±inf は取得失敗として扱う（派生計算・percentile・export を汚染させない）。
 
-PMI は data API が無いため、月次 release URL の manifest（`src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
+PMI は data API が無いため、月次 release URL の manifest（`engine/src/baibai_engine/macro/indicators/providers/pmi_release_urls.yaml`、`schema_version: 2`、PMI stream ごとに `observed_at` → 公式 release URL）を正本とし、`spglobal_pmi` provider が各 URL の公式 PDF を live 取得して headline 値を抽出する。release URL の validator は `https://www.pmi.spglobal.com/Public/Home/PressRelease/<32 hex>` だけを許可する。
 
 抽出は release が headline を述べる冒頭 statement（headline index を名指す文と、その statement を続ける次の文）だけを読む。値を採るのは、release がその値を対象月に結び付けているか（`posted 47.9 in December`、`in April to 51.3`、`October's 54.8`）、statement が reading として導入している（`posted 52.3`、`rose to 54.4`、`at 51.6 the index ...`）場合だけで、月を明示しない reading は release 自身の月にしか帰属させない。sub-index / composite index を名指す文は読まず、閾値との比較（`above the 50.0 no-change mark`）・flash 見積り・複数月平均は reading ではないので読む前に text から除く。抽出値は1〜3桁・小数1桁としてparseしてからdiffusion indexの定義域 0〜100 で検証し、複数候補が矛盾する月は取得を失敗させる（誤った値を store に入れない）。危機・再開局面の正当な30未満・70超も欠落させない。読めない phrasing は値を作らずに「その月の headline 値なし」として失敗するので、取り込み漏れは無音にならない。
 
 1 月 = 1 PDF なので、通常の refresh は store に無い月と、manifest の release URL が store の値の出所と一致しない月だけを取得する。final headline は公表後に改定されないため、同じ URL から取り直した月は同じ値になる。URL を訂正すればその月は自動で取り直される。抽出規則の変更後など stream 全体を source から作り直すときは `refresh --all-history` を使う（全月を再取得する）。
 
-**新しい月の追記は `tools/append_pmi_manifest.py` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `macro refresh` で該当月を取得して公表値と照合してから commit する。
+**新しい月の追記は `baibai_engine.macro.indicators.pmi_manifest` で行う**: S&P Global の公式 press release ページ（`/Public/Release/PressReleases`）が列挙する最新 release を stream ごとに拾い、release title の完全一致で系列を同定し、**release PDF が自分をその PMI と名乗り・自分の embargo 日が index の公表日と同じ月であり・headline をその月に結び付けていること**を 3 つとも確かめてから追記する。抽出には「その release 自身の月」として渡さず後の月を渡すので、月を明示しない reading（`posted 54.8`）は採られず、月を名指した reading（`posted 54.8 in June`）だけが通る。title を別の PMI に取り違えても月の証明だけは通ってしまうので（services も manufacturing と同じ形で headline を述べる）、系列は PDF 自身の名乗りで、公表月は PDF 自身の embargo 日で確かめる。**月が飛ぶ追記は拒否する**: provider の追いつき guard は manifest の最新月しか見ないため、穴を越えた entry を書くと飛ばした月が二度と報告されない。edge WAF が plain HTTP を challenge page（200）で返すときは、PDF 経路と同じ headless browser で index を読み直す。書き込みは copy を text 編集して provider の loader で読めることを確かめ、通ったものだけを正本へ move する（正本への書き込みは検証後の move 1 回だけ）。追記後は `macro refresh` で該当月を取得して公表値と照合してから commit する。
 
 ```bash
-uv run python tools/append_pmi_manifest.py --dry-run   # 何が追記されるかだけ見る
-uv run python tools/append_pmi_manifest.py             # 検証を通った entry を追記する
+uv run python -m baibai_engine.macro.indicators.pmi_manifest --dry-run   # 何が追記されるかだけ見る
+uv run python -m baibai_engine.macro.indicators.pmi_manifest             # 検証を通った entry を追記する
 ```
 
 **過去月の穴埋めは同じページの archive snapshot から辿る**：この index は最新 1 か月分しか列挙しないため、それより古い release id はサイトからは辿れない。Wayback の同 URL の snapshot が捕捉時点の一覧（公表日・タイトル・release id）を持つので、そこから月ごとの id を復元する。**復元した対応付けは、manifest に既にある月の id と一致するかで検算する**（release は前月分を報告するので、publish 月 − 1 が observed_at になる）。id が復元できない月でも、翌月の release が前月値を restate していればそこから読める：`observed_at` をその月、`release_observed_at` を翌月にして翌月の URL を書く（restate は「前月を名指した値」か「月を伴わない `down from X`」で書かれるため、後者は前月分としてだけ読む）。manifest が公表カレンダーに追いつかない（release 済みの月が manifest に無い）状態は取得の無音の停止になるため、provider が明示エラーで失敗させる: 要求 end の月に対して manifest 最新月が前月に達していないとき（当月 10 日以降）にエラーになり、日次バッチの繰延べ失敗として表面化する。このガードは取得（refresh / all-history）だけを止め、読み取りは store にある月をそのまま返す（manifest の追記漏れが既存データを隠さないため）。
@@ -100,11 +100,11 @@ uv run baibai-engine macro get jp.bankruptcies --start 2003-01-01 --end 2026-07-
 uv run baibai-engine macro get jp.pmi_manufacturing --start 2023-01-01 --end 2026-07-24
 ```
 
-`macro.sqlite` は schema / series registry と各 provider（PDF / API / CSV）から再構築する L1 store であり、定期 backup は持たない。ただし PMI 履歴のように publisher が古い URL を落とすと再取得できない部分があるため、R2 への push は上書き対象の 1 世代を `<key>.bak` として残す（[`tools/cloud/README.md`](../../tools/cloud/README.md)）。
+`macro.sqlite` は schema / series registry と各 provider（PDF / API / CSV）から再構築する L1 store であり、定期 backup は持たない。ただし PMI 履歴のように publisher が古い URL を落とすと再取得できない部分があるため、R2 への push は上書き対象の 1 世代を `<key>.bak` として残す（[`batch/OPERATIONS.md`](../../batch/OPERATIONS.md)）。
 
 ### Baibai Loop で期間と粒度を読む
 
-`baibai-app` の Macro ページは期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` を全チャートへ適用する。`/api/macro` も同じ query parameter を受け、週次・月次・年次は各期間の最終観測値を返す。UIの既定は `max + monthly`、API parameterを省略した場合は `1y + daily` である。`series.yaml` に `tradingview_symbol` がある系列だけ、チャートカードから TradingView の該当 symbol を新規 tab で開く。
+`baibai-web` の Macro ページは期間 `1y | 5y | 10y | max` と粒度 `daily | weekly | monthly | yearly` を全チャートへ適用する。`/api/macro` も同じ query parameter を受け、週次・月次・年次は各期間の最終観測値を返す。UIの既定は `max + monthly`、API parameterを省略した場合は `1y + daily` である。`series.yaml` に `tradingview_symbol` がある系列だけ、チャートカードから TradingView の該当 symbol を新規 tab で開く。
 
 ### 運用テスト（series / provider を変更したら必ず回す）
 
@@ -147,7 +147,7 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 - **統計標本の1点は reading rule の `sampling_cadence` に合わせる**。既定は registry frequency から解決し、monthly / quarterly 系列は同じ暦月・暦四半期の最終観測1点へ折ってから level / yoy を計算する。取得 cadence と統計 cadence が異なる source は系列 override で分離する。latest value・trend・flags は折る前の観測を読む
 - **`statistic_value` が null なら位置は出ない**。前年比は 1 年前の観測を相手に取るので、その月が欠けている系列（相手が 380 日より前しかない）や相手が 0 以下の系列は該当点を標本から落とし、最新点が落ちれば percentile / z も null にする
 
-計算規則は `method/macro-reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest が持つ月だけ、ICE BofA OAS の 3 年）は percentile の実効窓を、水準に位置が無い系列は `statistic` を、公表 cadence / lag が frequency default と違う source（日次更新する月次派生値、H.4.1 の翌日公表、M+2 公表の月次、OECD 中継）は `publication_cadence` / `publication_lag_days` / `staleness_margin_days` を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。1 つの系列は複数の理由で override されるため、**同じ series を 2 度書いた revision は load 時に失敗する**（YAML は後の entry だけを残すので、上の設定が黙って落ちて「適用済み」と読める）。
+計算規則は `method/macro/reading/<ISO8601>.yaml` の dated revision に置き、reading 出力は使った `rules_revision` を併記する。規則は **frequency 別の defaults + 系列別 override** で解決する。系列を registry へ追加しても規則の編集を要求しない（defaults が解決する）ことが設計要件であり、override は「default が事実に反する系列」だけに書く：provider の配信範囲が構造的に短い系列（J-Quants Light の 5 年 rolling、`spglobal_pmi` の manifest が持つ月だけ、ICE BofA OAS の 3 年）は percentile の実効窓を、水準に位置が無い系列は `statistic` を、公表 cadence / lag が frequency default と違う source（日次更新する月次派生値、H.4.1 の翌日公表、M+2 公表の月次、OECD 中継）は `publication_cadence` / `publication_lag_days` / `staleness_margin_days` を、教科書的な閾値を持つ系列は flags を override する。**全登録系列で規則解決が成立すること**は test が保証し、解決できない系列があれば fail する。1 つの系列は複数の理由で override されるため、**同じ series を 2 度書いた revision は load 時に失敗する**（YAML は後の entry だけを残すので、上の設定が黙って落ちて「適用済み」と読める）。
 
 `schema_version: 1` の既発行 revision は引き続き load・再計算できる。その revision では当時存在しなかった `next_print_estimate` / `print_due_in_days` を null とし、既存の明示 `staleness_warn_days` をそのまま使う。`schema_version: 2` は publication lag / margin を契約とし、`staleness_warn_days` の明示を拒否する。系列固有の鮮度差は lag / cadence / margin を override して表す。両 shape の混在を load 時に拒否するため、過去 revision の意味を現在の lag 推定で書き換えない。
 
@@ -155,9 +155,9 @@ uv run baibai-engine macro reading --asof 2026-07-24 --format json   # 機械読
 
 percentile の実効窓を短縮した系列は、provider の履歴が伸びて default に届いたら override を外す（`window_years` が default と一致しているかを規則改版時に確認する）。
 
-reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-app` 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
+reading は L1 store を読むだけの純関数で、provider を呼ばず DB へ書かない。したがって過去日の asof でも同じ入力から同じ snapshot を再計算できる。CLI・read API・indicator chart は共通の store reader を使い、`ProviderSpec.point_in_time_vintage` を宣言する source だけを `vintage_at <= asof` へ clamp する。宣言のない bulk history の `vintage_at` は取得日時であって当時の公表日時ではないため、一律 clamp して取得前の過去 snapshot から既知だった履歴を消さない。専用 store は持たず、日次バッチが `baibai-web` 向けの serving view（`/api/macro/reading`・`views/macro-reading.json`）として export し、L3 レポートは引用した snapshot を `inputs.reading_snapshots` に記録する。
 
-Baibai Loop の Macro タブは、この読み値と指標チャートを **1 つの一覧**として表示する。読み値と `method/macro-panel.yaml` の panel は同じ登録系列を 2 通りに射影したものなので、行は panel の 7 group の順に並べ、`series_id` で読み値を join して 1 行に sparkline・最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開くと拡大チャートと全項目が出る。**sparkline の期間は画面の期間・粒度で、percentile の実効窓は系列ごと**という別物なので、列見出しの ⓘ でその不一致を明示する。
+Baibai Loop の Macro タブは、この読み値と指標チャートを **1 つの一覧**として表示する。読み値と `web/config/macro-panel.yaml` の panel は同じ登録系列を 2 通りに射影したものなので、行は panel の 7 group の順に並べ、`series_id` で読み値を join して 1 行に sparkline・最新値・観測日・短期/長期トレンド・`statistic`・percentile・`z_score`・実効窓・注記を並べる。行を開くと拡大チャートと全項目が出る。**sparkline の期間は画面の期間・粒度で、percentile の実効窓は系列ごと**という別物なので、列見出しの ⓘ でその不一致を明示する。
 
 行に出る状態は 4 つで、**取得失敗・`stale`・`insufficient_history` の 3 つは取得側の問題**（percentile の解釈可能性を壊す）、**`|z_score|` ≥ 3 の分布の端は読み値そのもの**である。極端な z を health に混ぜない：端にいることは reading が測った位置そのもので、panel の結論に最も近い情報である（誤値でないことの確認は L3 が一次情報と突き合わせて行う）。ページ上部の要約カードは 4 分類の件数だけを持ち、同じ分類が一覧の絞り込みでもあるため、件数から該当行へ 1 クリックで辿れる。view が未生成のときは読み値の列だけが空欄になり、チャートとレポート index は通常表示する。
 
@@ -165,11 +165,11 @@ Baibai Loop の Macro タブは、この読み値と指標チャートを **1 �
 
 市場局面についての、日付と出所の明確な環境認識は application DB の immutable revision として残す。機械契約は `baibai_engine.macro.context.models.MacroContextDocument`、唯一の書き込み経路は `baibai-engine macro context publish` である。既存 head を読んで draft を作り、2件目以降は `--expected-head` にその ID を渡す。head が変わっていれば publish 全体が無変更で失敗する。
 
-draft の反復中は `publish --check` で store に触れずに文書契約と publish gate だけを検証する（compare-and-swap と前回 scorecard の digest 照合は store が要るため実 publish のみ）。`inputs.indicator_series` は手書きせず、セクション → series の対応を書いた spec から `tools/scaffold_macro_context_inputs.py` で生成する — provider・最新観測日・vintage・実効窓を L1 store と reading 計算から導出するので、引用の provenance が常に store と一致する。
+draft の反復中は `publish --check` で store に触れずに文書契約と publish gate だけを検証する（compare-and-swap と前回 scorecard の digest 照合は store が要るため実 publish のみ）。`inputs.indicator_series` は手書きせず、セクション → series の対応を書いた spec から `baibai_engine.macro.context.scaffold_inputs` で生成する — provider・最新観測日・vintage・実効窓を L1 store と reading 計算から導出するので、引用の provenance が常に store と一致する。
 
 ```bash
 uv run baibai-engine macro context head
-uv run python tools/scaffold_macro_context_inputs.py /tmp/spec.yaml --output /tmp/inputs.yaml
+uv run python -m baibai_engine.macro.context.scaffold_inputs /tmp/spec.yaml --output /tmp/inputs.yaml
 uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml --check
 uv run baibai-engine macro context publish /tmp/macro-context-draft.yaml \
   --expected-head macro-context-2026-07-01-example
@@ -219,7 +219,7 @@ force の候補は §② reading の flags・|z| 極値・percentile 端・ト�
 - `inputs.articles`：外部記事の一意な`input_id`、source / title / url / published_at / accessed_at / status / used_for（記事本文や監査ログは保存しない）
 - `inputs.indicator_series`：一意な`input_id`、`baibai-engine macro`で確認したprovider / series / window / observation_as_of / status / used_for
 - `inputs.machine_snapshots`：引用した自前コマンドの決定論出力（`screening market-snapshot` 等）。一意な `input_id`、`command` / `snapshot_asof` / `observation_as_of` / `accessed_at` / `status` / `used_for`。**自前出力は記事ではない**ので `inputs.articles` へ入れない：発行者も URL も無く、コマンドと訊ねた日付が identity である（記事枠へ入れると定義 doc の URL が数値の出所として読まれる）。`snapshot_asof` は as_of より未来にできず、`observation_as_of`（実際に使った最終市場日）はその as_of を超えられない。scorecard は専用 snapshot 契約で context / rules revision / 両 store / result digest も固定し、観測を 1 件も使わない pending-only 結果だけ `observation_as_of: null` を許す
-- `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する。`reading_asof` は as_of より未来でも 7 日より古くてもならず（reading は任意の as_of で再計算できるので、レポートは自分の as_of の reading を引く）、`rules_revision` は `method/macro-reading/` に実在する revision でなければ publish されない
+- `inputs.reading_snapshots`：引用した macro reading の `rules_revision` と `reading_asof`。**reading input を持たない draft は publish されない**。レジーム要約は reading input を引用する必要があり、共通座標を機械読み値から始めることを強制する。`reading_asof` は as_of より未来でも 7 日より古くてもならず（reading は任意の as_of で再計算できるので、レポートは自分の as_of の reading を引く）、`rules_revision` は `method/macro/reading/` に実在する revision でなければ publish されない
 - core の各セクションは`series_ids`、source付き`fact_summary`、方向・確度・source付き`judgment`、source付き`economic_connection`を持つ。connection セクションは`economic_connection`を持たず、代わりに`core_section_ids`とループ固有の項目を持つ
 - `material_deltas`：core セクション2〜8の判断として置く。channel / direction / materiality / used_forを持ち、レポート全体で最低1つ必要
 - `synthesis`：dominant_forces 2〜5 件 + interactions 1 件以上。§synthesis の参照方向契約に従う。**publish の要件**
@@ -307,7 +307,7 @@ scorecard はレポート `as_of` の翌日から各条件の期限日までを�
 1. **グローバル流動性**：net liquidity ≈ `us.fed_assets` − `us.reverse_repo` − `us.tga`（単位換算注意）。`us.m2` 前年比はリスク資産に約 10 週先行。
 2. **実質金利・store-of-value**：`us.real_10y` + `us.breakeven_10y` + `usd_index.broad` + `gold`。名目 = 実質 + 期待インフレに分解。日本側は `jp.real_10y_proxy`（月末10Y JGB − コアCPI前年比）で、名目金利の上昇が実質でも締まっているのか、インフレに食われて実質マイナスのままかを読む。
 3. **金融環境の合成**：`us.nfci` を `vix`・`us.move`・クレジット OAS と突き合わせ、slow-burn（広範化前の局所ストレス）を読む。
-4. **リスク選好の温度計**：`btc_usd` + `vix` + `credit.us_hy_oas`/`credit.us_ccc_oas` + `us.nfci`。BTC は先行温度計になりやすい（単独 driver にはしない）。日本株の判断には `jp.n225_iv_30d` を併読する——`vix` は米国市場の恐怖で、判断対象が日本株なら代理変数になる。`jp.n225_iv_skew`（0.95 put − ATM put を 30 日満期へ補間したもの、大きいほど下落を恐れている）と `jp.n225_iv_term`（第 2 限月 − 手前限月、僅かな逆転は平常で、大きな負が目先のパニックが先の見通しより強い状態）を合わせて読む。水準の高低は他の系列と同じく **reading の `percentile` を正とする**——[`reports/2026-07-31-option-iv-quantiles.md`](../../reports/2026-07-31-option-iv-quantiles.md) は分位を凍結した第二の物差しではなく、この 3 系列が「いつ出ないか」「何に依存するか」を測った記録であり、store が 10 年窓を満たすまでの間だけ水準の当たりを付けるために読む。`iv_30d` と `iv_skew` は手前 2 限月が 30 日を挟む日にしか出ない（実測 83%）ので、SQ 直後に数日まとめて欠けるのは異常でなく、チェーンが 30 日を値付けしていないという事実である。同一行使価格のプットとコールの IV が大きく食い違う日は差を取る 2 つ（skew / term）を出さず `iv_30d` だけが残る——これも欠測でなく、その日は差を取れないという事実である。
+4. **リスク選好の温度計**：`btc_usd` + `vix` + `credit.us_hy_oas`/`credit.us_ccc_oas` + `us.nfci`。BTC は先行温度計になりやすい（単独 driver にはしない）。日本株の判断には `jp.n225_iv_30d` を併読する——`vix` は米国市場の恐怖で、判断対象が日本株なら代理変数になる。`jp.n225_iv_skew`（0.95 put − ATM put を 30 日満期へ補間したもの、大きいほど下落を恐れている）と `jp.n225_iv_term`（第 2 限月 − 手前限月、僅かな逆転は平常で、大きな負が目先のパニックが先の見通しより強い状態）を合わせて読む。水準の高低は他の系列と同じく **reading の `percentile` を正とする**——[`reports/2026-07-31-option-iv-quantiles.md`](../../reports/studies/2026-07-31-option-iv-quantiles/report.md) は分位を凍結した第二の物差しではなく、この 3 系列が「いつ出ないか」「何に依存するか」を測った記録であり、store が 10 年窓を満たすまでの間だけ水準の当たりを付けるために読む。`iv_30d` と `iv_skew` は手前 2 限月が 30 日を挟む日にしか出ない（実測 83%）ので、SQ 直後に数日まとめて欠けるのは異常でなく、チェーンが 30 日を値付けしていないという事実である。同一行使価格のプットとコールの IV が大きく食い違う日は差を取る 2 つ（skew / term）を出さず `iv_30d` だけが残る——これも欠測でなく、その日は差を取れないという事実である。
 5. **景気サイクル・breadth**：`us.initial_claims` + `us.industrial_production` + `copper` + `us.russell2000` + `us.10y_3m_spread`。`us.sox` は AI/半導体サイクルと日本半導体株の先行ゲージ。
 6. **バリュエーション・ERP**：`us.sp500_earnings_yield` − `us.10y` ＝ 米ERP。益回り < 名目金利（ERP≤0）は警戒域。`us.sp500_cape` で長期割高度。**日本側は市場全体PER/益回り（日経・JPX公表値またはin-house universe中央値）− JGB 10y** を同じ構図で読み、個別FVアンカーの外側検算に使う。
 7. **グローバル中銀の同期**：`us.fed_funds.upper` + `jp.policy_rate` + `ecb.policy_rate`。1 国でなく同期を読む。

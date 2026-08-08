@@ -9,7 +9,7 @@ description: 機械の健全性維持。daily batch 監視、store 同期（R2 p
 
 ## Daily batch 監視
 
-`cloud-daily-batch` が東証営業日 17:23 JST に coverage → EDINET 抽出 → run → select → macro refresh → export → prune を 1 コマンドで回す（契約は [`tools/cloud/README.md`](../../../tools/cloud/README.md)）。Discord `#batch-runs` の `[OK]` / 失敗通知に当日の差分件数が載る。
+`cloud-daily-batch` が東証営業日 17:23 JST に coverage → EDINET 抽出 → run → select → macro refresh → export → prune を 1 コマンドで回す（契約は [`batch/OPERATIONS.md`](../../../batch/OPERATIONS.md)）。Discord `#batch-runs` の `[OK]` / 失敗通知に当日の差分件数が載る。
 
 push の経路は 2 本ある。run が起動すれば run 自身が結果を通知し、起動しなければ `cloud-batch-watchdog`（平日 21:00 JST）が同じ channel へ `[MISSING]` を送る。したがって **`#batch-runs` の沈黙は「当日の batch が正常だった」を意味する**。UI の as-of と workflow 履歴は裏取り用の pull 経路であって、欠測の第一発見手段ではない。
 
@@ -28,8 +28,8 @@ push の経路は 2 本ある。run が起動すれば run 自身が結果を通
 深掘りを終えた lane は、buy / defer / reject を問わず研究 FV を持つ。価格がそこへ降りてきたことに気づく経路が無いと、一次情報まで降りて出した FV が誰も読まない値になる。batch 監視と同じ頻度で次を回す。
 
 ```bash
-uv run python -m tools.research_price_watch \
-  --db data/app/baibai.sqlite --sqlite-path data/screening/market.sqlite --asof <最新完全営業日>
+uv run python -m baibai_engine.research_watch \
+  --db stores/application/baibai.sqlite --sqlite-path stores/market/market.sqlite --asof <最新完全営業日>
 ```
 
 `triggered` に出るのは **未保有で終値が研究 FV 以下**の lane だけである。保有中の「FV 未満」は value 保有の定常状態で毎日出続けるため、ここには入れない（保有側の FV 到達は close ≥ FV で、`holding-review` の trigger である）。
@@ -41,12 +41,12 @@ triggered は注文ではなく「読み直す理由が発生した」の合図�
 注文が約定または失効したら、その 1 件だけでなく全体を並べ直す。
 
 ```bash
-uv run python -m tools.measure_limit_outcomes --asof <最新完全営業日>
+uv run python -m tools.experiments.measure_limit_outcomes --asof <最新完全営業日>
 ```
 
 `summary.decision_bound_orders` が repository の判断経路を通った注文の成績で、`all_ledger_orders` は既存保有の取り込みを含む。**取り込み分の約定を規律の成績に数えない。** `forgone_pct` は失効後 20 立会日の窓が満ちた注文にだけ付き、途中の注文は `forgone_pending_window_orders` に数えられる（部分観測を「逃した幅」として読まない）。 `chase_policy_decision.ready` が true になったら、gap を追う指値へ変えるかを別 issue で事前登録して判断する。false のうちは個票を並べるだけにして、少数の失効で規律を外さない。
 
-## Store 同期（`tools/cloud/r2_transfer.sh`）
+## Store 同期（`batch/scripts/r2_transfer.sh`）
 
 | store | 正本 | 転送規律 |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ uv run python -m tools.measure_limit_outcomes --asof <最新完全営業日>
 | macro（indicators） | R2 | 同上（`push-macro` は no-loss merge。誤値の訂正は削除でなく `macro retract` — 契約は [`macro.md`](../../../docs/reference/macro.md)） |
 | app（baibai.sqlite） | **local** | 判断はローカルが正本。publish 後に `push-app`（直 push）→ materialize。**pull しない** — `pull-app` はローカルに store があれば止まる（cloud copy で置換すると未 push の判断が消える）|
 
-**pull は batch の走行中を避ける。** 3 store は順に download されるので、その途中で batch が push すると batch 前後の世代が混ざった断面がローカルへ載る。`changed on R2 during the pull` で止まったらそれで、batch の完了を待って引き直す（ローカルの store は置換されていない）。避けるべき窓の導出は [`tools/cloud/README.md`](../../../tools/cloud/README.md)。
+**pull は batch の走行中を避ける。** 3 store は順に download されるので、その途中で batch が push すると batch 前後の世代が混ざった断面がローカルへ載る。`changed on R2 during the pull` で止まったらそれで、batch の完了を待って引き直す（ローカルの store は置換されていない）。避けるべき窓の導出は [`batch/OPERATIONS.md`](../../../batch/OPERATIONS.md)。
 
 cloud 障害は「store が code より古い」形で出ることが多い。再現はローカルへ R2 store を pull して read 経路を通す。
 
@@ -65,8 +65,8 @@ app / macro を publish したら `gh workflow run cloud-materialize` を dispat
 **Actions が runner を取れないときはローカルで同じ 3 手順を回す。** workflow は pull → export → upload の 3 段でしかないので、正本がローカルにある状態なら pull を省いて残り 2 段を実行すれば結果は同じになる。
 
 ```bash
-uv run python tools/cloud/export_read_models.py --output-dir <dir> --batch manual
-tools/cloud/r2_transfer.sh upload-serving <dir>
+uv run python -m baibai_web.materialize --output-dir <dir> --batch manual
+batch/scripts/r2_transfer.sh upload-serving <dir>
 ```
 
 `<dir>` は使い捨ての作業ディレクトリにする。upload 後は read 経路を 1 つ踏んで確認する。
@@ -80,9 +80,9 @@ tools/cloud/r2_transfer.sh upload-serving <dir>
 `rate_limited=false` になるまで繰り返す。cloud へ載せるところまでが 1 セットである。
 
 ```bash
-tools/cloud/r2_transfer.sh pull-market
+batch/scripts/r2_transfer.sh pull-market
 uv run baibai-engine screening refresh-buyback-reports --asof <最新完全営業日> --lookback-days 400
-tools/cloud/r2_transfer.sh push-market
+batch/scripts/r2_transfer.sh push-market
 ```
 
 **完了の判定は行数が動かなくなることで、`considered` が 0 になることではない。** store は 1 銘柄 1
@@ -98,7 +98,7 @@ tools/cloud/r2_transfer.sh push-market
 ## 月次維持
 
 - **calibration panel**: `uv run baibai-engine screening calibration-build --start 2022-09-01 --end <直近の完全月末>`（増分。rules 改訂後は `--force` 再構築）→ `calibration-evaluate`。契約は [`estimate-calibration.md`](../../../docs/reference/estimate-calibration.md)。
-- **PMI manifest**: `uv run python tools/append_pmi_manifest.py --dry-run` → 本実行 → `macro refresh` で該当月を取得し公表値と照合してから commit。月が飛ぶ追記は拒否される（先に穴を埋める）。
+- **PMI manifest**: `uv run python -m baibai_engine.macro.indicators.pmi_manifest --dry-run` → 本実行 → `macro refresh` で該当月を取得し公表値と照合してから commit。月が飛ぶ追記は拒否される（先に穴を埋める）。
 
 ## 運用 task の規約
 

@@ -7,7 +7,7 @@ status: active
 
 # screening-runtime — CLI / provider / SQLite の実装仕様
 
-`data/screening/runs.sqlite` のtransactionalなrun cache publicationを担う screening CLI の実装正本。screening の入力と実行条件、依存、失敗時の扱いを定義する。
+`stores/screening/runs.sqlite` のtransactionalなrun cache publicationを担う screening CLI の実装正本。screening の入力と実行条件、依存、失敗時の扱いを定義する。
 
 ## 1. Scope
 
@@ -18,7 +18,7 @@ status: active
 ## 2. Runtime
 
 - Python 3.14（[`./python-foundation.md`](./python-foundation.md)）
-- package root: `src/baibai_engine/screening/`
+- package root: `engine/src/baibai_engine/screening/`
 - J-Quants client は `jquantsapi.ClientV2` 固定
 - 実行コマンド:
 
@@ -55,7 +55,7 @@ J-Quants master は `get_eq_master(date=asof)` で requested as-of と同日の 
 
 `verify-cache-coverage` は SQLite が `run --asof` で必要な全入力をローカルに提供できるかを read-only で検証する。検証対象は J-Quants master、通常指標用の日次足 1200 日・財務サマリー 730 日、`normalized_per_3fy` 用の両 source 2200 日 coverage、asof の営業日カレンダ、JPX の決算発表予定 snapshot と規制 snapshot、rules の `universe.required_jpx_flags` に含まれる source 名、EDINET metrics。決算発表予定は論理 source `jpx_earnings_calendar` が `ok`、保存行数と coverage 件数が一致して 1 件以上、実データの最大日が asof 以後、取得が asof から 7 平日以内であることを要求する。`--allow-stale-jpx` は取得時刻だけを緩和し、空・部分保存・全件過去は許可しない。master は requested as-of のexact rowとcanonical coverageだけを照合し、range、status、row count、common-stock populationの一致を要求する。newer/prior snapshotを代用せず、別日snapshotの破損もrequested dateの判定へ混ぜない。日次足は SQLite 実データの行そのものから completeness を判定し（DB が SSOT、後述 §11.1）、財務サマリーは source_coverage の窓で判定する。`normalized_per_3fy` の追加窓も同じ authority で検証し、不足時に `null` や短い履歴へ黙って縮退しない。いずれも ticker/date 密度を追加で確認する。EDINET metrics は常に必須であり、raw JSON の読み込みや provider API 呼び出しは行わず、schema migration も行わない。不足があれば exit 1。
 
-`extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `data/screening/market.sqlite` に保存する。対象日以前の直近正常 snapshot と `(ticker, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, source_document_revision, extractor_revision)` が一致する row は解析済み metric を再利用し、新規・変更候補だけをdownloadする。`source_document_revision` は訂正・取下げ・開示状態を含むcanonical document eventのhashである。`extractor_revision` は抽出 entry point (`screening/cli/edinet_extract.py`) の import closure をfile単位で辿って自動導出する。導出なので、抽出経路が依存を得たり失ったりすると manifest がそれに追随し、依存の追加漏れでstale rowが生き残ることがない。entry point がこの1 commandだけを持つ moduleに居るのは、closureの広さがそのまま再構築の頻度になるためである — `bootstrap-cache` / `verify-cache-coverage` / `backfill-history` と同居していた頃は、それらが引く J-Quants・JPX・coverage の変更でも全件再取得が起きていた。manifestの実体は `tests/test_edinet_revision.py` が両方向に固定する（値を決めうるmoduleが入っていること、決めえないmoduleが入っていないこと）。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
+`extract-edinet-metrics` は EDINET documents list (`type=2`) から CSV 取得可能な有価証券報告書 / 四半期報告書 / 半期報告書を選び、EDINET document download (`type=5`) の CSV ZIP から screening 用 metrics を抽出して `stores/market/market.sqlite` に保存する。対象日以前の直近正常 snapshot と `(ticker, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, source_document_revision, extractor_revision)` が一致する row は解析済み metric を再利用し、新規・変更候補だけをdownloadする。`source_document_revision` は訂正・取下げ・開示状態を含むcanonical document eventのhashである。`extractor_revision` は抽出 entry point (`screening/cli/edinet_extract.py`) の import closure をfile単位で辿って自動導出する。導出なので、抽出経路が依存を得たり失ったりすると manifest がそれに追随し、依存の追加漏れでstale rowが生き残ることがない。entry point がこの1 commandだけを持つ moduleに居るのは、closureの広さがそのまま再構築の頻度になるためである — `bootstrap-cache` / `verify-cache-coverage` / `backfill-history` と同居していた頃は、それらが引く J-Quants・JPX・coverage の変更でも全件再取得が起きていた。manifestの実体は `tests/engine/test_edinet_revision.py` が両方向に固定する（値を決めうるmoduleが入っていること、決めえないmoduleが入っていないこと）。CSV ZIP 本体は再生成可能な cache として `.cache/screening/edinet/csv_zips/` に保存し、git には載せない。
 
 `refresh-buyback-reports` は同じ document list から自己株券買付状況報告書（様式 220、訂正は 230）を選び、決議した株式数と価額・累計取得・当月取得・取得期間・報告月末の発行済株式総数と保有自己株式数を `edinet_buyback_reports` へ 1 銘柄 1 報告月で保存する。E[r] の carry は **trailing の株数変化**なので、取得を始めたばかりの会社はそこに現れず、終えた会社は現れ続ける。この表はその前を向いた側を持つ。**E[r]・ranking・gate は変えない**。
 
@@ -82,7 +82,7 @@ current source state であり point-in-time ledger ではない。既存の
 ない過去 as-of の再抽出は実行時点の EDINET current source state を使い、観測前の
 修正前・取下げ前状態を再現するものではない。
 
-`select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening-rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス（skill `shortlist` / `research`）を支援する。
+`select` は明示した`run_revision_id`のpublication viewからresearch recommendationsを出力する。macro contextはapplication DBからas-of以前のlatest eligible revisionを読む任意のcontext-level warningで、ranking、candidate facts、採用、投入額を変えない。不在時は`macro_context_missing`、stale時は`macro_context_stale`、future contextはerrorである。正本は `recommendations` と `selection.diagnostics`。default は daily triage 用 summary で、詳細は `--detail full` で出す。ranking の主キーは機械 E[r]（成分分解付き年率見積り）の降順（E[r] 欠損は ranking 対象外・従キーに evidence pattern の優先順 + 割安強度）で、`durability`（塩漬け耐性）annotation を採用の gate へ接続する。`selection_playbook` は evidence がある候補だけに付く primary thesis annotation で、evidence がない候補は `selection_playbook: null` のまま recommendation に入り得る。閾値変更は `method/screening/rules/` を編集して新しいrun/select revisionを作る。`research` の選定プロセス（skill `shortlist` / `research`）を支援する。
 
 `shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `estimate_missing` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
 
@@ -90,7 +90,7 @@ current source state であり point-in-time ledger ではない。既存の
 
 金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、longlist の対象になる。
 
-`ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近screening runのcandidate record・prior research を 1 つの事実 profile として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation はそのcandidate recordから引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite、run store（`data/screening/runs.sqlite`）、application DB（prior research 用）を読む。
+`ticker-profile` は任意の上場銘柄(universe 内外を問わない)について、価格・流動性・対 benchmark / sector 相対・regime・イベント(次回決算日、JPX 規制 flag)・直近screening runのcandidate record・prior research を 1 つの事実 profile として出力する。`next_earnings_date` は JPX snapshot に公表済みの asof 以後の最短日であり、`null` は snapshot 内に既知日程がない（未定を含む）ことを示す。決算が存在しないという意味ではない。valuation はそのcandidate recordから引用し、再計算しない(記録と矛盾する値を作らないため)。`--asof` 省略時は cache の最新営業日を使う。provider 認証は不要で、market.sqlite、run store（`stores/screening/runs.sqlite`）、application DB（prior research 用）を読む。
 
 `listing_span_days` は J-Quants 銘柄 master に上場日が無いため、通常 run が指標計算へ渡す最古 daily bar からの経過日数を proxy にする。この入力窓は asof−1200 暦日なので、物理 cache がより長い履歴を持っていても、上場が古い銘柄は ~1200 日で頭打ちになる（新規上場は実日数）。上場年数の実値ではなく「最低これだけの履歴がある」下限として読む。
 
@@ -105,12 +105,12 @@ current source state であり point-in-time ledger ではない。既存の
 cache / SQLite の配置先は固定 (env override 廃止):
 
 - disposable cache: `.cache/screening/`（gitignore。EDINET CSV ZIP や任意 disclosure title 入力など）
-- SQLite 正本: `data/screening/market.sqlite`（gitignore。`run` 開始前に coverage を検証し、不足時は fail-fast）
+- SQLite 正本: `stores/market/market.sqlite`（gitignore。`run` 開始前に coverage を検証し、不足時は fail-fast）
 
 任意 / 事前生成:
 
 - `EDINET_API_KEY`: `extract-edinet-metrics` 実行時に必要。`run` は SQLite の EDINET metrics を必須入力として扱うため、標準運用では `run` 前に EDINET metrics を抽出しておく
-- `SCREENING_RULES_PATH`: `select` / `run` が使う screening rules / selection profile YAML の既定 path override。CLI の明示 `--rules-path` を最優先し、次に env、最後に `method/screening-rules/` の既定を解決する
+- `SCREENING_RULES_PATH`: `select` / `run` が使う screening rules / selection profile YAML の既定 path override。CLI の明示 `--rules-path` を最優先し、次に env、最後に `method/screening/rules/` の既定を解決する
 - JPX 公開規制情報 URL（CSV / Excel / HTML）。現行 rules の `universe.required_jpx_flags` に含まれる source は必須で、未ロード時は fail-fast し screening runをpublishしない:
   - `JPX_SPECIAL_CAUTION_INDEX_URL` 特別注意銘柄の個別銘柄信用取引残高表 index（推奨。日次で変わる `mtdailyk*.xls` を index から解決）
   - `JPX_SPECIAL_CAUTION_URL` 特別注意銘柄の固定 Excel URL
@@ -176,7 +176,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 
 ## 8. Rule Baselines
 
-閾値の正本は `method/screening-rules/` の現行 revision で、その実 path は `rule_config.DEFAULT_RULES_PATH` が持つ（`--rules-path` / `SCREENING_RULES_PATH` で override した場合はそちら）。rules は dated revision で増えるので、file 名の実値をここへ書かない。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
+閾値の正本は `method/screening/rules/` の現行 revision で、その実 path は `rule_config.DEFAULT_RULES_PATH` が持つ（`--rules-path` / `SCREENING_RULES_PATH` で override した場合はそちら）。rules は dated revision で増えるので、file 名の実値をここへ書かない。実装側の hardcode は parser default と型定義に留め、運用で変える閾値は YAML に寄せる。
 
 - scope / 絞り込み: `universe.required_jpx_flags`(記録対象の規制 flag)と `selection.liquidity`(時価総額・平均売買代金・上場期間・JPX 規制の分析層パラメータ)
 - evidence pattern (`playbook_id`) の screen 閾値: `valuation-reversion` / `cashflow-yield-discount` / `sales-discount-growth`
@@ -198,7 +198,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 
 ## 11. Cache Layout
 
-- `data/screening/market.sqlite` は screening input の local canonical store。J-Quants / EDINET / JPX の provider fetch は normalized table と `source_coverage` を直接更新する
+- `stores/market/market.sqlite` は screening input の local canonical store。J-Quants / EDINET / JPX の provider fetch は normalized table と `source_coverage` を直接更新する
 - `.cache/screening/edinet/csv_zips/` は EDINET `type=5` CSV ZIP の cache。削除しても SQLite の metric rows は残る
 - `.cache/screening/disclosures/**/*.json` は SQLite 正本の対象外に残す任意の disclosure title cache。TDnet / 会社 IR 等から取得した `ticker` / `date` / `title` / `source` / `url` 相当の record を置くと、screening run が EDINET metrics 提出日以降の M&A・借入などの title keyword hit をYAML viewの`freshness_warnings`に出す。cache が無い場合は `provider_status_lines` に optional unavailable を出す。cache が存在するが JSON 読み込み失敗・未対応 layout・必須 key 欠損がある場合は `provider_status_lines` と `fallback_lines` に件数を出す
 - `method/` は screening rules・macro panel・playbook だけを置く。通常運用の raw JSON cache、SQLite、CSV ZIP、一時 manifest は置かない
@@ -207,7 +207,7 @@ uv run baibai-engine screening run --asof YYYY-MM-DD
 
 ### 11.1 SQLite Schema
 
-SQLite は以下のテーブルを `data/screening/market.sqlite` に作成する。schema は `PRAGMA user_version` で版管理し、forward-only migration で進化する。v13 を初期基準とし、`open_connection` は既存 store が `13 <= version < 最新` なら再取得なしで in-place に前進 migrate し、`13` 未満（前進経路で復元できない）や最新超は「削除して再取得」で fail-fast する。新規 store は最新 DDL で直接作成する。migration 完走後の shape は DDL と一致するため、shape 検証は列順まで含めて厳密に照合する。列順が変わる変更（列の並べ替え・削除）は `ALTER TABLE ADD COLUMN` が末尾追加で列順検証に落ちるため、table 再作成 migration（`market.sqlite.rebuild_table`）で書く。schema を変える実装者は `SQLITE_SCHEMA_VERSION` を bump し（`migrations.py` に次の連番 `Migration` を追加すると `LATEST_VERSION` が追随する）migration を書く。
+SQLite は以下のテーブルを `stores/market/market.sqlite` に作成する。schema は `PRAGMA user_version` で版管理し、forward-only migration で進化する。v13 を初期基準とし、`open_connection` は既存 store が `13 <= version < 最新` なら再取得なしで in-place に前進 migrate し、`13` 未満（前進経路で復元できない）や最新超は「削除して再取得」で fail-fast する。新規 store は最新 DDL で直接作成する。migration 完走後の shape は DDL と一致するため、shape 検証は列順まで含めて厳密に照合する。列順が変わる変更（列の並べ替え・削除）は `ALTER TABLE ADD COLUMN` が末尾追加で列順検証に落ちるため、table 再作成 migration（`market.sqlite.rebuild_table`）で書く。schema を変える実装者は `SQLITE_SCHEMA_VERSION` を bump し（`migrations.py` に次の連番 `Migration` を追加すると `LATEST_VERSION` が追随する）migration を書く。
 
 - `jquants_daily_bars(ticker, traded_at, open, high, low, close, volume, turnover_value, adjustment_*, upper_limit, lower_limit)` — 主キー `(ticker, traded_at)`、`traded_at` index 付。`is_common_stock=False` の record はスキップ。**この table は coverage の SSOT であり、completeness は行データから導出する**（全営業日が全市場分の行を持つので欠損は present date 間のギャップとして観測でき、`source_coverage` の bookkeeping に穴があっても行が揃っていれば re-fetch しない）。`source_coverage` は status / record_count の整合チェックにのみ併用する
 - `jquants_fin_summaries(ticker, disclosed_at, forecast_eps, eps_ttm, bps, shares_outstanding, sales, operating_profit, ordinary_profit, profit, forecast_profit, forecast_ordinary_profit, cfo, cash_eq, total_assets, equity, fiscal_period, fiscal_year_end, period_start, period_end, dps_actual_annual, dps_forecast_annual, treasury_shares, equity_to_asset_ratio)` — 主キー `(ticker, disclosed_at)`。DPS は `DivAnn`（実績年間・FY 開示）と `FDivAnn`→`NxFDivAnn`（進行期の予想年間）から取る。`forecast_profit` / `forecast_ordinary_profit` は会社予想の当期純利益・経常利益で、`forecast_eps` と同一予想期のペア（当期予想 `FNP`/`FOdP`、本決算開示で FEPS 空なら翌期予想 `NxFNp`/`NxFOdP`）から取り、純利益>経常の一時益 data-quality flag（`forecast_special_gain`）と、どちらかが負のときの通期赤字予想 annotation（`forecast_full_year_loss`）の一次入力にする。`treasury_shares`（`TrShFY`）と `equity_to_asset_ratio`（`EqAR`）は時価総額と自己資本比率の分母を開示概念へ揃えるために持つ（[valuation-metrics.md §5.1](./valuation-metrics.md#51-資本の分母)）
@@ -226,11 +226,11 @@ SQLite は以下のテーブルを `data/screening/market.sqlite` に作成す�
 
 ### 11.2 Volume と再生成の考え方
 
-`data/screening/market.sqlite` は local store であり git 管理しない。容量増加は repo 履歴ではなくローカルディスクの問題として扱う。schema 変更は forward-only migration で in-place に進めるため、schema bump のたびに全再取得する必要はない。既存 row を migration で backfill できない変更（新 field を provider から埋め直す等）は、`screening invalidate-coverage --source <name> [--start --end]` で該当 `source_coverage` を削除して bootstrap 対象に戻し、`bootstrap-cache --asof` で該当 window を再取得する。store を丸ごと作り直す場合も raw JSON からの migration ではなく `bootstrap-cache --asof` と `extract-edinet-metrics --asof` で provider から補完する。`invalidate-coverage` は削除対象行数を表示してから削除する（cache は再生成可能なため確認プロンプトは無い）。既知でない source 名は既知一覧を示して拒否する。
+`stores/market/market.sqlite` は local store であり git 管理しない。容量増加は repo 履歴ではなくローカルディスクの問題として扱う。schema 変更は forward-only migration で in-place に進めるため、schema bump のたびに全再取得する必要はない。既存 row を migration で backfill できない変更（新 field を provider から埋め直す等）は、`screening invalidate-coverage --source <name> [--start --end]` で該当 `source_coverage` を削除して bootstrap 対象に戻し、`bootstrap-cache --asof` で該当 window を再取得する。store を丸ごと作り直す場合も raw JSON からの migration ではなく `bootstrap-cache --asof` と `extract-edinet-metrics --asof` で provider から補完する。`invalidate-coverage` は削除対象行数を表示してから削除する（cache は再生成可能なため確認プロンプトは無い）。既知でない source 名は既知一覧を示して拒否する。
 
 ## 12. J-Quants rate limit と bootstrap コスト
 
-J-Quants の正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `src/baibai_engine/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
+J-Quants の正確なレート制限は非公開で、挙動は実運用の観測から推測する（確定仕様ではない）。コード側の対処は `engine/src/baibai_engine/screening/providers/jquants.py` の `_RATE_LIMIT_BACKOFF_SECONDS`（最大 600s の 429 backoff）と `_RANGE_CHUNK_DAYS`（range fetch を 31 日 chunk に分割）で扱う。
 
 - `bootstrap-cache --asof <past>` の律速は **per-asof の長期履歴 re-fetch のボリューム** であり、「数分で回復する rate window」でも「日次クォータの枯渇」でもない。1 asof の最長窓は `normalized_per_3fy` が要求する日次足・財務サマリー各 2200 暦日で、`_RANGE_CHUNK_DAYS=31` の chunk から ClientV2 内部の per-day API 呼び出しへ fan-out する。throttling 下では 31 日 chunk あたり数分規模のスループットになり、初回の完全 bootstrap は数時間規模になる。429 backoff はこの volume に上乗せされる。
 - chunk は resumable。`source_coverage` に chunk 単位で `status=ok` を記録し、中断しても完了済み chunk は再取得しない。複数 asof は履歴窓が大きく重複するため、最初の 1 asof の full bootstrap が高コストで、以降の週は非重複 chunk とその週の EDINET だけで安価になる。

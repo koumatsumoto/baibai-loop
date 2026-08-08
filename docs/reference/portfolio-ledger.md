@@ -9,7 +9,7 @@ status: active
 
 ## Scope and canonical home
 
-ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_market_price / ledger_meta`がcanonical stateであり、`baibai-engine position ledger --db data/app/baibai.sqlite`はこれらから既存domain modelを再構築してsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
+ledgerは`portfolio_scope: repository_only`だけを扱う。application DBの`ledger_event / ledger_market_price / ledger_meta`がcanonical stateであり、`baibai-engine position ledger --db stores/application/baibai.sqlite`はこれらから既存domain modelを再構築してsnapshotを返す。broker残高を自動取得・推定・完全照合する契約ではない。
 
 DB constraint、`baibai_engine.position`のmodel、application serviceのwrite-time validationが機械契約を担う。円総額は整数、単価は許可精度内、数量との積は1円単位に一致しなければ拒否する。
 
@@ -55,7 +55,7 @@ market priceはtickerごとに`observed_at / source_kind / price_basis / source_
 `record-result`、`event-draft`、`override-draft`、`meta-draft`、`market-price-draft`はcanonical DBを変更しない。draftはsource append headと置換対象rowを持つ。人間が内容を確認した後だけ次を実行する。
 
 ```bash
-uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db data/app/baibai.sqlite --confirmed
+uv run baibai-engine position apply-draft /tmp/ledger-draft.yaml --db stores/application/baibai.sqlite --confirmed
 ```
 
 applyは1 transactionでsource head、proposal / reservation、event payload、price/meta expected row、reconciliationを再検証する。`--confirmed`なし、stale、未approved proposal、broker reportなし、矛盾payloadはno-writeである。

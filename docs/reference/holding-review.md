@@ -15,7 +15,7 @@ related_docs:
 
 ## Purpose and activation
 
-Holding review は、保有 1 件の売買判断を **thesis health** と **税引後の代替機会費用** から `hold / add / reduce / exit` へ落とす。機械契約は `src/baibai_engine/position/holding_review.py`、canonical revisionはapplication DBの`holding_review_id`で識別する。draft は read-only の判断材料であり、最終判断と broker 操作は人間が行う。
+Holding review は、保有 1 件の売買判断を **thesis health** と **税引後の代替機会費用** から `hold / add / reduce / exit` へ落とす。機械契約は `engine/src/baibai_engine/position/holding_review.py`、canonical revisionはapplication DBの`holding_review_id`で識別する。draft は read-only の判断材料であり、最終判断と broker 操作は人間が行う。
 
 売却の主因は **thesis break（事業毀損）** で、これは優先売却候補になる。**フェアバリュー到達は review trigger であって自動の全売りではない**。**価格下落そのものは売却理由にしない**。
 
@@ -69,15 +69,15 @@ replacement_edge = switch_terminal - hold_terminal
 ## Commands
 
 ```bash
-uv run baibai-engine position market-price-draft --db data/app/baibai.sqlite --sqlite data/screening/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
-uv run baibai-engine position apply-draft /tmp/market-price-draft.yaml --db data/app/baibai.sqlite --confirmed
-uv run baibai-engine research holding-prepare --db data/app/baibai.sqlite --asof ASOF_DATE --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
-uv run baibai-engine research thesis-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX --sqlite-path data/screening/market.sqlite --target-session NEXT_SESSION_DATE
-uv run baibai-engine research review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
-uv run baibai-engine research promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db data/app/baibai.sqlite --ticker XXXX
-uv run baibai-engine position holding-review-build --db data/app/baibai.sqlite --thesis-id THESIS_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
-uv run baibai-engine position holding-review --db data/app/baibai.sqlite --input /tmp/holding-review.yaml
-uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db data/app/baibai.sqlite --thesis-id THESIS_ID
+uv run baibai-engine position market-price-draft --db stores/application/baibai.sqlite --sqlite stores/market/market.sqlite --asof ASOF_DATE --out /tmp/market-price-draft.yaml
+uv run baibai-engine position apply-draft /tmp/market-price-draft.yaml --db stores/application/baibai.sqlite --confirmed
+uv run baibai-engine research holding-prepare --db stores/application/baibai.sqlite --asof ASOF_DATE --ticker XXXX --workspace .cache/opportunity/ASOF_DATE/holding-XXXX
+uv run baibai-engine research thesis-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db stores/application/baibai.sqlite --ticker XXXX --sqlite-path stores/market/market.sqlite --target-session NEXT_SESSION_DATE
+uv run baibai-engine research review-scaffold --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db stores/application/baibai.sqlite --ticker XXXX
+uv run baibai-engine research promote --workspace .cache/opportunity/ASOF_DATE/holding-XXXX --db stores/application/baibai.sqlite --ticker XXXX
+uv run baibai-engine position holding-review-build --db stores/application/baibai.sqlite --thesis-id THESIS_ID --position-id POSITION_ID --out /tmp/holding-review.yaml
+uv run baibai-engine position holding-review --db stores/application/baibai.sqlite --input /tmp/holding-review.yaml
+uv run baibai-engine position holding-review publish /tmp/holding-review.yaml --db stores/application/baibai.sqlite --thesis-id THESIS_ID
 ```
 
 `ASOF_DATE`は価格draftの最新完全営業日、`NEXT_SESSION_DATE`はその次の取引sessionである。`market-price-draft`は全open holdingの`ASOF_DATE` raw closeを同じcalendar dateで揃え、canonical ledgerを直接変更しない。人間がdraftをcanonicalへ反映した後、`holding-prepare`がledger entityとappend headに束縛した1銘柄固定workspaceを作り、holding market-price observationの日付が`--asof`と異なれば停止する。`thesis-scaffold`も解決したraw close日がworkspace `as_of`と異なれば停止する。独立reviewをscaffoldして完成させ、`promote`が返す`THESIS_ID`をholding reviewへ渡す。buildはthesis/review missing、revision drift、thesisとholding market-price observationの日付不一致、ledgerにopen holdingなし、raw/unadjusted price basis不一致で停止する。ledgerの非価格eventはmarket closeより新しくてよい。draft生成後は`holding-review --db ... --input`がcanonical DBからscalarとsource revisionを再構築して照合する。人間が確認したdraftだけをcanonical `thesis_id`へ束縛してpublishする。完全な手順は skill [`holding-review`](../../.agents/skills/holding-review/SKILL.md) を正本とする。

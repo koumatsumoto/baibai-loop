@@ -17,7 +17,7 @@ session は kind ごとに 1 件（注文結果 = `pending-result`、資金 = `m
 
 ## 人間裁定の記録（proposal decide）
 
-proposal への `approve / defer / reject` は人間の会話報告だけを `uv run baibai-engine proposal --db data/app/baibai.sqlite --market-db data/screening/market.sqlite decide <PROPOSAL_ID> --decision <decision>` で記録する。approve 時は current DB の thesis・price・quantity・expiry・portfolio constraint が再検証され、不一致なら no-write で新しい proposal を作り直す。ledger event が参照した proposal を approved 以外へ変更しない。
+proposal への `approve / defer / reject` は人間の会話報告だけを `uv run baibai-engine proposal --db stores/application/baibai.sqlite --market-db stores/market/market.sqlite decide <PROPOSAL_ID> --decision <decision>` で記録する。approve 時は current DB の thesis・price・quantity・expiry・portfolio constraint が再検証され、不一致なら no-write で新しい proposal を作り直す。ledger event が参照した proposal を approved 以外へ変更しない。
 
 ## 注文結果
 
@@ -30,10 +30,10 @@ proposal への `approve / defer / reject` は人間の会話報告だけを `uv
 | `cancelled` / `expired` | proposal ID・reservation ID・時刻（expired は人間が未約定を確認した時刻） | remaining release |
 
 ```bash
-uv run baibai-engine position record-result --db data/app/baibai.sqlite --proposal-ref <PROPOSAL_ID> \
+uv run baibai-engine position record-result --db stores/application/baibai.sqlite --proposal-ref <PROPOSAL_ID> \
   --status open --occurred-at <ISO8601+09:00> --ticker XXXX --quantity 100 --sector <SECTOR> \
   --price-guard-yen <LIMIT> --expires-at <ISO8601> --out .cache/ledger/open-draft-<ASOF>.yaml
-uv run baibai-engine position apply-draft .cache/ledger/open-draft-<ASOF>.yaml --db data/app/baibai.sqlite --confirmed
+uv run baibai-engine position apply-draft .cache/ledger/open-draft-<ASOF>.yaml --db stores/application/baibai.sqlite --confirmed
 ```
 
 - 新規 open と reservation なし fill は current approved proposal が必須。migration 由来で binding が null の reservation だけ、人間報告を記録した issue URL を `--proposal-ref` へ渡す。
@@ -42,7 +42,7 @@ uv run baibai-engine position apply-draft .cache/ledger/open-draft-<ASOF>.yaml -
 ## 売却約定（holding review の判定後）
 
 ```bash
-uv run baibai-engine position sell-result-draft --db data/app/baibai.sqlite --ticker XXXX \
+uv run baibai-engine position sell-result-draft --db stores/application/baibai.sqlite --ticker XXXX \
   --quantity 100 --price-yen <PRICE> --occurred-at <ISO8601> \
   --decision-reference <HOLDING_REVIEW_ID> --out .cache/ledger/sell-draft-<ASOF>.yaml
 ```
@@ -54,7 +54,7 @@ uv run baibai-engine position sell-result-draft --db data/app/baibai.sqlite --ti
 
 ```bash
 uv run baibai-engine position event-draft --type contribution --event-id <ID> \
-  --occurred-at <ISO8601> --amount-yen <AMOUNT> --db data/app/baibai.sqlite --out .cache/ledger/event-draft-<ASOF>.yaml
+  --occurred-at <ISO8601> --amount-yen <AMOUNT> --db stores/application/baibai.sqlite --out .cache/ledger/event-draft-<ASOF>.yaml
 ```
 
 `contribution / withdrawal / income / cost / tax_confirmed` は確認した事実ごとに 1 event。risk override は `override-draft`、tax estimate 設定は `meta-draft`。購入や screening を強制しない。

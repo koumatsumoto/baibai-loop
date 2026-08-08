@@ -36,7 +36,7 @@ jobs:
       # again of main itself, so a tree that runs with R2, provider, Discord and
       # Cloudflare credentials is never more than a week from having been checked.
       - name: Workflow trust boundary
-        run: uv run python tools/drift/check_workflow_trust.py
+        run: uv run python tools/quality/drift/check_workflow_trust.py
 
       - name: Dependency audit
         run: |
@@ -60,10 +60,10 @@ jobs:
 
       - name: UI dependency audit
         if: ${{ !cancelled() }}
-        working-directory: ui
+        working-directory: web/frontend
         run: npm audit --package-lock-only --audit-level=high
 
       - name: Worker dependency audit
         if: ${{ !cancelled() }}
-        working-directory: cloud/worker
+        working-directory: web/edge
         run: npm audit --package-lock-only --audit-level=high

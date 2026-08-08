@@ -25,8 +25,7 @@ dist/
 # Disposable local cache for provider byproducts such as EDINET CSV ZIPs.
 .cache/
 
-# Canonical application database and consistent manual snapshots
-data/app/
+# Runtime stores are ignored by stores/.gitignore; only their contracts are tracked.
 
 # Local environment files
 .env

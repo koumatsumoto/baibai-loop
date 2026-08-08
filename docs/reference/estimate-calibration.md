@@ -92,11 +92,11 @@ authoritative な delisting exit value source が無い限り、窓中に系列�
 
 `er_calibration` は価格収束成分 `er_reversion_annual` だけを price-only 実現値へ較正する。予測値は cohort 内の `er_reversion_annual` 中央値、実現値は同じ cohort の price return 中央値をそれぞれ引き、quintile ごとに median の相対値を比較する。`calibration_error` は `realized - predicted` である。配当と buyback の carry は price-only 実現値と同じ basis で観測できないため、この座標で絶対水準を較正しない。carry の妥当性は source と算出 contract を検証し、実現配当を備えた total-return dataset が利用できる場合に別の較正座標で扱う。
 
-cohort 比較（`tools.measure_signal_cohorts`）は `--basis price|total` の両方を取る。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
+cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|total` の両方を取る。carry は配当と自己株買いでできているので、その効果量を price basis で測ると払われた現金の分だけ小さく出る。ただし total は窓内の FY 配当観測を要し、母数は horizon で変わる（price 側に対し 1y で 95%、3y で 93%、5y で 88%、3m / 6m は半分未満）。出力の `basis_coverage` が horizon ごとの両母数と `bases_comparable` を出し、被覆が足りない horizon で 2 つの中央値を並べて読むことを禁じる。既定は price のままで、これは全 horizon で解決するのが price 側だけであるため。
 
 `er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
-Shortlist の判断面が読む最新文脈の正本は `reports/data/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから 3y / 5y の quintile 表、各帯の上端、cohort as-of 範囲、`screening_rules_hash`、`er_model_version` を生成する。UI は artifact の2つの method identity が現在の production method に加えて、実際に表示する operative run の不変 method identity と一致するときだけ、3y の帯へその run の機械 E[r] を対応づけ、同じ帯の歴史実現中央値を参考表示する。E[r]、順位、gate、FV は変更しない。値は個別銘柄の予測ではなく、重複する月次窓と COVID 前後に偏る historical panel の cohort 中央値である。
+Shortlist の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから 3y / 5y の quintile 表、各帯の上端、cohort as-of 範囲、`screening_rules_hash`、`er_model_version` を生成する。UI は artifact の2つの method identity が現在の production method に加えて、実際に表示する operative run の不変 method identity と一致するときだけ、3y の帯へその run の機械 E[r] を対応づけ、同じ帯の歴史実現中央値を参考表示する。E[r]、順位、gate、FV は変更しない。値は個別銘柄の予測ではなく、重複する月次窓と COVID 前後に偏る historical panel の cohort 中央値である。
 
 artifact は生成日から45日だけ有効とし、月次の calibration 更新後に同じ production scope の評価から再生成する。欠損、schema / basis / quintile 境界不正、現在 method または operative run との identity 不一致、run identity 不明、未来日、45日を超える期限、期限切れでは read model が文脈全体を非表示にする。YAML を手編集して更新しない。
 
@@ -119,10 +119,10 @@ cache schema version は `11`。panel は、production の730日財務入力を�
 ```bash
 uv run baibai-engine screening calibration-build \
   --start 2018-03-01 --end 2019-10-31 \
-  --calibration-dir data/screening/calibration-pre2019 \
+  --calibration-dir stores/screening/calibration/variants/pre2019 \
   --panel-variant pre2019_self_range_375 --force
 uv run baibai-engine screening calibration-evaluate \
-  --calibration-dir data/screening/calibration-pre2019 \
+  --calibration-dir stores/screening/calibration/variants/pre2019 \
   --horizon 1y --horizon 3y --out /tmp/calibration-pre2019.yaml
 ```
 
@@ -140,7 +140,7 @@ uv run baibai-engine screening calibration-evaluate \
   --required-metric er_calibration
 ```
 
-E[r] 水準 parameter を判断する事前登録済み run では、上の core 3 metric に加えて `--required-metric er_level_calibration` を指定する。判断面の月次文脈も更新する run は、同じ command に `--context-out reports/data/er-level-calibration-latest.yaml` を加える。authority が不成立、required cohort が不足、level metric が未解決の場合は context を書かず exit 1 にする。
+E[r] 水準 parameter を判断する事前登録済み run では、上の core 3 metric に加えて `--required-metric er_level_calibration` を指定する。判断面の月次文脈も更新する run は、同じ command に `--context-out reports/published/er-level-calibration-latest.yaml` を加える。authority が不成立、required cohort が不足、level metric が未解決の場合は context を書かず exit 1 にする。
 
 The retained diagnostics are selection top-5/top-10 median excess and trap rate, price-reversion E[r] relative calibration, FY-dividend total-return E[r] level calibration, axis/gate/reversion regression diagnostics, and cohort coverage/integrity. They do not establish a track record or statistical significance.
 
@@ -152,9 +152,9 @@ The retained diagnostics are selection top-5/top-10 median excess and trap rate,
 
 | レバー | 所在 | 計測経路 |
 | --- | --- | --- |
-| screen の閾値・gate・evidence pattern | `method/screening-rules/*.yaml` | 較正リプレイ（rules variant） |
-| select の順位付け・diversity cap | 同上 + `src/baibai_engine/screening/selection/` | 較正リプレイ（selection replay） |
-| 機械 E[r]・FV アンカー | `src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
+| screen の閾値・gate・evidence pattern | `method/screening/rules/*.yaml` | 較正リプレイ（rules variant） |
+| select の順位付け・diversity cap | 同上 + `engine/src/baibai_engine/screening/selection/` | 較正リプレイ（selection replay） |
+| 機械 E[r]・FV アンカー | `engine/src/baibai_engine/screening/estimates.py` | 較正リプレイ（er 軸 IC / decile / 予測 vs 実現） |
 | valuation 指標の算出 | metrics 系 + [`valuation-metrics.md`](./valuation-metrics.md) | 較正リプレイ（軸別 IC / coverage） |
 | マクロ読みの手順・レンズ | [`macro.md`](./macro.md) + skill `macro-context` | 保有 outcome / 月次の事後検証（N≈1、統計計測はしない） |
 | research の見積り手順 | [`thesis.md`](./thesis.md) + skill `research` | portfolio outcome と長期 horizon calibration |
@@ -172,7 +172,7 @@ evidence pattern（playbook）を追加・変更・削除するときは、scree
 - **語彙は窓ごとに決めてから全体へ畳む。** 窓を跨いで「どれか 1 つでも被覆不足なら全体 `insufficient`」とすると、1 窓の 1 basis の件数不足が、他窓で確定した効果の不成立を語彙の上で覆い隠す。各窓を `insufficient` / `inconclusive` / `negative` / `adoption_candidate` へ落としたうえで統合し、全体を `insufficient` と呼ぶのは、**効果が確定した窓が 1 つも無い**ときに限る。
 - **満期済み窓を根拠に cleanup するときは、残る変動幅を示す。** as-of 範囲が固定で満期済みでも値は不動ではない。forward row は build のたびに再計算され、FY 配当や退場銘柄の exit が backfill されれば `total` basis の pair 数と中央値は動く。したがって次の bullet の `insufficient` 保持規則より削除を優先してよいのは、**その窓の効果が確定しており、かつ窓内の coverage backfill では結論が反転しないことを示した**ときに限る。示せないなら保持規則が優先する。
 - `negative` / `inconclusive` が確定した軸は、判定 PR で panel 列・派生計算・評価枝・専用 test を削除し、dated report と git history を反証証跡の正本とする（残すのは `adoption_candidate` / `insufficient` / control 再利用列 / production annotation 入力列のみ）。
-- rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`data/screening/calibration-<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
+- rules variant の計測は本番 rules を変えず `SCREENING_RULES_PATH` で variant を指し、別 store（`stores/screening/calibration/variants/<variant>/`）へ panel を構築する。rules_hash provenance が混線を機械検出する。
 - 機械レバー（screen / select / E[r]）の実証的改訂は 3y/5y eligible evidence を必須の関門にし、判断レバー（macro / research 手順）は保有 outcome と運用の事後検証で改める。
 
 ### 採用後
@@ -194,7 +194,7 @@ primary-research lane の research FV と screening FV の bridge は、有効�
 - **3m / 6m は alert のみ**。手順・閾値の変更根拠にしない（doctrine 柱 5）。
 - **手順変更の検討に進む条件**: 1y 以上の horizon で、cohort 数 8 以上・rejected の中央超過が selected の中央超過を上回る状態が、時間で 2 分割した両期間に同方向で出ること。片側のみは `inconclusive` とする。
 - **`reject_class` 別の解釈**: 母数が 10 件未満の class は中央超過を算出せず件数だけを並べる。特定の class が上の条件を満たした場合に限り、その class の判定手順を見直す issue を起票する。分類そのものを自動除外・ranking へ入れることはしない。
-- **深掘りまで進んで棄却した lane**（bargain assessment の reject / defer）は母数が桁で少ないので、統計ではなく個票で追う。`tools.research_price_watch` が研究 FV と現在価格の位置を毎営業日出すので、価格が研究 FV を下回った lane を再評価の入口にする。
+- **深掘りまで進んで棄却した lane**（bargain assessment の reject / defer）は母数が桁で少ないので、統計ではなく個票で追う。`baibai_engine.research_watch` が研究 FV と現在価格の位置を毎営業日出すので、価格が研究 FV を下回った lane を再評価の入口にする。
 - **基準を後から動かさない**。動かす場合は、動かしたことと理由を次の dated report に明記する。
 
 初回の採点可能日は 2026-10-17（最古 shortlist 2026-07-17 + 3m）である。

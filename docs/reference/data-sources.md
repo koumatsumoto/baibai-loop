@@ -4,7 +4,7 @@ summary: "データソースの Tier 分類・キャッシュ方針・Tier 1 取
 doc_type: reference
 status: active
 source_paths:
-  - "../../data/"
+  - "../../stores/"
 related_docs:
   - "../architecture.md"
   - "./macro.md"
@@ -27,7 +27,7 @@ Baibai Loop で使うデータソースを、客観性を優先した基準で�
 
 ## 保有見直しの価格 fallback
 
-holding review・見積り calibration の価格 source は J-Quants(`data/screening/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、ledgerまたはthesisのsource refへURL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
+holding review・見積り calibration の価格 source は J-Quants(`stores/market/market.sqlite`)を primary とする。J-Quants が subscription / availability 問題で使えない場合だけ、公開 quote の daily close を手動 fallback として使い、ledgerまたはthesisのsource refへURL・取得日時・評価日・price basis・benchmark と同一 basis かを残す。basis が揃わない場合や corporate action の調整が確認できない場合は、確定評価ではなく provisional / inconclusive として扱う。
 
 ## Portfolio outcome benchmark
 
@@ -37,13 +37,13 @@ portfolio全体の年次・3年・5年outcomeは、JPXが公表する**TOPIX gro
 
 ## 取得データの保存方針
 
-J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。screening のL1 storeは`data/screening/market.sqlite`、run storeは`data/screening/runs.sqlite`、削除可能なbyproductは`.cache/`に置く。`method/`は screening rules・macro panel・playbook 専用である。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)。
+J-Quants / EDINET から取得したデータは、個人利用・非公開 repository での Baibai Loop 運用に限り、ローカル cache または永続 storeとして保存してよい。外部公開・第三者再配布は行わない。screening のL1 storeは`stores/market/market.sqlite`、run storeは`stores/screening/runs.sqlite`、削除可能なbyproductは`.cache/`に置く。`method/`は screening rules・macro reading rules・research playbook、`web/config/`は presentation configuration を所有する。SQLite layout の正本は [`./screening-runtime.md`](./screening-runtime.md)。
 
 保存済み cache は、screening 再生成・保有計測・見積り calibration のための入力証跡として扱う。J-Quants の調整後価格、銘柄マスター、JPX 規制情報などは完全な point-in-time snapshot ではないため、再現性ではなく traceability の補助として使う。
 
 J-Quants の非公開レート制限と `bootstrap-cache` の per-asof 長期履歴 re-fetch コストは [`./screening-runtime.md`](./screening-runtime.md) §12 にまとめる。歴史週の生成が遅い / 完了しない場合はまずそこを参照する。
 
-Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、data API が無い系列だけを機械的な scraper で取得して `data/indicators/macro.sqlite` に保存してよい。AI agent の WebFetch 出力を観測値として取り込まない。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。`refresh --all-history` は provider が現在提供する履歴範囲と registry の source identity を同期する。provider run は取得の成否と件数を記録し、observation vintage は内容が変わる revision だけを保持する。各 series の `plausible_min` / `plausible_max` は経済予測や異常値判定ではなく、明白な列・桁・単位の取り違えを insert 前に止める広い静的 band である。band 内に収まる scale 変更は値だけでは識別できないため、source の系列 ID・header・metadata 検証を provider 側で併用する。取得結果に契約違反が 1 点でもあればその series の全結果を rollback し、provider run を failed にする。J-Quants/JPXの投資部門別売買状況は公表単位の千円を`jpy-thousand`として保持する。data API が無い PMI は `spglobal_pmi` provider が git 管理の release-URL manifest から公式 PDF を live 取得し、headline 値を公式定義域0〜100で検証したうえで store へ入れる。
+Macro indicators は `baibai-engine macro` で公式 API / CSV から取得し、data API が無い系列だけを機械的な scraper で取得して `stores/macro/macro.sqlite` に保存してよい。AI agent の WebFetch 出力を観測値として取り込まない。この SQLite は macro context の正本ではなく、期間検索・再取得抑制・判断材料確認のための取得 cache として扱う。`refresh --all-history` は provider が現在提供する履歴範囲と registry の source identity を同期する。provider run は取得の成否と件数を記録し、observation vintage は内容が変わる revision だけを保持する。各 series の `plausible_min` / `plausible_max` は経済予測や異常値判定ではなく、明白な列・桁・単位の取り違えを insert 前に止める広い静的 band である。band 内に収まる scale 変更は値だけでは識別できないため、source の系列 ID・header・metadata 検証を provider 側で併用する。取得結果に契約違反が 1 点でもあればその series の全結果を rollback し、provider run を failed にする。J-Quants/JPXの投資部門別売買状況は公表単位の千円を`jpy-thousand`として保持する。data API が無い PMI は `spglobal_pmi` provider が git 管理の release-URL manifest から公式 PDF を live 取得し、headline 値を公式定義域0〜100で検証したうえで store へ入れる。
 
 ## スコアリング軸
 

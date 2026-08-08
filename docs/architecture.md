@@ -7,27 +7,25 @@ status: active
 
 # Architecture
 
-Baibai Loop は単一 distribution の中で、唯一の writer である `baibai_engine` と、read-only UI を提供する `baibai_app` を分離する。application data は application DB、再生成可能な分析結果は専用 store、method / config は Git を正本とする。
+Baibai Loop は単一 distribution の中で、唯一の writer である `baibai_engine`、read-only presentation の `baibai_web`、non-request-driven orchestration の `baibai_batch` を分離する。application data は application DB、再生成可能な分析結果は専用 store、production methodology と presentation config は Git を正本とする。
 
 ```text
-baibai-loop
-├── baibai_engine
-│   ├── foundation / market / macro / screening / research / position
-│   ├── tasks / operation / proposals
-│   ├── appdb / read_api
-│   └── baibai-engine CLI
-├── baibai_app
-│   └── 127.0.0.1 固定の read-only API / UI
-├── data
-│   ├── app/baibai.sqlite
-│   ├── screening/market.sqlite
-│   ├── screening/runs.sqlite
-│   └── indicators/macro.sqlite
-└── method
-    ├── screening-rules
-    ├── macro-panel.yaml
-    ├── macro-reading
-    └── playbooks
+baibai-loop/
+├── engine/src/baibai_engine/
+├── web/
+│   ├── backend/src/baibai_web/
+│   ├── frontend/
+│   ├── edge/
+│   ├── contracts/
+│   └── config/
+├── batch/src/baibai_batch/
+├── tools/
+├── method/{macro,screening,research}/
+├── stores/{application,market,macro,screening}/
+├── reports/{studies,published}/
+├── docs/
+├── .agents/
+└── .github/
 ```
 
 <a id="repository-map"></a>
@@ -47,31 +45,35 @@ baibai-loop
 | `proposals` | trade proposal と人間の current decision | `baibai-engine proposal` |
 | `appdb` | application DB path、migration、backup、writer connection | `baibai-engine db` |
 | `read_api` | app が使う query-only view | engine 内部 |
-| `baibai_app` | Dashboard / Macro / Stocks の read-only UI | `baibai-app` |
+| `baibai_web` | Dashboard / Macro / Stocks の read-only UI | `baibai-web` |
+| `baibai_batch` | scheduled/offline job、store transfer、validation、observability | repository-internal `baibai-batch` |
 
-engine 内の domain は app に依存しない。app が DB へ触れる経路は `read_api` と query source だけで、その不変条件は[Read-only app invariants](#read-only-app-invariants)を正本とする。
+engine は web / batch / tools に依存しない。Web が engine へ触れる経路は `read_api`、batch は `batch_api` と `read_api` に限定し、その不変条件は import-linter で検査する。read-only Web の実行時契約は[Read-only app invariants](#read-only-app-invariants)を正本とする。
 
-`read_api` の store 欠損時の扱いは 1 つの規則で決まる: **publish 済みの内容を答える reader は空 view へ degrade し、書き込みを門番する reader は raise する**。前者は `read_rows` を通し、file 欠損と table 欠損（= writer がこの copy でまだ走っていない）を空として扱う。列名の誤り・構文エラー・store 破損は degrade せず raise するので、壊れた query が同じ沈黙に隠れない。後者は日次 batch の `market_calendar_business_day` と `previous_run_revision_id` で、休場日に見えて run を skip するのでなく故障を名指しして止まる。この規則は `tests/test_read_api_degrade.py` が全 public reader を走査して守る。
+`read_api` の store 欠損時の扱いは 1 つの規則で決まる: **publish 済みの内容を答える reader は空 view へ degrade し、書き込みを門番する reader は raise する**。前者は `read_rows` を通し、file 欠損と table 欠損（= writer がこの copy でまだ走っていない）を空として扱う。列名の誤り・構文エラー・store 破損は degrade せず raise するので、壊れた query が同じ沈黙に隠れない。後者は日次 batch の `market_calendar_business_day` と `previous_run_revision_id` で、休場日に見えて run を skip するのでなく故障を名指しして止まる。この規則は `tests/engine/test_read_api_degrade.py` が全 public reader を走査して守る。
 
 ## Store contract
 
 | store | classification | contents | write owner |
 | --- | --- | --- | --- |
-| `data/app/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
-| `data/screening/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input | market / screening provider |
-| `data/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
-| `data/indicators/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
+| `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
+| `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input | market / screening provider |
+| `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
+| `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
-application DB の default path は `data/app/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
+application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
 
-Git に残す `method/` は screening rules・Macro panel・macro reading rules の method/config、`method/playbooks/` は research checklist である。application data を GitHub Issue や YAML file に複製しない。
+Git に残す `method/` は `screening/rules`、`macro/reading`、`research/playbooks` の production methodology である。Macro panel の表示 group は `web/config/macro-panel.yaml` が所有する。application data を GitHub Issue や YAML file に複製しない。
 
 ## Stable CLI
 
-public entry point は次の2本だけである。
+安定した利用者向け entry point は次の2本である。
 
 - `baibai-engine <domain> <command>`: query と application service 経由の write
-- `baibai-app`: local read-only UI
+- `baibai-web`: local read-only UI
+
+`baibai-batch` は GitHub Actions と運用 script が production job を呼ぶための
+repository-internal entry point で、domain の利用者向け surface ではない。
 
 主要 domain は `screening / macro / operation / position / proposal / research / task / db`。schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run / select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の意味を変えない。
 
@@ -86,7 +88,7 @@ public entry point は次の2本だけである。
 
 ## Read-only app invariants
 
-`baibai-app` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIの面は8つで、3タブ（`/` Dashboard、`/macro` Macro、`/stocks` Stocks）、タブなし詳細（`/macro/reports/:contextId` Macro report、`/stocks/shortlist` Shortlist、`/stocks/assessments/:assessmentId` Bargain assessment、`/securities/:ticker` Security detail）、ヘッダーの歯車から入る運用状態画面（`/system` System）である。proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Dashboardは前営業日の機械実行との差分（候補プールの出入り、機械E[r]の変化、FVに達した保有、macro readingの注記と分布の端の遷移）を観測として1区画に出す。判定・推奨は持たず、答えられなかった区分を明示して空欄と未計測を区別する。Macroは経済分析レポートと、全登録系列を`method/macro-panel.yaml`の7 groupへ配した1つのマクロ経済指標一覧（`/api/macro`のチャートと`/api/macro/reading`の記述統計を`series_id`でjoinし、取得失敗・stale・履歴不足・分布の端の件数を上部の要約カードへ畳む）、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Shortlist は `reports/data/er-level-calibration-latest.yaml` が有効な間だけ、候補 E[r] の historical quintile と同帯の実現 total-return 中央値を文脈表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
+`baibai-web` は `127.0.0.1` にだけbindし、write endpoint、migration、external network clientを持たない。application DB / run store / macro storeをSQLite read-only modeで開く。UIの面は8つで、3タブ（`/` Dashboard、`/macro` Macro、`/stocks` Stocks）、タブなし詳細（`/macro/reports/:contextId` Macro report、`/stocks/shortlist` Shortlist、`/stocks/assessments/:assessmentId` Bargain assessment、`/securities/:ticker` Security detail）、ヘッダーの歯車から入る運用状態画面（`/system` System）である。proposal全state、operation active/completed、portfolio outcomeをquery-only viewで表示する。Dashboardは前営業日の機械実行との差分（候補プールの出入り、機械E[r]の変化、FVに達した保有、macro readingの注記と分布の端の遷移）を観測として1区画に出す。判定・推奨は持たず、答えられなかった区分を明示して空欄と未計測を区別する。Macroは経済分析レポートと、全登録系列を`web/config/macro-panel.yaml`の7 groupへ配した1つのマクロ経済指標一覧（`/api/macro`のチャートと`/api/macro/reading`の記述統計を`series_id`でjoinし、取得失敗・stale・履歴不足・分布の端の件数を上部の要約カードへ畳む）、Stocksは深掘りshortlistと機械screeningのCandidatesを表示する。Shortlist は `reports/published/er-level-calibration-latest.yaml` が有効な間だけ、候補 E[r] の historical quintile と同帯の実現 total-return 中央値を文脈表示する。Candidatesはrun storeまたはクラウドの31日履歴から日付を選べる。`/api/meta`はscreening / macro / application DBのas-of鮮度と最新データ時刻をstore内timestampから返し（file mtimeに依存しない）、共通ヘッダーはUI build時刻と最新データ時刻だけを表示する。
 
 ## Cloud serving layer
 
@@ -106,11 +108,11 @@ views + history + system        Bearer認証 + static UI
 - `baibai-stores` は `market.sqlite`、`runs.sqlite`、`macro.sqlite` のクラウド正本と、ローカル正本である`baibai.sqlite`のreplicaを保持する。public accessを持たない。
 - `baibai-serving` は材料化済み`views/`、`history/`、`system/`の3 prefixだけを保持する。`system/latest-run.json`が`views/`の外に居るのは、`views/`が毎回のexportで作り直されるためで、exportに到達しなかった失敗runの記録はそこに置くと消える（R2 lifecycleもprefix指定で作り、bucket全体のruleを置かない）。`history/candidate-views/`には機械runをUI用の型付きread modelへ変換した履歴を置き、R2 lifecycleで31日後に削除する。`history/longlists/`には日次の明示的なlonglist membershipを置き、着手遅延計測のため400日保持するがWorker routeでは公開しない。bucket自体はpublic accessを持たず、認証済みWorkerだけがCandidatesの日付一覧と日付指定履歴をread-onlyで返す。
 - WorkerのR2 bindingは`baibai-serving`だけに限定する。`/api/*`は固定Bearer passwordをSHA-256後に定数時間比較し、有限のrouteから`views/`、日付形式を検証した`history/candidate-views/`、および`system/latest-run.json`の3系統のkeyへ写像する。stores と旧形式の`history/candidates/`、`history/longlists/`には到達しない。API応答は`Cache-Control: no-store`で、CORSを有効化しない。
-- Workers Assetsは`ui/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
-- `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日夕方のcronで機械工程を実行し（時刻の実値と根拠は[`tools/cloud/README.md`](../tools/cloud/README.md)）、`cloud-history-backfill`は指定窓のmarket履歴を補完する。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持しながらrunning/uploadを1件に限定する。
+- Workers Assetsは`web/frontend/dist`を無認証で配信する。bundleは業務データを含まず、実データは認証済みAPIだけから取得する。HTTP navigationはWorkerが認証処理前にHTTPSへredirectし、HTTPS応答はHSTSを持つ。
+- `cloud-materialize`はapplication dataの手動publishを材料化し、`cloud-daily-batch`は平日夕方のcronで機械工程を実行し（時刻の実値と根拠は[`batch/OPERATIONS.md`](../batch/OPERATIONS.md)）、`cloud-history-backfill`は指定窓のmarket履歴を補完する。3 workflowは`cloud-publish`の`queue: max`を共有し、pending writerをFIFOで保持しながらrunning/uploadを1件に限定する。
 - ローカル`pull`はmachine storeだけを置換し、canonical application DBを上書きしない。ローカル`publish`はSQLite snapshotをstoresへ置き、materializeをdispatchする。
 
-具体的な初期構築、publish/pull、手動再実行、password rotationは[`tools/cloud/README.md`](../tools/cloud/README.md)を正本とする。
+具体的な初期構築、publish/pull、手動再実行、password rotationは[`batch/OPERATIONS.md`](../batch/OPERATIONS.md)を正本とする。
 
 ## Data layers
 

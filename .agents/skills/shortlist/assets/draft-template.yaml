@@ -1,0 +1,58 @@
+# Shortlist draft (operator-authored, per cycle).
+#
+# The OP3 human-review gate: pick 8〜10 candidates from the run's longlist and
+# record the judgment here, then publish it as the canonical shortlist:
+#
+#   uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml \
+#     --db stores/application/baibai.sqlite --runs-db stores/screening/runs.sqlite
+#
+# publish binds the draft to its source selection: selection_id / run_revision_id
+# / as_of / profile / macro_context_id must match the selection, and every ticker
+# must be in that run's candidates. selected entries require `rank` and
+# `narrative`; rejected entries must omit both, give a concrete reason
+# (not "順位が低い" / "予算外"), and summarize its primary cause in
+# `reject_class`. The reason remains canonical; the class is aggregation-only.
+#
+# The RR block (`upside` / `downside` / `rr`), `catalyst` and `macro` decide
+# whether a candidate earns a primary-research slot. Fill them against the
+# depth contract in the shortlist skill (OP3 gate) — the schema
+# only checks presence, the 5 RR tests are the author's self-check.
+#
+# The published narrative is read by the baibai-web /shortlist review surface.
+
+schema_version: 4
+kind: shortlist
+shortlist_id: "shortlist-YYYYMMDD-<slug>"   # matches ^shortlist-\d{8}-[a-z0-9-]+$
+selection_id: "<selection_id from `screening select`>"
+run_revision_id: "<run_revision_id from `screening run`>"
+as_of: "YYYY-MM-DD"
+published_at: "YYYY-MM-DDTHH:MM:SS+09:00"    # must carry a timezone
+profile: "<selection profile>"
+macro_context_id: null                        # or the bound published macro context id
+entries:
+  - ticker: "XXXX"
+    decision: selected
+    rank: 1                                   # 暫定順位。selected 内で 1..N を欠番・重複なく
+    reason: "1 行サマリ（レビュー面のカード見出しに出る）"
+    narrative:
+      ploss: "中"                             # 低 / 中低 / 中 / 要精査 / 高
+      why: "なぜ安くなっている可能性があるか"
+      temporary: "一時的な問題である可能性"
+      structural: "構造的な問題である可能性"
+      survive: "財務的に 5 年間耐えられそうか"
+      unlock: "何が改善すれば株主価値が上がるか"
+      upside: "上値の根拠（何が正常化すればどの水準か・その水準の出どころ）"
+      downside: "下値の目安（悪化シナリオでどこまで・その床が何で支えられるか）"
+      rr: "上値と下値の非対称がなぜ買いに値するか"
+      catalyst: "何が起きたら見直すか（dated なら日付も catalyst_date へ）"
+      catalyst_date: null                     # or "YYYY-MM-DD"（as_of 以降・as_of + 550 日以内）
+      macro: "macro context connection ヒントの消化（該当なしならその判断）"
+      counter: "最も強い反対仮説"
+      research: "個別リサーチで確認する事項"
+      value: "この候補を深掘りする価値"
+      prov: "暫定判断（1 行）"
+      sector_label: null                      # optional; defaults to the screen's sector_33
+  - ticker: "YYYY"
+    decision: rejected
+    reason: "非選択の具体的理由"
+    reject_class: price_already_converged   # 未定義値は publish が許容値を列挙して拒否する

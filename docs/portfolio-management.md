@@ -45,7 +45,7 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 | 1 注文の想定約定額 | `starter_band.max_order_notional_yen` 以下。1 単元がこれを超える銘柄は `starter_lot_exceeds_notional_cap` で defer する |
 | starter 合計 | 総資本に対する `starter_band.max_bucket_pct` 以下。これは warning ではなく proposal を止める |
 
-数値は `src/baibai_engine/position/policy.py` の `starter_band` が正本で、[Capital guidance](#capital-guidance) の目安とは別に効く。
+数値は `engine/src/baibai_engine/position/policy.py` の `starter_band` が正本で、[Capital guidance](#capital-guidance) の目安とは別に効く。
 
 永久損失 7 軸、独立レビュー、`approved_by: human` の evidence override は starter でも一切緩めない。緩めるのは要求利回りだけで、その代わりに 1 件あたりの金額と経路全体の資本を有界にする。
 
@@ -55,7 +55,7 @@ AIは候補、risk、price、quantity、warningを提案し、人間がapprove/d
 
 各 starter は `starter_catalyst_date` を期日にした follow-up task を持つ。期日に thesis の前提が成立したかを確認しないまま保有を続けない — 帯を開く代償は縮小 lot だけでなく、再評価の義務でもある。
 
-この帯を開く根拠は、機械 E[r] 上位群が母集団を上回る一方、正規化と据え置き倍率を積んだ research の base が要求利回りに届かず全件棄却になっていたという計測である（[診断](../reports/2026-08-06-bargain-capture-diagnosis.md)）。ただし cohort 一致数は最小群サイズの閾値に依存し、5y の entry は 2020 年の暴落局面へ強く偏る。**この帯は「機械が確実に勝つ」という前提の上には立っていない。** 狙いは購入件数でも期待値の最大化でもなく、境界帯の実現結果を観測ゼロから非ゼロにすることであり、外れたときの損失を有界に保つのが上限と撤退基準の役割である。
+この帯を開く根拠は、機械 E[r] 上位群が母集団を上回る一方、正規化と据え置き倍率を積んだ research の base が要求利回りに届かず全件棄却になっていたという計測である（[診断](../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md)）。ただし cohort 一致数は最小群サイズの閾値に依存し、5y の entry は 2020 年の暴落局面へ強く偏る。**この帯は「機械が確実に勝つ」という前提の上には立っていない。** 狙いは購入件数でも期待値の最大化でもなく、境界帯の実現結果を観測ゼロから非ゼロにすることであり、外れたときの損失を有界に保つのが上限と撤退基準の役割である。
 
 帯の下限・1 注文上限・bucket 上限の数値は計測から導出したものではなく、オーナーが受け入れる損失の大きさから決めた判断である。計測が変わっても自動では動かない。
 
@@ -123,4 +123,4 @@ FV到達はreview triggerで、自動売却ではない。含み損は単独のe
 - e2e運用: [`AGENTS.md`](../AGENTS.md) の trigger → skill 表
 - ledger式とerror/warning: [`reference/portfolio-ledger.md`](./reference/portfolio-ledger.md)
 - holding action: [`reference/holding-review.md`](./reference/holding-review.md)
-- 機械的なcap/lot/warning値: `src/baibai_engine/position/policy.py`とwrite-time validation
+- 機械的なcap/lot/warning値: `engine/src/baibai_engine/position/policy.py`とwrite-time validation

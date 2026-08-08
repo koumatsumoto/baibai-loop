@@ -42,13 +42,13 @@ AIは提案までを担当し、人間だけが`approve / defer / reject`とbrok
 
 ## Read-only 運用 UI
 
-frontend を build して `baibai-app` を起動します。
+frontend を build して `baibai-web` を起動します。
 
 ```bash
-cd ui
+cd web/frontend
 npm run build
-cd ..
-uv run baibai-app serve
+cd ../..
+uv run baibai-web serve
 ```
 
 ブラウザで `http://127.0.0.1:8712` を開きます。UI と API は application DB と各 store を read-only で参照し、task や portfolio を更新しません。
@@ -57,7 +57,7 @@ uv run baibai-app serve
 
 | layer | 内容 | 例 |
 | --- | --- | --- |
-| L1 observed data | 再取得可能な市場・開示データ | `data/screening/market.sqlite` |
+| L1 observed data | 再取得可能な市場・開示データ | `stores/market/market.sqlite` |
 | L2 derived / estimate | 決定論的screen、指標、E[r]、FV anchor | screening output、local opportunity workspace |
 | L3 judgment / operation | 一次情報を確認した投資・保有判断 | macro context、thesis/review、proposal、ledger、operation session |
 
@@ -67,16 +67,16 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 
 | path | 役割 |
 | --- | --- |
-| `src/baibai_engine/` | domain、application service、application DB、read API |
-| `src/baibai_app/` / `ui/` | read-only UI |
-| `method/` | Git 管理の screening rules / macro panel / research playbook |
-| `data/` | application DBとrebuildable data/run store |
-| `reports/` | dated 計測記録（改善ループの一次資料） |
+| `engine/src/baibai_engine/` | domain、application service、application DB、read API |
+| `web/` | read-only backend、frontend、edge、Web contract、presentation config |
+| `batch/` | scheduled/offline production orchestration と store transfer |
+| `method/` | Git 管理の production methodology |
+| `stores/` | canonical application DB と rebuildable runtime store |
+| `reports/` | study 単位の historical evidence と published artifact |
 | `docs/` | doctrine、governance、operations、workflow、reference |
 | `.agents/skills/` | repository-local AI skillの正本 |
 | `.claude/skills/` | canonical skillへのClaude互換symlink |
-| `tools/drift/` | docs link・CLI・語彙・duplicate 定数・skill inventory の drift gate |
-| `cloud/` | Cloudflare Worker と serving・deploy 設定 |
+| `tools/` | quality、experiment、generator、diagnostic の developer tooling |
 | `tests/` | domain、public CLI、DB/write-time contract test |
 
 詳細は[`docs/architecture.md`](./docs/architecture.md)を参照してください。
@@ -94,7 +94,9 @@ E[r]とFV anchorは決定論的でも事実ではなくestimateです。候補�
 | `baibai-engine proposal` | trade proposalと人間のcurrent decision |
 | `baibai-engine task` | task current state |
 | `baibai-engine db` | application DB init/info/backup |
-| `baibai-app` | 127.0.0.1固定のread-only UI |
+| `baibai-web` | 127.0.0.1固定のread-only UI |
+
+production workflow は repository-internal の `baibai-batch` entry point から batch job を呼びます。
 
 日常運用の完全なcommand順は[`.agents/skills/`](./.agents/skills/)の各SKILL.md、各optionはpublic `--help`を正本とします。
 

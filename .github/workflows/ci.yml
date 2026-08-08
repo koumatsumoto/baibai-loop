@@ -32,10 +32,12 @@ jobs:
       # setup-python and uv sync. This preserves failure reporting during setup
       # while enforcing their stdlib-only import contract before merge.
       - name: Import notification scripts on the system python3
+        env:
+          PYTHONPATH: batch/src
         run: |
           python3 --version
-          python3 -m py_compile tools/cloud/batch_summary.py tools/cloud/notify_discord.py
-          python3 -c "import tools.cloud.batch_summary; import tools.cloud.notify_discord"
+          python3 -m py_compile batch/src/baibai_batch/observability/summary.py batch/src/baibai_batch/observability/discord.py
+          python3 -c "import baibai_batch.observability.summary; import baibai_batch.observability.discord"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -61,13 +63,13 @@ jobs:
         run: uv run lint-imports
 
       - name: Drift gates
-        # Every check under tools/drift/ runs: a gate is wired in by living there, not by
+        # Every check under tools/quality/drift/ runs: a gate is wired in by living there, not by
         # being remembered here. They run as modules so a gate can import a sibling —
         # running the file directly puts only its own directory on the import path.
         run: |
-          for gate in tools/drift/check_*.py; do
+          for gate in tools/quality/drift/check_*.py; do
             echo "== $gate"
-            uv run python -m "tools.drift.$(basename "$gate" .py)"
+            uv run python -m "tools.quality.drift.$(basename "$gate" .py)"
           done
 
       - name: Tests with coverage
@@ -98,7 +100,7 @@ jobs:
         # where Pillow is missing or broken passes this step by skipping every test in the file.
         run: |
           uv run --with pillow python -c 'import PIL.Image'
-          uv run --with pillow pytest -n 0 tests/test_brand_assets.py
+          uv run --with pillow pytest -n 0 tests/tools/test_brand_assets.py
 
       # The scanners share this job to avoid a second billed runner, so they are asked
       # even after an earlier gate has failed. A red test would otherwise hide a CVE
@@ -109,7 +111,7 @@ jobs:
         # its first commit instead of waiting for someone to remember this list.
         run: >-
           uv run bandit -c pyproject.toml -q -r
-          src/baibai_engine src/baibai_app tools
+          engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
 
       - name: Dependency audit
         if: ${{ !cancelled() }}

@@ -159,7 +159,7 @@ EDINET の自己株券買付状況報告書（様式コード 220、訂正 230�
 
 観測窓は `edinet_document_lists` の取得記録ではなく提出行そのものの最古日から取る。文書一覧を fetch していても当該 doc type を保存していなかった期間があり、取得記録を窓とみなすと「提出なし」を捏造するためである。
 
-**この annotation は ranking・gate・E[r] を変えない。** 較正リプレイでは単発で終わった株数減少も母集団を上回るため、`stale_filing` / `no_filing` を自動除外や carry 減衰の根拠にしない（[診断](../../reports/2026-08-06-bargain-capture-diagnosis.md) §6.1）。
+**この annotation は ranking・gate・E[r] を変えない。** 較正リプレイでは単発で終わった株数減少も母集団を上回るため、`stale_filing` / `no_filing` を自動除外や carry 減衰の根拠にしない（[診断](../../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md) §6.1）。
 
 ## 8. 業種中央値の算出
 
