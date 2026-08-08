@@ -34,6 +34,7 @@ from .jquants import (
     _append_master_snapshot_issues,
     _append_recent_bar_density_issue,
 )
+from .required_fields import append_required_field_coverage_issues
 from .shared import CacheCoverageIssue
 from .sources import (
     _append_required_date_rows_issue,
@@ -198,6 +199,12 @@ def verify_screening_sqlite_coverage(
                     start=fin_start,
                     end=asof_date,
                 )
+            append_required_field_coverage_issues(
+                conn,
+                issues,
+                start=fin_start,
+                asof=asof_date,
+            )
             if not daily_bars_covered_by_data(conn, normalized_start, asof_date):
                 issues.append(
                     CacheCoverageIssue(

@@ -26,6 +26,7 @@ from baibai_engine.screening.sqlite_cache import (
     store_jquants_fin_summaries,
     store_jquants_master,
 )
+from baibai_engine.screening.sqlite_coverage import plan_required_field_repair
 
 
 class _RecordingClient:
@@ -689,6 +690,115 @@ class FinSummaryFetchWindowTests(unittest.TestCase):
                 provider.refresh_fin_summary_range(self._START, self._END, revision_overlap_days=7)
 
             sleep.assert_called_once_with(3.0)
+
+    def test_repair_chunks_commit_and_report_progress_before_a_later_chunk_fails(self) -> None:
+        """A retry can re-plan from the committed first chunk instead of starting over."""
+        first_repair = self._START + timedelta(days=100)
+        second_repair = self._START + timedelta(days=200)
+        tickers = tuple(f"{1301 + index:04d}" for index in range(100))
+        first_tickers = tickers[:40]
+
+        class _FailingSecondRepairClient(_RecordingClient):
+            def get_fin_summary_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
+                self.fin_calls.append((start_dt, end_dt))
+                if start_dt == second_repair.isoformat():
+                    raise ValueError("interrupted")
+                return [
+                    {
+                        "Code": f"{ticker}0",
+                        "DisclosedDate": first_repair.isoformat(),
+                        "ShOutFY": 10_000_000,
+                        "TrShFY": 1_000_000,
+                        "EqAR": 0.5,
+                    }
+                    for ticker in first_tickers
+                ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "cache" / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            conn.executemany(
+                "INSERT INTO jquants_master_snapshots("
+                "snapshot_date, ticker, is_common_stock) VALUES (?, ?, 1)",
+                [(self._END.isoformat(), ticker) for ticker in tickers],
+            )
+            conn.executemany(
+                "INSERT INTO jquants_fin_summaries("
+                "ticker, disclosed_at, shares_outstanding, treasury_shares, "
+                "equity_to_asset_ratio) VALUES (?, ?, ?, ?, ?)",
+                [(ticker, first_repair.isoformat(), None, None, None) for ticker in first_tickers]
+                + [
+                    (ticker, second_repair.isoformat(), None, None, None)
+                    for ticker in tickers[40:80]
+                ]
+                + [
+                    (ticker, self._END.isoformat(), 10_000_000.0, 1_000_000.0, 0.5)
+                    for ticker in tickers[80:]
+                ],
+            )
+            add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=f"get_fin_summary_range:{self._START}..{self._END}",
+                record_count=100,
+                min_date=self._START.isoformat(),
+                max_date=self._END.isoformat(),
+            )
+            conn.commit()
+            conn.close()
+            initial = plan_required_field_repair(sqlite_path, start=self._START, asof=self._END)
+            self.assertIsNotNone(initial)
+            assert initial is not None
+            self.assertEqual(
+                initial.ranges,
+                ((first_repair, first_repair), (second_repair, second_repair)),
+            )
+            client = _FailingSecondRepairClient()
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
+            )
+            progress: list[tuple[int, int, date, date]] = []
+
+            with (
+                patch("baibai_engine.market.provider.time.sleep"),
+                self.assertRaisesRegex(JQuantsProviderError, "interrupted"),
+            ):
+                provider.refresh_fin_summary_range(
+                    self._START,
+                    self._END,
+                    revision_overlap_days=0,
+                    repair_ranges=initial.ranges,
+                    progress=lambda index, total, low, high: progress.append(
+                        (index, total, low, high)
+                    ),
+                )
+
+            self.assertEqual(
+                progress,
+                [
+                    (1, 3, first_repair, first_repair),
+                ],
+            )
+            resumed = plan_required_field_repair(sqlite_path, start=self._START, asof=self._END)
+            self.assertIsNotNone(resumed)
+            assert resumed is not None
+            self.assertEqual(resumed.ranges, ((second_repair, second_repair),))
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM jquants_fin_summaries "
+                        "WHERE disclosed_at = ? AND shares_outstanding IS NOT NULL "
+                        "AND treasury_shares IS NOT NULL AND equity_to_asset_ratio IS NOT NULL",
+                        (first_repair.isoformat(),),
+                    ).fetchone(),
+                    (40,),
+                )
+                self.assertTrue(
+                    range_covered(conn, "jquants_fin_summaries", self._START, self._END)
+                )
+            finally:
+                conn.close()
 
     def test_a_refresh_then_a_normalized_read_covers_both_windows(self) -> None:
         """Bootstrap asks for a 730-day window and a 2,200-day one from this source.

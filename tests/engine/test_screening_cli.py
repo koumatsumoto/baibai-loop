@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from io import BytesIO
@@ -58,6 +59,10 @@ from baibai_engine.screening.render import build_output_path
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.schema import SecurityMaster, TTMQuality
 from baibai_engine.screening.sqlite_cache import store_edinet_metrics
+from baibai_engine.screening.sqlite_coverage import (
+    RequiredFieldCoverage,
+    RequiredFieldRepairPlan,
+)
 from baibai_engine.screening.sqlite_reader import read_edinet_metrics
 
 
@@ -125,10 +130,17 @@ class FakeJQuantsProvider:
         return []
 
     def refresh_fin_summary_range(
-        self, start: date, end: date, *, revision_overlap_days: int
+        self,
+        start: date,
+        end: date,
+        *,
+        revision_overlap_days: int,
+        repair_ranges: Sequence[tuple[date, date]] = (),
+        progress: Callable[[int, int, date, date], None] | None = None,
     ) -> int:
         self.calls.append(("refresh_fin_summary_range", start, end))
         self.revision_overlap_days.append(revision_overlap_days)
+        del repair_ranges, progress
         return len(self.get_fin_summary_range(start, end))
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
@@ -869,6 +881,50 @@ class ScreeningCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("DatabaseError: file is not a database", stderr.getvalue())
+
+    def test_bootstrap_cache_command_fails_when_required_field_repair_stays_incomplete(
+        self,
+    ) -> None:
+        asof = date(2026, 5, 8)
+        start = asof - timedelta(days=730)
+        coverage = RequiredFieldCoverage(
+            asof=asof,
+            start=start,
+            population_tickers=100,
+            minimum_tickers=75,
+            summary_tickers=100,
+            shares_outstanding_tickers=0,
+            treasury_shares_tickers=0,
+            equity_to_asset_ratio_tickers=0,
+            market_cap_required_fields_tickers=0,
+            valuation_required_fields_tickers=0,
+        )
+        plan = RequiredFieldRepairPlan(coverage=coverage, ranges=((start, asof),))
+        stderr = io.StringIO()
+
+        with (
+            patch(
+                "baibai_engine.screening.cli.cache.plan_required_field_repair",
+                return_value=plan,
+            ),
+            patch(
+                "baibai_engine.screening.cli.cache.read_required_field_coverage",
+                return_value=coverage,
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
+            exit_code = bootstrap_cache_command(
+                asof_date=asof,
+                providers=ProviderBundle(
+                    jquants=FakeJQuantsProvider(),
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                ),
+                sqlite_path=Path("stores/market/market.sqlite"),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("required-field repair remained incomplete", stderr.getvalue())
 
     def test_bootstrap_cache_command_asof_uses_source_specific_windows(self) -> None:
         asof = date(2026, 5, 8)
