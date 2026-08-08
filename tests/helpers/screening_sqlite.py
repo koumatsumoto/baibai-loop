@@ -53,15 +53,17 @@ def add_source_coverage(
     min_date: str | None = None,
     max_date: str | None = None,
     status: str = "ok",
+    error: str | None = None,
     fetched_at_utc: str | None = None,
 ) -> None:
     """Insert one ``source_coverage`` row, mirroring the production INSERT shape."""
     fetched_at = fetched_at_utc or datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO source_coverage("
-        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, status"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (source, coverage_key, min_date, max_date, fetched_at, record_count, status),
+        "source, coverage_key, coverage_start, coverage_end, fetched_at_utc, record_count, "
+        "status, error"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (source, coverage_key, min_date, max_date, fetched_at, record_count, status, error),
     )
 
 

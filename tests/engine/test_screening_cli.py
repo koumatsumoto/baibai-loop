@@ -64,6 +64,7 @@ from baibai_engine.screening.sqlite_reader import read_edinet_metrics
 @dataclass
 class FakeJQuantsProvider:
     business_day: bool = True
+    treasury_shares: float = 0.0
     calls: list[tuple[str, date | None, date | None]] = field(default_factory=list)
     revision_overlap_days: list[int] = field(default_factory=list)
 
@@ -146,7 +147,7 @@ class FakeJQuantsProvider:
                 total_assets=1_000_000_000_000.0,
                 equity=600_000_000_000.0,
                 equity_to_asset_ratio=0.6,
-                treasury_shares=0.0,
+                treasury_shares=self.treasury_shares,
                 ordinary_profit=None,
                 profit=None,
             ),
@@ -163,7 +164,7 @@ class FakeJQuantsProvider:
                 total_assets=1_000_000_000_000.0,
                 equity=600_000_000_000.0,
                 equity_to_asset_ratio=0.6,
-                treasury_shares=0.0,
+                treasury_shares=self.treasury_shares,
                 ordinary_profit=None,
                 profit=None,
             ),
@@ -338,7 +339,9 @@ class ScreeningCliTests(unittest.TestCase):
                 os.chdir(os_path)
                 config = ScreeningConfig("token", "key", cache_dir=Path(".cache/screening"))
                 providers = ProviderBundle(
-                    jquants=FakeJQuantsProvider(),
+                    # raw close は 899 円。自己株 10% でも normalized PER は
+                    # treasury-adjusted market cap / gross shares (=809.1 円) へ戻さない。
+                    jquants=FakeJQuantsProvider(treasury_shares=40_000_000.0),
                     edinet=FakeEDINETProvider(),
                     jpx=FakeJPXProvider(),
                 )

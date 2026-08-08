@@ -6,9 +6,12 @@ so the deep history is fetched once on a machine that can take the time. Each si
 therefore holds rows the other has never seen, and publishing the local store means
 merging the cloud copy into it first and proving that nothing cloud-side is dropped.
 
-Every table here is a fact table with a key, including ``source_coverage``: its key is a
-source and a single day, so two stores that both fetched a day agree on the row rather
-than describing overlapping ranges that would have to be reconciled.
+Every table here is a fact table with a key. ``source_coverage`` carries both single-day
+keys and range claims. A clean financial-summary range is valid only while its stored
+count matches the rows in that store, so input claims are recounted before the union and
+target claims are regenerated from the resulting rows. Failure provenance remains an
+exact fact row and is preserved without treating a failed fetch as a completeness claim;
+unknown or hybrid status/error states are rejected rather than falling between them.
 
 Both stores must carry the current schema. An older cloud copy is not migrated here —
 the cloud raises its own schema by opening the store, and doing it from this side would
@@ -67,15 +70,42 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
 # `fetched_at_utc` — so comparing them would refuse every merge. EDINET is the reason the
 # other two are here: it revises a document's edit status and finalises a day's list after
 # first publishing them, so the later read carries a different marker for the same
-# document. The insert leaves the target's reading in place. Everything the source
-# actually asserts — prices, financials, holdings, coverage extents and counts — stays
-# compared, and on the real stores those disagreed nowhere.
+# document. `extractor_revision` identifies the local reader implementation rather than
+# an assertion in that document. The insert leaves the target's reading metadata in
+# place. Everything the source actually asserts — prices, financials, holdings, coverage
+# extents and counts — stays compared.
 UNCOMPARED: Mapping[str, tuple[str, ...]] = {
     "edinet_document_lists": ("process_datetime", "fetched_at_utc", "is_final"),
     "edinet_documents": ("doc_info_edit_status",),
+    "edinet_metrics": ("extractor_revision",),
     "jpx_regulation_flags": ("fetched_at_utc",),
     "jpx_regulation_sources": ("fetched_at_utc",),
     "source_coverage": ("fetched_at_utc",),
+}
+
+# The cloud copy can carry the current columns without having fetched their values yet.
+# A fully rebuilt local target may enrich only these fields. The directional comparison
+# still refuses a populated source against a missing target and any two populated values
+# that disagree, so a local cache that is not fully rebuilt cannot claim completeness.
+SOURCE_MISSING_ALLOWED: Mapping[str, tuple[str, ...]] = {
+    "jquants_fin_summaries": (
+        "forecast_profit",
+        "forecast_ordinary_profit",
+        "treasury_shares",
+        "equity_to_asset_ratio",
+    ),
+}
+
+# `record_count` receives a table-aware comparison below. It proves every clean
+# financial-summary range against the corresponding rows before and after the union,
+# while other sources and non-clean shared rows retain exact payload agreement.
+_CUSTOM_COMPARED: Mapping[str, tuple[str, ...]] = {
+    "source_coverage": ("record_count",),
+}
+_MERGE_EXEMPTIONS: Mapping[str, tuple[str, ...]] = {
+    table: (*UNCOMPARED.get(table, ()), *_CUSTOM_COMPARED.get(table, ()))
+    for table in FACT_KEYS
+    if table in UNCOMPARED or table in _CUSTOM_COMPARED
 }
 
 
@@ -97,7 +127,15 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             try:
-                tables = merge_fact_tables(connection, FACT_KEYS, uncompared=UNCOMPARED)
+                _require_compatible_source_coverage_counts(connection)
+                tables = merge_fact_tables(
+                    connection,
+                    FACT_KEYS,
+                    uncompared=_MERGE_EXEMPTIONS,
+                    source_missing_allowed=SOURCE_MISSING_ALLOWED,
+                )
+                _reconcile_fin_summary_coverage_counts(connection)
+                _require_compatible_source_coverage_counts(connection)
                 connection.commit()
                 return MergeReport(tables=tables)
             except BaseException:
@@ -105,6 +143,151 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 raise
         finally:
             connection.execute("DETACH DATABASE source")
+
+
+def _require_compatible_source_coverage_counts(connection: sqlite3.Connection) -> None:
+    """Allow differing clean counts only when both inputs prove their range claims."""
+
+    _require_fin_summary_coverage_states(connection, schema="source")
+    _require_fin_summary_coverage_states(connection, schema="main")
+    _require_fin_summary_coverage_counts(connection, schema="source")
+    _require_fin_summary_coverage_counts(connection, schema="main")
+    rows = connection.execute(
+        "SELECT s.source, s.coverage_key, s.coverage_start, t.coverage_start, "
+        "s.coverage_end, t.coverage_end, s.record_count, t.record_count, "
+        "s.status, t.status, s.error, t.error "
+        "FROM source.source_coverage s "
+        "JOIN main.source_coverage t USING (source, coverage_key) "
+        "WHERE s.record_count IS NOT t.record_count "
+        "ORDER BY s.source, s.coverage_key"
+    ).fetchall()
+    for row in rows:
+        (
+            source,
+            coverage_key,
+            source_start,
+            target_start,
+            source_end,
+            target_end,
+            source_count,
+            target_count,
+            source_status,
+            target_status,
+            source_error,
+            target_error,
+        ) = row
+        key = f"{source!r}, {coverage_key!r}"
+        if (
+            source != "jquants_fin_summaries"
+            or source_start != target_start
+            or source_end != target_end
+            or coverage_key != f"get_fin_summary_range:{source_start}..{source_end}"
+            or source_status != "ok"
+            or target_status != "ok"
+            or source_error is not None
+            or target_error is not None
+            or not isinstance(source_count, int)
+            or not isinstance(target_count, int)
+            or source_count < 0
+            or target_count < 0
+            or source_start is None
+            or source_end is None
+        ):
+            raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
+        actual_source = _fin_summary_range_count(
+            connection, schema="source", start=str(source_start), end=str(source_end)
+        )
+        actual_target = _fin_summary_range_count(
+            connection, schema="main", start=str(target_start), end=str(target_end)
+        )
+        if actual_source != source_count or actual_target != target_count:
+            raise MergeError(
+                "jquants_fin_summaries coverage count does not match stored rows for " + key
+            )
+
+
+def _require_fin_summary_coverage_states(connection: sqlite3.Connection, *, schema: str) -> None:
+    """Classify every financial-summary claim so no hybrid state bypasses validation."""
+
+    rows = connection.execute(
+        f"SELECT coverage_key, coverage_start, coverage_end, record_count, "  # nosec B608
+        f'status, error FROM {schema_name(schema)}."source_coverage" '
+        "WHERE source = 'jquants_fin_summaries' ORDER BY coverage_key"
+    ).fetchall()
+    for coverage_key, start, end, record_count, status, error in rows:
+        key = f"'jquants_fin_summaries', {coverage_key!r}"
+        common_valid = (
+            start is not None
+            and end is not None
+            and coverage_key == f"get_fin_summary_range:{start}..{end}"
+            and isinstance(record_count, int)
+            and record_count >= 0
+        )
+        state_valid = (status == "ok" and error is None) or (
+            status in {"partial", "failed"} and isinstance(error, str) and bool(error.strip())
+        )
+        if not common_valid or not state_valid:
+            raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
+
+
+def _require_fin_summary_coverage_counts(connection: sqlite3.Connection, *, schema: str) -> None:
+    """Prove every clean range claim against the facts held by that store."""
+
+    rows = connection.execute(
+        f"SELECT coverage_key, coverage_start, coverage_end, record_count "  # nosec B608
+        f'FROM {schema_name(schema)}."source_coverage" '
+        "WHERE source = 'jquants_fin_summaries' AND status = 'ok' AND error IS NULL "
+        "ORDER BY coverage_key"
+    ).fetchall()
+    for coverage_key, start, end, record_count in rows:
+        key = f"'jquants_fin_summaries', {coverage_key!r}"
+        if (
+            start is None
+            or end is None
+            or coverage_key != f"get_fin_summary_range:{start}..{end}"
+            or not isinstance(record_count, int)
+            or record_count < 0
+        ):
+            raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
+        actual = _fin_summary_range_count(connection, schema=schema, start=str(start), end=str(end))
+        if actual != record_count:
+            raise MergeError(
+                "jquants_fin_summaries coverage count does not match stored rows for " + key
+            )
+
+
+def _reconcile_fin_summary_coverage_counts(connection: sqlite3.Connection) -> None:
+    """Make clean target claims describe the fact union produced by this transaction."""
+
+    rows = connection.execute(
+        "SELECT coverage_key, coverage_start, coverage_end "
+        "FROM main.source_coverage "
+        "WHERE source = 'jquants_fin_summaries' AND status = 'ok' AND error IS NULL "
+        "ORDER BY coverage_key"
+    ).fetchall()
+    for coverage_key, start, end in rows:
+        if start is None or end is None:
+            key = f"'jquants_fin_summaries', {coverage_key!r}"
+            raise MergeError(f"source_coverage payload disagrees for shared key: {key}")
+        actual = _fin_summary_range_count(connection, schema="main", start=str(start), end=str(end))
+        connection.execute(
+            "UPDATE main.source_coverage SET record_count = ? "
+            "WHERE source = 'jquants_fin_summaries' AND coverage_key = ?",
+            (actual, coverage_key),
+        )
+
+
+def _fin_summary_range_count(
+    connection: sqlite3.Connection, *, schema: str, start: str, end: str
+) -> int:
+    row = connection.execute(
+        f'SELECT count(*) FROM {schema_name(schema)}."jquants_fin_summaries" '  # nosec B608
+        "WHERE disclosed_at BETWEEN ? AND ?",
+        (start, end),
+    ).fetchone()
+    if row is None:
+        raise MergeError("financial-summary coverage count returned no row")
+    return int(row[0])
 
 
 def _require_schema(path: Path) -> None:

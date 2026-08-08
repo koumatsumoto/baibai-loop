@@ -26,18 +26,24 @@ from baibai_engine.screening.calibration.forward import (
     STALE_PRICE_MAX_LAG_DAYS,
     ForwardReturnRow,
 )
+from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.calibration.panel import (
     PRE2019_SELF_RANGE_POLICY,
     build_panel,
     rules_content_hash,
 )
 from baibai_engine.screening.calibration.store import (
+    CACHE_SCHEMA_VERSION,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     read_forward,
     read_panel,
     write_forward,
     write_panel,
+)
+from baibai_engine.screening.metrics import (
+    BARS_INPUT_WINDOW_DAYS,
+    VALUATION_HISTORY_SESSIONS,
 )
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.sqlite_cache import open_connection
@@ -172,6 +178,19 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
 
 
 class CalibrationPanelTest(unittest.TestCase):
+    def test_valuation_calculation_revision_is_part_of_method_identity(self) -> None:
+        rules = load_screening_rules()
+        previous_identity = rules_contract_hash(
+            rules.model_dump_json(),
+            valuation_calculation_revision="gross-shares-capital-v0",
+            variant="production",
+            valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
+            bars_input_window_days=BARS_INPUT_WINDOW_DAYS,
+            production_authority=True,
+        )
+
+        self.assertNotEqual(rules_content_hash(rules), previous_identity)
+
     def test_build_panel_replays_screen_and_selection_point_in_time(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
@@ -638,7 +657,7 @@ class CalibrationPanelTest(unittest.TestCase):
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             (store_dir / "calibration.meta.yaml").write_text(
-                "cache_schema_version: 6\n", encoding="utf-8"
+                f"cache_schema_version: {CACHE_SCHEMA_VERSION - 1}\n", encoding="utf-8"
             )
 
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):

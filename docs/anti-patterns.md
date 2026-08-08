@@ -280,6 +280,15 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       registry generation / prune authorization stateの欠損・残留もcurrent-schema検証で止めるか
 - [ ] 破壊的な運用コマンドは冪等か compare-and-swap で守られているか。2 回流して結果が変わる
       コマンドは、再実行という最も起きやすい操作で正本データを黙って壊す
+- [ ] market storeをcloudからlocalへunionして再発行する場合、cleanな財務range coverageを
+      source / targetの全key（shared / source-only / target-only）でmerge前後に実rowへ再計数し、
+      入力時の偽claimを拒否したうえでunion後のtarget countを実rowから再生成するか。
+      `ok` + errorなしと`partial` / `failed` + errorありを完全分類してunknown / hybridを拒否し、
+      failure provenanceの完全一致は拒否しないか。財務fieldのNULL例外はcloud欠損→
+      完全再構築local保持の方向だけか。
+      全writerがdownload時のR2 ETagをbackupと最終PutObjectの条件へ渡し、手動publish後に
+      stale daily writerが到着する逆順と最後のversion確認後のraceもprecondition failureで
+      no-overwriteになるnegative testを持つか
 - [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
       no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」
       無音の失敗になる。retraction を入れたら、store 書き換え（`trim_before_first` /

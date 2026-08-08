@@ -220,10 +220,9 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
         # er_annual は annual_ratio (0.1 = 10%/年)。longlist view は pct で読むので x100。
         "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
         "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
-        # market_cap_oku (億円) * 1e8 / 発行株数 = 円/株。FV anchor が使う close と同じ
-        # 基準に載せる screening 参考値。約定 limit の price basis ではなく、正本の
-        # raw/unadjusted close は plan-limit が SQLite から再取得する。
-        "market_price_yen": _screening_reference_close_yen(candidate, metrics),
+        # run が as-of の raw close として保存した screening 参考値。約定 limit の price
+        # basis ではなく、plan-limit は SQLite から同じ raw/unadjusted close を再取得する。
+        "market_price_yen": _screening_reference_close_yen(metrics),
         "fv_convergence": _fv_convergence_annotation(candidate, metrics),
         # 自己株券買付状況報告書の提出観測。longlist は OP3 が 20 件を点検する view なので、
         # carry を forward の現金還元として narrative に書けるかの判断材料をここに置く。
@@ -252,23 +251,25 @@ def _ratio_to_pct(value: float | None) -> float | None:
 
 
 def _conservative_fair_value_yen(metrics: Mapping[str, object]) -> float | None:
-    anchors = [
-        anchor
-        for key in ("fv_sector_median_yen", "fv_self_range_yen")
-        if (anchor := _positive_finite(metrics.get(key))) is not None
-    ]
+    anchors = list(_fair_value_anchors(metrics).values())
     return round(min(anchors), 4) if anchors else None
 
 
-def _screening_reference_close_yen(
-    candidate: Mapping[str, object], metrics: Mapping[str, object]
-) -> float | None:
-    market_cap_oku = _positive_finite(candidate.get("market_cap_oku"))
-    shares_outstanding = _positive_finite(metrics.get("shares_outstanding"))
-    if market_cap_oku is None or shares_outstanding is None:
-        return None
-    price = market_cap_oku * 1e8 / shares_outstanding
-    return round(price, 4) if isfinite(price) and price > 0 else None
+def _screening_reference_close_yen(metrics: Mapping[str, object]) -> float | None:
+    price = _positive_finite(metrics.get("market_price_yen"))
+    return round(price, 4) if price is not None else None
+
+
+def _fair_value_anchors(metrics: Mapping[str, object]) -> dict[str, float]:
+    # FV の per-share basis は同じ artifact の raw close で証明する。価格 basis を証明できない
+    # anchor は、自己株控除後 market cap と gross shares の混在を防ぐため判断面へ出さない。
+    if _screening_reference_close_yen(metrics) is None:
+        return {}
+    return {
+        key: anchor
+        for key in ("fv_sector_median_yen", "fv_self_range_yen")
+        if (anchor := _positive_finite(metrics.get(key))) is not None
+    }
 
 
 def _fv_convergence_annotation(
@@ -281,12 +282,8 @@ def _fv_convergence_annotation(
     reversion sign is a consistency guard against turning the displayed FV comparison
     into a new estimate policy.
     """
-    price = _screening_reference_close_yen(candidate, metrics)
-    anchors = {
-        key: anchor
-        for key in ("fv_sector_median_yen", "fv_self_range_yen")
-        if (anchor := _positive_finite(metrics.get(key))) is not None
-    }
+    price = _screening_reference_close_yen(metrics)
+    anchors = _fair_value_anchors(metrics)
     reversion = _finite_number(metrics.get("er_reversion_annual"))
     if price is None or not anchors or reversion is None:
         status = "not_evaluable"
@@ -364,11 +361,7 @@ def _decision_input_seed(candidate: Mapping[str, object], *, asof_date: date) ->
                 if metrics.get(key) is not None
             },
             "fair_value": {
-                "anchors": {
-                    key: metrics.get(key)
-                    for key in ("fv_sector_median_yen", "fv_self_range_yen")
-                    if metrics.get(key) is not None
-                },
+                "anchors": _fair_value_anchors(metrics),
                 "origin": metrics.get("er_origin"),
                 "model_version": metrics.get("er_model_version"),
                 "unit": "JPY_per_share",

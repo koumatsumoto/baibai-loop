@@ -105,6 +105,7 @@ def candidate_metrics_map(
         "edinet_ocf_ttm": financial.edinet_ocf_ttm,
         "cash_eq": financial.cash_eq,
         "total_assets": financial.total_assets,
+        "market_price_yen": financial.market_price_yen,
         "cash_to_market_cap": financial.cash_to_market_cap,
         "equity_ratio": financial.equity_ratio,
         "ocf_yield": financial.ocf_yield,
@@ -222,9 +223,7 @@ def candidate_metrics_map(
 
 
 def _close_from_snapshot(financial: FinancialSnapshot) -> float | None:
-    if financial.market_cap is None or not financial.shares_outstanding:
-        return None
-    return financial.market_cap / financial.shares_outstanding
+    return financial.market_price_yen
 
 
 def _date_iso(value: date | None) -> str | None:

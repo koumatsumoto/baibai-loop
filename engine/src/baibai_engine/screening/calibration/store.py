@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 11
+CACHE_SCHEMA_VERSION = 12
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"

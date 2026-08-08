@@ -9,6 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.screening.candidate_build import _close_from_snapshot
 from baibai_engine.screening.estimates import (
     BUYBACK_CLIP,
     REALIZATION_RATE_ANNUAL,
@@ -27,6 +28,7 @@ def _financial(
     net_share_change_yoy: float | None = -0.02,
     market_cap: float | None = 1e10,
     shares_outstanding: float | None = 1e8,
+    market_price_yen: float | None = 100.0,
 ) -> FinancialSnapshot:
     return FinancialSnapshot(
         latest_disclosed_at=None,
@@ -43,6 +45,7 @@ def _financial(
         net_share_change_yoy=net_share_change_yoy,
         market_cap=market_cap,
         shares_outstanding=shares_outstanding,
+        market_price_yen=market_price_yen,
     )
 
 
@@ -58,6 +61,15 @@ def _derived(
 
 
 class EstimateExpectedReturnTest(unittest.TestCase):
+    def test_candidate_close_uses_observed_price_not_capital_denominator_reverse(self) -> None:
+        financial = _financial(
+            market_cap=9_000_000_000.0,
+            shares_outstanding=100_000_000.0,
+            market_price_yen=100.0,
+        )
+
+        self.assertEqual(_close_from_snapshot(financial), 100.0)
+
     def test_blends_asset_and_earnings_anchor_with_conservative_min(self) -> None:
         # pbr: current 0.8, sector median 1.2, 自己中央値 1.0 → 保守 anchor 1.0 → +25%
         # per_forward: current 10, sector median 15 (自己欠損) → +50%

@@ -27,6 +27,7 @@ from ..metrics import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
+    VALUATION_CALCULATION_REVISION,
     VALUATION_HISTORY_SESSIONS,
     build_metrics,
     build_normalized_profit_signals,
@@ -97,6 +98,7 @@ def rules_content_hash(
     """screening rules と panel input contract の semantic identity。"""
     return rules_contract_hash(
         rules.model_dump_json(),
+        valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
         variant=policy.variant,
         valuation_history_sessions=policy.valuation_history_sessions,
         bars_input_window_days=policy.bars_input_window_days,

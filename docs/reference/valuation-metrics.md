@@ -183,12 +183,12 @@ EDINET の自己株券買付状況報告書（様式コード 220、訂正 230�
 
 ## 9. 過去自己比較（過去 3 年レンジ）
 
-- **対象**: PER / PBR / EV-EBITDA
+- **対象**: PER / PBR / P/S / EV-EBITDA
 - **期間**: 直近 750 営業日（≒ 3 年）
 - **パーセンタイル**: 下位 20% / 下位 50% / 上位 50% / 上位 80%
 - **上場 3 年未満**: 上場来レンジで代替（[`./screening-runtime.md`](./screening-runtime.md) 参照）
 
-Historical EV/EBITDA は、各日の split-adjusted close で時価総額だけを変化させ、最新の発行済株式数・有利子負債・現金・TTM EBITDA を全期間に適用する近似で算出する。式は `(historical_adjustment_close * latest_shares_outstanding + latest_debt - latest_cash) / latest_ebitda_ttm` とし、balance sheet / EBITDA の時系列が無くても EV/EBITDA の定義を保つ。`adjustment_close` が欠損する場合は raw `close` にフォールバックする。必要項目が欠損する場合、EV がゼロ以下、または EBITDA がゼロ以下の場合は `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ price 基準（adjustment_close 優先）で算出するため、株式分割があっても history は連続になる。
+Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の株式分割基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ as-of 株式分割基準の price を使うため、株式分割があっても history は連続になる。
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 

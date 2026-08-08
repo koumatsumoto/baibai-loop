@@ -44,6 +44,7 @@ from .summaries import (
     _candidate_risk_tags,
     _decision_input_seed,
     _durability_counts,
+    _fair_value_anchors,
     _longlist_summary,
     _selection_candidate_summary,
     _sweep_candidate_summary,
@@ -300,6 +301,10 @@ def _selection_candidate(
         if item.price_change_20d is not None and benchmark_return_20d is not None
         else None
     )
+    metrics = dict(item.metrics)
+    valid_fair_values = _fair_value_anchors(metrics)
+    for key in ("fv_sector_median_yen", "fv_self_range_yen"):
+        metrics[key] = valid_fair_values.get(key)
     output: dict[str, object] = {
         "ticker": item.ticker,
         "name": item.name,
@@ -312,7 +317,7 @@ def _selection_candidate(
         "ev_ebitda": item.ev_ebitda,
         "p_s": item.p_s,
         "pcfr": item.pcfr,
-        "metrics": dict(item.metrics),
+        "metrics": metrics,
         "price_change_1d": item.price_change_1d,
         "price_change_5d": item.price_change_5d,
         "price_change_20d": item.price_change_20d,

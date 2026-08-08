@@ -101,6 +101,12 @@ class FinancialSnapshot:
     cfo: float | None = None
     cash_eq: float | None = None
     total_assets: float | None = None
+    # as-of の raw close。時価総額は自己株式を除いた株式数を分母にするため、発行済株式数で
+    # 逆算すると自己株比率だけ価格を過小にする。E[r] と selection 表示はこの観測値を使う。
+    market_price_yen: float | None = None
+    # 市場が値付けする株式数 (発行済 - 自己株式)。valuation history も現在倍率と同じ
+    # 資本分母で組み、自己株比率の変化ではなく価格変化だけを自己レンジへ反映する。
+    shares_ex_treasury: float | None = None
     market_cap: float | None = None
     cash_to_market_cap: float | None = None
     equity_ratio: float | None = None
@@ -183,6 +189,8 @@ class FinancialSnapshot:
         "cfo",
         "cash_eq",
         "total_assets",
+        "market_price_yen",
+        "shares_ex_treasury",
         "market_cap",
         "cash_to_market_cap",
         "equity_ratio",
