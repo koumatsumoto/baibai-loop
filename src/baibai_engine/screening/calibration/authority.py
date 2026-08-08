@@ -22,7 +22,6 @@ KNOWN_METRICS = frozenset(
         "margin_deadline_gate_top10",
         "margin_short_to_adv",
         "normalized_per_3fy",
-        "normalized_per_3fy_exploration",
     )
 )
 
