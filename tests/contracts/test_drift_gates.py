@@ -210,6 +210,29 @@ def test_legacy_semantics_gate_rejects_old_repository_paths_in_workflows(tmp_pat
     ]
 
 
+@pytest.mark.parametrize(
+    ("content", "matched"),
+    [
+        ("cd ui\nnpm test\n", "cd ui\n"),
+        ('"build": "npm --prefix ../../ui run build"\n', "../../ui "),
+        (
+            "See reports/2026-01-01-flat-study.md for evidence.\n",
+            "reports/2026-01-01-",
+        ),
+    ],
+)
+def test_legacy_semantics_gate_rejects_bare_ui_commands_and_flat_report_paths(
+    tmp_path: Path, content: str, matched: str
+) -> None:
+    path = tmp_path / "docs/reference/demo.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(content, encoding="utf-8")
+
+    assert check_legacy_semantics.check(tmp_path) == [
+        f"docs/reference/demo.md: obsolete repository path {matched!r}"
+    ]
+
+
 @pytest.mark.parametrize("filename", [".gitignore", ".env.sample"])
 def test_legacy_semantics_gate_rejects_old_repository_paths_in_root_config(
     tmp_path: Path, filename: str

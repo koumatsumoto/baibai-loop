@@ -43,16 +43,19 @@ def main(argv: list[str] | None = None) -> int:
     if error is not None:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    db_path = _resolved_store_path(root, args.db, "BAIBAI_DB", APPLICATION_DB_PATH)
+    runs_db_path = _resolved_store_path(root, args.runs_db, "BAIBAI_RUNS_DB", RUNS_DB_PATH)
     try:
-        reject_legacy_store_paths(root)
+        reject_legacy_store_paths(
+            root,
+            raw_arguments=(str(db_path), str(runs_db_path)),
+        )
     except LegacyStorePathError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     url = f"http://{_HOST}:{args.port}"
     if args.open_browser:
         webbrowser.open(url)
-    db_path = _resolved_store_path(root, args.db, "BAIBAI_DB", APPLICATION_DB_PATH)
-    runs_db_path = _resolved_store_path(root, args.runs_db, "BAIBAI_RUNS_DB", RUNS_DB_PATH)
     uvicorn.run(
         create_app(root, db_path=db_path, runs_db_path=runs_db_path),
         host=_HOST,

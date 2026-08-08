@@ -22,8 +22,10 @@ from pydantic import BaseModel
 
 from baibai_engine.read_api import (
     MACRO_READING_RULES_PATH,
+    LegacyStorePathError,
     MacroGranularity,
     MaterializationPreconditionError,
+    reject_legacy_store_paths,
     screening_run_asof_dates,
     validate_application_store_schema,
     validate_macro_reading_rules,
@@ -425,6 +427,11 @@ def main(argv: list[str] | None = None) -> int:
     if error is not None:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    try:
+        reject_legacy_store_paths(root)
+    except LegacyStorePathError as legacy_error:
+        print(f"error: {legacy_error}", file=sys.stderr)
+        return 2
     output_dir = args.output_dir.resolve()
     try:
         written = export_read_models(root, output_dir, batch=_batch_kind(args.batch))

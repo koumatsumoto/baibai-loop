@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build:ui": "npm --prefix ../../ui run build",
+    "build:ui": "npm --prefix ../frontend run build",
     "deploy": "npm run build:ui && wrangler deploy",
     "dev": "wrangler dev",
     "test": "vitest run",

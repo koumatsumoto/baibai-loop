@@ -37,6 +37,8 @@ _BEHAVIOR_LEGACY = re.compile(
 
 _REPOSITORY_PATH_LEGACY = re.compile(
     r"(?:^|[\s`\"'(])src/baibai_(?:engine|app)|(?:^|[\s`\"'(])ui/|"
+    r"(?:^|[\s`])cd\s+ui(?:/|\s|$)|(?:\.\./)+ui(?:/|\s|[\"'])|"
+    r"reports/\d{4}-\d{2}-\d{2}-|"
     r"cloud/worker|tools/cloud|data/(?:app|screening|indicators)|"
     r"method/(?:macro-panel|screening-rules|macro-reading|playbooks)",
     re.IGNORECASE,

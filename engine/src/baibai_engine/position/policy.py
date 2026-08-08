@@ -27,7 +27,8 @@ PORTFOLIO_POLICY: dict[str, Any] = {
     # 機械 E[r] 上位群は 3y/5y の全 cohort で母集団を上回る一方、正規化と据え置き倍率を
     # 積んだ research の base は要求 8.5% に届かず全件棄却になっていた。その乖離を
     # 観測ゼロのままにしないための bounded な経路であり、永久損失 7 軸・独立レビュー・
-    # human override は一切緩めない。計測は reports/2026-08-06-bargain-capture-diagnosis.md。
+    # human override は一切緩めない。計測は
+    # reports/studies/2026-08-06-bargain-capture-diagnosis/report.md。
     "starter_band": {
         "required_return_floor_pct": 7.0,
         "required_return_ceiling_pct": 8.5,

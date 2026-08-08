@@ -349,7 +349,7 @@ def calibration_evaluate_command(
                 # conclusions: the cohort blocks when the sign of a conclusion moves
                 # between giving those names a total loss and giving them what the
                 # rest of the cohort returned. Pre-registered in
-                # reports/2026-07-31-delisting-exclusion-preregistration.md.
+                # reports/studies/2026-07-31-delisting-exclusion/preregistration.md.
                 sensitivity = coverage.get("delisting_exclusion")
                 if isinstance(sensitivity, dict) and not sensitivity.get("direction_stable"):
                     blockers.append("unpriced_exit_flips_direction")

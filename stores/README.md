@@ -48,3 +48,5 @@ schema/write invariants は [`tests/engine`](../tests/engine)、transfer/merge �
 
 schema変更は対応codeをmainへ入れてからcloudへ反映する。移行時は backup、`quick_check`、schema、
 required tables、canonical row/head/ledger identity を確認し、旧pathが残る状態ではruntimeを起動しない。
+layoutのforward/rollbackは[Batch operations](../batch/OPERATIONS.md#repository-store-layout-の-cutover-と-rollback)
+のdry-run付きone-time commandを使い、codeだけを先に切り替えない。

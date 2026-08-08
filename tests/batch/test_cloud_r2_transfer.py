@@ -96,6 +96,7 @@ for argument in "$@"; do
     baibai_batch.storage.merge_indicator_store) script=merge ;;
     baibai_batch.storage.merge_market_store) script=merge ;;
     baibai_batch.storage.migrate_store) script=migrate ;;
+    baibai_batch.validation.repository_layout) script=layout ;;
   esac
 done
 case "${script}" in
@@ -120,6 +121,9 @@ case "${script}" in
   migrate)
     printf 'migrate %s\\n' "$*" >> "$AWS_LOG"
     exit "${MIGRATE_FAKE_EXIT:-0}"
+    ;;
+  layout)
+    exit "${LAYOUT_FAKE_EXIT:-0}"
     ;;
   *)
     exit 2
@@ -146,6 +150,27 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
     }
     environment.pop("GITHUB_ACTIONS", None)
     return environment
+
+
+def test_transfer_rejects_a_split_layout_before_loading_credentials(tmp_path: Path) -> None:
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["LAYOUT_FAKE_EXIT"] = "2"
+    for name in ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"):
+        environment.pop(name)
+
+    completed = subprocess.run(
+        [root / "batch/scripts/r2_transfer.sh", "pull-machine"],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert _transfer_commands(log) == []
 
 
 def _transfer_commands(log: Path) -> list[str]:

@@ -193,7 +193,15 @@ uv run --with pillow pytest -n 0 tests/tools/test_brand_assets.py
 uv run bandit -c pyproject.toml -q -r engine/src/baibai_engine web/backend/src/baibai_web batch/src/baibai_batch tools
 uv export --format requirements.txt --locked --all-groups --no-emit-project --no-hashes --output-file /tmp/baibai-loop-requirements.txt
 uv run pip-audit -r /tmp/baibai-loop-requirements.txt
-uv build --wheel
+distribution_dir="$(mktemp -d)"
+uv build --wheel --sdist --out-dir "$distribution_dir"
+wheel_path="$(find "$distribution_dir" -maxdepth 1 -type f -name '*.whl' -print -quit)"
+sdist_path="$(find "$distribution_dir" -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+uv run python tools/quality/check_distribution.py --wheel "$wheel_path" --sdist "$sdist_path"
+distribution_venv="$(mktemp -d)"
+uv venv "$distribution_venv"
+uv pip install --python "$distribution_venv/bin/python" "$wheel_path"
+"$distribution_venv/bin/python" tools/quality/check_distribution.py --installed
 ```
 
 brand asset の 2 行が `--with pillow` を挟むのは、Pillow を lock の外に置いているためである。通常の `pytest` では `tests/tools/test_brand_assets.py` が `importorskip` で丸ごと skip され、破れが緑のまま通る。import できることを先に確かめてから走らせて、この fail-open を塞ぐ。
@@ -201,21 +209,21 @@ brand asset の 2 行が `--with pillow` を挟むのは、Pillow を lock の�
 Node dependency gate は各 lockfile を直接監査する。
 
 ```bash
-cd ui
+cd web/frontend
 npm audit --package-lock-only --audit-level=high
-cd ../web/edge
+cd ../edge
 npm audit --package-lock-only --audit-level=high
 ```
 
 UI（`web/frontend/`）と Cloudflare Worker（`web/edge/`）は、同じ web job で次の順に検証する。UI は依存を 1 回だけ install して lint / build / test を通し、その build artifact を含む checkout のまま Worker の型生成・型検査・test・dry-run bundle を検証する。
 
 ```bash
-cd ui
+cd web/frontend
 npm ci
 npm run lint
 npm run build
 npm test
-cd ../web/edge
+cd ../edge
 npm ci
 npm run types:check
 npm run typecheck

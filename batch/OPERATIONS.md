@@ -82,6 +82,43 @@ web/edge/scripts/verify-deployment.sh
 
 ## 日常運用
 
+### repository store layout の cutover と rollback
+
+repository更新でstore layoutが変わるときは、codeだけを切り替えてruntimeを起動しない。
+全local writer（engine CLI、Web backend、batch）を停止し、現在checkoutしている新codeから
+次のone-time commandを実行する。既定はread-onlyのdry-runで、4 SQLiteの
+`integrity_check` / `foreign_key_check` / schema / required tables、application DBの全table
+row count / ledger append head / logical dump identity、calibration tree manifest、同一filesystem
+を検査する。
+
+```bash
+uv run python -m baibai_batch.storage.store_layout_migration forward --dry-run
+uv run python -m baibai_batch.storage.store_layout_migration forward --apply
+```
+
+`--apply`はapplication DBのSQLite snapshotを`stores/application/backups/`へ作り、その
+logical identityを確認してから各resourceを同一filesystem内でLinuxのatomic no-replace rename
+で移動する。rename後も
+移動前と同じinode・schema・table・row/head/ledger identityであることを検査する。途中のmove
+または検査が失敗した場合は、完了済みrenameを逆順に戻して非0で停止する。sourceとdestination
+が両方存在する場合は片方を推測・merge・削除せず、書き込み前に停止する。
+
+旧codeへ戻す必要があるときは、**旧codeをcheckoutまたは起動する前に**同じ新codeから逆方向を
+適用する。
+
+```bash
+uv run python -m baibai_batch.storage.store_layout_migration rollback --dry-run
+uv run python -m baibai_batch.storage.store_layout_migration rollback --apply
+git checkout <verified-old-revision>
+```
+
+新codeへ復帰するときは新revisionをcheckoutした直後、どのruntimeも起動する前に`forward`を
+再適用する。repository layout guardは旧layoutが残る間、通常runtimeを意図的に拒否する。
+SQLite sidecarがある場合はwriter停止・checkpointが完了していないため移行しない。backupを
+含む実行結果とdry-run結果を保持し、canonical application DBが片側に1つだけあることを確認する。
+この逆方向操作はpathのrollbackであってschema downgradeではない。旧revisionが各storeの表示された
+schema versionを読めることを、そのrevisionのschema定義とtestで確認してからcheckoutする。
+
 ### クラウド正本をローカルへ取得する
 
 shortlist / research / macro-context の運用を始める前に、クラウド正本のmachine storeをローカルへ取得する。

@@ -131,4 +131,14 @@ jobs:
             -r /tmp/baibai-loop-requirements.txt
 
       - name: Build package
-        run: uv build --wheel
+        run: |
+          uv build --wheel --sdist
+          wheel_path="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          sdist_path="$(find dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          uv run python tools/quality/check_distribution.py \
+            --wheel "$wheel_path" \
+            --sdist "$sdist_path"
+          distribution_venv="$(mktemp -d)"
+          uv venv "$distribution_venv"
+          uv pip install --python "$distribution_venv/bin/python" "$wheel_path"
+          "$distribution_venv/bin/python" tools/quality/check_distribution.py --installed

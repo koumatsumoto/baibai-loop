@@ -19,7 +19,8 @@ carry を「これから受け取る現金還元」と読むと過大評価に�
 
 **この annotation は E[r]・ranking・gate を変えない。** 較正リプレイでは、株数減少群は
 取得が単発で終わった銘柄も含めて母集団を上回っており、carry を落とす変更は実在する
-予測情報を削る。計測は `reports/2026-08-06-bargain-capture-diagnosis.md` にある。ここで
+予測情報を削る。計測は
+`reports/studies/2026-08-06-bargain-capture-diagnosis/report.md` にある。ここで
 出すのは、その carry が forward の現金還元なのか資本配分の質のマーカーなのかを
 research が判断するための素材である。
 

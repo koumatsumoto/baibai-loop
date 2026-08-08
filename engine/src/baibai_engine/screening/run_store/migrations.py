@@ -130,5 +130,7 @@ MIGRATIONS = (
     ),
 )
 
+RUN_STORE_SCHEMA_VERSION = MIGRATIONS[-1].version
 
-__all__ = ["MIGRATIONS", "Migration"]
+
+__all__ = ["MIGRATIONS", "RUN_STORE_SCHEMA_VERSION", "Migration"]

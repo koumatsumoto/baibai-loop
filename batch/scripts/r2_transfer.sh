@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+(cd "${repo_root}" && uv run python -m baibai_batch.validation.repository_layout)
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 serving_bucket="${R2_SERVING_BUCKET:-baibai-serving}"
 copy_read_timeout=300

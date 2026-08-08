@@ -7,7 +7,7 @@ question with a different vocabulary and is wired into the snapshot commands; th
 two are unrelated.
 
 Definitions and thresholds are fixed in
-reports/2026-07-31-market-regime-v2-preregistration.md and are not tuned here.
+reports/studies/2026-07-31-market-regime-v2/preregistration.md and are not tuned here.
 """
 
 from __future__ import annotations

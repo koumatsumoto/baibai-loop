@@ -9,6 +9,8 @@ status: active
 
 Baibai Loop は単一 distribution の中で、唯一の writer である `baibai_engine`、read-only presentation の `baibai_web`、non-request-driven orchestration の `baibai_batch` を分離する。application data は application DB、再生成可能な分析結果は専用 store、production methodology と presentation config は Git を正本とする。
 
+実行・開発・運用環境は Ubuntu Linux のみをサポートする。CI と運用scriptも Ubuntu、POSIX path、GNU/Linux filesystem primitive を前提とし、Windows / macOS 向けの互換層は持たない。
+
 ```text
 baibai-loop/
 ├── engine/src/baibai_engine/

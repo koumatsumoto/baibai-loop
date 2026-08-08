@@ -34,7 +34,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not {"-h", "--help"}.intersection(args.arguments):
         try:
-            reject_legacy_store_paths()
+            reject_legacy_store_paths(raw_arguments=args.arguments)
         except LegacyStorePathError as error:
             print(f"error: {error}", file=sys.stderr)
             return 2
