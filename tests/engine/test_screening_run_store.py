@@ -22,7 +22,10 @@ from baibai_engine.screening.run_store import (
 )
 from baibai_engine.screening.run_store import read as run_store_read
 from baibai_engine.screening.run_store.migrations import MIGRATIONS
-from baibai_engine.screening.run_store.store import _application_git_commit
+from baibai_engine.screening.run_store.store import (
+    _application_git_commit,
+    unchanged_application_git_commit,
+)
 
 
 def _run(
@@ -72,11 +75,11 @@ def _selection(ticker: str = "1301") -> dict[str, object]:
 def test_run_store_has_independent_forward_schema(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
 
-    assert initialize_run_store(database) == 2
-    assert initialize_run_store(database) == 2
+    assert initialize_run_store(database) == 3
+    assert initialize_run_store(database) == 3
 
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         tables = {
             row[0]
             for row in connection.execute(
@@ -93,6 +96,11 @@ def test_run_store_has_independent_forward_schema(tmp_path: Path) -> None:
             row[1] for row in connection.execute("PRAGMA table_info(screening_run)").fetchall()
         }
         assert "application_git_commit" in columns
+        selection_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(screening_selection)").fetchall()
+        }
+        assert "application_git_commit" in selection_columns
 
 
 def test_v1_migration_verifies_candidate_rows_before_compacting_payload(tmp_path: Path) -> None:
@@ -100,7 +108,7 @@ def test_v1_migration_verifies_candidate_rows_before_compacting_payload(tmp_path
     payload = _run()
     _write_v1_run(database, payload, run_revision_id="run-v1")
 
-    assert initialize_run_store(database) == 2
+    assert initialize_run_store(database) == 3
 
     with sqlite3.connect(database) as connection:
         stored = json.loads(connection.execute("SELECT payload FROM screening_run").fetchone()[0])
@@ -152,9 +160,9 @@ def test_v1_migration_is_safe_under_concurrent_initialization(tmp_path: Path) ->
     with ThreadPoolExecutor(max_workers=4) as executor:
         versions = list(executor.map(lambda _: initialize_run_store(database), range(4)))
 
-    assert versions == [2, 2, 2, 2]
+    assert versions == [3, 3, 3, 3]
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         assert len(connection.execute("PRAGMA table_info(screening_run)").fetchall()) == 10
 
 
@@ -266,15 +274,47 @@ def test_application_git_commit_is_bound_to_application_repository(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Path(__file__).resolve().parents[2]
-    expected = subprocess.run(
-        ["git", "-C", str(repository), "rev-parse", "--verify", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    expected = "a" * 40
+    calls: list[list[str]] = []
+
+    def fake_run(arguments: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        output = "" if "status" in arguments else f"{expected}\n"
+        return subprocess.CompletedProcess(arguments, 0, stdout=output, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.chdir(tmp_path)
 
     assert _application_git_commit() == expected
+    assert len(calls) == 2
+    assert all(call[1:3] == ["-C", str(repository)] for call in calls)
+
+
+def test_application_git_commit_is_unavailable_for_a_dirty_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(arguments: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, stdout=" M engine/source.py\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert _application_git_commit() is None
+    assert len(calls) == 1
+    assert "status" in calls[0]
+
+
+def test_starting_commit_is_invalidated_when_clean_head_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "baibai_engine.screening.run_store.store.application_git_commit",
+        lambda: "b" * 40,
+    )
+
+    assert unchanged_application_git_commit("a" * 40) is None
 
 
 def test_identical_run_metadata_does_not_hide_candidate_drift(tmp_path: Path) -> None:
@@ -323,7 +363,8 @@ def test_run_parent_and_candidates_are_one_transaction(tmp_path: Path) -> None:
 
 def test_selection_binds_explicit_run_and_read_facade_exposes_metadata(tmp_path: Path) -> None:
     database = tmp_path / "runs.sqlite"
-    store = ScreeningRunStore(database)
+    commit = "a" * 40
+    store = ScreeningRunStore(database, git_commit_factory=lambda: commit)
     store.publish_run(_run(), run_revision_id="run-revision-fixture")
 
     result = store.publish_selection(
@@ -351,6 +392,7 @@ def test_selection_binds_explicit_run_and_read_facade_exposes_metadata(tmp_path:
     assert publication.as_of == "2026-07-08"
     assert publication.profile == "default"
     assert publication.macro_context_id == "macro-context-2026-07-08-base"
+    assert publication.application_git_commit == commit
     assert publication.payload == _selection()
     assert publication.entries == tuple(_selection()["recommendations"])  # type: ignore[arg-type]
     with sqlite3.connect(database) as connection:

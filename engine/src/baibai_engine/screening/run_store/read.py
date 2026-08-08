@@ -35,6 +35,7 @@ class SelectionPublication:
     publication_kind: str
     created_at: str
     source_selection_id: str | None
+    application_git_commit: str | None
     payload: dict[str, Any]
     entries: tuple[dict[str, Any], ...]
 
@@ -226,6 +227,7 @@ def _selection_from_row(connection: sqlite3.Connection, row: sqlite3.Row) -> Sel
         source_selection_id=(
             None if row["source_selection_id"] is None else str(row["source_selection_id"])
         ),
+        application_git_commit=_application_git_commit(row),
         payload=dict(decode_payload(row["payload"])),
         entries=tuple(dict(decode_payload(item[0])) for item in entries),
     )

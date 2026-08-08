@@ -16,15 +16,16 @@ description: 買い機会の発見と絞り込み。screening run → select →
 
 ## 手順
 
-1. **データ準備**（日次 batch が当日分を完走済みなら、batch が publish した run / selection を再利用して 4 へ。同一 as-of の `screening run` 打ち直しは 3 世代 retention を焼くので行わない）:
+1. **preflight とデータ準備**: run を作る前に cloud batch と local store と checked-out code を一度に突き合わせる。
 
    ```bash
-   # batch の成果物を再利用する場合の ID 取得（最新 selection とその bound run）
-   sqlite3 stores/screening/runs.sqlite \
-     "SELECT selection_id, run_revision_id, created_at FROM screening_selection \
-      ORDER BY created_at DESC LIMIT 3;"
+   shortlist_preflight_dir=$(mktemp -d /tmp/baibai-shortlist-preflight.XXXXXX)
+   batch/scripts/r2_transfer.sh pull-run-summary "$shortlist_preflight_dir/latest-run.json"
+   uv run baibai-engine screening shortlist preflight \
+     --asof <ASOF> --cloud-summary "$shortlist_preflight_dir/latest-run.json"
    ```
 
+   local run store に cloud publication が無ければ `batch/scripts/r2_transfer.sh pull-runs` で cloud 正本だけを取り込み、preflight を再実行する。`decision: reuse` なら表示された `selection_id` を `screening selection show` で取得して手順 4 へ進み、同一 as-of の `run` / `select` は実行しない。`decision: resume-current-code` なら表示された `run_revision_id` で手順 3 だけを 1 回実行する。`decision: rerun-current-code` のときだけ手順 2・3 を各 1 回実行する。`previous.status: ambiguous` なら candidate の run ID を選び、同じ preflight に `--previous-run-revision-id <ID>` を足して再実行する。`decision: blocked` は理由を解消するまで run を作らない。preflight 後に HEAD または as-of が変わったら古い判定を使わず再実行する。
 
    ```bash
    uv run baibai-engine screening verify-cache-coverage --asof <ASOF>
@@ -34,7 +35,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
 
    coverage が future-dated / stale JPX なら停止（historical backfill 以外で `--allow-stale-jpx` を使わない）。
 2. `uv run baibai-engine screening run --asof <ASOF>` → `run_revision_id` を保持。
-3. `uv run baibai-engine screening select --asof <ASOF> --run-revision-id <ID> --longlist-top 20 --output-path <workdir>/selection.yaml` → `selection_id` を保持。longlist 20 件は点検 view であり全件深掘りの命令ではない。`--longlist-top` は publish 時の機械行焼き込みの入力でもあるので省略しない（省略すると run が prune された後にレビュー面の機械値が消える）。
+3. `uv run baibai-engine screening select --asof <ASOF> --run-revision-id <ID> <PREVIOUS_ARGS> --longlist-top 20 --output-path <workdir>/selection.yaml` → `selection_id` を保持。`<PREVIOUS_ARGS>` は preflight の `previous.selection_arguments` をそのまま渡す（`previous.status: missing` だけは省略）。これにより canonical previous を別 revision へ置換せず、prune 済みなら application DB の retained shortlist entries を明示利用する。longlist 20 件は点検 view であり全件深掘りの命令ではない。`--longlist-top` は publish 時の機械行焼き込みの入力でもあるので省略しない（省略すると run が prune された後にレビュー面の機械値が消える）。
 4. **供給文脈**: 手順 3 で保持した `selection_id` を渡して当日の座標を控える。
 
    ```bash
@@ -43,7 +44,8 @@ description: 買い機会の発見と絞り込み。screening run → select →
 
    当日 selection 上位 5 の平均 E[r] が 80 か月 panel のどこにいるかと、最新月末 panel 基準の hurdle 超え件数が出る。cycle が購入ゼロで終わったときに「市況で候補が薄いのか、pipeline が拾えていないのか」を分ける座標なので、**2 つを 1 語へ畳まず両方を報告へ載せる**。逆を向くことは普通に起きる。
 
-5. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。あわせて `uv run python -m baibai_engine.research_watch --db stores/application/baibai.sqlite --sqlite-path stores/market/market.sqlite --asof <ASOF>` を回し、深掘り済み ticker の現在価格と研究 FV の位置を控える（手順 7 の再研究判定に使う）。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 longlist の top-N なので、重なり率をこの 2 つの間で比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
+5. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。あわせて `uv run python -m baibai_engine.research_watch --db stores/application/baibai.sqlite --sqlite-path stores/market/market.sqlite --asof <ASOF>` を回し、深掘り済み ticker の現在価格と研究 FV の位置を控える（手順 7 の再研究判定に使う）。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 daily longlist の top-N、`canonical_shortlist` なら人間が確認して保持した shortlist entries なので、異なる source 間で重なり率を比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
+   canonical previous は preflight の `previous` と手順 3 の引数で固定済みである。`resolved` は greatest prior as-of の run revision、`resolved-shortlist` は run が prune 済みのため application DB の同日 canonical shortlist に焼き込まれた entries を使う状態である。`canonical-unavailable` は retained entries も読めないため block のままとし、同日別 revision へ代替しない。
 6. **開示スキャン**: selected 候補（full review では全候補）の直近開示をタイトルレベルで確認し、as-of 財務に無い material 開示（業績修正・資本政策・TOB 等）を narrative の `why` / `counter` へ反映する。
 7. **annotation 消化**（不変条件: 判断面へ annotation を足す変更は、この表へ消化規則を同時に足す）:
 
@@ -75,9 +77,9 @@ description: 買い機会の発見と絞り込み。screening run → select →
    9. rejected 全件に具体的理由と `reject_class`（disposition_reason が正本、class は集計専用）
 
 9. **publish**: [`assets/draft-template.yaml`](./assets/draft-template.yaml) を写して記入し、source `selection_id` へ束縛して `uv run baibai-engine screening shortlist publish <draft>`。publisher が longlist 行（rank・FV アンカー・参考価格・warning）を entry へ焼き込むので、run が prune された後もレビュー面が判断根拠を読める。selected に入れるのは **narrative を書ける entry だけ**で、件数の下限は無い。基準を下げて枠を埋めない（selected 0 件も正常で、その cycle は shortlist が正本判断になり session をここで complete する）。rejected を含む entries は longlist 全件で可。draft に `er_annual` を書かない（publisher が bound run から焼き込む）。
-10. **検証**: publish された全 entry の焼き込み E[r] を bound run と機械照合する。stderr に印字される follow-up task 提案（rejected の決算日 re-entry trigger）から `task add` を実行する。
+10. **検証**: publish された全 entry の焼き込み E[r] を bound run と機械照合する。stderr の follow-up 提案は、`fin_latest_disclosed_date >= event_date` の event と publish 時点より過去の due を出さない。消化済み event は次の公表済み日程、次いで将来の estimated date、どちらも無ければ undated condition へ進む。日付付きの提案だけを確認して `task add` で起票し、undated condition は次回日程の公表または新規 material 開示時に再評価する。
 11. **cloud 反映**: `batch/scripts/r2_transfer.sh push-app` → `gh workflow run cloud-materialize` → run の completed success を確認。
-12. **checkpoint と報告**: session checkpoint を更新し、レビュー面（`/stocks/shortlist`）へ誘導する報告を出す。各 ticker に TradingView link（`https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`）を付け、機械順位との乖離・残 risk を明記する。人間の選択を待つ（session は active のまま `research` skill へ）。
+12. **checkpoint と報告**: selected が 1 件以上なら session checkpoint を更新し、レビュー面（`/stocks/shortlist`）へ誘導する報告を出す。各 ticker に TradingView link（`https://jp.tradingview.com/chart/fJupN99c/?symbol=TSE%3A<code>`）を付け、機械順位との乖離・残 risk を明記する。人間の選択を待つ（session は active のまま `research` skill へ）。selected 0 件なら、人間確認を `not applicable` で偽装せず、published shortlist artifact（`kind: shortlist`、`selected_count: 0`）と `canonical_refs`、`completion_reason: no-shortlist-selection`、`result`、`next` を持つ final payload で opportunity session を complete する。`human_confirmation` は省略する。
 
 ## 既知の gotcha
 

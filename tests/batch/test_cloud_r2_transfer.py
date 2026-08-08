@@ -429,6 +429,51 @@ def test_pull_longlist_history_refuses_to_overwrite_a_local_target(tmp_path: Pat
     assert not log.exists()
 
 
+def test_pull_run_summary_reads_one_serving_object_without_overwrite(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+    output = tmp_path / "preflight/latest-run.json"
+
+    subprocess.run(
+        [TRANSFER_SCRIPT, "pull-run-summary", output],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=True,
+    )
+
+    assert output.is_file()
+    commands = _transfer_commands(log)
+    assert len(commands) == 1
+    assert "s3://baibai-serving/system/latest-run.json" in commands[0]
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "pull-run-summary", output],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 2
+    assert "refusing run summary download overwrite" in completed.stderr
+
+
+def test_pull_run_summary_refuses_an_option_like_target(tmp_path: Path) -> None:
+    bin_dir, log = _fake_aws(tmp_path)
+
+    completed = subprocess.run(
+        [TRANSFER_SCRIPT, "pull-run-summary", "--profile"],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "refusing option-like run summary path" in completed.stderr
+    assert not log.exists()
+
+
 APP_STORE = REPO_ROOT / "stores/application/baibai.sqlite"
 
 
@@ -479,8 +524,25 @@ def test_only_the_application_pull_names_the_application_store() -> None:
         or command == "pull-app"
     }
 
-    assert pulls == {"pull-app", "pull-machine", "pull-market", "pull-longlist-history"}
+    assert pulls == {
+        "pull-app",
+        "pull-machine",
+        "pull-market",
+        "pull-runs",
+        "pull-longlist-history",
+        "pull-run-summary",
+    }
     assert naming_app == {"pull-app"}
+
+
+def test_pull_runs_is_scoped_to_the_cloud_authoritative_run_store() -> None:
+    script = TRANSFER_SCRIPT.read_text(encoding="utf-8")
+    dispatch = script[script.index('case "${1:-}" in') :]
+    block = dispatch.split("  pull-runs)")[1].split(";;")[0]
+
+    assert "pull_keys runs.sqlite" in block
+    assert "market.sqlite" not in block
+    assert "macro.sqlite" not in block
 
 
 @pytest.mark.parametrize("subcommand", ["upload-serving-views", "publish-serving-tail"])

@@ -243,6 +243,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="explicit previous revision when the greatest prior as-of is ambiguous",
     )
     select_parser.add_argument(
+        "--previous-shortlist-id",
+        help="canonical shortlist whose retained entries replace a pruned previous run",
+    )
+    select_parser.add_argument(
         "--longlist-history-dir",
         help=(
             "persisted daily longlist records, used as the previous candidate set "
@@ -321,6 +325,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="publish a shortlist judgment",
     )
     shortlist_commands = shortlist_parser.add_subparsers(dest="shortlist_command", required=True)
+    shortlist_preflight = shortlist_commands.add_parser(
+        "preflight",
+        help="choose cloud-result reuse or one current-code rerun before consuming retention",
+    )
+    shortlist_preflight.add_argument("--asof", required=True, help="target date (YYYY-MM-DD)")
+    shortlist_preflight.add_argument(
+        "--cloud-summary",
+        required=True,
+        help="latest workflow run summary downloaded with r2_transfer.sh pull-run-summary",
+    )
+    shortlist_preflight.add_argument("--db", help="application DB path")
+    shortlist_preflight.add_argument("--runs-db", help="screening run store path")
+    shortlist_preflight.add_argument(
+        "--previous-run-revision-id",
+        help="explicit greatest-prior run when preflight reports ambiguous previous publications",
+    )
+    shortlist_preflight.add_argument(
+        "--repo-root", default=".", help="repository root whose checked-out commit is evaluated"
+    )
     shortlist_publish = shortlist_commands.add_parser(
         "publish",
         help="publish a shortlist draft as an immutable judgment bound to a screening run",
@@ -517,6 +540,7 @@ def main(argv: list[str] | None = None) -> int:
             app_db_path=Path(args.app_db) if args.app_db else None,
             macro_context_id=args.macro_context_id,
             previous_run_revision_id=args.previous_run_revision_id,
+            previous_shortlist_id=args.previous_shortlist_id,
             longlist_history_dir=(
                 Path(args.longlist_history_dir) if args.longlist_history_dir else None
             ),
@@ -544,6 +568,28 @@ def main(argv: list[str] | None = None) -> int:
             horizons=args.horizons,
             output_path=Path(args.out) if args.out else None,
         )
+
+    if args.command == "shortlist" and args.shortlist_command == "preflight":
+        import sqlite3
+
+        import yaml
+
+        from baibai_engine.screening.shortlist_preflight import shortlist_preflight
+
+        try:
+            report = shortlist_preflight(
+                as_of=_parse_iso_date(args.asof),
+                cloud_summary_path=Path(args.cloud_summary),
+                runs_db_path=Path(args.runs_db) if args.runs_db else RUNS_DB_PATH,
+                app_db_path=Path(args.db) if args.db else APPLICATION_DB_PATH,
+                repo_root=Path(args.repo_root),
+                previous_run_revision_id=args.previous_run_revision_id,
+            )
+        except (OSError, ValueError, sqlite3.Error) as error:
+            print(f"shortlist preflight failed: {error}", file=sys.stderr)
+            return 1
+        yaml.safe_dump(report, sys.stdout, sort_keys=False, allow_unicode=True)
+        return 1 if report["decision"] == "blocked" else 0
 
     if args.command == "shortlist":
         from baibai_engine.screening.shortlist_cli import publish_shortlist

@@ -60,18 +60,23 @@ class CandidateRecord:
     pcfr: float | None = None
 
 
-type PreviousCandidatesSource = Literal["run_revision", "longlist_history"]
+type PreviousCandidatesSource = Literal[
+    "run_revision",
+    "longlist_history",
+    "canonical_shortlist",
+]
 
 
 @dataclass(frozen=True, slots=True)
 class PreviousCandidates:
     """The earlier side of the new / continued / exited comparison.
 
-    ``source`` states which population ``tickers`` came from, because the two
-    sources have different sizes: a run revision carries every candidate of the
-    prior as-of, a persisted longlist carries only its top-N. The overlap ratio and
-    the previous-candidate cap both read differently under each, so the selection
-    reports the source instead of leaving the denominator implicit.
+    ``source`` states which population ``tickers`` came from because their sizes
+    differ: a run revision carries every candidate of the prior as-of, a persisted
+    daily longlist carries its top-N, and a canonical shortlist carries the retained
+    entries reviewed by the human. The overlap ratio and previous-candidate cap read
+    differently under each, so the selection reports the source instead of leaving
+    the denominator implicit.
     """
 
     ref_path: str | None

@@ -15,6 +15,7 @@ SessionKind = Literal[
     "annual-outcome",
 ]
 OperationStatus = Literal["active", "completed"]
+CompletionReason = Literal["no-shortlist-selection"]
 
 
 class HumanConfirmation(BaseModel):
@@ -33,6 +34,7 @@ class OperationPayload(BaseModel):
     artifacts: tuple[dict[str, JsonValue], ...] = ()
     canonical_refs: tuple[str, ...] = ()
     human_confirmation: HumanConfirmation | None = None
+    completion_reason: CompletionReason | None = None
     result: str | None = Field(default=None, min_length=1)
     next: str | None = Field(default=None, min_length=1)
 
@@ -76,6 +78,7 @@ SESSION_KINDS: tuple[SessionKind, ...] = (
 
 __all__ = [
     "SESSION_KINDS",
+    "CompletionReason",
     "HumanConfirmation",
     "OperationPayload",
     "OperationSession",

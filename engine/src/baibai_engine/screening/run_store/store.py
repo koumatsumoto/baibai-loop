@@ -114,7 +114,7 @@ class ScreeningRunStore:
     ) -> None:
         self._path = path
         self._id_factory = id_factory
-        self._git_commit_factory = git_commit_factory or _application_git_commit
+        self._git_commit_factory = git_commit_factory or application_git_commit
 
     def publish_run(
         self,
@@ -273,6 +273,7 @@ class ScreeningRunStore:
         identifier = selection_id or f"selection-{self._id_factory().hex}"
         timestamp = (created_at or datetime.now(UTC)).isoformat()
         payload_json = canonical_json(payload)
+        application_git_commit = _normalize_git_commit(self._git_commit_factory())
         initialize_run_store(self._path)
         with closing(connect_rw(self._path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -301,7 +302,7 @@ class ScreeningRunStore:
                 existing = connection.execute(
                     """
                     SELECT run_revision_id, publication_kind, profile, macro_context_id,
-                           source_selection_id, payload
+                           source_selection_id, payload, application_git_commit
                     FROM screening_selection WHERE selection_id = ?
                     """,
                     (identifier,),
@@ -313,6 +314,7 @@ class ScreeningRunStore:
                     macro_context_id,
                     source_selection_id,
                     payload_json,
+                    application_git_commit,
                 )
                 if existing is not None:
                     actual = tuple(existing)
@@ -326,8 +328,9 @@ class ScreeningRunStore:
                     """
                     INSERT INTO screening_selection (
                         selection_id, run_revision_id, publication_kind, profile,
-                        macro_context_id, created_at, source_selection_id, payload
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        macro_context_id, created_at, source_selection_id, payload,
+                        application_git_commit
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         identifier,
@@ -338,6 +341,7 @@ class ScreeningRunStore:
                         timestamp,
                         source_selection_id,
                         payload_json,
+                        application_git_commit,
                     ),
                 )
                 for ordinal, entry in enumerate(entries):
@@ -630,7 +634,7 @@ def decode_payload(value: object) -> Mapping[str, Any]:
     return decoded
 
 
-def _application_git_commit() -> str | None:
+def application_git_commit() -> str | None:
     source_root = Path(__file__).resolve().parents[5]
     if not (
         (source_root / ".git").exists()
@@ -639,7 +643,25 @@ def _application_git_commit() -> str | None:
     ):
         return None
     try:
-        # The argument vector and application source root are fixed above.
+        # A commit identifies generated output only when the application tree is
+        # clean. Dirty code can change candidates without changing HEAD, so storing
+        # that HEAD would make a later clean checkout falsely reusable.
+        status = subprocess.run(  # nosec B603, B607
+            [
+                "git",
+                "-C",
+                str(source_root),
+                "status",
+                "--porcelain",
+                "--untracked-files=normal",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if status.stdout:
+            return None
         result = subprocess.run(  # nosec B603, B607
             ["git", "-C", str(source_root), "rev-parse", "--verify", "HEAD"],
             check=True,
@@ -651,6 +673,20 @@ def _application_git_commit() -> str | None:
         return None
     commit = result.stdout.strip().lower()
     return commit if re.fullmatch(r"[0-9a-f]{40,64}", commit) else None
+
+
+def unchanged_application_git_commit(initial_commit: str | None) -> str | None:
+    """Return the clean starting commit only while it still identifies the tree."""
+
+    if initial_commit is None:
+        return None
+    return initial_commit if application_git_commit() == initial_commit else None
+
+
+def _application_git_commit() -> str | None:
+    """Compatibility alias for tests and internal callers of the original helper."""
+
+    return application_git_commit()
 
 
 def _normalize_git_commit(value: str | None) -> str | None:
@@ -668,8 +704,10 @@ __all__ = [
     "RunStoreConflictError",
     "RunStoreNotFoundError",
     "ScreeningRunStore",
+    "application_git_commit",
     "connect_rw",
     "decode_payload",
     "initialize_run_store",
     "run_store_path",
+    "unchanged_application_git_commit",
 ]

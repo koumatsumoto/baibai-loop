@@ -153,9 +153,11 @@ candidates:
   - ticker: "0001"
     name: Sample One
     sector_33: 情報・通信業
-    metrics: {}
+    metrics:
+      fin_latest_disclosed_date: "2026-07-15"
+      next_earnings_estimated_date: "2026-08-06"
     evidence_hits: []
-    next_earnings_date: "2026-08-06"
+    next_earnings_date: "2026-07-14"
   - ticker: "0002"
     name: Sample Two
     sector_33: 小売業
@@ -230,10 +232,11 @@ candidates:
         "baibai-engine task add --kind follow-up --ticker 0001 "
         '--title "0001 決算で見送り判断を再評価" '
         "--due 2026-08-06 --event-date 2026-08-06 "
-        '--event-label "0001 決算"'
+        '--event-label "0001 決算（推定）"'
     ) in captured.err
+    assert "--due 2026-07-14" not in captured.err
     assert "0002" in captured.err
-    assert "決算日未公表" in captured.err
+    assert "将来の決算日なし" in captured.err
     assert "2331" not in captured.err
 
 

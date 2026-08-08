@@ -129,6 +129,15 @@ class OperationService:
                     raise OperationConflictError(
                         f"completed operation session is immutable: {operation_id}"
                     )
+                if (
+                    completed_at is not None
+                    and payload.completion_reason == "no-shortlist-selection"
+                ):
+                    _validate_zero_selection_publication(
+                        connection,
+                        payload,
+                        as_of=before.as_of,
+                    )
                 operation = OperationSession.model_validate(
                     {
                         **before.public(),
@@ -169,7 +178,20 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
     if payload.next is None:
         missing.append("next")
 
-    requires_confirmation = session_kind in {
+    no_shortlist_selection = (
+        session_kind == "opportunity" and payload.completion_reason == "no-shortlist-selection"
+    )
+    if payload.completion_reason is not None and not no_shortlist_selection:
+        missing.append("completion_reason valid for this session kind")
+    if no_shortlist_selection:
+        if payload.human_confirmation is not None:
+            missing.append("human_confirmation omitted for no-shortlist-selection")
+        if not _has_zero_selection_shortlist(payload):
+            missing.append("shortlist artifact with selected_count=0")
+        if not payload.canonical_refs:
+            missing.append("canonical_refs")
+
+    requires_confirmation = not no_shortlist_selection and session_kind in {
         "opportunity",
         "pending-result",
         "monthly-contribution",
@@ -198,6 +220,83 @@ def _validate_complete(session_kind: SessionKind, payload: OperationPayload) -> 
         missing.append("canonical_refs")
     if missing:
         raise OperationCompletionError(f"{session_kind} completion requires: {', '.join(missing)}")
+
+
+def _has_zero_selection_shortlist(payload: OperationPayload) -> bool:
+    return _zero_selection_reference(payload) is not None
+
+
+def _zero_selection_reference(payload: OperationPayload) -> str | None:
+    for artifact in payload.artifacts:
+        selected_count = artifact.get("selected_count")
+        reference = artifact.get("ref", artifact.get("shortlist_id"))
+        if (
+            artifact.get("kind") == "shortlist"
+            and isinstance(selected_count, int)
+            and not isinstance(selected_count, bool)
+            and selected_count == 0
+            and isinstance(reference, str)
+            and reference in payload.canonical_refs
+        ):
+            return reference
+    return None
+
+
+def _validate_zero_selection_publication(
+    connection: sqlite3.Connection,
+    payload: OperationPayload,
+    *,
+    as_of: date,
+) -> None:
+    reference = _zero_selection_reference(payload)
+    if reference is None:  # structural validation reports the field-level error
+        return
+    canonical = connection.execute(
+        """
+        SELECT shortlist_id FROM shortlist
+        WHERE as_of = ?
+        ORDER BY published_at DESC, shortlist_id DESC
+        LIMIT 1
+        """,
+        (as_of.isoformat(),),
+    ).fetchone()
+    if canonical is None or str(canonical["shortlist_id"]) != reference:
+        raise OperationCompletionError(
+            f"opportunity completion requires the canonical shortlist at {as_of}: {reference}"
+        )
+    row = connection.execute(
+        "SELECT as_of, payload FROM shortlist WHERE shortlist_id = ?",
+        (reference,),
+    ).fetchone()
+    if row is None:
+        raise OperationCompletionError(
+            f"opportunity completion requires published shortlist: {reference}"
+        )
+    document = json.loads(str(row["payload"]))
+    entries = document.get("entries") if isinstance(document, dict) else None
+    if (
+        str(row["as_of"]) != as_of.isoformat()
+        or not isinstance(document, dict)
+        or document.get("kind") != "shortlist"
+        or document.get("shortlist_id") != reference
+        or document.get("as_of") != as_of.isoformat()
+    ):
+        raise OperationCompletionError(
+            f"opportunity completion requires {reference} at session as-of {as_of}"
+        )
+    if (
+        not isinstance(entries, list)
+        or not entries
+        or any(
+            not isinstance(entry, dict)
+            or entry.get("decision") not in {"selected", "rejected"}
+            or entry.get("decision") == "selected"
+            for entry in entries
+        )
+    ):
+        raise OperationCompletionError(
+            f"opportunity completion requires zero selected entries in {reference}"
+        )
 
 
 def _next_id(
