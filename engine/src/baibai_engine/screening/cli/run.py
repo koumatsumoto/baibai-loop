@@ -39,6 +39,7 @@ from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+    VALUATION_CALCULATION_REVISION,
     VALUATION_HISTORY_SESSIONS,
     build_metrics,
     build_normalized_profit_signals,
@@ -312,11 +313,7 @@ def run_command(
             normalized_fy_by_ticker.get(ticker, ()),
             normalized_split_bars_by_ticker.get(ticker, ()),
             asof_date,
-            close=(
-                financial.market_cap / financial.shares_outstanding
-                if financial.market_cap is not None and financial.shares_outstanding
-                else None
-            ),
+            close=financial.market_price_yen,
             current_eps=financial.eps,
         )
         screened_candidates.append(
@@ -469,6 +466,7 @@ def run_command(
         run_id=run_id,
         screening_rules_hash=rules_contract_hash(
             rules.model_dump_json(),
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,

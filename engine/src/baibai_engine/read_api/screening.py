@@ -24,6 +24,7 @@ def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
     from baibai_engine.screening.estimates import EXPECTED_RETURN_MODEL_VERSION
     from baibai_engine.screening.metrics import (
         BARS_INPUT_WINDOW_DAYS,
+        VALUATION_CALCULATION_REVISION,
         VALUATION_HISTORY_SESSIONS,
     )
     from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
@@ -35,6 +36,7 @@ def screening_calibration_method_identity(root: Path) -> tuple[str, str] | None:
     return (
         rules_contract_hash(
             rules.model_dump_json(),
+            valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
             variant="production",
             valuation_history_sessions=VALUATION_HISTORY_SESSIONS,
             bars_input_window_days=BARS_INPUT_WINDOW_DAYS,

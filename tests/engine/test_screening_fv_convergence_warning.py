@@ -6,9 +6,20 @@ from math import inf, nan
 
 import pytest
 
+from baibai_engine.screening.candidate_build import build_screened_candidate
+from baibai_engine.screening.render import candidate_entry
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
+from baibai_engine.screening.schema import (
+    DerivedMetrics,
+    FinancialSnapshot,
+    SecurityMaster,
+    UniverseSnapshot,
+)
 from baibai_engine.screening.selection import build_selection_payload, candidate_record_from_mapping
-from baibai_engine.screening.selection.summaries import _fv_convergence_annotation
+from baibai_engine.screening.selection.summaries import (
+    _fv_convergence_annotation,
+    _screening_reference_close_yen,
+)
 
 _ASOF = date(2026, 7, 29)
 
@@ -20,14 +31,125 @@ def _annotation(
     self_anchor: object = 95.0,
     reversion: object = -0.01,
 ) -> Mapping[str, object]:
-    candidate = {"market_cap_oku": price}
+    candidate = {"market_cap_oku": 90.0}
     metrics = {
+        "market_price_yen": price,
         "shares_outstanding": 100_000_000,
         "fv_sector_median_yen": sector_anchor,
         "fv_self_range_yen": self_anchor,
         "er_reversion_annual": reversion,
     }
     return _fv_convergence_annotation(candidate, metrics)
+
+
+def test_reference_price_is_not_reversed_from_treasury_adjusted_market_cap() -> None:
+    metrics = {"shares_outstanding": 100_000_000, "market_price_yen": 100.0}
+
+    assert _screening_reference_close_yen(metrics) == 100.0
+
+
+def test_observed_price_survives_candidate_serialization_and_selection() -> None:
+    financial = FinancialSnapshot(
+        latest_disclosed_at=None,
+        per_forward=None,
+        per_trailing=None,
+        pbr=0.8,
+        ev_ebitda=None,
+        p_s=None,
+        pcfr=None,
+        eps=None,
+        sales_ttm=None,
+        ocf_ttm=None,
+        market_price_yen=100.0,
+        shares_outstanding=100_000_000.0,
+        shares_ex_treasury=90_000_000.0,
+        market_cap=9_000_000_000.0,
+    )
+    candidate = build_screened_candidate(
+        ticker="1111",
+        security=SecurityMaster(
+            code="1111",
+            name="raw-close-regression",
+            market_segment="Prime",
+            sector_33="機械",
+            is_common_stock=True,
+        ),
+        financial=financial,
+        derived=DerivedMetrics(sector_median_value={"pbr": 1.2}),
+        universe_snapshot=UniverseSnapshot(
+            market_cap_oku=500,
+            avg_turnover_oku=2.0,
+            listing_span_days=1_200,
+        ),
+        evidence_hits=(),
+    )
+    serialized = candidate_entry(candidate)
+    assert serialized["metrics"]["market_price_yen"] == 100.0
+    assert serialized["metrics"]["fv_sector_median_yen"] == 150.0
+
+    payload = build_selection_payload(
+        asof_date=_ASOF,
+        candidates=(candidate_record_from_mapping(serialized),),
+        macro_context=None,
+        rules=load_screening_rules(DEFAULT_RULES_PATH),
+        top=10,
+        profile="balanced",
+        candidates_ref="test.yaml",
+        macro_context_ref=None,
+        longlist_top=1,
+    )
+    assert payload["longlist"][0]["market_price_yen"] == 100.0
+    assert payload["longlist"][0]["fair_value_anchor_yen"] == 150.0
+    assert payload["longlist"][0]["fv_convergence"]["market_price_yen"] == 100.0
+
+    old_metrics = serialized["metrics"]
+    assert isinstance(old_metrics, dict)
+    del old_metrics["market_price_yen"]
+    # actual old producer は net market cap / gross shares = 90 円を FV の基準にした。
+    old_metrics["fv_sector_median_yen"] = 135.0
+    old_payload = build_selection_payload(
+        asof_date=_ASOF,
+        candidates=(candidate_record_from_mapping(serialized),),
+        macro_context=None,
+        rules=load_screening_rules(DEFAULT_RULES_PATH),
+        top=10,
+        profile="balanced",
+        candidates_ref="old-test.yaml",
+        macro_context_ref=None,
+        longlist_top=1,
+    )
+    assert old_payload["longlist"][0]["market_price_yen"] is None
+    assert old_payload["longlist"][0]["fair_value_anchor_yen"] is None
+    assert old_payload["longlist"][0]["fv_convergence"]["status"] == "not_evaluable"
+    assert old_payload["longlist"][0]["fv_convergence"]["anchors_yen"] == {}
+    assert old_payload["longlist"][0]["estimate_snapshot"]["fair_value"]["anchors"] == {}
+    assert old_payload["recommendations"][0]["fv_sector_median_yen"] is None
+    assert (
+        old_payload["recommendations"][0]["decision_input_seed"]["estimates"]["fair_value"][
+            "anchors"
+        ]
+        == {}
+    )
+
+    old_full_payload = build_selection_payload(
+        asof_date=_ASOF,
+        candidates=(candidate_record_from_mapping(serialized),),
+        macro_context=None,
+        rules=load_screening_rules(DEFAULT_RULES_PATH),
+        top=10,
+        profile="balanced",
+        candidates_ref="old-test.yaml",
+        macro_context_ref=None,
+        detail="full",
+        longlist_top=1,
+    )
+    assert old_full_payload["recommendations"][0]["metrics"]["fv_sector_median_yen"] is None
+    assert (
+        old_full_payload["recommendations"][0]["decision_input_seed"]["estimates"]["fair_value"][
+            "anchors"
+        ]
+        == {}
+    )
 
 
 def test_one_anchor_and_two_anchor_boundaries_are_explicit() -> None:
@@ -87,6 +209,7 @@ def _candidate(
         "evidence_hits": [],
         "metrics": {
             "ocf_yield": 0.1,
+            "market_price_yen": 500.0,
             "shares_outstanding": 100_000_000,
             "er_annual": er_annual,
             "er_reversion_annual": reversion,

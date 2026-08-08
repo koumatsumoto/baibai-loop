@@ -26,6 +26,9 @@ from .schema import (
 )
 
 VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
+# run と calibration が同名の valuation を異なる式で作らないための method identity。
+# 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
+VALUATION_CALCULATION_REVISION = "treasury-adjusted-capital-v1"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -864,6 +867,8 @@ def _build_financial_snapshot(
         cfo=latest.cfo if latest else None,
         cash_eq=cash_eq,
         total_assets=total_assets,
+        market_price_yen=latest_price,
+        shares_ex_treasury=shares_ex_treasury,
         market_cap=latest_market_cap,
         cash_to_market_cap=_safe_ratio(cash_eq, latest_market_cap),
         # 開示された自己資本比率をそのまま使う。`equity` は非支配株主持分を含む純資産なので
@@ -1111,7 +1116,7 @@ def _valuation_history(
     prices = asof_basis_closes(eligible[-history_sessions:])
     ev_ebitda_history: list[float] = []
     if (
-        snapshot.shares_outstanding is not None
+        snapshot.shares_ex_treasury is not None
         and snapshot.debt is not None
         and snapshot.cash is not None
         and snapshot.ebitda_ttm is not None
@@ -1131,10 +1136,10 @@ def _valuation_history(
     if (
         snapshot.sales_ttm is not None
         and snapshot.sales_ttm > 0
-        and snapshot.shares_outstanding is not None
+        and snapshot.shares_ex_treasury is not None
     ):
         p_s_history = [
-            (price * snapshot.shares_outstanding) / snapshot.sales_ttm for price in prices
+            (price * snapshot.shares_ex_treasury) / snapshot.sales_ttm for price in prices
         ]
 
     # Historical forward PER holds forecast EPS constant against adjusted close,
@@ -1163,7 +1168,7 @@ def _historical_ev_ebitda(
 ) -> float | None:
     """Return the EV/EBITDA value for one historical price.
 
-    Caller must ensure ``shares_outstanding`` / ``debt`` / ``cash`` are not
+    Caller must ensure ``shares_ex_treasury`` / ``debt`` / ``cash`` are not
     None and ``ebitda_ttm`` is positive. v1 has only the latest balance sheet
     and TTM EBITDA, so those are held constant across price history while
     market cap varies with the (adjusted) historical close.
@@ -1172,15 +1177,15 @@ def _historical_ev_ebitda(
     domain and is handled by cash / net-cash playbooks, not by EV/EBITDA mean
     reversion.
     """
-    shares_outstanding = snapshot.shares_outstanding
+    shares_ex_treasury = snapshot.shares_ex_treasury
     debt = snapshot.debt
     cash = snapshot.cash
     ebitda_ttm = snapshot.ebitda_ttm
-    if shares_outstanding is None or debt is None or cash is None:
+    if shares_ex_treasury is None or debt is None or cash is None:
         raise ValueError("EV/EBITDA history requires shares, debt, and cash")
     if ebitda_ttm is None or ebitda_ttm <= 0:
         raise ValueError("EV/EBITDA history requires positive EBITDA")
-    enterprise_value = (price * shares_outstanding) + debt - cash
+    enterprise_value = (price * shares_ex_treasury) + debt - cash
     if enterprise_value <= 0:
         return None
     return enterprise_value / ebitda_ttm

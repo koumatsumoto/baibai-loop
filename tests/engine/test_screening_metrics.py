@@ -626,7 +626,56 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(snapshot.market_cap or 0.0, 900.0, places=6)
+        self.assertAlmostEqual(snapshot.market_price_yen or 0.0, 1.0, places=6)
+        self.assertAlmostEqual(snapshot.shares_ex_treasury or 0.0, 900.0, places=6)
         self.assertAlmostEqual(snapshot.equity_ratio or 0.0, 0.4, places=6)
+
+    def test_valuation_history_uses_the_same_treasury_adjusted_capital_basis(self) -> None:
+        """現在倍率と自己履歴の差に自己株分母の不一致を混ぜない。"""
+        asof = date(2026, 7, 1)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=119 - index),
+                close=10.0,
+                turnover_value=300_000_000.0,
+            )
+            for index in range(120)
+        ]
+        summary = _summary(
+            "130A",
+            asof - timedelta(days=20),
+            fiscal_period="FY",
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
+            shares_outstanding=1_000.0,
+            treasury_shares=100.0,
+            sales=9_000.0,
+        )
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [summary]},
+            edinet_by_ticker={
+                "130A": _edinet_metric_record(
+                    sales_ttm=9_000.0,
+                    debt=2_000.0,
+                    cash=1_000.0,
+                    ebitda_ttm=2_000.0,
+                )
+            },
+            valuation_history_sessions=120,
+        )
+        financial = result.financials["130A"]
+        self_median = result.derived["130A"].self_range_median
+
+        self.assertAlmostEqual(self_median["p_s"] or 0.0, financial.p_s or 0.0, places=6)
+        self.assertAlmostEqual(
+            self_median["ev_ebitda"] or 0.0,
+            financial.ev_ebitda or 0.0,
+            places=6,
+        )
 
     def test_market_cap_is_absent_when_treasury_is_unobserved(self) -> None:
         """自己株式数が欠損する行で発行済を代用しない。
