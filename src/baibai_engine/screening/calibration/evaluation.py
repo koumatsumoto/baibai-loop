@@ -14,7 +14,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
 from statistics import fmean, median
-from typing import cast
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
@@ -53,8 +52,6 @@ RETURN_CHANGE_COMPONENT_FIELDS: tuple[str, ...] = (
     "dps_guidance_up",
     "dividend_initiation",
 )
-MARGIN_DEADLINE_SHARE_EXCLUDE_AT_OR_ABOVE = 0.75
-MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR = -0.01
 MARGIN_HYPOTHESIS_AXES: tuple[str, ...] = ("margin_short_to_adv",)
 MARGIN_CONTROL_FIELDS: tuple[str, ...] = (
     "market_cap_oku",
@@ -291,9 +288,7 @@ def _evaluate_cohort(
             "selection": {},
             "gates": {},
             "reversion": {},
-            "crowded_value": {},
             "shareholder_return_change": {},
-            "margin_deadline_gate": {},
             "margin_supply_demand_hypotheses": {},
             "profit_normalization_hypotheses": {},
             "asset_backed_hypotheses": {},
@@ -309,7 +304,6 @@ def _evaluate_cohort(
         if axes_result is not None:
             axes[spec.name] = axes_result
     selection = _evaluate_selection(population, excess)
-    margin_deadline_gate = _evaluate_margin_deadline_gate(panel, excess)
     margin_hypotheses = _evaluate_margin_supply_demand_hypotheses(population, excess)
     profit_hypotheses = _evaluate_profit_normalization_hypotheses(population, excess)
     asset_backed_hypotheses = _evaluate_asset_backed_hypotheses(population, excess)
@@ -326,17 +320,6 @@ def _evaluate_cohort(
     metric_statuses["er_level_calibration"] = "eligible" if er_level_calibration else "unresolved"
     metric_statuses["shareholder_return_change"] = (
         "eligible" if return_change.get("eligible_n", 0) else "unresolved"
-    )
-    gate_top10 = margin_deadline_gate.get("top10")
-    metric_statuses["margin_deadline_gate_top10"] = (
-        "eligible"
-        if isinstance(gate_top10, dict)
-        and gate_top10.get("complete") is True
-        and isinstance(gate_top10.get("baseline"), dict)
-        and gate_top10["baseline"].get("n", 0)
-        and isinstance(gate_top10.get("variant"), dict)
-        and gate_top10["variant"].get("n", 0)
-        else "unresolved"
     )
     metric_statuses["margin_short_to_adv"] = (
         "eligible" if "margin_short_to_adv" in axes else "unresolved"
@@ -365,9 +348,7 @@ def _evaluate_cohort(
         "selection": selection,
         "gates": _evaluate_gates(population, excess),
         "reversion": _evaluate_reversion(population, excess),
-        "crowded_value": _evaluate_crowded_value(population, excess),
         "shareholder_return_change": return_change,
-        "margin_deadline_gate": margin_deadline_gate,
         "margin_supply_demand_hypotheses": margin_hypotheses,
         "profit_normalization_hypotheses": profit_hypotheses,
         "asset_backed_hypotheses": asset_backed_hypotheses,
@@ -449,22 +430,10 @@ _SENSITIVITY_METRICS: tuple[str, ...] = (
     "er_calibration",
 )
 OPTIONAL_SENSITIVITY_METRICS: tuple[str, ...] = (
-    "margin_deadline_gate_top10",
     "margin_short_to_adv",
     "normalized_per_3fy",
 )
 _ALL_SENSITIVITY_METRICS = (*_SENSITIVITY_METRICS, *OPTIONAL_SENSITIVITY_METRICS)
-
-
-def _margin_deadline_gate_adoption_sign(value: object) -> float | None:
-    """Encode whether a gate result meets both conditions read by authority."""
-    if not isinstance(value, dict):
-        return None
-    median_delta = value.get("median_excess_delta")
-    trap_delta = value.get("trap_rate_delta")
-    if not isinstance(median_delta, int | float) or not isinstance(trap_delta, int | float):
-        return None
-    return float(median_delta >= MARGIN_DEADLINE_GATE_MEDIAN_DELTA_FLOOR and trap_delta <= 0)
 
 
 def _margin_short_to_adv_adoption_sign(value: object) -> float | None:
@@ -515,9 +484,6 @@ def _direction_signs(
         )
     else:
         signs["er_calibration"] = None
-    signs["margin_deadline_gate_top10"] = _margin_deadline_gate_adoption_sign(
-        _evaluate_margin_deadline_gate(panel, context.excess).get("top10")
-    )
     signs["margin_short_to_adv"] = _margin_short_to_adv_adoption_sign(
         _evaluate_axis(
             AxisSpec(name="margin_short_to_adv", direction=-1),
@@ -899,69 +865,6 @@ def _evaluate_selection(
         result[f"er_population_top{top_n}"] = _group_stats(
             [excess[row.ticker] for row in population_by_er[:top_n]]
         )
-    # 仮想 replay: reversion 主導の順位付け (#480 H-R1/H-R2)。er_ranked と同じ
-    # screen 通過集合の key 差し替えで、carry 偏重が top-N の forward excess に
-    # 与える影響を分離する。view score は `baibai-app` 表示 blend と同型 (品質 flag
-    # 減点は panel に無いため除外) 。
-    reversion_passers = sorted(
-        (row for row in population if row.pass_screen and row.er_reversion_annual is not None),
-        key=lambda row: row.er_reversion_annual or 0.0,
-        reverse=True,
-    )
-    reversion_carry_passers = sorted(
-        (row for row in population if row.pass_screen and row.er_reversion_annual is not None),
-        key=_reversion_plus_capped_carry,
-        reverse=True,
-    )
-    for top_n in SELECTION_TOP_NS:
-        result[f"reversion_ranked_top{top_n}"] = _group_stats(
-            [excess[row.ticker] for row in reversion_passers[:top_n]]
-        )
-        result[f"reversion_carry_ranked_top{top_n}"] = _group_stats(
-            [excess[row.ticker] for row in reversion_carry_passers[:top_n]]
-        )
-    return result
-
-
-def _evaluate_margin_deadline_gate(
-    panel: Sequence[PanelRow], excess: Mapping[str, float]
-) -> dict[str, object]:
-    """Replay the fixed deadline-heavy exclusion without changing candidate facts."""
-    ranked = sorted(
-        (row for row in panel if row.in_population and row.recommended_rank is not None),
-        key=lambda row: (row.recommended_rank or 0, row.ticker),
-    )
-    variant = [
-        row
-        for row in ranked
-        if row.margin_std_long_share is None
-        or row.margin_std_long_share < MARGIN_DEADLINE_SHARE_EXCLUDE_AT_OR_ABOVE
-    ]
-    result: dict[str, object] = {
-        "excluded_count": len(ranked) - len(variant),
-    }
-    for top_n in (5, 10):
-        baseline_rows = ranked[:top_n]
-        variant_rows = variant[:top_n]
-        baseline = _group_stats(
-            [excess[row.ticker] for row in baseline_rows if row.ticker in excess]
-        )
-        gated = _group_stats([excess[row.ticker] for row in variant_rows if row.ticker in excess])
-        baseline_median = baseline.get("median_excess")
-        gated_median = gated.get("median_excess")
-        baseline_trap = baseline.get("trap_rate")
-        gated_trap = gated.get("trap_rate")
-        result[f"top{top_n}"] = {
-            "complete": len(baseline_rows) == top_n and len(variant_rows) == top_n,
-            "changed": tuple(row.ticker for row in baseline_rows)
-            != tuple(row.ticker for row in variant_rows),
-            "baseline": baseline,
-            "variant": gated,
-            "median_excess_delta": _rounded_delta(gated_median, baseline_median),
-            "trap_rate_delta": _rounded_delta(gated_trap, baseline_trap),
-        }
-    result["top5_changed"] = bool(cast(dict[str, object], result["top5"])["changed"])
-    result["top10_changed"] = bool(cast(dict[str, object], result["top10"])["changed"])
     return result
 
 
@@ -1026,7 +929,7 @@ def _evaluate_profit_normalization_hypotheses(
                 if population_n
                 else None
             )
-            for sessions in (750, 1250, 2500)
+            for sessions in (750,)
         },
     }
 
@@ -1197,18 +1100,6 @@ def _rounded_delta(left: object, right: object) -> float | None:
     return round(float(left) - float(right), 6)
 
 
-def _reversion_plus_capped_carry(row: PanelRow) -> float:
-    """Rank by reversion at full weight plus carry at half, capped at 15%/y.
-
-    A ranking hypothesis under calibration, not a score any surface displays: carry
-    is a holding-period return rather than a gap to close, and a carry beyond the cap
-    is a special dividend or a data anomaly that would otherwise dominate the order.
-    Its top-N excess return is compared against ranking by reversion alone.
-    """
-
-    return (row.er_reversion_annual or 0.0) + 0.5 * min(row.er_carry_annual or 0.0, 0.15)
-
-
 def _evaluate_gates(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
@@ -1244,50 +1135,6 @@ def _evaluate_gates(
             "gate_blocked": _group_stats(blocked),
         }
     return result
-
-
-def _evaluate_crowded_value(
-    population: Sequence[PanelRow],
-    excess: Mapping[str, float],
-) -> dict[str, object]:
-    """Split the cheap end of the cohort by how crowded the margin long side is.
-
-    A valuation screen cannot see who is already positioned, so a name can look
-    cheap while the buyers who made it cheap are still holding it. This is the
-    direct test of that: inside the best E[r] decile, the names with the largest
-    margin long balance relative to their trading volume are compared against the
-    rest of that decile. The crowded half underperforming is what a value trap
-    made of positioning looks like, and it is a separate question from whether the
-    axis ranks the whole cross-section.
-    """
-    ranked = [
-        (row.er_annual, row)
-        for row in population
-        if row.er_annual is not None and row.margin_long_to_adv is not None
-    ]
-    if len(ranked) < MIN_AXIS_SAMPLE:
-        return {}
-    ranked.sort(key=lambda item: item[0])
-    cheap = [row for _, row in ranked[len(ranked) - len(ranked) // DECILES :]]
-    if len(cheap) < 2:
-        return {}
-    crowding = sorted(cheap, key=lambda row: row.margin_long_to_adv or 0.0)
-    midpoint = len(crowding) // 2
-    uncrowded = [excess[row.ticker] for row in crowding[:midpoint]]
-    crowded = [excess[row.ticker] for row in crowding[midpoint:]]
-    stats_uncrowded = _group_stats(uncrowded)
-    stats_crowded = _group_stats(crowded)
-    crowded_median = stats_crowded.get("median_excess")
-    uncrowded_median = stats_uncrowded.get("median_excess")
-    return {
-        "crowded": stats_crowded,
-        "uncrowded": stats_uncrowded,
-        "crowded_minus_uncrowded": (
-            round(crowded_median - uncrowded_median, 6)
-            if isinstance(crowded_median, int | float) and isinstance(uncrowded_median, int | float)
-            else None
-        ),
-    }
 
 
 def _evaluate_reversion(
@@ -1634,63 +1481,11 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "axes": axis_summary,
         "selection": selection_summary,
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
-        "margin_deadline_gate": _aggregate_margin_deadline_gate(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
         "asset_backed_hypotheses": _aggregate_asset_backed_hypotheses(cohorts),
         "er_calibration": _aggregate_er_calibration(cohorts),
     }
-
-
-def _aggregate_margin_deadline_gate(
-    cohorts: Sequence[dict[str, object]],
-) -> dict[str, object]:
-    result: dict[str, object] = {}
-    total_excluded = 0
-    for cohort in cohorts:
-        gate = cohort.get("margin_deadline_gate")
-        if isinstance(gate, dict) and isinstance(gate.get("excluded_count"), int):
-            total_excluded += int(gate["excluded_count"])
-    result["excluded_count"] = total_excluded
-    for top_n in (5, 10):
-        median_deltas: list[float] = []
-        trap_deltas: list[float] = []
-        baseline_n = 0
-        variant_n = 0
-        changed = 0
-        complete = 0
-        for cohort in cohorts:
-            gate = cohort.get("margin_deadline_gate")
-            if not isinstance(gate, dict):
-                continue
-            comparison = gate.get(f"top{top_n}")
-            if not isinstance(comparison, dict):
-                continue
-            if comparison.get("complete") is True:
-                complete += 1
-            if comparison.get("changed") is True:
-                changed += 1
-            baseline = comparison.get("baseline")
-            variant = comparison.get("variant")
-            if isinstance(baseline, dict) and isinstance(baseline.get("n"), int):
-                baseline_n += int(baseline["n"])
-            if isinstance(variant, dict) and isinstance(variant.get("n"), int):
-                variant_n += int(variant["n"])
-            _append_numeric(comparison.get("median_excess_delta"), median_deltas)
-            _append_numeric(comparison.get("trap_rate_delta"), trap_deltas)
-        result[f"top{top_n}"] = {
-            "paired_cohorts": len(median_deltas),
-            "complete_cohorts": complete,
-            "baseline_n": baseline_n,
-            "variant_n": variant_n,
-            "changed_cohorts": changed,
-            "changed_cohort_share": (
-                round(changed / len(median_deltas), 4) if median_deltas else None
-            ),
-            "mean_median_excess_delta": (round(fmean(median_deltas), 6) if median_deltas else None),
-            "mean_trap_rate_delta": (round(fmean(trap_deltas), 6) if trap_deltas else None),
-        }
-    return result
 
 
 def _aggregate_margin_hypotheses(
@@ -1748,7 +1543,7 @@ def _aggregate_profit_normalization(
     }
     coverage_3fy: list[float] = []
     coverage_5fy: list[float] = []
-    self_coverage: dict[int, list[float]] = {750: [], 1250: [], 2500: []}
+    self_coverage: dict[int, list[float]] = {750: []}
     for cohort in cohorts:
         hypotheses = cohort.get("profit_normalization_hypotheses")
         if not isinstance(hypotheses, dict):
