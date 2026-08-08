@@ -132,26 +132,13 @@ def validate_current_schema(
     *,
     schema: str = "main",
 ) -> None:
-    validate_schema_contract(
-        conn,
-        schema=schema,
-        expected_version=SQLITE_SCHEMA_VERSION,
-    )
-
-
-def validate_schema_contract(
-    conn: sqlite3.Connection,
-    *,
-    schema: str,
-    expected_version: int,
-) -> None:
     if schema not in {"main", "source"}:
         raise ValueError(f"unsupported SQLite schema name: {schema!r}")
     queries = _SCHEMA_VALIDATION_SQL[schema]
     version = int(conn.execute(queries["user_version"]).fetchone()[0])
-    if version != expected_version:
+    if version != SQLITE_SCHEMA_VERSION:
         raise IndicatorsSchemaError(
-            f"unsupported indicator SQLite schema: {version}; expected {expected_version}"
+            f"unsupported indicator SQLite schema: {version}; expected {SQLITE_SCHEMA_VERSION}"
         )
     _validate_registry_state_contract(conn, schema=schema)
     _validate_trigger_contract(conn, schema=schema)
