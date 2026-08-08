@@ -24,6 +24,7 @@ from baibai_engine.macro.context import (
 from baibai_engine.macro.indicators.db import DEFAULT_DB_PATH as INDICATORS_DB_PATH
 from baibai_engine.market.store import latest_daily_bar_date
 from baibai_engine.read_api.macro import latest_macro_context_payload, macro_context_payload
+from baibai_engine.read_api.shortlist import list_shortlist_payloads
 from baibai_engine.screening.market_snapshot import build_market_snapshot
 from baibai_engine.screening.regime import MarketRegimeSnapshot, compute_market_regime
 from baibai_engine.screening.rule_config import (
@@ -31,7 +32,12 @@ from baibai_engine.screening.rule_config import (
     ScreeningRules,
     load_screening_rules,
 )
-from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
+from baibai_engine.screening.run_store import (
+    ScreeningRunReader,
+    ScreeningRunStore,
+    application_git_commit,
+    unchanged_application_git_commit,
+)
 from baibai_engine.screening.schema import (
     normalize_ticker,
 )
@@ -140,8 +146,10 @@ def select_command(
     app_db_path: Path | None = None,
     macro_context_id: str | None = None,
     previous_run_revision_id: str | None = None,
+    previous_shortlist_id: str | None = None,
     longlist_history_dir: Path | None = None,
 ) -> int:
+    starting_commit = application_git_commit()
     if top < 1:
         print("--top must be greater than zero", file=sys.stderr)
         return 1
@@ -164,6 +172,7 @@ def select_command(
             app_db_path=app_db_path,
             macro_context_id=macro_context_id,
             previous_run_revision_id=previous_run_revision_id,
+            previous_shortlist_id=previous_shortlist_id,
             longlist_history_dir=longlist_history_dir,
         )
     except ValueError as exc:
@@ -193,7 +202,10 @@ def select_command(
         raise AssertionError("selection payload must contain metadata")
     effective_profile = str(selection["profile"])
     try:
-        publication = ScreeningRunStore(runs_db_path).publish_selection(
+        publication = ScreeningRunStore(
+            runs_db_path,
+            git_commit_factory=lambda: unchanged_application_git_commit(starting_commit),
+        ).publish_selection(
             run_revision_id=run_revision_id,
             profile=effective_profile,
             macro_context_id=inputs.macro_context_ref,
@@ -280,6 +292,7 @@ def _load_selection_inputs_db(
     app_db_path: Path | None,
     macro_context_id: str | None,
     previous_run_revision_id: str | None,
+    previous_shortlist_id: str | None,
     longlist_history_dir: Path | None,
 ) -> _SelectionInputs:
     reader = ScreeningRunReader(runs_db_path)
@@ -291,7 +304,20 @@ def _load_selection_inputs_db(
             f"run revision as-of mismatch: {run.as_of_date} != {asof_date.isoformat()}"
         )
     candidate_records = tuple(candidate_record_from_mapping(item) for item in run.candidates)
-    if previous_run_revision_id is None:
+    resolved_app_db = database_path(app_db_path)
+    if previous_run_revision_id is not None and previous_shortlist_id is not None:
+        raise ValueError(
+            "--previous-run-revision-id and --previous-shortlist-id are mutually exclusive"
+        )
+    if previous_shortlist_id is not None:
+        previous = None
+        previous_candidates = _previous_candidates_from_shortlist(
+            app_db_path=resolved_app_db,
+            shortlist_id=previous_shortlist_id,
+            asof_date=asof_date,
+            latest_run_as_of=reader.latest_as_of_before(run.as_of_date),
+        )
+    elif previous_run_revision_id is None:
         previous = reader.previous_run(before_as_of_date=run.as_of_date)
     else:
         previous = reader.get_run(previous_run_revision_id)
@@ -302,7 +328,9 @@ def _load_selection_inputs_db(
             raise ValueError(
                 "previous run revision must belong to the greatest as-of before the current run"
             )
-    if previous is not None:
+    if previous_shortlist_id is not None:
+        pass
+    elif previous is not None:
         previous_candidates = PreviousCandidates(
             ref_path=previous.run_revision_id,
             source="run_revision",
@@ -315,7 +343,6 @@ def _load_selection_inputs_db(
         previous_candidates = load_previous_longlist(longlist_history_dir, asof_date=asof_date)
     else:
         previous_candidates = PreviousCandidates(ref_path=None, source=None, tickers=())
-    resolved_app_db = database_path(app_db_path)
     if macro_context_id is None:
         context_payload = latest_macro_context_payload(resolved_app_db, as_of=asof_date)
     else:
@@ -342,6 +369,40 @@ def _load_selection_inputs_db(
         previous_candidates=previous_candidates,
         candidates_ref=run_revision_id,
         macro_context_ref=None if context is None else context.context_id,
+    )
+
+
+def _previous_candidates_from_shortlist(
+    *,
+    app_db_path: Path,
+    shortlist_id: str,
+    asof_date: date,
+    latest_run_as_of: str | None,
+) -> PreviousCandidates:
+    prior = [
+        item
+        for item in list_shortlist_payloads(app_db_path)
+        if isinstance(item.get("as_of"), str) and str(item["as_of"]) < asof_date.isoformat()
+    ]
+    if not prior or prior[0].get("shortlist_id") != shortlist_id:
+        raise ValueError(
+            "previous shortlist must be the canonical shortlist at the greatest prior as-of"
+        )
+    shortlist_as_of = str(prior[0]["as_of"])
+    if latest_run_as_of is not None and latest_run_as_of > shortlist_as_of:
+        raise ValueError("previous shortlist is older than the greatest prior run as-of")
+    entries = prior[0].get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("previous shortlist has no retained entries")
+    tickers: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("ticker"), str):
+            raise ValueError("previous shortlist entry has no ticker")
+        tickers.append(entry["ticker"])
+    return PreviousCandidates(
+        ref_path=shortlist_id,
+        source="canonical_shortlist",
+        tickers=tuple(tickers),
     )
 
 

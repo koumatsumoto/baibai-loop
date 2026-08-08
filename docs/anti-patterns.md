@@ -233,6 +233,8 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
   - [ ] model 管理している **nested object** が未知 field を許していないか
   - [ ] **既存 thesis** が新 rule で breakage しないか、する場合は同 commit で fix する
   - [ ] decisionに応じて必須・禁止が切り替わる分類fieldは、必須時の欠落・未定義値・禁止時の混入をすべて拒否するか
+- [ ] 人間確認なしで完了できる operation 分岐は、専用の completion reason と canonical artifact evidence を必須にし、`not applicable` 等を human confirmation field へ書く抜け道、別 session kind での流用、evidence 件数の矛盾を negative test で拒否するか
+- [ ] rebuildable publication を再利用する gate は、外部 summary の schema・terminal state・artifact ID を exact に検証し、run と selection の両方を同一の clean application commit に束縛するか。長い計算は開始時 commit を publication 直前に再照合し、dirty tree・HEAD 変更・片方だけ provenance 欠損を current code 扱いしない negative test があるか
 - [ ] macro context の統合層 gate を変更する場合、「義務として同梱される別 input で充足できないか」を必ず疑う（bargain_topography の接地 gate は、2 本目以降の全レポートが必ず持つ前回 scorecard の `ScorecardSnapshotInput` では充足できないよう型と command で絞る。同型の抜け道：presence gate が「常在する別の何か」で満たせる設計）。確率検証は float 等値比較でなく整数化算術で書き、境界（0.00 / 0.95 / 刻み外 / 部分欠落）を negative test で塞ぐ
 - [ ] ledger eventを導入・変更する場合、reservationとbuy execution、terminal orderとrelease、cash不足、guard超過、expiry後のbuy、保有超過sellをhard errorとして確認したか
 - [ ] concentrationはholding market value + active reservationをledgerの`total_capital_yen`で割り、warning + 期限付きoverrideとして扱うことを確認したか

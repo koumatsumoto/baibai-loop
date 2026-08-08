@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -141,6 +142,280 @@ def test_complete_rejects_missing_kind_specific_final_fields(
             OperationPayload(checkpoint="incomplete"),
             completed_at=NOW,
         )
+    assert service.get(operation.operation_id).status == "active"
+
+
+def test_opportunity_with_no_shortlist_selection_completes_without_human_confirmation(
+    tmp_path: Path,
+) -> None:
+    service = OperationService(tmp_path / "app.sqlite")
+    operation = service.start(
+        session_kind="opportunity",
+        as_of=date(2026, 7, 19),
+        started_at=NOW,
+        payload=_active_payload(),
+    )
+    with connect_rw(tmp_path / "app.sqlite") as connection:
+        connection.execute(
+            """
+            INSERT INTO shortlist (
+                shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "shortlist-1",
+                "selection-1",
+                "run-1",
+                "2026-07-19",
+                NOW.isoformat(),
+                json.dumps(
+                    {
+                        "kind": "shortlist",
+                        "shortlist_id": "shortlist-1",
+                        "as_of": "2026-07-19",
+                        "entries": [{"ticker": "2331", "decision": "rejected"}],
+                    }
+                ),
+            ),
+        )
+    payload = OperationPayload(
+        checkpoint="shortlist cycle complete",
+        artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 0},),
+        canonical_refs=("shortlist-1",),
+        completion_reason="no-shortlist-selection",
+        result="no candidate qualified for primary research",
+        next="wait for the next opportunity trigger",
+    )
+
+    completed = service.complete(operation.operation_id, payload, completed_at=NOW)
+
+    assert completed.status == "completed"
+    assert completed.payload.human_confirmation is None
+    assert completed.payload.completion_reason == "no-shortlist-selection"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        OperationPayload(
+            checkpoint="final",
+            artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 1},),
+            canonical_refs=("shortlist-1",),
+            completion_reason="no-shortlist-selection",
+            result="done",
+            next="wait",
+        ),
+        OperationPayload(
+            checkpoint="final",
+            artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 0},),
+            canonical_refs=("shortlist-1",),
+            human_confirmation={"request": "confirm", "result": "not applicable"},
+            completion_reason="no-shortlist-selection",
+            result="done",
+            next="wait",
+        ),
+    ],
+)
+def test_no_shortlist_selection_completion_rejects_false_evidence(
+    tmp_path: Path,
+    payload: OperationPayload,
+) -> None:
+    service = OperationService(tmp_path / "app.sqlite")
+    operation = service.start(
+        session_kind="opportunity",
+        as_of=date(2026, 7, 19),
+        started_at=NOW,
+        payload=_active_payload(),
+    )
+
+    with pytest.raises(OperationCompletionError):
+        service.complete(operation.operation_id, payload, completed_at=NOW)
+
+
+def test_no_shortlist_selection_reason_is_opportunity_only(tmp_path: Path) -> None:
+    service = OperationService(tmp_path / "app.sqlite")
+    operation = service.start(
+        session_kind="annual-outcome",
+        as_of=date(2026, 7, 19),
+        started_at=NOW,
+        payload=_active_payload(),
+    )
+    payload = OperationPayload(
+        checkpoint="final",
+        artifacts=({"kind": "shortlist", "selected_count": 0},),
+        canonical_refs=("shortlist-1",),
+        completion_reason="no-shortlist-selection",
+        result="done",
+        next="wait",
+    )
+
+    with pytest.raises(OperationCompletionError, match="completion_reason"):
+        service.complete(operation.operation_id, payload, completed_at=NOW)
+
+
+@pytest.mark.parametrize(
+    ("shortlist_as_of", "decision", "message"),
+    [
+        (None, None, "canonical shortlist"),
+        ("2026-07-18", "rejected", "canonical shortlist"),
+        ("2026-07-19", "selected", "zero selected entries"),
+    ],
+)
+def test_no_shortlist_selection_completion_checks_the_canonical_publication(
+    tmp_path: Path,
+    shortlist_as_of: str | None,
+    decision: str | None,
+    message: str,
+) -> None:
+    db = tmp_path / "app.sqlite"
+    service = OperationService(db)
+    operation = service.start(
+        session_kind="opportunity",
+        as_of=date(2026, 7, 19),
+        started_at=NOW,
+        payload=_active_payload(),
+    )
+    if shortlist_as_of is not None and decision is not None:
+        with connect_rw(db) as connection:
+            connection.execute(
+                """
+                INSERT INTO shortlist (
+                    shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "shortlist-1",
+                    "selection-1",
+                    "run-1",
+                    shortlist_as_of,
+                    NOW.isoformat(),
+                    json.dumps(
+                        {
+                            "kind": "shortlist",
+                            "shortlist_id": "shortlist-1",
+                            "as_of": shortlist_as_of,
+                            "entries": [{"ticker": "2331", "decision": decision}],
+                        }
+                    ),
+                ),
+            )
+    payload = OperationPayload(
+        checkpoint="final",
+        artifacts=({"kind": "shortlist", "ref": "shortlist-1", "selected_count": 0},),
+        canonical_refs=("shortlist-1",),
+        completion_reason="no-shortlist-selection",
+        result="none",
+        next="wait",
+    )
+
+    with pytest.raises(OperationCompletionError, match=message):
+        service.complete(operation.operation_id, payload, completed_at=NOW)
+    assert service.get(operation.operation_id).status == "active"
+
+
+def test_no_shortlist_selection_checks_the_canonical_artifact_reference(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "app.sqlite"
+    service = OperationService(db)
+    operation = service.start(
+        session_kind="opportunity",
+        as_of=date(2026, 7, 19),
+        started_at=NOW,
+        payload=_active_payload(),
+    )
+    with connect_rw(db) as connection:
+        connection.execute(
+            """
+            INSERT INTO shortlist (
+                shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "shortlist-real",
+                "selection-1",
+                "run-1",
+                "2026-07-19",
+                NOW.isoformat(),
+                json.dumps(
+                    {
+                        "kind": "shortlist",
+                        "shortlist_id": "shortlist-real",
+                        "as_of": "2026-07-19",
+                        "entries": [{"ticker": "2331", "decision": "rejected"}],
+                    }
+                ),
+            ),
+        )
+    payload = OperationPayload(
+        checkpoint="final",
+        artifacts=(
+            {"kind": "shortlist", "ref": "shortlist-real", "selected_count": 0},
+            {"kind": "shortlist", "ref": "shortlist-fake", "selected_count": 0},
+        ),
+        canonical_refs=("shortlist-fake",),
+        completion_reason="no-shortlist-selection",
+        result="none",
+        next="wait",
+    )
+
+    with pytest.raises(OperationCompletionError, match="shortlist-fake"):
+        service.complete(operation.operation_id, payload, completed_at=NOW)
+    assert service.get(operation.operation_id).status == "active"
+
+
+def test_no_shortlist_selection_rejects_an_older_zero_selection_revision(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "app.sqlite"
+    service = OperationService(db)
+    operation = service.start(
+        session_kind="opportunity",
+        as_of=date(2026, 7, 19),
+        started_at=NOW,
+        payload=_active_payload(),
+    )
+    with connect_rw(db) as connection:
+        for shortlist_id, published_at, decision in (
+            ("shortlist-zero", NOW.replace(hour=10), "rejected"),
+            ("shortlist-selected", NOW.replace(hour=11), "selected"),
+        ):
+            connection.execute(
+                """
+                INSERT INTO shortlist (
+                    shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    shortlist_id,
+                    f"selection-{shortlist_id}",
+                    f"run-{shortlist_id}",
+                    "2026-07-19",
+                    published_at.isoformat(),
+                    json.dumps(
+                        {
+                            "kind": "shortlist",
+                            "shortlist_id": shortlist_id,
+                            "as_of": "2026-07-19",
+                            "entries": [{"ticker": "2331", "decision": decision}],
+                        }
+                    ),
+                ),
+            )
+    payload = OperationPayload(
+        checkpoint="final",
+        artifacts=(
+            {"kind": "shortlist", "ref": "shortlist-zero", "selected_count": 0},
+            {"kind": "shortlist", "ref": "shortlist-selected", "selected_count": 1},
+        ),
+        canonical_refs=("shortlist-zero", "shortlist-selected"),
+        completion_reason="no-shortlist-selection",
+        result="none",
+        next="wait",
+    )
+
+    with pytest.raises(OperationCompletionError, match="canonical shortlist"):
+        service.complete(operation.operation_id, payload, completed_at=NOW)
     assert service.get(operation.operation_id).status == "active"
 
 

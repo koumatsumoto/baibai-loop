@@ -88,6 +88,8 @@ current source state であり point-in-time ledger ではない。既存の
 
 `shortlist outcome` は published shortlist ごとに、その entry 集合を母集団として selected / rejected / 機械 E[r] 上位同数の forward return を母集団中央値と突き合わせ、選定時の `ploss` 別に実現ドローダウンを集計する。E[r] は shortlist が束縛した run から読むので、その run が prune 済みなら機械 cohort は `estimate_missing` として計算しない。割当は無作為化されていないので出力は記述比較であり、payload の `comparison_basis` がそれを明示する。
 
+`screening shortlist preflight` は shortlist cycle が run を作る前の read-only gate である。cloud workflow summary が指す run / selection、対象 as-of、run と selection の `application_git_commit`、checked-out HEAD、worktree clean、local run store の束縛を同時に照合し、`reuse` / `resume-current-code` / `rerun-current-code` / `blocked` を 1 つだけ返す。`resume-current-code` は同一 as-of・同一 HEAD の run だけがあり selection が未作成の状態を示すため、その run へ select だけを 1 回行う。実行しても run / selection は増えない。greatest prior as-of は全 run と application DB の canonical shortlist の和集合から決める。複数 run は `--previous-run-revision-id` で preflight 自体を解決し、select へ `previous.selection_arguments` を渡す。canonical run が retention で失われた場合は同日別 revision へ代替せず、`--previous-shortlist-id` で canonical shortlist の焼き込み entries を使う。
+
 `prune --keep N` は as-of、run timestamp、revision ID の新しい順に N 世代を残し、対象 run のcandidateとmachine selectionをtransaction内で削除してから`VACUUM`する。既定は3世代。run storeは再生成可能なcacheであり、canonicalなshortlist、research、proposal、holding reviewはapplication DBのsnapshotを読む。
 
 金融4業種（銀行業、証券・商品先物取引業、保険業、その他金融業）の `excluded_sectors` は、事業会社向け generic evidence playbook の適用だけを止める。金融4業種も liquidity を通過して E[r] が非 null なら、通常どおり ranking、recommendation、longlist の対象になる。

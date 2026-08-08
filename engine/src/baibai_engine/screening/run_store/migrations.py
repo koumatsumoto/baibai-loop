@@ -128,6 +128,10 @@ MIGRATIONS = (
         statements=("ALTER TABLE screening_run ADD COLUMN application_git_commit TEXT",),
         transform=_strip_embedded_candidates,
     ),
+    Migration(
+        version=3,
+        statements=("ALTER TABLE screening_selection ADD COLUMN application_git_commit TEXT",),
+    ),
 )
 
 RUN_STORE_SCHEMA_VERSION = MIGRATIONS[-1].version

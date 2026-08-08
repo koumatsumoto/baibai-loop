@@ -466,6 +466,14 @@ provider の「いつから失敗しているか」は indicator store の `prov
 notify が summary を書く前に落ちれば更新されない。run カードが `finished_at` と経過日数を出すのは
 このためで、止まった object を最新の run と読み違えないようにしている。
 
+shortlist preflight はこの object を read-only の一時ファイルへ取得してから run store と照合する。既存 path を上書きしないので、1 cycle ごとに新しい一時 path を使う。
+
+```bash
+batch/scripts/r2_transfer.sh pull-run-summary <new-temp-path>/latest-run.json
+uv run baibai-engine screening shortlist preflight \
+  --asof <ASOF> --cloud-summary <new-temp-path>/latest-run.json
+```
+
 `provider_runs` は cloud の日次 batch とローカル実行の両方が書く。ローカルで API key 未設定のまま
 叩けばその失敗が最新行になり、cloud が健全でも `/system` に失敗として出る。逆に cloud で落ちた系列を
 ローカルで手動 refresh すると streak が消える。実行環境を区別する列は持たないので、系列ごとの

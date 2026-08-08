@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from baibai_engine.appdb.write import connect_rw
 from baibai_engine.screening.cli.query import select_command
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.screening.selection import PreviousLonglistError, load_previous_longlist
@@ -67,6 +68,7 @@ def _select(
     run_revision_id: str,
     asof: str,
     longlist_history_dir: Path | None = None,
+    previous_shortlist_id: str | None = None,
 ) -> tuple[int, dict[str, object]]:
     stdout = io.StringIO()
     code = select_command(
@@ -75,6 +77,7 @@ def _select(
         run_revision_id=run_revision_id,
         runs_db_path=root / "stores/screening/runs.sqlite",
         app_db_path=root / "stores/application/baibai.sqlite",
+        previous_shortlist_id=previous_shortlist_id,
         longlist_history_dir=longlist_history_dir,
         stdout=stdout,
     )
@@ -113,6 +116,50 @@ def test_select_reads_previous_candidates_from_longlist_history_when_the_run_sto
     overlap = _previous_overlap(payload)
     assert overlap["previous_candidates_ref"] == record.as_posix()
     assert overlap["previous_candidates_source"] == "longlist_history"
+    assert overlap["previous_candidates_count"] == 2
+
+
+def test_select_reads_pruned_canonical_previous_from_shortlist(
+    app_method_root: Path,
+) -> None:
+    run_revision_id, asof = _pruned_to_latest_run(app_method_root / "stores/screening/runs.sqlite")
+    shortlist_id = "shortlist-20260707-canonical"
+    payload = {
+        "shortlist_id": shortlist_id,
+        "as_of": "2026-07-07",
+        "entries": [
+            {"ticker": "2331", "decision": "rejected"},
+            {"ticker": "0001", "decision": "rejected"},
+        ],
+    }
+    with connect_rw(app_method_root / "stores/application/baibai.sqlite") as connection:
+        connection.execute(
+            """
+            INSERT INTO shortlist (
+                shortlist_id, selection_id, run_revision_id, as_of, published_at, payload
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                shortlist_id,
+                "selection-pruned",
+                "run-pruned",
+                "2026-07-07",
+                "2026-07-07T18:00:00+09:00",
+                json.dumps(payload),
+            ),
+        )
+
+    code, selection = _select(
+        app_method_root,
+        run_revision_id=run_revision_id,
+        asof=asof,
+        previous_shortlist_id=shortlist_id,
+    )
+
+    assert code == 0
+    overlap = _previous_overlap(selection)
+    assert overlap["previous_candidates_ref"] == shortlist_id
+    assert overlap["previous_candidates_source"] == "canonical_shortlist"
     assert overlap["previous_candidates_count"] == 2
 
 

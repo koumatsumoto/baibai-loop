@@ -63,7 +63,11 @@ from baibai_engine.screening.rule_config import (
     load_screening_rules,
 )
 from baibai_engine.screening.rules import evaluate_screening
-from baibai_engine.screening.run_store import ScreeningRunStore
+from baibai_engine.screening.run_store import (
+    ScreeningRunStore,
+    application_git_commit,
+    unchanged_application_git_commit,
+)
 from baibai_engine.screening.schema import (
     FinancialSnapshot,
     ScreenedCandidate,
@@ -93,6 +97,7 @@ def run_command(
     run_store_path: Path | None = None,
     stdout: TextIO | None = None,
 ) -> int:
+    starting_commit = application_git_commit()
     out = stdout if stdout is not None else sys.stdout
     rules = rules or load_screening_rules(config.rules_path)
     if output_path is not None and output_path.exists() and not force:
@@ -487,7 +492,10 @@ def run_command(
     if not isinstance(raw_payload, Mapping):  # pragma: no cover - renderer invariant
         raise AssertionError("screening renderer must produce a mapping")
     try:
-        publication = ScreeningRunStore(run_store_path).publish_run(raw_payload)
+        publication = ScreeningRunStore(
+            run_store_path,
+            git_commit_factory=lambda: unchanged_application_git_commit(starting_commit),
+        ).publish_run(raw_payload)
     except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"screening run publication failed: {exc}", file=sys.stderr)
         return 1

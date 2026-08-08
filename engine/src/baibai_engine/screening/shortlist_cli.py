@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.screening.run_store import ScreeningRunReader
 
@@ -87,9 +88,7 @@ def publish_shortlist(
             candidate_er=_machine_estimates(run.candidates),
             candidate_machine_rows=_machine_rows(selection.payload),
         )
-        next_earnings_by_ticker = {
-            str(item["ticker"]): item.get("next_earnings_date") for item in run.candidates
-        }
+        earnings_by_ticker = _earnings_by_ticker(run.candidates)
         published = ShortlistService(app_db_path).publish(
             shortlist,
             selection=binding,
@@ -99,35 +98,50 @@ def publish_shortlist(
         return 1
     yaml.safe_dump(published.payload(), sys.stdout, sort_keys=False, allow_unicode=True)
     _print_reevaluation_task_suggestions(
-        reevaluation_task_suggestions(published, next_earnings_by_ticker)
+        reevaluation_task_suggestions(published, earnings_by_ticker)
     )
     return 0
 
 
 def reevaluation_task_suggestions(
     shortlist: Shortlist,
-    next_earnings_by_ticker: Mapping[str, object | None],
+    earnings_by_ticker: Mapping[str, Mapping[str, object | None]],
 ) -> list[str]:
     """Build ready-to-run task-add lines for every non-selected entry.
 
     ``selected`` 以外の entry は「今は買わないが再評価する」判断であり、その dated
-    trigger を task へ機械接続する。次回決算日が既知なら ``baibai-engine task add`` を
-    そのまま実行できる形で、未公表なら手動で trigger 日を決める注記を返す。write は
-    人間境界に残すので、この関数は提案文字列だけを組み立てる。title は narrative 散文
-    を引かず ticker と disposition だけで組み、引用符事故を避ける。
+    trigger を task へ機械接続する。開示済みまたは publish 時点より過去の event は捨て、
+    次の公表日、将来の推定日、undated condition の順で進める。write は人間境界に残すので、
+    この関数は提案文字列だけを組み立てる。title は narrative 散文を引かず ticker と
+    disposition だけで組み、引用符事故を避ける。
     """
     suggestions: list[str] = []
     for entry in shortlist.entries:
         if entry.decision == "selected":
             continue
         disposition = _DISPOSITION_LABELS.get(entry.decision, entry.decision)
-        earnings_date = _iso_date_or_none(next_earnings_by_ticker.get(entry.ticker))
+        trigger = earnings_by_ticker.get(entry.ticker, {})
+        announced = _iso_date_or_none(trigger.get("next_earnings_date"))
+        estimated = _iso_date_or_none(trigger.get("next_earnings_estimated_date"))
+        disclosed = _iso_date_or_none(trigger.get("fin_latest_disclosed_date"))
+        earliest_due = max(shortlist.as_of, shortlist.published_at.astimezone(JST).date())
+        earnings_date = _usable_future_event(
+            announced,
+            disclosed=disclosed,
+            earliest_due=earliest_due,
+        )
+        event_label = "決算"
+        if earnings_date is None:
+            earnings_date = _usable_future_event(
+                estimated,
+                disclosed=disclosed,
+                earliest_due=earliest_due,
+            )
+            event_label = "決算（推定）"
         if earnings_date is None:
             suggestions.append(
-                f"# {entry.ticker}（{disposition}）: 決算日未公表 — 手動で trigger 日を決めて "
-                f"baibai-engine task add --kind follow-up --ticker {entry.ticker} "
-                f'--title "{entry.ticker} 決算で{disposition}判断を再評価" '
-                "--due <YYYY-MM-DD> を起票"
+                f"# {entry.ticker}（{disposition}）: 将来の決算日なし — "
+                "次回決算日の公表または新規 material 開示で再評価"
             )
             continue
         iso = earnings_date.isoformat()
@@ -135,7 +149,7 @@ def reevaluation_task_suggestions(
             f"baibai-engine task add --kind follow-up --ticker {entry.ticker} "
             f'--title "{entry.ticker} 決算で{disposition}判断を再評価" '
             f"--due {iso} --event-date {iso} "
-            f'--event-label "{entry.ticker} 決算"'
+            f'--event-label "{entry.ticker} {event_label}"'
         )
     return suggestions
 
@@ -151,6 +165,21 @@ def _print_reevaluation_task_suggestions(suggestions: list[str]) -> None:
         print(line, file=sys.stderr)
 
 
+def _earnings_by_ticker(
+    candidates: Sequence[Mapping[str, object]],
+) -> dict[str, Mapping[str, object | None]]:
+    result: dict[str, Mapping[str, object | None]] = {}
+    for item in candidates:
+        metrics = item.get("metrics")
+        metric_values = metrics if isinstance(metrics, Mapping) else {}
+        result[str(item["ticker"])] = {
+            "next_earnings_date": item.get("next_earnings_date"),
+            "next_earnings_estimated_date": metric_values.get("next_earnings_estimated_date"),
+            "fin_latest_disclosed_date": metric_values.get("fin_latest_disclosed_date"),
+        }
+    return result
+
+
 def _iso_date_or_none(value: object | None) -> date | None:
     if not isinstance(value, str) or not value:
         return None
@@ -158,6 +187,19 @@ def _iso_date_or_none(value: object | None) -> date | None:
         return date.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _usable_future_event(
+    event_date: date | None,
+    *,
+    disclosed: date | None,
+    earliest_due: date,
+) -> date | None:
+    if event_date is None or event_date < earliest_due:
+        return None
+    if disclosed is not None and disclosed >= event_date:
+        return None
+    return event_date
 
 
 __all__ = ["publish_shortlist", "reevaluation_task_suggestions"]

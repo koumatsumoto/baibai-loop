@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -253,7 +254,11 @@ def test_shortlist_records_a_cycle_where_nothing_was_worth_researching(tmp_path:
 
 def test_no_selected_cycle_suggests_a_reevaluation_trigger_for_every_entry() -> None:
     suggestions = reevaluation_task_suggestions(
-        _no_selected_shortlist(), {"2331": "2026-08-06", "0001": None}
+        _no_selected_shortlist(),
+        {
+            "2331": {"next_earnings_date": "2026-08-06"},
+            "0001": {},
+        },
     )
 
     assert len(suggestions) == 2
@@ -438,7 +443,11 @@ def test_shortlist_allows_undated_catalyst_and_orders_selected_by_rank() -> None
 
 def test_reevaluation_suggestion_emits_runnable_task_add_for_rejected_with_earnings_date() -> None:
     suggestions = reevaluation_task_suggestions(
-        _shortlist(), {"2331": "2026-07-30", "0001": "2026-08-06"}
+        _shortlist(),
+        {
+            "2331": {"next_earnings_date": "2026-07-30"},
+            "0001": {"next_earnings_date": "2026-08-06"},
+        },
     )
 
     assert suggestions == [
@@ -452,10 +461,65 @@ def test_reevaluation_suggestion_emits_runnable_task_add_for_rejected_with_earni
 
 
 def test_reevaluation_suggestion_notes_missing_earnings_date() -> None:
-    suggestions = reevaluation_task_suggestions(_shortlist(), {"2331": "2026-07-30", "0001": None})
+    suggestions = reevaluation_task_suggestions(
+        _shortlist(),
+        {"2331": {"next_earnings_date": "2026-07-30"}, "0001": {}},
+    )
 
     assert len(suggestions) == 1
     note = suggestions[0]
     assert note.startswith("# 0001")
-    assert "決算日未公表" in note
-    assert "--ticker 0001" in note
+    assert "将来の決算日なし" in note
+    assert "次回決算日の公表" in note
+
+
+def test_reevaluation_suggestion_skips_consumed_event_and_uses_future_estimate() -> None:
+    shortlist = _no_selected_shortlist().model_copy(
+        update={
+            "as_of": date(2026, 8, 7),
+            "published_at": _no_selected_shortlist().published_at.replace(
+                year=2026, month=8, day=9
+            ),
+        }
+    )
+
+    suggestions = reevaluation_task_suggestions(
+        shortlist,
+        {
+            "2331": {
+                "next_earnings_date": "2026-08-06",
+                "fin_latest_disclosed_date": "2026-08-07",
+                "next_earnings_estimated_date": "2026-11-06",
+            },
+            "0001": {
+                "next_earnings_date": "2026-08-05",
+                "fin_latest_disclosed_date": "2026-08-05",
+            },
+        },
+    )
+
+    assert "--due 2026-11-06" in suggestions[0]
+    assert 'event-label "2331 決算（推定）"' in suggestions[0]
+    assert "2026-08-06" not in "\n".join(suggestions)
+    assert "2026-08-05" not in "\n".join(suggestions)
+    assert suggestions[1].startswith("# 0001")
+
+
+def test_reevaluation_suggestion_uses_jst_publication_date_for_due_boundary() -> None:
+    shortlist = _no_selected_shortlist().model_copy(
+        update={
+            "as_of": date(2026, 8, 7),
+            "published_at": datetime(2026, 8, 9, 16, 0, tzinfo=UTC),
+        }
+    )
+
+    suggestions = reevaluation_task_suggestions(
+        shortlist,
+        {
+            "2331": {"next_earnings_date": "2026-08-09"},
+            "0001": {},
+        },
+    )
+
+    assert all("--due 2026-08-09" not in suggestion for suggestion in suggestions)
+    assert suggestions[0].startswith("# 2331")
