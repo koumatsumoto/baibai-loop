@@ -20,7 +20,14 @@ date: 2026-08-08
 
 ## 固定 scope と authority
 
-事前登録 `77e81b2c`、結果を読む前に固定した評価実装 `34be1fa1` を用いた。80 panel、`rules_hash=ec8c87c50da68cff` の単一 revision。artifact SHA-256 は `b75197a8a4f532bbfa2553994d75ce0fc1919b4156f4218c8cafa2d6840f5706`。
+事前登録 `77e81b2c`、評価実装 `34be1fa1` を用いた。80 panel、`rules_hash=ec8c87c50da68cff` の単一 revision。artifact SHA-256 は `b75197a8a4f532bbfa2553994d75ce0fc1919b4156f4218c8cafa2d6840f5706`。
+
+評価実装の commit は最初の実行より後である。判定へ入る値（coverage 0.75 の 3 条件、paired / changed pair / unique ticker の floor 8、pair delta median `>= +0.03`、positive share `>= 0.60`、trap 非悪化、trap 閾値 `-0.20`、窓と固定 8 cell、precedence）は事前登録から 1 つも動かしていない。最初の実行後に触ったのは 2 点だけで、どちらも gate の入力ではない。
+
+- gate に入らない診断 `changed_only_median` / `changed_only_positive_share` を出力へ足した。
+- ticker 等重みの `changed_n` が pair 数のままで、単位数より大きい値を報告していたのを ticker 数へ直した。sufficiency の floor は cohort 等重みだけを読むので判定には入らない。
+
+判定語は変更の前後どちらの実行でも `insufficient` だった。
 
 固定 4 as-of × `3y` / `5y` の 8 cell は `normalized_per_3fy_exploration` を required metric に加えて **8/8 eligible**、`production_change_allowed: true` だった。今回の不採用は authority の不足ではない。
 
