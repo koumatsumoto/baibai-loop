@@ -167,6 +167,91 @@ def test_an_empty_filing_reports_every_field_absent() -> None:
     assert report.resolved_shares is None
     assert report.issued_shares is None
     assert report.remaining_shares is None
+    assert report.disposition_observed is False
+
+
+def test_disposition_purpose_requires_an_actual_positive_row() -> None:
+    disposals = (
+        "２【処理状況】2026年７月31日現在 区分"
+        "引き受ける者の募集を行った取得自己株式（処分日）－月－日－－計－－－"
+        "消却の処分を行った取得自己株式（消却日）－月－日－－計－－－"
+        "合併、株式交換、株式交付、会社分割に係る移転を行った取得自己株式（移転日）"
+        "－月－日－－計－－－"
+        "その他（譲渡制限付株式報酬として処分した取得自己株式）（処分日）"
+        "７月16日7,0003,766,000計－7,0003,766,000合計7,0003,766,000"
+    )
+
+    report = parse_buyback_report(
+        _filing(
+            ReportingPeriodCoverPage=_PERIOD,
+            AcquisitionsByResolutionOfBoardOfDirectorsMeetingTextBlock=_BOARD_FULL_WIDTH,
+            HoldingOfTreasurySharesTextBlock=_HOLDING,
+            DisposalsOfTreasurySharesTextBlock=disposals,
+        )
+    )
+
+    assert report.disposition_observed is True
+    assert report.disposition_purposes == ("employee_compensation_esop",)
+
+
+def test_cancellation_and_other_rerelease_can_coexist() -> None:
+    disposals = (
+        "引き受ける者の募集を行った取得自己株式（処分日）６月２日1,000500,000計－1,000500,000"
+        "消却の処分を行った取得自己株式（消却日）６月30日2,0001,000,000計－2,0001,000,000"
+        "合併、株式交換、株式交付、会社分割に係る移転を行った取得自己株式（移転日）"
+        "－月－日－－計－－－その他（該当事項なし）（処分日）－月－日－－計－－－"
+        "合計3,0001,500,000"
+    )
+
+    report = parse_buyback_report(
+        _filing(
+            ReportingPeriodCoverPage=_PERIOD,
+            DisposalsOfTreasurySharesTextBlock=disposals,
+        )
+    )
+
+    assert report.disposition_purposes == ("cancellation", "other_rerelease")
+
+
+def test_observed_empty_disposition_is_not_an_unknown_source() -> None:
+    report = parse_buyback_report(
+        _filing(
+            ReportingPeriodCoverPage=_PERIOD,
+            DisposalsOfTreasurySharesTextBlock="２【処理状況】該当事項はありません。",
+        )
+    )
+
+    assert report.disposition_observed is True
+    assert report.disposition_purposes == ()
+
+
+@pytest.mark.parametrize(
+    "disposals",
+    [
+        "２【処理状況】新設された処分類型（処分日）７月16日7,0003,766,000",
+        (
+            "引き受ける者の募集を行った取得自己株式（処分日）－月－日－－"
+            "消却の処分を行った取得自己株式（消却日）－月－日－－"
+        ),
+        (
+            "引き受ける者の募集を行った取得自己株式（処分日）－月－日－－"
+            "消却の処分を行った取得自己株式（消却日）７月16日shares-unknown"
+            "合併、株式交換、株式交付、会社分割に係る移転を行った取得自己株式（移転日）"
+            "－月－日－－その他（該当事項なし）（処分日）－月－日－－合計－－"
+        ),
+    ],
+    ids=("unknown-category", "truncated-table", "malformed-known-row"),
+)
+def test_unknown_or_malformed_disposition_layout_fails_closed(disposals: str) -> None:
+    report = parse_buyback_report(
+        _filing(
+            ReportingPeriodCoverPage=_PERIOD,
+            DisposalsOfTreasurySharesTextBlock=disposals,
+        )
+    )
+
+    assert report.disposition_observed is False
+    assert report.disposition_purposes == ()
 
 
 def test_a_zero_sized_authorization_does_not_divide() -> None:

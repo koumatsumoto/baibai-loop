@@ -50,25 +50,61 @@ class BuybackRefreshSummary:
 
 def _candidate_filings(
     connection: sqlite3.Connection, *, since: date
-) -> Iterator[tuple[str, str, str]]:
-    """(doc_id, ticker, filed_on) for readable buyback filings from `since` onwards.
+) -> Iterator[tuple[str, str, str, str, int]]:
+    """Candidate metadata for readable buyback filings from `since` onwards.
 
-    Ordered oldest first so a correction filed later overwrites the original it fixes.
+    EDINET can publish an original and correction on the same day.  The ordering therefore
+    uses the form kind and list sequence as well as the date: originals are applied first,
+    then corrections, and a later list sequence wins within the same form kind.
     """
     placeholders = ", ".join("?" for _ in BUYBACK_FORM_DOC_TYPES)
     rows = connection.execute(
-        "SELECT doc_id, sec_code, doc_date FROM edinet_documents "  # nosec B608
-        f"WHERE doc_type_code IN ({placeholders}) AND csv_flag = 1 "
-        "AND sec_code IS NOT NULL AND doc_date >= ? "
-        "ORDER BY doc_date, doc_id",
+        "SELECT d.doc_id, d.sec_code, d.doc_date, d.doc_type_code, "  # nosec B608
+        "d.sequence_number, d.parent_doc_id FROM edinet_documents d "
+        f"WHERE d.doc_type_code IN ({placeholders}) AND d.csv_flag = 1 "
+        "AND d.sec_code IS NOT NULL AND d.doc_date >= ? "
+        "ORDER BY d.doc_date, CASE d.doc_type_code WHEN '220' THEN 0 ELSE 1 END, "
+        "d.sequence_number, d.doc_id",
         (*BUYBACK_FORM_DOC_TYPES, since.isoformat()),
     ).fetchall()
-    for doc_id, sec_code, doc_date in rows:
+    # `parent_doc_id` has no index in the shared market store.  Selecting terminal
+    # revisions with a correlated SQL scan is quadratic over the whole document table;
+    # this bounded Form-220/230 list is small enough to resolve linearly in memory.
+    newest_correction_by_parent: dict[str, tuple[str, int, str]] = {}
+    superseded_doc_ids: set[str] = set()
+    for doc_id, _, doc_date, doc_type_code, sequence_number, parent_doc_id in rows:
+        if str(doc_type_code) != "230" or parent_doc_id in (None, ""):
+            continue
+        parent = str(parent_doc_id)
+        superseded_doc_ids.add(parent)
+        key = str(doc_date), int(sequence_number), str(doc_id)
+        if key > newest_correction_by_parent.get(parent, ("", -1, "")):
+            newest_correction_by_parent[parent] = key
+    selected_corrections = {key[2] for key in newest_correction_by_parent.values()}
+
+    for doc_id, sec_code, doc_date, doc_type_code, sequence_number, parent_doc_id in rows:
+        doc_id = str(doc_id)
+        if doc_id in superseded_doc_ids:
+            continue
+        if (
+            str(doc_type_code) == "230"
+            and parent_doc_id not in (None, "")
+            and doc_id not in selected_corrections
+        ):
+            continue
         try:
             ticker = normalize_ticker(str(sec_code)[:4])
         except ValueError:
             continue
-        yield str(doc_id), ticker, str(doc_date)
+        yield doc_id, ticker, str(doc_date), str(doc_type_code), int(sequence_number)
+
+
+def _revision_key(
+    *, filed_on: str, doc_type_code: str, sequence_number: int, doc_id: str
+) -> tuple[str, int, int, str]:
+    """A stable EDINET revision order independent of refresh and lexical doc-id order."""
+
+    return filed_on, int(doc_type_code == "230"), sequence_number, doc_id
 
 
 def _store(
@@ -77,9 +113,44 @@ def _store(
     ticker: str,
     doc_id: str,
     filed_on: str,
+    doc_type_code: str,
+    sequence_number: int,
     report: BuybackReport,
-) -> None:
+) -> bool:
     assert report.report_month_end is not None
+    current = connection.execute(
+        "SELECT doc_id, filed_on FROM edinet_buyback_reports "
+        "WHERE ticker = ? AND report_month_end = ?",
+        (ticker, report.report_month_end.isoformat()),
+    ).fetchone()
+    if current is not None:
+        current_doc_id, current_filed_on = str(current[0]), str(current[1])
+        if filed_on < current_filed_on:
+            return False
+        if filed_on == current_filed_on:
+            current_metadata = connection.execute(
+                "SELECT doc_type_code, sequence_number FROM edinet_documents "
+                "WHERE doc_id = ? AND doc_date = ?",
+                (current_doc_id, current_filed_on),
+            ).fetchone()
+            # A same-day row without its source-list identity cannot be ordered safely.
+            # Preserve it instead of allowing refresh order to choose the winner.
+            if current_metadata is None:
+                return False
+            candidate_key = _revision_key(
+                filed_on=filed_on,
+                doc_type_code=doc_type_code,
+                sequence_number=sequence_number,
+                doc_id=doc_id,
+            )
+            current_key = _revision_key(
+                filed_on=current_filed_on,
+                doc_type_code=str(current_metadata[0]),
+                sequence_number=int(current_metadata[1]),
+                doc_id=current_doc_id,
+            )
+            if candidate_key <= current_key:
+                return False
     connection.execute(
         """
         INSERT INTO edinet_buyback_reports (
@@ -100,6 +171,7 @@ def _store(
             month_amount_yen = excluded.month_amount_yen,
             issued_shares = excluded.issued_shares,
             treasury_shares = excluded.treasury_shares
+        WHERE excluded.filed_on >= edinet_buyback_reports.filed_on
         """,
         (
             ticker,
@@ -118,6 +190,7 @@ def _store(
             report.treasury_shares,
         ),
     )
+    return True
 
 
 def refresh_buyback_reports(
@@ -149,7 +222,9 @@ def refresh_buyback_reports(
         }
         considered = stored = unreadable = without_usable_month = 0
         rate_limited = False
-        for doc_id, ticker, filed_on in _candidate_filings(connection, since=since):
+        for doc_id, ticker, filed_on, doc_type_code, sequence_number in _candidate_filings(
+            connection, since=since
+        ):
             if (ticker, doc_id) in already:
                 continue
             considered += 1
@@ -164,9 +239,17 @@ def refresh_buyback_reports(
             if not _has_usable_month(report, filed_on=filed_on):
                 without_usable_month += 1
                 continue
-            _store(connection, ticker=ticker, doc_id=doc_id, filed_on=filed_on, report=report)
-            stored += 1
-            if stored % _COMMIT_EVERY == 0:
+            changed = _store(
+                connection,
+                ticker=ticker,
+                doc_id=doc_id,
+                filed_on=filed_on,
+                doc_type_code=doc_type_code,
+                sequence_number=sequence_number,
+                report=report,
+            )
+            stored += int(changed)
+            if changed and stored % _COMMIT_EVERY == 0:
                 connection.commit()
             if limit is not None and stored >= limit:
                 break
@@ -205,6 +288,8 @@ class StoredBuybackReport:
     cumulative_shares: int | None
     month_shares: int | None
     issued_shares: int | None
+    doc_id: str | None = None
+    filed_on: date | None = None
 
 
 def read_buyback_reports(
@@ -212,7 +297,9 @@ def read_buyback_reports(
 ) -> dict[str, tuple[StoredBuybackReport, ...]]:
     """The newest `months` reports per ticker whose month end is at or before `asof`.
 
-    Bounded by `asof` so a historical replay never sees a filing that did not exist yet.
+    Both reporting month and filing date are bounded by `asof`.  The report describes a
+    closed month but is published afterwards; bounding only the month would leak that
+    later publication into a historical replay.
     """
     if not tickers or months <= 0:
         return {}
@@ -223,10 +310,11 @@ def read_buyback_reports(
         placeholders = ", ".join("?" for _ in tickers)
         rows = connection.execute(
             "SELECT ticker, report_month_end, window_start, window_end, resolved_shares, "  # nosec B608
-            "cumulative_shares, month_shares, issued_shares "
+            "cumulative_shares, month_shares, issued_shares, doc_id, filed_on "
             f"FROM edinet_buyback_reports WHERE ticker IN ({placeholders}) "
-            "AND report_month_end <= ? ORDER BY ticker, report_month_end DESC",
-            (*tickers, asof.isoformat()),
+            "AND report_month_end <= ? AND filed_on <= ? "
+            "ORDER BY ticker, report_month_end DESC, filed_on DESC",
+            (*tickers, asof.isoformat(), asof.isoformat()),
         ).fetchall()
     except sqlite3.OperationalError:
         return {}
@@ -247,6 +335,8 @@ def read_buyback_reports(
                 cumulative_shares=None if row[5] is None else int(row[5]),
                 month_shares=None if row[6] is None else int(row[6]),
                 issued_shares=None if row[7] is None else int(row[7]),
+                doc_id=None if row[8] is None else str(row[8]),
+                filed_on=None if row[9] is None else date.fromisoformat(str(row[9])),
             )
         )
     return {ticker: tuple(reports) for ticker, reports in grouped.items()}
