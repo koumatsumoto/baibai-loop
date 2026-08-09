@@ -150,7 +150,9 @@ def verify_freeze(workspace: Path, freeze_path: Path) -> str:
 
 
 def _reject_prior_material(files: Mapping[str, Mapping[str, object]]) -> None:
-    serialized = json.dumps(files, ensure_ascii=False, sort_keys=True)
+    # Safe YAML loaders preserve unquoted ISO dates as ``date`` values.
+    # Stringifying scalar extensions keeps the blind scan total over valid YAML.
+    serialized = json.dumps(files, ensure_ascii=False, sort_keys=True, default=str)
     if PRIOR_REFERENCE.search(serialized):
         raise WorldModelValidationError("blind workspace contains a prior macro context id")
     forbidden_keys = {

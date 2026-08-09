@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,6 +15,7 @@ from tools.experiments.macro_world_model.build_evidence_snapshot import (
 from tools.experiments.macro_world_model.render_report import render_report
 from tools.experiments.macro_world_model.validate_world_model import (
     WorldModelValidationError,
+    _reject_prior_material,
     build_freeze_record,
     validate_workspace,
 )
@@ -341,6 +342,10 @@ def test_validator_accepts_contract_and_checks_blind_freeze(tmp_path: Path) -> N
 
     assert result["status"] == "ok"
     assert result["blind_freeze_sha256"]
+
+
+def test_blind_scan_accepts_yaml_date_scalars() -> None:
+    _reject_prior_material({"charter": {"as_of": date(2026, 8, 7)}})
 
 
 @pytest.mark.parametrize(
