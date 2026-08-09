@@ -249,6 +249,39 @@ J-Quants の正確なレート制限は非公開で、挙動は実運用の観�
 
 ranking を変えるのは versioned screening rules と estimate component だけである。held / reserved・月次予算・cash・集中・macro material delta / staleness は annotation / warning であり、rank・候補抽出を変えない。corporate action が unresolved の候補は rank を都合よく変えず、research / plan-limit を block する。candidate に AI 解釈・因果・採用結論を書かない（observed / derived / estimate の区分を維持する）。
 
+### 供給×機会幅の read-only scorecard
+
+`python -m tools.experiments.measure_supply_context --selection-id <ID>` は、shortlist の判断時に
+供給と候補集合の幅を別々の座標で出す。calibration panel・run store・application DB は
+read-only で開き、E[r]・FV・rank・gate・selection payload・schema を変更しない。
+
+供給軸は current selection 上位 5 の平均 E[r] と、最新月末 panel の screen・流動性・E[r]
+hurdle 通過件数である。機会幅は次の座標を持つ。
+
+| 座標 | 定義 | 主な読み方 |
+| --- | --- | --- |
+| `temporal_jaccard` | current top-20 と前 cycle top-20 の ticker 集合 Jaccard。歴史分布は連続する月次 panel 同士 | 高いほど候補が持続する。daily の前回側は run store、retention 外では `--longlist-history-dir` の R2 longlist history |
+| `trailing_12m_unique_top20` | 連続する直近 12 月次 panel の top-20 に現れた unique ticker 数 | slot 240 件に対する銘柄の広がり。月欠損があれば未計測 |
+| `carry_dominant_share` | top-20 のうち `er_carry_annual > er_reversion_annual` の比率 | 高いほど E[r] の経済成分が carry 側へ集中する |
+| `sector_hhi` | top-20 の `sector_33` share の二乗和 | 高いほど sector 集中が強い |
+| `max_cluster_share` | `sector_33 × (carry / reversion 支配)` の最大 cluster 比率 | sector と E[r] 成分を組み合わせた最大の同一 economic bet |
+| `event_wait_share` | 最新 canonical shortlist の rejected 中 `reject_class: event_wait` の比率 | 深掘り済み候補が再評価 trigger 待ちである度合い。歴史分布は application DB の prior shortlist cycle |
+
+panel 由来座標の percentile は同一 rules hash の月次 panel 分布、`event_wait_share` は prior
+shortlist cycle の分布に置く。異なる母集団の percentile を横並びの score へ合成しない。
+前 cycle の run と longlist history が無い、連続月 panel が欠ける、shortlist または rejected
+entry が無い場合は `status: unmeasured`・`value: null` と理由を返す。未計測を 0 や
+「異常なし」へ補完しない。
+
+供給 2 座標が同じ方向を示し、幅の各座標も同じ結論を支える場合にだけ、低供給×狭い幅を
+市場側の枯渇、十分な供給×狭い幅を集中した供給、十分な供給×広い幅を広い供給、低供給×
+広い幅を現行 value 軸外の機会として読む。供給内または幅内で方向が割れた場合は四象限を
+断定せず、割れた座標と `research / discovery` の優先判断が未解決であることを報告する。
+percentile に新しい二値閾値を置かず、raw 座標を単一 regime label へ変換しない。ticker の
+新しさ自体を KPI にしない。carry は較正上有効な予測成分でもある
+（[`2026-08-06-bargain-capture-diagnosis`](../../reports/studies/2026-08-06-bargain-capture-diagnosis/report.md)
+§6.3）ため、carry 集中も単独で悪化や除外と読まない。
+
 **判断時の機械行焼き込み**: run store は 3 世代 retention で、ある shortlist を rank した selection はその run と一緒に消える。shortlist は cycle の正本判断記録（selected 0 件のときは唯一の記録）なので、レビュー面が比較する機械座標は判断側へ持たせる。`shortlist publish` は source selection の longlist 行（`rank` / `fair_value_anchor_yen` / `market_price_yen` / `expected_return_pct` / `fv_convergence` / `event_warnings` / `durability_warnings` / `selection_reasons` / `screening_playbook` / `liquidity_status`）を entry の `machine_snapshot` へ焼き込む。`er_annual` と同じ規律で、**表示専用・publish 後に再計算も上書きもしない**（内容が違う再 publish は conflict）。read model は焼き込みを longlist 行と同じ view 型で返し、レビュー面は生きている selection を優先しつつ prune 後は焼き込みへ落ちる。`select` を `--longlist-top` 無しで publish した selection には焼き込む行が無く、その shortlist は prune 後に機械値を失う。
 
 **決算ラグ annotation**: 決算開示と as-of 財務のラグを判断面へ出す。`jquants_earnings_calendar` は ticker あたり 1 行の**予定**表で、`next_earnings_date` は as-of 以降の最短予定日しか持たないため、日付だけでは「これから」と「もう出た」が区別できない。`next_earnings_status` が 4 状態で答える — `announced`（予定日が as-of 以前）/ `scheduled`（予定日が as-of より後）/ `estimated`（カレンダー行が無く、過去の開示周期から推定できる）/ `unknown`（材料なし）。会社が予定日より前に開示してもカレンダー行は残るので、その銘柄は `scheduled` のまま見える —— 予定日直前の開示は前倒しの実績より業績予想修正・再開示であることが多く（実 store の retrospective で前倒し判定は 89% が誤り）、誤って `announced` にすると読み手が目前の決算を event risk から外すため、判定しない側へ倒している。前倒しかどうかは隣の `fin_latest_disclosed_date` が予定日の直前を指すことで読む。`fin_latest_disclosed_date` は機械行の財務が含む最後の開示日。`stale_fin_flag` は「予定日が as-of 以前なのに、その発表に対応する開示が行に無い」で立ち、**原因は区別しない**（延期・決算期変更・provider 欠落のいずれでも立つ。読み手のすべきことはどれでも同じで、一次開示で切り分ける）。判定材料が無い場合は `null` で、`false`（照合して食い違わなかった）と同じ値にしない。`next_earnings_estimated_date` は前年同期の次の開示日を 1 年ずらした推定で、確定日を上書きしない。周期の刻みに数えるのは実績を伴う開示だけで、来期ガイダンス行（`period_end` が開示日より後）・同一期の再開示・実績列を持たない業績予想/配当予想の修正は除く。実 store の過去 4 as-of で**実際の次回開示日**と突合すると誤差 7 日以内 88〜95%・誤差の中央値 1 日（全件）。次回開示までの距離や決算期の分布で帯ごとに 75〜96% まで振れるので、確定日の代わりには使わない —— event risk 判定は確定日だけで行い、推定は着手順の目安に留める。いずれも annotation で、screen pass・自動除外・E[r]・rank・recommendation を変更しない。カレンダー行を持たない universe ticker 数は `run` の進捗行に出す（実測で universe の約 18%。個別企業の未公表を含むので閾値は置かず、急増を provider 欠落として読む）。
