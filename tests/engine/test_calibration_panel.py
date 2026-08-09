@@ -44,6 +44,7 @@ from baibai_engine.screening.calibration.store import (
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     VALUATION_HISTORY_SESSIONS,
+    build_fundamental_inflection_signals,
     build_profitability_level_signals,
 )
 from baibai_engine.screening.providers.jquants import JQuantsFinancialSummary
@@ -180,6 +181,124 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
 
 
 class CalibrationPanelTest(unittest.TestCase):
+    def test_inflection_signals_keep_forecast_targets_and_actual_periods_separate(self) -> None:
+        summaries = (
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                forecast_profit=100.0,
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2024, 8, 1),
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 3, 31),
+                forecast_profit=110.0,
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2024, 11, 1),
+                fiscal_period="2Q",
+                fiscal_year_end=date(2025, 3, 31),
+                forecast_profit=121.0,
+            ),
+            *(
+                JQuantsFinancialSummary(
+                    ticker="9001",
+                    disclosed_at=date(year + 1, 8, 1),
+                    fiscal_period="1Q",
+                    fiscal_year_end=date(year + 2, 3, 31),
+                    operating_profit=operating_profit,
+                    cfo=cfo,
+                    sales=100.0,
+                )
+                for year, operating_profit, cfo in (
+                    (2021, 10.0, 5.0),
+                    (2022, 12.0, 6.0),
+                    (2023, 15.0, 9.0),
+                )
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                forecast_profit=130.0,
+            ),
+        )
+
+        measured = build_fundamental_inflection_signals(summaries, date(2025, 3, 31))
+        rolled = build_fundamental_inflection_signals(summaries, date(2025, 5, 31))
+        stale = build_fundamental_inflection_signals(summaries, date(2026, 1, 31))
+
+        self.assertAlmostEqual(measured.forecast_revision_pct_latest or 0.0, 0.10)
+        self.assertEqual(measured.forecast_revision_streak, 2)
+        self.assertAlmostEqual(measured.operating_margin_accel_2p or 0.0, 0.01)
+        self.assertAlmostEqual(measured.cfo_margin_accel_2p or 0.0, 0.02)
+        self.assertIsNone(rolled.forecast_revision_pct_latest)
+        self.assertIsNone(rolled.forecast_revision_streak)
+        self.assertIsNone(stale.operating_margin_accel_2p)
+        self.assertIsNone(stale.cfo_margin_accel_2p)
+
+    def test_inflection_signals_exclude_future_disclosures_and_count_loss_narrowing(self) -> None:
+        summaries = (
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                forecast_profit=-100.0,
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2024, 8, 1),
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 3, 31),
+                forecast_profit=-80.0,
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2024, 9, 1),
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 3, 31),
+                forecast_profit=-120.0,
+            ),
+        )
+
+        measured = build_fundamental_inflection_signals(summaries, date(2024, 8, 31))
+
+        self.assertAlmostEqual(measured.forecast_revision_pct_latest or 0.0, 0.20)
+        self.assertEqual(measured.forecast_revision_streak, 1)
+
+    def test_inflection_acceleration_does_not_fall_back_before_latest_correction(self) -> None:
+        summaries = (
+            *(
+                JQuantsFinancialSummary(
+                    ticker="9001",
+                    disclosed_at=date(year + 1, 5, 10),
+                    fiscal_period="FY",
+                    fiscal_year_end=date(year, 3, 31),
+                    operating_profit=operating_profit,
+                    sales=100.0,
+                )
+                for year, operating_profit in ((2022, 10.0), (2023, 12.0), (2024, 15.0))
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2025, 6, 1),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                operating_profit=None,
+                sales=100.0,
+            ),
+        )
+
+        measured = build_fundamental_inflection_signals(summaries, date(2025, 6, 30))
+
+        self.assertIsNone(measured.operating_margin_accel_2p)
+
     def test_profitability_levels_use_pit_ttm_without_profit_fallback(self) -> None:
         summaries = (
             JQuantsFinancialSummary(
@@ -259,6 +378,10 @@ class CalibrationPanelTest(unittest.TestCase):
                 operating_profit_to_assets=0.05,
                 operating_margin=-0.10,
                 asset_turnover=-0.50,
+                forecast_revision_pct_latest=-0.10,
+                forecast_revision_streak=0,
+                operating_margin_accel_2p=-0.02,
+                cfo_margin_accel_2p=0.03,
             )
             write_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
             self.assertEqual(read_panel(store_dir, ASOF), [negative_sales_row])

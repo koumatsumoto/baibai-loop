@@ -212,12 +212,17 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         operating_profit_to_assets=_opt_float(raw, "operating_profit_to_assets"),
         operating_margin=_opt_float(raw, "operating_margin"),
         asset_turnover=_opt_float(raw, "asset_turnover"),
+        forecast_revision_pct_latest=_opt_float(raw, "forecast_revision_pct_latest"),
+        forecast_revision_streak=_opt_int(raw, "forecast_revision_streak"),
+        operating_margin_accel_2p=_opt_float(raw, "operating_margin_accel_2p"),
+        cfo_margin_accel_2p=_opt_float(raw, "cfo_margin_accel_2p"),
     )
     _validate_asset_backed(row)
     _validate_shareholder_return_change(row)
     _validate_margin_supply_demand(row)
     _validate_normalized_profit(row)
     _validate_profitability_levels(row)
+    _validate_fundamental_inflection(row)
     return row
 
 
@@ -381,6 +386,18 @@ def _validate_profitability_levels(row: PanelRow) -> None:
         expected = row.operating_margin * row.asset_turnover
         if not abs(row.operating_profit_to_assets - expected) <= 1e-12 * max(1.0, abs(expected)):
             raise ValueError("profitability levels violate the accounting identity")
+
+
+def _validate_fundamental_inflection(row: PanelRow) -> None:
+    values = (
+        row.forecast_revision_pct_latest,
+        row.operating_margin_accel_2p,
+        row.cfo_margin_accel_2p,
+    )
+    if any(value is not None and not isfinite(value) for value in values):
+        raise ValueError("fundamental inflection values must be finite")
+    if row.forecast_revision_streak is not None and row.forecast_revision_streak < 0:
+        raise ValueError("forecast revision streak must be non-negative")
 
 
 def _population_coverage_status(value: str) -> PopulationCoverageStatus:
