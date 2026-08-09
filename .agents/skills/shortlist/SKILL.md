@@ -39,10 +39,24 @@ description: 買い機会の発見と絞り込み。screening run → select →
 4. **供給文脈**: 手順 3 で保持した `selection_id` を渡して当日の座標を控える。
 
    ```bash
-   uv run python -m tools.experiments.measure_supply_context --selection-id <ID>
+   uv run python -m tools.experiments.measure_supply_context \
+     --selection-id <ID> [--longlist-history-dir <手順3で取得済みのDIR>]
    ```
 
-   当日 selection 上位 5 の平均 E[r] が 80 か月 panel のどこにいるかと、最新月末 panel 基準の hurdle 超え件数が出る。cycle が購入ゼロで終わったときに「市況で候補が薄いのか、pipeline が拾えていないのか」を分ける座標なので、**2 つを 1 語へ畳まず両方を報告へ載せる**。逆を向くことは普通に起きる。
+   当日 selection 上位 5 の平均 E[r] と最新月末 panel の hurdle 超え件数が供給軸、
+   `temporal_jaccard`・直近 12 月 unique top-20・carry 支配 share・sector HHI・最大
+   `sector_33 × carry/reversion` cluster share・直近 shortlist の `event_wait` share が幅軸である。
+   各値と歴史 percentile を報告し、**供給と幅を 1 語へ畳まず両軸を残す**。逆を向くことは
+   普通に起きる。run retention で前 cycle が無い、panel の月が欠ける、shortlist が無い場合の
+   `unmeasured` は 0 や異常なしへ読み替えない。前 run が prune 済みで手順 3 に R2 longlist
+   history を使った場合は、同じ directory を渡して temporal Jaccard を復元する。
+
+   供給 2 座標が同じ方向を示し、幅の各座標も同じ結論を支える場合にだけ、低供給×狭い幅を
+   市場側の枯渇、十分な供給×狭い幅を集中した供給、十分な供給×広い幅を広い供給、低供給×
+   広い幅を現行 value 軸外の機会として読む。供給内または幅内で方向が割れた場合は四象限を
+   断定せず、割れた座標と `research / discovery` の優先判断が未解決であることを人間へ渡す。
+   percentile に新しい二値閾値を置かない。ticker の新しさ自体を KPI にせず、carry 集中も
+   単独で悪化と判定しない。
 
 5. **差分確認**: 前回 shortlist（application DB）と ticker 集合を new / continued / exited で比較する。あわせて `uv run python -m baibai_engine.research_watch --db stores/application/baibai.sqlite --sqlite-path stores/market/market.sqlite --asof <ASOF>` を回し、深掘り済み ticker の現在価格と研究 FV の位置を控える（手順 7 の再研究判定に使う）。continued も narrative を自動継承せず、順位差・価格・最新開示・countercase を再確認する。前回を確認できない run は全候補を確認する。機械側の差分は `selection.diagnostics.previous_overlap` に出る。`previous_candidates_source` が `run_revision` なら母数は前 as-of の全候補、`longlist_history` なら前回 daily longlist の top-N、`canonical_shortlist` なら人間が確認して保持した shortlist entries なので、異なる source 間で重なり率を比較しない。`null` は前回が取れなかった状態で、重なり 0 件と読み替えない。
    canonical previous は preflight の `previous` と手順 3 の引数で固定済みである。`resolved` は greatest prior as-of の run revision、`resolved-shortlist` は run が prune 済みのため application DB の同日 canonical shortlist に焼き込まれた entries を使う状態である。`canonical-unavailable` は retained entries も読めないため block のままとし、同日別 revision へ代替しない。
