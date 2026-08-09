@@ -227,7 +227,7 @@ def _recent_revision_rows(
     as_of: date,
     effective_dates: set[str],
 ) -> list[dict[str, object]]:
-    """Preserve the stage-a-v1 materiality signal independently of snapshot windows."""
+    """Detect material revisions independently so storage windows cannot alter selection."""
 
     rows: list[dict[str, object]] = []
     for observed_at in sorted(effective_dates):

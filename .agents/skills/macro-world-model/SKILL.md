@@ -57,7 +57,7 @@ python -m tools.experiments.macro_world_model.build_evidence_snapshot \
 
 head `as_of` を取得できないときだけ `--previous-asof` を省略し、builder の 90 日 fallback を使う。
 
-scan は全系列の stale / insufficient_history / flags / z_score / percentile、release 間変化、同一 `observed_at` の複数 vintage による revision を含む。materiality 候補は deterministic rules、standing coverage、analyst addition の和集合である。除外には具体的な理由が必要であり、data health の異常を経済解釈より先に解決する。
+scan は全系列の stale / insufficient_history / flags / z_score / percentile、release 間変化、同一 `observed_at` の複数 vintage による revision を含む。snapshot に保存する revision は観測日が `as_of` から 24 か月以内かつ revision vintage が cycle 窓内のものに限り、series ごとに vintage 降順 20 件を上限として超過数を `revisions_truncated` に残す。リポジトリ内 source による派生再計算は `derived_recompute: true` として読む側が割り引けるようにする。この保存窓は `recent_revision` の materiality 判定を変えない。materiality 候補は deterministic rules、standing coverage、analyst addition の和集合である。除外には具体的な理由が必要であり、data health の異常を経済解釈より先に解決する。
 
 ### 2. Evidence packs と states
 
