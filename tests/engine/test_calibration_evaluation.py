@@ -997,6 +997,16 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         assert isinstance(counts, dict)
         cohorts = payload["results"]["3y"]["cohorts"]
         assert isinstance(cohorts, list)
+        cohort_integrity = payload["cohort_integrity"]
+        assert isinstance(cohort_integrity, list)
+        self.assertEqual(len(cohort_integrity), 1)
+        self.assertEqual(
+            cohort_integrity[0]["metric_statuses"],
+            {
+                metric: cohorts[0]["metric_statuses"][metric]
+                for metric in PRODUCTION_REQUIRED_METRICS
+            },
+        )
         coverage = cohorts[0]["coverage"]
         assert isinstance(coverage, dict)
         return counts, coverage

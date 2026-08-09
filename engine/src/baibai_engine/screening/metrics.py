@@ -90,6 +90,44 @@ class NormalizedProfitSignals:
     normalized_per_5fy: float | None
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProfitabilityLevelSignals:
+    """PIT profitability levels used only by calibration panels."""
+
+    operating_profit_to_assets: float | None
+    operating_margin: float | None
+    asset_turnover: float | None
+
+
+def build_profitability_level_signals(
+    summaries: Sequence[JQuantsFinancialSummary],
+    asof_date: date,
+    ttm_rules: TTMRules,
+) -> ProfitabilityLevelSignals:
+    """Build TTM profitability levels without profit-basis fallback or future rows."""
+
+    available = tuple(
+        summary
+        for summary in sorted(summaries, key=lambda item: item.disclosed_at)
+        if summary.disclosed_at <= asof_date
+    )
+    latest = _latest_summary(available)
+    operating_profit_ttm, _ = _ttm_value(available, "operating_profit", ttm_rules)
+    sales_ttm, _ = _ttm_value(available, "sales", ttm_rules)
+    total_assets, _ = _carry_forward(available, "total_assets", latest)
+
+    def ratio(numerator: float | None, denominator: float | None) -> float | None:
+        if numerator is None or denominator is None or denominator <= 0:
+            return None
+        return numerator / denominator
+
+    return ProfitabilityLevelSignals(
+        operating_profit_to_assets=ratio(operating_profit_ttm, total_assets),
+        operating_margin=ratio(operating_profit_ttm, sales_ttm),
+        asset_turnover=ratio(sales_ttm, total_assets),
+    )
+
+
 def build_normalized_profit_signals(
     summaries: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsDailyBar],

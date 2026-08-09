@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from shutil import rmtree
@@ -431,6 +432,7 @@ def calibration_evaluate_command(
             "blocked_or_unresolved_count": len(required_pairs - eligible_pairs),
             "reason_counts": integrity_reason_counts,
         },
+        "cohort_integrity": [asdict(item) for item in integrity],
         "results": results,
     }
     context_payload: dict[str, object] | None = None

@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 12
+CACHE_SCHEMA_VERSION = 13
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -209,11 +209,15 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         normalized_per_3fy=_opt_float(raw, "normalized_per_3fy"),
         normalized_per_5fy=_opt_float(raw, "normalized_per_5fy"),
         self_range_observed_sessions=int(raw["self_range_observed_sessions"]),
+        operating_profit_to_assets=_opt_float(raw, "operating_profit_to_assets"),
+        operating_margin=_opt_float(raw, "operating_margin"),
+        asset_turnover=_opt_float(raw, "asset_turnover"),
     )
     _validate_asset_backed(row)
     _validate_shareholder_return_change(row)
     _validate_margin_supply_demand(row)
     _validate_normalized_profit(row)
+    _validate_profitability_levels(row)
     return row
 
 
@@ -360,6 +364,23 @@ def _validate_normalized_profit(row: PanelRow) -> None:
             raise ValueError("normalized PER must be finite and positive")
     if row.self_range_observed_sessions < 0:
         raise ValueError("self-range observed sessions must be non-negative")
+
+
+def _validate_profitability_levels(row: PanelRow) -> None:
+    levels = (
+        row.operating_profit_to_assets,
+        row.operating_margin,
+        row.asset_turnover,
+    )
+    if any(value is not None and not isfinite(value) for value in levels):
+        raise ValueError("profitability levels must be finite")
+    if all(value is not None for value in levels):
+        assert row.operating_margin is not None
+        assert row.asset_turnover is not None
+        assert row.operating_profit_to_assets is not None
+        expected = row.operating_margin * row.asset_turnover
+        if not abs(row.operating_profit_to_assets - expected) <= 1e-12 * max(1.0, abs(expected)):
+            raise ValueError("profitability levels violate the accounting identity")
 
 
 def _population_coverage_status(value: str) -> PopulationCoverageStatus:

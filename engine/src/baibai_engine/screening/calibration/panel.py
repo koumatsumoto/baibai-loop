@@ -31,6 +31,7 @@ from ..metrics import (
     VALUATION_HISTORY_SESSIONS,
     build_metrics,
     build_normalized_profit_signals,
+    build_profitability_level_signals,
     build_shareholder_return_change_signals,
     build_shares_outstanding_index,
     group_bars_by_ticker,
@@ -185,6 +186,9 @@ class PanelRow:
     normalized_per_3fy: float | None = None
     normalized_per_5fy: float | None = None
     self_range_observed_sessions: int = 0
+    operating_profit_to_assets: float | None = None
+    operating_margin: float | None = None
+    asset_turnover: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -395,6 +399,9 @@ def build_panel(
             close=latest_close_by_ticker.get(ticker),
             current_eps=financial.eps,
         )
+        profitability = build_profitability_level_signals(
+            summaries_by_ticker.get(ticker, ()), asof_date, rules.ttm
+        )
         rows.append(
             PanelRow(
                 asof=asof_date.isoformat(),
@@ -460,6 +467,9 @@ def build_panel(
                 self_range_observed_sessions=sum(
                     bar.traded_at <= asof_date for bar in bars_by_ticker.get(ticker, ())
                 ),
+                operating_profit_to_assets=profitability.operating_profit_to_assets,
+                operating_margin=profitability.operating_margin,
+                asset_turnover=profitability.asset_turnover,
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
