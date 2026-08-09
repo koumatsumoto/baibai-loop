@@ -29,7 +29,6 @@ from ..metrics import (
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
     VALUATION_CALCULATION_REVISION,
     VALUATION_HISTORY_SESSIONS,
-    build_fundamental_inflection_signals,
     build_metrics,
     build_normalized_profit_signals,
     build_profitability_level_signals,
@@ -190,10 +189,6 @@ class PanelRow:
     operating_profit_to_assets: float | None = None
     operating_margin: float | None = None
     asset_turnover: float | None = None
-    forecast_revision_pct_latest: float | None = None
-    forecast_revision_streak: int | None = None
-    operating_margin_accel_2p: float | None = None
-    cfo_margin_accel_2p: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -407,9 +402,6 @@ def build_panel(
         profitability = build_profitability_level_signals(
             summaries_by_ticker.get(ticker, ()), asof_date, rules.ttm
         )
-        inflection = build_fundamental_inflection_signals(
-            history_summaries_by_ticker.get(ticker, ()), asof_date
-        )
         rows.append(
             PanelRow(
                 asof=asof_date.isoformat(),
@@ -478,10 +470,6 @@ def build_panel(
                 operating_profit_to_assets=profitability.operating_profit_to_assets,
                 operating_margin=profitability.operating_margin,
                 asset_turnover=profitability.asset_turnover,
-                forecast_revision_pct_latest=inflection.forecast_revision_pct_latest,
-                forecast_revision_streak=inflection.forecast_revision_streak,
-                operating_margin_accel_2p=inflection.operating_margin_accel_2p,
-                cfo_margin_accel_2p=inflection.cfo_margin_accel_2p,
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),

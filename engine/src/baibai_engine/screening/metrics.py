@@ -55,8 +55,6 @@ FIN_INPUT_WINDOW_DAYS = 730
 # split eventを疎に読む。全bar・全四半期を日次runへ載せないための別窓である。
 SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS = 1200
 NORMALIZED_EPS_HISTORY_WINDOW_DAYS = 2200
-FUNDAMENTAL_INFLECTION_HISTORY_WINDOW_DAYS = 2200
-FUNDAMENTAL_INFLECTION_MAX_LAG_DAYS = 400
 
 # 通期実績 DPS の accrual 期間を bound する暦日窓。前期の通期実績開示行が窓内に
 # 無い (実績が 1 期分しか無い) ときのフォールバックで、開示日から約 1 年遡って
@@ -99,119 +97,6 @@ class ProfitabilityLevelSignals:
     operating_profit_to_assets: float | None
     operating_margin: float | None
     asset_turnover: float | None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class FundamentalInflectionSignals:
-    """PIT forecast revision and multi-period acceleration facts for calibration."""
-
-    forecast_revision_pct_latest: float | None
-    forecast_revision_streak: int | None
-    operating_margin_accel_2p: float | None
-    cfo_margin_accel_2p: float | None
-
-
-_INFLECTION_FISCAL_PERIODS = frozenset({"FY", "1Q", "2Q", "3Q"})
-
-
-def build_fundamental_inflection_signals(
-    summaries: Sequence[JQuantsFinancialSummary], asof_date: date
-) -> FundamentalInflectionSignals:
-    """Build calibration-only inflection facts without crossing forecast periods."""
-
-    oldest = asof_date - timedelta(days=FUNDAMENTAL_INFLECTION_HISTORY_WINDOW_DAYS)
-    available = tuple(
-        summary
-        for summary in sorted(summaries, key=lambda item: item.disclosed_at)
-        if oldest <= summary.disclosed_at <= asof_date
-    )
-    revision, streak = _latest_forecast_revision(available, asof_date)
-    return FundamentalInflectionSignals(
-        forecast_revision_pct_latest=revision,
-        forecast_revision_streak=streak,
-        operating_margin_accel_2p=_same_period_margin_acceleration(
-            available, "operating_profit", asof_date
-        ),
-        cfo_margin_accel_2p=_same_period_margin_acceleration(available, "cfo", asof_date),
-    )
-
-
-def _latest_forecast_revision(
-    summaries: Sequence[JQuantsFinancialSummary], asof_date: date
-) -> tuple[float | None, int | None]:
-    by_target: dict[date, list[JQuantsFinancialSummary]] = {}
-    for summary in summaries:
-        target = _forecast_target_fiscal_year_end(summary)
-        if target is None or summary.forecast_profit is None:
-            continue
-        by_target.setdefault(target, []).append(summary)
-    if not by_target:
-        return None, None
-    active_rows = by_target[max(by_target)]
-    if (asof_date - active_rows[-1].disclosed_at).days > FUNDAMENTAL_INFLECTION_MAX_LAG_DAYS:
-        return None, None
-    observations = [
-        float(summary.forecast_profit)
-        for summary in active_rows
-        if summary.forecast_profit is not None
-    ]
-    if len(observations) < 2:
-        return None, None
-    previous, latest = observations[-2:]
-    revision = None if previous == 0 else (latest - previous) / abs(previous)
-    streak = 0
-    for left, right in zip(reversed(observations[:-1]), reversed(observations[1:]), strict=True):
-        if right <= left:
-            break
-        streak += 1
-    return revision, streak
-
-
-def _forecast_target_fiscal_year_end(summary: JQuantsFinancialSummary) -> date | None:
-    if summary.fiscal_period not in _INFLECTION_FISCAL_PERIODS or summary.fiscal_year_end is None:
-        return None
-    if summary.fiscal_period == "FY":
-        return _shift_year(summary.fiscal_year_end, 1)
-    return summary.fiscal_year_end
-
-
-def _same_period_margin_acceleration(
-    summaries: Sequence[JQuantsFinancialSummary], field: str, asof_date: date
-) -> float | None:
-    latest_by_period: dict[tuple[str, date], JQuantsFinancialSummary] = {}
-    for summary in summaries:
-        if (
-            summary.fiscal_period not in _INFLECTION_FISCAL_PERIODS
-            or summary.fiscal_year_end is None
-        ):
-            continue
-        latest_by_period[(summary.fiscal_period, summary.fiscal_year_end)] = summary
-    eligible_current_keys = [
-        key
-        for key, summary in latest_by_period.items()
-        if getattr(summary, field) is not None and summary.sales is not None and summary.sales > 0
-    ]
-    if not eligible_current_keys:
-        return None
-    current_key = max(eligible_current_keys, key=lambda key: latest_by_period[key].disclosed_at)
-    if (
-        asof_date - latest_by_period[current_key].disclosed_at
-    ).days > FUNDAMENTAL_INFLECTION_MAX_LAG_DAYS:
-        return None
-    fiscal_period, current_fiscal_year_end = current_key
-    margins: list[float] = []
-    for years in (0, -1, -2):
-        fiscal_year_end = _shift_year(current_fiscal_year_end, years)
-        if fiscal_year_end is None:
-            return None
-        matched_summary = latest_by_period.get((fiscal_period, fiscal_year_end))
-        if matched_summary is None:
-            return None
-        value = getattr(matched_summary, field)
-        if value is None or matched_summary.sales is None or matched_summary.sales <= 0:
-            return None
-        margins.append(value / matched_summary.sales)
-    return margins[0] - 2 * margins[1] + margins[2]
 
 
 def build_profitability_level_signals(
