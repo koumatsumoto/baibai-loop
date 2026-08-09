@@ -47,6 +47,13 @@ def _text(row: Mapping[str, object], key: str, *, label: str) -> str:
     return value.strip()
 
 
+def _rank(row: Mapping[str, object]) -> int:
+    value = row.get("plausibility_rank")
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ReportRenderError("scenario.plausibility_rank must be an integer")
+    return value
+
+
 def _load_yaml(path: Path) -> Mapping[str, object]:
     if not path.is_file():
         raise ReportRenderError(f"required report input is missing: {path.name}")
@@ -89,6 +96,15 @@ def render_report(workspace: Path, *, freeze_path: Path, revision_diff: Path) ->
     for horizon in HORIZONS:
         path = _strings(baseline[horizon], label=f"baseline_path.{horizon}")
         lines.append(f"- **{horizon}:** {'; '.join(item.strip() for item in path)}")
+    scenarios = _mapping_list(model.get("scenarios"), label="world-model.scenarios")
+    for scenario in sorted(scenarios, key=_rank):
+        lines.append(
+            f"- **Scenario {_rank(scenario)} — "
+            f"{_text(scenario, 'name', label='scenario')}:** "
+            f"shock: {_text(scenario, 'initial_shock', label='scenario')}; "
+            f"propagation: {_text(scenario, 'propagation_delta', label='scenario')}; "
+            f"policy: {_text(scenario, 'policy_reaction', label='scenario')}"
+        )
 
     lines.extend(["", "## Unresolved tensions", ""])
     lines.extend(

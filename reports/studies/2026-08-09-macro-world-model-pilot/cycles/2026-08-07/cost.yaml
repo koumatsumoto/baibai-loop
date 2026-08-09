@@ -1,0 +1,32 @@
+schema_version: 1
+as_of: "2026-08-07"
+measurement:
+  timezone: Asia/Tokyo
+  resolution: 1 minute
+  basis: shell timestamps and operation checkpoints; rework is charged to its originating pass
+passes:
+  - {pass: 1, name: charter, started_at: "2026-08-09T15:13:00+09:00", ended_at: "2026-08-09T15:14:00+09:00", wall_clock_minutes: 1}
+  - {pass: 2, name: data-audit, started_at: "2026-08-09T15:14:00+09:00", ended_at: "2026-08-09T15:17:00+09:00", wall_clock_minutes: 3}
+  - {pass: 3, name: coverage-scan, started_at: "2026-08-09T15:17:00+09:00", ended_at: "2026-08-09T15:20:00+09:00", wall_clock_minutes: 3}
+  - {pass: 4, name: evidence-packs, started_at: "2026-08-09T15:20:00+09:00", ended_at: "2026-08-09T15:22:00+09:00", wall_clock_minutes: 2}
+  - {pass: 5, name: states, started_at: "2026-08-09T15:22:00+09:00", ended_at: "2026-08-09T15:24:00+09:00", wall_clock_minutes: 2}
+  - {pass: 6, name: hypotheses, started_at: "2026-08-09T15:24:00+09:00", ended_at: "2026-08-09T15:25:00+09:00", wall_clock_minutes: 1}
+  - {pass: 7, name: common-matrix, started_at: "2026-08-09T15:25:00+09:00", ended_at: "2026-08-09T15:26:00+09:00", wall_clock_minutes: 1}
+  - {pass: 8, name: baseline-scenarios, started_at: "2026-08-09T15:26:00+09:00", ended_at: "2026-08-09T15:27:00+09:00", wall_clock_minutes: 1}
+  - {pass: 9, name: sparse-graph, started_at: "2026-08-09T15:27:00+09:00", ended_at: "2026-08-09T15:28:00+09:00", wall_clock_minutes: 1}
+  - {pass: 10, name: coherence-challenge, started_at: "2026-08-09T15:28:00+09:00", ended_at: "2026-08-09T15:30:00+09:00", wall_clock_minutes: 2, note: includes YAML date scalar validator fix}
+  - {pass: 11, name: v4-derivation, started_at: "2026-08-09T15:30:00+09:00", ended_at: "2026-08-09T15:40:00+09:00", wall_clock_minutes: 10, note: revision diff, indicator scaffold, v4 projection, draft, and check}
+  - {pass: 12, name: cas-publish, started_at: "2026-08-09T15:40:00+09:00", ended_at: "2026-08-09T15:41:00+09:00", wall_clock_minutes: 1}
+totals:
+  authoring_and_publish_minutes: 28
+  pass_count: 12
+  v4_derivation_minutes: 10
+  post_publish_operations_minutes: 6
+  end_to_end_minutes: 34
+tokens:
+  status: unavailable
+budget_assessment:
+  cycle_1_mode: measured baseline
+  pass_limit: 12
+  pass_limit_met: true
+  note: No ex-post wall-clock ceiling is applied to the baseline cycle.

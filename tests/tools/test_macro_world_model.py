@@ -442,3 +442,7 @@ def test_render_report_has_five_required_sections(tmp_path: Path) -> None:
         "## Signposts",
         "## What changed",
     ]
+    assert "Scenario 1 — Mechanism 1: demand path" in report
+    assert "shock: Demand changes." in report
+    assert "propagation: Credit transmits the change." in report
+    assert "policy: Policy responds with a lag." in report

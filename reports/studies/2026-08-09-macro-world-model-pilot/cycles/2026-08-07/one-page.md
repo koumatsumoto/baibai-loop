@@ -15,6 +15,9 @@ Blind freeze: `eb778fbf2a8a1cdc9f734faa979a33d4c62ddfc47acf2efc0090a921d343ed2e`
 - **0_3m:** Growth slows unevenly; policy remains constrained until labor weakness broadens or inflation recedes.; Japan tests whether improving real wages and production reach household consumption.
 - **3_12m:** Gradual policy relief and capex diffusion support below-trend but positive activity in the central path.; Refinancing and lower-quality credit reveal the cumulative effect of high real discount rates.
 - **12_24m:** Productivity diffusion can broaden income and investment, but failure to diffuse leaves a lower-growth equilibrium.; Japan carries structurally higher nominal rates, making cash-flow durability more important for portfolio valuation.
+- **Scenario 1 — Capex-supported uneven normalization:** shock: Payroll weakness prompts caution without an immediate claims or credit break.; propagation: Capex and industrial income partly offset slower household demand.; policy: The Federal Reserve eases gradually as inflation permits; the BOJ normalizes cautiously.
+- **Scenario 2 — Delayed demand and credit break:** shock: Weak payroll income and high real rates reduce consumption and hiring.; propagation: CCC stress spreads to aggregate credit and investment cancellation.; policy: The Federal Reserve eases faster after confirmation; the BOJ pauses normalization.
+- **Scenario 3 — Energy and trade inflation squeeze:** shock: Persistent energy disruption or trade restrictions raise landed input costs.; propagation: Real incomes weaken while policy relief is delayed, producing stagflationary pressure.; policy: Central banks keep policy tighter than growth alone would imply; fiscal relief targets households.
 
 ## Unresolved tensions
 
