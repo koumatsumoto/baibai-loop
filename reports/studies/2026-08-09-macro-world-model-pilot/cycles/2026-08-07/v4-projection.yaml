@@ -1,0 +1,13 @@
+schema_version: 1
+as_of: "2026-08-07"
+scenarios:
+  - scenario_id: capex-supported-normalization
+    v4_case: base
+    probability: 0.50
+  - scenario_id: delayed-demand-break
+    v4_case: bear
+    probability: 0.30
+  - scenario_id: energy-trade-inflation-squeeze
+    v4_case: bull
+    probability: 0.20
+projection_note: The v4 bull case is the favorable inverse of the third mechanism—energy and trade pressure dissipates before reaching core inflation and Japan real income.

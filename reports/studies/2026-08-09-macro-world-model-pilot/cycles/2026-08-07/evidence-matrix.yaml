@@ -1,0 +1,27 @@
+schema_version: 1
+as_of: "2026-08-07"
+rows:
+  - evidence_id: source:bls-employment-july-2026
+    hypothesis_assessments: {capex-supported-normalization: contradicts, delayed-demand-break: supports, energy-trade-inflation-squeeze: mixed}
+  - evidence_id: series:us.initial_claims
+    hypothesis_assessments: {capex-supported-normalization: supports, delayed-demand-break: contradicts, energy-trade-inflation-squeeze: neutral}
+  - evidence_id: series:us.core_capex_orders
+    hypothesis_assessments: {capex-supported-normalization: supports, delayed-demand-break: contradicts, energy-trade-inflation-squeeze: neutral}
+  - evidence_id: series:us.real_10y
+    hypothesis_assessments: {capex-supported-normalization: mixed, delayed-demand-break: supports, energy-trade-inflation-squeeze: mixed}
+  - evidence_id: series:credit.us_ccc_oas
+    hypothesis_assessments: {capex-supported-normalization: contradicts, delayed-demand-break: supports, energy-trade-inflation-squeeze: mixed}
+  - evidence_id: series:credit.us_hy_oas
+    hypothesis_assessments: {capex-supported-normalization: supports, delayed-demand-break: contradicts, energy-trade-inflation-squeeze: neutral}
+  - evidence_id: series:jp.real_consumption
+    hypothesis_assessments: {capex-supported-normalization: contradicts, delayed-demand-break: supports, energy-trade-inflation-squeeze: supports}
+  - evidence_id: series:jp.industrial_production
+    hypothesis_assessments: {capex-supported-normalization: supports, delayed-demand-break: contradicts, energy-trade-inflation-squeeze: neutral}
+  - evidence_id: series:copper
+    hypothesis_assessments: {capex-supported-normalization: supports, delayed-demand-break: contradicts, energy-trade-inflation-squeeze: mixed}
+  - evidence_id: series:brent
+    hypothesis_assessments: {capex-supported-normalization: supports, delayed-demand-break: neutral, energy-trade-inflation-squeeze: contradicts}
+  - evidence_id: source:ustr-forced-labor-july-2026
+    hypothesis_assessments: {capex-supported-normalization: contradicts, delayed-demand-break: mixed, energy-trade-inflation-squeeze: supports}
+  - evidence_id: series:jp.10y
+    hypothesis_assessments: {capex-supported-normalization: mixed, delayed-demand-break: supports, energy-trade-inflation-squeeze: supports}

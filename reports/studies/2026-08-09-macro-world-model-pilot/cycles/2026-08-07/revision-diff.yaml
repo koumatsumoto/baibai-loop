@@ -1,0 +1,14 @@
+schema_version: 1
+as_of: "2026-08-07"
+comparison_context_id: macro-context-2026-07-31-yen-policy-floor-capex-proof
+changes:
+  - area: U.S. labor versus capex
+    summary: July payrolls fall by 23,000 and May-June revisions remove 103,000 jobs, while initial claims, core-capex orders, and SOX remain firm; the central tension shifts from event anticipation to labor-capex divergence.
+  - area: Discount rate and credit
+    summary: U.S. and Japan sovereign yields remain near distribution extremes and CCC OAS stays stressed, but aggregate HY OAS remains tight; the downside path is tail-to-breadth transmission rather than an already broad credit break.
+  - area: Japan domestic breadth
+    summary: Production, manufacturing PMI, lending, and real-wage level improve, while real consumption falls on the latest release and bankruptcies remain at the top of their history; domestic expansion is explicitly conditional on consumption confirmation.
+  - area: Energy and trade
+    summary: Brent falls from the previous observation while new trade-policy actions and supply-disruption risk remain; imported-cost pressure becomes a lower-ranked scenario rather than the central realized force.
+  - area: Scenario structure
+    summary: The central path is capex-supported normalization, the principal downside is a delayed demand and credit break, and the favorable tail requires energy containment and real-income repair.

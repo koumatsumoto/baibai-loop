@@ -1,0 +1,14 @@
+{
+  "files": {
+    "charter.yaml": "a4888640eba15f31c59d3314e51b5cab5802bacbf709d36d6fea88dd8e7d9c6e",
+    "evidence-matrix.yaml": "516eb05e0b0afdcd3cd45d9a1afcc695c7fe9ae3915467fcf5e62b64d3b2cf6e",
+    "evidence-packs.yaml": "9c895f7b85917cc0fc099fa4d056ad77fc26fb3a09733048a9125d164182a6da",
+    "evidence-snapshot.json": "34ff093141cd3812ddcbc66adf1a7fdc4a804ece40e8d6627acbd552228bca39",
+    "hypotheses.yaml": "346b9cd86ca4fd610ad68d8896c451c9e59376bae608c11189d4e58e99769c00",
+    "states.yaml": "991aa7561961489fbe0cf0afd9c70fd1527af0fbdd767ae2e29bfc07c4e217a5",
+    "world-model.yaml": "ae684a927005cdaeee3d697cd79e825d36a83955d61112998680dd7c95f1751c"
+  },
+  "kind": "macro-world-model-blind-freeze",
+  "schema_version": 1,
+  "workspace_sha256": "eb778fbf2a8a1cdc9f734faa979a33d4c62ddfc47acf2efc0090a921d343ed2e"
+}
