@@ -49,10 +49,13 @@ preflight の保存物は head ID、head `as_of`、評価 `as_of`、fired の有
 ```bash
 python -m tools.experiments.macro_world_model.build_evidence_snapshot \
   --asof <as_of> \
+  --previous-asof <head_as_of> \
   --macro-db stores/macro/macro.sqlite \
   --coverage-config <cycle>/coverage-config.yaml \
   --output <cycle>/evidence-snapshot.json
 ```
+
+head `as_of` を取得できないときだけ `--previous-asof` を省略し、builder の 90 日 fallback を使う。
 
 scan は全系列の stale / insufficient_history / flags / z_score / percentile、release 間変化、同一 `observed_at` の複数 vintage による revision を含む。materiality 候補は deterministic rules、standing coverage、analyst addition の和集合である。除外には具体的な理由が必要であり、data health の異常を経済解釈より先に解決する。
 
@@ -68,10 +71,13 @@ scan は全系列の stale / insufficient_history / flags / z_score / percentile
 2. `evidence-matrix.yaml` で同じ evidence を全仮説に対して `supports / contradicts / mixed / neutral` のいずれかで評価する。
 3. `world-model.yaml` の baseline path を `now / 0_3m / 3_12m / 12_24m` ごとに書く。scenario は mechanism を名前に含め、initial shock、persistence、propagation delta、policy reaction と growth / inflation / rates / credit / fx / balance sheet の path、signposts、invalidation、known omissions を持つ。
 4. key judgments は 3〜5 件に絞り、state、horizon、競合仮説、current-cycle evidence に接続する。
+5. `world-model.yaml` の key judgment、scenario、baseline path など owner が読む summary 系 field は日本語で書く。workspace の中間的な分類・識別子・検査用 field は英語でよい。
 
 ### 4. Sparse graph と blind freeze
 
-graph は最後に書く。node は 20 以下、edge は 30 以下に固定する。全 edge は `relation_kind`、`claim_strength`、`sign`、lag の最小・最大月数、今 cycle の evidence ID、観測可能な falsifier を持つ。falsifier は series または公表 event を固有名で指す。
+graph は最後に書く。node は 20 以下、edge は 30 以下に固定する。node は economy-level の状態・機構・結果として命名し、portfolio、保有、配分、cashflow など portfolio 固有の語彙を使わない。全 edge は `relation_kind`、`claim_strength`、`sign`、lag の最小・最大月数、今 cycle の evidence ID、観測可能な falsifier を持つ。falsifier は series または公表 event を固有名で指す。
+
+`relation_kind` は関係の根拠に合わせる。`accounting_identity` は会計恒等と機械的換算だけに使い、valuation の DCF・multiple は `model_based_relation`、需要から売上などの行動的伝達は根拠に応じて `externally_identified_empirical_relation`、`internal_observational_association`、`judgmental_hypothesis` のいずれかにする。`claim_strength: identified` は identity または外部で同定済みの関係だけに使う。
 
 workspace を検査し、create-only で freeze を作る。
 
@@ -90,12 +96,12 @@ freeze 成功後は対象 7 ファイルを編集しない。必要な修正が�
 1. `baibai-engine macro context show --context-id <head> --asof <as_of>` で前回 report を開く。blind workspace には保存しない。
 2. `baibai-engine macro context scorecard --context-id <head> --asof <as_of> --format json` を実行する。run 証明が不足する error のときだけ、条件 series を `macro refresh <series...> --start <前回as_of翌日> --end <as_of>` で取得して再実行する。`pending` だけなら refresh しない。
 3. scorecard の `machine_snapshot` を逐語で v4 inputs に引用し、met / not_met / pending の内訳と、確率・成立実績の対応を書く。
-4. frozen world model と前回 report を比較し、evidence-backed な差分を `revision-diff.yaml` に `area` と `summary` で記録する。diff は frozen workspace を変更しない。
+4. frozen world model と前回 report を比較し、evidence-backed な追加・変更を `revision-diff.yaml` に `area` と `summary` で記録する。前回の dominant force / key judgment のうち消滅または demote したものは `dropped_or_demoted` に対象と理由を必ず記録する。diff は frozen workspace を変更しない。
 
 ### 6. 同一 session の v4 導出と publish
 
 1. core 10 section の facts / judgment は states から、synthesis forces は key judgments から導出する。
-2. risk environment の base / bear / bull は world model scenarios から導出し、ここで v4 probability trio を 0.05 刻みで付ける。world model の plausibility rank と probability 順を一致させ、`v4-projection.yaml` に対応を記録する。
+2. risk environment の base / bear / bull は world model scenarios から導出し、ここで v4 probability trio を 0.05 刻みで付ける。world model の plausibility rank と probability 順を一致させ、`v4-projection.yaml` に対応を記録する。world model の adverse scenario は bear の複合条件または bear scorecard の signpost として必ず保存する。inverse mapping を使うときは、v4 trio に含まれない adverse tail を projection note に明示する。
 3. connection は core から書く。world model から直接、売買 timing、配分、個別 sizing を出さない。
 4. freeze と確率順を再検査する。
 
@@ -106,13 +112,13 @@ python -m tools.experiments.macro_world_model.validate_world_model check \
   --v4-projection <cycle>/v4-projection.yaml
 ```
 
-5. [`macro-context` skill](../macro-context/SKILL.md) の step 8 以降へ合流し、connection、thesis impact、self-check (a)–(p)、`scaffold_inputs`、publish をすべて満たす。外部記事 15 本以上、8 象限、日本需要、通商・地政学・energy、日本株益回り − JGB 10y、market snapshot、scorecard settle、connection の要件を省略しない。
+5. [`macro-context` skill](../macro-context/SKILL.md) の step 8 以降へ合流し、connection、thesis impact、self-check (a)–(p)、`scaffold_inputs`、publish をすべて満たす。外部記事 15 本以上、8 象限、日本需要、通商・地政学・energy、日本株益回り − JGB 10y、market snapshot、scorecard settle、connection の要件を省略しない。monitoring の `machine_conditions` には `usd_jpy` を最低 1 件置き、原則として `jp.10y` も置く。zero-base の評価がテーマを demote しても、standing exposure の機械監視面は維持する。
 6. draft は `baibai-engine macro context publish <draft> --check` で反復する。確定時に `macro context head` を再取得し、確認した ID を `--expected-head` に渡して実 publish する。
 7. `batch/scripts/publish.sh push-app` を実行する。この command が返す cloud-materialize run URL を追跡し、追加 dispatch は行わない。workflow success、新 context ID が head であること、Macro tab が新 head を配信することを確認する。
 
 ### 7. Render、cost、2 回目実行確認
 
-one-page を create-only で生成する。
+one-page を owner 向けの日本語で create-only に生成する。
 
 ```bash
 python -m tools.experiments.macro_world_model.render_report \
