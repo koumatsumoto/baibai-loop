@@ -44,7 +44,9 @@ from baibai_engine.screening.calibration.store import (
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     VALUATION_HISTORY_SESSIONS,
+    build_profitability_level_signals,
 )
+from baibai_engine.screening.providers.jquants import JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.store_readiness import unreadable_store_reason
@@ -178,6 +180,80 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
 
 
 class CalibrationPanelTest(unittest.TestCase):
+    def test_profitability_levels_use_pit_ttm_without_profit_fallback(self) -> None:
+        summaries = (
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2024, 8, 1),
+                fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                period_end=date(2024, 6, 30),
+                operating_profit=20.0,
+                sales=250.0,
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2025, 5, 10),
+                fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                period_end=date(2025, 3, 31),
+                operating_profit=100.0,
+                sales=1000.0,
+                total_assets=1900.0,
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2025, 8, 1),
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2025, 6, 30),
+                operating_profit=30.0,
+                sales=280.0,
+                total_assets=2000.0,
+            ),
+            JQuantsFinancialSummary(
+                ticker="9001",
+                disclosed_at=date(2025, 9, 1),
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2025, 6, 30),
+                operating_profit=9999.0,
+                sales=9999.0,
+                total_assets=1.0,
+            ),
+        )
+
+        levels = build_profitability_level_signals(
+            summaries, date(2025, 8, 31), load_screening_rules().ttm
+        )
+
+        self.assertAlmostEqual(levels.operating_profit_to_assets or 0.0, 110.0 / 2000.0)
+        self.assertAlmostEqual(levels.operating_margin or 0.0, 110.0 / 1030.0)
+        self.assertAlmostEqual(levels.asset_turnover or 0.0, 1030.0 / 2000.0)
+
+    def test_panel_and_store_round_trip_profitability_levels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            by_ticker = {row.ticker: row for row in result.rows}
+
+            self.assertAlmostEqual(
+                by_ticker["9001"].operating_profit_to_assets or 0.0, 5e8 / 1.5e10
+            )
+            self.assertAlmostEqual(by_ticker["9001"].operating_margin or 0.0, 5e8 / 5e9)
+            self.assertAlmostEqual(by_ticker["9001"].asset_turnover or 0.0, 5e9 / 1.5e10)
+
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
+            restored = {row.ticker: row for row in read_panel(store_dir, ASOF)}
+            self.assertEqual(
+                restored["9001"].operating_profit_to_assets,
+                by_ticker["9001"].operating_profit_to_assets,
+            )
+            self.assertEqual(restored["9001"].operating_margin, by_ticker["9001"].operating_margin)
+            self.assertEqual(restored["9001"].asset_turnover, by_ticker["9001"].asset_turnover)
+
     def test_valuation_calculation_revision_is_part_of_method_identity(self) -> None:
         rules = load_screening_rules()
         previous_identity = rules_contract_hash(
