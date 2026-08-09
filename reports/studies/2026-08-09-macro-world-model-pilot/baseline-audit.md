@@ -6,6 +6,8 @@
 
 `stores/application/baibai.sqlite` の `macro_context` table にある schema v4 全 4 revision の `payload` を対象にする。判定日は 2026-08-09。`実在` は failure が引用箇所に現れている、`不在` は引用箇所が failure を具体的に打ち消している、`部分的` は防御と欠落が同居する、を意味する。payload から観測できない author の内部注意配分は、本文に残った網羅転記・焦点化・構造だけで判定する。
 
+参考設計レポート `baibai_loop_macro_world_model_final_design_2026-08-09.html` も全文確認する。確認したローカルファイルの SHA-256 は `145da21af0553658981ef1326a37f6b1eaec3cd31414e8432f2c7fa197427bae` で、issue が示す digest と一致する。レポートは failure layer と workspace shape の設計参考に使い、正本の優先順位は issue 本文・指定レビューコメント・repository 規約の順を保つ。
+
 | 略号 | context_id | as_of | articles |
 | --- | --- | --- | ---: |
 | R1 | `macro-context-2026-07-24-rates-high-cushion-thin` | 2026-07-24 | 22 |

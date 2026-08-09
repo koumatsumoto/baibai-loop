@@ -1,0 +1,37 @@
+schema_version: 1
+as_of: "2026-08-07"
+data_cutoff: "2026-08-07T23:59:59-04:00"
+central_questions:
+  - Can the current world state be explained in five minutes?
+  - Can the main shocks and their transmission paths be reconstructed?
+  - Are the signposts that would change the baseline explicit?
+  - Can scenario differences be explained by mechanism?
+  - Are uncertainty and unresolved tensions explicit?
+  - Can the central questions be answered without a raw indicator list?
+horizons:
+  - now
+  - 0_3m
+  - 3_12m
+  - 12_24m
+conditioning_assumptions:
+  - Published information after the data cutoff is unavailable to the assessment.
+  - No unannounced discontinuity in fiscal, trade, monetary, or security policy is assumed.
+  - Market prices are observations and do not establish real-economy causality by themselves.
+standing_questions:
+  - How do yen and imported-cost paths change margins and demand for Japan-focused retail, service, information, and utility exposures?
+  - How do the JGB curve, BOJ reaction function, and Japan equity risk premium change discount-rate pressure on the portfolio?
+  - Does US final demand and AI capital expenditure remain strong enough to support Japan information-service and technology exposure?
+  - Do China activity proxies show demand that is strong enough to support Japan-linked industrial and commodity channels?
+  - Does the energy path transmit mainly through inflation and margins, or through a broader demand shock?
+portfolio_exposure_basis:
+  ledger_as_of: 2026-08-04T15:30:00+09:00
+  sectors:
+    - information_communication
+    - services
+    - retail
+    - electric_gas
+  currency: JPY
+  discount_rate_anchor: Japan 10-year government bond yield
+event_specific_question: >-
+  Does the July US employment release identify a broad demand break, or a labor normalization
+  that coexists with strong capital expenditure and restrictive real rates?

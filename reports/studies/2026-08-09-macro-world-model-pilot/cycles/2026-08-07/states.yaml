@@ -1,0 +1,115 @@
+schema_version: 1
+as_of: "2026-08-07"
+states:
+  - state_id: us-labor-demand
+    geography: United States
+    block: labor and household demand
+    reference_frame: Level remains near full employment, while the newest release changes the direction of the impulse.
+    horizons:
+      now: {level: high but weakening, momentum: negative, acceleration: sharply negative, breadth: mixed across payrolls and claims, persistence: unconfirmed}
+      0_3m: {level: moderate, momentum: slowing, acceleration: negative unless revisions stabilize, breadth: likely to broaden gradually, persistence: medium}
+      3_12m: {level: below trend, momentum: conditional on income and hiring, acceleration: two-sided, breadth: labor-sensitive consumption, persistence: medium}
+      12_24m: {level: policy-dependent normalization, momentum: mean-reverting, acceleration: neutral, breadth: broad if investment spills into hiring, persistence: low-confidence}
+    evidence_for: [series:us.initial_claims, series:us.unemployment, source:fed-mpr-july-2026]
+    evidence_against: [series:us.nonfarm_payrolls, series:us.gdp_growth, source:bls-employment-july-2026]
+    uncertainty:
+      data: The point-in-time machine snapshot ends before the August 7 fetch vintage, so the Tier 1 July payroll release carries the new observation.
+      state: Claims and unemployment have not confirmed the payroll break.
+      structural: AI-related labor substitution and immigration changes can alter payroll-to-demand mapping.
+      policy: The speed of Federal Reserve response to labor weakness is uncertain while inflation remains elevated.
+  - state_id: us-capex-financial
+    geography: United States
+    block: investment and financial conditions
+    reference_frame: Capex and risk assets remain strong against unusually demanding discount-rate and valuation conditions.
+    horizons:
+      now: {level: strong and expensive, momentum: positive but uneven, acceleration: slowing, breadth: concentrated in technology and equipment, persistence: medium}
+      0_3m: {level: resilient, momentum: modestly positive, acceleration: flat, breadth: depends on non-AI orders, persistence: medium}
+      3_12m: {level: conditional, momentum: vulnerable to demand and credit, acceleration: two-sided, breadth: likely narrower under high real rates, persistence: medium}
+      12_24m: {level: productivity-dependent, momentum: positive if diffusion occurs, acceleration: positive under diffusion, breadth: potentially broad, persistence: high-uncertainty}
+    evidence_for: [series:us.core_capex_orders, series:us.sox, series:us.net_liquidity, source:fed-fomc-july-2026]
+    evidence_against: [series:us.real_10y, series:us.erp, series:us.sp500_cape, series:credit.us_ccc_oas, source:fed-sloos-april-2026]
+    uncertainty:
+      data: Core-capex orders are nominal and do not reveal project profitability or cancellation.
+      state: Aggregate high-yield spreads conceal stress in the CCC tail.
+      structural: The productivity payoff and sector diffusion of AI capex are not yet observable.
+      policy: Inflation constrains the degree to which policy can cushion a demand slowdown.
+  - state_id: us-inflation-policy
+    geography: United States
+    block: inflation and monetary policy
+    reference_frame: Restrictive real rates coexist with inflation above a clean return-to-target path.
+    horizons:
+      now: {level: restrictive, momentum: inflation sticky, acceleration: near flat, breadth: goods and services mixed, persistence: high}
+      0_3m: {level: restrictive, momentum: slowly disinflationary, acceleration: vulnerable to energy, breadth: broad enough to delay easing, persistence: high}
+      3_12m: {level: gradually less restrictive, momentum: conditional disinflation, acceleration: downside if labor breaks, breadth: narrowing, persistence: medium}
+      12_24m: {level: near neutral only if inflation recedes, momentum: converging, acceleration: neutral, breadth: normalized, persistence: medium}
+    evidence_for: [series:us.fed_funds.lower, series:us.10y, series:us.real_10y, source:fed-fomc-july-2026]
+    evidence_against: [series:us.cpi.core, series:us.cpi.headline, series:us.pce.core, source:bea-pio-june-2026]
+    uncertainty:
+      data: Monthly inflation prints are noisy and energy pass-through timing varies.
+      state: Market long yields combine growth, inflation, term premium, and supply effects.
+      structural: Tariffs and energy security may raise the inflation floor.
+      policy: Committee reaction weights between employment and inflation can change around new releases.
+  - state_id: japan-domestic
+    geography: Japan
+    block: production, income, consumption, and credit
+    reference_frame: Production, lending, and manufacturing improve while consumption and business failures expose incomplete breadth.
+    horizons:
+      now: {level: moderate, momentum: improving unevenly, acceleration: mixed, breadth: narrow, persistence: medium}
+      0_3m: {level: moderate, momentum: wage-supported but fragile, acceleration: mildly positive, breadth: dependent on household spending, persistence: medium}
+      3_12m: {level: conditional expansion, momentum: positive if real income transmits, acceleration: positive, breadth: broadening only with consumption, persistence: medium}
+      12_24m: {level: trend-like, momentum: demographics-constrained, acceleration: neutral, breadth: mixed, persistence: high}
+    evidence_for: [series:jp.industrial_production, series:jp.pmi_manufacturing, series:jp.bank_lending_yoy, series:jp.real_wage_index, source:meti-iip-june-2026]
+    evidence_against: [series:jp.real_consumption, series:jp.bankruptcies, source:japan-household-june-2026]
+    uncertainty:
+      data: Real-wage and consumption series arrive with different lags and seasonal noise.
+      state: Strong lending can reflect working-capital stress rather than expansion.
+      structural: Demographics and small-firm productivity constrain breadth.
+      policy: Fiscal relief and administered prices can shift real household income.
+  - state_id: japan-rates-fx
+    geography: Japan
+    block: monetary policy, JGB discount rate, and yen
+    reference_frame: High JGB yields and a weak yen tighten different balance sheets even as equities remain strong.
+    horizons:
+      now: {level: high-rate weak-yen configuration, momentum: tightening, acceleration: positive in yields, breadth: broad market exposure, persistence: medium}
+      0_3m: {level: restrictive at the margin, momentum: data-dependent tightening, acceleration: flat, breadth: borrowers and importers first, persistence: medium}
+      3_12m: {level: higher nominal funding cost, momentum: gradual normalization, acceleration: two-sided, breadth: broader refinancing impact, persistence: high}
+      12_24m: {level: structurally above zero, momentum: converging, acceleration: neutral, breadth: economy-wide discount rate, persistence: high}
+    evidence_for: [series:jp.10y, series:jp.policy_rate, series:jp.policy_path_gap, series:usd_jpy, source:boj-mpm-july-2026]
+    evidence_against: [series:jp.topix, series:jp.erp, series:jp.real_effective_exchange_rate, series:positioning.jpy_noncomm_net]
+    uncertainty:
+      data: Futures-derived policy paths include term and liquidity premia.
+      state: Yen positioning can unwind without a change in the macro regime.
+      structural: Domestic investor demand can alter JGB transmission.
+      policy: The Bank of Japan reaction to wages, inflation, and market volatility is nonlinear.
+  - state_id: china-energy-external
+    geography: China and global trade
+    block: industrial demand, commodities, and trade transmission
+    reference_frame: Chinese industrial activity and copper remain firm while oil and trade policy create opposing impulses.
+    horizons:
+      now: {level: moderate with market optimism, momentum: positive in metals, acceleration: mixed, breadth: weaker for small firms, persistence: medium}
+      0_3m: {level: policy-supported, momentum: stable, acceleration: flat, breadth: constrained by trade exposure, persistence: medium}
+      3_12m: {level: below past trend, momentum: conditional on domestic demand, acceleration: two-sided, breadth: uneven, persistence: high}
+      12_24m: {level: structurally slower, momentum: rebalancing, acceleration: neutral, breadth: domestic-versus-export split, persistence: high}
+    evidence_for: [series:copper, series:em.equity, series:usd_cny, source:china-gdp-h1-2026, source:china-pmi-june-2026, source:china-industry-june-2026]
+    evidence_against: [series:brent, series:jp.terms_of_trade, source:eia-steo-august-2026, source:ustr-forced-labor-july-2026]
+    uncertainty:
+      data: Commodity prices mix physical demand, inventories, and financial positioning.
+      state: Official aggregates may not capture small-firm and property weakness promptly.
+      structural: Trade diversion changes country exposure without removing global capacity.
+      policy: Domestic stimulus and external tariff implementation remain event-dependent.
+  - state_id: euro-policy-energy
+    geography: Euro area
+    block: policy and energy exposure
+    reference_frame: Lower policy restriction supports demand but imported energy remains the dominant adverse tail.
+    horizons:
+      now: {level: modest recovery, momentum: improving, acceleration: positive, breadth: investment-led, persistence: medium}
+      0_3m: {level: moderate, momentum: positive, acceleration: flat, breadth: uneven, persistence: medium}
+      3_12m: {level: energy-dependent, momentum: conditional, acceleration: two-sided, breadth: broad if energy stabilizes, persistence: medium}
+      12_24m: {level: trend-like, momentum: investment-dependent, acceleration: neutral, breadth: moderate, persistence: medium}
+    evidence_for: [series:ecb.policy_rate, source:ecb-july-2026]
+    evidence_against: [series:brent, source:eia-steo-august-2026, source:boj-energy-outlook-2026]
+    uncertainty:
+      data: Energy benchmarks do not map one-for-one to consumer and industrial prices.
+      state: Investment strength may be concentrated in defense and digital sectors.
+      structural: Energy import dependence makes supply shocks asymmetric.
+      policy: Fiscal and monetary responses differ by shock origin and persistence.

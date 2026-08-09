@@ -1,0 +1,69 @@
+asof: 2026-08-07
+accessed_at: 2026-08-09T15:32:00+09:00
+sections:
+  局面サマリー:
+    - jp.topix
+    - jp.10y
+    - usd_jpy
+    - us.erp
+  金利・金融政策:
+    - us.fed_funds.lower
+    - us.10y
+    - us.real_10y
+    - jp.policy_rate
+    - jp.policy_path_gap
+    - jp.10y
+    - ecb.policy_rate
+  需要・雇用:
+    - us.gdp_growth
+    - us.nonfarm_payrolls
+    - us.unemployment
+    - us.initial_claims
+    - us.pmi_manufacturing
+    - us.pmi_services
+    - us.core_capex_orders
+    - jp.pmi_manufacturing
+    - copper
+    - usd_cny
+  インフレ・コスト:
+    - us.cpi.headline
+    - us.cpi.core
+    - us.pce.core
+    - brent
+    - jp.terms_of_trade
+  流動性・信用:
+    - credit.us_hy_oas
+    - credit.us_ccc_oas
+    - us.net_liquidity
+    - vix
+  為替:
+    - usd_jpy
+    - usd_cny
+    - jp.real_effective_exchange_rate
+    - positioning.jpy_noncomm_net
+  日本:
+    - jp.industrial_production
+    - jp.real_consumption
+    - jp.real_wage_index
+    - jp.bank_lending_yoy
+    - jp.bankruptcies
+  バリュエーション:
+    - jp.erp
+    - jp.topix
+    - us.erp
+    - us.sp500_cape
+    - us.sox
+  リスク環境:
+    - us.real_10y
+    - jp.10y
+    - credit.us_ccc_oas
+    - brent
+    - us.sox
+    - usd_jpy
+  監視:
+    - us.initial_claims
+    - us.10y
+    - credit.us_hy_oas
+    - jp.real_consumption
+    - jp.bankruptcies
+    - brent
