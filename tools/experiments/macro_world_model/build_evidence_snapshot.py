@@ -198,7 +198,7 @@ def _machine_reasons(
     reading: Mapping[str, object],
     *,
     release_change: Mapping[str, object] | None,
-    revisions: Sequence[Mapping[str, object]],
+    recent_revisions: Sequence[Mapping[str, object]],
 ) -> list[str]:
     reasons: list[str] = []
     if reading.get("stale") is True:
@@ -225,10 +225,15 @@ def _machine_reasons(
             and short_direction != long_direction
         ):
             reasons.append("trend_direction_difference")
-    if release_change is not None and release_change.get("absolute_change") != 0:
-        reasons.append("release_change")
-    if revisions:
-        reasons.append("revision")
+    if release_change is not None:
+        percent_change = _finite_number(release_change.get("percent_change"))
+        absolute_change = _finite_number(release_change.get("absolute_change"))
+        if percent_change is not None and abs(percent_change) >= 5:
+            reasons.append("release_change_ge_5pct")
+        elif percent_change is None and absolute_change not in {None, 0}:
+            reasons.append("release_change_from_zero")
+    if recent_revisions:
+        reasons.append("recent_revision")
     return reasons
 
 
@@ -300,7 +305,15 @@ def build_snapshot(
             effective = _effective_observations(connection, series_id=series_id, as_of=as_of)
             revisions = _revision_rows(connection, series_id=series_id, as_of=as_of)
             change = _release_change(row, effective)
-            reasons = _machine_reasons(row, release_change=change, revisions=revisions)
+            effective_dates = {str(item["observed_at"]) for item in effective}
+            recent_revisions = [
+                revision for revision in revisions if revision.get("observed_at") in effective_dates
+            ]
+            reasons = _machine_reasons(
+                row,
+                release_change=change,
+                recent_revisions=recent_revisions,
+            )
             if reasons:
                 machine_candidates[series_id] = reasons
             scan.append(

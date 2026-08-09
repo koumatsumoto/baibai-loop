@@ -159,7 +159,7 @@ def test_snapshot_detects_same_observed_at_vintages_as_revision(tmp_path: Path) 
             ],
         }
     ]
-    assert "revision" in series_a["machine_materiality_reasons"]
+    assert "recent_revision" in series_a["machine_materiality_reasons"]
 
 
 def test_snapshot_rejects_decision_for_non_candidate(tmp_path: Path) -> None:
