@@ -87,7 +87,7 @@ freeze 成功後は対象 7 ファイルを編集しない。必要な修正が�
 
 ここで初めて前回 head を開く。
 
-1. `baibai-engine macro context show --context-id <head> --asof <as_of>` で前回 report を保存する。
+1. `baibai-engine macro context show --context-id <head> --asof <as_of>` で前回 report を開く。blind workspace には保存しない。
 2. `baibai-engine macro context scorecard --context-id <head> --asof <as_of> --format json` を実行する。run 証明が不足する error のときだけ、条件 series を `macro refresh <series...> --start <前回as_of翌日> --end <as_of>` で取得して再実行する。`pending` だけなら refresh しない。
 3. scorecard の `machine_snapshot` を逐語で v4 inputs に引用し、met / not_met / pending の内訳と、確率・成立実績の対応を書く。
 4. frozen world model と前回 report を比較し、evidence-backed な差分を `revision-diff.yaml` に `area` と `summary` で記録する。diff は frozen workspace を変更しない。
@@ -108,7 +108,7 @@ python -m tools.experiments.macro_world_model.validate_world_model check \
 
 5. [`macro-context` skill](../macro-context/SKILL.md) の step 8 以降へ合流し、connection、thesis impact、self-check (a)–(p)、`scaffold_inputs`、publish をすべて満たす。外部記事 15 本以上、8 象限、日本需要、通商・地政学・energy、日本株益回り − JGB 10y、market snapshot、scorecard settle、connection の要件を省略しない。
 6. draft は `baibai-engine macro context publish <draft> --check` で反復する。確定時に `macro context head` を再取得し、確認した ID を `--expected-head` に渡して実 publish する。
-7. `batch/scripts/r2_transfer.sh push-app` を実行し、`gh workflow run cloud-materialize` を dispatch する。workflow success、新 context ID が head であること、Macro tab が新 head を配信することを確認する。
+7. `batch/scripts/publish.sh push-app` を実行する。この command が返す cloud-materialize run URL を追跡し、追加 dispatch は行わない。workflow success、新 context ID が head であること、Macro tab が新 head を配信することを確認する。
 
 ### 7. Render、cost、2 回目実行確認
 
@@ -127,7 +127,7 @@ python -m tools.experiments.macro_world_model.render_report \
 publish 後、同じ手順を同じ `as_of` でもう一度なぞり、次を実測して `second-run-check.md` に記録する。
 
 - 同じ生成先への snapshot、freeze、render が既存 artifact の上書きを拒否する。
-- 別の一時出力へ作った snapshot の canonical hash が 1 回目と一致する。
+- 同じ安定した store input から別の一時出力へ snapshot を連続 2 回作り、canonical hash が一致する。初回 freeze 後に scorecard proof refresh で store input が増えた場合は、初回 hash との差を非決定性とせず input mutation として別に記録する。
 - publish 前に使った `--expected-head` でもう一度同じ draft を publish すると CAS が拒否する。
 
 一時出力は material な証拠だけ study artifact へ転記し、生成物自体は commit しない。
