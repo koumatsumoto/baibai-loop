@@ -8,7 +8,15 @@ from pathlib import Path
 import yaml
 
 EXPECTED = frozenset(
-    {"shortlist", "research", "holding-review", "ledger-record", "macro-context", "ops-maintenance"}
+    {
+        "shortlist",
+        "research",
+        "holding-review",
+        "ledger-record",
+        "macro-context",
+        "macro-world-model",
+        "ops-maintenance",
+    }
 )
 OLD = frozenset(
     {
