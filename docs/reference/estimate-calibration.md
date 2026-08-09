@@ -102,11 +102,13 @@ Shortlist の判断面が読む最新文脈の正本は `reports/published/er-le
 
 artifact は生成日から45日だけ有効とし、月次の calibration 更新後に同じ production scope の評価から再生成する。欠損、schema / basis / quintile 境界不正、現在 method または operative run との identity 不一致、run identity 不明、未来日、45日を超える期限、期限切れでは read model が文脈全体を非表示にする。YAML を手編集して更新しない。
 
+`calibration-evaluate` の artifact は各 `(asof, horizon)` の `integrity_status`、required metric別 status、blocking reasonを `cohort_integrity` に持つ。study はこの評価結果を読み、独自の辞書リテラルで eligibility を作らない。
+
 forward row は price-only の `price_return` / `status` と、`realized_dividend_sum` / `realized_dividend_fy_count` / `total_return` / `total_return_status` / `total_return_basis` を別々に持つ。`total_return_status == resolved` の row だけが level metric に入り、既存 price-only metric の母集団と値は変えない。component 表の realized dividend は annualized(total) − annualized(price) で、予測 carry に含まれる buyback を直接観測しない。
 
 `er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
 
-cache schema version は `12`。panel は、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、および赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PERを記録する。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。`rules_hash` は rules・variant・入力窓に加えて valuation calculation revision を含む。valuation の式・資本分母・価格基準が異なる panel は、method identity と cache schema の不一致で fail closed にする。
+cache schema version は `13`。panel は、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、および PIT-TTM の `operating_profit_to_assets`・`operating_margin`・`asset_turnover` を記録する。収益性 level は calibration 専用で、production の candidate、E[r]、FV、rank、gate へ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。`rules_hash` は rules・variant・入力窓に加えて valuation calculation revision を含む。valuation の式・資本分母・価格基準が異なる panel は、method identity と cache schema の不一致で fail closed にする。
 
 信用需給では、貸借銘柄だけの `margin_short_to_adv` と、交絡確認用の60取引日 realized volatilityを保持する。`margin_std_long_share` は判断面へ出す文脈 annotation である。`selection.supply_demand.margin_std_long_share_exclude_at_or_above` は recommendation だけを詰める任意の除外 knob だが、canonical rules は節自体を持たず既定 `None` なので gate は無効であり、candidates・full rank・longlist は同 knob の設定に関わらず動かない。production判断で空売り残/ADVのraw annotationを使うrunは、`margin_short_to_adv`をcore 3 metricと併せて明示する。missing/mismatch/partial cache は `calibration-build --force` で再構築する。旧 reader は提供しない。
 

@@ -254,6 +254,15 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(restored["9001"].operating_margin, by_ticker["9001"].operating_margin)
             self.assertEqual(restored["9001"].asset_turnover, by_ticker["9001"].asset_turnover)
 
+            negative_sales_row = replace(
+                result.rows[0],
+                operating_profit_to_assets=0.05,
+                operating_margin=-0.10,
+                asset_turnover=-0.50,
+            )
+            write_panel(store_dir, ASOF, (negative_sales_row,), result.diagnostics)
+            self.assertEqual(read_panel(store_dir, ASOF), [negative_sales_row])
+
     def test_valuation_calculation_revision_is_part_of_method_identity(self) -> None:
         rules = load_screening_rules()
         previous_identity = rules_contract_hash(

@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 12
+CACHE_SCHEMA_VERSION = 13
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -374,8 +374,6 @@ def _validate_profitability_levels(row: PanelRow) -> None:
     )
     if any(value is not None and not isfinite(value) for value in levels):
         raise ValueError("profitability levels must be finite")
-    if row.asset_turnover is not None and row.asset_turnover < 0:
-        raise ValueError("asset turnover must be non-negative")
     if all(value is not None for value in levels):
         assert row.operating_margin is not None
         assert row.asset_turnover is not None
