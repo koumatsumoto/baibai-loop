@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -113,6 +113,7 @@ def test_snapshot_hash_is_idempotent_and_order_invariant(tmp_path: Path) -> None
         macro_db=store,
         coverage_config=_coverage(),
         created_at=datetime(2026, 8, 8, tzinfo=UTC),
+        previous_as_of=date(2026, 7, 31),
     )
     reversed_reading = _reading()
     reversed_reading["series"].reverse()
@@ -124,6 +125,7 @@ def test_snapshot_hash_is_idempotent_and_order_invariant(tmp_path: Path) -> None
         macro_db=store,
         coverage_config=reversed_coverage,
         created_at=datetime(2026, 8, 9, tzinfo=UTC),
+        previous_as_of=date(2026, 7, 31),
     )
 
     expected = first["canonical_payload_sha256"]
@@ -142,6 +144,7 @@ def test_snapshot_detects_same_observed_at_vintages_as_revision(tmp_path: Path) 
     assert series_a["revisions"] == [
         {
             "observed_at": "2026-08-01",
+            "derived_recompute": False,
             "vintages": [
                 {
                     "value": 2.0,
@@ -160,7 +163,131 @@ def test_snapshot_detects_same_observed_at_vintages_as_revision(tmp_path: Path) 
             ],
         }
     ]
+    assert series_a["revisions_truncated"] == 0
     assert "recent_revision" in series_a["machine_materiality_reasons"]
+
+
+def test_snapshot_bounds_revision_history_without_changing_materiality(tmp_path: Path) -> None:
+    store = tmp_path / "macro.sqlite"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            """
+            CREATE TABLE observations (
+                series_id TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                value REAL NOT NULL,
+                unit TEXT NOT NULL,
+                vintage_at TEXT NOT NULL,
+                fetch_status TEXT NOT NULL,
+                source_url TEXT NOT NULL
+            )
+            """
+        )
+        rows = [
+            ("windowed", "2024-08-06", 1.0, "index", "2026-08-01", "ok", "https://old/1"),
+            ("windowed", "2024-08-06", 2.0, "index", "2026-08-02", "ok", "https://old/2"),
+            ("windowed", "2026-07-31", 3.0, "index", "2026-07-29", "ok", "https://early/1"),
+            ("windowed", "2026-07-31", 4.0, "index", "2026-07-30", "ok", "https://early/2"),
+            ("windowed", "2026-08-01", 5.0, "index", "2026-07-29", "ok", "https://material/1"),
+            ("windowed", "2026-08-01", 6.0, "index", "2026-07-30", "ok", "https://material/2"),
+            (
+                "windowed",
+                "2026-07-30",
+                7.0,
+                "index",
+                "2026-07-30",
+                "ok",
+                "https://github.com/koumatsumoto/baibai-loop/blob/main/engine/src/formulas.py",
+            ),
+            (
+                "windowed",
+                "2026-07-30",
+                8.0,
+                "index",
+                "2026-08-01",
+                "ok",
+                "https://github.com/koumatsumoto/baibai-loop/blob/main/engine/src/formulas.py",
+            ),
+        ]
+        for index in range(22):
+            observed_at = date(2026, 6, 1) + timedelta(days=index)
+            rows.extend(
+                [
+                    (
+                        "capped",
+                        observed_at.isoformat(),
+                        float(index),
+                        "index",
+                        "2026-07-30T00:00:00+00:00",
+                        "ok",
+                        f"https://cap/{index}/1",
+                    ),
+                    (
+                        "capped",
+                        observed_at.isoformat(),
+                        float(index + 1),
+                        "index",
+                        f"2026-08-01T00:{index:02d}:00+00:00",
+                        "ok",
+                        f"https://cap/{index}/2",
+                    ),
+                ]
+            )
+        connection.executemany("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+
+    reading = {
+        "asof": "2026-08-07",
+        "rules_revision": "fixture-r1",
+        "series": [
+            {
+                "series_id": series_id,
+                "latest_value": latest_value,
+                "observed_at": observed_at,
+                "short_trend": {"direction": "flat"},
+                "long_trend": {"direction": "flat"},
+            }
+            for series_id, latest_value, observed_at in (
+                ("windowed", 6.0, "2026-08-01"),
+                ("capped", 22.0, "2026-06-22"),
+            )
+        ],
+    }
+    snapshot = build_snapshot(
+        reading=reading,
+        macro_db=store,
+        previous_as_of=date(2026, 7, 31),
+        created_at=datetime(2026, 8, 8, tzinfo=UTC),
+    )
+    scan = {row["series_id"]: row for row in cast(list[dict[str, Any]], snapshot["coverage_scan"])}
+
+    windowed = scan["windowed"]
+    assert [row["observed_at"] for row in windowed["revisions"]] == ["2026-07-30"]
+    assert windowed["revisions"][0]["derived_recompute"] is True
+    assert windowed["revisions_truncated"] == 0
+    assert "recent_revision" in windowed["machine_materiality_reasons"]
+
+    capped = scan["capped"]
+    assert len(capped["revisions"]) == 20
+    assert capped["revisions_truncated"] == 2
+    assert capped["revisions"][0]["observed_at"] == "2026-06-22"
+    assert capped["revisions"][-1]["observed_at"] == "2026-06-03"
+    assert snapshot["materiality_policy_revision"] == "stage-a-v2"
+    assert snapshot["revision_window"] == {
+        "observed_at_start": "2024-08-07",
+        "vintage_at_start": "2026-07-31",
+        "vintage_at_start_source": "previous_head_as_of",
+        "max_revisions_per_series": 20,
+    }
+
+
+def test_snapshot_uses_ninety_day_revision_fallback(tmp_path: Path) -> None:
+    store = tmp_path / "macro.sqlite"
+    _macro_store(store)
+
+    snapshot = build_snapshot(reading=_reading(), macro_db=store)
+
+    assert snapshot["revision_window"]["vintage_at_start"] == "2026-05-09"
+    assert snapshot["revision_window"]["vintage_at_start_source"] == "fallback_90_days"
 
 
 def test_snapshot_rejects_decision_for_non_candidate(tmp_path: Path) -> None:

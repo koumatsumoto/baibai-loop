@@ -8,6 +8,7 @@ selection decisions and their reasons are carried only as coverage metadata.
 from __future__ import annotations
 
 import argparse
+import calendar
 import hashlib
 import io
 import json
@@ -16,7 +17,7 @@ import sqlite3
 import sys
 from collections.abc import Mapping, Sequence
 from contextlib import redirect_stdout
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -24,7 +25,11 @@ from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators import cli as macro_cli
 
 SCHEMA_VERSION = 1
-MATERIALITY_POLICY_REVISION = "stage-a-v1"
+MATERIALITY_POLICY_REVISION = "stage-a-v2"
+REVISION_LOOKBACK_MONTHS = 24
+REVISION_FALLBACK_DAYS = 90
+REVISION_SERIES_CAP = 20
+REPOSITORY_SOURCE_PREFIX = "https://github.com/koumatsumoto/baibai-loop/"
 
 
 class EvidenceSnapshotError(ValueError):
@@ -120,24 +125,66 @@ def _effective_observations(
     )
 
 
+def _months_before(value: date, months: int) -> date:
+    month_index = value.year * 12 + value.month - 1 - months
+    year, zero_based_month = divmod(month_index, 12)
+    month = zero_based_month + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _is_derived_recompute(source_url: str) -> bool:
+    return source_url.startswith(REPOSITORY_SOURCE_PREFIX)
+
+
 def _revision_rows(
-    connection: sqlite3.Connection, *, series_id: str, as_of: date
-) -> list[dict[str, object]]:
-    revised_dates = connection.execute(
-        """
-        SELECT observed_at
-        FROM observations
-        WHERE series_id = ?
-          AND observed_at <= ?
-          AND fetch_status IN ('ok', 'retracted')
-        GROUP BY observed_at
-        HAVING COUNT(*) > 1
-        ORDER BY observed_at
-        """,
-        (series_id, as_of.isoformat()),
+    connection: sqlite3.Connection,
+    *,
+    series_id: str,
+    as_of: date,
+    observed_at_start: date,
+    vintage_at_start: date,
+) -> tuple[list[dict[str, object]], int]:
+    revised_dates = list(
+        connection.execute(
+            """
+            WITH ranked AS (
+              SELECT observed_at,
+                     vintage_at,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY observed_at ORDER BY vintage_at
+                     ) AS vintage_rank
+              FROM observations
+              WHERE series_id = ?
+                AND observed_at BETWEEN ? AND ?
+                AND substr(vintage_at, 1, 10) <= ?
+                AND fetch_status IN ('ok', 'retracted')
+            )
+            SELECT observed_at, MAX(vintage_at) AS latest_vintage_at
+            FROM ranked
+            GROUP BY observed_at
+            HAVING COUNT(*) > 1
+               AND SUM(
+                 CASE
+                   WHEN vintage_rank > 1
+                    AND substr(vintage_at, 1, 10) >= ?
+                   THEN 1 ELSE 0
+                 END
+               ) > 0
+            ORDER BY latest_vintage_at DESC, observed_at DESC
+            """,
+            (
+                series_id,
+                observed_at_start.isoformat(),
+                as_of.isoformat(),
+                as_of.isoformat(),
+                vintage_at_start.isoformat(),
+            ),
+        )
     )
+    truncated = max(0, len(revised_dates) - REVISION_SERIES_CAP)
     revisions: list[dict[str, object]] = []
-    for date_row in revised_dates:
+    for date_row in revised_dates[:REVISION_SERIES_CAP]:
         observed_at = str(date_row["observed_at"])
         vintages = list(
             connection.execute(
@@ -146,15 +193,18 @@ def _revision_rows(
                 FROM observations
                 WHERE series_id = ?
                   AND observed_at = ?
+                  AND substr(vintage_at, 1, 10) <= ?
                   AND fetch_status IN ('ok', 'retracted')
                 ORDER BY vintage_at
                 """,
-                (series_id, observed_at),
+                (series_id, observed_at, as_of.isoformat()),
             )
         )
+        source_urls = [str(row["source_url"]) for row in vintages]
         revisions.append(
             {
                 "observed_at": observed_at,
+                "derived_recompute": any(_is_derived_recompute(url) for url in source_urls),
                 "vintages": [
                     {
                         "value": float(row["value"]),
@@ -167,7 +217,36 @@ def _revision_rows(
                 ],
             }
         )
-    return revisions
+    return revisions, truncated
+
+
+def _recent_revision_rows(
+    connection: sqlite3.Connection,
+    *,
+    series_id: str,
+    as_of: date,
+    effective_dates: set[str],
+) -> list[dict[str, object]]:
+    """Preserve the stage-a-v1 materiality signal independently of snapshot windows."""
+
+    rows: list[dict[str, object]] = []
+    for observed_at in sorted(effective_dates):
+        match = connection.execute(
+            """
+            SELECT observed_at
+            FROM observations
+            WHERE series_id = ?
+              AND observed_at <= ?
+              AND observed_at = ?
+              AND fetch_status IN ('ok', 'retracted')
+            GROUP BY observed_at
+            HAVING COUNT(*) > 1
+            """,
+            (series_id, as_of.isoformat(), observed_at),
+        ).fetchone()
+        if match is not None:
+            rows.append({"observed_at": str(match["observed_at"])})
+    return rows
 
 
 def _release_change(
@@ -275,6 +354,7 @@ def build_snapshot(
     macro_db: Path,
     coverage_config: Mapping[str, object] | None = None,
     created_at: datetime | None = None,
+    previous_as_of: date | None = None,
 ) -> dict[str, object]:
     """Join one reading snapshot to L1 vintages and a coverage manifest."""
 
@@ -282,6 +362,10 @@ def build_snapshot(
     if not isinstance(as_of_raw, str):
         raise EvidenceSnapshotError("macro reading output requires asof")
     as_of = date.fromisoformat(as_of_raw)
+    if previous_as_of is not None and previous_as_of > as_of:
+        raise EvidenceSnapshotError("previous_as_of must not be after as_of")
+    observed_at_start = _months_before(as_of, REVISION_LOOKBACK_MONTHS)
+    vintage_at_start = previous_as_of or (as_of - timedelta(days=REVISION_FALLBACK_DAYS))
     series_rows = _mapping_list(reading.get("series"), label="macro reading series")
     by_id: dict[str, Mapping[str, object]] = {}
     for row in series_rows:
@@ -303,12 +387,21 @@ def build_snapshot(
         for series_id in sorted(by_id):
             row = by_id[series_id]
             effective = _effective_observations(connection, series_id=series_id, as_of=as_of)
-            revisions = _revision_rows(connection, series_id=series_id, as_of=as_of)
+            revisions, revisions_truncated = _revision_rows(
+                connection,
+                series_id=series_id,
+                as_of=as_of,
+                observed_at_start=observed_at_start,
+                vintage_at_start=vintage_at_start,
+            )
             change = _release_change(row, effective)
             effective_dates = {str(item["observed_at"]) for item in effective}
-            recent_revisions = [
-                revision for revision in revisions if revision.get("observed_at") in effective_dates
-            ]
+            recent_revisions = _recent_revision_rows(
+                connection,
+                series_id=series_id,
+                as_of=as_of,
+                effective_dates=effective_dates,
+            )
             reasons = _machine_reasons(
                 row,
                 release_change=change,
@@ -336,6 +429,7 @@ def build_snapshot(
                     "long_trend": row.get("long_trend"),
                     "release_change": change,
                     "revisions": revisions,
+                    "revisions_truncated": revisions_truncated,
                     "machine_materiality_reasons": reasons,
                 }
             )
@@ -386,6 +480,14 @@ def build_snapshot(
         "created_at": timestamp.isoformat(),
         "reading_rules_revision": reading.get("rules_revision"),
         "materiality_policy_revision": MATERIALITY_POLICY_REVISION,
+        "revision_window": {
+            "observed_at_start": observed_at_start.isoformat(),
+            "vintage_at_start": vintage_at_start.isoformat(),
+            "vintage_at_start_source": (
+                "previous_head_as_of" if previous_as_of is not None else "fallback_90_days"
+            ),
+            "max_revisions_per_series": REVISION_SERIES_CAP,
+        },
         "coverage_scan": scan,
         "coverage_manifest": manifest,
     }
@@ -412,6 +514,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--asof", required=True, type=date.fromisoformat)
     parser.add_argument("--macro-db", type=Path, default=Path("stores/macro/macro.sqlite"))
     parser.add_argument("--coverage-config", type=Path)
+    parser.add_argument("--previous-asof", type=date.fromisoformat)
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args(argv)
 
@@ -428,6 +531,7 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
             reading=reading,
             macro_db=args.macro_db,
             coverage_config=coverage,
+            previous_as_of=args.previous_asof,
         )
         _write_new(args.output, snapshot)
     except (EvidenceSnapshotError, OSError, sqlite3.Error, ValueError) as error:
