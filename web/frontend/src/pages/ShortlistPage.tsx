@@ -94,20 +94,30 @@ function ErLevelContext({ calibration, row }: {
   const quintile = row?.er_level_quintile ?? null
   if (calibration === null || quintile === null) return null
   const horizon = calibration.horizons.find((item) => item.horizon === calibration.reference_horizon)
-  const cell = horizon?.quintiles.find((item) => item.quintile === quintile)
-  if (!horizon || !cell) return null
+  const band = horizon?.bands.find((item) => item.quintile === quintile)
+  const hurdle = row?.er_meets_8_5pct_band
+    ? horizon?.bands.find((item) => item.band_id === 'er_gte_8_5pct')
+    : null
+  const stats = band?.bases.find((item) => item.basis === calibration.primary_realized_basis)?.ticker_equal
+  const hurdleStats = hurdle?.bases.find((item) => item.basis === calibration.primary_realized_basis)?.ticker_equal
+  if (!horizon || !band || !stats) return null
   return (
     <FactRow label={(
       <span className="inline-flex items-center gap-1">
         E[r] 履歴帯
         <InfoHint label="E[r] 履歴帯の注意">
-          過去 panel の cohort 中央値であり、この銘柄の予測ではありません。月次窓は重複し、COVID 前後に偏ります。total return は FY 実績配当を FY 末へ帰属させた近似で、実際の配当権利日を再現しません。
+          過去 panel の ticker-as-of 観測であり、この銘柄の予測ではありません。月次窓は重複します。total return は FY 実績配当を FY 末へ帰属させた近似です。trap は同じ cohort の母集団中央値に累積20pt以上劣後した割合です。
         </InfoHint>
       </span>
     )}>
-      <span>Q{quintile} 帯 / panel 歴史実現中央値 ({horizon.horizon}, total return) </span>
-      <PctBadge fraction value={cell.median_realized_total_return_annual} />
-      <span className="ml-1">/ 年</span>
+      <span>Q{quintile} / 実現年率 median </span><PctBadge fraction value={stats.median} />
+      <span>・q25 </span><PctBadge fraction value={stats.q25} />
+      <span>・q10 </span><PctBadge fraction value={stats.q10} />
+      <span>・trap </span><PctBadge fraction value={stats.trap_rate} />
+      <span className="ml-1">({horizon.horizon}, total return, n={stats.n})</span>
+      {hurdleStats && (
+        <span className="block">E[r] ≥ 8.5% 帯: median <PctBadge fraction value={hurdleStats.median} />・q10 <PctBadge fraction value={hurdleStats.q10} />・trap <PctBadge fraction value={hurdleStats.trap_rate} /></span>
+      )}
     </FactRow>
   )
 }

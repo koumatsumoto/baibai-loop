@@ -27,7 +27,7 @@ _OWNERS = {
     ),
     "web/config/macro-panel.yaml": Path("web/backend/src/baibai_web/repository_layout.py"),
     "reports/published/er-level-calibration-latest.yaml": Path(
-        "web/backend/src/baibai_web/repository_layout.py"
+        "engine/src/baibai_engine/foundation/repository_layout.py"
     ),
 }
 

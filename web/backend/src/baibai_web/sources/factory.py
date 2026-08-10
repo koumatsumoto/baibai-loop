@@ -12,16 +12,14 @@ from pathlib import Path
 
 from baibai_engine.read_api import (
     APPLICATION_DB_PATH,
+    ER_LEVEL_CALIBRATION_CONTEXT_PATH,
     MACRO_DB_PATH,
     MACRO_READING_RULES_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
     screening_calibration_method_identity,
 )
-from baibai_web.repository_layout import (
-    ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    MACRO_PANEL_CONFIG_PATH,
-)
+from baibai_web.repository_layout import MACRO_PANEL_CONFIG_PATH
 from baibai_web.sources.calibration_context import load_er_level_calibration_context
 from baibai_web.sources.db_sources import (
     DbCandidatesSource,

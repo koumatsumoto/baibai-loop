@@ -169,6 +169,8 @@ def _write_selection(
     *,
     research_selection_target_max: object = 5,
     selection_asof: str | None = "2026-07-03",
+    screening_rules_hash: str | None = None,
+    er_model_version: str | None = None,
 ) -> None:
     selection_metadata: dict[str, object] = {
         "research_selection_target_max": research_selection_target_max,
@@ -176,6 +178,10 @@ def _write_selection(
     }
     if selection_asof is not None:
         selection_metadata["asof"] = selection_asof
+    if screening_rules_hash is not None:
+        selection_metadata["screening_rules_hash"] = screening_rules_hash
+    if er_model_version is not None:
+        selection_metadata["er_model_version"] = er_model_version
     payload = {
         "recommendations": [],
         "longlist": longlist,
@@ -747,6 +753,172 @@ def test_prepare_derives_shortlist_slots_from_selection_output(
         (tmp_path / "ws" / "selection.yaml").read_text(encoding="utf-8")
     )
     assert workspace_selection["shortlist_slots"] == expected_slots
+
+
+def test_prepare_binds_matching_er_distribution_context(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selection = tmp_path / "selection.yaml"
+    _write_selection(
+        selection,
+        [_longlist_row("2331")],
+        screening_rules_hash="rules-hash",
+        er_model_version="expected-return-v1",
+    )
+    context_path = tmp_path / "er-context.yaml"
+    stats = {
+        "median": 0.18,
+        "q25": 0.09,
+        "q10": 0.01,
+        "trap_rate": 0.12,
+        "n": 900,
+    }
+    bases = [
+        {
+            "basis": basis,
+            "ticker_equal": stats,
+            "cohort_equal": stats,
+        }
+        for basis in ("fy_actual_dividend_total_return", "price_return_only")
+    ]
+    bounds = [
+        ("q1", 1, None, -0.02),
+        ("q2", 2, -0.02, 0.00),
+        ("q3", 3, 0.00, 0.02),
+        ("q4", 4, 0.02, 0.04),
+        ("q5", 5, 0.04, None),
+        ("er_gte_8_5pct", None, 0.085, None),
+    ]
+    horizons = []
+    for horizon, cohort_count in (("3y", 34), ("5y", 18)):
+        horizons.append(
+            {
+                "horizon": horizon,
+                "asof_start": "2020-01-31",
+                "asof_end": "2023-06-30",
+                "cohort_count": cohort_count,
+                "bands": [
+                    {
+                        "band_id": band_id,
+                        "quintile": quintile,
+                        "lower_er_annual": lower,
+                        "upper_er_annual": upper,
+                        "median_predicted_er_annual": 0.06,
+                        "cohort_count": cohort_count,
+                        "median_n": 230,
+                        "bases": bases,
+                    }
+                    for band_id, quintile, lower, upper in bounds
+                ],
+            }
+        )
+    common_horizons = [
+        {
+            **horizon,
+            "cohort_count": 18,
+            "bands": [
+                {**band, "cohort_count": 18} for band in horizon["bands"] if isinstance(band, dict)
+            ],
+        }
+        for horizon in horizons
+    ]
+    context_path.write_text(
+        yaml.safe_dump(
+            {
+                "kind": "er-level-calibration-context",
+                "schema_version": 2,
+                "generated_at": "2026-07-03T12:00:00+09:00",
+                "valid_through": "2026-08-17",
+                "reference_horizon": "3y",
+                "screening_rules_hash": "rules-hash",
+                "er_model_version": "expected-return-v1",
+                "primary_realized_basis": "fy_actual_dividend_total_return",
+                "secondary_realized_basis": "price_return_only",
+                "trap_basis": "cohort_population_cumulative_return_excess_lte_minus_0_20",
+                "weighting": {
+                    "primary": "ticker_asof_observation_equal",
+                    "secondary": "cohort_equal",
+                },
+                "common_window": {
+                    "asof_start": "2020-01-31",
+                    "asof_end": "2023-06-30",
+                    "cohort_count": 18,
+                    "horizons": common_horizons,
+                },
+                "horizons": horizons,
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(opportunity_module, "ER_LEVEL_CALIBRATION_CONTEXT_PATH", context_path)
+    workspace = tmp_path / "ws"
+
+    code, _ = _run(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--db",
+            str(_app_db(tmp_path)),
+            "--workspace",
+            str(workspace),
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    comparison = safe_load((workspace / "research-comparison.yaml").read_text(encoding="utf-8"))
+    candidate_context = comparison["candidates"][0]["er_realized_distribution_context"]
+    assert [band["band_id"] for band in candidate_context["horizons"][0]["bands"]] == [
+        "q5",
+        "er_gte_8_5pct",
+    ]
+    manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
+    assert manifest["inputs"]["er_distribution_context"]["path"] == str(context_path)
+
+
+def test_prepare_degrades_when_optional_er_context_is_malformed(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selection = tmp_path / "selection.yaml"
+    _write_selection(
+        selection,
+        [_longlist_row("2331")],
+        screening_rules_hash="rules-hash",
+        er_model_version="expected-return-v1",
+    )
+    context_path = tmp_path / "er-context.yaml"
+    context_path.write_text("[", encoding="utf-8")
+    monkeypatch.setattr(opportunity_module, "ER_LEVEL_CALIBRATION_CONTEXT_PATH", context_path)
+    workspace = tmp_path / "ws"
+
+    code, _ = _run(
+        [
+            "prepare",
+            "--asof",
+            "2026-07-03",
+            "--selection-output",
+            str(selection),
+            "--db",
+            str(_app_db(tmp_path)),
+            "--workspace",
+            str(workspace),
+        ],
+        capsys,
+    )
+
+    assert code == 0
+    comparison = safe_load((workspace / "research-comparison.yaml").read_text(encoding="utf-8"))
+    assert comparison["er_realized_distribution_context"] is None
+    manifest = safe_load((workspace / "manifest.yaml").read_text(encoding="utf-8"))
+    assert "er_distribution_context" not in manifest["inputs"]
 
 
 @pytest.mark.parametrize("invalid_max", [None, -1, True, "5"])

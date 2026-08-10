@@ -8,6 +8,7 @@ domain models needed to assemble read-only application views.
 from baibai_engine.foundation.repository_layout import (
     APPLICATION_DB_PATH,
     CALIBRATION_DIR,
+    ER_LEVEL_CALIBRATION_CONTEXT_PATH,
     MACRO_DB_PATH,
     MARKET_DB_PATH,
     RUNS_DB_PATH,
@@ -94,6 +95,7 @@ from .tasks import list_task_payloads, task_store_exists
 __all__ = [
     "APPLICATION_DB_PATH",
     "CALIBRATION_DIR",
+    "ER_LEVEL_CALIBRATION_CONTEXT_PATH",
     "MACRO_CONTEXT_STALE_DAYS",
     "MACRO_DB_PATH",
     "MACRO_READING_RULES_PATH",

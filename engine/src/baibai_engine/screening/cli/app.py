@@ -468,7 +468,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     calibration_evaluate_parser.add_argument(
         "--context-out",
-        help="write the expiring E[r] quintile context consumed by the review UI",
+        help="write the expiring E[r] realized-distribution context consumed by review paths",
     )
     calibration_evaluate_parser.add_argument(
         "--start",
