@@ -63,6 +63,13 @@ _PER_SHARE_PRICE = re.compile(r"[１1]株につき[、,\s　]*金?[\s　]*(?P<ye
 # act as either 買付け or 買付け等.
 _OUTCOME = re.compile(r"買付け等?を行いま(?P<outcome>す|せん)")
 _SUB_YEN_UNIT = re.compile(r"^[\s　]*[0-9０-９]+[\s　]*銭")
+# The funding table names the non-cash consideration, or fills that row with a dash when
+# there is none. A share-exchange leg would pay part of the price in stock the holder had
+# to sell later, which the offer price would misreport as cash received on the delisting
+# day, so the dash is required rather than assumed.
+_FUNDING_BLOCK_SUFFIX = "FundEtcForPurchaseEtcTextBlock"
+_NON_CASH_CONSIDERATION = re.compile(r"金銭以外の対価の種類[\s　]*(?P<value>.)")
+_DASHES = "―—－-‐‑–"
 
 
 class TenderOfferError(RuntimeError):
@@ -127,6 +134,20 @@ def parse_ordinary_share_offer_price(blocks: Mapping[str, str]) -> float | None:
         return None
     price = prices.pop()
     return float(price) if price > 0 else None
+
+
+def pays_in_cash_only(blocks: Mapping[str, str]) -> bool | None:
+    """Whether the funding table reports no consideration other than cash.
+
+    ``None`` means the table did not answer, which is not the same as answering "cash".
+    """
+    text = _block(blocks, _FUNDING_BLOCK_SUFFIX)
+    if not text:
+        return None
+    match = _NON_CASH_CONSIDERATION.search(text)
+    if match is None:
+        return None
+    return match.group("value") in _DASHES
 
 
 def read_tender_offer_outcome(blocks: Mapping[str, str]) -> bool | None:
@@ -407,14 +428,23 @@ def _realize_case(
     priced: list[tuple[float, TenderOfferFiling]] = []
     for chain in case.offers:
         # A correction restates only what it changes, so the newest document in the
-        # chain that prints a price at all carries that offer's final price.
+        # chain that prints a price at all carries that offer's final price, and the
+        # newest that reports the funding carries the consideration it was paid in.
+        cash_only: bool | None = None
+        priced_filing: tuple[float, TenderOfferFiling] | None = None
         for filing in chain[::-1]:
             blocks = read_document_blocks(provider.download_csv_zip(filing.doc_id))
             downloads += 1
-            price = parse_ordinary_share_offer_price(blocks)
-            if price is not None:
-                priced.append((price, filing))
+            if cash_only is None:
+                cash_only = pays_in_cash_only(blocks)
+            if priced_filing is None:
+                price = parse_ordinary_share_offer_price(blocks)
+                if price is not None:
+                    priced_filing = (price, filing)
+            if priced_filing is not None and cash_only is not None:
                 break
+        if priced_filing is not None and cash_only is True:
+            priced.append(priced_filing)
     if len({price for price, _ in priced}) != 1:
         return None, downloads
     price, filing = priced[0]
@@ -467,6 +497,7 @@ __all__ = (
     "TenderOfferFiling",
     "build_control_event_exit_values",
     "parse_ordinary_share_offer_price",
+    "pays_in_cash_only",
     "read_document_blocks",
     "read_tender_offer_exit_values",
     "read_tender_offer_filings",

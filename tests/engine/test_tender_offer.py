@@ -13,6 +13,7 @@ from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.tender_offer import (
     build_control_event_exit_values,
     parse_ordinary_share_offer_price,
+    pays_in_cash_only,
     read_document_blocks,
     read_tender_offer_exit_values,
     read_tender_offer_outcome,
@@ -20,6 +21,11 @@ from baibai_engine.screening.tender_offer import (
 )
 
 _PRICE = "jptoo-ton_cor:PriceOfPurchaseEtcTextBlock"
+_FUNDING = "jptoo-ton_cor:FundEtcForPurchaseEtcTextBlock"
+_CASH_ONLY = (
+    "買付代金(円)(a)14,175,561,260金銭以外の対価の種類―金銭以外の対価の総額―"
+    "買付手数料(b)85,000,000その他(c)10,800,000合計14,271,361,260"
+)
 _OUTCOME = "jptoo-tor_cor:SuccessOrFailureOfTenderOfferTextBlock"
 
 _SUCCESS = (
@@ -177,7 +183,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
+                    "REG": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
                     "RES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
@@ -233,7 +241,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
+                    "REG": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
                     "RES": _archive({_OUTCOME: _FAILURE}),
                 }
             )
@@ -280,8 +290,12 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive({_PRICE: "株券普通株式１株につき金1,650円算定の基礎…"}),
-                    "REG_B": _archive({_PRICE: "株券普通株式１株につき金1,240円算定の基礎…"}),
+                    "REG": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,650円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
+                    "REG_B": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,240円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
                     "RES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
@@ -306,8 +320,12 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
-                    "COR": _archive({_PRICE: "株券普通株式１株につき金1,300円算定の基礎…"}),
+                    "REG": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
+                    "COR": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,300円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
                     "RES": _archive({_OUTCOME: _SUCCESS}),
                 }
             )
@@ -334,7 +352,9 @@ class ControlEventExitBuildTest(unittest.TestCase):
             )
             provider = _Provider(
                 {
-                    "REG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
+                    "REG": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
                     "COR": _archive({"jptoo-ton_cor:PeriodOfPurchaseEtcTextBlock": "期間の訂正"}),
                     "RES": _archive({_OUTCOME: _SUCCESS}),
                 }
@@ -346,6 +366,52 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
             self.assertEqual(values[0].offer_price_yen, 1060.0)
             self.assertEqual(values[0].offer_doc_id, "REG")
+
+    def test_an_offer_paying_partly_in_stock_produces_no_exit_value(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp,
+                self._registration_and_result(),
+                reason="他社による買収（公開買付け、株式併合）",
+            )
+            provider = _Provider(
+                {
+                    "REG": _archive(
+                        {
+                            _PRICE: "株券普通株式１株につき金1,060円算定の基礎…",
+                            _FUNDING: _CASH_ONLY.replace(
+                                "金銭以外の対価の種類―", "金銭以外の対価の種類公開買付者株式"
+                            ),
+                        }
+                    ),
+                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+
+            values, summary = build_control_event_exit_values(
+                sqlite_path, provider=provider, asof=self.ASOF
+            )
+
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1})
+
+    def test_a_registration_without_a_funding_table_produces_no_exit_value(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
+            )
+            provider = _Provider(
+                {
+                    "REG": _archive({_PRICE: "株券普通株式１株につき金1,060円算定の基礎…"}),
+                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+
+            values, _ = build_control_event_exit_values(
+                sqlite_path, provider=provider, asof=self.ASOF
+            )
+
+            self.assertEqual(values, ())
 
     def test_a_target_whose_ticker_cannot_be_resolved_produces_no_exit_value(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -401,3 +467,16 @@ class DocumentBlocksTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CashConsiderationTest(unittest.TestCase):
+    def test_a_dash_in_the_non_cash_row_reads_as_cash_only(self) -> None:
+        self.assertIs(pays_in_cash_only({_FUNDING: _CASH_ONLY}), True)
+
+    def test_a_named_non_cash_consideration_reads_as_not_cash_only(self) -> None:
+        text = _CASH_ONLY.replace("金銭以外の対価の種類―", "金銭以外の対価の種類公開買付者株式")
+        self.assertIs(pays_in_cash_only({_FUNDING: text}), False)
+
+    def test_a_funding_table_that_does_not_answer_is_unknown(self) -> None:
+        self.assertIsNone(pays_in_cash_only({_FUNDING: "買付代金(円)(a)1,000"}))
+        self.assertIsNone(pays_in_cash_only({}))
