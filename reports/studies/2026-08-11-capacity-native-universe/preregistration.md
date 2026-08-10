@@ -4,7 +4,7 @@
 
 ## 1. Blindness と固定順序
 
-この事前登録は outcome-free Stage 0 commit `9a819392` の後、forward outcomeを読む前に固定する。Stage 0 が読んだ入力は point-in-time panel、各as-of以前のdaily bars、同日master snapshotだけで、[`stage0.yaml`](./stage0.yaml) は `outcome_data_read: false` と `forward_inputs: []` を持つ。
+この事前登録は outcome-free Stage 0 commit `9a819392` の後、forward outcomeを読む前に固定する。Stage 0 が読んだ入力は point-in-time panel、各as-of以前のdaily bars、同日master snapshotだけで、同commitの `stage0.yaml`（SHA-256: `5c16ff8a180de0ea8be10ebda89897c0f7202a851262d3630f8b14bc46e59206`）は `outcome_data_read: false` と `forward_inputs: []` を持つ。
 
 このcommit以後は membership、notional、参加率、退出日数、window、cost、basis、weighting、sufficiency、effect、verdictを変更しない。不具合修正が結果を変え得る場合は修正内容と影響をreportに開示するが、好ましい結果へ寄せる修正はしない。
 
