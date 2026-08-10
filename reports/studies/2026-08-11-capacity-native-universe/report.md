@@ -4,11 +4,19 @@
 
 ## 結論
 
-**overall verdict: `negative`**
+**overall verdict: `insufficient`**
 
-30万円・1%参加率・5日退出のcapacity contractは、outcome-freeな実行可能性を満たし、現行E[r]もcapacity-only集合内では1y/3y/5yすべて正方向だった。しかしpolicy置換としては、time holdout以降にtrapとstale exitが悪化し、3y/5yでは`capacity_core_top20`が`current_core_top20`の中央値非劣後floor（−2pt）を破った。capacity-only top5もcurrent boundary 21〜25を時間窓で安定して上回らない。
+Stage 0は30万円・1%参加率・5日退出のcapacity fact coverageと候補availabilityを満たしたが、Issue #884が両policyへ要求するproduction同等のhistorical JPX regulatory gateを再現できない。calibration panelはas-of時点の特別注意・整理・取引停止・上場廃止警告flagを保持せず、replayは空flagを使った。したがって全windowはeffect判定前のmembership contractでblockし、固定floor置換の効果を判定しない。
 
-したがって固定 `market_cap >= 100億円 / average turnover >= 1億円 / listing span >= 182日` をcapacity contractへ置き換えない。production E[r]、FV、rank、gate、rules、selection payloadは変更しない。
+空flag集合の機械replayは `negative` を出したが、これは非権威の診断値である。未解決exitを全損／同cohortのresolved母集団中央値へ置換する既存の方向感度も実施しておらず、結果を `negative` の根拠に使わない。固定 `market_cap >= 100億円 / average turnover >= 1億円 / listing span >= 182日` は、置換価値が未立証なので維持する。production E[r]、FV、rank、gate、rules、selection payloadは変更しない。
+
+## Protocol correction
+
+outcome-free段階では、panelにhistorical flagが無いことを両policy共通の空flagとして事前登録した。しかしproduction rulesはJPX regulatory flagの除外を必須とし、Issue #884も同じcontractを要求する。両policyへ同じ空集合を渡しても、実運用では除外される銘柄がpolicyごとに異なる比率で上位へ入り得るため、common-modeな近似にはならない。
+
+この不一致はforward outcomeを読んだ後のreviewで確定した。好ましい結果へ条件を動かさず、全windowを `insufficient` へ落とす。以下のreplay値は仮説診断として残すが、policy採否・較正authority・track recordを発行しない。再検定には各cohort as-of時点のregulatory membershipを一次sourceから再構築できる新しい証拠が必要となる。
+
+不足判定はoutcomeに依存しない。現行rulesの `exclude_jpx_flagged: true`、calibration panelに該当fieldが無いこと、panel builderがhistorical replayへ空のflag mappingを渡すことを別々に確認した。よってcanonical eligibility artifactの完全保存、未解決exitの両端代入、composition/source-rank診断に欠けがあっても、`insufficient` という最終判定は変わらない。これらは非権威replayの既知の証拠限界として開示する。
 
 ## 誠実性境界とprovenance
 
@@ -17,15 +25,15 @@
 1. outcome-free Stage 0をcommit `9a819392`で確定
 2. effectを読む前に[`preregistration.md`](./preregistration.md)をcommit `09a1d5de`で確定
 3. その後にだけforward replayを実行し、結果と独立検算をcommit `dce85051`へ固定
-4. `negative` cleanupとして専用evaluator、test、study-local artifactを通常treeから削除
+4. 専用evaluator、test、study-local artifactを通常treeから削除
 
-閾値、notional、参加率、退出日数、window、cost、basis、weighting、verdictは結果後に変更していない。重複する月次windowは独立標本ではなく、有意性・統計的優位・track recordを主張しない。
+閾値、notional、参加率、退出日数、window、cost、basis、weightingと機械replayのverdict ruleは結果後に変更していない。最終authorityだけを、required membership contractの不成立により `insufficient` へ訂正した。重複する月次windowは独立標本ではなく、有意性・統計的優位・track recordを主張しない。
 
 | artifact | SHA-256 | 所在 |
 | --- | --- | --- |
 | Stage 0 outcome-free artifact | `5c16ff8a180de0ea8be10ebda89897c0f7202a851262d3630f8b14bc46e59206` | commit `9a819392` |
 | canonical calibration evaluation | `a9973c5e07a3230d35661754db146fd605ca141b0d928619666dbfef3b7ff9a0` | local rebuildable input |
-| capacity replay result | `c42085241ee0d86496a20f4fff4377dc3d9288eb16ce21a3e925edf6afb6ffbe` | commit `dce85051` |
+| capacity replay result（空flag・非権威） | `c42085241ee0d86496a20f4fff4377dc3d9288eb16ce21a3e925edf6afb6ffbe` | commit `dce85051` |
 | independent verification | `9497f7c736ac22f9b54a83cfc72d853de80134cac25895caad8d8c7945b90b66` | commit `dce85051` |
 
 ## Stage 0 — outcome-free feasibility
@@ -49,11 +57,11 @@ primary capacity eligible数はcohort最小170、中央値786、最新886。capa
 
 capacity eligibleの最低単元中央値は111,500円、30万円を1%参加率で退出する日数中央値は0.73日、60-session zero-return share中央値は1.69%、no-trade share中央値は0%。current core top-20との重複中央値は50%で、比較集合は十分に異なった。
 
-## Window verdict
+## 非権威replayのwindow診断
 
-全windowがcanonical `cohort_integrity`、policy availability、price/total resolution、unique ticker、concentrationのsufficiencyを満たした。
+空flag replayの数値上は、全windowがcanonical `cohort_integrity`、policy availability、price/total resolution、unique ticker、concentrationを満たした。ただしrequired regulatory membershipを満たさないため、正式なwindow verdictは全件 `insufficient`。表の4語はartifactが出した診断値であり、最終判定に使わない。
 
-| window | matured / eligible | verdict | 主な判定 |
+| window | matured / eligible | diagnostic replay | 主な診断 |
 | --- | ---: | --- | --- |
 | 1y design | 43 / 43 | `inconclusive` | incremental delta正share 51.16% < 55%、adverse resolution +2.36pt |
 | 1y time holdout | 23 / 23 | `negative` | capacity trap +4.25〜4.57pt、incremental−boundary trap +7.09〜10.27pt |
@@ -61,7 +69,7 @@ capacity eligibleの最低単元中央値は111,500円、30万円を1%参加率�
 | 3y post-COVID | 24 / 19 | `negative` | capacity median −5.88〜−6.00pt、trap +2.09〜2.53pt |
 | 5y all | 21 / 18 | `negative` | capacity median −10.09〜−16.88pt、trap +3.54〜7.32pt |
 
-50bps / 200bps / 500bpsのどのbracketでも、price / total両basisのeffect gateは全windowで不通過だった。良いcost、basis、weightingだけを採用していない。
+50bps / 200bps / 500bpsのどのbracketでも、price / total両basisのeffect gateは全windowで不通過だった。ただしregulatory gapと未実施のunresolved方向感度があるため、良いcost、basis、weightingだけを選ばなかったことは `negative` のauthorityを回復しない。
 
 ## 200bps主読み
 
@@ -157,7 +165,7 @@ holdoutではcapacity daysとAmihudのhigh bucketがprice / totalとも中央値
 
 capacity-only全体では、E[r] Q5−Q1 median excessは全window・両basisで正だった。200bps後の範囲は1y holdoutの+9.23pt（price）が最小、5y totalの+100.71ptが最大。`E[r] >= 8.5%`帯のmedian excessも全windowで正（最小+1.34% price / 1y holdout）。Q5 trapはQ1より13.93〜45.96pt低い。
 
-したがってnegativeの原因は「capacity-onlyでE[r]順位が完全に壊れる」ことではない。現行E[r]が同集合内で並べる力は残る一方、固定floor外の上位集合そのものがcurrent policy / boundaryよりtrap・退出不能・長期中央値で劣る。market-cap floorを外すproduction変更の便益を示せない。
+空flag集合では、E[r]が同集合内で並べる力は残る一方、固定floor外の上位集合そのものがcurrent policy / boundaryよりtrap・退出不能・長期中央値で劣った。この診断はmarket-cap floorを外すproduction変更の便益を示さないが、production同等membershipの効果を反証したとも扱わない。
 
 ## Unresolved / stale / delisting sensitivity
 
@@ -171,7 +179,7 @@ membershipを分母に残した。price unresolvedは全件 `unresolved_stale_ex
 | 3y post-COVID | 95 / 86 / 84 | 95 / 92 / 84 | +6.32pt |
 | 5y | 88 / 78 / 72 | 90 / 88 / 76 | +9.14pt |
 
-total unresolvedはprice未解決に加え、FY配当欠損またはFY観測なしとして別statusに残した。全policy・全windowでprice resolved / membershipとtotal resolved / price resolvedは各75% floorを満たすため、欠損が結論を`insufficient`へ覆い隠していない。
+total unresolvedはprice未解決に加え、FY配当欠損またはFY観測なしとして別statusに残した。全policy・全windowでprice resolved / membershipとtotal resolved / price resolvedは各75% floorを満たしたが、既存calibration contractの全損（−1.0）／同cohortのresolved母集団中央値という両端代入は行っていない。よってresolution-rate差とresolved-only effectから `negative` の方向安定性を主張しない。最終 `insufficient` はoutcome-freeなregulatory contract不足で決まり、この感度の欠落には依存しない。
 
 ## 独立検算
 
@@ -187,6 +195,6 @@ capacity evaluatorをimportしない標準CSV / SQLite readerで、次を再計�
 
 ## Cleanup と採否
 
-`negative`契約に従い、capacity fact builder、replay evaluator、独立verifier、専用test、Stage 0 / result / verification artifactを通常treeから削除する。最終treeには事前登録と本reportだけを残し、計測時の完全artifactはSHA-256とcommit `dce85051`で固定する。
+historical regulatory membershipを再現できない構造的な `insufficient` として、capacity fact builder、replay evaluator、独立verifier、専用test、Stage 0 / result / verification artifactを通常treeから削除する。最終treeには事前登録と本reportだけを残し、実行済みreplayは非権威の診断証跡としてSHA-256とcommit `dce85051`で固定する。
 
-production接続issueは起票しない。同一仮説の再検定は、新規満期cohortまたはcapacity contract自体を変える新しい外部証拠がある場合に限る。
+production接続issueは起票しない。同一仮説の再検定は、対象cohortのhistorical JPX regulatory membershipを一次sourceから再構築できる新しい証拠がある場合に限る。
