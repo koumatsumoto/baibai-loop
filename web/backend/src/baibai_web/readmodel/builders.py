@@ -55,9 +55,11 @@ from .models import (
     DashboardView,
     DeltaPool,
     DeltaUnavailable,
+    ErLevelCalibrationBandView,
+    ErLevelCalibrationBasisView,
     ErLevelCalibrationContextView,
     ErLevelCalibrationHorizonView,
-    ErLevelCalibrationQuintileView,
+    ErLevelCalibrationStatsView,
     FvConvergenceView,
     HoldingDeltaView,
     HoldingReviewView,
@@ -1476,6 +1478,7 @@ def _candidate_row_view(
         fair_value_anchor_yen=None if anchor is None else anchor.fair_value_anchor_yen,
         fair_value_gap_pct=None if anchor is None else anchor.fair_value_gap_pct,
         er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
+        er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
         **values,
     )
 
@@ -1490,10 +1493,28 @@ def _er_level_quintile(
     )
     if horizon is None:
         return None
-    for cell in horizon.quintiles:
-        if cell.upper_er_annual is None or er_annual <= cell.upper_er_annual:
-            return cell.quintile
+    for band in horizon.bands:
+        if band.quintile is not None and (
+            band.upper_er_annual is None or er_annual <= band.upper_er_annual
+        ):
+            return band.quintile
     return None
+
+
+def _er_meets_hurdle(er_annual: float | None, context: ErLevelCalibrationContext | None) -> bool:
+    if er_annual is None or context is None:
+        return False
+    horizon = next(
+        (item for item in context.horizons if item.horizon == context.reference_horizon), None
+    )
+    if horizon is None:
+        return False
+    hurdle = next((item for item in horizon.bands if item.band_id == "er_gte_8_5pct"), None)
+    return bool(
+        hurdle is not None
+        and hurdle.lower_er_annual is not None
+        and er_annual >= hurdle.lower_er_annual
+    )
 
 
 def _er_level_calibration_view(
@@ -1507,24 +1528,46 @@ def _er_level_calibration_view(
         reference_horizon=context.reference_horizon,
         screening_rules_hash=context.screening_rules_hash,
         er_model_version=context.er_model_version,
-        realized_basis=context.realized_basis,
+        primary_realized_basis=context.primary_realized_basis,
+        secondary_realized_basis=context.secondary_realized_basis,
+        trap_basis=context.trap_basis,
         horizons=[
             ErLevelCalibrationHorizonView(
                 horizon=item.horizon,
                 asof_start=item.asof_start,
                 asof_end=item.asof_end,
                 cohort_count=item.cohort_count,
-                quintiles=[
-                    ErLevelCalibrationQuintileView(
-                        quintile=cell.quintile,
-                        upper_er_annual=cell.upper_er_annual,
-                        median_predicted_er_annual=cell.median_predicted_er_annual,
-                        median_realized_total_return_annual=(
-                            cell.median_realized_total_return_annual
-                        ),
-                        median_n=cell.median_n,
+                bands=[
+                    ErLevelCalibrationBandView(
+                        band_id=band.band_id,
+                        quintile=band.quintile,
+                        lower_er_annual=band.lower_er_annual,
+                        upper_er_annual=band.upper_er_annual,
+                        median_predicted_er_annual=band.median_predicted_er_annual,
+                        cohort_count=band.cohort_count,
+                        median_n=band.median_n,
+                        bases=[
+                            ErLevelCalibrationBasisView(
+                                basis=basis.basis,
+                                ticker_equal=ErLevelCalibrationStatsView(
+                                    median=basis.ticker_equal.median,
+                                    q25=basis.ticker_equal.q25,
+                                    q10=basis.ticker_equal.q10,
+                                    trap_rate=basis.ticker_equal.trap_rate,
+                                    n=basis.ticker_equal.n,
+                                ),
+                                cohort_equal=ErLevelCalibrationStatsView(
+                                    median=basis.cohort_equal.median,
+                                    q25=basis.cohort_equal.q25,
+                                    q10=basis.cohort_equal.q10,
+                                    trap_rate=basis.cohort_equal.trap_rate,
+                                    n=basis.cohort_equal.n,
+                                ),
+                            )
+                            for basis in band.bases
+                        ],
                     )
-                    for cell in item.quintiles
+                    for band in item.bands
                 ],
             )
             for item in context.horizons

@@ -1698,6 +1698,37 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(client.calls, 3)
         self.assertEqual(len(bars), 1)
 
+    def test_short_sale_refresh_rechecks_covered_disclosure_dates(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def get_mkt_short_sale_report(self, disclosed_date: str) -> list[dict[str, object]]:
+                self.calls += 1
+                return [
+                    {
+                        "DiscDate": disclosed_date,
+                        "CalcDate": disclosed_date,
+                        "Code": "72030",
+                        "SSName": "Reporter A",
+                        "DICName": "",
+                        "FundName": "",
+                        "ShrtPosToSO": 0.006 if self.calls == 1 else 0.007,
+                    }
+                ]
+
+        client = FakeClient()
+        target = date(2026, 4, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            provider = JQuantsProvider("token", Path(tmp), client=client, sqlite_path=sqlite_path)
+            first = provider.get_mkt_short_sale_report_range(target, target)
+            refreshed = provider.refresh_mkt_short_sale_report_range(target, target)
+
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(first[0].short_ratio, 0.006)
+        self.assertEqual(refreshed[0].short_ratio, 0.007)
+
     def test_jpx_parse_csv_rows_supports_cp932(self) -> None:
         provider = JPXProvider(Path("/tmp"))
         rows = provider._parse_csv_rows(

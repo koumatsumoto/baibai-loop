@@ -23,9 +23,11 @@ from baibai_web.readmodel.builders import (
 )
 from baibai_web.sources.types import (
     CandidatesRun,
+    ErLevelCalibrationBand,
+    ErLevelCalibrationBasis,
     ErLevelCalibrationContext,
     ErLevelCalibrationHorizon,
-    ErLevelCalibrationQuintile,
+    ErLevelCalibrationStats,
     ResearchRevision,
     ScenarioSummary,
     TaskRecord,
@@ -345,15 +347,46 @@ def test_screening_tolerates_missing_or_invalid_metrics() -> None:
 
 
 def _er_calibration_context() -> ErLevelCalibrationContext:
-    quintiles = tuple(
-        ErLevelCalibrationQuintile(
-            quintile=index + 1,
-            upper_er_annual=None if index == 4 else -0.04 + index * 0.02,
-            median_predicted_er_annual=-0.05 + index * 0.025,
-            median_realized_total_return_annual=-0.1 + index * 0.06,
-            median_n=200,
+    def basis(index: int, name: str) -> ErLevelCalibrationBasis:
+        stats = ErLevelCalibrationStats(
+            median=-0.1 + index * 0.06,
+            q25=-0.12 + index * 0.06,
+            q10=-0.14 + index * 0.06,
+            trap_rate=0.2,
+            n=200,
         )
-        for index in range(5)
+        return ErLevelCalibrationBasis(basis=name, ticker_equal=stats, cohort_equal=stats)
+
+    bands = (
+        *(
+            ErLevelCalibrationBand(
+                band_id=f"q{index + 1}",
+                quintile=index + 1,
+                lower_er_annual=None if index == 0 else -0.06 + index * 0.02,
+                upper_er_annual=None if index == 4 else -0.04 + index * 0.02,
+                median_predicted_er_annual=-0.05 + index * 0.025,
+                cohort_count=11,
+                median_n=200,
+                bases=(
+                    basis(index, "fy_actual_dividend_total_return"),
+                    basis(index, "price_return_only"),
+                ),
+            )
+            for index in range(5)
+        ),
+        ErLevelCalibrationBand(
+            band_id="er_gte_8_5pct",
+            quintile=None,
+            lower_er_annual=0.085,
+            upper_er_annual=None,
+            median_predicted_er_annual=0.1,
+            cohort_count=11,
+            median_n=20,
+            bases=(
+                basis(4, "fy_actual_dividend_total_return"),
+                basis(4, "price_return_only"),
+            ),
+        ),
     )
     return ErLevelCalibrationContext(
         generated_at=datetime(2026, 8, 2, 12, 0, tzinfo=JST),
@@ -361,14 +394,16 @@ def _er_calibration_context() -> ErLevelCalibrationContext:
         reference_horizon="3y",
         screening_rules_hash="rules-hash-v1",
         er_model_version="expected-return-v1",
-        realized_basis="fy_actual_dividend_total_return_annualized_absolute",
+        primary_realized_basis="fy_actual_dividend_total_return",
+        secondary_realized_basis="price_return_only",
+        trap_basis="cohort_population_cumulative_return_excess_lte_minus_0_20",
         horizons=(
             ErLevelCalibrationHorizon(
                 horizon="3y",
                 asof_start=date(2020, 1, 31),
                 asof_end=date(2021, 5, 31),
                 cohort_count=11,
-                quintiles=quintiles,
+                bands=bands,
             ),
         ),
     )
@@ -386,7 +421,8 @@ def test_screening_maps_er_to_historical_calibration_band() -> None:
 
     assert view.rows[0].er_level_quintile == 5
     assert view.er_level_calibration is not None
-    assert view.er_level_calibration.horizons[0].quintiles[4].median_n == 200
+    assert view.er_level_calibration.horizons[0].bands[4].median_n == 200
+    assert view.rows[0].er_meets_8_5pct_band is True
 
 
 def test_screening_hides_calibration_when_operative_run_method_differs() -> None:

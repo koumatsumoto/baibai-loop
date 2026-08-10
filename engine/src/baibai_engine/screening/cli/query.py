@@ -193,6 +193,8 @@ def select_command(
             market_regime=_load_market_regime(regime_sqlite_path, asof_date),
             detail=detail,
             longlist_top=longlist_top,
+            screening_rules_hash=inputs.screening_rules_hash,
+            er_model_version=inputs.er_model_version,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -282,6 +284,8 @@ class _SelectionInputs:
     previous_candidates: PreviousCandidates
     candidates_ref: str
     macro_context_ref: str | None
+    screening_rules_hash: str | None
+    er_model_version: str | None
 
 
 def _load_selection_inputs_db(
@@ -369,7 +373,13 @@ def _load_selection_inputs_db(
         previous_candidates=previous_candidates,
         candidates_ref=run_revision_id,
         macro_context_ref=None if context is None else context.context_id,
+        screening_rules_hash=_optional_non_empty_string(run.payload.get("screening_rules_hash")),
+        er_model_version=_optional_non_empty_string(run.payload.get("er_model_version")),
     )
+
+
+def _optional_non_empty_string(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _previous_candidates_from_shortlist(

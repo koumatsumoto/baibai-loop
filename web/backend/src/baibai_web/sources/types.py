@@ -90,12 +90,31 @@ class CandidatesRun:
 
 
 @dataclass(frozen=True, slots=True)
-class ErLevelCalibrationQuintile:
-    quintile: int
+class ErLevelCalibrationStats:
+    median: float
+    q25: float
+    q10: float
+    trap_rate: float
+    n: int
+
+
+@dataclass(frozen=True, slots=True)
+class ErLevelCalibrationBasis:
+    basis: str
+    ticker_equal: ErLevelCalibrationStats
+    cohort_equal: ErLevelCalibrationStats
+
+
+@dataclass(frozen=True, slots=True)
+class ErLevelCalibrationBand:
+    band_id: str
+    quintile: int | None
+    lower_er_annual: float | None
     upper_er_annual: float | None
     median_predicted_er_annual: float
-    median_realized_total_return_annual: float
+    cohort_count: int
     median_n: int
+    bases: tuple[ErLevelCalibrationBasis, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +123,7 @@ class ErLevelCalibrationHorizon:
     asof_start: date
     asof_end: date
     cohort_count: int
-    quintiles: tuple[ErLevelCalibrationQuintile, ...]
+    bands: tuple[ErLevelCalibrationBand, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +133,9 @@ class ErLevelCalibrationContext:
     reference_horizon: str
     screening_rules_hash: str
     er_model_version: str
-    realized_basis: str
+    primary_realized_basis: str
+    secondary_realized_basis: str
+    trap_basis: str
     horizons: tuple[ErLevelCalibrationHorizon, ...]
 
 

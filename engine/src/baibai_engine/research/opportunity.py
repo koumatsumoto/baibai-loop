@@ -33,6 +33,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from baibai_engine.foundation.filesystem import write_text_atomic
+from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from baibai_engine.foundation.time import JST
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.position.ledger import (
@@ -47,6 +48,10 @@ from .close_source import (
     resolve_previous_business_day_close,
 )
 from .decimal_number import decimal_to_number
+from .er_distribution_context import (
+    HURDLE_ER_ANNUAL,
+    valid_er_distribution_context_payload,
+)
 from .execution_policy import ExecutionPolicyError, max_acceptable_price
 from .portfolio_exposure import (
     planned_order_cash_warnings,
@@ -221,25 +226,33 @@ def prepare_workspace(
         "shortlist": [],
         "actionable": bool(annotated),
     }
-    comparison_doc = _research_comparison(asof, annotated)
+    er_context, er_context_ref = _load_er_distribution_context(
+        selection=selection,
+        candidates=annotated,
+        asof=asof,
+    )
+    comparison_doc = _research_comparison(asof, annotated, er_context=er_context)
 
     workspace.mkdir(parents=True, exist_ok=True)
     _write_workspace_file(workspace / "selection.yaml", selection_doc)
     _write_workspace_file(workspace / "research-comparison.yaml", comparison_doc)
 
+    manifest_inputs: dict[str, object] = {
+        "selection_output": {
+            "path": selection_output.as_posix(),
+            "sha256": _sha256_file(selection_output),
+        },
+        "ledger": {
+            "entity_id": "portfolio-ledger",
+            "append_head": append_head,
+        },
+    }
+    if er_context_ref is not None:
+        manifest_inputs["er_distribution_context"] = er_context_ref
     manifest = {
         "as_of": asof.isoformat(),
         "tool_version": TOOL_VERSION,
-        "inputs": {
-            "selection_output": {
-                "path": selection_output.as_posix(),
-                "sha256": _sha256_file(selection_output),
-            },
-            "ledger": {
-                "entity_id": "portfolio-ledger",
-                "append_head": append_head,
-            },
-        },
+        "inputs": manifest_inputs,
         "rules": {
             "research_selection_target_max": research_selection_target_max,
             "research_selection_playbook_order": _selection_playbook_order(selection),
@@ -358,8 +371,14 @@ def _portfolio_annotation(ticker: str, *, held: set[str], reserved: set[str]) ->
 
 
 def _research_comparison(
-    asof: date, annotated: Sequence[Mapping[str, object]]
+    asof: date,
+    annotated: Sequence[Mapping[str, object]],
+    *,
+    er_context: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    context_by_ticker = er_context.get("candidates") if isinstance(er_context, Mapping) else None
+    if not isinstance(context_by_ticker, Mapping):
+        context_by_ticker = {}
     candidates = [
         {
             "ticker": str(row.get("ticker") or ""),
@@ -376,6 +395,7 @@ def _research_comparison(
             "source_ids": [],
             "disposition": None,
             "disposition_reason": None,
+            "er_realized_distribution_context": context_by_ticker.get(str(row.get("ticker") or "")),
         }
         for row in annotated
     ]
@@ -384,6 +404,138 @@ def _research_comparison(
         "candidates": candidates,
         "selected_ticker": None,
         "ranking_rationale": None,
+        "er_realized_distribution_context": er_context,
+    }
+
+
+def _load_er_distribution_context(
+    *,
+    selection: Mapping[str, object],
+    candidates: Sequence[Mapping[str, object]],
+    asof: date,
+) -> tuple[dict[str, object] | None, dict[str, str] | None]:
+    metadata = selection.get("selection")
+    if not isinstance(metadata, Mapping):
+        return None, None
+    rules_hash = metadata.get("screening_rules_hash")
+    er_model_version = metadata.get("er_model_version")
+    if not isinstance(rules_hash, str) or not isinstance(er_model_version, str):
+        return None, None
+    path = ER_LEVEL_CALIBRATION_CONTEXT_PATH
+    if not path.is_file():
+        return None, None
+    try:
+        raw = safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError):
+        return None, None
+    if (
+        not isinstance(raw, Mapping)
+        or not valid_er_distribution_context_payload(raw)
+        or raw.get("kind") != "er-level-calibration-context"
+        or raw.get("schema_version") != 2
+        or raw.get("screening_rules_hash") != rules_hash
+        or raw.get("er_model_version") != er_model_version
+    ):
+        return None, None
+    generated_at = raw.get("generated_at")
+    valid_through = raw.get("valid_through")
+    if not isinstance(generated_at, str) or not isinstance(valid_through, str):
+        return None, None
+    try:
+        generated_on = datetime.fromisoformat(generated_at).date()
+        expires_on = date.fromisoformat(valid_through)
+    except ValueError:
+        return None, None
+    if generated_on > asof or expires_on < asof:
+        return None, None
+    horizons = _dict_list(raw.get("horizons"))
+    candidate_context: dict[str, object] = {}
+    for candidate in candidates:
+        ticker = str(candidate.get("ticker") or "")
+        er_pct = candidate.get("expected_return_pct")
+        if isinstance(er_pct, bool) or not isinstance(er_pct, int | float):
+            continue
+        er_annual = float(er_pct) / 100.0
+        matched_horizons: list[dict[str, object]] = []
+        for horizon in horizons:
+            bands = _dict_list(horizon.get("bands"))
+            quintile = next(
+                (
+                    band
+                    for band in bands
+                    if band.get("quintile") is not None and _quintile_contains(er_annual, band)
+                ),
+                None,
+            )
+            hurdle = next(
+                (
+                    band
+                    for band in bands
+                    if band.get("band_id") == "er_gte_8_5pct" and er_annual >= HURDLE_ER_ANNUAL
+                ),
+                None,
+            )
+            matched = [
+                _context_band_summary(band) for band in (quintile, hurdle) if band is not None
+            ]
+            matched = [band for band in matched if band is not None]
+            matched_horizons.append(
+                {
+                    "horizon": horizon.get("horizon"),
+                    "cohort_count": horizon.get("cohort_count"),
+                    "bands": matched,
+                }
+            )
+        candidate_context[ticker] = {
+            "er_annual": er_annual,
+            "horizons": matched_horizons,
+        }
+    context = {
+        "status": "historical_context_only",
+        "artifact": path.as_posix(),
+        "generated_at": generated_at,
+        "valid_through": valid_through,
+        "screening_rules_hash": rules_hash,
+        "er_model_version": er_model_version,
+        "primary_realized_basis": raw.get("primary_realized_basis"),
+        "primary_weighting": "ticker_asof_observation_equal",
+        "interpretation": "historical distribution; not an individual security forecast",
+        "candidates": candidate_context,
+    }
+    return context, {"path": path.as_posix(), "sha256": _sha256_file(path)}
+
+
+def _quintile_contains(er_annual: float, band: Mapping[str, object]) -> bool:
+    upper = band.get("upper_er_annual")
+    return upper is None or (
+        not isinstance(upper, bool) and isinstance(upper, int | float) and er_annual <= float(upper)
+    )
+
+
+def _context_band_summary(band: Mapping[str, object]) -> dict[str, object] | None:
+    primary = next(
+        (
+            basis
+            for basis in _dict_list(band.get("bases"))
+            if basis.get("basis") == "fy_actual_dividend_total_return"
+        ),
+        None,
+    )
+    if primary is None:
+        return None
+    stats = primary.get("ticker_equal")
+    if not isinstance(stats, Mapping):
+        return None
+    return {
+        "band_id": band.get("band_id"),
+        "lower_er_annual": band.get("lower_er_annual"),
+        "upper_er_annual": band.get("upper_er_annual"),
+        "median_predicted_er_annual": band.get("median_predicted_er_annual"),
+        "cohort_count": band.get("cohort_count"),
+        "median_n": band.get("median_n"),
+        "realized_total_return_ticker_equal": {
+            key: stats.get(key) for key in ("median", "q25", "q10", "trap_rate", "n")
+        },
     }
 
 
@@ -574,6 +726,8 @@ def _verify_external_inputs(manifest: Mapping[str, object], *, db_path: Path | N
     required_inputs: tuple[str, ...]
     if purpose == "opportunity":
         required_inputs = ("selection_output", "ledger")
+        if "er_distribution_context" in inputs:
+            required_inputs += ("er_distribution_context",)
     elif purpose == "holding_review":
         required_inputs = ("ledger",)
     else:

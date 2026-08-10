@@ -74,6 +74,26 @@ class JQuantsWeeklyMargin:
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
+class JQuantsShortSaleReport:
+    """One reporter's disclosed short-position state for one ticker."""
+
+    disclosed_at: date
+    calculated_at: date
+    ticker: str
+    short_seller_name: str
+    discretionary_investment_contractor_name: str
+    investment_fund_name: str
+    short_ratio: float | None
+    short_shares: int | None = None
+    short_trading_units: int | None = None
+    previous_reported_at: date | None = None
+    previous_short_ratio: float | None = None
+    is_cancellation: bool = False
+    notes: str | None = None
+    source_ordinal: int = 0
+
+
+@dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsFinancialSummary:
     ticker: str
     disclosed_at: date
@@ -212,6 +232,130 @@ class JQuantsProvider(JQuantsMarketProvider):
             margin
             for record in records
             if (margin := normalize_weekly_margin(record, week_end)) is not None
+        ]
+
+    def get_mkt_short_sale_report_range(
+        self, start: date, end: date
+    ) -> list[JQuantsShortSaleReport]:
+        """Return reports by disclosure date, preserving empty-range coverage."""
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_short_sale_reports
+
+            cached = read_short_sale_reports(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+        self._raise_if_cache_only(
+            "jquants_short_sale_reports", f"{start.isoformat()}..{end.isoformat()}"
+        )
+        missing: tuple[tuple[date, date], ...] = ((start, end),)
+        if self._sqlite_path is not None:
+            from baibai_engine.market.sqlite import connect_current, missing_intervals
+
+            conn = connect_current(self._sqlite_path)
+            if conn is not None:
+                try:
+                    missing = missing_intervals(conn, "jquants_short_sale_reports", start, end)
+                finally:
+                    conn.close()
+        records: list[dict[str, Any]] = []
+        for missing_start, missing_end in missing:
+            cursor = missing_start
+            while cursor <= missing_end:
+                records.extend(
+                    self._load_or_fetch(
+                        "get_mkt_short_sale_report",
+                        store_params={"start_dt": cursor, "end_dt": cursor},
+                        disclosed_date=cursor.isoformat(),
+                    )
+                )
+                cursor += timedelta(days=1)
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_short_sale_reports
+
+            stored = read_short_sale_reports(self._sqlite_path, start, end)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "SQLite cache remained incomplete after fetching "
+                    "jquants_short_sale_reports for "
+                    f"{start.isoformat()}..{end.isoformat()}"
+                )
+            return stored
+        return [
+            report
+            for record in records
+            if (report := normalize_short_sale_report(record)) is not None
+        ]
+
+    def refresh_mkt_short_sale_report_range(
+        self, start: date, end: date
+    ) -> list[JQuantsShortSaleReport]:
+        """Re-read the correction overlap and repair gaps after an unattended outage."""
+
+        self._raise_if_cache_only(
+            "jquants_short_sale_reports", f"{start.isoformat()}..{end.isoformat()}"
+        )
+        planned: tuple[tuple[date, date], ...] = ((start, end),)
+        if self._sqlite_path is not None:
+            from baibai_engine.market.sqlite import (
+                connect_current,
+                merge_date_ranges,
+                missing_intervals,
+            )
+
+            from ..sqlite_cache.jquants import SHORT_SALE_REPORT_SOURCE
+
+            conn = connect_current(self._sqlite_path)
+            if conn is not None:
+                try:
+                    row = conn.execute(
+                        "SELECT MIN(coverage_start) FROM source_coverage "
+                        "WHERE source = ? AND status = 'ok'",
+                        (SHORT_SALE_REPORT_SOURCE,),
+                    ).fetchone()
+                    coverage_start = (
+                        date.fromisoformat(str(row[0])) if row is not None and row[0] else None
+                    )
+                    repairs = (
+                        missing_intervals(
+                            conn,
+                            "jquants_short_sale_reports",
+                            coverage_start,
+                            end,
+                        )
+                        if coverage_start is not None
+                        else ()
+                    )
+                    planned = merge_date_ranges([*repairs, (start, end)])
+                finally:
+                    conn.close()
+        records: list[dict[str, Any]] = []
+        for range_start, range_end in planned:
+            cursor = range_start
+            while cursor <= range_end:
+                records.extend(
+                    self._load_or_fetch(
+                        "get_mkt_short_sale_report",
+                        store_params={"start_dt": cursor, "end_dt": cursor},
+                        disclosed_date=cursor.isoformat(),
+                    )
+                )
+                cursor += timedelta(days=1)
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_short_sale_reports
+
+            stored = read_short_sale_reports(self._sqlite_path, start, end)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "SQLite cache remained incomplete after refreshing "
+                    "jquants_short_sale_reports for "
+                    f"{start.isoformat()}..{end.isoformat()}"
+                )
+            return stored
+        return [
+            report
+            for record in records
+            if (report := normalize_short_sale_report(record)) is not None
+            and start <= report.disclosed_at <= end
         ]
 
     def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
@@ -414,6 +558,22 @@ class JQuantsProvider(JQuantsMarketProvider):
                 raise JQuantsProviderError("get_mkt_margin_interest store requires week_end")
             store_jquants_weekly_margin(self._sqlite_path, records, week_end=week_end)
             return
+        if method == "get_mkt_short_sale_report":
+            from ..sqlite_cache import store_jquants_short_sale_reports
+
+            start = params.get("start_dt")
+            end = params.get("end_dt")
+            if not isinstance(start, date) or not isinstance(end, date):
+                raise JQuantsProviderError(
+                    "get_mkt_short_sale_report store requires start_dt and end_dt"
+                )
+            store_jquants_short_sale_reports(
+                self._sqlite_path,
+                records,
+                requested_start=start,
+                requested_end=end,
+            )
+            return
         super()._store_records(method, records, params)
 
 
@@ -482,6 +642,104 @@ def normalize_weekly_margin(
         short_neg_vol=to_float(coalesce_field(record, "ShrtNegVol", "shrt_neg_vol")),
         issue_type=_issue_type(coalesce_field(record, "IssType", "iss_type")),
     )
+
+
+def normalize_short_sale_report(
+    record: Mapping[str, Any],
+) -> JQuantsShortSaleReport | None:
+    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    if not common_code:
+        return None
+    names = (
+        _optional_text(coalesce_field(record, "ShortSellerName", "SSName", "short_seller_name")),
+        _optional_text(
+            coalesce_field(
+                record,
+                "DiscretionaryInvestmentContractorName",
+                "DICName",
+                "discretionary_investment_contractor_name",
+            )
+        ),
+        _optional_text(
+            coalesce_field(record, "InvestmentFundName", "FundName", "investment_fund_name") or ""
+        ),
+    )
+    ratio = to_float(
+        coalesce_field(
+            record,
+            "ShortPositionsToSharesOutstandingRatio",
+            "ShortPosRatio",
+            "ShrtPosToSO",
+            "short_ratio",
+        )
+    )
+    notes_value = coalesce_field(record, "Notes", "notes")
+    notes = _optional_text(notes_value) or None
+    is_cancellation = ratio is None and bool(notes)
+    if not any(names) or (ratio is None and not is_cancellation) or (ratio or 0.0) < 0.0:
+        return None
+    return JQuantsShortSaleReport(
+        disclosed_at=parse_date(first_value(record, "DiscDate", "DisclosedDate", "disclosed_at")),
+        calculated_at=parse_date(
+            first_value(record, "CalcDate", "CalculatedDate", "calculated_at")
+        ),
+        ticker=ticker,
+        short_seller_name=names[0],
+        discretionary_investment_contractor_name=names[1],
+        investment_fund_name=names[2],
+        short_ratio=ratio,
+        short_shares=_optional_int(
+            coalesce_field(
+                record,
+                "ShortPositionsInSharesNumber",
+                "ShortPosShares",
+                "ShrtPosShares",
+                "short_shares",
+            )
+        ),
+        short_trading_units=_optional_int(
+            coalesce_field(
+                record,
+                "ShortPositionsInTradingUnitsNumber",
+                "ShortPosTradingUnits",
+                "ShrtPosUnits",
+                "short_trading_units",
+            )
+        ),
+        previous_reported_at=parse_optional_date(
+            coalesce_field(
+                record,
+                "PrevRptDate",
+                "CalculationInPreviousReportingDate",
+                "previous_reported_at",
+            )
+        ),
+        previous_short_ratio=to_float(
+            coalesce_field(
+                record,
+                "ShortPositionsInPreviousReportingRatio",
+                "PrevShortPosRatio",
+                "PrevRptRatio",
+                "previous_short_ratio",
+            )
+        ),
+        is_cancellation=is_cancellation,
+        notes=notes,
+    )
+
+
+def _optional_int(value: Any) -> int | None:
+    parsed = to_float(value)
+    if parsed is None or not parsed.is_integer():
+        return None
+    return int(parsed)
+
+
+def _optional_text(value: Any) -> str:
+    if value is None or (isinstance(value, float) and value != value):
+        return ""
+    text = str(value).strip()
+    return "" if text in {"NaT", "nan"} else text
 
 
 def _issue_type(value: Any) -> str | None:

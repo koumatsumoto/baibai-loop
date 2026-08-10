@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Mapping
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,10 @@ from baibai_batch.storage.merge_market_store import (
     merge_stores,
 )
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
-from baibai_engine.screening.sqlite_cache import open_connection
+from baibai_engine.screening.sqlite_cache import (
+    open_connection,
+    store_jquants_short_sale_reports,
+)
 
 
 def _store(path: Path) -> Path:
@@ -113,6 +117,54 @@ def _bars(path: Path) -> list[tuple[str, str, float]]:
         conn.close()
 
 
+def _short_record(name: str, ratio: float) -> dict[str, object]:
+    return {
+        "DiscDate": "2026-08-01",
+        "CalcDate": "2026-07-31",
+        "Code": "72030",
+        "SSName": name,
+        "ShrtPosToSO": ratio,
+    }
+
+
+def _store_short_snapshot(
+    path: Path,
+    records: list[dict[str, object]],
+    *,
+    fetched_at_utc: str,
+) -> None:
+    store_jquants_short_sale_reports(
+        path,
+        records,
+        requested_start=date.fromisoformat("2026-08-01"),
+        requested_end=date.fromisoformat("2026-08-01"),
+    )
+    conn = open_connection(path)
+    try:
+        conn.execute(
+            "UPDATE source_coverage SET fetched_at_utc = ? "
+            "WHERE source = 'jquants_short_sale_reports'",
+            (fetched_at_utc,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _short_payload(path: Path) -> list[tuple[str, float]]:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return [
+            (str(row[0]), float(row[1]))
+            for row in conn.execute(
+                "SELECT short_seller_name, short_ratio FROM jquants_short_sale_reports "
+                "ORDER BY short_seller_name"
+            )
+        ]
+    finally:
+        conn.close()
+
+
 def test_every_market_table_is_merged(tmp_path: Path) -> None:
     """A table the store carries but the merge does not name would be dropped in silence."""
 
@@ -165,6 +217,45 @@ def test_a_row_only_the_target_has_is_kept(tmp_path: Path) -> None:
     merge_stores(source, target)
 
     assert _bars(target) == [("7203", "2024-01-05", 200.0)]
+
+
+def test_short_sale_snapshot_merge_ignores_provider_response_order(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    rows = [_short_record("alpha", 0.01), _short_record("beta", 0.02)]
+    _store_short_snapshot(
+        target,
+        rows,
+        fetched_at_utc="2026-08-01T01:00:00+00:00",
+    )
+    _store_short_snapshot(
+        source,
+        list(reversed(rows)),
+        fetched_at_utc="2026-08-01T02:00:00+00:00",
+    )
+
+    merge_stores(source, target)
+
+    assert _short_payload(target) == [("alpha", 0.01), ("beta", 0.02)]
+
+
+def test_short_sale_snapshot_merge_uses_newer_complete_correction(tmp_path: Path) -> None:
+    source = _store(tmp_path / "source.sqlite")
+    target = _store(tmp_path / "target.sqlite")
+    _store_short_snapshot(
+        target,
+        [_short_record("alpha", 0.01), _short_record("beta", 0.02)],
+        fetched_at_utc="2026-08-01T01:00:00+00:00",
+    )
+    _store_short_snapshot(
+        source,
+        [_short_record("alpha", 0.03)],
+        fetched_at_utc="2026-08-01T02:00:00+00:00",
+    )
+
+    merge_stores(source, target)
+
+    assert _short_payload(target) == [("alpha", 0.03)]
 
 
 def test_a_shared_key_that_disagrees_stops_the_merge(tmp_path: Path) -> None:

@@ -197,7 +197,7 @@ gh workflow run cloud-history-backfill.yml --ref main \
 
 どちらのmergeも、終わった時点でsource側だけに残る行が1行でもあれば停止する。日次batchが取得済みでローカルに無い行を、uploadで失わないための不変条件である。以下はstoreごとに違う部分。
 
-`push-market`のmergeは`merge_market_store.py`である。storeのtableは全て事実tableで、主キーにより`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。`source_coverage`には日付keyとrange keyがあり、cleanな財務summary rangeは各入力の実rowをmerge前に再計数する。入力claimが正しい場合だけfactsをunionし、targetのclean range countをunion後の実rowから再生成して再検証する。財務summary coverageの状態は`ok` + errorなし、または`partial` / `failed` + errorありのいずれかに完全分類し、unknown statusとhybridを拒否する。`partial` / `failed`は完全性claimとして扱わず、failure provenanceのpayloadをそのまま保持する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。現行schemaを持つcloud側の財務4列がNULLで、完全再構築したlocal側だけ値を持つ場合はlocal値を保持する。逆向きの欠損と双方の値の不一致は拒否する。除外列とこの方向付き例外は`merge_market_store.py`に列挙し、事実列へ広がっていないことをtestが確かめる。mergeの対象tableは`FACT_KEYS`に列挙し、storeのtable一覧とずれたらtestが落ちる。
+`push-market`のmergeは`merge_market_store.py`である。通常の事実tableは主キーにより`INSERT OR IGNORE`し、同じ主キーを両側が持つ場合はpayloadの一致をmerge前後に検証する。訂正可能な`jquants_short_sale_reports`だけはdisclosure dateごとの完全snapshotとして扱う。同じrow集合ならprovider応答順ordinalの差を無視し、集合が異なる場合は`source_coverage.fetched_at_utc`が新しい完全取得側で日全体を置換する。片側が`partial`なら古くても`ok`側を残し、同一取得時刻で集合が異なれば正本を推測せず停止する。`source_coverage`には日付keyとrange keyがあり、cleanな財務summary rangeは各入力の実rowをmerge前に再計数する。入力claimが正しい場合だけfactsをunionし、targetのclean range countをunion後の実rowから再生成して再検証する。財務summary coverageの状態は`ok` + errorなし、または`partial` / `failed` + errorありのいずれかに完全分類し、unknown statusとhybridを拒否する。`partial` / `failed`は完全性claimとして扱わず、failure provenanceのpayloadをそのまま保持する。**比較しないのは、出所が何を言ったかではなくstoreがいつどう読んだかを記録する列だけ**（fetch時刻、およびEDINETが公開後に書き換える改訂marker）——2つのstoreが同じ記録を別の時刻に読めばそこは必ず食い違うので、比較すれば全てのmergeを拒否する。現行schemaを持つcloud側の財務4列がNULLで、完全再構築したlocal側だけ値を持つ場合はlocal値を保持する。逆向きの欠損と双方の値の不一致は拒否する。除外列とこの方向付き例外は`merge_market_store.py`に列挙し、事実列へ広がっていないことをtestが確かめる。mergeの対象tableは`FACT_KEYS`に列挙し、storeのtable一覧とずれたらtestが落ちる。
 
 machine storeの全writerはdownload時のR2 ETagを保持し、backupは同じsource ETag、最終`PutObject`は同じdestination ETagを条件にする。日次batchは`pull-machine`が3 storeのgenerationを記録し、`push-machine`が全keyを事前照合してから各keyを条件付きで発行する。merge中またはupload直前に別writerがobjectを更新した場合はprecondition failureで停止し、最新cloud copyからやり直す。これにより、GitHub Actions外の手動pushと日次batchのどちらが後着しても、先に発行された更新を巻き戻さない。途中のkeyでnetwork / precondition failureになった場合はserving tailを発行せず、次回runが各keyの現行generationをpullして再構成する。
 
@@ -261,7 +261,7 @@ uv run python -m baibai_web.materialize --output-dir <dir> [--batch daily|manual
 出力（`<dir>` 配下）:
 
 - `views/dashboard.json` / `views/screening_latest.json` / `views/operations.json`
-- `views/screening_latest.json` は、有効な `reports/published/er-level-calibration-latest.yaml` と表示対象 operative run の method identity が一致する場合だけ E[r] historical quintile 文脈を含む。run identity 不明、欠損・不正・期限切れでは field を `null` にして既存 screening 表を維持する
+- `views/screening_latest.json` は、有効な `reports/published/er-level-calibration-latest.yaml` と表示対象 operative run の method identity が一致する場合だけ、E[r] historical quintile と独立した8.5%以上帯の実現分布文脈を含む。run identity 不明、欠損・不正・期限切れでは field を `null` にして既存 screening 表を維持する
 - `views/daily-delta.json`（前営業日の機械実行との差分。Dashboard の差分区画が読む）
 - `views/system.json`（4 store の as-of / 行数 / サイズと、取得が失敗したままの系列。`/system` が読む。後述の[システム状態の配信](#システム状態の配信--viewssystemjson-と-systemlatest-runjson)）
 - `views/macro--<period>-<granularity>.json`（1y|5y|10y|max × daily|weekly|monthly|yearly）

@@ -18,6 +18,7 @@ from baibai_engine.screening.providers.jquants import (
     JQuantsDailyBar,
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
+    JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
 )
 from baibai_engine.screening.schema import (
@@ -55,6 +56,14 @@ class JQuantsAdapter(Protocol):
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
 
     def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
+
+    def get_mkt_short_sale_report_range(
+        self, start: date, end: date
+    ) -> list[JQuantsShortSaleReport]: ...
+
+    def refresh_mkt_short_sale_report_range(
+        self, start: date, end: date
+    ) -> list[JQuantsShortSaleReport]: ...
 
 
 class EDINETAdapter(Protocol):

@@ -89,13 +89,19 @@ def to_float(value: Any) -> float | None:
 def to_str_or_none(value: Any) -> str | None:
     if value in (None, ""):
         return None
+    if isinstance(value, float) and value != value:
+        return None
     return str(value)
 
 
 def date_iso(value: Any) -> str | None:
     if value in (None, ""):
         return None
+    if isinstance(value, float) and value != value:
+        return None
     text = str(value)
+    if text in {"NaT", "nan"}:
+        return None
     return text[:10]
 
 

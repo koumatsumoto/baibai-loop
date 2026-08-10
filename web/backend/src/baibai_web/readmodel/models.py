@@ -255,14 +255,32 @@ class CandidateRowView(BaseModel):
     fair_value_gap_pct: float | None = None
     # Historical calibration context only. It never alters E[r], rank, or selection.
     er_level_quintile: int | None = None
+    er_meets_8_5pct_band: bool = False
 
 
-class ErLevelCalibrationQuintileView(BaseModel):
-    quintile: int
+class ErLevelCalibrationStatsView(BaseModel):
+    median: float
+    q25: float
+    q10: float
+    trap_rate: float
+    n: int
+
+
+class ErLevelCalibrationBasisView(BaseModel):
+    basis: str
+    ticker_equal: ErLevelCalibrationStatsView
+    cohort_equal: ErLevelCalibrationStatsView
+
+
+class ErLevelCalibrationBandView(BaseModel):
+    band_id: str
+    quintile: int | None
+    lower_er_annual: float | None
     upper_er_annual: float | None
     median_predicted_er_annual: float
-    median_realized_total_return_annual: float
+    cohort_count: int
     median_n: int
+    bases: list[ErLevelCalibrationBasisView]
 
 
 class ErLevelCalibrationHorizonView(BaseModel):
@@ -270,7 +288,7 @@ class ErLevelCalibrationHorizonView(BaseModel):
     asof_start: date
     asof_end: date
     cohort_count: int
-    quintiles: list[ErLevelCalibrationQuintileView]
+    bands: list[ErLevelCalibrationBandView]
 
 
 class ErLevelCalibrationContextView(BaseModel):
@@ -279,7 +297,9 @@ class ErLevelCalibrationContextView(BaseModel):
     reference_horizon: str
     screening_rules_hash: str
     er_model_version: str
-    realized_basis: str
+    primary_realized_basis: str
+    secondary_realized_basis: str
+    trap_basis: str
     horizons: list[ErLevelCalibrationHorizonView]
 
 

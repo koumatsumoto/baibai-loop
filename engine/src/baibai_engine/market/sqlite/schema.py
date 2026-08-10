@@ -44,6 +44,7 @@ _REQUIRED_TABLES = (
     "jquants_earnings_calendar",
     "jquants_market_calendar",
     "jquants_weekly_margin",
+    "jquants_short_sale_reports",
     "edinet_documents",
     "edinet_document_lists",
     "edinet_metrics",
@@ -117,6 +118,22 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "short_std_vol",
         "short_neg_vol",
         "issue_type",
+    ),
+    "jquants_short_sale_reports": (
+        "disclosed_at",
+        "source_ordinal",
+        "calculated_at",
+        "ticker",
+        "short_seller_name",
+        "discretionary_investment_contractor_name",
+        "investment_fund_name",
+        "short_ratio",
+        "short_shares",
+        "short_trading_units",
+        "previous_reported_at",
+        "previous_short_ratio",
+        "is_cancellation",
+        "notes",
     ),
     "edinet_documents": (
         "doc_date",
@@ -302,6 +319,32 @@ CREATE TABLE IF NOT EXISTS jquants_weekly_margin(
 
 CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker
   ON jquants_weekly_margin(ticker, week_end);
+
+-- Investor-level positions disclosed under the 0.5% short-position reporting
+-- rule. Names remain the provider's exact reporter identity fields: guessing
+-- corporate identity across spelling changes would turn source facts into an
+-- entity-resolution estimate. Disclosure and calculation dates are separate so
+-- a historical panel can enforce both sides of the point-in-time boundary.
+CREATE TABLE IF NOT EXISTS jquants_short_sale_reports(
+  disclosed_at TEXT NOT NULL,
+  source_ordinal INTEGER NOT NULL,
+  calculated_at TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  short_seller_name TEXT NOT NULL,
+  discretionary_investment_contractor_name TEXT NOT NULL,
+  investment_fund_name TEXT NOT NULL,
+  short_ratio REAL,
+  short_shares INTEGER,
+  short_trading_units INTEGER,
+  previous_reported_at TEXT,
+  previous_short_ratio REAL,
+  is_cancellation INTEGER NOT NULL,
+  notes TEXT,
+  PRIMARY KEY (disclosed_at, source_ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jquants_short_sale_reports_ticker
+  ON jquants_short_sale_reports(ticker, disclosed_at, calculated_at);
 
 CREATE TABLE IF NOT EXISTS edinet_documents(
   doc_date TEXT NOT NULL,

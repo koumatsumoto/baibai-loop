@@ -22,9 +22,12 @@ from baibai_engine.screening.calibration.authority import (
     PRODUCTION_REQUIRED_METRICS,
 )
 from baibai_engine.screening.calibration.cli import (
-    _er_level_context_payload,
     _required_metric_statuses,
     calibration_evaluate_command,
+)
+from baibai_engine.screening.calibration.context import (
+    CalibrationContextError,
+    build_er_distribution_context,
 )
 from baibai_engine.screening.calibration.evaluation import (
     MIN_AXIS_SAMPLE,
@@ -110,6 +113,9 @@ def _panel_row(
         er_reversion_annual=er_reversion_annual,
         er_carry_annual=er_carry_annual,
         er_upside_capped=None,
+        reported_short_ratio=None,
+        reported_short_breadth=None,
+        reported_short_latest_disclosed_at=None,
         margin_week_end=None,
         margin_long_to_adv=None,
         margin_long_share=None,
@@ -675,64 +681,124 @@ class MarginSizeNormalizationTest(unittest.TestCase):
         self.assertEqual(first["median_realized_dividend_contribution_annual"], 0.04)
         self.assertEqual(cohort["metric_statuses"]["er_level_calibration"], "eligible")
 
-    def test_er_level_context_materializes_required_cohorts_only(self) -> None:
-        def cohort(asof: str, shift: float) -> dict[str, object]:
-            return {
-                "asof": asof,
-                "metric_statuses": {"er_level_calibration": "eligible"},
-                "er_level_calibration": {
-                    "er_quintiles": [
-                        {
-                            "max_predicted_er_annual": -0.04 + index * 0.02 + shift,
-                            "median_predicted_er_annual": -0.05 + index * 0.025 + shift,
-                            "median_realized_total_return_annual": -0.10 + index * 0.06,
-                            "n": 200 + index,
-                        }
-                        for index in range(5)
-                    ]
-                },
-            }
-
+    def test_er_level_context_materializes_authority_eligible_cohorts(self) -> None:
+        asof = "2020-01-31"
+        panel = [
+            _panel_row(
+                f"39{index:02d}",
+                per_trailing=10.0,
+                er_annual=index / 1000,
+                er_reversion_annual=index / 2000,
+                er_carry_annual=index / 2000,
+            )
+            for index in range(100)
+        ]
+        forwards = [
+            _forward_row(
+                row.ticker,
+                index / 100 - 0.01,
+                total_return=index / 100,
+                horizon=horizon,
+            )
+            for horizon in ("3y", "5y")
+            for index, row in enumerate(panel)
+        ]
         evaluation: dict[str, object] = {
             "screening_rules_hash": "rules-hash-v1",
             "er_model_version": "expected-return-v1",
             "scope": {
                 "run_purpose": "production_decision",
-                "required_asofs": ["2020-01-31", "2020-02-28"],
-                "required_metrics": ["er_level_calibration"],
+                "required_metrics": [
+                    "recommended_rank_top5",
+                    "recommended_rank_top10",
+                    "er_calibration",
+                    "er_level_calibration",
+                ],
             },
             "production_decision": {
                 "evidence_status": "eligible",
                 "production_change_allowed": True,
             },
+            "cohort_integrity": [
+                {
+                    "asof": asof,
+                    "horizon": horizon,
+                    "integrity_status": "eligible",
+                    "metric_statuses": dict.fromkeys(
+                        (*PRODUCTION_REQUIRED_METRICS, "er_level_calibration"), "eligible"
+                    ),
+                }
+                for horizon in ("3y", "5y")
+            ],
             "results": {
                 horizon: {
                     "cohorts": [
-                        cohort("2019-12-30", -0.01),
-                        cohort("2020-01-31", 0.0),
-                        cohort("2020-02-28", 0.002),
+                        {
+                            "asof": asof,
+                            "metric_statuses": {"er_level_calibration": "eligible"},
+                        }
                     ]
                 }
                 for horizon in ("3y", "5y")
             },
         }
 
-        context = _er_level_context_payload(
+        context = build_er_distribution_context(
             evaluation,
+            {asof: panel},
+            {asof: forwards},
             generated_at=datetime(2026, 8, 2, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
         )
 
         self.assertEqual(context["reference_horizon"], "3y")
         self.assertEqual(context["valid_through"], "2026-09-16")
+        self.assertEqual(context["schema_version"], 2)
+        common = context["common_window"]
+        assert isinstance(common, dict)
+        self.assertEqual(common["cohort_count"], 1)
+        self.assertEqual(
+            [item["horizon"] for item in common["horizons"] if isinstance(item, dict)],
+            ["3y", "5y"],
+        )
         horizons = context["horizons"]
         assert isinstance(horizons, list)
         first = horizons[0]
         assert isinstance(first, dict)
-        self.assertEqual(first["cohort_count"], 2)
-        quintiles = first["quintiles"]
-        assert isinstance(quintiles, list)
-        self.assertEqual(quintiles[0]["upper_er_annual"], -0.039)
-        self.assertIsNone(quintiles[4]["upper_er_annual"])
+        self.assertEqual(first["cohort_count"], 1)
+        bands = first["bands"]
+        assert isinstance(bands, list)
+        self.assertEqual(bands[0]["upper_er_annual"], 0.019)
+        self.assertIsNone(bands[4]["upper_er_annual"])
+        self.assertEqual(bands[5]["band_id"], "er_gte_8_5pct")
+        self.assertEqual(bands[5]["median_n"], 15)
+        bases = bands[0]["bases"]
+        assert isinstance(bases, list)
+        total = bases[0]
+        assert isinstance(total, dict)
+        stats = total["ticker_equal"]
+        assert isinstance(stats, dict)
+        self.assertAlmostEqual(stats["median"], (1.09 ** (1 / 3)) - 1, places=6)
+        self.assertAlmostEqual(stats["q25"], (1.04 ** (1 / 3)) - 1, places=6)
+        self.assertAlmostEqual(stats["q10"], (1.01 ** (1 / 3)) - 1, places=6)
+        self.assertEqual(stats["trap_rate"], 1.0)
+
+        integrity = evaluation["cohort_integrity"]
+        assert isinstance(integrity, list)
+        first_integrity = integrity[0]
+        assert isinstance(first_integrity, dict)
+        metric_statuses = first_integrity["metric_statuses"]
+        assert isinstance(metric_statuses, dict)
+        metric_statuses["recommended_rank_top5"] = "unresolved"
+        with self.assertRaises(CalibrationContextError):
+            build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
+        metric_statuses["recommended_rank_top5"] = "eligible"
+
+        evaluation["production_decision"] = {
+            "evidence_status": "unresolved",
+            "production_change_allowed": False,
+        }
+        with self.assertRaises(CalibrationContextError):
+            build_er_distribution_context(evaluation, {asof: panel}, {asof: forwards})
 
     def test_er_level_calibration_does_not_treat_missing_total_return_as_zero(self) -> None:
         panel = [

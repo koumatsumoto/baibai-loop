@@ -275,14 +275,32 @@ export interface CandidateRowView {
   fair_value_anchor_yen: number | null
   fair_value_gap_pct: number | null
   er_level_quintile?: number | null
+  er_meets_8_5pct_band?: boolean
 }
 
-export interface ErLevelCalibrationQuintileView {
-  quintile: number
+export interface ErLevelCalibrationStatsView {
+  median: number
+  q25: number
+  q10: number
+  trap_rate: number
+  n: number
+}
+
+export interface ErLevelCalibrationBasisView {
+  basis: string
+  ticker_equal: ErLevelCalibrationStatsView
+  cohort_equal: ErLevelCalibrationStatsView
+}
+
+export interface ErLevelCalibrationBandView {
+  band_id: string
+  quintile: number | null
+  lower_er_annual: number | null
   upper_er_annual: number | null
   median_predicted_er_annual: number
-  median_realized_total_return_annual: number
+  cohort_count: number
   median_n: number
+  bases: ErLevelCalibrationBasisView[]
 }
 
 export interface ErLevelCalibrationHorizonView {
@@ -290,7 +308,7 @@ export interface ErLevelCalibrationHorizonView {
   asof_start: string
   asof_end: string
   cohort_count: number
-  quintiles: ErLevelCalibrationQuintileView[]
+  bands: ErLevelCalibrationBandView[]
 }
 
 export interface ErLevelCalibrationContextView {
@@ -299,7 +317,9 @@ export interface ErLevelCalibrationContextView {
   reference_horizon: string
   screening_rules_hash: string
   er_model_version: string
-  realized_basis: string
+  primary_realized_basis: string
+  secondary_realized_basis: string
+  trap_basis: string
   horizons: ErLevelCalibrationHorizonView[]
 }
 

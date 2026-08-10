@@ -135,7 +135,7 @@ def test_incompatible_schema_stops_before_any_move(tmp_path: Path, schema_versio
 
     with pytest.raises(
         StoreLayoutMigrationError,
-        match=rf"schema version is {schema_version}; current market code requires 19",
+        match=rf"schema version is {schema_version}; current market code requires 20",
     ):
         migrate(tmp_path, "forward", apply=True)
 

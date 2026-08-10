@@ -67,6 +67,8 @@ def build_selection_payload(
     profile_overrides: Mapping[str, Mapping[str, object]] | None = None,
     detail: str = "summary",
     longlist_top: int = 0,
+    screening_rules_hash: str | None = None,
+    er_model_version: str | None = None,
 ) -> dict[str, object]:
     if detail not in {"summary", "full"}:
         raise ValueError("detail must be summary or full")
@@ -206,6 +208,13 @@ def build_selection_payload(
         "diagnostics": diagnostics,
         "detail": detail,
     }
+    selection_metadata = payload["selection"]
+    if not isinstance(selection_metadata, dict):  # pragma: no cover - local invariant
+        raise AssertionError("selection metadata must be a dictionary")
+    if screening_rules_hash is not None:
+        selection_metadata["screening_rules_hash"] = screening_rules_hash
+    if er_model_version is not None:
+        selection_metadata["er_model_version"] = er_model_version
     return payload
 
 

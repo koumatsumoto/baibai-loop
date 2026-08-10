@@ -6,12 +6,13 @@ so the deep history is fetched once on a machine that can take the time. Each si
 therefore holds rows the other has never seen, and publishing the local store means
 merging the cloud copy into it first and proving that nothing cloud-side is dropped.
 
-Every table here is a fact table with a key. ``source_coverage`` carries both single-day
-keys and range claims. A clean financial-summary range is valid only while its stored
-count matches the rows in that store, so input claims are recounted before the union and
-target claims are regenerated from the resulting rows. Failure provenance remains an
-exact fact row and is preserved without treating a failed fetch as a completeness claim;
-unknown or hybrid status/error states are rejected rather than falling between them.
+Most tables here are appendable facts with a key. ``source_coverage`` carries both
+single-day keys and range claims. A clean financial-summary range is valid only while
+its stored count matches the rows in that store, so input claims are recounted before
+the union and target claims are regenerated from the resulting rows. Short-sale reports
+are the exception: each disclosure date is a correction-prone complete snapshot, so the
+newer complete fetch replaces that date while response-order differences alone are
+ignored. Failure provenance remains explicit and is never a completeness claim.
 
 Both stores must carry the current schema. An older cloud copy is not migrated here —
 the cloud raises its own schema by opening the store, and doing it from this side would
@@ -25,11 +26,15 @@ import sqlite3
 import sys
 from collections.abc import Mapping
 from contextlib import closing
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from baibai_batch.storage.store_merge import (
     MergeError,
     MergeReport,
+    RowFilter,
+    TableMerge,
     count,
     merge_fact_tables,
     schema_name,
@@ -60,6 +65,7 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "jquants_fin_summaries": ("ticker", "disclosed_at"),
     "jquants_market_calendar": ("day",),
     "jquants_master_snapshots": ("snapshot_date", "ticker"),
+    "jquants_short_sale_reports": ("disclosed_at", "source_ordinal"),
     "jquants_weekly_margin": ("week_end", "ticker"),
     "source_coverage": ("source", "coverage_key"),
 }
@@ -108,6 +114,20 @@ _MERGE_EXEMPTIONS: Mapping[str, tuple[str, ...]] = {
     if table in UNCOMPARED or table in _CUSTOM_COMPARED
 }
 
+_SHORT_SALE_REPORT_SOURCE = "jquants_short_sale_reports"
+_NON_SHORT_COVERAGE = RowFilter(
+    unaliased="source <> 'jquants_short_sale_reports'",
+    aliased="s.source <> 'jquants_short_sale_reports'",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ShortCoverageClaim:
+    fetched_at: datetime
+    fetched_at_text: str
+    status: str
+    error: str | None
+
 
 def merge_stores(source: Path, target: Path) -> MergeReport:
     """Insert every source row the target lacks, and verify none is left behind."""
@@ -128,16 +148,31 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 _require_compatible_source_coverage_counts(connection)
-                tables = merge_fact_tables(
+                short_reports = _merge_short_sale_report_snapshots(connection)
+                ordinary_keys = {
+                    table: keys
+                    for table, keys in FACT_KEYS.items()
+                    if table not in {"jquants_short_sale_reports", "source_coverage"}
+                }
+                ordinary_tables = merge_fact_tables(
                     connection,
-                    FACT_KEYS,
+                    ordinary_keys,
                     uncompared=_MERGE_EXEMPTIONS,
                     source_missing_allowed=SOURCE_MISSING_ALLOWED,
+                )
+                (coverage_table,) = merge_fact_tables(
+                    connection,
+                    {"source_coverage": FACT_KEYS["source_coverage"]},
+                    eligible=_NON_SHORT_COVERAGE,
+                    uncompared=_MERGE_EXEMPTIONS,
                 )
                 _reconcile_fin_summary_coverage_counts(connection)
                 _require_compatible_source_coverage_counts(connection)
                 connection.commit()
-                return MergeReport(tables=tables)
+                by_name = {
+                    item.table: item for item in (*ordinary_tables, short_reports, coverage_table)
+                }
+                return MergeReport(tables=tuple(by_name[table] for table in FACT_KEYS))
             except BaseException:
                 connection.rollback()
                 raise
@@ -158,7 +193,8 @@ def _require_compatible_source_coverage_counts(connection: sqlite3.Connection) -
         "s.status, t.status, s.error, t.error "
         "FROM source.source_coverage s "
         "JOIN main.source_coverage t USING (source, coverage_key) "
-        "WHERE s.record_count IS NOT t.record_count "
+        "WHERE s.source <> 'jquants_short_sale_reports' "
+        "AND s.record_count IS NOT t.record_count "
         "ORDER BY s.source, s.coverage_key"
     ).fetchall()
     for row in rows:
@@ -204,6 +240,190 @@ def _require_compatible_source_coverage_counts(connection: sqlite3.Connection) -
             raise MergeError(
                 "jquants_fin_summaries coverage count does not match stored rows for " + key
             )
+
+
+def _merge_short_sale_report_snapshots(connection: sqlite3.Connection) -> TableMerge:
+    """Merge correction-prone disclosure dates as complete fetched snapshots.
+
+    Response order is provenance, not row identity. Equal row multisets therefore
+    agree even when their ordinals differ. When the source has revised a date, the
+    newer successful fetch replaces that entire target date; an incomplete fetch
+    never supersedes a complete one.
+    """
+
+    source_rows = count(connection, 'SELECT COUNT(*) FROM source."jquants_short_sale_reports"')
+    before = count(connection, 'SELECT COUNT(*) FROM main."jquants_short_sale_reports"')
+    source_claims = _short_coverage_claims(connection, schema="source")
+    target_claims = _short_coverage_claims(connection, schema="main")
+    _require_no_orphan_short_rows(connection, schema="source", claims=source_claims)
+    _require_no_orphan_short_rows(connection, schema="main", claims=target_claims)
+
+    copied = 0
+    selected_claims: dict[date, _ShortCoverageClaim] = {}
+    for disclosed_at in sorted(set(source_claims) | set(target_claims)):
+        source_claim = source_claims.get(disclosed_at)
+        target_claim = target_claims.get(disclosed_at)
+        selected = _select_short_claim(source_claim, target_claim)
+        origin, claim = selected
+        source_payload = (
+            _short_day_payload(connection, schema="source", disclosed_at=disclosed_at)
+            if source_claim is not None
+            else None
+        )
+        target_payload = (
+            _short_day_payload(connection, schema="main", disclosed_at=disclosed_at)
+            if target_claim is not None
+            else None
+        )
+        if (
+            source_payload is not None
+            and target_payload is not None
+            and source_payload == target_payload
+        ):
+            origin = "target"
+        elif (
+            source_claim is not None
+            and target_claim is not None
+            and source_claim.status == target_claim.status
+            and source_claim.fetched_at == target_claim.fetched_at
+            and source_payload != target_payload
+        ):
+            raise MergeError(
+                "jquants_short_sale_reports snapshots disagree at the same fetched_at: "
+                + disclosed_at.isoformat()
+            )
+        if origin == "source":
+            iso = disclosed_at.isoformat()
+            connection.execute(
+                "DELETE FROM main.jquants_short_sale_reports WHERE disclosed_at = ?", (iso,)
+            )
+            connection.execute(
+                "INSERT INTO main.jquants_short_sale_reports "
+                "SELECT * FROM source.jquants_short_sale_reports WHERE disclosed_at = ?",
+                (iso,),
+            )
+            copied += len(source_payload or ())
+        selected_claims[disclosed_at] = claim
+
+    connection.execute(
+        "DELETE FROM main.source_coverage WHERE source = ?", (_SHORT_SALE_REPORT_SOURCE,)
+    )
+    for disclosed_at, claim in selected_claims.items():
+        iso = disclosed_at.isoformat()
+        record_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM main.jquants_short_sale_reports WHERE disclosed_at = ?",
+                (iso,),
+            ).fetchone()[0]
+            or 0
+        )
+        connection.execute(
+            """
+            INSERT INTO main.source_coverage(
+              source, coverage_key, coverage_start, coverage_end,
+              fetched_at_utc, record_count, status, error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _SHORT_SALE_REPORT_SOURCE,
+                f"get_mkt_short_sale_report:{iso}..{iso}",
+                iso,
+                iso,
+                claim.fetched_at_text,
+                record_count,
+                claim.status,
+                claim.error,
+            ),
+        )
+    after = count(connection, 'SELECT COUNT(*) FROM main."jquants_short_sale_reports"')
+    return TableMerge(
+        table="jquants_short_sale_reports",
+        source_rows=source_rows,
+        target_rows_before=before,
+        inserted=copied,
+        skipped=max(0, source_rows - copied),
+        target_rows_after=after,
+    )
+
+
+def _short_coverage_claims(
+    connection: sqlite3.Connection, *, schema: str
+) -> dict[date, _ShortCoverageClaim]:
+    rows = connection.execute(
+        f"SELECT coverage_start, coverage_end, fetched_at_utc, status, error "  # nosec B608
+        f"FROM {schema_name(schema)}.source_coverage "
+        "WHERE source = 'jquants_short_sale_reports' "
+        "AND coverage_start IS NOT NULL AND coverage_end IS NOT NULL"
+    ).fetchall()
+    claims: dict[date, _ShortCoverageClaim] = {}
+    for raw_start, raw_end, raw_fetched, raw_status, raw_error in rows:
+        try:
+            start = date.fromisoformat(str(raw_start))
+            end = date.fromisoformat(str(raw_end))
+            fetched = datetime.fromisoformat(str(raw_fetched))
+        except ValueError as exc:
+            raise MergeError("invalid short-sale coverage timestamp") from exc
+        if start > end or fetched.tzinfo is None or fetched.utcoffset() is None:
+            raise MergeError("invalid short-sale coverage range")
+        claim = _ShortCoverageClaim(
+            fetched_at=fetched,
+            fetched_at_text=str(raw_fetched),
+            status=str(raw_status),
+            error=str(raw_error) if raw_error is not None else None,
+        )
+        cursor = start
+        while cursor <= end:
+            current = claims.get(cursor)
+            if current is None or claim.fetched_at >= current.fetched_at:
+                claims[cursor] = claim
+            cursor += timedelta(days=1)
+    return claims
+
+
+def _select_short_claim(
+    source: _ShortCoverageClaim | None,
+    target: _ShortCoverageClaim | None,
+) -> tuple[str, _ShortCoverageClaim]:
+    if source is None:
+        assert target is not None
+        return "target", target
+    if target is None:
+        return "source", source
+    if source.status == "ok" and target.status != "ok":
+        return "source", source
+    if target.status == "ok" and source.status != "ok":
+        return "target", target
+    return ("source", source) if source.fetched_at > target.fetched_at else ("target", target)
+
+
+def _short_day_payload(
+    connection: sqlite3.Connection, *, schema: str, disclosed_at: date
+) -> tuple[tuple[object, ...], ...]:
+    rows = connection.execute(
+        f"SELECT calculated_at, ticker, short_seller_name, "  # nosec B608
+        "discretionary_investment_contractor_name, investment_fund_name, "
+        "short_ratio, short_shares, short_trading_units, previous_reported_at, "
+        "previous_short_ratio, is_cancellation, notes "
+        f"FROM {schema_name(schema)}.jquants_short_sale_reports "
+        "WHERE disclosed_at = ?",
+        (disclosed_at.isoformat(),),
+    ).fetchall()
+    return tuple(sorted((tuple(row) for row in rows), key=repr))
+
+
+def _require_no_orphan_short_rows(
+    connection: sqlite3.Connection,
+    *,
+    schema: str,
+    claims: Mapping[date, _ShortCoverageClaim],
+) -> None:
+    rows = connection.execute(
+        f"SELECT DISTINCT disclosed_at "  # nosec B608
+        f"FROM {schema_name(schema)}.jquants_short_sale_reports"
+    ).fetchall()
+    missing = [str(raw) for (raw,) in rows if date.fromisoformat(str(raw)) not in claims]
+    if missing:
+        raise MergeError(f"{schema} jquants_short_sale_reports rows lack coverage: {missing[0]}")
 
 
 def _require_fin_summary_coverage_states(connection: sqlite3.Connection, *, schema: str) -> None:
