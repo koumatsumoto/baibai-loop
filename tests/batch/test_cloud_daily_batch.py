@@ -149,7 +149,8 @@ class ScriptedRunner:
 def _success_script() -> dict[str, list[CommandResult]]:
     return {
         "screening refresh-edinet-documents": [OK],
-        "screening verify-cache-coverage": [OK],
+        "screening verify-cache-coverage": [OK, OK],
+        "screening bootstrap-cache": [OK],
         "screening refresh-buyback-reports": [OK],
         "screening extract-edinet-metrics": [EXTRACT_OK],
         "screening run": [RUN_OK],
@@ -223,8 +224,10 @@ def test_daily_batch_runs_full_chain_with_explicit_asof(tmp_path: Path) -> None:
     assert runner.call_keys() == [
         "screening refresh-edinet-documents",
         "screening verify-cache-coverage",
+        "screening bootstrap-cache",
         "screening extract-edinet-metrics",
         "screening refresh-buyback-reports",
+        "screening verify-cache-coverage",
         "screening run",
         "screening select",
         "macro list",
@@ -316,6 +319,25 @@ def test_daily_batch_bootstraps_cache_when_coverage_is_incomplete(tmp_path: Path
     ]
     assert runner.calls[2][3:] == ["--asof", "2026-07-21"]
     assert runner.calls[3][3:] == ["--asof", "2026-07-21"]
+
+
+def test_daily_batch_bootstraps_cache_when_coverage_is_complete(tmp_path: Path) -> None:
+    runner = _runner()
+
+    exit_code = run_daily_batch(
+        root=tmp_path, output_dir=tmp_path / "serving", asof=ASOF, runner=runner
+    )
+
+    assert exit_code == 0
+    assert runner.call_keys()[:7] == [
+        "screening refresh-edinet-documents",
+        "screening verify-cache-coverage",
+        "screening bootstrap-cache",
+        "screening extract-edinet-metrics",
+        "screening refresh-buyback-reports",
+        "screening verify-cache-coverage",
+        "screening run",
+    ]
 
 
 def test_daily_batch_rejects_extraction_without_quarantine_counters(tmp_path: Path) -> None:

@@ -783,22 +783,23 @@ def _execute_daily_batch(
         cwd=root,
         allowed_exit_codes=(0, 1),
     )
-    coverage_was_incomplete = verify.returncode != 0
-    if verify.returncode != 0:
-        if _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
-            raise BatchStepError(
-                "verify-cache-coverage exited 1 without the coverage-incomplete marker; "
-                "treating it as a crash (broken rules / unreadable store), not a cache gap\n"
-                f"stderr (last {_STDERR_SUMMARY_LINES} lines):\n{_stderr_summary(verify.stderr)}",
-                stage="verify-cache-coverage",
-                returncode=verify.returncode,
-            )
-        _run_step(
-            runner,
-            name="bootstrap-cache",
-            argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
-            cwd=root,
+    if verify.returncode != 0 and _COVERAGE_INCOMPLETE_MARKER not in verify.stdout:
+        raise BatchStepError(
+            "verify-cache-coverage exited 1 without the coverage-incomplete marker; "
+            "treating it as a crash (broken rules / unreadable store), not a cache gap\n"
+            f"stderr (last {_STDERR_SUMMARY_LINES} lines):\n{_stderr_summary(verify.stderr)}",
+            stage="verify-cache-coverage",
+            returncode=verify.returncode,
         )
+    # Coverage proves that a date was requested, not that a provider had already
+    # published every filing for that date. Bootstrap always re-reads its bounded
+    # financial-summary overlap so a later run can pick up delayed disclosures.
+    _run_step(
+        runner,
+        name="bootstrap-cache",
+        argv=(_ENGINE, "screening", "bootstrap-cache", "--asof", asof_arg),
+        cwd=root,
+    )
     # Document events are mutable throughout the day. Re-extract even when the
     # target-day snapshot already exists so a retry reports and stores the same
     # current quarantine state instead of publishing synthetic zero counters.
@@ -825,8 +826,7 @@ def _execute_daily_batch(
         echo_stdout_prefixes=("refresh-buyback-reports: ",),
     )
 
-    if coverage_was_incomplete:
-        _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
+    _run_step(runner, name="verify-cache-coverage(recheck)", argv=verify_argv, cwd=root)
 
     run_view = _run_screening_run(runner, root=root, asof_arg=asof_arg)
 

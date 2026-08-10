@@ -34,7 +34,7 @@ def _daily_batch_env() -> dict[str, str]:
 
 class CloudDailyBatchWorkflowTests(unittest.TestCase):
     def test_daily_batch_step_env_covers_every_required_jpx_source(self) -> None:
-        # scheduled run が当日 cache 不足で bootstrap-cache に入ると、JPX 規制 provider は
+        # scheduled run が毎回 bootstrap-cache に入ると、JPX 規制 provider は
         # active rules の universe.required_jpx_flags に含まれる全 source を要求する。
         # batch step env がその実ゲートを ScreeningConfig 経由で満たせることを機械的に
         # 検査する (外部 HTTP へは接続せず、source 名の網羅だけを確認する。URL 値の到達性は

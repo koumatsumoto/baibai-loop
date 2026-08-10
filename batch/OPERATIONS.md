@@ -39,7 +39,7 @@ R2 API tokenのpermissionはtoken単位で、bucketごとにread/writeを分け�
 
 servingのpublishは2段である。`upload-serving-views`が`views/`を差し替え、`publish-serving-tail`が`history/`と`views/meta.json`を出す。`views/`はほぼ全部が`security--<ticker>.json`で、object数は掲載tickerの数だけ動く（数千件のorder）。`views/`は毎営業日書き換わる揮発物なので、日次batchではstore pushと同時に走らせる。`history/`は追記のみで消えず、`meta.json`はfreshnessの表明なので、両方がstore永続化の成功後にしか出ない。これによりstore pushが失敗したrunは、storeに存在しないrunの永続記録を残さない。
 
-provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。加えて日次batchが当日cache不足で`bootstrap-cache`へ入ると、JPX規制provider（`universe.required_jpx_flags`の4 source: 特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）が公開JPXページのURLを要求する。これらは非secretのため`cloud-daily-batch.yml`の`Run daily batch` step envにliteralで置く（`JPX_SPECIAL_CAUTION_INDEX_URL` / `JPX_REORGANIZATION_URL` / `JPX_TRADING_HALT_URL` / `JPX_DELISTING_WARNING_URL`。雛形は`.env.sample`）。未配線だとbootstrapのJPX stepがfail-fastし、machine stores / serving uploadはskippedになる。
+provider secretは`JQUANTS_API_KEY` / `ESTAT_APP_ID` / `EDINET_API_KEY`。加えて日次batchが毎回実行する`bootstrap-cache`では、JPX規制provider（`universe.required_jpx_flags`の4 source: 特別注意銘柄 / 整理銘柄 / 取引停止 / 上場廃止警告）が公開JPXページのURLを要求する。これらは非secretのため`cloud-daily-batch.yml`の`Run daily batch` step envにliteralで置く（`JPX_SPECIAL_CAUTION_INDEX_URL` / `JPX_REORGANIZATION_URL` / `JPX_TRADING_HALT_URL` / `JPX_DELISTING_WARNING_URL`。雛形は`.env.sample`）。未配線だとbootstrapのJPX stepがfail-fastし、machine stores / serving uploadはskippedになる。
 
 workflow dispatchの日付はfull SHAへ固定したcheckoutの後、credentialを持たないvalidation stepでexact `YYYY-MM-DD`と順序を検証する。`run:`へ`inputs.*`を展開せず、step envからshell変数として渡す。R2・provider・Cloudflare・Discordのcredentialは、それぞれを使うcommandのstep envだけへ渡し、checkout・setup・dependency install・validationへは渡さない。全外部Actionのfull SHA pinとこれらの境界は`tools/quality/drift/check_workflow_trust.py`が検査する。
 
@@ -215,6 +215,8 @@ gh run list --workflow cloud-daily-batch.yml --limit 10
 
 通常cronは平日07:43 UTC（16:43 JST）。同日必須なのは`asof = today`が依存する株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
 
+daily batchはcoverageが完全でも`bootstrap-cache`を実行する。財務サマリーの直近7日を再取得するため、同日の先行runより後にJ-Quantsへ反映された開示は後続runで取り込まれる。bootstrap後はcoverageを再検証してからscreeningへ進む。
+
 `daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
 ## Password rotation
@@ -295,8 +297,8 @@ batch/scripts/r2_transfer.sh pull-longlist-history /tmp/baibai-longlist-history
 
 ## daily_batch.py — 日次機械工程の 1 コマンド実行
 
-営業日判定 → screening cache coverage（不足時のみ bootstrap）→ EDINET incremental extraction →
-初回 coverage 不足時のみ再検証 → run → select →
+営業日判定 → screening cache coverageの事前検証 → bootstrap（財務サマリーの直近7日を再取得）→ EDINET incremental extraction →
+coverage再検証 → run → select →
 macro series refresh → export → run store prune を順に実行する。
 全 step は public CLI の subprocess で、step ごとにコマンドライン・exit code・所要秒を
 stdout へ出す（scheduled workflow のログをそのまま読む前提）。
