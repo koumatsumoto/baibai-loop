@@ -1,7 +1,9 @@
 # Shortlist draft (operator-authored, per cycle).
 #
-# The OP3 human-review gate: pick 8〜10 candidates from the run's longlist and
-# record the judgment here, then publish it as the canonical shortlist:
+# The OP3 human-review gate: review the run's longlist and record each judgment
+# here, then publish it as the canonical shortlist. Select only candidates with a
+# defensible narrative; selecting zero is valid, and rejected entries may cover
+# the full longlist:
 #
 #   uv run baibai-engine screening shortlist publish /tmp/shortlist.yaml \
 #     --db stores/application/baibai.sqlite --runs-db stores/screening/runs.sqlite
