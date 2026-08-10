@@ -47,13 +47,13 @@ SCHEDULED_FIRE_TIME = time(12, 0, tzinfo=UTC)
 
 # How far back a successful run still counts. Both edges are set by the observed
 # GitHub schedule delay (median about two hours):
-#   - Long enough that the day's own batch (cron 08:23 UTC) stays inside even if the
-#     watchdog itself fires hours late — a 20h window holds it until 04:23 UTC the
+#   - Long enough that the day's own batch (cron 07:43 UTC) stays inside even if the
+#     watchdog itself fires hours late — a 20h window holds it until 03:43 UTC the
 #     next day.
 #   - Short enough that the *previous* day's batch falls outside, so yesterday's
 #     success cannot mask today's gap. At the scheduled 12:00 UTC firing the window
-#     opens at 16:00 UTC the day before, which yesterday's 08:23 UTC run clears by
-#     more than six hours of delay.
+#     opens at 16:00 UTC the day before, which yesterday's 07:43 UTC run clears by
+#     more than eight hours of delay.
 DEFAULT_WINDOW_HOURS = 20
 
 

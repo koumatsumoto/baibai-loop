@@ -136,7 +136,7 @@ uv run baibai-engine screening ticker-profile --ticker TICKER
 なるため、required-field補修には使わない。補修後は同じverify commandで
 `market_cap_required_fields`と`valuation_required_fields`がminimum以上であることを確認する。
 
-`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。**batchが走っている間にpullすると、batch前のstoreとbatch後のstoreが混ざった断面がローカルへ載る**。`quick_check`は各storeを個別に見るのでこれを通し、screeningが読む価格・run・macro seriesの組み合わせが実在しない断面になる。避けるべき窓はcronの実値から導ける — 平日08:23 UTC（17:23 JST）に始まり、schedule遅延（実測median約2時間）とjob実行（`timeout-minutes: 60`）を足した**17:23〜21:30 JST**である。この窓を外すか、`gh run list --workflow cloud-daily-batch.yml --limit 1`で当日のrunが`completed`であることを確かめてからpullする。
+`pull.sh`はmarket/runs/macroの全downloadとSQLite `quick_check`が成功してから3 storeを置換し、`baibai.sqlite`には触れない。**batchが走っている間にpullすると、batch前のstoreとbatch後のstoreが混ざった断面がローカルへ載る**。`quick_check`は各storeを個別に見るのでこれを通し、screeningが読む価格・run・macro seriesの組み合わせが実在しない断面になる。避けるべき窓はcronの実値から導ける — 平日07:43 UTC（16:43 JST）に始まり、schedule遅延（実測median約2時間）とjob実行（`timeout-minutes: 60`）、既存の遅延余裕を含む**16:43〜21:30 JST**である。この窓を外すか、`gh run list --workflow cloud-daily-batch.yml --limit 1`で当日のrunが`completed`であることを確かめてからpullする。
 
 ### ローカルからクラウドを更新する
 
@@ -213,7 +213,7 @@ gh workflow run cloud-daily-batch.yml --ref main -f asof=YYYY-MM-DD
 gh run list --workflow cloud-daily-batch.yml --limit 10
 ```
 
-通常cronは平日08:23 UTC（17:23 JST）。同日必須なのは`asof = today`が依存する株価日足の16:30 JST更新だけで、遅配に約50分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。
+通常cronは平日07:43 UTC（16:43 JST）。同日必須なのは`asof = today`が依存する株価日足だけで、[J-Quants APIの公式更新時刻](https://jpx-jquants.com/ja/spec/data-update)は16:30頃のため13分の余裕を置く。JPX規制ページはevent駆動のstatus pageでcoverage gateが7営業日まで許容し、信用残は週次なので、いずれも夕方の更新を待つ必要がない（この実行より後に出た指定は翌営業日の実行が拾う）。分を半端にしているのは意図的で、GitHubがscheduleを:00 / :15 / :30 / :45へ集中させるため、その境界に置くとqueue待ちの後ろに並ぶ。schedule遅延自体は許容する（実測でmedian約2時間）。遅延ではなく**欠測**は`cloud-batch-watchdog`がpushで検知し、UIのas-ofとworkflow履歴は裏取りのpull経路として残る。16:43時点で株価日足が未更新ならcoverage gateがpublish前に停止し、復旧は現行mainから手動dispatchする。
 
 `daily_batch.py`のexit 3はfresh screening exportを持つため、workflowはstores/serving uploadまで完了させてからjobを失敗にする。exit 1は新しいpublish可能runがないためuploadしない。非営業日skipはexportがないため既存servingを変更しない。
 
@@ -404,8 +404,8 @@ run自身の通知は「runが起動したこと」を前提にする。GitHub�
 
 `.github/workflows/cloud-batch-watchdog.yml`が平日12:00 UTC（21:00 JST）に発火し、`cloud-daily-batch`のrun一覧を`gh api`で読み、直近20時間に**conclusion=successのcompleted runが1本も無ければ**同じ`#batch-runs`へ`[MISSING]`を送る。正常な日は何も送らない（2通目の`[OK]`はchannelを読み飛ばす習慣を作る）。したがって`#batch-runs`の沈黙は「当日のbatchが正常だった」を意味する。
 
-- **20時間窓**の両端はGitHubのschedule遅延（median約2時間）で決まる。前日の08:23 UTC runが窓に入らない程度に短く（前日の成功で当日の欠測を隠さない）、watchdog自身が数時間遅れて発火しても当日の08:23 UTC runを取りこぼさない程度に長い。
-- **まだ実行中のrunは欠測として数えない**。schedule queueが08:23 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に`completed`でないrunが1本でもあれば`in_flight`として無送信にする。
+- **20時間窓**の両端はGitHubのschedule遅延（median約2時間）で決まる。前日の07:43 UTC runが窓に入らない程度に短く（前日の成功で当日の欠測を隠さない）、watchdog自身が数時間遅れて発火しても当日の07:43 UTC runを取りこぼさない程度に長い。
+- **まだ実行中のrunは欠測として数えない**。schedule queueが07:43 UTCのbatchを watchdog の発火時刻より後ろへ押し出すことがあるが、そのrunは完走すれば自分で結果を通知する（job timeoutに当たっても`[CANCELLED]`が出る）ので、watchdogが足せるものは無い。窓の中に`completed`でないrunが1本でもあれば`in_flight`として無送信にする。
 - **営業日カレンダーは持たない**。非営業日は`cloud-daily-batch`自身がgreenのskip runとして完了するので、successとして数えられる。
 - 手動の復旧dispatchもsuccessとして数えるので、当日中に復旧すれば警報は出ない。
 - run一覧が期待した形でなければ**警報を出さずにexit 1**する。parseの劣化が「run 0本」に落ちると、APIの形が変わるたびに誤報になるため。

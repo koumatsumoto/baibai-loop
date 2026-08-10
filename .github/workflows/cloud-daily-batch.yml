@@ -2,16 +2,16 @@ name: cloud-daily-batch
 
 on:
   schedule:
-    # 17:23 JST. The only same-day requirement is the 16:30 J-Quants daily-price
-    # update, which `asof = today` depends on; the run keeps ~50 minutes of margin
-    # for a late publish. The JPX regulation pages are event-driven status pages the
+    # 16:43 JST. The only same-day requirement is the J-Quants daily-price update,
+    # published around 16:30 JST, which `asof = today` depends on; the run keeps 13
+    # minutes of margin. The JPX regulation pages are event-driven status pages the
     # coverage gate accepts for 7 business days, and the margin balances are weekly,
     # so neither needs the evening refresh — a designation landing after this run is
     # picked up the next business day.
     #
     # The odd minute is deliberate: GitHub concentrates scheduled work on :00 / :15 /
     # :30 / :45, and a schedule pinned there waits behind that queue.
-    - cron: "23 8 * * 1-5"
+    - cron: "43 7 * * 1-5"
   workflow_dispatch:
     inputs:
       asof:

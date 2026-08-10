@@ -9,7 +9,7 @@ description: 機械の健全性維持。daily batch 監視、store 同期（R2 p
 
 ## Daily batch 監視
 
-`cloud-daily-batch` が東証営業日 17:23 JST に coverage → EDINET 抽出 → run → select → macro refresh → export → prune を 1 コマンドで回す（契約は [`batch/OPERATIONS.md`](../../../batch/OPERATIONS.md)）。Discord `#batch-runs` の `[OK]` / 失敗通知に当日の差分件数が載る。
+`cloud-daily-batch` が東証営業日 16:43 JST に coverage → EDINET 抽出 → run → select → macro refresh → export → prune を 1 コマンドで回す（契約は [`batch/OPERATIONS.md`](../../../batch/OPERATIONS.md)）。Discord `#batch-runs` の `[OK]` / 失敗通知に当日の差分件数が載る。
 
 push の経路は 2 本ある。run が起動すれば run 自身が結果を通知し、起動しなければ `cloud-batch-watchdog`（平日 21:00 JST）が同じ channel へ `[MISSING]` を送る。したがって **`#batch-runs` の沈黙は「当日の batch が正常だった」を意味する**。UI の as-of と workflow 履歴は裏取り用の pull 経路であって、欠測の第一発見手段ではない。
 

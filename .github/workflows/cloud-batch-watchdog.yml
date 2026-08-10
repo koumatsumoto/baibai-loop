@@ -3,7 +3,7 @@ name: cloud-batch-watchdog
 on:
   schedule:
     # 12:00 UTC (21:00 JST) on weekdays. `cloud-daily-batch` is scheduled at
-    # 08:23 UTC and GitHub's schedule queue adds about two hours at the median, so
+    # 07:43 UTC and GitHub's schedule queue adds about two hours at the median, so
     # a healthy run has finished well before this. The watchdog only reads the run
     # history, so a late firing of its own costs nothing: the evaluated window is
     # anchored to when it runs, not to when it was due.

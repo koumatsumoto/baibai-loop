@@ -124,7 +124,7 @@ def test_only_failed_runs_inside_the_window_is_a_gap() -> None:
 def test_a_batch_still_running_when_the_watchdog_fires_is_not_a_gap() -> None:
     """A late start is not a missing run, and alerting on it would be the false alarm.
 
-    The schedule queue can push the 08:23 UTC batch past the watchdog's 12:00 UTC
+    The schedule queue can push the 07:43 UTC batch past the watchdog's 12:00 UTC
     firing. That run still reports its own outcome when it finishes — including
     `[CANCELLED]` if it hits the job timeout — so the watchdog has nothing to add.
     """
@@ -163,10 +163,10 @@ def test_a_queued_run_is_also_treated_as_in_flight() -> None:
 def test_yesterdays_successful_run_falls_outside_the_window() -> None:
     """The back edge is what stops yesterday's success from masking today's gap.
 
-    `cloud-daily-batch` is scheduled at 08:23 UTC; at the watchdog's 12:00 UTC
-    firing that run is 27.6 hours old, well beyond the window.
+    `cloud-daily-batch` is scheduled at 07:43 UTC; at the watchdog's 12:00 UTC
+    firing that run is more than 28 hours old, well beyond the window.
     """
-    yesterday = FIRED_AT.replace(hour=8, minute=23) - timedelta(days=1)
+    yesterday = FIRED_AT.replace(hour=7, minute=43) - timedelta(days=1)
     runs = parse_runs(_listing(_run(created_at=yesterday)))
 
     verdict = evaluate(runs, window_end=FIRED_AT, window_hours=DEFAULT_WINDOW_HOURS)
@@ -179,10 +179,10 @@ def test_a_late_watchdog_firing_still_sees_the_days_batch() -> None:
     """The front edge absorbs the watchdog's own schedule delay.
 
     GitHub's schedule queue adds about two hours at the median; the window has to
-    hold the day's 08:23 UTC batch even when the watchdog fires far later than due,
+    hold the day's 07:43 UTC batch even when the watchdog fires far later than due,
     otherwise the delay itself becomes the false alarm.
     """
-    batch = FIRED_AT.replace(hour=8, minute=23)
+    batch = FIRED_AT.replace(hour=7, minute=43)
     runs = parse_runs(_listing(_run(created_at=batch)))
 
     late = evaluate(
