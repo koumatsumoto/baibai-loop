@@ -173,12 +173,23 @@ def compare_core_metrics(baseline: Mapping[str, Any], actual: Mapping[str, Any])
 
 
 def _metric_value(payload: Mapping[str, Any], horizon: str, metric: str) -> Any:
+    """Read one conclusion from the horizon aggregate.
+
+    The two selection conclusions live under the `selection` group and E[r] calibration
+    at the top of the aggregate, so both places are searched by name rather than by a
+    path the caller has to know.
+    """
     results = payload.get("results")
     horizon_payload = results.get(horizon) if isinstance(results, Mapping) else None
     aggregate = horizon_payload.get("aggregate") if isinstance(horizon_payload, Mapping) else None
     if not isinstance(aggregate, Mapping):
         return None
+    selection = aggregate.get("selection")
     node = aggregate.get(metric)
+    if node is None and isinstance(selection, Mapping):
+        node = selection.get(metric)
+    if node is None:
+        raise ComparisonError(f"the evaluation has no {metric} for {horizon}")
     return node if not isinstance(node, Mapping) else dict(node)
 
 
