@@ -174,7 +174,7 @@ evidence pattern（playbook）を追加・変更・削除するときは、scree
 - 採用 judge になる数値基準は**計測を実行する前に** issue または report 冒頭へ書いて commit する（git history が事前登録の正本）。既知の結果がある場合は盲検性の限定を正直に書く。
 - cohort を時間で design / confirm に 2 分割し、**両方で同方向・基準充足のときだけ採用**。片側のみは不確定、両側逆は棄却。grid search（基準を後から動かす網羅探索）をしない。
 
-matched 比較の被覆率・membership 数・集中度など、forward outcome を読まずに計算できる sufficiency は、効果条件を凍結する前に実測する。不足する場合は比較設計を修正してから凍結し、その修正を事前登録 commit に開示する。凍結後は outcome を見て条件を調整しない。逐次 study は先行 study の効果結果で後続条件を調整せず、match 被覆不足など outcome-free な実行可能性の欠陥は手法上の教訓として後続設計へ適用できる。
+matched 比較の被覆率・membership 数・集中度など、forward outcome を読まずに計算できる sufficiency は、効果条件を凍結する前に実測する。不足する場合は比較設計を修正し、同じ outcome-free 指標を再測定して、あらかじめ定めた sufficiency floor をすべて満たすまで凍結しない。最終設計の実測値と変更点は事前登録 commit に記録する。この修正 loop は forward outcome を一度でも読んだ後には再開せず、凍結後は outcome を見て条件を調整しない。逐次 study は先行 study の効果結果で後続条件を調整せず、match 被覆不足など outcome-free な実行可能性の欠陥は手法上の教訓として後続設計へ適用できる。
 
 - **control cell の判定は「0 許容の全 cell 通過」を既定にしない**（偽陰性へ構造的に偏る）。noise floor（例: trap delta ≤ +2pt）または k-of-n cell 通過と、cell ごとの最小 matched weight を**事前登録で宣言**する。
 - 判定語彙は `negative` / `insufficient` / `adoption_candidate` / `inconclusive` の 4 種。同一仮説の再検定は新 evidence（新規満期 cohort・contract レベルの capacity 変更）がある場合に限る。
