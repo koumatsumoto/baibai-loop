@@ -38,7 +38,11 @@ def _is_earnings_task(task: Task) -> bool:
         return False
     if task.kind == "earnings-review":
         return True
-    trigger_text = " ".join(part for part in (task.event_label, task.title) if part).casefold()
+    # An explicit event label identifies the trigger. The title may mention an
+    # earnings announcement only as background (for example, "決算後に中計確認"),
+    # so it is a fallback rather than a second, equally authoritative signal.
+    trigger_text = task.event_label if task.event_label is not None else task.title
+    trigger_text = trigger_text.casefold()
     return any(marker in trigger_text for marker in _EARNINGS_MARKERS)
 
 

@@ -94,6 +94,31 @@ class ReconcileEarningsDatesTest(unittest.TestCase):
 
         self.assertEqual([result.task_id for result in results], ["task-20260731-4716"])
 
+    def test_an_explicit_non_earnings_event_outweighs_earnings_context_in_the_title(self) -> None:
+        results = reconcile_earnings_dates(
+            [
+                _task(
+                    title="決算後に次期中計の資本配分を確認する",
+                    event_label="次期中計発表（推定日）",
+                    due_date=date(2027, 5, 14),
+                    event_date=date(2027, 5, 14),
+                )
+            ],
+            {"4716": date(2026, 9, 25)},
+            today=TODAY,
+        )
+
+        self.assertEqual(results, [])
+
+    def test_the_title_identifies_an_earnings_task_when_the_event_label_is_absent(self) -> None:
+        results = reconcile_earnings_dates(
+            [_task(title="4716 の決算を確認する", event_label=None)],
+            {"4716": date(2026, 9, 25)},
+            today=TODAY,
+        )
+
+        self.assertEqual(len(results), 1)
+
     def test_an_earnings_review_kind_does_not_require_a_text_marker(self) -> None:
         results = reconcile_earnings_dates(
             [_task(kind="earnings-review", title="4716 quarterly review", event_label=None)],
