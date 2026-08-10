@@ -19,7 +19,7 @@ Baibai Loop で使うデータソースを、客観性を優先した基準で�
 | Artifact | 用途 | 主なソース |
 | --- | --- | --- |
 | application DB `macro_context` | 必要時の個別調査用material-delta context | Reuters 等の記事 + Tier 1 / Tier 1 準拠統計 + 必要な market data |
-| screening run store | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・営業日カレンダ）+ EDINET（財務諸表補完）+ JPX（決算発表予定日、特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定） |
+| screening run store | 銘柄ふるい・valuation 指標 | J-Quants（銘柄一覧・日足・財務サマリー・営業日カレンダ）+ EDINET（財務諸表補完、大量保有・公開買付の提出索引と買付価格）+ JPX（決算発表予定日、特別注意 / 整理 / 取引停止 / 上場廃止警告の除外判定、資本コスト対応開示一覧、上場廃止銘柄一覧） |
 | application DB `thesis / thesis_review` | 個別銘柄深掘り | J-Quants + EDINET + TDnet（開示文）+ JPX（資本コスト対応開示一覧）+ 個別期待値へ影響するときだけmacro context参照 |
 | application DB ledger | 執行記録 | 証券会社からの約定情報（人間報告だけを記録） |
 
