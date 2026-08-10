@@ -233,6 +233,7 @@ def backfill_history_command(
         ("daily_bars", providers.jquants.get_eq_bars_daily_range, True),
         ("fin_summaries", providers.jquants.get_fin_summary_range, True),
         ("market_calendar", providers.jquants.get_mkt_calendar, False),
+        ("short_sale_reports", providers.jquants.get_mkt_short_sale_report_range, True),
     )
     weekly_margin_source = "weekly_margin"
     failures: list[str] = []
@@ -304,6 +305,7 @@ def backfill_history_command(
 # The delta axis reaches back 26 balance dates, so an incremental bootstrap has to
 # hold at least that many weeks. The slack absorbs the weeks the exchange skips.
 _WEEKLY_MARGIN_BOOTSTRAP_DAYS = 230
+_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS = 7
 
 FIN_SUMMARY_REVISION_OVERLAP_DAYS = 7
 """How far back a bootstrap re-reads financial summaries it already has.
@@ -541,6 +543,21 @@ def bootstrap_cache_command(
             margin_rows += len(providers.jquants.get_mkt_margin_interest_week(week_end))
         print(
             f"bootstrap-cache jquants weekly_margin: {margin_rows} row(s)",
+            file=out,
+            flush=True,
+        )
+        print(
+            "bootstrap-cache jquants short_sale_reports: "
+            f"{(asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS)).isoformat()}"
+            f"..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        short_reports = providers.jquants.refresh_mkt_short_sale_report_range(
+            asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS), asof_date
+        )
+        print(
+            f"bootstrap-cache jquants short_sale_reports: {len(short_reports)} row(s)",
             file=out,
             flush=True,
         )

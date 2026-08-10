@@ -19,7 +19,7 @@ from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 13
+CACHE_SCHEMA_VERSION = 14
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -187,6 +187,9 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         er_reversion_annual=_opt_float(raw, "er_reversion_annual"),
         er_carry_annual=_opt_float(raw, "er_carry_annual"),
         er_upside_capped=_opt_float(raw, "er_upside_capped"),
+        reported_short_ratio=_opt_float(raw, "reported_short_ratio"),
+        reported_short_breadth=_opt_int(raw, "reported_short_breadth"),
+        reported_short_latest_disclosed_at=(raw.get("reported_short_latest_disclosed_at") or None),
         margin_week_end=raw.get("margin_week_end") or None,
         margin_long_to_adv=_opt_float(raw, "margin_long_to_adv"),
         margin_long_share=_opt_float(raw, "margin_long_share"),

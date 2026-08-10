@@ -99,6 +99,10 @@ class _BootstrapJQuants:
         del start, end
         return []
 
+    def refresh_mkt_short_sale_report_range(self, start: date, end: date):
+        del start, end
+        return []
+
 
 class _BootstrapJPX:
     def bootstrap_cache(self, asof_date: date) -> dict[str, int]:

@@ -105,6 +105,14 @@ class FakeJQuantsProvider:
             )
         ]
 
+    def get_mkt_short_sale_report_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("get_mkt_short_sale_report_range", start, end))
+        return []
+
+    def refresh_mkt_short_sale_report_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("refresh_mkt_short_sale_report_range", start, end))
+        return []
+
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
         self.calls.append(("get_eq_bars_daily_range", start, end))
         # Span >=800 days so listed_under_6_months (182) and short_history_flag (750)
@@ -963,6 +971,10 @@ class ScreeningCliTests(unittest.TestCase):
         # batch can read the current (and upcoming) business-day rows.
         self.assertIn(
             ("get_mkt_calendar", asof - timedelta(days=7), asof + timedelta(days=45)),
+            jquants.calls,
+        )
+        self.assertIn(
+            ("refresh_mkt_short_sale_report_range", asof - timedelta(days=7), asof),
             jquants.calls,
         )
         self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
@@ -1983,7 +1995,7 @@ class BackfillHistoryTests(unittest.TestCase):
             )
 
         self.assertEqual(code, 0)
-        # The row readers answer with the whole window, so the two of them that can
+        # The row readers answer with the whole window, so the three that can
         # span years are asked a year at a time. The interior boundaries follow the
         # calendar, not `start`, so a run naming a different first date reuses the
         # same fetch chunks. The calendar is one provider call and stays whole.
@@ -1997,6 +2009,7 @@ class BackfillHistoryTests(unittest.TestCase):
         ]
         self.assertEqual(by_source["get_eq_bars_daily_range"], year_spans)
         self.assertEqual(by_source["get_fin_summary_range"], year_spans)
+        self.assertEqual(by_source["get_mkt_short_sale_report_range"], year_spans)
         self.assertEqual(by_source["get_mkt_calendar"], [(date(2016, 8, 1), date(2018, 3, 1))])
         self.assertIn("backfill-history done", output.getvalue())
 

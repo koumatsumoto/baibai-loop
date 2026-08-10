@@ -112,7 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     backfill_history_parser = subparsers.add_parser(
         "backfill-history",
-        help="fetch bars, financial summaries and the calendar over an explicit window",
+        help=(
+            "fetch bars, financial summaries, calendar, weekly margin and "
+            "short-sale reports over an explicit window"
+        ),
     )
     backfill_history_parser.add_argument(
         "--start", required=True, help="first date the window covers (YYYY-MM-DD)"
