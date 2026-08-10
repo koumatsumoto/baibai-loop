@@ -30,11 +30,11 @@ context v2 は cap 仮説の結果に依存しない成果物である。cap var
 
 ### 2.2 basis、重み、統計量
 
-主 basis は `fy_actual_dividend_total_return`、副 basis は `price_return_only` とする。各 row の実現 return と TOPIX forward return を同じ nominal horizon で年率化し、`realized_excess_annual = annualized(realized) - annualized(topix)` を作る。trap は既存較正契約と同じく cumulative excess `<= -0.20` とする。
+主 basis は `fy_actual_dividend_total_return`、副 basis は `price_return_only` とする。`median` / `q25` / `q10` は各 row の実現 return を nominal horizon で年率化した絶対年率であり、「E[r] 8.5% が歴史的にどの実現年率へ対応したか」を直接読める座標にする。trap は各 basis の cumulative return から同一 cohort・同一 basis の流動性母集団中央値を引いた excess が `<= -0.20` の row とする。TOPIX return は補助 provenanceとして保持するが、band分位またはtrapの基準へ混ぜない。
 
 band × horizon × basis ごとに次を固定する。
 
-- 主読み `ticker_equal`: 全 ticker-as-of observation を等重みにした実現年率 excess の `median`、`q25`、`q10`、trap率、`n`。
+- 主読み `ticker_equal`: 全 ticker-as-of observation を等重みにした実現絶対年率の `median`、`q25`、`q10`、trap率、`n`。
 - 副読み `cohort_equal`: cohort ごとに同じ5統計量を作り、その値を cohort 等重みで集計した中央値。trap率も cohort trap率の中央値とする。
 - coverage: `cohort_count`、cohort内 `n` の中央値 `median_n`、as-of 範囲。
 
