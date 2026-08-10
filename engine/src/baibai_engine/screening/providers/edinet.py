@@ -270,6 +270,22 @@ class EDINETProvider:
         fetched = self._refresh_document_state(asof_date)
         return {"documents": sum(fetched.values())}
 
+    def backfill_document_identity(self, start: date, end: date) -> dict[str, int]:
+        """Re-list every day in the window so stored rows carry submitter and target codes.
+
+        The cached rows are otherwise complete, so this bypasses the cache deliberately
+        rather than dropping coverage: a day whose coverage were deleted would read as
+        an unobserved day to every consumer until the whole window finished.
+        """
+        days = 0
+        documents = 0
+        cursor = start
+        while cursor <= end:
+            documents += len(self.list_documents(cursor, force_refresh=True, is_final=cursor < end))
+            days += 1
+            cursor += timedelta(days=1)
+        return {"days": days, "documents": documents}
+
     def _refresh_document_state(self, end: date) -> dict[date, int]:
         fetched = {
             end: len(self.list_documents(end, force_refresh=True, is_final=False)),

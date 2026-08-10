@@ -15,11 +15,16 @@ import yaml
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
 from baibai_engine.foundation.yaml_io import safe_load
 
-from .forward import TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
+from .forward import (
+    RESOLVED_STATUSES,
+    TOTAL_RETURN_BASIS,
+    TOTAL_RETURN_STATUSES,
+    ForwardReturnRow,
+)
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 14
+CACHE_SCHEMA_VERSION = 15
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -248,6 +253,8 @@ def _forward_row_from_csv(raw: Mapping[str, str]) -> ForwardReturnRow:
 
 
 def _validate_total_return_contract(row: ForwardReturnRow) -> None:
+    if row.resolved is not (row.status in RESOLVED_STATUSES):
+        raise ValueError(f"resolved flag disagrees with status: {row.status!r}")
     if row.total_return_basis != TOTAL_RETURN_BASIS:
         raise ValueError(f"invalid total return basis: {row.total_return_basis!r}")
     if row.total_return_status not in TOTAL_RETURN_STATUSES:
@@ -255,7 +262,7 @@ def _validate_total_return_contract(row: ForwardReturnRow) -> None:
     if row.total_return_status == "resolved":
         values = (row.price_return, row.realized_dividend_sum, row.total_return)
         if (
-            row.status != "resolved"
+            not row.resolved
             or row.realized_dividend_fy_count <= 0
             or any(value is None or not isfinite(value) for value in values)
             or (row.realized_dividend_sum or 0.0) < 0

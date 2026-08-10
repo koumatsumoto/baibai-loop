@@ -577,6 +577,7 @@ class CalibrationPanelTest(unittest.TestCase):
                     stale_price=False,
                     entry_date=ASOF.isoformat(),
                     exit_date=None,
+                    status="unresolved_future_horizon",
                 )
             ]
             write_forward(store_dir, ASOF, rows)

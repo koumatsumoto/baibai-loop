@@ -37,6 +37,9 @@ uv run baibai-engine screening ticker-profile --ticker XXXX [--asof YYYY-MM-DD]
 uv run baibai-engine screening market-snapshot [--asof YYYY-MM-DD] [--weeks N]
 uv run baibai-engine screening extract-edinet-metrics --asof YYYY-MM-DD [--lookback-days N]
 uv run baibai-engine screening refresh-buyback-reports --asof YYYY-MM-DD [--lookback-days N] [--sqlite-path PATH]
+uv run baibai-engine screening refresh-capital-control --asof YYYY-MM-DD [--sqlite-path PATH]
+uv run baibai-engine screening backfill-edinet-identity --start YYYY-MM-DD --end YYYY-MM-DD
+uv run baibai-engine screening build-control-event-exits --asof YYYY-MM-DD [--sqlite-path PATH]
 uv run baibai-engine screening verify-cache-coverage --asof YYYY-MM-DD [--sqlite-path PATH] [--rules-path PATH]
 uv run baibai-engine screening prune [--keep N] [--runs-db PATH]
 ```
@@ -225,7 +228,10 @@ SQLite は以下のテーブルを `stores/market/market.sqlite` に作成する
 - `jquants_short_sale_reports(disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name, discretionary_investment_contractor_name, investment_fund_name, short_ratio, short_shares, short_trading_units, previous_reported_at, previous_short_ratio, is_cancellation, notes)` — 主キー `(disclosed_at, source_ordinal)`。0.5%以上の報告空売り残高を開示rowのまま保持し、PIT集約は disclosure / calculation の両日とreporter identityを使う。1 disclosure date のresponseは完全snapshotで、`source_ordinal`はprovider応答順のprovenanceとしてlosslessに保存する。cloud/local mergeはrow集合が同じならordinal差を無視し、集合が異なる訂正では新しい`fetched_at_utc`を持つ完全snapshotで日全体を置換する
 - `jpx_regulation_sources(asof_date, source_name, fetched_at_utc)` — 主キー `(asof_date, source_name)`。`jpx_regulation_flags` は指定された ticker の行しか持たないため、「その日その source を取得したが該当 0 件だった」と「そもそも取得していない」を行の有無では区別できない。この table が取得の事実を持つ
 - `edinet_document_lists(doc_date, process_datetime, result_count, fetched_at_utc, is_final)` — 主キー `(doc_date)`。その日の document list を取得した事実と、EDINET が返した件数を持つ。当日分は日中に増えるため `is_final` が立つまで再取得の対象になる
-- `edinet_documents(doc_date, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, disclosure_status, withdrawal_status, submit_datetime, doc_description, period_start, period_end)` — 主キー `(doc_date, doc_id)`。`doc_date` はファイル名（`{date}.json`）から復元
+- `edinet_documents(doc_date, sequence_number, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, legal_status, disclosure_status, withdrawal_status, doc_info_edit_status, parent_doc_id, operation_datetime, submit_datetime, doc_description, period_start, period_end, edinet_code, issuer_edinet_code, subject_edinet_code)` — 主キー `(doc_date, sequence_number)`。`sec_code` は提出者の証券コードであり、大量保有・公開買付では提出者と対象会社が別なので、対象会社は `issuer_edinet_code` / `subject_edinet_code` で持つ。identity 3 列を持たない日の行は「観測していない」として扱い、提出が無かった日と区別する（後述「資本配分・支配権イベントの typed fact」）
+- `tse_capital_policy_snapshots(snapshot_month_end, ticker, status, status_change, updated_on, contact_requested, first_disclosed_month_end, first_disclosure_left_censored)` — 主キー `(snapshot_month_end, ticker)`。東証「資本コストや株価を意識した経営」開示企業一覧の月次 point-in-time 展開。`first_disclosure_left_censored` は「最古シートに既に載っていたので初回開示月を特定できない」ことを表し、初回開示月をその月と主張しない
+- `jpx_delistings(delisted_on, ticker, name, market, reason)` — 主キー `(delisted_on, ticker)`。JPX 上場廃止銘柄一覧と過去分アーカイブの合成。上場廃止は起きたら変わらない事実なので、アーカイブ頁が過去年を落としても既存行を消さず accumulate する
+- `tender_offer_exit_values(ticker, delisted_on, offer_price_yen, offer_doc_id, result_doc_id, filed_on)` — 主キー `(ticker, delisted_on)`。成立した現金公開買付けの 1 株買付価格。較正 forward の未解決 exit を実値へ置換する唯一の入力で、2 つの一次 source（JPX 上場廃止理由と EDINET 公開買付書類）が同じ案件を指すときだけ行が立つ
 - `edinet_buyback_reports(ticker, report_month_end, doc_id, filed_on, window_start, window_end, resolved_shares, resolved_amount_yen, cumulative_shares, cumulative_amount_yen, month_shares, month_amount_yen, issued_shares, treasury_shares)` — 主キー `(ticker, report_month_end)`。自己株券買付状況報告書（様式 220、訂正は 230）の月次読み。同じ月を訂正が上書きするので、1 銘柄 1 報告月につき残るのは 1 行だけである（§5）
 - `edinet_metrics(asof_date, ticker, sales_ttm, ocf_ttm, debt, cash, investment_securities, ebitda_ttm, operating_profit_ttm, depreciation_and_amortization_ttm, capex_ttm, fcf_ttm, net_cash, equity, total_assets, consolidation_basis, ttm_quality_*, source_doc_id, document_type, source_submit_datetime, source_period_start, source_period_end, capex_source, failure_reasons, source_document_revision, extractor_revision)` — 主キー `(asof_date, ticker)`。`asof_date` はファイル名から復元。Candidate YAML では EDINET raw `ocf_ttm` を `edinet_ocf_ttm`、投資有価証券の帳簿価額を `investment_securities` として出し、J-Quants 財務サマリー由来の `ocf_ttm` と区別する。`source_*` は research で一次資料へ戻るための traceability として保持する。`source_period_start/end` は EDINET documents metadata であり、半期報告書では実際の CF 測定期間と一致しないことがある。いずれかのrevisionが`NULL`のlegacy rowまたはcurrent candidate/revisionと異なるrowは差分抽出で再利用しない
 - `jpx_regulation_flags(asof_date, source_name, ticker, flag, fetched_at_utc)` — 主キー `(asof_date, source_name, ticker, flag)`。JPX cache の `flags_by_ticker` は source 別の起源を保持しないため、`source_name=flag` として記録
@@ -247,6 +253,42 @@ J-Quants の正確なレート制限は非公開で、挙動は実運用の観�
 - `run` は cache-only で、coverage が揃えば provider を叩かず高速。歴史 replay の律速は `run` ではなく `bootstrap-cache` / `extract-edinet-metrics` の coverage 充足にある。
 
 過去 asof の cache 充足は「rate budget の回復を待つ」問題ではなく、**長期履歴 coverage を一度埋め切る wall-clock** の問題として扱う。1 asof ずつ長時間バックグラウンドで流し、resumable な性質を活かして複数セッションに跨いで充足させる。短い per-step timeout で kill するとその asof の coverage が未充足のまま `run` が fail-fast するため、kill せず完走させるか完了済み chunk から再開する。
+
+## 資本配分・支配権イベントの typed fact
+
+価値実現の経路（いつ・誰が乖離を閉じるか）を機械 fact として持つ層。**ranking・E[r]・gate のいずれにも接続しない。** イベント delta 系の指標は 3y / 5y で negative であり（`reports/studies/2026-08-02-share-return-components-production/`）、東証開示率は Prime 94% / Standard 56% で開示の有無自体の弁別力は既に低い。判断は人間に残し、機械は日付つきの事実だけを供給する。
+
+`refresh-capital-control --asof` は 2 つの JPX source を読み直す。東証「資本コストや株価を意識した経営」開示企業一覧（`list.xlsx`）は当月シートと過去分シートを持つので、月次 point-in-time 系列として全シートを展開する。列位置はシートによって動く（開示内容の列が後から入り、コンタクト希望の列が右へずれた）ため、列は見出し語で解決する。JPX 上場廃止銘柄一覧は index と過去分アーカイブを合成する。両 source とも同じ月・同じ廃止日を再取得すれば同じ行になるので、繰り返し実行してよい。
+
+### EDINET 様式コードと対象会社
+
+| 様式 | 書類 | 対象会社を持つ列 |
+| --- | --- | --- |
+| 350 | 大量保有報告書・変更報告書 | `issuerEdinetCode` |
+| 360 | 大量保有報告書（特例対象株券等） | `issuerEdinetCode` |
+| 240 | 公開買付届出書 | `subjectEdinetCode` |
+| 250 | 公開買付届出書の訂正届出書 | `subjectEdinetCode` |
+| 260 | 公開買付撤回届出書 | `subjectEdinetCode` |
+| 270 | 公開買付報告書 | `subjectEdinetCode` |
+| 280 | 公開買付報告書の訂正報告書 | `subjectEdinetCode` |
+
+EDINET code から ticker への解決は、同じ document list 履歴が観測した `(edinetCode, secCode)` 対応だけを使う。1 つの code が複数 ticker に対応する場合は解決しない。identity 3 列は後から加わったため、`backfill-edinet-identity --start --end` が保持窓を再取得して既存行へ埋める。coverage を消さずに再取得するのは、coverage を消すと自己株券買付状況報告書の観測窓（§11.1 `edinet_document_lists`）まで同時に失われ、全銘柄の `buyback_authorization_status` が unknown へ落ちるためである。
+
+### candidate annotation
+
+`screening run` は universe の各 ticker へ次を付ける。いずれも「観測できていない」と「観測して該当なし」を別の値で表す。
+
+- `tse_capital_policy_status` — `disclosed` / `considering` / `none`（as-of 以前の最新月次スナップショットに居ない）/ `null`（参照できる月次スナップショットが無い）。`tse_capital_policy_updated_on` は開示内容のアップデート日
+- `large_holding_event_recent` / `large_holding_event_latest_on` — 対象会社として直近 183 日に観測した大量保有系提出の有無と最新日
+- `tender_offer_event_recent` / `tender_offer_event_latest_on` — 同じく公開買付系提出
+
+`*_recent` の `null` は「窓の全日が identity 込みで観測されていない」状態で、`false`（窓を観測して提出が無かった）と違う。
+
+### 支配権イベントの実現 exit 値
+
+`build-control-event-exits --asof` は、JPX が上場廃止理由に公開買付けを名指しした銘柄について、成立した現金公開買付けの 1 株買付価格を導出する。届出書（240、訂正 250）と報告書（270、訂正 280）を提出者 EDINET code ごとに束ね、撤回（260）が無く、報告書が買付けの実行を述べ、届出書が普通株式 1 株あたりの円建て価格を一意に示す案件だけを採る。同一対象へ複数の提出者が届出している場合、および 1 提出者が二段階公開買付け（応募合意株主向けと少数株主向けで価格が違う）を出している場合は実値化しない。導出規則と較正への影響は [`reports/studies/2026-08-11-capital-control-exit-values/`](../../reports/studies/2026-08-11-capital-control-exit-values/) に事前登録している。
+
+較正 forward はこの表を使い、市場終値で閉じられなかった窓（`unresolved_missing_exit` / `unresolved_stale_exit`）を `resolved_control_event_exit` へ置換する。置換した行は `resolved` になるが status は通常の `resolved` と別で、settled takeover consideration と観測 quote を混同しない。市場終値で閉じられた行は上書きしない。`calibration-build --without-control-event-exits` は置換前の baseline を再生成する。
 
 ## select の判断境界
 

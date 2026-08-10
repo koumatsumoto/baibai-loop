@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from datetime import date
 
 from .buyback_authorization import BuybackAuthorization
+from .capital_control import CapitalControlAnnotation
 from .earnings_lag import EarningsLag
 from .estimates import ExpectedReturnEstimate, estimate_expected_return
 from .schema import (
@@ -37,6 +38,7 @@ def build_screened_candidate(
     earnings_lag: EarningsLag | None = None,
     normalized_per_3fy: float | None = None,
     buyback_authorization: BuybackAuthorization | None = None,
+    capital_control: CapitalControlAnnotation | None = None,
 ) -> ScreenedCandidate:
     return ScreenedCandidate(
         ticker=ticker,
@@ -82,6 +84,7 @@ def build_screened_candidate(
             normalized_per_3fy=normalized_per_3fy,
             earnings_lag=earnings_lag,
             buyback_authorization=buyback_authorization,
+            capital_control=capital_control,
         ),
         next_earnings_date=next_earnings_date,
         split_adjustment_flag=derived.split_adjustment_flag,
@@ -98,6 +101,7 @@ def candidate_metrics_map(
     normalized_per_3fy: float | None = None,
     earnings_lag: EarningsLag | None = None,
     buyback_authorization: BuybackAuthorization | None = None,
+    capital_control: CapitalControlAnnotation | None = None,
 ) -> Mapping[str, float | int | bool | str | None]:
     return {
         "sales_ttm": financial.sales_ttm,
@@ -218,6 +222,35 @@ def candidate_metrics_map(
             None
             if buyback_authorization is None
             else _date_iso(buyback_authorization.report_month_end)
+        ),
+        # 資本配分・支配権イベントの typed fact (capital_control.py)。TSE の開示状況は
+        # 月次スナップショットの point-in-time 参照で、"none" は「その月の一覧に居ない」、
+        # None は「参照できる月次スナップショットが無い」。イベントは対象会社側から見た
+        # 直近 6 か月の提出有無で、None は観測窓が埋まっていない状態、False は窓を観測して
+        # 提出が無かった状態。いずれも annotation であり ranking・gate・E[r] へは入らない。
+        "tse_capital_policy_status": (
+            None if capital_control is None else capital_control.tse_capital_policy_status
+        ),
+        "tse_capital_policy_updated_on": (
+            None
+            if capital_control is None
+            else _date_iso(capital_control.tse_capital_policy_updated_on)
+        ),
+        "large_holding_event_recent": (
+            None if capital_control is None else capital_control.large_holding_event_recent
+        ),
+        "large_holding_event_latest_on": (
+            None
+            if capital_control is None
+            else _date_iso(capital_control.large_holding_event_latest_on)
+        ),
+        "tender_offer_event_recent": (
+            None if capital_control is None else capital_control.tender_offer_event_recent
+        ),
+        "tender_offer_event_latest_on": (
+            None
+            if capital_control is None
+            else _date_iso(capital_control.tender_offer_event_latest_on)
         ),
     }
 

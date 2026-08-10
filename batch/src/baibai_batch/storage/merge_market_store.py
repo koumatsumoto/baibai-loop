@@ -58,6 +58,7 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "edinet_document_lists": ("doc_date",),
     "edinet_documents": ("doc_date", "sequence_number"),
     "edinet_metrics": ("asof_date", "ticker"),
+    "jpx_delistings": ("delisted_on", "ticker"),
     "jpx_regulation_flags": ("asof_date", "source_name", "ticker", "flag"),
     "jpx_regulation_sources": ("asof_date", "source_name"),
     "jquants_daily_bars": ("ticker", "traded_at"),
@@ -70,6 +71,8 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "jquants_short_sale_reports": ("disclosed_at", "source_ordinal"),
     "jquants_weekly_margin": ("week_end", "ticker"),
     "source_coverage": ("source", "coverage_key"),
+    "tender_offer_exit_values": ("ticker", "delisted_on"),
+    "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
 }
 
 # Columns that record how and when a store read the source, not what the source said.

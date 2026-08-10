@@ -170,6 +170,15 @@ def _selection_candidate_summary(
         "buyback_status_latest_filing_date": metrics.get("buyback_status_latest_filing_date"),
         "buyback_status_filing_age_days": metrics.get("buyback_status_filing_age_days"),
         "buyback_status_observed_from": metrics.get("buyback_status_observed_from"),
+        # 資本配分・支配権イベントの typed fact (capital_control.py が読み、ここは転記だけ)。
+        # 価値実現の経路がいつ・誰から来るかの文脈であり、単独で採否を決める材料ではない。
+        # None は観測できていない状態で、"none" / false (観測して該当なし) と違う。
+        "tse_capital_policy_status": metrics.get("tse_capital_policy_status"),
+        "tse_capital_policy_updated_on": metrics.get("tse_capital_policy_updated_on"),
+        "large_holding_event_recent": metrics.get("large_holding_event_recent"),
+        "large_holding_event_latest_on": metrics.get("large_holding_event_latest_on"),
+        "tender_offer_event_recent": metrics.get("tender_offer_event_recent"),
+        "tender_offer_event_latest_on": metrics.get("tender_offer_event_latest_on"),
         "price_change_5d": candidate.get("price_change_5d"),
         "price_change_20d": candidate.get("price_change_20d"),
         # dislocation 深度: 売られすぎ度の主要 window。割安ゾーン入りの経緯と RR の前提
@@ -231,6 +240,16 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
             "latest_filing_date": metrics.get("buyback_status_latest_filing_date"),
             "filing_age_days": metrics.get("buyback_status_filing_age_days"),
             "observed_from": metrics.get("buyback_status_observed_from"),
+        },
+        # longlist は OP3 が 20 件を点検する view なので、価値実現の経路を示す dated fact も
+        # ここに置く。rank へは接続しない。
+        "capital_control": {
+            "tse_capital_policy_status": metrics.get("tse_capital_policy_status"),
+            "tse_capital_policy_updated_on": metrics.get("tse_capital_policy_updated_on"),
+            "large_holding_event_recent": metrics.get("large_holding_event_recent"),
+            "large_holding_event_latest_on": metrics.get("large_holding_event_latest_on"),
+            "tender_offer_event_recent": metrics.get("tender_offer_event_recent"),
+            "tender_offer_event_latest_on": metrics.get("tender_offer_event_latest_on"),
         },
         "liquidity_status": "pass",
         "durability_warnings": list(string_sequence(durability_lens.get("caution_reasons"))),

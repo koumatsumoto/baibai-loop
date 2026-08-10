@@ -465,7 +465,7 @@ def _cohort_entries(
         row.ticker: row
         for row in forward_rows
         if row.horizon == horizon
-        and row.status == "resolved"
+        and row.resolved
         and row.total_return_status == "resolved"
         and row.total_return_basis == TOTAL_RETURN_BASIS
         and row.realized_dividend_sum is not None

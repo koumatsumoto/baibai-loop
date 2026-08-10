@@ -22,6 +22,7 @@ from baibai_engine.screening.buyback_authorization import (
 from baibai_engine.screening.buyback_store import read_buyback_reports
 from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.candidate_build import build_screened_candidate
+from baibai_engine.screening.capital_control import read_capital_control_annotations
 from baibai_engine.screening.config import (
     ScreeningConfig,
 )
@@ -272,6 +273,12 @@ def run_command(
     buyback_filings = read_buyback_status_filings(
         config.sqlite_cache_dir / "market.sqlite", through=asof_date
     )
+    # 価値実現の経路の annotation。ranking・gate・E[r] へは接続しない。
+    capital_control_by_ticker = read_capital_control_annotations(
+        config.sqlite_cache_dir / "market.sqlite",
+        asof=asof_date,
+        tickers=sorted(securities_by_ticker),
+    )
     # 枠の中身は別 table から読む。提出の有無と枠の状態は別の観測なので、片方が欠けても
     # もう片方は出る。
     buyback_reports = read_buyback_reports(
@@ -352,6 +359,7 @@ def run_command(
                     ),
                     buyback_reports.get(ticker, ()),
                 ),
+                capital_control=capital_control_by_ticker.get(ticker),
             )
         )
 
