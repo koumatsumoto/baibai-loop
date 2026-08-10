@@ -32,7 +32,7 @@
 
 入力は現行 `rules_hash: f4a3f3f20838e1cd` の80 cohort（2019-11-29〜2026-06-30）、screened candidate 123,978観測。market storeの最新日は2026-08-10だった。
 
-最低単元はas-of未調整終値×100株、p20は直近60市場sessionのnearest-rank 20%点とし、欠損・無出来を0円に含めた。100株は推測でなく、JPXが2018-10-01に全国取引所の内国株式について統一完了を公表しており、全cohortはその後に始まる（[JPX「売買単位の統一」](https://www.jpx.co.jp/equities/improvements/unit/index.html)）。
+最低単元はas-of未調整終値×100株、p20は直近60市場sessionのnearest-rank 20%点とし、欠損・無出来を0円に含めた。100株は推測でなく、JPXが2018-10-01に全国取引所の内国株式について統一完了を公表しており、全cohortはその後に始まる（[JPX「売買単位の統一」](https://www.jpx.co.jp/equities/improvements/unit/index.html)）。listing spanは上場日でなくas-of以前の最古daily barからのproxyで、入力窓の1200日で頭打ちになる。365日以上というmembership判定には使えるが、実際の上場年数としては解釈しない。
 
 | sufficiency | 実測 | floor / ceiling | 判定 |
 | --- | ---: | ---: | --- |
