@@ -4,9 +4,9 @@ A follow-up task is created the day a candidate is rejected, months before the
 next announcement. When the schedule already reaches that far the task takes the
 published date; when it does not, a human picks the trigger date. So a task whose
 date came from the schedule keeps agreeing with it, and the ones that would move
-are the ones a human chose — which is why this reports and never writes.
-the task 規約 (ops-maintenance skill) keeps that write boundary with the human; `task edit` applies
-what this names.
+are the ones a human chose — which is why this reports and never writes. The task
+規約 (ops-maintenance skill) keeps that write boundary with the human; `task edit`
+applies what this names.
 """
 
 from __future__ import annotations
@@ -23,6 +23,27 @@ from .models import Task
 # named as a disagreement rather than a refinement, because the two call for
 # different actions from the reader.
 ESTIMATE_TOLERANCE_DAYS = 45
+_EARNINGS_MARKERS = ("決算", "earnings")
+
+
+def _is_earnings_task(task: Task) -> bool:
+    """Return whether the task's trigger is an earnings announcement.
+
+    ``follow-up`` also covers shareholder meetings and medium-term plans, so the
+    ticker alone cannot bind such a task to the exchange earnings calendar. The
+    explicit earnings-review kind or the human-facing trigger text supplies that
+    missing event identity without widening the task schema.
+    """
+    if task.kind == "ops":
+        return False
+    if task.kind == "earnings-review":
+        return True
+    # An explicit event label identifies the trigger. The title may mention an
+    # earnings announcement only as background (for example, "決算後に中計確認"),
+    # so it is a fallback rather than a second, equally authoritative signal.
+    trigger_text = task.event_label if task.event_label is not None else task.title
+    trigger_text = trigger_text.casefold()
+    return any(marker in trigger_text for marker in _EARNINGS_MARKERS)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -49,7 +70,7 @@ def reconcile_earnings_dates(
     *,
     today: date,
 ) -> list[EarningsReconciliation]:
-    """Compare open, dated, ticker-bearing tasks against the published schedule.
+    """Compare open, ticker-bearing earnings tasks against the published schedule.
 
     A task whose ticker has no published date yet is absent from the result: the
     schedule not reaching that far is the normal state for most of a task's life,
@@ -57,7 +78,7 @@ def reconcile_earnings_dates(
     """
     results: list[EarningsReconciliation] = []
     for task in tasks:
-        if task.status != "open" or task.ticker is None or task.kind == "ops":
+        if task.status != "open" or task.ticker is None or not _is_earnings_task(task):
             continue
         published = published_by_ticker.get(task.ticker)
         if published is None or published < today:

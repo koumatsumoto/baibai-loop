@@ -20,6 +20,12 @@ from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screeni
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
 
 
+def test_schedule_runs_at_1643_jst_on_weekdays() -> None:
+    workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+    assert workflow["on"]["schedule"] == [{"cron": "43 7 * * 1-5"}]
+
+
 def _daily_batch_env() -> dict[str, str]:
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     batch = next(step for step in workflow["jobs"]["daily"]["steps"] if step.get("id") == "batch")
