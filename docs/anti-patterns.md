@@ -261,6 +261,10 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] productionで正規化PERを表示する場合、通常の1200日bar / 730日summary coverageだけで長期入力を充足扱いにせず、2200日のFY履歴とsplit basisをticker/date密度まで別々にfail closedで確認するか。日次runはFY行と非1のadjustment factorだけを疎に読み、欠損を旧EPS・未調整EPS・warning真偽へ補完しないか。bootstrap、片方だけ欠けるnegative coverage、古い期間の横断欠損、SQLite-only runをtestで固定したか
 - [ ] screeningの財務fieldを追加・必須化する場合、日付coverageだけで投入済みとみなさずexact as-ofのticker母集団でnull/部分population/field組合せをfail closedにするか。補修は欠損tickerの既知開示日へ限定し、広い正常coverageを無効化せず、chunk中断後の残件再計画と候補全滅前の停止をnegative testで固定したか
 - [ ] master snapshot ingestはrequested as-ofと全response `Date`の一致、必須field、normalized ticker一意性、普通株population floorをtransaction前に検証し、同日だけを置換して別日snapshotを変えないrollback testを持つか
+- [ ] cadence・母集団が変わる market source は旧新の date domain を write-time に分離し、
+      境界外日付、payload date 不一致、同一日/ticker 重複、旧新 table への二重計上を negative
+      fixture で拒否するか。公表前の empty coverage が境界日の実データを永久に隠さず、旧 metric は
+      旧 source だけを読むことを固定したか
 - [ ] EDINET metric snapshotを差分再利用する場合、rowの抽出・文書状態revision必須、訂正eventを含むsource identity完全一致、target以下のbaseline選択、failed skip、hard parser failure拒否、同日失敗時の正常snapshot保持、最新ok coverageのrange/error/count矛盾時のfail-closedをnegative testで固定したか
 - [ ] EDINET の投資有価証券を追加・変更する場合、`InvestmentSecurities` exact local name、連結優先、zero-like、類似 BS / 売却損益 / CF tag の除外、非負・有限の write-time validation、asset-backed ratio の source field / 単位整合、cache schema 更新を positive / negative test で固定したか
 - [ ] provider が個別 release URL の manifest を持つ場合、scheme / host / path全体をallowlistして

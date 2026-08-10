@@ -78,6 +78,23 @@ def test_open_connection_reopens_latest_store_without_refetch(tmp_path: Path) ->
         reopened.close()
 
 
+def test_margin_publication_date_domains_are_sqlite_constraints(tmp_path: Path) -> None:
+    conn = open_connection(tmp_path / "market.sqlite")
+    try:
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            conn.execute(
+                "INSERT INTO jquants_weekly_margin(week_end, ticker) VALUES (?, ?)",
+                ("2026-09-25", "7203"),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            conn.execute(
+                "INSERT INTO jquants_all_issues_daily_margin(balance_date, ticker) VALUES (?, ?)",
+                ("2026-09-18", "7203"),
+            )
+    finally:
+        conn.close()
+
+
 # --------------------------------------------------------------------------- #
 # forward migration (dummy v14 injected into the real mechanism)
 # --------------------------------------------------------------------------- #

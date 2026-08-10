@@ -58,7 +58,7 @@ from baibai_engine.screening.providers.jquants import (
 from baibai_engine.screening.render import build_output_path
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.schema import SecurityMaster, TTMQuality
-from baibai_engine.screening.sqlite_cache import store_edinet_metrics
+from baibai_engine.screening.sqlite_cache import store_edinet_metrics, store_jquants_daily_bars
 from baibai_engine.screening.sqlite_coverage import (
     RequiredFieldCoverage,
     RequiredFieldRepairPlan,
@@ -105,6 +105,10 @@ class FakeJQuantsProvider:
             )
         ]
 
+    def refresh_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
+        self.calls.append(("refresh_mkt_margin_interest_week", week_end, week_end))
+        return self.get_mkt_margin_interest_week(week_end)
+
     def get_mkt_short_sale_report_range(self, start: date, end: date) -> list[object]:
         self.calls.append(("get_mkt_short_sale_report_range", start, end))
         return []
@@ -112,6 +116,18 @@ class FakeJQuantsProvider:
     def refresh_mkt_short_sale_report_range(self, start: date, end: date) -> list[object]:
         self.calls.append(("refresh_mkt_short_sale_report_range", start, end))
         return []
+
+    def get_mkt_margin_alert_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("get_mkt_margin_alert_range", start, end))
+        return []
+
+    def refresh_mkt_margin_alert_range(self, start: date, end: date) -> list[object]:
+        self.calls.append(("refresh_mkt_margin_alert_range", start, end))
+        return []
+
+    def get_mkt_all_issues_daily_margin(self, balance_date: date) -> list[object]:
+        self.calls.append(("get_mkt_all_issues_daily_margin", balance_date, balance_date))
+        return [object()]
 
     def get_eq_bars_daily_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
         self.calls.append(("get_eq_bars_daily_range", start, end))
@@ -979,6 +995,51 @@ class ScreeningCliTests(unittest.TestCase):
         )
         self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
         self.assertEqual(jpx.bootstrap_calls, [asof])
+
+    def test_bootstrap_refreshes_the_final_legacy_week_after_publication(self) -> None:
+        asof = date(2026, 9, 24)
+        jquants = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            trading_days = (
+                date(2026, 9, 14),
+                date(2026, 9, 15),
+                date(2026, 9, 16),
+                date(2026, 9, 17),
+                date(2026, 9, 18),
+                date(2026, 9, 22),
+                date(2026, 9, 24),
+            )
+            store_jquants_daily_bars(
+                sqlite_path,
+                [
+                    {"Date": day.isoformat(), "Code": "72030", "Close": 100.0}
+                    for day in trading_days
+                ],
+                requested_start=trading_days[0],
+                requested_end=trading_days[-1],
+            )
+
+            exit_code = bootstrap_cache_command(
+                asof_date=asof,
+                providers=ProviderBundle(
+                    jquants=jquants,
+                    edinet=FakeEDINETProvider(),
+                    jpx=FakeJPXProvider(),
+                ),
+                sqlite_path=sqlite_path,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            (
+                "refresh_mkt_margin_interest_week",
+                date(2026, 9, 18),
+                date(2026, 9, 18),
+            ),
+            jquants.calls,
+        )
 
     def test_backfill_master_fetches_only_the_master_for_each_date(self) -> None:
         # 1 cohort あたり 1 request だけを使うことが、この命令の存在理由である。
@@ -1977,6 +2038,65 @@ def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
 
 
 class BackfillHistoryTests(unittest.TestCase):
+    def test_day_one_probe_fetches_only_the_fixed_boundary_before_activation(self) -> None:
+        provider = FakeJQuantsProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _seed_trading_days(sqlite_path, date(2026, 9, 25), date(2026, 9, 25))
+            code = backfill_history_command(
+                start=date(2026, 9, 25),
+                end=date(2026, 9, 25),
+                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                sqlite_path=sqlite_path,
+                probe_margin_publication_transition=True,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            provider.calls,
+            [("get_mkt_all_issues_daily_margin", date(2026, 9, 25), date(2026, 9, 25))],
+        )
+
+    def test_day_one_probe_rejects_any_other_window_before_fetching(self) -> None:
+        provider = FakeJQuantsProvider()
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            code = backfill_history_command(
+                start=date(2026, 9, 25),
+                end=date(2026, 9, 26),
+                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                sqlite_path=Path("stores/market/market.sqlite"),
+                probe_margin_publication_transition=True,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(provider.calls, [])
+        self.assertIn("requires the exact 2026-09-25..2026-09-25 window", errors.getvalue())
+
+    def test_day_one_probe_does_not_accept_an_empty_snapshot(self) -> None:
+        class EmptyDailyMargin(FakeJQuantsProvider):
+            def get_mkt_all_issues_daily_margin(self, balance_date: date) -> list[object]:
+                self.calls.append(("get_mkt_all_issues_daily_margin", balance_date, balance_date))
+                return []
+
+        provider = EmptyDailyMargin()
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            code = backfill_history_command(
+                start=date(2026, 9, 25),
+                end=date(2026, 9, 25),
+                providers=ProviderBundle(jquants=provider, edinet=None, jpx=FakeJPXProvider()),
+                sqlite_path=Path("stores/market/market.sqlite"),
+                probe_margin_publication_transition=True,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("returned an empty snapshot", errors.getvalue())
+        self.assertEqual(len(provider.calls), 1)
+
     def test_each_range_source_is_fetched_over_the_named_window(self) -> None:
         # The window is stated once rather than derived from an as-of, so a decade of
         # history costs one pass instead of one 1200-day re-fetch per cohort date.

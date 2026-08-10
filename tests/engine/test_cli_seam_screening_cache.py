@@ -189,6 +189,34 @@ def test_main_backfill_history_covers_every_range_source_over_the_argv_window() 
     assert "backfill-history done: 2026-01-05..2026-01-30" in result.stdout
 
 
+def test_main_day_one_margin_probe_wires_the_explicit_override_to_the_boundary() -> None:
+    insert_daily_bars_from_closes(_STORE, "7203", [1.0], end_date=date(2026, 9, 25))
+    jquants = FakeJQuantsProvider()
+
+    result = _run_cli(
+        [
+            "backfill-history",
+            "--start",
+            "2026-09-25",
+            "--end",
+            "2026-09-25",
+            "--probe-margin-publication-transition",
+        ],
+        jquants=jquants,
+        edinet=_SeamEDINETProvider(),
+        jpx=FakeJPXProvider(),
+    )
+
+    assert result.exit_code == 0, result.stderr
+    assert jquants.calls == [
+        (
+            "get_mkt_all_issues_daily_margin",
+            date(2026, 9, 25),
+            date(2026, 9, 25),
+        )
+    ]
+
+
 def test_main_extract_edinet_metrics_stores_parsed_metrics_for_the_argv_asof() -> None:
     edinet = _SeamEDINETProvider(
         documents=[_edinet_document(ticker="96820", doc_id="S100TEST")],

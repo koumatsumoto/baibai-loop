@@ -64,6 +64,99 @@ class _RecordingClient:
         return []
 
 
+class _MarginRecordingClient(_RecordingClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.margin_alert_calls: list[tuple[str, str]] = []
+        self.margin_interest_calls: list[str] = []
+
+    def get_mkt_margin_alert_range(self, start_dt: str, end_dt: str) -> list[dict[str, Any]]:
+        self.margin_alert_calls.append((start_dt, end_dt))
+        return [
+            {
+                "PubDate": start_dt,
+                "Code": "72030",
+                "AppDate": start_dt,
+                "PubReason": "日々公表",
+                "LongOut": 5000,
+                "ShrtOut": 1000,
+                "ShrtOutChg": 10,
+                "ShrtOutRatio": 0.2,
+                "LongOutChg": 20,
+                "LongOutRatio": 0.8,
+                "SLRatio": 0.2,
+                "ShrtNegOut": 200,
+                "ShrtNegOutChg": 2,
+                "ShrtStdOut": 800,
+                "ShrtStdOutChg": 8,
+                "LongNegOut": 2000,
+                "LongNegOutChg": 10,
+                "LongStdOut": 3000,
+                "LongStdOutChg": 10,
+                "TSEMrgnRegCls": "委託保証金率50%",
+            }
+        ]
+
+    def get_mkt_margin_interest(self, *, date_yyyymmdd: str) -> list[dict[str, Any]]:
+        self.margin_interest_calls.append(date_yyyymmdd)
+        balance_date = date(int(date_yyyymmdd[:4]), int(date_yyyymmdd[4:6]), int(date_yyyymmdd[6:]))
+        return [
+            {
+                "Date": balance_date.isoformat(),
+                "Code": "72030",
+                "LongVol": 5000,
+                "ShrtVol": 1000,
+                "LongStdVol": 3000,
+                "LongNegVol": 2000,
+                "ShrtStdVol": 800,
+                "ShrtNegVol": 200,
+                "IssType": "2",
+            }
+        ]
+
+
+class MarginPublicationReadThroughTests(unittest.TestCase):
+    def test_margin_alert_endpoint_is_stored_under_its_limited_population(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            client = _MarginRecordingClient()
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
+            )
+
+            rows = provider.get_mkt_margin_alert_range(date(2026, 8, 10), date(2026, 8, 10))
+
+            self.assertEqual(client.margin_alert_calls, [("2026-08-10", "2026-08-10")])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].tse_margin_regulation_classification, "委託保証金率50%")
+
+    def test_post_transition_margin_interest_routes_only_to_daily_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            client = _MarginRecordingClient()
+            provider = JQuantsProvider(
+                "token", Path(tmp) / "raw", client=client, sqlite_path=sqlite_path
+            )
+
+            rows = provider.get_mkt_all_issues_daily_margin(date(2026, 9, 25))
+            with self.assertRaisesRegex(ValueError, "legacy weekly series"):
+                provider.get_mkt_margin_interest_week(date(2026, 9, 25))
+
+            self.assertEqual(client.margin_interest_calls, ["20260925"])
+            self.assertEqual(len(rows), 1)
+            conn = open_connection(sqlite_path)
+            try:
+                counts = (
+                    conn.execute("SELECT COUNT(*) FROM jquants_all_issues_daily_margin").fetchone()[
+                        0
+                    ],
+                    conn.execute("SELECT COUNT(*) FROM jquants_weekly_margin").fetchone()[0],
+                )
+            finally:
+                conn.close()
+            self.assertEqual(counts, (1, 0))
+
+
 def _add_source_coverage(
     conn: sqlite3.Connection,
     *,

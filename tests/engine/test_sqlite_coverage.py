@@ -25,6 +25,7 @@ from baibai_engine.screening.sqlite_coverage import (
     read_required_field_coverage,
     verify_screening_sqlite_coverage,
 )
+from baibai_engine.screening.sqlite_coverage.core import _append_weekly_margin_issue
 
 _DATA_TABLES = (
     "jquants_daily_bars",
@@ -47,6 +48,56 @@ def _verify_screening_sqlite_coverage(*args, **kwargs):
 _COMMON_COVERAGE_ASOF = date(2026, 5, 8)
 _COMPLETE_COVERAGE_TEMPLATE_DIR: tempfile.TemporaryDirectory[str] | None = None
 _COMPLETE_COVERAGE_TEMPLATE_PATH: Path | None = None
+
+
+class WeeklyMarginTransitionCoverageTest(unittest.TestCase):
+    def test_final_legacy_week_does_not_become_a_permanent_staleness_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            final_date = date(2026, 9, 18)
+            conn.execute(
+                "INSERT INTO jquants_weekly_margin(week_end, ticker, long_vol) VALUES (?, ?, ?)",
+                (final_date.isoformat(), "7203", 1.0),
+            )
+            _add_source_coverage(
+                conn,
+                source="jquants_weekly_margin",
+                coverage_key=f"get_mkt_margin_interest:{final_date.isoformat()}"
+                f"..{final_date.isoformat()}",
+                record_count=1,
+                min_date=final_date.isoformat(),
+                max_date=final_date.isoformat(),
+            )
+            conn.commit()
+            issues = []
+
+            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 12, 1))
+            conn.close()
+
+            self.assertEqual(issues, [])
+
+    def test_post_transition_coverage_requires_the_exact_final_legacy_week(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            conn = open_connection(db)
+            prior = date(2026, 9, 11)
+            _add_source_coverage(
+                conn,
+                source="jquants_weekly_margin",
+                coverage_key=f"get_mkt_margin_interest:{prior.isoformat()}..{prior.isoformat()}",
+                record_count=1,
+                min_date=prior.isoformat(),
+                max_date=prior.isoformat(),
+            )
+            conn.commit()
+            issues = []
+
+            _append_weekly_margin_issue(conn, issues, asof_date=date(2026, 10, 30))
+            conn.close()
+
+            self.assertEqual(len(issues), 1)
+            self.assertEqual(issues[0].requirement, "legacy-final:2026-09-18")
 
 
 def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:

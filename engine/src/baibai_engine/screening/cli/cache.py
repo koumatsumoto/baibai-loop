@@ -20,6 +20,11 @@ from baibai_engine.market.sqlite import (
     source_coverage_sources,
 )
 from baibai_engine.screening.buyback_store import refresh_buyback_reports
+from baibai_engine.screening.margin_publication import (
+    ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+)
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
@@ -39,6 +44,9 @@ from baibai_engine.screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
 from baibai_engine.screening.sqlite_reader import (
+    all_issues_daily_margin_backfill_candidate_dates,
+    all_issues_daily_margin_candidate_dates,
+    final_legacy_week_requires_refresh,
     read_eq_master_exact,
     weekly_margin_candidate_dates,
 )
@@ -202,6 +210,7 @@ def backfill_history_command(
     end: date,
     providers: ProviderBundle,
     sqlite_path: Path,
+    probe_margin_publication_transition: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
     """Fill the range sources over an explicit window.
@@ -226,14 +235,51 @@ def backfill_history_command(
     """
     out = stdout if stdout is not None else sys.stdout
     window = f"{start.isoformat()}..{end.isoformat()}"
+    if probe_margin_publication_transition and (
+        start != ALL_ISSUES_DAILY_FIRST_BALANCE_DATE or end != ALL_ISSUES_DAILY_FIRST_BALANCE_DATE
+    ):
+        print(
+            "--probe-margin-publication-transition requires the exact "
+            f"{ALL_ISSUES_DAILY_FIRST_BALANCE_DATE.isoformat()}.."
+            f"{ALL_ISSUES_DAILY_FIRST_BALANCE_DATE.isoformat()} window",
+            file=sys.stderr,
+        )
+        return 1
     state = "existing" if sqlite_path.exists() else "new"
     print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
     print(f"backfill-history start: {window}", file=out, flush=True)
+    if probe_margin_publication_transition:
+        source = "all_issues_daily_margin"
+        print(f"backfill-history {source}: {window} U4 probe start", file=out, flush=True)
+        try:
+            rows = providers.jquants.get_mkt_all_issues_daily_margin(
+                ALL_ISSUES_DAILY_FIRST_BALANCE_DATE
+            )
+            if not rows:
+                raise JQuantsProviderError("U4 margin publication probe returned an empty snapshot")
+        except (
+            JQuantsProviderError,
+            SQLiteSchemaError,
+            EmptyRangeReplacementError,
+            sqlite3.Error,
+        ) as exc:
+            print(
+                f"backfill-history {source}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"backfill-history {source}: {len(rows)} row(s) U4 probe done",
+            file=out,
+            flush=True,
+        )
+        return 0
     sources: tuple[tuple[str, Callable[[date, date], Sequence[object]], bool], ...] = (
         ("daily_bars", providers.jquants.get_eq_bars_daily_range, True),
         ("fin_summaries", providers.jquants.get_fin_summary_range, True),
         ("market_calendar", providers.jquants.get_mkt_calendar, False),
         ("short_sale_reports", providers.jquants.get_mkt_short_sale_report_range, True),
+        ("margin_alerts", providers.jquants.get_mkt_margin_alert_range, True),
     )
     weekly_margin_source = "weekly_margin"
     failures: list[str] = []
@@ -261,37 +307,62 @@ def backfill_history_command(
             failures.append(name)
             continue
         print(f"backfill-history {name}: {count} row(s)", file=out, flush=True)
-    print(f"backfill-history {weekly_margin_source}: {window} start", file=out, flush=True)
-    try:
-        weeks = weekly_margin_candidate_dates(sqlite_path, start, end)
-        if not weeks:
-            # A window with no candidate week fetched nothing. Reporting that as
-            # success is how a backfill silently leaves a hole, so it is a failure
-            # of this source rather than a quiet zero.
-            raise JQuantsProviderError(
-                f"no weekly margin balance date candidates in {window}; "
-                "the window holds no complete week of stored trading days"
+    if start <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
+        print(f"backfill-history {weekly_margin_source}: {window} start", file=out, flush=True)
+        try:
+            weeks = weekly_margin_candidate_dates(sqlite_path, start, end)
+            if not weeks:
+                raise JQuantsProviderError(
+                    f"no weekly margin balance date candidates in {window}; "
+                    "the window holds no complete week of stored trading days"
+                )
+            margin_rows = sum(
+                len(providers.jquants.get_mkt_margin_interest_week(week)) for week in weeks
             )
-        margin_rows = sum(
-            len(providers.jquants.get_mkt_margin_interest_week(week)) for week in weeks
-        )
-    except (
-        JQuantsProviderError,
-        SQLiteSchemaError,
-        EmptyRangeReplacementError,
-        sqlite3.Error,
-    ) as exc:
-        print(
-            f"backfill-history {weekly_margin_source}: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
-        failures.append(weekly_margin_source)
-    else:
-        print(
-            f"backfill-history {weekly_margin_source}: {len(weeks)} week(s), {margin_rows} row(s)",
-            file=out,
-            flush=True,
-        )
+        except (
+            JQuantsProviderError,
+            SQLiteSchemaError,
+            EmptyRangeReplacementError,
+            sqlite3.Error,
+        ) as exc:
+            print(
+                f"backfill-history {weekly_margin_source}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            failures.append(weekly_margin_source)
+        else:
+            print(
+                f"backfill-history {weekly_margin_source}: {len(weeks)} week(s), "
+                f"{margin_rows} row(s)",
+                file=out,
+                flush=True,
+            )
+    daily_margin_source = "all_issues_daily_margin"
+    if end >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE:
+        print(f"backfill-history {daily_margin_source}: {window} start", file=out, flush=True)
+        try:
+            dates = all_issues_daily_margin_backfill_candidate_dates(sqlite_path, start, end)
+            daily_margin_rows = sum(
+                len(providers.jquants.get_mkt_all_issues_daily_margin(day)) for day in dates
+            )
+        except (
+            JQuantsProviderError,
+            SQLiteSchemaError,
+            EmptyRangeReplacementError,
+            sqlite3.Error,
+        ) as exc:
+            print(
+                f"backfill-history {daily_margin_source}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            failures.append(daily_margin_source)
+        else:
+            print(
+                f"backfill-history {daily_margin_source}: {len(dates)} day(s), "
+                f"{daily_margin_rows} row(s)",
+                file=out,
+                flush=True,
+            )
     if failures:
         print(
             f"backfill-history: {len(failures)} source(s) failed: {', '.join(failures)}",
@@ -306,6 +377,7 @@ def backfill_history_command(
 # hold at least that many weeks. The slack absorbs the weeks the exchange skips.
 _WEEKLY_MARGIN_BOOTSTRAP_DAYS = 230
 _SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS = 7
+_MARGIN_ALERT_REVISION_OVERLAP_DAYS = 7
 
 FIN_SUMMARY_REVISION_OVERLAP_DAYS = 7
 """How far back a bootstrap re-reads financial summaries it already has.
@@ -540,9 +612,51 @@ def bootstrap_cache_command(
         )
         margin_rows = 0
         for week_end in margin_weeks:
-            margin_rows += len(providers.jquants.get_mkt_margin_interest_week(week_end))
+            if (
+                week_end == LEGACY_WEEKLY_LAST_BALANCE_DATE
+                and asof_date >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
+                and final_legacy_week_requires_refresh(sqlite_path)
+            ):
+                # An older checkout may have cached an empty response before the
+                # final legacy week was published. Re-read this one boundary row
+                # after its official publication date so the transition cannot
+                # inherit that false-empty claim.
+                margin_rows += len(providers.jquants.refresh_mkt_margin_interest_week(week_end))
+            else:
+                margin_rows += len(providers.jquants.get_mkt_margin_interest_week(week_end))
         print(
             f"bootstrap-cache jquants weekly_margin: {margin_rows} row(s)",
+            file=out,
+            flush=True,
+        )
+        alert_start = asof_date - timedelta(days=_MARGIN_ALERT_REVISION_OVERLAP_DAYS)
+        print(
+            "bootstrap-cache jquants margin_alerts: "
+            f"{alert_start.isoformat()}..{asof_date.isoformat()} start",
+            file=out,
+            flush=True,
+        )
+        margin_alerts = providers.jquants.refresh_mkt_margin_alert_range(alert_start, asof_date)
+        print(
+            f"bootstrap-cache jquants margin_alerts: {len(margin_alerts)} row(s)",
+            file=out,
+            flush=True,
+        )
+        daily_margin_dates = all_issues_daily_margin_candidate_dates(
+            sqlite_path, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE, asof_date
+        )
+        print(
+            "bootstrap-cache jquants all_issues_daily_margin: "
+            f"{len(daily_margin_dates)} day(s) start",
+            file=out,
+            flush=True,
+        )
+        daily_margin_rows = sum(
+            len(providers.jquants.get_mkt_all_issues_daily_margin(balance_date))
+            for balance_date in daily_margin_dates
+        )
+        print(
+            f"bootstrap-cache jquants all_issues_daily_margin: {daily_margin_rows} row(s)",
             file=out,
             flush=True,
         )

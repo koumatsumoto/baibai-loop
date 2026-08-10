@@ -15,6 +15,10 @@ from baibai_engine.market.sqlite import (
     validate_current_schema,
 )
 
+from ..margin_publication import (
+    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+)
 from ..metrics import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
@@ -426,6 +430,21 @@ def _append_weekly_margin_issue(
         if (parsed := _parsed_date(coverage_start)) is not None
         and str(coverage_key) == weekly_margin_coverage_key(parsed)
     ]
+    if asof_date >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE:
+        if LEGACY_WEEKLY_LAST_BALANCE_DATE not in readable_dates:
+            issues.append(
+                CacheCoverageIssue(
+                    source="jquants_weekly_margin",
+                    requirement=f"legacy-final:{LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat()}",
+                    reason=(
+                        "final legacy weekly balance is not a readable non-empty clean snapshot"
+                    ),
+                )
+            )
+        # No newer weekly row can exist after the publication regime changes.
+        # Staleness makes the legacy-derived optional axes null; it is not a cache
+        # outage and must not stop unrelated screening inputs.
+        return
     latest = max(readable_dates).isoformat() if readable_dates else None
     if latest is None:
         issues.append(

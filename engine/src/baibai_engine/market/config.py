@@ -16,5 +16,6 @@ JQUANTS_CLIENT_V2_METHODS = (
     "get_fin_summary_range",
     "get_mkt_calendar",
     "get_mkt_margin_interest",
+    "get_mkt_margin_alert_range",
     "get_mkt_short_sale_report",
 )

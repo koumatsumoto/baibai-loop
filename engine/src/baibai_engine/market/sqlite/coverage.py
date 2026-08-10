@@ -21,6 +21,12 @@ _DELETE_DATE_RANGE_SQL = {
     ("jquants_short_sale_reports", "disclosed_at"): (
         "DELETE FROM jquants_short_sale_reports WHERE disclosed_at BETWEEN ? AND ?"
     ),
+    ("jquants_margin_alerts", "publication_date"): (
+        "DELETE FROM jquants_margin_alerts WHERE publication_date BETWEEN ? AND ?"
+    ),
+    ("jquants_all_issues_daily_margin", "balance_date"): (
+        "DELETE FROM jquants_all_issues_daily_margin WHERE balance_date BETWEEN ? AND ?"
+    ),
 }
 _COUNT_DATE_RANGE_SQL = {
     ("jquants_daily_bars", "traded_at"): (
@@ -34,6 +40,12 @@ _COUNT_DATE_RANGE_SQL = {
     ),
     ("jquants_short_sale_reports", "disclosed_at"): (
         "SELECT COUNT(*) FROM jquants_short_sale_reports WHERE disclosed_at BETWEEN ? AND ?"
+    ),
+    ("jquants_margin_alerts", "publication_date"): (
+        "SELECT COUNT(*) FROM jquants_margin_alerts WHERE publication_date BETWEEN ? AND ?"
+    ),
+    ("jquants_all_issues_daily_margin", "balance_date"): (
+        "SELECT COUNT(*) FROM jquants_all_issues_daily_margin WHERE balance_date BETWEEN ? AND ?"
     ),
     ("edinet_documents", "doc_date"): (
         "SELECT COUNT(*) FROM edinet_documents WHERE doc_date BETWEEN ? AND ?"

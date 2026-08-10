@@ -24,16 +24,23 @@ from baibai_engine.screening.sqlite_cache import (
     store_edinet_metrics,
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
+    store_jquants_all_issues_daily_margin,
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
+    store_jquants_margin_alerts,
     store_jquants_market_calendar,
     store_jquants_master,
     store_jquants_weekly_margin,
 )
 from baibai_engine.screening.sqlite_reader import (
+    all_issues_daily_margin_backfill_candidate_dates,
+    all_issues_daily_margin_candidate_dates,
+    final_legacy_week_requires_refresh,
     published_margin_week_ends,
     range_covered,
+    read_all_issues_daily_margin,
     read_fin_summaries,
+    read_margin_alerts,
     read_weekly_margin,
 )
 
@@ -1009,6 +1016,294 @@ class WeeklyMarginStoreTest(unittest.TestCase):
 
             rows = read_weekly_margin(db, date(2026, 7, 24))
             self.assertEqual(len(rows or []), 1)
+
+    def test_weekly_store_rejects_post_transition_daily_dates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            with self.assertRaisesRegex(ValueError, "legacy weekly series"):
+                store_jquants_weekly_margin(
+                    db,
+                    [self._record("72030")],
+                    week_end=date(2026, 9, 25),
+                )
+            self.assertFalse(db.exists())
+
+    def test_nonempty_final_legacy_week_does_not_require_another_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            self.assertTrue(final_legacy_week_requires_refresh(db))
+            store_jquants_weekly_margin(
+                db,
+                [self._record("72030")],
+                week_end=date(2026, 9, 18),
+            )
+            self.assertFalse(final_legacy_week_requires_refresh(db))
+
+
+class MarginPublicationTransitionStoreTest(unittest.TestCase):
+    @staticmethod
+    def _all_issues_record(code: str, on_date: date) -> dict[str, object]:
+        return {
+            "Date": on_date.isoformat(),
+            "Code": code,
+            "LongVol": 5000.0,
+            "ShrtVol": 1000.0,
+            "LongStdVol": 3000.0,
+            "LongNegVol": 2000.0,
+            "ShrtStdVol": 800.0,
+            "ShrtNegVol": 200.0,
+            "IssType": "2",
+        }
+
+    def test_daily_all_issues_rejects_legacy_dates_and_duplicate_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            with self.assertRaisesRegex(ValueError, "daily all-issues series"):
+                store_jquants_all_issues_daily_margin(
+                    db,
+                    [self._all_issues_record("72030", date(2026, 9, 18))],
+                    balance_date=date(2026, 9, 18),
+                )
+
+            balance_date = date(2026, 9, 25)
+            record = self._all_issues_record("72030", balance_date)
+            persisted = store_jquants_all_issues_daily_margin(
+                db, [record, record], balance_date=balance_date
+            )
+            conn = open_connection(db)
+            try:
+                row_count = conn.execute(
+                    "SELECT COUNT(*) FROM jquants_all_issues_daily_margin"
+                ).fetchone()[0]
+                status = conn.execute(
+                    "SELECT status FROM source_coverage "
+                    "WHERE source = 'jquants_all_issues_daily_margin'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(persisted, 1)
+            self.assertEqual(row_count, 1)
+            self.assertEqual(status, "partial")
+            self.assertIsNone(read_all_issues_daily_margin(db, balance_date))
+
+    def test_candidate_dates_have_no_transition_gap_and_skip_covered_days(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            trading_days = (date(2026, 9, 25), date(2026, 9, 28), date(2026, 9, 29))
+            store_jquants_daily_bars(
+                db,
+                [
+                    {"Date": day.isoformat(), "Code": "72030", "Close": 100.0}
+                    for day in trading_days
+                ],
+                requested_start=trading_days[0],
+                requested_end=trading_days[-1],
+            )
+
+            self.assertEqual(
+                all_issues_daily_margin_candidate_dates(
+                    db,
+                    date(2026, 9, 1),
+                    date(2026, 9, 28),
+                    publication_confirmed=True,
+                ),
+                [date(2026, 9, 25)],
+            )
+            store_jquants_all_issues_daily_margin(
+                db,
+                [self._all_issues_record("72030", date(2026, 9, 25))],
+                balance_date=date(2026, 9, 25),
+            )
+            self.assertEqual(
+                all_issues_daily_margin_candidate_dates(
+                    db,
+                    date(2026, 9, 1),
+                    date(2026, 9, 29),
+                    publication_confirmed=True,
+                ),
+                [date(2026, 9, 28)],
+            )
+
+    def test_payload_date_mismatch_cannot_replace_a_daily_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            balance_date = date(2026, 9, 25)
+            store_jquants_all_issues_daily_margin(
+                db,
+                [self._all_issues_record("72030", balance_date)],
+                balance_date=balance_date,
+            )
+
+            with self.assertRaises(EmptyRangeReplacementError):
+                store_jquants_all_issues_daily_margin(
+                    db,
+                    [self._all_issues_record("72030", date(2026, 9, 28))],
+                    balance_date=balance_date,
+                )
+
+            rows = read_all_issues_daily_margin(db, balance_date)
+            self.assertEqual(len(rows or []), 1)
+
+    def test_empty_first_publication_is_retried_instead_of_becoming_a_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_daily_bars(
+                db,
+                [
+                    {"Date": "2026-09-25", "Code": "72030", "Close": 100.0},
+                    {"Date": "2026-09-28", "Code": "72030", "Close": 101.0},
+                ],
+                requested_start=date(2026, 9, 25),
+                requested_end=date(2026, 9, 28),
+            )
+            store_jquants_all_issues_daily_margin(db, [], balance_date=date(2026, 9, 25))
+
+            self.assertIsNone(read_all_issues_daily_margin(db, date(2026, 9, 25)))
+            self.assertEqual(
+                all_issues_daily_margin_candidate_dates(
+                    db,
+                    date(2026, 9, 25),
+                    date(2026, 9, 28),
+                    publication_confirmed=True,
+                ),
+                [date(2026, 9, 25)],
+            )
+
+    def test_missing_daily_balance_fields_are_partial_and_remain_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            balance_date = date(2026, 9, 25)
+            persisted = store_jquants_all_issues_daily_margin(
+                db,
+                [{"Date": balance_date.isoformat(), "Code": "72030"}],
+                balance_date=balance_date,
+            )
+            conn = open_connection(db)
+            try:
+                coverage = conn.execute(
+                    "SELECT status, record_count FROM source_coverage "
+                    "WHERE source = 'jquants_all_issues_daily_margin'"
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(persisted, 0)
+            self.assertEqual(coverage, ("partial", 0))
+            self.assertIsNone(read_all_issues_daily_margin(db, balance_date))
+
+    def test_margin_alerts_preserve_regulation_facts_in_a_separate_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            publication_date = date(2026, 8, 10)
+            record = {
+                "PubDate": publication_date.isoformat(),
+                "Code": "72030",
+                "AppDate": "2026-08-07",
+                "PubReason": "日々公表",
+                "ShrtOut": 1000,
+                "ShrtOutChg": 10,
+                "ShrtOutRatio": 0.2,
+                "LongOut": 5000,
+                "LongOutChg": 20,
+                "LongOutRatio": 0.8,
+                "SLRatio": 0.2,
+                "ShrtNegOut": 200,
+                "ShrtNegOutChg": 2,
+                "ShrtStdOut": 800,
+                "ShrtStdOutChg": 8,
+                "LongNegOut": 2000,
+                "LongNegOutChg": 10,
+                "LongStdOut": 3000,
+                "LongStdOutChg": 10,
+                "TSEMrgnRegCls": "委託保証金率50%",
+            }
+            store_jquants_margin_alerts(
+                db,
+                [record],
+                requested_start=publication_date,
+                requested_end=publication_date,
+            )
+
+            alerts = read_margin_alerts(db, publication_date, publication_date)
+            self.assertEqual(len(alerts or []), 1)
+            assert alerts is not None
+            self.assertEqual(alerts[0].applied_date, date(2026, 8, 7))
+            self.assertEqual(
+                alerts[0].tse_margin_regulation_classification,
+                "委託保証金率50%",
+            )
+            conn = open_connection(db)
+            try:
+                weekly_count = conn.execute(
+                    "SELECT COUNT(*) FROM jquants_weekly_margin"
+                ).fetchone()[0]
+                daily_count = conn.execute(
+                    "SELECT COUNT(*) FROM jquants_all_issues_daily_margin"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual((weekly_count, daily_count), (0, 0))
+
+    def test_margin_alert_missing_observation_fields_is_partial(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            publication_date = date(2026, 8, 10)
+            persisted = store_jquants_margin_alerts(
+                db,
+                [{"PubDate": publication_date.isoformat(), "Code": "72030"}],
+                requested_start=publication_date,
+                requested_end=publication_date,
+            )
+            conn = open_connection(db)
+            try:
+                coverage = conn.execute(
+                    "SELECT status, record_count FROM source_coverage "
+                    "WHERE source = 'jquants_margin_alerts'"
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(persisted, 0)
+            self.assertEqual(coverage, ("partial", 0))
+            self.assertIsNone(read_margin_alerts(db, publication_date, publication_date))
+
+    def test_calendar_date_cannot_activate_daily_ingest_before_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_daily_bars(
+                db,
+                [
+                    {"Date": "2026-09-25", "Code": "72030", "Close": 100.0},
+                    {"Date": "2026-09-28", "Code": "72030", "Close": 101.0},
+                ],
+                requested_start=date(2026, 9, 25),
+                requested_end=date(2026, 9, 28),
+            )
+
+            self.assertEqual(
+                all_issues_daily_margin_candidate_dates(db, date(2026, 9, 25), date(2026, 9, 28)),
+                [],
+            )
+
+    def test_backfill_window_includes_its_end_balance_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_daily_bars(
+                db,
+                [{"Date": "2026-09-25", "Code": "72030", "Close": 100.0}],
+                requested_start=date(2026, 9, 25),
+                requested_end=date(2026, 9, 25),
+            )
+
+            self.assertEqual(
+                all_issues_daily_margin_backfill_candidate_dates(
+                    db,
+                    date(2026, 9, 25),
+                    date(2026, 9, 25),
+                    publication_confirmed=True,
+                ),
+                [date(2026, 9, 25)],
+            )
 
 
 class MarginPublicationLagTest(unittest.TestCase):
