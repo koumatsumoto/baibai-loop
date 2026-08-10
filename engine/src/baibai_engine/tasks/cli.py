@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         close.add_argument("task_id")
     reconcile = commands.add_parser(
         "reconcile-earnings",
-        help="align earnings-review tasks with the disclosed earnings calendar",
+        help="align earnings-related tasks with the disclosed earnings calendar",
     )
     reconcile.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     edit = commands.add_parser(
@@ -114,8 +114,9 @@ def _reconcile_earnings(service: TaskService, args: argparse.Namespace, *, today
 
     This never writes. A task's date is machine-set when the schedule could supply
     one and hand-set when it could not, so the only dates that would ever change
-    here are the ones a human chose — and the task 規約 (ops-maintenance skill) keeps that write
-    boundary with the human. The comparison names what moved; `task edit` applies it.
+    here are the ones a human chose — and the task 規約 (ops-maintenance skill)
+    keeps that write boundary with the human. The comparison names what moved;
+    `task edit` applies it.
     """
     from .earnings_reconcile import reconcile_earnings_dates
     from .earnings_schedule import read_published_earnings_dates

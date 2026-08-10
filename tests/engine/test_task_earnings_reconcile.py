@@ -19,6 +19,7 @@ def _task(**overrides: object) -> Task:
         "status": "open",
         "ticker": "4716",
         "due_date": date(2026, 9, 25),
+        "event_label": "4716 1Q決算",
         "event_date": date(2026, 9, 25),
         "created_at": TODAY,
     }
@@ -76,6 +77,31 @@ class ReconcileEarningsDatesTest(unittest.TestCase):
         )
 
         self.assertEqual(results, [])
+
+    def test_a_non_earnings_task_for_the_same_ticker_is_left_alone(self) -> None:
+        tasks = [
+            _task(),
+            _task(
+                task_id="task-20260731-4716-plan",
+                title="4716 次期中計の資本配分を確認する",
+                event_label="次期中計発表（推定日）",
+                due_date=date(2027, 5, 14),
+                event_date=date(2027, 5, 14),
+            ),
+        ]
+
+        results = reconcile_earnings_dates(tasks, {"4716": date(2026, 9, 25)}, today=TODAY)
+
+        self.assertEqual([result.task_id for result in results], ["task-20260731-4716"])
+
+    def test_an_earnings_review_kind_does_not_require_a_text_marker(self) -> None:
+        results = reconcile_earnings_dates(
+            [_task(kind="earnings-review", title="4716 quarterly review", event_label=None)],
+            {"4716": date(2026, 9, 25)},
+            today=TODAY,
+        )
+
+        self.assertEqual(len(results), 1)
 
     def test_results_are_ordered_by_the_published_date(self) -> None:
         tasks = [
