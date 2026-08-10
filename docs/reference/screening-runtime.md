@@ -282,7 +282,7 @@ EDINET code から ticker への解決は、同じ document list 履歴が観測
 - `large_holding_event_recent` / `large_holding_event_latest_on` — 対象会社として直近 183 日に観測した大量保有系提出の有無と最新日
 - `tender_offer_event_recent` / `tender_offer_event_latest_on` — 同じく公開買付系提出
 
-`*_recent` の `null` は「窓の全日が identity 込みで観測されていない」状態で、`false`（窓を観測して提出が無かった）と違う。
+`*_recent` の `null` は「言えない」状態であり、`false`（窓を観測して提出が無かった）と違う。言えないのは 3 つの場合で、(a) 窓の全日が identity 込みで観測されていない、(b) その銘柄の EDINET code が過去の提出から解決できない、(c) 対象会社を名指さない提出がその種別で窓にある。(c) は種別ごとに効き、もう一方の種別は答えられる。
 
 ### 支配権イベントの実現 exit 値
 
