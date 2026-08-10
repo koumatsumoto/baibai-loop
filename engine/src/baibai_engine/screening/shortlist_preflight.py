@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.read_api.shortlist import list_shortlist_payloads
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.run_store import (
     RunPublication,
     ScreeningRunReader,
@@ -46,7 +47,13 @@ def shortlist_preflight(
     cloud = _load_cloud_screening(cloud_summary_path)
     git = git_state or _git_state(repo_root)
     reader = ScreeningRunReader(runs_db_path)
-    current_code = _resolve_current_code(reader, as_of=as_of, commit=git.commit)
+    default_profile = load_screening_rules().selection.default_profile
+    current_code = _resolve_current_code(
+        reader,
+        as_of=as_of,
+        commit=git.commit,
+        default_profile=default_profile,
+    )
     run = reader.get_run(cloud["run_revision_id"])
     selection = reader.get_selection(cloud["selection_id"])
     run_commit = None if run is None else run.application_git_commit
@@ -59,7 +66,7 @@ def shortlist_preflight(
         and run_commit is not None
         and selection.application_git_commit == git.commit
         and selection.publication_kind == "machine"
-        and selection.profile == "default"
+        and selection.profile == default_profile
     )
     cloud_matches_head = cloud_publication_valid and run_commit == git.commit
     previous = _resolve_previous(
@@ -509,6 +516,7 @@ def _resolve_current_code(
     *,
     as_of: date,
     commit: str,
+    default_profile: str,
 ) -> dict[str, object]:
     as_of_text = as_of.isoformat()
     runs = [
@@ -523,7 +531,7 @@ def _resolve_current_code(
         if item.run_revision_id in run_by_id
         and item.application_git_commit == commit
         and item.publication_kind == "machine"
-        and item.profile == "default"
+        and item.profile == default_profile
     ]
     if len(runs) == 1 and len(selections) == 1:
         selection = selections[0]
