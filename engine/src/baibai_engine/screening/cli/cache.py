@@ -210,6 +210,7 @@ def backfill_history_command(
     end: date,
     providers: ProviderBundle,
     sqlite_path: Path,
+    probe_margin_publication_transition: bool = False,
     stdout: TextIO | None = None,
 ) -> int:
     """Fill the range sources over an explicit window.
@@ -234,9 +235,45 @@ def backfill_history_command(
     """
     out = stdout if stdout is not None else sys.stdout
     window = f"{start.isoformat()}..{end.isoformat()}"
+    if probe_margin_publication_transition and (
+        start != ALL_ISSUES_DAILY_FIRST_BALANCE_DATE or end != ALL_ISSUES_DAILY_FIRST_BALANCE_DATE
+    ):
+        print(
+            "--probe-margin-publication-transition requires the exact "
+            f"{ALL_ISSUES_DAILY_FIRST_BALANCE_DATE.isoformat()}.."
+            f"{ALL_ISSUES_DAILY_FIRST_BALANCE_DATE.isoformat()} window",
+            file=sys.stderr,
+        )
+        return 1
     state = "existing" if sqlite_path.exists() else "new"
     print(f"backfill-history store: {sqlite_path} ({state})", file=out, flush=True)
     print(f"backfill-history start: {window}", file=out, flush=True)
+    if probe_margin_publication_transition:
+        source = "all_issues_daily_margin"
+        print(f"backfill-history {source}: {window} U4 probe start", file=out, flush=True)
+        try:
+            rows = providers.jquants.get_mkt_all_issues_daily_margin(
+                ALL_ISSUES_DAILY_FIRST_BALANCE_DATE
+            )
+            if not rows:
+                raise JQuantsProviderError("U4 margin publication probe returned an empty snapshot")
+        except (
+            JQuantsProviderError,
+            SQLiteSchemaError,
+            EmptyRangeReplacementError,
+            sqlite3.Error,
+        ) as exc:
+            print(
+                f"backfill-history {source}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"backfill-history {source}: {len(rows)} row(s) U4 probe done",
+            file=out,
+            flush=True,
+        )
+        return 0
     sources: tuple[tuple[str, Callable[[date, date], Sequence[object]], bool], ...] = (
         ("daily_bars", providers.jquants.get_eq_bars_daily_range, True),
         ("fin_summaries", providers.jquants.get_fin_summary_range, True),

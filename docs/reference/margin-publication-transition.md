@@ -56,6 +56,34 @@ union しない。6 残高 field は有限・非負、`IssType` は non-null を
 - U4 は JPX の移行実施告知と、repository が利用する J-Quants ClientV2 の endpoint / field /
   date identity / 母集団を実 payload で確認する。両方が一致した commit だけが activation flag を
   `True` にする。移行中止または ClientV2 未対応なら無効のままにする。
+- 公式 go-live の確認後、activation 前の初回 snapshot は次の bounded probe で取得する。この flag は
+  `2026-09-25..2026-09-25` 以外を拒否し、runtime activation は変更しない。取得が失敗した場合も
+  flag は `False` のままである。
+
+  ```bash
+  uv run baibai-engine screening backfill-history \
+    --start 2026-09-25 --end 2026-09-25 \
+    --probe-margin-publication-transition
+  ```
+
+- U4 の初回 snapshot は、実データを見る前に固定した one-shot verifier で機械突合する。
+  `row_count ratio 0.98..1.02`、小さい方の母集団に対する ticker overlap `>= 0.98`、
+  `IssType` 一致率 `>= 0.95`、long / short 総残高比 `0.50..2.00` を shape / unit gate とする。
+  6 残高は有限・非負かつ total = standard + negotiable を全 row で要求する。これらは別母集団、
+  100 倍等の単位変更、field 入替を止めるための広い境界であり、日次需給軸の有効性判定ではない。
+  実行例は次のとおりで、`pass` の report と actual payload 契約確認を同じ U4 commit に固定する。
+
+  ```bash
+  uv run python tools/diagnostics/verify_margin_publication_transition.py \
+    --sqlite stores/market/market.sqlite \
+    --output reports/operations/2026-09-28-margin-publication-transition/report.md
+  ```
+
+  exit `0` は全 gate pass、`1` は比較可能だが gate fail（fail report は保存する）、`2` は
+  schema・coverage・公表時刻・row shape が比較不能、出力先が store と同一、または report の
+  原子的保存に失敗した状態を表す。`1` / `2` では
+  activation と merge を行わない。probe 取得、verifier `pass`、actual ClientV2 契約確認、
+  activation flag 更新、full gates、merge の順序を変えない。
 - 全銘柄日次の empty response は coverage 完了とみなさず、non-empty な clean snapshot を
   保存するまで次の batch で再取得する。
 - J-Quants client/API が field、endpoint、日付 identity、母集団を変更した場合は取込を停止し、
