@@ -212,6 +212,23 @@ primary-research lane の research FV と screening FV の bridge は、有効�
 
 初回の採点可能日は 2026-10-17（最古 shortlist 2026-07-17 + 3m）である。
 
+<a id="catalyst-axis-preregistration"></a>
+
+#### カタリスト軸の事前登録
+
+`screening shortlist outcome` は selected を、OP3 narrative が日付つきカタリストを持つか否かで 2 分する（`selected_by_catalyst`）。**次を計測の実行前に固定する。**
+
+- **切る場所は selected の内側だけ**。rejected は narrative を持たないので、pool 全体で切ると selected / rejected の差をカタリストの差として報告することになる。
+- **判定基準は棄却コストと同じ**（1y 以上・cohort 8 以上・時間 2 分割で同方向）。満たすまで方向を主張しない。
+- **母数が 10 件未満の側は中央超過を算出せず件数だけを並べる。**
+- **この軸は選定にも ranking にも入れない。** 満たした場合に起票できるのは OP3 深度契約（カタリストの日付要求）の見直しだけであり、`tse_capital_policy_status` などの annotation を機械の入力へ昇格させる根拠にはしない。
+
+初回の採点可能日は棄却コストと同じ 2026-10-17 である。
+
+### 支配権イベントの実現 exit 値
+
+上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格で解決する（`resolved_control_event_exit`）。これは効果量を選ぶ仮説ではなく、観測済みの対価へ置き換える correctness 変更である。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。実値化できない上場廃止は従来どおり全損・中立の両側 bracket に残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
+
 ### 誠実性の規律
 
 1. 有意性・統計的優位を主張しない。効果量と cohort 勝率で判断し、そう書く。

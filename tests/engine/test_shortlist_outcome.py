@@ -380,3 +380,41 @@ def test_rejected_names_are_also_grouped_by_the_reject_class_they_were_given() -
     assert grouped["event_wait"]["n"] == 1
     # 分類が無い棄却も落とさず、`unclassified` として数える。
     assert grouped["unclassified"]["n"] == 1
+
+
+def test_the_catalyst_split_stays_inside_the_selected_cohort() -> None:
+    """Rejected names carry no narrative, so a pool-wide split would report selection."""
+    entries = [
+        _entry("1111", "selected"),
+        _entry("2222", "selected"),
+        _entry("3333", "rejected"),
+    ]
+    # The second selection was made without a dated catalyst.
+    narrative = entries[1]["narrative"]
+    assert isinstance(narrative, dict)
+    narrative["catalyst_date"] = None
+    cohort = cohort_from_payload(_payload(entries))
+    assert cohort is not None
+    rows = [_forward("1111", 0.20), _forward("2222", -0.10), _forward("3333", 0.0)]
+
+    result = evaluate_cohort(cohort, rows, horizon="3m")
+
+    split = result["selected_by_catalyst"]
+    assert split["basis"] == "selected_only"
+    assert split["dated_catalyst"]["n"] == 1
+    assert split["dated_catalyst"]["median_return_pct"] == 20.0
+    assert split["no_dated_catalyst"]["n"] == 1
+    assert split["no_dated_catalyst"]["median_return_pct"] == -10.0
+
+
+def test_the_catalyst_split_reports_its_population_before_the_horizon_matures() -> None:
+    cohort = cohort_from_payload(_payload([_entry("1111", "selected"), _entry("2222", "rejected")]))
+    assert cohort is not None
+
+    result = evaluate_cohort(cohort, [_forward("1111", None), _forward("2222", None)], horizon="3m")
+
+    assert result["status"] == "unresolved"
+    split = result["selected_by_catalyst"]
+    assert split["dated_catalyst"]["n"] == 1
+    assert split["dated_catalyst"]["resolved"] == 0
+    assert split["dated_catalyst"]["median_return_pct"] is None
