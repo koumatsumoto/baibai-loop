@@ -38,10 +38,17 @@ def _run(as_of: str, run_at: str) -> dict[str, object]:
     }
 
 
-def _selection(store: ScreeningRunStore, run_id: str, selection_id: str, created: str) -> None:
+def _selection(
+    store: ScreeningRunStore,
+    run_id: str,
+    selection_id: str,
+    created: str,
+    *,
+    profile: str = "balanced",
+) -> None:
     store.publish_selection(
         run_revision_id=run_id,
-        profile="default",
+        profile=profile,
         macro_context_id=None,
         payload={"recommendations": [{"ticker": "2331"}]},
         selection_id=selection_id,
@@ -263,6 +270,52 @@ def test_preflight_reuses_interrupted_current_code_publication_on_resume(tmp_pat
         "selection_id": "selection-local-current",
         "application_git_commit": "b" * 40,
     }
+
+
+def test_preflight_ignores_non_default_profile_when_resuming_current_code(
+    tmp_path: Path,
+) -> None:
+    runs = tmp_path / "runs.sqlite"
+    app = tmp_path / "app.sqlite"
+    summary = tmp_path / "latest-run.json"
+    initialize_database(app)
+    cloud_store = ScreeningRunStore(runs, git_commit_factory=lambda: COMMIT)
+    cloud_run = cloud_store.publish_run(
+        _run("2026-08-07", "2026-08-07T12:00:00+09:00"),
+        run_revision_id="run-cloud",
+    ).publication_id
+    _selection(cloud_store, cloud_run, "selection-cloud", "2026-08-07T03:10:00+00:00")
+    current_store = ScreeningRunStore(runs, git_commit_factory=lambda: "b" * 40)
+    current_run = current_store.publish_run(
+        _run("2026-08-07", "2026-08-07T13:00:00+09:00"),
+        run_revision_id="run-local-current",
+    ).publication_id
+    _selection(
+        current_store,
+        current_run,
+        "selection-local-current",
+        "2026-08-07T04:10:00+00:00",
+    )
+    _selection(
+        current_store,
+        current_run,
+        "selection-experimental",
+        "2026-08-07T04:20:00+00:00",
+        profile="experimental",
+    )
+    _summary(summary, run_id=cloud_run, selection_id="selection-cloud", as_of="2026-08-07")
+
+    report = shortlist_preflight(
+        as_of=date(2026, 8, 7),
+        cloud_summary_path=summary,
+        runs_db_path=runs,
+        app_db_path=app,
+        repo_root=tmp_path,
+        git_state=GitState(commit="b" * 40, clean=True),
+    )
+
+    assert report["decision"] == "reuse"
+    assert report["reusable"]["selection_id"] == "selection-local-current"
 
 
 def test_preflight_resumes_select_only_for_current_code_run(tmp_path: Path) -> None:
