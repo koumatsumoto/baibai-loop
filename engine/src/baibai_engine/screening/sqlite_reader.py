@@ -48,21 +48,31 @@ from .edinet_store import (
 from .edinet_store import (
     read_unfinalized_edinet_document_dates as read_unfinalized_edinet_document_dates,
 )
+from .margin_publication import (
+    ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
+    ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
+    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+)
 from .providers.jpx import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXRegulationSnapshot,
 )
 from .providers.jquants import (
+    JQuantsAllIssuesDailyMargin,
     JQuantsFinancialSummary,
+    JQuantsMarginAlert,
     JQuantsProviderError,
     JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
 )
 from .schema import SecurityMaster
 from .sqlite_cache.jquants import (
+    ALL_ISSUES_DAILY_MARGIN_SOURCE,
+    MARGIN_ALERT_SOURCE,
     SHORT_SALE_REPORT_SOURCE,
     WEEKLY_MARGIN_SOURCE,
+    all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
 )
 
@@ -339,6 +349,123 @@ def read_weekly_margin(sqlite_path: Path, week_end: date) -> list[JQuantsWeeklyM
     ]
 
 
+def final_legacy_week_requires_refresh(sqlite_path: Path) -> bool:
+    """Whether the final weekly balance still lacks a non-empty clean snapshot."""
+    if not sqlite_path.exists():
+        return True
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return True
+    try:
+        row = conn.execute(
+            "SELECT status, record_count FROM source_coverage "
+            "WHERE source = ? AND coverage_key = ?",
+            (
+                WEEKLY_MARGIN_SOURCE,
+                weekly_margin_coverage_key(LEGACY_WEEKLY_LAST_BALANCE_DATE),
+            ),
+        ).fetchone()
+    finally:
+        conn.close()
+    return row is None or row[0] != "ok" or int(row[1] or 0) == 0
+
+
+def read_margin_alerts(
+    sqlite_path: Path, start: date, end: date
+) -> list[JQuantsMarginAlert] | None:
+    """Read designated-issue daily facts only for a covered publication range."""
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        if not range_covered(conn, MARGIN_ALERT_SOURCE, start, end):
+            return None
+        rows = conn.execute(
+            "SELECT publication_date, ticker, applied_date, publication_reason, "
+            "short_outstanding, short_change, short_ratio, long_outstanding, long_change, "
+            "long_ratio, short_long_ratio, short_negotiable_outstanding, "
+            "short_negotiable_change, short_standard_outstanding, short_standard_change, "
+            "long_negotiable_outstanding, long_negotiable_change, long_standard_outstanding, "
+            "long_standard_change, tse_margin_regulation_classification "
+            "FROM jquants_margin_alerts WHERE publication_date BETWEEN ? AND ? "
+            "ORDER BY publication_date, ticker",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        JQuantsMarginAlert(
+            publication_date=date.fromisoformat(str(row[0])),
+            ticker=str(row[1]),
+            applied_date=optional_date(row[2]),
+            publication_reason=str(row[3]) if row[3] is not None else None,
+            short_outstanding=_opt_float_value(row[4]),
+            short_change=_opt_float_value(row[5]),
+            short_ratio=_opt_float_value(row[6]),
+            long_outstanding=_opt_float_value(row[7]),
+            long_change=_opt_float_value(row[8]),
+            long_ratio=_opt_float_value(row[9]),
+            short_long_ratio=_opt_float_value(row[10]),
+            short_negotiable_outstanding=_opt_float_value(row[11]),
+            short_negotiable_change=_opt_float_value(row[12]),
+            short_standard_outstanding=_opt_float_value(row[13]),
+            short_standard_change=_opt_float_value(row[14]),
+            long_negotiable_outstanding=_opt_float_value(row[15]),
+            long_negotiable_change=_opt_float_value(row[16]),
+            long_standard_outstanding=_opt_float_value(row[17]),
+            long_standard_change=_opt_float_value(row[18]),
+            tse_margin_regulation_classification=(str(row[19]) if row[19] is not None else None),
+        )
+        for row in rows
+    ]
+
+
+def read_all_issues_daily_margin(
+    sqlite_path: Path, balance_date: date
+) -> list[JQuantsAllIssuesDailyMargin] | None:
+    """Read one all-issues daily balance, distinct from legacy weekly history."""
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        coverage = conn.execute(
+            "SELECT status, record_count FROM source_coverage "
+            "WHERE source = ? AND coverage_key = ?",
+            (
+                ALL_ISSUES_DAILY_MARGIN_SOURCE,
+                all_issues_daily_margin_coverage_key(balance_date),
+            ),
+        ).fetchone()
+        if coverage is None or coverage[0] != "ok" or int(coverage[1] or 0) == 0:
+            return None
+        rows = conn.execute(
+            "SELECT ticker, long_vol, short_vol, long_std_vol, long_neg_vol, "
+            "short_std_vol, short_neg_vol, issue_type "
+            "FROM jquants_all_issues_daily_margin WHERE balance_date = ? ORDER BY ticker",
+            (balance_date.isoformat(),),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        JQuantsAllIssuesDailyMargin(
+            ticker=str(row[0]),
+            balance_date=balance_date,
+            long_vol=_opt_float_value(row[1]),
+            short_vol=_opt_float_value(row[2]),
+            long_std_vol=_opt_float_value(row[3]),
+            long_neg_vol=_opt_float_value(row[4]),
+            short_std_vol=_opt_float_value(row[5]),
+            short_neg_vol=_opt_float_value(row[6]),
+            issue_type=str(row[7]) if row[7] is not None else None,
+        )
+        for row in rows
+    ]
+
+
 def _opt_float_value(value: object) -> float | None:
     return float(value) if isinstance(value, int | float) else None
 
@@ -434,6 +561,7 @@ def weekly_margin_candidate_dates(sqlite_path: Path, start: date, end: date) -> 
     one candidate per week and lets the fetch record an empty answer as the week's
     fact, so a week without a balance date is asked for once.
     """
+    end = min(end, LEGACY_WEEKLY_LAST_BALANCE_DATE)
     if not sqlite_path.exists() or start > end:
         return []
     conn = connect_current(sqlite_path)
@@ -470,6 +598,87 @@ def weekly_margin_candidate_dates(sqlite_path: Path, start: date, end: date) -> 
     ):
         last_of_week.pop(newest.isocalendar()[:2], None)
     return sorted(last_of_week.values())
+
+
+def all_issues_daily_margin_candidate_dates(
+    sqlite_path: Path,
+    start: date,
+    asof: date,
+    *,
+    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
+) -> list[date]:
+    """Unfetched daily balance dates that have a later trading-day publication."""
+    if not publication_confirmed:
+        return []
+    start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
+    if not sqlite_path.exists() or start >= asof:
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+                (start.isoformat(), asof.isoformat()),
+            )
+        ]
+        covered = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT coverage_key FROM source_coverage "
+                "WHERE source = ? AND status = 'ok' AND record_count > 0",
+                (ALL_ISSUES_DAILY_MARGIN_SOURCE,),
+            )
+        }
+    finally:
+        conn.close()
+    # Publication is on the following business day, so the newest trading day has
+    # not yet become available. An empty all-issues response cannot describe a
+    # complete business-day snapshot and remains a retry target.
+    return [
+        day for day in trading_days[:-1] if all_issues_daily_margin_coverage_key(day) not in covered
+    ]
+
+
+def all_issues_daily_margin_backfill_candidate_dates(
+    sqlite_path: Path,
+    start: date,
+    end: date,
+    *,
+    publication_confirmed: bool = ALL_ISSUES_DAILY_PUBLICATION_CONFIRMED,
+) -> list[date]:
+    """Every uncovered balance date in an inclusive historical backfill window."""
+    if not publication_confirmed:
+        return []
+    start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
+    if not sqlite_path.exists() or start > end:
+        return []
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return []
+    try:
+        trading_days = [
+            date.fromisoformat(str(row[0]))
+            for row in conn.execute(
+                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
+                "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+                (start.isoformat(), end.isoformat()),
+            )
+        ]
+        covered = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT coverage_key FROM source_coverage "
+                "WHERE source = ? AND status = 'ok' AND record_count > 0",
+                (ALL_ISSUES_DAILY_MARGIN_SOURCE,),
+            )
+        }
+    finally:
+        conn.close()
+    return [day for day in trading_days if all_issues_daily_margin_coverage_key(day) not in covered]
 
 
 def _latest_stored_trading_day(*, conn_path: Path) -> date | None:

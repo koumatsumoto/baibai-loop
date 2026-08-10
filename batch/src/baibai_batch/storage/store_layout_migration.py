@@ -80,6 +80,8 @@ _REQUIRED_TABLES = {
             "jquants_fin_summaries",
             "jquants_market_calendar",
             "jquants_master_snapshots",
+            "jquants_margin_alerts",
+            "jquants_all_issues_daily_margin",
             "jquants_weekly_margin",
             "source_coverage",
         }

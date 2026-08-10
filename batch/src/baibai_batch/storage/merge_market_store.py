@@ -64,6 +64,8 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "jquants_earnings_calendar": ("announcement_date", "ticker"),
     "jquants_fin_summaries": ("ticker", "disclosed_at"),
     "jquants_market_calendar": ("day",),
+    "jquants_margin_alerts": ("publication_date", "ticker"),
+    "jquants_all_issues_daily_margin": ("balance_date", "ticker"),
     "jquants_master_snapshots": ("snapshot_date", "ticker"),
     "jquants_short_sale_reports": ("disclosed_at", "source_ordinal"),
     "jquants_weekly_margin": ("week_end", "ticker"),

@@ -44,6 +44,8 @@ _REQUIRED_TABLES = (
     "jquants_earnings_calendar",
     "jquants_market_calendar",
     "jquants_weekly_margin",
+    "jquants_margin_alerts",
+    "jquants_all_issues_daily_margin",
     "jquants_short_sale_reports",
     "edinet_documents",
     "edinet_document_lists",
@@ -110,6 +112,39 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
     "jquants_market_calendar": ("day", "is_business_day"),
     "jquants_weekly_margin": (
         "week_end",
+        "ticker",
+        "long_vol",
+        "short_vol",
+        "long_std_vol",
+        "long_neg_vol",
+        "short_std_vol",
+        "short_neg_vol",
+        "issue_type",
+    ),
+    "jquants_margin_alerts": (
+        "publication_date",
+        "ticker",
+        "applied_date",
+        "publication_reason",
+        "short_outstanding",
+        "short_change",
+        "short_ratio",
+        "long_outstanding",
+        "long_change",
+        "long_ratio",
+        "short_long_ratio",
+        "short_negotiable_outstanding",
+        "short_negotiable_change",
+        "short_standard_outstanding",
+        "short_standard_change",
+        "long_negotiable_outstanding",
+        "long_negotiable_change",
+        "long_standard_outstanding",
+        "long_standard_change",
+        "tse_margin_regulation_classification",
+    ),
+    "jquants_all_issues_daily_margin": (
+        "balance_date",
         "ticker",
         "long_vol",
         "short_vol",
@@ -305,7 +340,7 @@ CREATE TABLE IF NOT EXISTS jquants_market_calendar(
 -- Standard and negotiable margin are stored separately because only the standard
 -- side carries a six-month settlement deadline.
 CREATE TABLE IF NOT EXISTS jquants_weekly_margin(
-  week_end TEXT NOT NULL,
+  week_end TEXT NOT NULL CHECK (week_end <= '2026-09-18'),
   ticker TEXT NOT NULL,
   long_vol REAL,
   short_vol REAL,
@@ -319,6 +354,54 @@ CREATE TABLE IF NOT EXISTS jquants_weekly_margin(
 
 CREATE INDEX IF NOT EXISTS idx_jquants_weekly_margin_ticker
   ON jquants_weekly_margin(ticker, week_end);
+
+-- Daily balances for the limited set of 日々公表銘柄. This source includes the
+-- exchange's margin-regulation classification and remains distinct from both
+-- the legacy weekly all-issues series and its daily all-issues replacement.
+CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
+  publication_date TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  applied_date TEXT,
+  publication_reason TEXT,
+  short_outstanding REAL,
+  short_change REAL,
+  short_ratio REAL,
+  long_outstanding REAL,
+  long_change REAL,
+  long_ratio REAL,
+  short_long_ratio REAL,
+  short_negotiable_outstanding REAL,
+  short_negotiable_change REAL,
+  short_standard_outstanding REAL,
+  short_standard_change REAL,
+  long_negotiable_outstanding REAL,
+  long_negotiable_change REAL,
+  long_standard_outstanding REAL,
+  long_standard_change REAL,
+  tse_margin_regulation_classification TEXT,
+  PRIMARY KEY (publication_date, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jquants_margin_alerts_ticker
+  ON jquants_margin_alerts(ticker, publication_date);
+
+-- All-issues daily balances beginning with the 2026-09-25 balance. A separate
+-- table is a semantic boundary: these rows must never be read as weekly history.
+CREATE TABLE IF NOT EXISTS jquants_all_issues_daily_margin(
+  balance_date TEXT NOT NULL CHECK (balance_date >= '2026-09-25'),
+  ticker TEXT NOT NULL,
+  long_vol REAL,
+  short_vol REAL,
+  long_std_vol REAL,
+  long_neg_vol REAL,
+  short_std_vol REAL,
+  short_neg_vol REAL,
+  issue_type TEXT,
+  PRIMARY KEY (balance_date, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_jquants_all_issues_daily_margin_ticker
+  ON jquants_all_issues_daily_margin(ticker, balance_date);
 
 -- Investor-level positions disclosed under the 0.5% short-position reporting
 -- rule. Names remain the provider's exact reporter identity fields: guessing

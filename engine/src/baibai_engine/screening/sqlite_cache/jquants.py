@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,10 @@ from baibai_engine.market.sqlite.coverage import (
     replace_date_range,
 )
 from baibai_engine.market.sqlite.schema import open_connection
+from baibai_engine.screening.margin_publication import (
+    require_all_issues_daily_balance_date,
+    require_legacy_weekly_balance_date,
+)
 from baibai_engine.screening.master_snapshot import (
     MASTER_OPERATION,
     MASTER_SOURCE,
@@ -84,6 +89,10 @@ def store_jquants_fin_summaries(
 
 WEEKLY_MARGIN_SOURCE = "jquants_weekly_margin"
 WEEKLY_MARGIN_OPERATION = "get_mkt_margin_interest"
+MARGIN_ALERT_SOURCE = "jquants_margin_alerts"
+MARGIN_ALERT_OPERATION = "get_mkt_margin_alert_range"
+ALL_ISSUES_DAILY_MARGIN_SOURCE = "jquants_all_issues_daily_margin"
+ALL_ISSUES_DAILY_MARGIN_OPERATION = "get_mkt_margin_interest"
 
 SHORT_SALE_REPORT_SOURCE = "jquants_short_sale_reports"
 SHORT_SALE_REPORT_OPERATION = "get_mkt_short_sale_report"
@@ -92,6 +101,11 @@ SHORT_SALE_REPORT_OPERATION = "get_mkt_short_sale_report"
 def weekly_margin_coverage_key(week_end: date) -> str:
     iso = week_end.isoformat()
     return f"{WEEKLY_MARGIN_OPERATION}:{iso}..{iso}"
+
+
+def all_issues_daily_margin_coverage_key(balance_date: date) -> str:
+    iso = balance_date.isoformat()
+    return f"{ALL_ISSUES_DAILY_MARGIN_OPERATION}:{iso}..{iso}"
 
 
 def store_jquants_weekly_margin(
@@ -108,6 +122,7 @@ def store_jquants_weekly_margin(
     asked for once rather than on every run. The row set for a date is replaced
     whole, which is how a re-fetch corrects a partially stored week.
     """
+    require_legacy_weekly_balance_date(week_end)
     normalized = _weekly_margin_rows_with_quality(records, week_end)
     rows = normalized.rows
     conn = open_connection(db_path)
@@ -158,6 +173,126 @@ def store_jquants_weekly_margin(
         )
         conn.commit()
         return persisted_count
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def store_jquants_margin_alerts(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    requested_start: date,
+    requested_end: date,
+) -> int:
+    """Persist the daily designated-issue dataset by publication date."""
+    normalized = _margin_alert_rows_with_quality(records, requested_start, requested_end)
+    conn = open_connection(db_path)
+    try:
+        conn.execute("BEGIN")
+        replace_date_range(
+            conn,
+            "jquants_margin_alerts",
+            "publication_date",
+            requested_start,
+            requested_end,
+            replacement_row_count=len(normalized.rows),
+        )
+        if normalized.rows:
+            conn.executemany(
+                """
+                INSERT INTO jquants_margin_alerts(
+                  publication_date, ticker, applied_date, publication_reason,
+                  short_outstanding, short_change, short_ratio,
+                  long_outstanding, long_change, long_ratio, short_long_ratio,
+                  short_negotiable_outstanding, short_negotiable_change,
+                  short_standard_outstanding, short_standard_change,
+                  long_negotiable_outstanding, long_negotiable_change,
+                  long_standard_outstanding, long_standard_change,
+                  tse_margin_regulation_classification
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                normalized.rows,
+            )
+        persisted = record_range_source_coverage(
+            conn,
+            source=MARGIN_ALERT_SOURCE,
+            operation=MARGIN_ALERT_OPERATION,
+            table="jquants_margin_alerts",
+            date_column="publication_date",
+            requested_start=requested_start,
+            requested_end=requested_end,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        conn.commit()
+        return persisted
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def store_jquants_all_issues_daily_margin(
+    db_path: Path,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    balance_date: date,
+) -> int:
+    """Persist one post-transition all-issues daily balance date."""
+    require_all_issues_daily_balance_date(balance_date)
+    normalized = _all_issues_daily_margin_rows_with_quality(records, balance_date)
+    conn = open_connection(db_path)
+    try:
+        iso = balance_date.isoformat()
+        conn.execute("BEGIN")
+        held = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM jquants_all_issues_daily_margin WHERE balance_date = ?",
+                (iso,),
+            ).fetchone()[0]
+            or 0
+        )
+        if not normalized.rows and held:
+            raise EmptyRangeReplacementError(
+                f"refusing to replace {held} stored jquants_all_issues_daily_margin row(s) "
+                f"for {iso} with an empty payload"
+            )
+        conn.execute("DELETE FROM jquants_all_issues_daily_margin WHERE balance_date = ?", (iso,))
+        if normalized.rows:
+            conn.executemany(
+                """
+                INSERT INTO jquants_all_issues_daily_margin(
+                  balance_date, ticker, long_vol, short_vol, long_std_vol, long_neg_vol,
+                  short_std_vol, short_neg_vol, issue_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                normalized.rows,
+            )
+        persisted = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM jquants_all_issues_daily_margin WHERE balance_date = ?",
+                (iso,),
+            ).fetchone()[0]
+            or 0
+        )
+        record_source_coverage(
+            conn,
+            source=ALL_ISSUES_DAILY_MARGIN_SOURCE,
+            operation=ALL_ISSUES_DAILY_MARGIN_OPERATION,
+            coverage_key=all_issues_daily_margin_coverage_key(balance_date),
+            coverage_start=iso,
+            coverage_end=iso,
+            params={"date": iso, "publication_scope": "all_issues_daily"},
+            record_count=persisted,
+            status=normalized.status,
+            error=normalized.error,
+        )
+        conn.commit()
+        return persisted
     except Exception:
         conn.rollback()
         raise
@@ -397,6 +532,152 @@ def _weekly_margin_rows_with_quality(
                 to_float(first(record, "ShrtStdVol", "shrt_std_vol")),
                 to_float(first(record, "ShrtNegVol", "shrt_neg_vol")),
                 to_str_or_none(first(record, "IssType", "iss_type")),
+            )
+        )
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+
+
+def _margin_alert_rows_with_quality(
+    records: Iterable[Mapping[str, Any]], requested_start: date, requested_end: date
+) -> NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
+    seen: set[tuple[str, str]] = set()
+    for record in records:
+        required_payload_fields = (
+            ("AppDate", "ApplicationDate", "applied_date"),
+            ("PubReason", "publication_reason"),
+            ("ShrtOut", "short_outstanding"),
+            ("ShrtOutChg", "short_change"),
+            ("ShrtOutRatio", "short_ratio"),
+            ("LongOut", "long_outstanding"),
+            ("LongOutChg", "long_change"),
+            ("LongOutRatio", "long_ratio"),
+            ("SLRatio", "short_long_ratio"),
+            ("ShrtNegOut", "short_negotiable_outstanding"),
+            ("ShrtNegOutChg", "short_negotiable_change"),
+            ("ShrtStdOut", "short_standard_outstanding"),
+            ("ShrtStdOutChg", "short_standard_change"),
+            ("LongNegOut", "long_negotiable_outstanding"),
+            ("LongNegOutChg", "long_negotiable_change"),
+            ("LongStdOut", "long_standard_outstanding"),
+            ("LongStdOutChg", "long_standard_change"),
+            ("TSEMrgnRegCls", "tse_margin_regulation_classification"),
+        )
+        if any(not any(key in record for key in aliases) for aliases in required_payload_fields):
+            rejected_count += 1
+            continue
+        ticker, quality = code_quality(first(record, "Code", "code"))
+        if quality == "rejected":
+            rejected_count += 1
+            continue
+        if quality == "excluded" or ticker is None:
+            excluded_count += 1
+            continue
+        publication_date = date_iso(first(record, "PubDate", "PublicationDate", "publication_date"))
+        if publication_date is None:
+            rejected_count += 1
+            continue
+        try:
+            publication_day = date.fromisoformat(publication_date)
+        except ValueError:
+            rejected_count += 1
+            continue
+        identity = (publication_date, ticker)
+        applied_date = date_iso(first(record, "AppDate", "ApplicationDate", "applied_date"))
+        publication_reason = to_str_or_none(first(record, "PubReason", "publication_reason"))
+        core_balances = (
+            to_float(first(record, "ShrtOut", "short_outstanding")),
+            to_float(first(record, "LongOut", "long_outstanding")),
+            to_float(first(record, "ShrtNegOut", "short_negotiable_outstanding")),
+            to_float(first(record, "ShrtStdOut", "short_standard_outstanding")),
+            to_float(first(record, "LongNegOut", "long_negotiable_outstanding")),
+            to_float(first(record, "LongStdOut", "long_standard_outstanding")),
+        )
+        if (
+            not requested_start <= publication_day <= requested_end
+            or identity in seen
+            or applied_date is None
+            or publication_reason is None
+            or any(value is None or not isfinite(value) or value < 0.0 for value in core_balances)
+        ):
+            rejected_count += 1
+            continue
+        seen.add(identity)
+        rows.append(
+            (
+                publication_date,
+                ticker,
+                applied_date,
+                publication_reason,
+                core_balances[0],
+                to_float(first(record, "ShrtOutChg", "short_change")),
+                to_float(first(record, "ShrtOutRatio", "short_ratio")),
+                core_balances[1],
+                to_float(first(record, "LongOutChg", "long_change")),
+                to_float(first(record, "LongOutRatio", "long_ratio")),
+                to_float(first(record, "SLRatio", "short_long_ratio")),
+                core_balances[2],
+                to_float(first(record, "ShrtNegOutChg", "short_negotiable_change")),
+                core_balances[3],
+                to_float(first(record, "ShrtStdOutChg", "short_standard_change")),
+                core_balances[4],
+                to_float(first(record, "LongNegOutChg", "long_negotiable_change")),
+                core_balances[5],
+                to_float(first(record, "LongStdOutChg", "long_standard_change")),
+                to_str_or_none(
+                    first(
+                        record,
+                        "TSEMrgnRegCls",
+                        "tse_margin_regulation_classification",
+                    )
+                ),
+            )
+        )
+    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
+
+
+def _all_issues_daily_margin_rows_with_quality(
+    records: Iterable[Mapping[str, Any]], balance_date: date
+) -> NormalizedRows:
+    rows: list[tuple[Any, ...]] = []
+    rejected_count = 0
+    excluded_count = 0
+    seen: set[str] = set()
+    for record in records:
+        ticker, quality = code_quality(first(record, "Code", "code"))
+        if quality == "rejected":
+            rejected_count += 1
+            continue
+        if quality == "excluded" or ticker is None:
+            excluded_count += 1
+            continue
+        payload_date = date_iso(first(record, "Date", "balance_date"))
+        if payload_date != balance_date.isoformat() or ticker in seen:
+            rejected_count += 1
+            continue
+        balances = (
+            to_float(first(record, "LongVol", "long_vol")),
+            to_float(first(record, "ShrtVol", "shrt_vol")),
+            to_float(first(record, "LongStdVol", "long_std_vol")),
+            to_float(first(record, "LongNegVol", "long_neg_vol")),
+            to_float(first(record, "ShrtStdVol", "shrt_std_vol")),
+            to_float(first(record, "ShrtNegVol", "shrt_neg_vol")),
+        )
+        issue_type = to_str_or_none(first(record, "IssType", "iss_type"))
+        if issue_type is None or any(
+            value is None or not isfinite(value) or value < 0.0 for value in balances
+        ):
+            rejected_count += 1
+            continue
+        seen.add(ticker)
+        rows.append(
+            (
+                balance_date.isoformat(),
+                ticker,
+                *balances,
+                issue_type,
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)

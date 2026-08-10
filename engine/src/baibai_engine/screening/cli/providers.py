@@ -15,8 +15,10 @@ from baibai_engine.screening.providers.jpx import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.screening.providers.jquants import (
+    JQuantsAllIssuesDailyMargin,
     JQuantsDailyBar,
     JQuantsFinancialSummary,
+    JQuantsMarginAlert,
     JQuantsMarketCalendarDay,
     JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
@@ -56,6 +58,18 @@ class JQuantsAdapter(Protocol):
     def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]: ...
 
     def get_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
+
+    def refresh_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]: ...
+
+    def get_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]: ...
+
+    def refresh_mkt_margin_alert_range(
+        self, start: date, end: date
+    ) -> list[JQuantsMarginAlert]: ...
+
+    def get_mkt_all_issues_daily_margin(
+        self, balance_date: date
+    ) -> list[JQuantsAllIssuesDailyMargin]: ...
 
     def get_mkt_short_sale_report_range(
         self, start: date, end: date

@@ -74,6 +74,47 @@ class JQuantsWeeklyMargin:
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
+class JQuantsAllIssuesDailyMargin:
+    """One ticker's post-transition all-issues balance for one business day."""
+
+    ticker: str
+    balance_date: date
+    long_vol: float | None = None
+    short_vol: float | None = None
+    long_std_vol: float | None = None
+    long_neg_vol: float | None = None
+    short_std_vol: float | None = None
+    short_neg_vol: float | None = None
+    issue_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
+class JQuantsMarginAlert:
+    """Daily balance and regulation facts for an issue selected for daily publication."""
+
+    publication_date: date
+    ticker: str
+    applied_date: date | None = None
+    publication_reason: str | None = None
+    short_outstanding: float | None = None
+    short_change: float | None = None
+    short_ratio: float | None = None
+    long_outstanding: float | None = None
+    long_change: float | None = None
+    long_ratio: float | None = None
+    short_long_ratio: float | None = None
+    short_negotiable_outstanding: float | None = None
+    short_negotiable_change: float | None = None
+    short_standard_outstanding: float | None = None
+    short_standard_change: float | None = None
+    long_negotiable_outstanding: float | None = None
+    long_negotiable_change: float | None = None
+    long_standard_outstanding: float | None = None
+    long_standard_change: float | None = None
+    tse_margin_regulation_classification: str | None = None
+
+
+@dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsShortSaleReport:
     """One reporter's disclosed short-position state for one ticker."""
 
@@ -206,6 +247,9 @@ class JQuantsProvider(JQuantsMarketProvider):
         attempt either way, which is what keeps a skipped week from being asked
         for again on every pass.
         """
+        from ..margin_publication import require_legacy_weekly_balance_date
+
+        require_legacy_weekly_balance_date(week_end)
         if self._sqlite_path is not None:
             from ..sqlite_reader import read_weekly_margin
 
@@ -232,6 +276,106 @@ class JQuantsProvider(JQuantsMarketProvider):
             margin
             for record in records
             if (margin := normalize_weekly_margin(record, week_end)) is not None
+        ]
+
+    def refresh_mkt_margin_interest_week(self, week_end: date) -> list[JQuantsWeeklyMargin]:
+        """Re-read one legacy week even when an earlier empty response was cached."""
+        from ..margin_publication import require_legacy_weekly_balance_date
+
+        require_legacy_weekly_balance_date(week_end)
+        self._raise_if_cache_only("jquants_weekly_margin", week_end.isoformat())
+        records = self._load_or_fetch(
+            "get_mkt_margin_interest",
+            store_params={"week_end": week_end},
+            date_yyyymmdd=week_end.strftime("%Y%m%d"),
+        )
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_weekly_margin
+
+            stored = read_weekly_margin(self._sqlite_path, week_end)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "SQLite cache remained incomplete after refreshing jquants_weekly_margin "
+                    f"for {week_end.isoformat()}"
+                )
+            return stored
+        return [
+            margin
+            for record in records
+            if (margin := normalize_weekly_margin(record, week_end)) is not None
+        ]
+
+    def get_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]:
+        """Return the daily-publication designated-issue dataset for a date range."""
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_margin_alerts
+
+            cached = read_margin_alerts(self._sqlite_path, start, end)
+            if cached is not None:
+                return cached
+        return self._fetch_mkt_margin_alert_range(start, end)
+
+    def refresh_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]:
+        """Re-read a bounded publication-date overlap for late rows or corrections."""
+        return self._fetch_mkt_margin_alert_range(start, end)
+
+    def _fetch_mkt_margin_alert_range(self, start: date, end: date) -> list[JQuantsMarginAlert]:
+        self._raise_if_cache_only(
+            "jquants_margin_alerts", f"{start.isoformat()}..{end.isoformat()}"
+        )
+        records = self._load_or_fetch_range("get_mkt_margin_alert_range", start, end)
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_margin_alerts
+
+            stored = read_margin_alerts(self._sqlite_path, start, end)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "SQLite cache remained incomplete after fetching jquants_margin_alerts "
+                    f"for {start.isoformat()}..{end.isoformat()}"
+                )
+            return stored
+        return [
+            alert
+            for record in records
+            if (alert := normalize_margin_alert(record)) is not None
+            and start <= alert.publication_date <= end
+        ]
+
+    def get_mkt_all_issues_daily_margin(
+        self, balance_date: date
+    ) -> list[JQuantsAllIssuesDailyMargin]:
+        """Fetch the all-issues daily replacement without touching weekly storage."""
+        from ..margin_publication import require_all_issues_daily_balance_date
+
+        require_all_issues_daily_balance_date(balance_date)
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_all_issues_daily_margin
+
+            cached = read_all_issues_daily_margin(self._sqlite_path, balance_date)
+            if cached is not None:
+                return cached
+        self._raise_if_cache_only("jquants_all_issues_daily_margin", balance_date.isoformat())
+        records = self._load_or_fetch(
+            "get_mkt_margin_interest",
+            store_params={"all_issues_daily_balance_date": balance_date},
+            date_yyyymmdd=balance_date.strftime("%Y%m%d"),
+        )
+        if self._sqlite_path is not None:
+            from ..sqlite_reader import read_all_issues_daily_margin
+
+            stored = read_all_issues_daily_margin(self._sqlite_path, balance_date)
+            if stored is None:
+                raise JQuantsProviderError(
+                    "SQLite cache remained incomplete after fetching "
+                    "jquants_all_issues_daily_margin for "
+                    f"{balance_date.isoformat()}"
+                )
+            return stored
+        return [
+            margin
+            for record in records
+            if (margin := normalize_all_issues_daily_margin(record)) is not None
+            and margin.balance_date == balance_date
         ]
 
     def get_mkt_short_sale_report_range(
@@ -551,12 +695,37 @@ class JQuantsProvider(JQuantsMarketProvider):
             )
             return
         if method == "get_mkt_margin_interest":
-            from ..sqlite_cache import store_jquants_weekly_margin
+            from ..sqlite_cache import (
+                store_jquants_all_issues_daily_margin,
+                store_jquants_weekly_margin,
+            )
 
+            daily_balance_date = params.get("all_issues_daily_balance_date")
+            if isinstance(daily_balance_date, date):
+                store_jquants_all_issues_daily_margin(
+                    self._sqlite_path, records, balance_date=daily_balance_date
+                )
+                return
             week_end = params.get("week_end")
             if not isinstance(week_end, date):
                 raise JQuantsProviderError("get_mkt_margin_interest store requires week_end")
             store_jquants_weekly_margin(self._sqlite_path, records, week_end=week_end)
+            return
+        if method == "get_mkt_margin_alert_range":
+            from ..sqlite_cache import store_jquants_margin_alerts
+
+            start = params.get("start_dt")
+            end = params.get("end_dt")
+            if not isinstance(start, date) or not isinstance(end, date):
+                raise JQuantsProviderError(
+                    "get_mkt_margin_alert_range store requires start_dt and end_dt"
+                )
+            store_jquants_margin_alerts(
+                self._sqlite_path,
+                records,
+                requested_start=start,
+                requested_end=end,
+            )
             return
         if method == "get_mkt_short_sale_report":
             from ..sqlite_cache import store_jquants_short_sale_reports
@@ -641,6 +810,81 @@ def normalize_weekly_margin(
         short_std_vol=to_float(coalesce_field(record, "ShrtStdVol", "shrt_std_vol")),
         short_neg_vol=to_float(coalesce_field(record, "ShrtNegVol", "shrt_neg_vol")),
         issue_type=_issue_type(coalesce_field(record, "IssType", "iss_type")),
+    )
+
+
+def normalize_all_issues_daily_margin(
+    record: Mapping[str, Any],
+) -> JQuantsAllIssuesDailyMargin | None:
+    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    if not common_code:
+        return None
+    return JQuantsAllIssuesDailyMargin(
+        ticker=ticker,
+        balance_date=parse_date(first_value(record, "Date", "balance_date")),
+        long_vol=to_float(coalesce_field(record, "LongVol", "long_vol")),
+        short_vol=to_float(coalesce_field(record, "ShrtVol", "shrt_vol")),
+        long_std_vol=to_float(coalesce_field(record, "LongStdVol", "long_std_vol")),
+        long_neg_vol=to_float(coalesce_field(record, "LongNegVol", "long_neg_vol")),
+        short_std_vol=to_float(coalesce_field(record, "ShrtStdVol", "shrt_std_vol")),
+        short_neg_vol=to_float(coalesce_field(record, "ShrtNegVol", "shrt_neg_vol")),
+        issue_type=_issue_type(coalesce_field(record, "IssType", "iss_type")),
+    )
+
+
+def normalize_margin_alert(record: Mapping[str, Any]) -> JQuantsMarginAlert | None:
+    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    if not common_code:
+        return None
+    return JQuantsMarginAlert(
+        publication_date=parse_date(
+            first_value(record, "PubDate", "PublicationDate", "publication_date")
+        ),
+        ticker=ticker,
+        applied_date=parse_optional_date(
+            coalesce_field(record, "AppDate", "ApplicationDate", "applied_date")
+        ),
+        publication_reason=_optional_text(coalesce_field(record, "PubReason", "publication_reason"))
+        or None,
+        short_outstanding=to_float(coalesce_field(record, "ShrtOut", "short_outstanding")),
+        short_change=to_float(coalesce_field(record, "ShrtOutChg", "short_change")),
+        short_ratio=to_float(coalesce_field(record, "ShrtOutRatio", "short_ratio")),
+        long_outstanding=to_float(coalesce_field(record, "LongOut", "long_outstanding")),
+        long_change=to_float(coalesce_field(record, "LongOutChg", "long_change")),
+        long_ratio=to_float(coalesce_field(record, "LongOutRatio", "long_ratio")),
+        short_long_ratio=to_float(coalesce_field(record, "SLRatio", "short_long_ratio")),
+        short_negotiable_outstanding=to_float(
+            coalesce_field(record, "ShrtNegOut", "short_negotiable_outstanding")
+        ),
+        short_negotiable_change=to_float(
+            coalesce_field(record, "ShrtNegOutChg", "short_negotiable_change")
+        ),
+        short_standard_outstanding=to_float(
+            coalesce_field(record, "ShrtStdOut", "short_standard_outstanding")
+        ),
+        short_standard_change=to_float(
+            coalesce_field(record, "ShrtStdOutChg", "short_standard_change")
+        ),
+        long_negotiable_outstanding=to_float(
+            coalesce_field(record, "LongNegOut", "long_negotiable_outstanding")
+        ),
+        long_negotiable_change=to_float(
+            coalesce_field(record, "LongNegOutChg", "long_negotiable_change")
+        ),
+        long_standard_outstanding=to_float(
+            coalesce_field(record, "LongStdOut", "long_standard_outstanding")
+        ),
+        long_standard_change=to_float(
+            coalesce_field(record, "LongStdOutChg", "long_standard_change")
+        ),
+        tse_margin_regulation_classification=_optional_text(
+            coalesce_field(
+                record,
+                "TSEMrgnRegCls",
+                "tse_margin_regulation_classification",
+            )
+        )
+        or None,
     )
 
 

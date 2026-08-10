@@ -86,6 +86,48 @@ def _migrate_v14_edinet_document_events(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM source_coverage WHERE source = 'edinet_documents'")
 
 
+def _migrate_v21_margin_publication_domains(conn: sqlite3.Connection) -> None:
+    """Put the legacy weekly date boundary below every write path, including merge."""
+    # SQLite keeps explicitly named indexes attached to the renamed old table;
+    # release the name before `rebuild_table` creates the replacement index.
+    conn.execute("DROP INDEX IF EXISTS idx_jquants_weekly_margin_ticker")
+    rebuild_table(
+        conn,
+        table="jquants_weekly_margin",
+        create_statements=(
+            """
+            CREATE TABLE jquants_weekly_margin(
+              week_end TEXT NOT NULL CHECK (week_end <= '2026-09-18'),
+              ticker TEXT NOT NULL,
+              long_vol REAL,
+              short_vol REAL,
+              long_std_vol REAL,
+              long_neg_vol REAL,
+              short_std_vol REAL,
+              short_neg_vol REAL,
+              issue_type TEXT,
+              PRIMARY KEY (week_end, ticker)
+            )
+            """,
+            (
+                "CREATE INDEX idx_jquants_weekly_margin_ticker "
+                "ON jquants_weekly_margin(ticker, week_end)"
+            ),
+        ),
+        columns=(
+            "week_end",
+            "ticker",
+            "long_vol",
+            "short_vol",
+            "long_std_vol",
+            "long_neg_vol",
+            "short_std_vol",
+            "short_neg_vol",
+            "issue_type",
+        ),
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=14, transform=_migrate_v14_edinet_document_events),
     Migration(
@@ -187,6 +229,59 @@ MIGRATIONS: tuple[Migration, ...] = (
                 "ON jquants_short_sale_reports(ticker, disclosed_at, calculated_at)"
             ),
         ),
+    ),
+    Migration(
+        version=21,
+        statements=(
+            """
+            CREATE TABLE IF NOT EXISTS jquants_margin_alerts(
+              publication_date TEXT NOT NULL,
+              ticker TEXT NOT NULL,
+              applied_date TEXT,
+              publication_reason TEXT,
+              short_outstanding REAL,
+              short_change REAL,
+              short_ratio REAL,
+              long_outstanding REAL,
+              long_change REAL,
+              long_ratio REAL,
+              short_long_ratio REAL,
+              short_negotiable_outstanding REAL,
+              short_negotiable_change REAL,
+              short_standard_outstanding REAL,
+              short_standard_change REAL,
+              long_negotiable_outstanding REAL,
+              long_negotiable_change REAL,
+              long_standard_outstanding REAL,
+              long_standard_change REAL,
+              tse_margin_regulation_classification TEXT,
+              PRIMARY KEY (publication_date, ticker)
+            )
+            """,
+            (
+                "CREATE INDEX IF NOT EXISTS idx_jquants_margin_alerts_ticker "
+                "ON jquants_margin_alerts(ticker, publication_date)"
+            ),
+            """
+            CREATE TABLE IF NOT EXISTS jquants_all_issues_daily_margin(
+              balance_date TEXT NOT NULL CHECK (balance_date >= '2026-09-25'),
+              ticker TEXT NOT NULL,
+              long_vol REAL,
+              short_vol REAL,
+              long_std_vol REAL,
+              long_neg_vol REAL,
+              short_std_vol REAL,
+              short_neg_vol REAL,
+              issue_type TEXT,
+              PRIMARY KEY (balance_date, ticker)
+            )
+            """,
+            (
+                "CREATE INDEX IF NOT EXISTS idx_jquants_all_issues_daily_margin_ticker "
+                "ON jquants_all_issues_daily_margin(ticker, balance_date)"
+            ),
+        ),
+        transform=_migrate_v21_margin_publication_domains,
     ),
 )
 
