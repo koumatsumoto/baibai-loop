@@ -443,8 +443,13 @@ def _realize_case(
                     priced_filing = (price, filing)
             if priced_filing is not None and cash_only is not None:
                 break
-        if priced_filing is not None and cash_only is True:
-            priced.append(priced_filing)
+        if priced_filing is None or cash_only is not True:
+            # An offer this offeror ran that cannot be read is not an offer that did not
+            # happen. Dropping it would let a second tier — the one whose funding names
+            # a non-cash leg, or whose price the table does not state — disappear, and
+            # the remaining tier would then look like the single price of the case.
+            return None, downloads
+        priced.append(priced_filing)
     if len({price for price, _ in priced}) != 1:
         return None, downloads
     price, filing = priced[0]

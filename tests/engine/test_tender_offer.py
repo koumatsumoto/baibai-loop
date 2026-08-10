@@ -307,6 +307,39 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1})
 
+    def test_a_second_tier_that_cannot_be_read_still_blocks_the_case(self) -> None:
+        """A tier that is unreadable is not a tier that did not happen."""
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp,
+                [
+                    ("2026-02-01", 1, "REG", None, "240", "2026-02-01T09:00", "BIDDER", "TARGET"),
+                    ("2026-02-05", 1, "REG_B", None, "240", "2026-02-05T09:00", "BIDDER", "TARGET"),
+                    ("2026-03-20", 1, "RES", None, "270", "2026-03-20T09:00", "BIDDER", "TARGET"),
+                ],
+                reason="他社による買収（公開買付け、株式併合）",
+            )
+            provider = _Provider(
+                {
+                    "REG": _archive(
+                        {
+                            _PRICE: "株券普通株式１株につき金1,650円算定の基礎…",
+                            _FUNDING: _CASH_ONLY,
+                        }
+                    ),
+                    # The second tier states a price the table cannot resolve.
+                    "REG_B": _archive({_PRICE: "株券―新株予約権証券―", _FUNDING: _CASH_ONLY}),
+                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+
+            values, summary = build_control_event_exit_values(
+                sqlite_path, provider=provider, asof=self.ASOF
+            )
+
+            self.assertEqual(values, ())
+            self.assertEqual(summary.rejection_reason_counts, {"price_or_outcome_unreadable": 1})
+
     def test_a_correction_supersedes_the_price_it_revises(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = self._store(

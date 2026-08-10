@@ -435,9 +435,9 @@ class ControlEventIndexTest(unittest.TestCase):
                 connection.close()
 
             assert index is not None
-            self.assertEqual(index[("1301", "large_holding")], date(2026, 7, 1))
-            self.assertEqual(index[("1332", "tender_offer")], date(2026, 7, 2))
-            self.assertNotIn(("9999", "large_holding"), index)
+            self.assertEqual(index.latest_by_target[("1301", "large_holding")], date(2026, 7, 1))
+            self.assertEqual(index.latest_by_target[("1332", "tender_offer")], date(2026, 7, 2))
+            self.assertNotIn(("9999", "large_holding"), index.latest_by_target)
 
     def test_a_withdrawn_filing_is_not_an_event(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -457,7 +457,7 @@ class ControlEventIndexTest(unittest.TestCase):
                 connection.close()
 
             assert index is not None
-            self.assertEqual(index, {})
+            self.assertEqual(index.latest_by_target, {})
 
     def test_an_unobserved_window_reports_unknown_rather_than_no_events(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -491,6 +491,47 @@ class ControlEventIndexTest(unittest.TestCase):
             annotation = annotations["1301"]
             self.assertIs(annotation.large_holding_event_recent, False)
             self.assertIsNone(annotation.large_holding_event_latest_on)
+
+    def test_a_ticker_whose_edinet_identity_is_unknown_reports_unknown(self) -> None:
+        """Coverage of the index does not prove a company could have been looked up."""
+        with TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            self._listed_window(
+                sqlite_path,
+                rows=[
+                    # 7777 never filed anything carrying its own securities code, so the
+                    # holding filed against it cannot be attributed to a listing.
+                    ("2026-07-01", 1, "S1", None, "350", "1", "0", "0", "E9", "E7", None),
+                    ("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None),
+                ],
+            )
+
+            annotations = read_capital_control_annotations(
+                sqlite_path, asof=self.ASOF, tickers=["1301", "7777"]
+            )
+
+            self.assertIs(annotations["1301"].large_holding_event_recent, False)
+            self.assertIsNone(annotations["7777"].large_holding_event_recent)
+
+    def test_a_filing_naming_no_target_makes_that_event_type_unknown(self) -> None:
+        """An absence is unprovable when a filing could have been about anyone."""
+        with TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            self._listed_window(
+                sqlite_path,
+                rows=[
+                    ("2026-07-02", 1, "S2", None, "280", "1", "0", "0", "E9", None, None),
+                    ("2026-06-01", 1, "S3", "13010", "120", "1", "0", "0", "E1", None, None),
+                ],
+            )
+
+            annotation = read_capital_control_annotations(
+                sqlite_path, asof=self.ASOF, tickers=["1301"]
+            )["1301"]
+
+            self.assertIsNone(annotation.tender_offer_event_recent)
+            # The other event type is still answerable from the same window.
+            self.assertIs(annotation.large_holding_event_recent, False)
 
     def test_policy_status_reads_the_latest_snapshot_at_or_before_the_asof(self) -> None:
         with TemporaryDirectory() as tmp:

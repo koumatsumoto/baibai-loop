@@ -104,13 +104,15 @@ def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventE
     taken private again — so the caller matches the one that falls inside its window
     and leaves the row unresolved when more than one does.
     """
+    # No fallback to an empty mapping. A store that cannot answer would produce a build
+    # that is byte-identical to the baseline while presenting itself as the actual-exit
+    # contract, and the before/after comparison would then read "nothing was replaced"
+    # as a result rather than as a missing input.
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         rows = conn.execute(
             "SELECT ticker, delisted_on, offer_price_yen FROM tender_offer_exit_values"
         ).fetchall()
-    except sqlite3.OperationalError:
-        return {}
     finally:
         conn.close()
     exits: dict[str, list[ControlEventExit]] = {}

@@ -11,6 +11,7 @@ import pytest
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_batch.storage.merge_market_store import (
+    ALL_TABLES,
     FACT_KEYS,
     SOURCE_MISSING_ALLOWED,
     UNCOMPARED,
@@ -179,7 +180,7 @@ def test_every_market_table_is_merged(tmp_path: Path) -> None:
         }
     finally:
         conn.close()
-    assert set(FACT_KEYS) == present
+    assert set(ALL_TABLES) == present
 
 
 def test_each_declared_key_is_the_tables_primary_key(tmp_path: Path) -> None:
@@ -188,7 +189,7 @@ def test_each_declared_key_is_the_tables_primary_key(tmp_path: Path) -> None:
     path = _store(tmp_path / "market.sqlite")
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        for table, keys in FACT_KEYS.items():
+        for table, keys in ALL_TABLES.items():
             primary = tuple(
                 str(row[1]) for row in conn.execute(f'PRAGMA table_info("{table}")') if row[5]
             )
@@ -889,3 +890,57 @@ def test_the_exempt_columns_are_only_the_ones_named(tmp_path: Path) -> None:
         conn.close()
     assert set(UNCOMPARED) <= set(FACT_KEYS)
     assert set(SOURCE_MISSING_ALLOWED) <= set(FACT_KEYS)
+
+
+def _add_exit_value(path: Path, ticker: str, price: float) -> None:
+    conn = open_connection(path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO tender_offer_exit_values("
+            "ticker, delisted_on, offer_price_yen, offer_doc_id, result_doc_id, filed_on"
+            ") VALUES (?, '2026-05-01', ?, 'REG', 'RES', '2026-02-01')",
+            (ticker, price),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_retracted_exit_value_is_not_resurrected_from_the_published_copy(
+    tmp_path: Path,
+) -> None:
+    """A later derivation that could not establish the price has to win.
+
+    The published copy holds what an earlier derivation could see. Reinserting it would
+    put a price into the calibration forward that the current rules refuse to establish.
+    """
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_exit_value(published, "2000", 1060.0)
+
+    merge_stores(published, local)
+
+    conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
+    try:
+        assert conn.execute("SELECT count(*) FROM tender_offer_exit_values").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_a_corrected_exit_value_does_not_block_the_publish(tmp_path: Path) -> None:
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_exit_value(published, "2000", 1060.0)
+    _add_exit_value(local, "2000", 1200.0)
+
+    merge_stores(published, local)
+
+    conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
+    try:
+        assert (
+            conn.execute("SELECT offer_price_yen FROM tender_offer_exit_values").fetchone()[0]
+            == 1200.0
+        )
+    finally:
+        conn.close()

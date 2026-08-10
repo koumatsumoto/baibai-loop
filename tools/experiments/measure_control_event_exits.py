@@ -34,6 +34,10 @@ CORE_METRICS = ("recommended_rank_top5", "recommended_rank_top10", "er_calibrati
 # The fields a replaced row is allowed to change. Everything else has to match the
 # baseline row exactly, which is what proves the replacement touched nothing but the
 # exit itself.
+# The only two statuses the pre-registration allows an offer price to replace. A row the
+# market closed keeps its observed quote, so finding one replaced means the contract was
+# violated, not that more rows resolved.
+REPLACEABLE_PRIOR_STATUSES = frozenset({"unresolved_missing_exit", "unresolved_stale_exit"})
 REPLACEABLE_FIELDS = frozenset(
     {
         "resolved",
@@ -103,7 +107,11 @@ def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
             changed = {
                 field for field in baseline_row if baseline_row[field] != actual_row.get(field)
             }
-            if actual_row["status"] != CONTROL_EVENT_STATUS or not changed <= REPLACEABLE_FIELDS:
+            if (
+                actual_row["status"] != CONTROL_EVENT_STATUS
+                or not changed <= REPLACEABLE_FIELDS
+                or baseline_row["status"] not in REPLACEABLE_PRIOR_STATUSES
+            ):
                 unexpected.append(f"{name}:{key[1]}:{horizon}")
                 continue
             replaced_by_horizon[horizon] += 1

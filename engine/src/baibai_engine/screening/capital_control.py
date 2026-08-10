@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
@@ -99,6 +99,25 @@ class CapitalControlAnnotation:
     large_holding_event_latest_on: date | None
     tender_offer_event_recent: bool | None
     tender_offer_event_latest_on: date | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ControlEventIndex:
+    """The filings observed over one window, with the limits of that observation.
+
+    Two things stop an absence from being provable. A ticker whose EDINET code the
+    filing history never revealed cannot be looked up at all, so no filing could have
+    been attributed to it. And a filing that named no target company could have been
+    about anyone, which makes every absence of that event type unprovable for the whole
+    window while leaving the other type answerable.
+    """
+
+    latest_by_target: Mapping[tuple[str, ControlEventType], date]
+    identified_tickers: frozenset[str]
+    anonymous_event_types: frozenset[ControlEventType]
+
+    def can_answer(self, ticker: str, event_type: ControlEventType) -> bool:
+        return ticker in self.identified_tickers and event_type not in self.anonymous_event_types
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -311,24 +330,34 @@ def read_capital_control_annotations(
     result: dict[str, CapitalControlAnnotation] = {}
     for ticker in requested:
         policy = policy_by_ticker.get(ticker)
-        large = None if event_index is None else event_index.get((ticker, "large_holding"))
-        tender = None if event_index is None else event_index.get((ticker, "tender_offer"))
+        large_recent, large_on = _event_answer(event_index, ticker, "large_holding")
+        tender_recent, tender_on = _event_answer(event_index, ticker, "tender_offer")
         result[ticker] = CapitalControlAnnotation(
             tse_capital_policy_status=(
                 None if policy_month is None else (policy[0] if policy is not None else "none")
             ),
             tse_capital_policy_updated_on=None if policy is None else policy[1],
-            large_holding_event_recent=None if event_index is None else large is not None,
-            large_holding_event_latest_on=large,
-            tender_offer_event_recent=None if event_index is None else tender is not None,
-            tender_offer_event_latest_on=tender,
+            large_holding_event_recent=large_recent,
+            large_holding_event_latest_on=large_on,
+            tender_offer_event_recent=tender_recent,
+            tender_offer_event_latest_on=tender_on,
         )
     return result
 
 
+def _event_answer(
+    index: ControlEventIndex | None, ticker: str, event_type: ControlEventType
+) -> tuple[bool | None, date | None]:
+    """Answer only when an absence would be provable for this ticker and event type."""
+    if index is None or not index.can_answer(ticker, event_type):
+        return None, None
+    latest = index.latest_by_target.get((ticker, event_type))
+    return latest is not None, latest
+
+
 def read_control_event_index(
     connection: sqlite3.Connection, *, start: date, end: date
-) -> dict[tuple[str, ControlEventType], date] | None:
+) -> ControlEventIndex | None:
     """Latest large-holding / tender-offer filing per target ticker in the window.
 
     Returns ``None`` when the window is not fully identity-covered, so that the caller
@@ -346,6 +375,7 @@ def read_control_event_index(
         (start.isoformat(), end.isoformat(), *LARGE_HOLDING_DOC_TYPES, *TENDER_OFFER_DOC_TYPES),
     ).fetchall()
     index: dict[tuple[str, ControlEventType], date] = {}
+    anonymous: set[ControlEventType] = set()
     for doc_date, doc_type, issuer, subject, legal, disclosure, withdrawal in rows:
         if not is_usable_filing_status(legal, disclosure, withdrawal):
             continue
@@ -353,14 +383,26 @@ def read_control_event_index(
             "large_holding" if str(doc_type) in LARGE_HOLDING_DOC_TYPES else "tender_offer"
         )
         target = issuer if event_type == "large_holding" else subject
-        ticker = ticker_by_edinet_code.get(str(target)) if target not in (None, "") else None
+        if target in (None, ""):
+            # The filing named no target company at all, so it could have been about any
+            # ticker. That makes an absence unprovable for this event type over this
+            # window, while the other type stays answerable.
+            anonymous.add(event_type)
+            continue
+        ticker = ticker_by_edinet_code.get(str(target))
         if ticker is None:
+            # The target is named but its listing cannot be resolved. That is a gap for
+            # the company behind that code, which `identified_tickers` already excludes.
             continue
         observed = date.fromisoformat(str(doc_date))
         key = (ticker, event_type)
         if observed > index.get(key, date.min):
             index[key] = observed
-    return index
+    return ControlEventIndex(
+        latest_by_target=index,
+        identified_tickers=frozenset(ticker_by_edinet_code.values()),
+        anonymous_event_types=frozenset(anonymous),
+    )
 
 
 def edinet_identity_covered(connection: sqlite3.Connection, *, start: date, end: date) -> bool:
@@ -739,6 +781,7 @@ __all__ = (
     "CapitalControlError",
     "CapitalControlRefreshSummary",
     "CapitalPolicyStatus",
+    "ControlEventIndex",
     "ControlEventType",
     "JPXDelistingRow",
     "TSECapitalPolicyRow",

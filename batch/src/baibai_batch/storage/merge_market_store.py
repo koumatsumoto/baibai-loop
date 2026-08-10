@@ -71,9 +71,22 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "jquants_short_sale_reports": ("disclosed_at", "source_ordinal"),
     "jquants_weekly_margin": ("week_end", "ticker"),
     "source_coverage": ("source", "coverage_key"),
+}
+
+# Tables that are a function of other tables rather than an accumulation of fetched
+# records. Only the operator derives them, so the store that ran the derivation last
+# holds the answer and the target is kept whole. Merging them by key would do two wrong
+# things: a row a later derivation retracted — an offer that turned out to have a second
+# bidder, a company the exchange removed from its list — would be reinserted from the
+# older copy, and a corrected value would read as two stores disagreeing and refuse the
+# whole publish. Both are silent, and the first one puts a price into the calibration
+# forward that the current rules say cannot be established.
+DERIVED_KEYS: Mapping[str, tuple[str, ...]] = {
     "tender_offer_exit_values": ("ticker", "delisted_on"),
     "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
 }
+
+ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **DERIVED_KEYS}
 
 # Columns that record how and when a store read the source, not what the source said.
 # Two stores that read the same record at different moments differ on these by
@@ -173,16 +186,38 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 )
                 _reconcile_fin_summary_coverage_counts(connection)
                 _require_compatible_source_coverage_counts(connection)
+                derived = _retain_derived_tables(connection)
                 connection.commit()
                 by_name = {
-                    item.table: item for item in (*ordinary_tables, short_reports, coverage_table)
+                    item.table: item
+                    for item in (*ordinary_tables, short_reports, coverage_table, *derived)
                 }
-                return MergeReport(tables=tuple(by_name[table] for table in FACT_KEYS))
+                return MergeReport(tables=tuple(by_name[table] for table in ALL_TABLES))
             except BaseException:
                 connection.rollback()
                 raise
         finally:
             connection.execute("DETACH DATABASE source")
+
+
+def _retain_derived_tables(connection: sqlite3.Connection) -> tuple[TableMerge, ...]:
+    """Report the derived tables as kept whole, copying nothing from the source."""
+
+    merges: list[TableMerge] = []
+    for table in DERIVED_KEYS:
+        source_rows = count(connection, f'SELECT count(*) FROM source."{table}"')  # nosec B608
+        target_rows = count(connection, f'SELECT count(*) FROM main."{table}"')  # nosec B608
+        merges.append(
+            TableMerge(
+                table=table,
+                source_rows=source_rows,
+                target_rows_before=target_rows,
+                inserted=0,
+                skipped=source_rows,
+                target_rows_after=target_rows,
+            )
+        )
+    return tuple(merges)
 
 
 def _require_compatible_source_coverage_counts(connection: sqlite3.Connection) -> None:

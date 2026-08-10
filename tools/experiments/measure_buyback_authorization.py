@@ -41,6 +41,7 @@ from baibai_engine.screening.buyback_report import (
     parse_buyback_report,
 )
 from baibai_engine.screening.buyback_store import StoredBuybackReport, read_buyback_reports
+from baibai_engine.screening.calibration.forward import RESOLVED_STATUSES
 
 from .measure_signal_cohorts import require_single_rules_hash
 
@@ -194,7 +195,11 @@ def _load_forward(
                     )
                 identities.add(identity)
                 value = _optional_float(raw.get("price_return"))
-                if horizon not in wanted or raw.get("status") != "resolved" or value is None:
+                if (
+                    horizon not in wanted
+                    or raw.get("status") not in RESOLVED_STATUSES
+                    or value is None
+                ):
                     continue
                 forward[(raw_asof, ticker)][horizon] = value
     return forward
