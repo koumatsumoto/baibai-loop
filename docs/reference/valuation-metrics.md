@@ -135,9 +135,25 @@ J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定
 
 ## 7.2 配当（DPS・dividend_yield）
 
-- `dps_actual_annual`: 直近実績の年間 1 株配当。J-Quants `DivAnn`（FY 開示にのみ記載）を、**開示行群の直近非 null 行から carry-forward** して使う（直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続けるため。bps のような latest-row-only の季節欠損を避ける）。分割・併合を跨ぐ行は adjustment_factor 累積で asof-basis へ換算する。
+- `dps_actual_annual`: 直近実績の年間 1 株配当。J-Quants `DivAnn`（FY 開示にのみ記載）を、**開示行群の直近非 null 行から carry-forward** して使う（直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続けるため。bps のような latest-row-only の季節欠損を避ける）。
 - `dps_forecast_annual`: 進行期の予想年間 1 株配当。四半期開示の `FDivAnn`、本決算開示では進行期ガイダンスの `NxFDivAnn` を使う。分割を跨ぐ行は forecast EPS と同じく開示基準を機械判別できないため None に落とす。
-- `dividend_yield` は、正の `dps_forecast_annual` を取得できる場合は `dps_forecast_annual / 直近終値`、取得できない場合は分割調整済みの正の `dps_actual_annual / 直近終値` とする。どちらも取れなければ `null` とする。
+- `dividend_yield` は、正の `dps_forecast_annual` を取得できる場合は `dps_forecast_annual / 直近終値`、取得できない場合は asof の株式基準へ揃えた正の実績年間配当 / 直近終値とする。どちらも取れなければ `null` とする。
+
+**年間 DPS の株式基準**。決算短信・有価証券報告書は 1 株当たり配当を各支払の基準日時点の株式基準で記載する一方、1 株当たり財務数値（EPS・BPS）は分割へ遡及修正される。したがって同じ開示行の中で per-share の基準が混在し、**会計期間が分割・併合を跨いだ年度は年間 DPS を単一の係数で asof の株式基準へ換算できない**。期末発行済株式数を遡及修正するかどうかも提出者ごとに割れており、開示 payload に判別できる field は無い。`dividend_basis` はどの経路で答えたかを持つ。
+
+| `dividend_basis` | 意味 |
+| --- | --- |
+| `forecast_annual` | 予想 DPS から出した。carry は将来利回りなのでこれを最優先する |
+| `actual_reported` | 会計期間に分割・併合が無く、短信の年間値をそのまま使った（厳密値） |
+| `actual_record_date_resolved` | 期間内に分割があり、支払ごとにその基準日より後の調整を掛け直した |
+| `unresolved_split_basis` | 掛け直せず**利回りを出していない**。E[r] も付かない |
+| `unavailable` | 予想も実績も観測できない、または価格が無い |
+
+`unresolved_split_basis` は無配（`dividend_yield = 0`）とも観測不能（`unavailable`）とも別の状態で、**判断面で読み替えない**。carry 支配型の銘柄でこの値が出たら、短信の配当表へ戻って基準を確認する。
+
+支払ごとの換算は、配当の基準日と corporate action の権利落ち日が 5 日以内に並ぶ年度では行わない。日本の分割は権利落ちが基準日の前営業日、効力発生が基準日の翌日という形が定型で、store は権利落ち日しか持たないため、その配当が調整の前の株数で払われたのか後なのかを言えない。換算した値は、株式基準を持たない配当総額を自己株控除後株式数で割った値と突き合わせ、5% を超えて食い違えば答えない。その株数は提出者自身が EPS を出すのに使った期中平均株式数から 2 倍以上外れていれば per-share の分母に使わない（自己株式数の欄に株数そのものが入る開示があり、時価総額が桁で小さくなる）。
+
+`dividend_split_factor` は会計期間に起きた累積 factor で、期間内に何も無ければ `null`。
 - この利回りは将来 carry の機械 E[r] anchor に使う。較正リプレイの実現値は price-only であり、entry 時点の利回りを保有年数で按分する疑似配当 accrual は加えない。
 
 ## 7.3 自己株式取得枠の状態（buyback_authorization_status）

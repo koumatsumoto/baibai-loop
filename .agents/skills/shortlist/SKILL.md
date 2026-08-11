@@ -87,7 +87,7 @@ description: 買い機会の発見と絞り込み。screening run → select →
    4. 深掘り〜保有初期の dated event（決算・guidance・規制・macro monitoring）を消化したか
    5. リスク調整後に現金保有へ勝るか。net cash / 簿価を床にする銘柄は還元機構を確認したか
    6. carry 支配型で、`forecast_special_gain_flag`・FCF の配当カバーを剥がしても成立するか。carry の 2 成分は機械行でなく**一次開示で確定する**（機械の DPS / share-change は基準年ズレと遅れの両方を持つ）:
-      - **配当**: 短信の配当表から特別配当を差し引いた普通配当が反復分。前期実績も同じ処理をしてから比較する（機械の `dps_actual_annual` は分割調整済みの前々期を指していることがある。前期比の跳ねを見る前に、両期が同じ基準か確かめる）
+      - **配当**: 短信の配当表から特別配当を差し引いた普通配当が反復分。前期実績も同じ処理をしてから比較する。機械行の `dividend_basis` が `unresolved_split_basis` なら、分割・併合を跨いだ年度で株式基準を確定できず**利回りを出していない**状態で、無配とも観測不能とも違う（E[r] も付かない）。`actual_record_date_resolved` は機械が支払ごとに組み直した値なので、carry 支配型では短信の配当表へ戻って基準を確かめる
       - **buyback**: 取得枠の開示を読み、①**取得目的**（株式報酬・持株会向けは再放出されるので還元でない）②消却の明言 ③期間と残枠 を確認する。ToSTNeT は取得の場であって一回性の証拠ではない — 背後に取締役会決議の枠があるかで判断する。`net_share_change_yoy` は前年同期比なので、完了済み枠を carry に残す一方で執行中の新枠を取りこぼす — 過大・過小の両方向に外れる
    7. `rank` が機械 E[r] 降順から乖離する銘柄は理由を書いたか
    8. macro connection の research hint / sizing caution / estimate_caveats / bargain_topography のうち該当分を消化したか（該当なしの判断も書く）
