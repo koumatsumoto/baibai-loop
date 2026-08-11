@@ -161,6 +161,10 @@ def _condition_b_metric(
     # 条件 B は σギャップ判定かつ悪化ゲート。60 日下落は要件にしない。price_change_60d
     # は evidence hit に事実として記録するが判定には使わない
     # (metrics["price_change_60d"] は None を許容する)。
+    # σギャップは自己レンジから作るので、価格比例の軸 (per_forward / per_trailing /
+    # pbr / p_s) では軸によらず同じ値になる (実 store の 3,441 銘柄で差が厳密に 0)。
+    # したがってこの loop が実際に別の値を試すのは ev_ebitda だけで、返す軸名は
+    # 「その軸が固有に安い」ことを意味しない。詳細と E[r] 側への影響は #910。
     if _has_deterioration(financial, deterioration_threshold):
         null_reasons.append("valuation_reversion_condition_b_deterioration")
         return None
