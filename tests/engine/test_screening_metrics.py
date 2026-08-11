@@ -2496,9 +2496,7 @@ class DividendCarryResolverTests(unittest.TestCase):
         self.assertAlmostEqual(normalized[0].dps_actual_annual or 0.0, 50.0, places=6)
         self.assertEqual(normalized[0].dividend_interim, 40.0)
 
-        carry = _resolve_dividend_carry(
-            normalized, bars, latest_price=1000.0, asof_date=asof
-        )
+        carry = _resolve_dividend_carry(normalized, bars, latest_price=1000.0, asof_date=asof)
 
         self.assertEqual(carry.basis, "actual_record_date_resolved")
         assert carry.dividend_yield is not None

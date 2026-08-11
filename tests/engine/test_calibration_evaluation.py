@@ -310,9 +310,9 @@ class PlaybookThresholdTest(unittest.TestCase):
             )
             panel.append(turned_away)
             forwards.append(_forward_row(turned_away.ticker, 0.90))
-        result = evaluate_cohorts(
-            {"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"]
-        )["6m"]
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
         cohort = result["cohorts"][0]
         assert isinstance(cohort, dict)
         node = cohort["playbook_thresholds"]
@@ -412,9 +412,9 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
             )
             panel.append(row)
             forwards.append(_forward_row(row.ticker, 0.30))
-        cohort = evaluate_cohorts(
-            {"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"]
-        )["6m"]["cohorts"][0]
+        cohort = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]["cohorts"][0]
         assert isinstance(cohort, dict)
         node = cohort["sector_median_basis"]
         assert isinstance(node, dict)
