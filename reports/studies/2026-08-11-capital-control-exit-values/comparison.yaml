@@ -1,0 +1,171 @@
+kind: control-event-exit-comparison
+preregistration: reports/studies/2026-08-11-capital-control-exit-values/preregistration.md
+inputs:
+  baseline_dir: stores/screening/calibration-baseline
+  actual_dir: stores/screening/calibration
+  baseline_evaluation_sha256: bf10f5f3f0a90f418e83c3e1154da11e43024ad7c58491a0cbf5400ae9280152
+  actual_evaluation_sha256: 05d3424b22e03f4b89774dae09f429728ef1f057de6d0e68c3c764926ea95cd6
+  market_store_sha256: cc29257fd526f581f7700885e92d62cb4186d663063ba5c5a7d6ec5a5177fc1f
+  screening_rules_hash: f4a3f3f20838e1cd
+  cache_schema_version: 15
+  er_model_version: expected-return-v1
+source_coverage:
+  jpx_delisting_rows: 760
+  jpx_tender_offer_delisting_rows: 163
+  tender_offer_exit_values: 152
+  edinet_rows_by_form:
+    '240': 315
+    '250': 304
+    '260': 1
+    '270': 318
+    '280': 1
+    '350': 27953
+    '360': 4706
+  tse_capital_policy_months: 14
+  tse_capital_policy_rows: 32284
+forward:
+  replaced_rows_by_horizon:
+    1y: 1147
+    3m: 340
+    3y: 1289
+    5y: 1225
+    6m: 685
+  replaced_prior_status_counts:
+    unresolved_stale_exit: 4686
+  replaced_ticker_count: 147
+  replaced_cohort_count_by_horizon:
+    1y: 19
+    3m: 19
+    3y: 19
+    5y: 19
+    6m: 19
+  unresolved_rows_before_by_horizon:
+    1y: 47027
+    3m: 8797
+    3y: 143970
+    5y: 232518
+    6m: 21648
+  unresolved_rows_after_by_horizon:
+    1y: 45880
+    3m: 8457
+    3y: 142681
+    5y: 231293
+    6m: 20963
+  rows_changed_outside_the_replacement_rule: []
+authority:
+  baseline:
+    eligible_cohorts_by_horizon:
+      3y: 34
+      5y: 18
+    blocking_reason_counts:
+      3y:entry_price_gap: 6
+      3y:horizon_not_matured: 35
+      3y:unpriced_exit_flips_direction: 5
+      5y:entry_price_gap: 6
+      5y:horizon_not_matured: 59
+    eligible_metric_cohort_count: 52
+    blocked_or_unresolved_count: 108
+  actual_exit:
+    eligible_cohorts_by_horizon:
+      3y: 34
+      5y: 18
+    blocking_reason_counts:
+      3y:entry_price_gap: 6
+      3y:horizon_not_matured: 35
+      3y:unpriced_exit_flips_direction: 5
+      5y:entry_price_gap: 6
+      5y:horizon_not_matured: 59
+    eligible_metric_cohort_count: 52
+    blocked_or_unresolved_count: 108
+core_metrics:
+  3y:
+    recommended_rank_top5:
+      baseline:
+        cohorts: 43
+        mean_n: 4.8
+        mean_median_excess: 0.404641
+        median_win_share: 0.8837
+        mean_mean_excess: 0.515788
+        mean_trap_rate: 0.086
+      actual_exit:
+        cohorts: 43
+        mean_n: 4.9
+        mean_median_excess: 0.397758
+        median_win_share: 0.8837
+        mean_mean_excess: 0.513164
+        mean_trap_rate: 0.0907
+    recommended_rank_top10:
+      baseline:
+        cohorts: 43
+        mean_n: 9.6
+        mean_median_excess: 0.348468
+        median_win_share: 0.907
+        mean_mean_excess: 0.511654
+        mean_trap_rate: 0.1155
+      actual_exit:
+        cohorts: 43
+        mean_n: 9.7
+        mean_median_excess: 0.346752
+        median_win_share: 0.907
+        mean_mean_excess: 0.5117
+        mean_trap_rate: 0.1162
+    er_calibration:
+      baseline:
+        cohorts: 43
+        total_n: 54078
+        mean_absolute_calibration_error: 0.126693
+        mean_realized_top_bottom_spread: 0.578699
+        spread_positive_share: 1.0
+      actual_exit:
+        cohorts: 43
+        total_n: 54570
+        mean_absolute_calibration_error: 0.126282
+        mean_realized_top_bottom_spread: 0.579674
+        spread_positive_share: 1.0
+  5y:
+    recommended_rank_top5:
+      baseline:
+        cohorts: 19
+        mean_n: 4.8
+        mean_median_excess: 0.605596
+        median_win_share: 0.9474
+        mean_mean_excess: 0.990643
+        mean_trap_rate: 0.1474
+      actual_exit:
+        cohorts: 19
+        mean_n: 4.8
+        mean_median_excess: 0.601271
+        median_win_share: 0.9474
+        mean_mean_excess: 0.986319
+        mean_trap_rate: 0.1474
+    recommended_rank_top10:
+      baseline:
+        cohorts: 19
+        mean_n: 9.6
+        mean_median_excess: 0.625161
+        median_win_share: 1.0
+        mean_mean_excess: 1.149138
+        mean_trap_rate: 0.1453
+      actual_exit:
+        cohorts: 19
+        mean_n: 9.6
+        mean_median_excess: 0.620837
+        median_win_share: 1.0
+        mean_mean_excess: 1.144813
+        mean_trap_rate: 0.1453
+    er_calibration:
+      baseline:
+        cohorts: 19
+        total_n: 22593
+        mean_absolute_calibration_error: 0.194769
+        mean_realized_top_bottom_spread: 0.997965
+        spread_positive_share: 1.0
+      actual_exit:
+        cohorts: 19
+        total_n: 23043
+        mean_absolute_calibration_error: 0.191632
+        mean_realized_top_bottom_spread: 0.993937
+        spread_positive_share: 1.0
+integrity:
+  panel_count: 80
+  panels_identical: true

@@ -12,7 +12,10 @@ import yaml
 from baibai_engine.foundation.time import JST
 from baibai_engine.read_api.market import latest_market_bar_date, worst_close_drawdown
 from baibai_engine.read_api.shortlist import list_shortlist_payloads
-from baibai_engine.screening.calibration.forward import compute_forward_returns
+from baibai_engine.screening.calibration.forward import (
+    compute_forward_returns,
+    read_control_event_exits,
+)
 from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.run_store import ScreeningRunReader, run_store_path
 from baibai_engine.screening.shortlist_outcome import (
@@ -94,6 +97,9 @@ def shortlist_outcome_command(
         return 1
 
     observed_end = latest_market_bar_date(sqlite_path)
+    # A shortlisted name that was taken over is an outcome the judgment owns, so it is
+    # resolved by the price the offer paid rather than counted as a coverage gap.
+    control_event_exits = read_control_event_exits(sqlite_path)
     results: list[dict[str, object]] = []
     for cohort in cohorts:
         tickers = [item.ticker for item in cohort.judgments]
@@ -102,6 +108,7 @@ def shortlist_outcome_command(
             asofs=[cohort.as_of],
             tickers=tickers,
             horizons=selected_horizons,
+            control_event_exits=control_event_exits,
         )
         for horizon in selected_horizons:
             spec = require_horizon(horizon)

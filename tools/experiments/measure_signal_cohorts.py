@@ -23,6 +23,8 @@ from typing import Literal, TextIO
 
 import yaml
 
+from baibai_engine.screening.calibration.forward import RESOLVED_STATUSES
+
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_HORIZONS = ("1y", "3y", "5y")
 HORIZON_YEARS: Mapping[str, int] = {"1y": 1, "3y": 3, "5y": 5}
@@ -106,7 +108,7 @@ def _load_forward_returns(
                     continue
                 price = (
                     _optional_float(row.get("price_return"))
-                    if row.get("status") == "resolved"
+                    if row.get("status") in RESOLVED_STATUSES
                     else None
                 )
                 total = (

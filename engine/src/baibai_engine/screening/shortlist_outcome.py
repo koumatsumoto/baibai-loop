@@ -255,6 +255,7 @@ def evaluate_cohort(
             "pool_size": len(pool),
             "resolved": 0,
             "machine_basis": machine_basis,
+            "selected_by_catalyst": _selected_by_catalyst(cohort, resolved, 0.0),
             **coverage,
             **drawdown_block,
         }
@@ -273,6 +274,10 @@ def evaluate_cohort(
         # 棄却の型ごとの成績。どの棄却理由が高くついたかは、全体の中央値では見えない。
         # 分類は集計専用であり、自動除外や ranking には使わない。
         "rejected_by_class": _rejected_by_class(cohort, resolved, benchmark),
+        # 日付つきカタリストを持つ選定と持たない選定の差。棄却行は narrative を持たない
+        # ため、pool 全体で切ると選定そのものと交絡する。選定内で切ることでその交絡を
+        # 避ける。分類は集計専用で、選定や ranking には使わない。
+        "selected_by_catalyst": _selected_by_catalyst(cohort, resolved, benchmark),
         # The machine cohort takes the same number of names the judgment took, so the
         # two are answering the same question at the same size.
         "machine_top_n": _cohort_summary(machine, resolved, benchmark),
@@ -284,6 +289,27 @@ def evaluate_cohort(
     }
     payload.update(drawdown_block)
     return payload
+
+
+def _selected_by_catalyst(
+    cohort: ShortlistCohort,
+    resolved: Mapping[str, float],
+    benchmark: float,
+) -> dict[str, object]:
+    """Split the selected names by whether their narrative named a dated catalyst.
+
+    The split is inside the selected cohort on purpose. Only a selected name carries an
+    OP3 narrative, so a pool-wide split would separate selected from rejected under a
+    different name and report the selection effect as a catalyst effect.
+    """
+
+    dated = [item.ticker for item in cohort.selected if item.catalyst_date is not None]
+    undated = [item.ticker for item in cohort.selected if item.catalyst_date is None]
+    return {
+        "basis": "selected_only",
+        "dated_catalyst": _cohort_summary(dated, resolved, benchmark),
+        "no_dated_catalyst": _cohort_summary(undated, resolved, benchmark),
+    }
 
 
 def _rejected_by_class(

@@ -22,7 +22,10 @@ from baibai_engine.read_api.assessment import list_bargain_assessment_payloads
 from baibai_engine.read_api.operations import list_operation_sessions
 from baibai_engine.read_api.position import portfolio_ledger_document
 from baibai_engine.read_api.shortlist import list_shortlist_payloads
-from baibai_engine.screening.calibration.forward import compute_forward_returns
+from baibai_engine.screening.calibration.forward import (
+    compute_forward_returns,
+    read_control_event_exits,
+)
 from baibai_engine.screening.calibration.horizons import require_horizon
 from baibai_engine.screening.run_store import ScreeningRunReader, run_store_path
 from baibai_engine.screening.shortlist_outcome import (
@@ -282,6 +285,7 @@ def build_measurement(
             asofs=[cohort.as_of],
             tickers=[item.ticker for item in cohort.judgments],
             horizons=selected_horizons,
+            control_event_exits=read_control_event_exits(market_db_path),
         )
         cycle["counterfactual"] = {
             "status": estimate_source,

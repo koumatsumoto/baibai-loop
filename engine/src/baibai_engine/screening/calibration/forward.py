@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, replace
 from datetime import date, timedelta
 from math import isfinite
@@ -15,7 +15,13 @@ from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from ..providers.jquants import JQuantsDailyBar
 from .horizons import HORIZONS, HorizonSpec, require_horizon
 
-__all__ = ("HORIZONS", "ForwardReturnRow", "compute_forward_returns")
+__all__ = (
+    "HORIZONS",
+    "ControlEventExit",
+    "ForwardReturnRow",
+    "compute_forward_returns",
+    "read_control_event_exits",
+)
 
 ForwardStatus = str
 AdjustmentCoverage = str
@@ -35,6 +41,14 @@ TOTAL_RETURN_STATUSES = frozenset(
 
 STALE_PRICE_MAX_LAG_DAYS = 15
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
+
+# A window that ended in a completed cash tender offer is resolved by the price that
+# offer paid, not by the last close before the target date. The status is separate from
+# `resolved` so that a reader can always tell an observed market close from a settled
+# takeover; the rules that produce these values are pre-registered in
+# reports/studies/2026-08-11-capital-control-exit-values/.
+CONTROL_EVENT_EXIT_STATUS = "resolved_control_event_exit"
+RESOLVED_STATUSES = frozenset({"resolved", CONTROL_EVENT_EXIT_STATUS})
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -65,6 +79,14 @@ class ForwardReturnRow:
     total_return_basis: str = TOTAL_RETURN_BASIS
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ControlEventExit:
+    """The cash a completed tender offer paid, and the day trading stopped."""
+
+    delisted_on: date
+    offer_price_yen: float
+
+
 @dataclass(frozen=True, slots=True)
 class _FYDividendObservation:
     fiscal_year_end: date
@@ -75,12 +97,41 @@ class _FYDividendObservation:
 FORWARD_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(ForwardReturnRow))
 
 
+def read_control_event_exits(sqlite_path: Path) -> dict[str, tuple[ControlEventExit, ...]]:
+    """Load realized tender-offer exits, keyed by ticker.
+
+    A ticker can appear more than once — a name can be taken private, relist and be
+    taken private again — so the caller matches the one that falls inside its window
+    and leaves the row unresolved when more than one does.
+    """
+    # No fallback to an empty mapping. A store that cannot answer would produce a build
+    # that is byte-identical to the baseline while presenting itself as the actual-exit
+    # contract, and the before/after comparison would then read "nothing was replaced"
+    # as a result rather than as a missing input.
+    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT ticker, delisted_on, offer_price_yen FROM tender_offer_exit_values"
+        ).fetchall()
+    finally:
+        conn.close()
+    exits: dict[str, list[ControlEventExit]] = {}
+    for ticker, delisted_on, price in rows:
+        exits.setdefault(str(ticker), []).append(
+            ControlEventExit(
+                delisted_on=date.fromisoformat(str(delisted_on)), offer_price_yen=float(price)
+            )
+        )
+    return {ticker: tuple(values) for ticker, values in exits.items()}
+
+
 def compute_forward_returns(
     sqlite_path: Path,
     *,
     asofs: Sequence[date],
     tickers: Iterable[str],
     horizons: Sequence[str] = tuple(HORIZONS),
+    control_event_exits: Mapping[str, Sequence[ControlEventExit]],
 ) -> list[ForwardReturnRow]:
     if not asofs:
         return []
@@ -104,6 +155,7 @@ def compute_forward_returns(
                     asofs=asofs,
                     horizons=specs,
                     eval_cap=eval_cap,
+                    control_event_exits=tuple(control_event_exits.get(ticker, ())),
                 )
             )
     finally:
@@ -119,6 +171,7 @@ def _ticker_forward_rows(
     asofs: Sequence[date],
     horizons: Sequence[HorizonSpec],
     eval_cap: date | None,
+    control_event_exits: Sequence[ControlEventExit] = (),
 ) -> list[ForwardReturnRow]:
     dates = [bar.traded_at for bar in bars]
     closes = asof_basis_closes(bars) if bars else []
@@ -166,9 +219,32 @@ def _ticker_forward_rows(
                 exit_index = _index_on_or_before(dates, target)
                 exit_date = dates[exit_index] if exit_index is not None else None
                 exit_close = closes[exit_index] if exit_index is not None else None
-                if exit_close is None or exit_date is None:
+                stale_exit = (
+                    exit_date is not None and (target - exit_date).days > STALE_PRICE_MAX_LAG_DAYS
+                )
+                # Only a window the market could not close is eligible for the offer
+                # price, and only when the offer itself resolves; anything else falls
+                # through to the unresolved statuses the bracket already covers.
+                control_row = (
+                    _control_event_row(
+                        base,
+                        bars,
+                        fy_dividends,
+                        control_exit=_matching_control_event_exit(
+                            control_event_exits, entry_date=entry_date, target=target
+                        ),
+                        entry_date=entry_date,
+                        entry_close=float(entry_close or 0.0),
+                        adjustment_coverage=adjustment,
+                    )
+                    if exit_close is None or stale_exit
+                    else None
+                )
+                if control_row is not None:
+                    rows.append(control_row)
+                elif exit_close is None or exit_date is None:
                     rows.append(replace(base, status="unresolved_missing_exit"))
-                elif (target - exit_date).days > STALE_PRICE_MAX_LAG_DAYS:
+                elif stale_exit:
                     rows.append(
                         replace(
                             base,
@@ -205,6 +281,69 @@ def _ticker_forward_rows(
                         )
                     )
     return rows
+
+
+def _matching_control_event_exit(
+    exits: Sequence[ControlEventExit], *, entry_date: date | None, target: date
+) -> ControlEventExit | None:
+    """The one settled offer that ended trading inside this window, if exactly one did."""
+    if entry_date is None:
+        return None
+    matching = [
+        control_exit for control_exit in exits if entry_date < control_exit.delisted_on <= target
+    ]
+    return matching[0] if len(matching) == 1 else None
+
+
+def _control_event_row(
+    base: ForwardReturnRow,
+    bars: Sequence[JQuantsDailyBar],
+    fy_dividends: Sequence[_FYDividendObservation],
+    *,
+    control_exit: ControlEventExit | None,
+    entry_date: date | None,
+    entry_close: float,
+    adjustment_coverage: AdjustmentCoverage,
+) -> ForwardReturnRow | None:
+    """Price the window with the offer, or decline and leave it to the bracket.
+
+    The offer is quoted per share as of the delisting, while entry closes are carried to
+    the share basis of the final bar. Those two bases agree only when no split or reverse
+    split followed the delisting, so a non-unit cumulative factor after that day means
+    the offer cannot be placed on the same basis and the window is not realized.
+    """
+    if control_exit is None or entry_date is None or entry_close <= 0 or not bars:
+        return None
+    if adjustment_coverage != "complete":
+        return None
+    factor = _cumulative_adjustment_factor_after(
+        bars, after=control_exit.delisted_on, asof_date=bars[-1].traded_at
+    )
+    if factor != 1.0:
+        return None
+    price_return = control_exit.offer_price_yen / entry_close - 1
+    if not isfinite(price_return) or price_return < -1:
+        return None
+    dividend_sum, dividend_count, total_return, total_status = _resolve_total_return(
+        bars,
+        fy_dividends,
+        entry_date=entry_date,
+        exit_date=control_exit.delisted_on,
+        entry_close=entry_close,
+        price_return=price_return,
+        adjustment_coverage=adjustment_coverage,
+    )
+    return replace(
+        base,
+        resolved=True,
+        price_return=price_return,
+        exit_date=control_exit.delisted_on.isoformat(),
+        status=CONTROL_EVENT_EXIT_STATUS,
+        realized_dividend_sum=dividend_sum,
+        realized_dividend_fy_count=dividend_count,
+        total_return=total_return,
+        total_return_status=total_status,
+    )
 
 
 def _index_on_or_before(dates: Sequence[date], target: date) -> int | None:

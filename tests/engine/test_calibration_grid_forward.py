@@ -16,9 +16,12 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.screening.calibration.forward import (
     HORIZONS,
+    ControlEventExit,
+    ForwardReturnRow,
     _FYDividendObservation,
     _ticker_forward_rows,
     compute_forward_returns,
+    read_control_event_exits,
 )
 from baibai_engine.screening.calibration.grid import complete_month_end_dates
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar
@@ -334,12 +337,125 @@ class ForwardEntryToleranceTest(unittest.TestCase):
             )
 
             rows = compute_forward_returns(
-                sqlite_path, asofs=[asof], tickers=["1000"], horizons=["3m"]
+                sqlite_path,
+                asofs=[asof],
+                tickers=["1000"],
+                horizons=["3m"],
+                control_event_exits={},
             )
 
             row = next(row for row in rows if row.ticker == "1000")
             self.assertEqual(row.entry_date, (asof - timedelta(days=2)).isoformat())
             self.assertTrue(row.resolved)
+
+
+class ControlEventExitTest(unittest.TestCase):
+    """The offer price replaces only the windows the market could not close."""
+
+    ASOF = date(2025, 1, 31)
+    DELISTED_ON = date(2025, 3, 14)
+
+    def _delisted_bars(self) -> list[JQuantsDailyBar]:
+        return [
+            _bar(self.ASOF, 100.0, factor=1.0),
+            _bar(date(2025, 3, 13), 118.0, factor=1.0),
+        ]
+
+    def _rows(
+        self,
+        bars: list[JQuantsDailyBar],
+        exits: tuple[ControlEventExit, ...],
+        *,
+        horizon: str = "3m",
+    ) -> list[ForwardReturnRow]:
+        return _ticker_forward_rows(
+            "1000",
+            bars,
+            asofs=[self.ASOF],
+            horizons=(HORIZONS[horizon],),
+            eval_cap=date(2026, 6, 30),
+            control_event_exits=exits,
+        )
+
+    def test_settled_offer_price_resolves_a_window_that_lost_its_exit(self) -> None:
+        exits = (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),)
+        row = self._rows(self._delisted_bars(), exits)[0]
+        self.assertTrue(row.resolved)
+        self.assertEqual(row.status, "resolved_control_event_exit")
+        self.assertEqual(row.exit_date, self.DELISTED_ON.isoformat())
+        assert row.price_return is not None
+        self.assertAlmostEqual(row.price_return, 0.2)
+
+    def test_window_closed_by_the_market_keeps_its_observed_close(self) -> None:
+        bars = [
+            _bar(self.ASOF, 100.0, factor=1.0),
+            _bar(date(2025, 4, 28), 118.0, factor=1.0),
+        ]
+        exits = (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=999.0),)
+        row = self._rows(bars, exits)[0]
+        self.assertEqual(row.status, "resolved")
+        assert row.price_return is not None
+        self.assertAlmostEqual(row.price_return, 0.18)
+
+    def test_offer_outside_the_window_leaves_the_row_unresolved(self) -> None:
+        exits = (ControlEventExit(delisted_on=date(2024, 12, 20), offer_price_yen=120.0),)
+        row = self._rows(self._delisted_bars(), exits)[0]
+        self.assertFalse(row.resolved)
+        self.assertEqual(row.status, "unresolved_stale_exit")
+
+    def test_two_offers_inside_one_window_leave_the_row_unresolved(self) -> None:
+        exits = (
+            ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),
+            ControlEventExit(delisted_on=date(2025, 3, 20), offer_price_yen=130.0),
+        )
+        row = self._rows(self._delisted_bars(), exits)[0]
+        self.assertFalse(row.resolved)
+        self.assertEqual(row.status, "unresolved_stale_exit")
+
+    def test_incomplete_adjustment_coverage_leaves_the_row_unresolved(self) -> None:
+        bars = [
+            _bar(self.ASOF, 100.0, factor=1.0),
+            _bar(date(2025, 3, 13), 118.0),
+        ]
+        exits = (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),)
+        row = self._rows(bars, exits)[0]
+        self.assertFalse(row.resolved)
+        self.assertEqual(row.status, "unresolved_stale_exit")
+
+    def test_share_split_after_the_delisting_leaves_the_row_unresolved(self) -> None:
+        # The offer is quoted on the share basis of the delisting day while entry closes
+        # are carried to the final bar's basis, so a split in between makes the two
+        # incomparable and the window must stay bracketed.
+        bars = [
+            _bar(self.ASOF, 100.0, factor=1.0),
+            _bar(date(2025, 3, 13), 118.0, factor=1.0),
+            _bar(date(2025, 3, 21), 60.0, factor=0.5),
+        ]
+        exits = (ControlEventExit(delisted_on=self.DELISTED_ON, offer_price_yen=120.0),)
+        row = self._rows(bars, exits)[0]
+        self.assertFalse(row.resolved)
+        self.assertEqual(row.status, "unresolved_stale_exit")
+
+    def test_read_control_event_exits_returns_every_offer_per_ticker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            connection = open_connection(sqlite_path)
+            connection.executemany(
+                "INSERT INTO tender_offer_exit_values("
+                "ticker, delisted_on, offer_price_yen, offer_doc_id, result_doc_id, filed_on"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    ("1000", "2025-03-14", 120.0, "S1", "S2", "2024-12-01"),
+                    ("1000", "2020-03-14", 80.0, "S3", "S4", "2019-12-01"),
+                ],
+            )
+            connection.commit()
+            connection.close()
+
+            exits = read_control_event_exits(sqlite_path)
+
+            self.assertEqual(len(exits["1000"]), 2)
+            self.assertEqual(sorted(item.offer_price_yen for item in exits["1000"]), [80.0, 120.0])
 
 
 if __name__ == "__main__":

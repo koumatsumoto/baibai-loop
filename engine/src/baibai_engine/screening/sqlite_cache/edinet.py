@@ -52,7 +52,8 @@ def store_edinet_documents(
                 "xbrl_flag, legal_status, disclosure_status, withdrawal_status, "
                 "doc_info_edit_status, parent_doc_id, operation_datetime, submit_datetime, "
                 "doc_description, period_start, period_end"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ", edinet_code, issuer_edinet_code, subject_edinet_code"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
         persisted_count = date_range_row_count(
@@ -198,6 +199,9 @@ def _edinet_document_rows(
                 to_str_or_none(first(record, "docDescription", "doc_description")),
                 date_iso(first(record, "periodStart", "period_start")),
                 date_iso(first(record, "periodEnd", "period_end")),
+                to_str_or_none(first(record, "edinetCode", "edinet_code")),
+                to_str_or_none(first(record, "issuerEdinetCode", "issuer_edinet_code")),
+                to_str_or_none(first(record, "subjectEdinetCode", "subject_edinet_code")),
             )
         )
     return rows

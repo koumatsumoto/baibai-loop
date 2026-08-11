@@ -43,6 +43,11 @@ from .cache import (
     refresh_edinet_documents_command,
     verify_cache_coverage_command,
 )
+from .capital_control_cli import (
+    backfill_edinet_identity_command,
+    build_control_event_exits_command,
+    refresh_capital_control_command,
+)
 from .common import _parse_iso_date
 from .edinet_extract import extract_edinet_metrics_command
 from .providers import ProviderBundle
@@ -182,6 +187,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="how far back to read filings from --asof, in calendar days (default 540)",
     )
     buyback_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+
+    capital_control_parser = subparsers.add_parser(
+        "refresh-capital-control",
+        help="re-read the TSE capital-policy disclosure list and the JPX delisting record",
+    )
+    capital_control_parser.add_argument(
+        "--asof",
+        required=True,
+        help="date the EDINET event histogram is reported through (YYYY-MM-DD)",
+    )
+    capital_control_parser.add_argument(
+        "--sqlite-path",
+        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
+        help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
+    )
+
+    identity_parser = subparsers.add_parser(
+        "backfill-edinet-identity",
+        help="re-list EDINET days so stored rows carry submitter and target company codes",
+    )
+    identity_parser.add_argument("--start", required=True, help="first day to re-list (YYYY-MM-DD)")
+    identity_parser.add_argument("--end", required=True, help="last day to re-list (YYYY-MM-DD)")
+
+    exits_parser = subparsers.add_parser(
+        "build-control-event-exits",
+        help="derive realized tender-offer exit prices for delisted names",
+    )
+    exits_parser.add_argument(
+        "--asof",
+        required=True,
+        help="latest delisting date to resolve (YYYY-MM-DD)",
+    )
+    exits_parser.add_argument(
         "--sqlite-path",
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
@@ -442,6 +484,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="production",
         help="panel input contract (non-production variants are diagnostic-only)",
     )
+    calibration_build_parser.add_argument(
+        "--without-control-event-exits",
+        action="store_true",
+        help=(
+            "resolve forward windows from market closes alone, leaving delisted names to "
+            "the imputation bracket; regenerates the comparison baseline"
+        ),
+    )
 
     calibration_evaluate_parser = subparsers.add_parser(
         "calibration-evaluate",
@@ -638,6 +688,7 @@ def main(argv: list[str] | None = None) -> int:
             end=_parse_iso_date(args.end),
             force=args.force,
             panel_variant=cast(PanelVariant, args.panel_variant),
+            use_control_event_exits=not args.without_control_event_exits,
         )
 
     if args.command == "calibration-evaluate":
@@ -748,6 +799,26 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "refresh-edinet-documents":
         return refresh_edinet_documents_command(
+            asof_date=_parse_iso_date(args.asof),
+            providers=providers,
+        )
+
+    if args.command == "refresh-capital-control":
+        return refresh_capital_control_command(
+            sqlite_path=Path(args.sqlite_path),
+            asof_date=_parse_iso_date(args.asof),
+        )
+
+    if args.command == "backfill-edinet-identity":
+        return backfill_edinet_identity_command(
+            start=_parse_iso_date(args.start),
+            end=_parse_iso_date(args.end),
+            providers=providers,
+        )
+
+    if args.command == "build-control-event-exits":
+        return build_control_event_exits_command(
+            sqlite_path=Path(args.sqlite_path),
             asof_date=_parse_iso_date(args.asof),
             providers=providers,
         )

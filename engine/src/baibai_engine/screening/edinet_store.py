@@ -192,7 +192,7 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             "SELECT sequence_number, doc_id, sec_code, doc_type_code, csv_flag, xbrl_flag, "
             "legal_status, disclosure_status, withdrawal_status, doc_info_edit_status, "
             "parent_doc_id, operation_datetime, submit_datetime, doc_description, "
-            "period_start, period_end "
+            "period_start, period_end, edinet_code, issuer_edinet_code, subject_edinet_code "
             "FROM edinet_documents WHERE doc_date = ? ORDER BY sequence_number",
             (on_date.isoformat(),),
         ).fetchall()
@@ -219,6 +219,9 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             "docDescription": doc_description,
             "periodStart": period_start,
             "periodEnd": period_end,
+            "edinetCode": edinet_code,
+            "issuerEdinetCode": issuer_edinet_code,
+            "subjectEdinetCode": subject_edinet_code,
         }
         for (
             sequence_number,
@@ -237,6 +240,9 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
             doc_description,
             period_start,
             period_end,
+            edinet_code,
+            issuer_edinet_code,
+            subject_edinet_code,
         ) in rows
     ]
 

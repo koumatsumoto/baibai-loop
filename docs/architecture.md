@@ -59,7 +59,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | store | classification | contents | write owner |
 | --- | --- | --- | --- |
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
-| `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input | market / screening provider |
+| `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input と、資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 

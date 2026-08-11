@@ -51,6 +51,9 @@ _REQUIRED_TABLES = (
     "edinet_document_lists",
     "edinet_metrics",
     "edinet_buyback_reports",
+    "tse_capital_policy_snapshots",
+    "jpx_delistings",
+    "tender_offer_exit_values",
     "jpx_regulation_flags",
     "jpx_regulation_sources",
     "source_coverage",
@@ -188,6 +191,9 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "doc_description",
         "period_start",
         "period_end",
+        "edinet_code",
+        "issuer_edinet_code",
+        "subject_edinet_code",
     ),
     "edinet_document_lists": (
         "doc_date",
@@ -236,6 +242,25 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "fetched_at_utc",
     ),
     "jpx_regulation_sources": ("asof_date", "source_name", "fetched_at_utc"),
+    "tse_capital_policy_snapshots": (
+        "snapshot_month_end",
+        "ticker",
+        "status",
+        "status_change",
+        "updated_on",
+        "contact_requested",
+        "first_disclosed_month_end",
+        "first_disclosure_left_censored",
+    ),
+    "jpx_delistings": ("delisted_on", "ticker", "name", "market", "reason"),
+    "tender_offer_exit_values": (
+        "ticker",
+        "delisted_on",
+        "offer_price_yen",
+        "offer_doc_id",
+        "result_doc_id",
+        "filed_on",
+    ),
     "source_coverage": (
         "source",
         "coverage_key",
@@ -447,6 +472,9 @@ CREATE TABLE IF NOT EXISTS edinet_documents(
   doc_description TEXT,
   period_start TEXT,
   period_end TEXT,
+  edinet_code TEXT,
+  issuer_edinet_code TEXT,
+  subject_edinet_code TEXT,
   PRIMARY KEY (doc_date, sequence_number)
 );
 
@@ -543,6 +571,40 @@ CREATE TABLE IF NOT EXISTS edinet_buyback_reports(
 
 CREATE INDEX IF NOT EXISTS idx_edinet_buyback_reports_ticker
   ON edinet_buyback_reports(ticker, report_month_end);
+
+CREATE TABLE IF NOT EXISTS tse_capital_policy_snapshots(
+  snapshot_month_end TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('disclosed', 'considering')),
+  status_change TEXT,
+  updated_on TEXT,
+  contact_requested INTEGER NOT NULL,
+  first_disclosed_month_end TEXT,
+  first_disclosure_left_censored INTEGER NOT NULL,
+  PRIMARY KEY (snapshot_month_end, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tse_capital_policy_snapshots_ticker
+  ON tse_capital_policy_snapshots(ticker, snapshot_month_end);
+
+CREATE TABLE IF NOT EXISTS jpx_delistings(
+  delisted_on TEXT NOT NULL,
+  ticker TEXT NOT NULL,
+  name TEXT NOT NULL,
+  market TEXT,
+  reason TEXT NOT NULL,
+  PRIMARY KEY (delisted_on, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
+  ticker TEXT NOT NULL,
+  delisted_on TEXT NOT NULL,
+  offer_price_yen REAL NOT NULL CHECK (offer_price_yen > 0),
+  offer_doc_id TEXT NOT NULL,
+  result_doc_id TEXT NOT NULL,
+  filed_on TEXT NOT NULL,
+  PRIMARY KEY (ticker, delisted_on)
+);
 """
 
 

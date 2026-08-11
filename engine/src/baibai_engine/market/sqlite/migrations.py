@@ -283,6 +283,56 @@ MIGRATIONS: tuple[Migration, ...] = (
         ),
         transform=_migrate_v21_margin_publication_domains,
     ),
+    Migration(
+        version=22,
+        statements=(
+            # The list refresh writes these for every row it stores from now on, and
+            # `screening backfill-edinet-documents` restores them for days already in
+            # the store. They stay nullable so that a day whose list predates the
+            # columns reads as unobserved rather than as an absence of filings.
+            "ALTER TABLE edinet_documents ADD COLUMN edinet_code TEXT",
+            "ALTER TABLE edinet_documents ADD COLUMN issuer_edinet_code TEXT",
+            "ALTER TABLE edinet_documents ADD COLUMN subject_edinet_code TEXT",
+            """
+            CREATE TABLE IF NOT EXISTS tse_capital_policy_snapshots(
+              snapshot_month_end TEXT NOT NULL,
+              ticker TEXT NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('disclosed', 'considering')),
+              status_change TEXT,
+              updated_on TEXT,
+              contact_requested INTEGER NOT NULL,
+              first_disclosed_month_end TEXT,
+              first_disclosure_left_censored INTEGER NOT NULL,
+              PRIMARY KEY (snapshot_month_end, ticker)
+            )
+            """,
+            (
+                "CREATE INDEX IF NOT EXISTS idx_tse_capital_policy_snapshots_ticker "
+                "ON tse_capital_policy_snapshots(ticker, snapshot_month_end)"
+            ),
+            """
+            CREATE TABLE IF NOT EXISTS jpx_delistings(
+              delisted_on TEXT NOT NULL,
+              ticker TEXT NOT NULL,
+              name TEXT NOT NULL,
+              market TEXT,
+              reason TEXT NOT NULL,
+              PRIMARY KEY (delisted_on, ticker)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS tender_offer_exit_values(
+              ticker TEXT NOT NULL,
+              delisted_on TEXT NOT NULL,
+              offer_price_yen REAL NOT NULL CHECK (offer_price_yen > 0),
+              offer_doc_id TEXT NOT NULL,
+              result_doc_id TEXT NOT NULL,
+              filed_on TEXT NOT NULL,
+              PRIMARY KEY (ticker, delisted_on)
+            )
+            """,
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION

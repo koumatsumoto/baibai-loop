@@ -25,7 +25,13 @@ from .authority import (
 )
 from .context import CalibrationContextError, build_er_distribution_context
 from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
-from .forward import HORIZONS, ForwardReturnRow, compute_forward_returns
+from .forward import (
+    CONTROL_EVENT_EXIT_STATUS,
+    HORIZONS,
+    ForwardReturnRow,
+    compute_forward_returns,
+    read_control_event_exits,
+)
 from .grid import month_end_asof_grid
 from .panel import (
     PANEL_BUILD_POLICIES,
@@ -58,6 +64,7 @@ def calibration_build_command(
     end: date,
     force: bool = False,
     panel_variant: PanelVariant = "production",
+    use_control_event_exits: bool = True,
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
@@ -112,16 +119,21 @@ def calibration_build_command(
         write_panel(work_dir, asof, result.rows, result.diagnostics)
         tickers_by_asof[asof] = {row.ticker for row in result.rows}
         built += 1
+    control_event_exits = read_control_event_exits(sqlite_path) if use_control_event_exits else {}
     by_asof: dict[str, list[ForwardReturnRow]] = {}
     for asof in asofs:
         for row in compute_forward_returns(
-            sqlite_path, asofs=(asof,), tickers=tickers_by_asof[asof]
+            sqlite_path,
+            asofs=(asof,),
+            tickers=tickers_by_asof[asof],
+            control_event_exits=control_event_exits,
         ):
             by_asof.setdefault(row.asof, []).append(row)
     for asof in asofs:
         write_forward(work_dir, asof, by_asof.get(asof.isoformat(), []))
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
-    resolved = sum(row.status == "resolved" for row in rows)
+    resolved = sum(row.resolved for row in rows)
+    control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
     if force:
         backup_dir = calibration_dir.with_name(f".{calibration_dir.name}.backup")
         if backup_dir.exists():
@@ -138,7 +150,7 @@ def calibration_build_command(
             rmtree(backup_dir)
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
-        f"resolved={resolved})",
+        f"resolved={resolved}, control event exits={control_event})",
         file=out,
     )
     return 0

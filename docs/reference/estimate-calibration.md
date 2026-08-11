@@ -25,7 +25,7 @@ target は cohort の actual as-of date に calendar month を加算する。元
 
 panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。prior snapshot、snapshot unavailable、survivorship、delisting、corporate-action event coverage の不備は payload に残り、3y/5y evidence を block する。
 
-forward row は `resolved` または明示的な unresolved status を持つ。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
+forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 2 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
 <a id="coverage-verdicts"></a>
 
@@ -77,7 +77,7 @@ cache が対象 row を同定できない、diagnostics 件数と row 数が一�
 
 ### 廃止銘柄の除外（`delisting_exclusion`）
 
-authoritative な delisting exit value source が無い限り、窓中に系列が終わる銘柄は exit value を持たないまま cohort から落ちる。満期済み cohort は例外なくこれを含むので、件数で block すると 3y/5y の evidence は原理的に成立しない。代わりに、その除外が結論を作ったかどうかを cohort ごとに判定する。
+窓中に系列が終わる銘柄のうち、成立した現金公開買付けが対価を確定させたものは実値で解決する（後述「支配権イベントの実現 exit 値」）。それ以外は exit value を持たないまま cohort から落ちる。株式の併合・株式等売渡請求だけで完結した廃止、倒産、資料履歴外の廃止がそこに残り、満期済み cohort は例外なくこれを含むので、件数で block すると 3y/5y の evidence は原理的に成立しない。代わりに、その除外が結論を作ったかどうかを cohort ごとに判定する。
 
 除外された銘柄へ範囲の両端を代入して結論を再計算し、**cohort が報告した値と両方の代入とで向きが一致するときだけ** `direction_stable` を立てる。
 
@@ -88,7 +88,7 @@ authoritative な delisting exit value source が無い限り、窓中に系列�
 
 報告値を比較に含めるのは、それが authority gate の読む値そのものだからである。両方の代入で向きが揃っても報告値だけが逆を向くなら、その結論は除外が作ったものになる。向きは `recommended_rank_top5` / `recommended_rank_top10` が group の `median_excess` の符号、`er_calibration` が最上位 quintile の `median_realized_price_excess` − 最下位 quintile の同値の符号で定める。いずれかの場合で値が算出できず他の場合で算出できるときも、除外が「cohort が何か言えるかどうか」を決めているので不安定として扱う。
 
-この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。exit value そのものを外部 source から取る道は別に残る。
+この判定は結論を下へ引く可能性に対しての bracket である。買収による廃止はプレミアム付きで中立代入の上に出るため、上側は挟まない。実値で解決できた行はこの bracket の対象から外れる。
 
 `er_calibration` は価格収束成分 `er_reversion_annual` だけを price-only 実現値へ較正する。予測値は cohort 内の `er_reversion_annual` 中央値、実現値は同じ cohort の price return 中央値をそれぞれ引き、quintile ごとに median の相対値を比較する。`calibration_error` は `realized - predicted` である。配当と buyback の carry は price-only 実現値と同じ basis で観測できないため、この座標で絶対水準を較正しない。carry の妥当性は source と算出 contract を検証し、実現配当を備えた total-return dataset が利用できる場合に別の較正座標で扱う。
 
@@ -211,6 +211,23 @@ primary-research lane の research FV と screening FV の bridge は、有効�
 - **基準を後から動かさない**。動かす場合は、動かしたことと理由を次の dated report に明記する。
 
 初回の採点可能日は 2026-10-17（最古 shortlist 2026-07-17 + 3m）である。
+
+<a id="catalyst-axis-preregistration"></a>
+
+#### カタリスト軸の事前登録
+
+`screening shortlist outcome` は selected を、OP3 narrative が日付つきカタリストを持つか否かで 2 分する（`selected_by_catalyst`）。**次を計測の実行前に固定する。**
+
+- **切る場所は selected の内側だけ**。rejected は narrative を持たないので、pool 全体で切ると selected / rejected の差をカタリストの差として報告することになる。
+- **判定基準は棄却コストと同じ**（1y 以上・cohort 8 以上・時間 2 分割で同方向）。満たすまで方向を主張しない。
+- **母数が 10 件未満の側は中央超過を算出せず件数だけを並べる。**
+- **この軸は選定にも ranking にも入れない。** 満たした場合に起票できるのは OP3 深度契約（カタリストの日付要求）の見直しだけであり、`tse_capital_policy_status` などの annotation を機械の入力へ昇格させる根拠にはしない。
+
+初回の採点可能日は棄却コストと同じ 2026-10-17 である。
+
+### 支配権イベントの実現 exit 値
+
+上場廃止で市場終値が無くなった forward 窓は、成立した現金公開買付けの 1 株買付価格で解決する（`resolved_control_event_exit`）。これは効果量を選ぶ仮説ではなく、観測済みの対価へ置き換える correctness 変更である。導出規則・置換規則・比較方法・停止条件は [`reports/studies/2026-08-11-capital-control-exit-values/preregistration.md`](../../reports/studies/2026-08-11-capital-control-exit-values/preregistration.md) に事前登録し、置換前後の較正影響を同ディレクトリの report に固定する。実値化できない上場廃止は従来どおり全損・中立の両側 bracket に残り、`unpriced_exit_flips_direction` の判定材料であり続ける。
 
 ### 誠実性の規律
 

@@ -17,7 +17,7 @@ from statistics import fmean, median
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
-from .forward import TOTAL_RETURN_BASIS, ForwardReturnRow
+from .forward import CONTROL_EVENT_EXIT_STATUS, TOTAL_RETURN_BASIS, ForwardReturnRow
 from .horizons import require_horizon
 from .panel import PanelRow
 
@@ -204,7 +204,7 @@ def _evaluate_cohort(
     context = _cohort_excess_context(panel, forward_rows, horizon=horizon)
     all_rows = [row for row in forward_rows if row.horizon == horizon]
     candidate_rows = [row for row in all_rows if row.ticker != TOPIX_ETF_PROXY]
-    unresolved = [row for row in candidate_rows if row.status != "resolved"]
+    unresolved = [row for row in candidate_rows if not row.resolved]
     unresolved_reasons: dict[str, int] = {}
     for row in unresolved:
         unresolved_reasons[row.status] = unresolved_reasons.get(row.status, 0) + 1
@@ -236,7 +236,13 @@ def _evaluate_cohort(
             1 for row in candidate_rows if row.status != "unresolved_missing_entry"
         ),
         "forward_rows_count": len(candidate_rows),
-        "resolved_count": sum(1 for row in candidate_rows if row.status == "resolved"),
+        "resolved_count": sum(1 for row in candidate_rows if row.resolved),
+        # Windows a completed cash tender offer priced instead of a market close.
+        # Counted apart so a reader can see how much of the resolved population is
+        # settled takeover consideration rather than an observed quote.
+        "control_event_exit_count": sum(
+            1 for row in candidate_rows if row.status == CONTROL_EVENT_EXIT_STATUS
+        ),
         "data_unresolved_count": len(unresolved),
         "data_unresolved_reason_counts": unresolved_reasons,
         # Unresolved rows are not one kind of defect. A name that was not listed
@@ -370,7 +376,7 @@ def _resolved_price_returns(
     price_returns: dict[str, float] = {}
     stale_count = 0
     for row in forward_rows:
-        if row.horizon != horizon or row.status != "resolved" or row.price_return is None:
+        if row.horizon != horizon or not row.resolved or row.price_return is None:
             continue
         price_returns[row.ticker] = row.price_return
         if row.stale_price:
@@ -1233,7 +1239,7 @@ def _evaluate_er_level_calibration(
         row.ticker: row
         for row in forward_rows
         if row.horizon == horizon
-        and row.status == "resolved"
+        and row.resolved
         and row.total_return_status == "resolved"
         and row.total_return_basis == TOTAL_RETURN_BASIS
         and row.realized_dividend_sum is not None
