@@ -53,8 +53,7 @@ from ..sqlite_reader import (
     read_reported_short_metrics,
 )
 from ..universe import (
-    ELIGIBLE_MARKETS,
-    TSE_33_SECTORS,
+    POLICY_EXCLUSION_REASONS,
     build_universe,
     liquid_median_population,
 )
@@ -558,40 +557,35 @@ def build_panel(
     }
     # A historical master member without enough local bars is unavailable data,
     # not a silently excluded survivor. Keep an explicit row so its forward
-    # observation and cohort coverage remain visible to authority checks.
-    # A name the policy removed is the other kind and belongs in the counts below, so
-    # every policy condition has to be asked here too. Asking only some of them puts the
-    # same row on the "could not evaluate" side and off the "removed on purpose" side,
-    # which are meant to be a pair.
+    # observation and cohort coverage remain visible to authority checks. A name the
+    # policy removed is the other kind and belongs in the counts below instead.
+    #
+    # Both sides read the reasons `build_universe` already decided. Re-deriving them
+    # here is what let the same diagnostic name mean two different quantities: the
+    # policy conditions live in one place, so a condition added there reaches both
+    # surfaces without anyone remembering to copy it.
+    policy_reasons = frozenset(POLICY_EXCLUSION_REASONS)
     for security in securities:
-        if (
-            security.code not in universe_result.snapshots
-            and security.is_common_stock
-            and security.sector_33 in TSE_33_SECTORS
-            and security.market_segment.upper() in ELIGIBLE_MARKETS
-        ):
-            rows.append(
-                _unresolved_master_member_row(
-                    asof_date,
-                    security.code,
-                    security.sector_33,
-                    priced_at_asof=security.code in asof_priced,
-                    self_range_degraded=not policy.production_authority,
-                )
+        if security.code in universe_result.snapshots:
+            continue
+        flags = frozenset(universe_result.exclusion_flags.get(security.code, ()))
+        if flags & policy_reasons:
+            continue
+        rows.append(
+            _unresolved_master_member_row(
+                asof_date,
+                security.code,
+                security.sector_33,
+                priced_at_asof=security.code in asof_priced,
+                self_range_degraded=not policy.production_authority,
             )
+        )
 
-    policy_exclusions: dict[str, int] = {}
-    for security in securities:
-        if not security.is_common_stock:
-            policy_exclusions["non_common_stock"] = policy_exclusions.get("non_common_stock", 0) + 1
-        elif security.sector_33 not in TSE_33_SECTORS:
-            policy_exclusions["sector_out_of_classification"] = (
-                policy_exclusions.get("sector_out_of_classification", 0) + 1
-            )
-        elif security.market_segment.upper() not in ELIGIBLE_MARKETS:
-            policy_exclusions["market_out_of_scope"] = (
-                policy_exclusions.get("market_out_of_scope", 0) + 1
-            )
+    policy_exclusions = {
+        reason: count
+        for reason, count in universe_result.exclusion_counts.items()
+        if reason in policy_reasons
+    }
     population_rows = [row for row in rows if row.in_population]
     panel_tickers = {row.ticker for row in rows}
     master_tickers = {security.code for security in securities}

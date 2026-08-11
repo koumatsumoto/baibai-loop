@@ -217,6 +217,38 @@ class CalibrationPanelTest(unittest.TestCase):
             # window produced instead of mixing in a row the store no longer stands behind.
             self.assertEqual(built.diagnostics.effective_fin_start, "2026-05-10")
 
+    def test_policy_exclusions_count_every_reason_the_universe_counted(self) -> None:
+        """One decision, read twice -- not made twice.
+
+        A name can miss the population on more than one policy ground at once, and the
+        universe counts each. Re-deriving the reasons here once produced an exclusive
+        chain, so the same diagnostic name meant "any of these" on one surface and
+        "the first of these" on the other.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO jquants_master_snapshots("
+                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                    ") VALUES (?, ?, ?, ?, ?, ?)",
+                    ("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", 1),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            built = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+
+            counts = built.diagnostics.policy_exclusion_reason_counts or {}
+            self.assertEqual(counts.get("sector_out_of_classification"), 1)
+            self.assertEqual(counts.get("market_out_of_scope"), 1)
+            # Data-shortage reasons stay on the other side of the pair.
+            self.assertNotIn("insufficient_bar_history", counts)
+            self.assertNotIn("1306", {row.ticker for row in built.rows})
+
     def test_panel_distinguishes_covered_no_report_from_source_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

@@ -273,6 +273,30 @@ class SectorClassificationScopeTests(unittest.TestCase):
         with self.assertRaises(UniverseSourceDriftError):
             self._result("情報通信業")  # the real label carries a nakaguro
 
+    def test_an_unknown_label_outside_the_eligible_markets_does_not_stop_the_build(self) -> None:
+        """The check has to be no wider than what it protects.
+
+        A row the market segment already removes contributes nothing to the population,
+        so a new label on it changes no count. Stopping there would spend the daily run's
+        availability on a name the screen never considered.
+        """
+        security = SecurityMaster(
+            code="130A",
+            name="Sample",
+            market_segment="その他",
+            sector_33="新しい何か",
+            is_common_stock=True,
+        )
+        result = build_universe(
+            asof_date=date(2026, 4, 24),
+            securities=[security],
+            bars_by_ticker={"130A": _bars("130A")},
+            shares_outstanding_by_ticker={"130A": 400_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+        self.assertNotIn("130A", result.snapshots)
+        self.assertEqual(result.exclusion_counts.get("market_out_of_scope"), 1)
+
     def test_every_tse_sector_stays_in_scope(self) -> None:
         # The positive side across the whole classification: an exclusion that removed a
         # real sector would still pass a test that only checked one name.

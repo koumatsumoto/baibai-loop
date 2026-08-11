@@ -95,6 +95,9 @@ MIN_BAR_HISTORY = 20
 class UniverseBuildResult:
     snapshots: Mapping[str, UniverseSnapshot]
     exclusion_counts: Mapping[str, int] = field(default_factory=dict)
+    # 除外された銘柄ごとの理由。読み手が同じ判定を書き直さずに済むよう、判定した側が
+    # 結果を持つ。書き直すと、条件を 1 つ足した日に 2 つの surface が別の量になる。
+    exclusion_flags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 class UniverseSourceDriftError(RuntimeError):
@@ -104,6 +107,14 @@ class UniverseSourceDriftError(RuntimeError):
 # 普通株でない銘柄に付く分類。33 業種と併せて、source が返しうる語彙の全体を成す。
 # 実 store の 568,329 行・136 snapshot で観測される値はこの和集合と厳密に一致する。
 NON_COMMON_STOCK_SECTORS = frozenset({"その他"})
+
+# 方針で外す理由。data が足りずに外れる理由 (`insufficient_bar_history`) と対を成し、
+# 「意図して除いた」と「評価できなかった」の境界はこの集合が定める。
+POLICY_EXCLUSION_REASONS: tuple[str, ...] = (
+    "non_common_stock",
+    "sector_out_of_classification",
+    "market_out_of_scope",
+)
 
 
 def build_universe(
@@ -116,23 +127,30 @@ def build_universe(
     # 母集団の定義を業種名の完全一致に預けているので、source の語彙が動いた日は
     # 「その業種の全銘柄が普通株でない」と読める。件数は減るだけで例外は出ないため、
     # 知らない語を見た時点で止める。個別の除外より先に、語彙そのものを検査する。
+    #
+    # 検査は適格市場区分の行だけに掛ける。区分で既に外れる行の語彙が変わっても母集団は
+    # 1 行も動かないので、そこで止めると守っていない対象のために可用性を失う。
     unknown_sectors = sorted(
         {
             security.sector_33
             for security in securities
-            if security.sector_33 not in TSE_33_SECTORS
+            if security.market_segment.upper() in ELIGIBLE_MARKETS
+            and security.sector_33 not in TSE_33_SECTORS
             and security.sector_33 not in NON_COMMON_STOCK_SECTORS
         }
     )
     if unknown_sectors:
         raise UniverseSourceDriftError(
-            f"unknown sector classification from the master source: {unknown_sectors}; "
+            f"unknown sector classification on an eligible market: {unknown_sectors}; "
             "the universe excludes on exact sector names, so an unrecognised label would "
-            "silently drop every stock carrying it"
+            "silently drop every stock carrying it. Add it to TSE_33_SECTORS when it names "
+            "a common-stock sector, or to NON_COMMON_STOCK_SECTORS when it names an "
+            "instrument type that is not common stock."
         )
 
     snapshots: dict[str, UniverseSnapshot] = {}
     exclusion_counts: dict[str, int] = {}
+    exclusion_flags: dict[str, tuple[str, ...]] = {}
 
     for security in securities:
         flags: list[str] = []
@@ -149,6 +167,7 @@ def build_universe(
             flags.append("insufficient_bar_history")
 
         if flags:
+            exclusion_flags[security.code] = tuple(flags)
             for flag in set(flags):
                 exclusion_counts[flag] = exclusion_counts.get(flag, 0) + 1
             continue
@@ -174,7 +193,9 @@ def build_universe(
         )
 
     return UniverseBuildResult(
-        snapshots=snapshots, exclusion_counts=dict(sorted(exclusion_counts.items()))
+        snapshots=snapshots,
+        exclusion_counts=dict(sorted(exclusion_counts.items())),
+        exclusion_flags=exclusion_flags,
     )
 
 
