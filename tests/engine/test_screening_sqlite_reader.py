@@ -385,7 +385,13 @@ class FinSummariesReadableFromTests(unittest.TestCase):
             )
             self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2016, 8, 1))
 
-    def test_a_gap_puts_the_floor_after_it(self) -> None:
+    def test_a_gap_before_the_asof_answers_nothing(self) -> None:
+        """A hole in the middle is an outage, not a store that starts later.
+
+        Answering with the later window's start would hand back a quietly shorter
+        history that reads exactly like a young store, so the months nobody fetched
+        would never surface.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             db = self._store_with_windows(
                 tmp,
@@ -394,6 +400,11 @@ class FinSummariesReadableFromTests(unittest.TestCase):
                     ("recent", "2020-01-01", "2026-08-11", 100),
                 ),
             )
+            self.assertIsNone(fin_summaries_readable_from(db, date(2025, 6, 30)))
+
+    def test_the_only_window_answers_even_when_it_starts_late(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._store_with_windows(tmp, (("recent", "2020-01-01", "2026-08-11", 100),))
             self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2020, 1, 1))
 
     def test_returns_none_when_no_window_holds_the_asof(self) -> None:
