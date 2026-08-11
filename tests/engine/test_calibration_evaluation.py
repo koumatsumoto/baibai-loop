@@ -69,6 +69,7 @@ def _panel_row(
     pass_screen: bool = False,
     evidence_playbooks: str = "",
     threshold_blocks: str = "",
+    operating_profit_yoy: float | None = None,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -95,7 +96,7 @@ def _panel_row(
         dividend_yield=dividend_yield,
         eps_yoy=None,
         sales_yoy=None,
-        operating_profit_yoy=None,
+        operating_profit_yoy=operating_profit_yoy,
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
@@ -224,6 +225,56 @@ class RequiredMetricStatusTest(unittest.TestCase):
             ),
             {"er_calibration": "eligible", "er_level_calibration": "unresolved"},
         )
+
+
+class DeteriorationGateTest(unittest.TestCase):
+    """The gate is judged inside the best decile of the axis it guards."""
+
+    @staticmethod
+    def _cohort(blocked_rows: int) -> dict[str, object]:
+        # 400 names so the best decile holds 40; the deteriorating ones sit inside it.
+        panel = []
+        forwards = []
+        for index in range(400):
+            deteriorating = index < blocked_rows
+            row = _panel_row(
+                f"{4000 + index}",
+                # Lower per_trailing is the better side, so the low indices are the
+                # best decile and the deteriorating rows land there.
+                per_trailing=1.0 + index / 100,
+                operating_profit_yoy=-0.5 if deteriorating else 0.1,
+            )
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.30 if deteriorating else 0.05))
+        return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
+
+    def test_a_populated_blocked_side_reports_the_gate_effect(self) -> None:
+        aggregate = self._cohort(blocked_rows=25)["aggregate"]
+        assert isinstance(aggregate, dict)
+        entry = aggregate["gates"]["per_trailing"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["eligible_cohorts"], 1)
+        assert isinstance(entry["mean_gate_median_excess_delta"], float)
+        # The names the gate removed did better, so the gate cost return here.
+        self.assertLess(entry["mean_gate_median_excess_delta"], 0.0)
+
+    def test_a_thin_blocked_side_is_counted_and_left_out_of_the_mean(self) -> None:
+        """The blocked side is the deteriorating names inside one decile, so it is small.
+
+        Averaging a median over a handful of them reads like the same evidence as a
+        gate measured on hundreds.
+        """
+        aggregate = self._cohort(blocked_rows=5)["aggregate"]
+        assert isinstance(aggregate, dict)
+        entry = aggregate["gates"]["per_trailing"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["cohorts"], 1)
+        self.assertEqual(entry["eligible_cohorts"], 0)
+        self.assertIsNone(entry["mean_gate_median_excess_delta"])
+        self.assertIsNone(entry["gate_positive_share"])
+        self.assertEqual(entry["blocked_n"], 5)
 
 
 class PlaybookThresholdTest(unittest.TestCase):

@@ -1661,10 +1661,16 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
     a question about the cohorts together: the sign of the difference and how often it
     holds. Reported as the gate's own effect — what the names it removes gave up — so a
     negative number means the gate cost return on that axis.
+
+    The blocked side is the small one: it is the deteriorating names inside a value axis's
+    best decile, which can be a handful. A cohort speaks only when that side reaches the
+    same floor the threshold coordinate uses, and the rest are counted apart, so a gate
+    nobody can measure reports no effect rather than one drawn from a few names.
     """
     result: dict[str, object] = {}
     for axis_name in GATE_BASE_AXES:
         deltas: list[float] = []
+        thin_cohorts = 0
         passed_n = blocked_n = 0
         for cohort in cohorts:
             gates = cohort.get("gates")
@@ -1677,20 +1683,33 @@ def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
             blocked = entry.get("gate_blocked")
             if not isinstance(passed, dict) or not isinstance(blocked, dict):
                 continue
+            blocked_count = int(blocked.get("n") or 0)
             passed_n += int(passed.get("n") or 0)
-            blocked_n += int(blocked.get("n") or 0)
+            blocked_n += blocked_count
             passed_median = passed.get("median_excess")
             blocked_median = blocked.get("median_excess")
-            if isinstance(passed_median, int | float) and isinstance(blocked_median, int | float):
-                deltas.append(float(passed_median) - float(blocked_median))
-        if not deltas:
+            if not isinstance(passed_median, int | float) or not isinstance(
+                blocked_median, int | float
+            ):
+                continue
+            if blocked_count < MIN_THRESHOLD_REMOVED_SAMPLE:
+                thin_cohorts += 1
+                continue
+            deltas.append(float(passed_median) - float(blocked_median))
+        if not deltas and not thin_cohorts:
             continue
         result[axis_name] = {
-            "cohorts": len(deltas),
+            "cohorts": len(deltas) + thin_cohorts,
+            "eligible_cohorts": len(deltas),
             "passed_n": passed_n,
             "blocked_n": blocked_n,
-            "mean_gate_median_excess_delta": round(fmean(deltas), 6),
-            "gate_positive_share": round(sum(1 for value in deltas if value > 0) / len(deltas), 4),
+            "mean_gate_median_excess_delta": round(fmean(deltas), 6) if deltas else None,
+            "stdev_gate_median_excess_delta": (
+                round(stdev(deltas), 6) if len(deltas) > 1 else None
+            ),
+            "gate_positive_share": (
+                round(sum(1 for value in deltas if value > 0) / len(deltas), 4) if deltas else None
+            ),
         }
     return result
 
