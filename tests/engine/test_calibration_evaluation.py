@@ -283,6 +283,71 @@ class PlaybookThresholdTest(unittest.TestCase):
         self.assertEqual(entry["removed_n"], 120)
 
 
+class SectorMedianBasisThinSideTest(unittest.TestCase):
+    """The market side is a fraction of the cohort, so it has to report without deciles.
+
+    Only nine sectors sit below the head-count floor, which leaves roughly fifty rows a
+    cohort on the market baseline against several thousand on their own. A decile over
+    fifty rows puts five names in a bucket, so the axis minimum refuses the spread — and
+    the group statistics have to carry the comparison, or the thin side reports nothing at
+    all and the coordinate cannot answer the question it exists for.
+    """
+
+    def _cohort(self) -> dict[str, object]:
+        panel = []
+        forwards = []
+        for index in range(150):
+            row = _panel_row(f"{4000 + index}", per_trailing=10.0, smg_p_s=-index / 100)
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.05))
+        # Below MIN_AXIS_SAMPLE on purpose: this is the real shape of the market side.
+        for index in range(40):
+            row = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                smg_p_s=-index / 100,
+                smg_market_fallback="p_s",
+                pass_screen=True,
+            )
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.30))
+        return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
+
+    def test_the_thin_side_reports_its_group_without_a_spread(self) -> None:
+        cohort = self._cohort()["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        market = axis["market_fallback"]
+        assert isinstance(market, dict)
+        self.assertEqual(market["n"], 40)
+        self.assertEqual(market["passed_screen"], 40)
+        # Too few rows for a decile, so the spread stays absent rather than being made up.
+        self.assertIsNone(market["decile_spread_median"])
+        # The comparison it does support is present.
+        assert isinstance(market["median_excess"], float)
+        self.assertGreater(market["median_excess"], 0.0)
+
+    def test_the_aggregate_counts_the_thin_side_as_a_cohort(self) -> None:
+        aggregate = self._cohort()["aggregate"]
+        assert isinstance(aggregate, dict)
+        node = aggregate["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        market = axis["market_fallback"]
+        assert isinstance(market, dict)
+        # It contributed a cohort even though it contributed no spread.
+        self.assertEqual(market["cohorts"], 1)
+        self.assertEqual(market["spread_cohorts"], 0)
+        self.assertEqual(market["median_positive_share"], 1.0)
+        self.assertIsNone(market["mean_decile_spread_median"])
+
+
 class SectorMedianBasisTest(unittest.TestCase):
     """The sector-gap axes are reported separately for each baseline that produced them."""
 

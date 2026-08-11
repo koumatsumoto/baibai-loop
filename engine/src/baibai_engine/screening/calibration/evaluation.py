@@ -1211,6 +1211,12 @@ def _evaluate_sector_median_basis(
     below the market on every valuation axis, so their names carry a negative gap that
     sector composition alone can explain. The axis result is reported for each basis so
     that a reader can tell an axis that works from an axis that works on one basis.
+
+    The two sides are not the same size. A cohort holds a few thousand names on their own
+    sector and roughly fifty on the market, because only nine sectors sit below the floor.
+    A decile spread over fifty rows puts five names in a bucket, so the group statistics
+    carry the comparison and the spread is reported only where the sample supports it.
+    Reporting a spread computed from five names would put a number where there is none.
     """
     result: dict[str, object] = {}
     for axis_name in SECTOR_MEDIAN_AXES:
@@ -1233,7 +1239,7 @@ def _evaluate_sector_median_basis(
             best = decile_values[-1] if decile_values else []
             worst = decile_values[0] if decile_values else []
             entry[basis] = {
-                "n": len(pairs),
+                **_group_stats([outcome for _, outcome in pairs]),
                 "passed_screen": screened[basis],
                 "best_decile_median_excess": round(median(best), 6) if best else None,
                 "decile_spread_median": (
@@ -1685,7 +1691,9 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
         entry: dict[str, object] = {}
         for basis in ("own_sector", "market_fallback"):
             spreads: list[float] = []
-            total_n = passed_screen = 0
+            medians: list[float] = []
+            traps: list[float] = []
+            cohort_count = total_n = passed_screen = 0
             for cohort in cohorts:
                 node = cohort.get("sector_median_basis")
                 if not isinstance(node, dict):
@@ -1694,17 +1702,34 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 if not isinstance(axis, dict):
                     continue
                 group = axis.get(basis)
-                if not isinstance(group, dict):
+                if not isinstance(group, dict) or not group.get("n"):
                     continue
+                cohort_count += 1
                 total_n += int(group.get("n") or 0)
                 passed_screen += int(group.get("passed_screen") or 0)
+                # The market side rarely fills a decile, so the median carries the
+                # comparison and the spread joins it only where a cohort had the sample.
+                median_excess = group.get("median_excess")
+                if isinstance(median_excess, int | float):
+                    medians.append(float(median_excess))
+                trap = group.get("trap_rate")
+                if isinstance(trap, int | float):
+                    traps.append(float(trap))
                 spread = group.get("decile_spread_median")
                 if isinstance(spread, int | float):
                     spreads.append(float(spread))
             entry[basis] = {
-                "cohorts": len(spreads),
+                "cohorts": cohort_count,
                 "total_n": total_n,
                 "passed_screen": passed_screen,
+                "mean_median_excess": round(fmean(medians), 6) if medians else None,
+                "median_positive_share": (
+                    round(sum(1 for value in medians if value > 0) / len(medians), 4)
+                    if medians
+                    else None
+                ),
+                "mean_trap_rate": round(fmean(traps), 4) if traps else None,
+                "spread_cohorts": len(spreads),
                 "mean_decile_spread_median": round(fmean(spreads), 6) if spreads else None,
                 "decile_spread_positive_share": (
                     round(sum(1 for value in spreads if value > 0) / len(spreads), 4)
