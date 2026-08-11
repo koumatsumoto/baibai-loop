@@ -203,6 +203,7 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         pass_screen=raw["pass_screen"] == _BOOL_TRUE,
         evidence_playbooks=raw["evidence_playbooks"],
         smg_market_fallback=raw["smg_market_fallback"],
+        threshold_blocks=raw["threshold_blocks"],
         selection_rank=_opt_int(raw, "selection_rank"),
         recommended_rank=_opt_int(raw, "recommended_rank"),
         population_coverage_status=_population_coverage_status(raw["population_coverage_status"]),

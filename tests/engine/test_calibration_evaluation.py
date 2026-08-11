@@ -67,6 +67,8 @@ def _panel_row(
     smg_p_s: float | None = None,
     smg_market_fallback: str = "",
     pass_screen: bool = False,
+    evidence_playbooks: str = "",
+    threshold_blocks: str = "",
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -126,7 +128,8 @@ def _panel_row(
         margin_long_delta_26w=None,
         margin_std_long_share=None,
         pass_screen=pass_screen or rank is not None,
-        evidence_playbooks="",
+        evidence_playbooks=evidence_playbooks,
+        threshold_blocks=threshold_blocks,
         selection_rank=rank,
         recommended_rank=rank,
         shareholder_return_change=shareholder_return_change,
@@ -221,6 +224,63 @@ class RequiredMetricStatusTest(unittest.TestCase):
             ),
             {"er_calibration": "eligible", "er_level_calibration": "unresolved"},
         )
+
+
+class PlaybookThresholdTest(unittest.TestCase):
+    """A threshold is judged against the names it alone turned away."""
+
+    def _cohort(self) -> dict[str, object]:
+        panel = []
+        forwards = []
+        for index in range(120):
+            taken = _panel_row(
+                f"{4000 + index}",
+                per_trailing=10.0,
+                evidence_playbooks="cash-rich-asset-discount",
+                pass_screen=True,
+            )
+            turned_away = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                threshold_blocks="cash-rich-asset-discount:equity_ratio_min",
+            )
+            panel.extend((taken, turned_away))
+            # The rows the floor removed did better, which is the shape that says a
+            # threshold costs return rather than saving it.
+            forwards.append(_forward_row(taken.ticker, 0.05))
+            forwards.append(_forward_row(turned_away.ticker, 0.25))
+        return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
+
+    def test_the_cohort_reports_both_sides_of_the_cut(self) -> None:
+        cohort = self._cohort()["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["playbook_thresholds"]
+        assert isinstance(node, dict)
+        entry = node["cash-rich-asset-discount:equity_ratio_min"]
+        assert isinstance(entry, dict)
+        admitted = entry["admitted"]
+        removed = entry["removed"]
+        assert isinstance(admitted, dict)
+        assert isinstance(removed, dict)
+        self.assertEqual(admitted["n"], 120)
+        self.assertEqual(removed["n"], 120)
+        # Admitted minus removed: negative means the floor gave up return.
+        assert isinstance(entry["median_excess_delta"], float)
+        self.assertLess(entry["median_excess_delta"], 0.0)
+
+    def test_the_aggregate_reports_how_often_the_cut_held(self) -> None:
+        aggregate = self._cohort()["aggregate"]
+        assert isinstance(aggregate, dict)
+        node = aggregate["playbook_thresholds"]
+        assert isinstance(node, dict)
+        entry = node["cash-rich-asset-discount:equity_ratio_min"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["cohorts"], 1)
+        self.assertEqual(entry["positive_share"], 0.0)
+        self.assertEqual(entry["admitted_n"], 120)
+        self.assertEqual(entry["removed_n"], 120)
 
 
 class SectorMedianBasisTest(unittest.TestCase):

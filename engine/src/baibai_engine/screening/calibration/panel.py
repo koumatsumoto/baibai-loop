@@ -40,7 +40,7 @@ from ..metrics import (
 )
 from ..render import candidate_entry
 from ..rule_config import ScreeningRules
-from ..rules import evaluate_screening
+from ..rules import evaluate_screening, threshold_blocks
 from ..schema import SECTOR_MEDIAN_BASIS_MARKET, ScreenedCandidate, TTMQuality
 from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
@@ -205,6 +205,10 @@ class PanelRow:
     # と同じ語彙。空文字は「自業種から答えた」と「そもそも軸を評価していない」の
     # 両方を取るので、素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
     smg_market_fallback: str = ""
+    # `<playbook>:<threshold>` を `|` で並べる。その playbook の他条件をすべて満たし、
+    # この閾値だけで落ちた行にだけ入る。閾値が選んだ相手はこの行なので、通した群と
+    # 並べれば閾値の水準そのものを実現値で測れる。判定は `rules.threshold_blocks`。
+    threshold_blocks: str = ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -360,6 +364,7 @@ def build_panel(
     )
 
     evidence_by_ticker: dict[str, tuple[str, ...]] = {}
+    blocks_by_ticker: dict[str, tuple[str, ...]] = {}
     candidates: list[ScreenedCandidate] = []
     for ticker in sorted(universe_result.snapshots):
         result = evaluate_screening(
@@ -371,6 +376,15 @@ def build_panel(
 
         if result.pass_fail:
             evidence_by_ticker[ticker] = tuple(hit.name for hit in result.evidence_hits)
+        # Every row, not just the rejected ones: a name the screen took on one playbook
+        # can still be the counterfactual another playbook's threshold removed, and that
+        # is the row that says what the threshold chose against.
+        blocks_by_ticker[ticker] = threshold_blocks(
+            metric_result.financials[ticker],
+            metric_result.derived[ticker],
+            rules,
+            sector_33=securities_by_ticker[ticker].sector_33,
+        )
         candidates.append(
             build_screened_candidate(
                 ticker=ticker,
@@ -518,6 +532,7 @@ def build_panel(
                     for metric in VALUATION_METRICS
                     if derived.sector_median_basis.get(metric) == SECTOR_MEDIAN_BASIS_MARKET
                 ),
+                threshold_blocks="|".join(blocks_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
                 recommended_rank=recommended_rank.get(ticker),
                 self_range_degraded=not policy.production_authority,

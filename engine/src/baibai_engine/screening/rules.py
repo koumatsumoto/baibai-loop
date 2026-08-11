@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math import inf
+
 from .rule_config import (
     CashflowYieldPlaybook,
     CashRichPlaybook,
@@ -87,6 +89,92 @@ def evaluate_screening(
 
 def _is_excluded_sector(sector_33: str, excluded_sectors: tuple[str, ...]) -> bool:
     return sector_33 in excluded_sectors
+
+
+# 閾値を無効化する値。緩めた config で同じ判定関数を呼び直し、hit するかどうかで
+# 「その 1 条件だけが落としたか」を見る。判定を書き写さないので、条件の意味も null の
+# 扱いも rules 側の 1 か所にとどまる。
+_RELAXED_THRESHOLDS: dict[str, dict[str, object]] = {
+    PLAYBOOK_CASH_RICH: {
+        "cash_to_market_cap_min": -inf,
+        "pbr_max": inf,
+        "equity_ratio_min": -inf,
+        "edinet_net_cash_to_market_cap_min_if_available": None,
+        "operating_profit_positive_required": False,
+        "operating_profit_yoy_deterioration_threshold": None,
+    },
+    PLAYBOOK_CASHFLOW_YIELD: {
+        "ocf_yield_min": -inf,
+        "cfo_yoy_min": -inf,
+        "operating_profit_yoy_deterioration_threshold": None,
+        "fcf_yield_required_positive": False,
+    },
+    PLAYBOOK_SALES_DISCOUNT: {
+        "ps_sector_gap_max": inf,
+        "sales_yoy_min": -inf,
+        "operating_margin_min": None,
+    },
+}
+
+
+def threshold_blocks(
+    financial: FinancialSnapshot,
+    derived: DerivedMetrics,
+    rules: ScreeningRules,
+    *,
+    sector_33: str = "",
+) -> tuple[str, ...]:
+    """`<playbook>:<threshold>` for each threshold that alone kept this row out.
+
+    A threshold that removes a row which failed three other conditions says nothing about
+    the threshold — the row was never a candidate for it. What answers whether a threshold
+    earns its place is the row that met every other condition of the same playbook and was
+    removed by this one, because that row is the counterfactual the threshold is choosing
+    against. Each threshold is therefore tested by relaxing it and asking the real playbook
+    predicate again; nothing about the conditions is restated here.
+
+    Rows the playbook cannot judge — a missing fact, an excluded sector — are not blocked
+    by a threshold and produce no entry, so the coordinate measures the level a threshold
+    is set at rather than its null policy.
+    """
+    blocked: list[str] = []
+    for name, playbook in rules.screening_playbooks.items():
+        relaxations = _RELAXED_THRESHOLDS.get(name)
+        if relaxations is None or _is_excluded_sector(sector_33, playbook.excluded_sectors):
+            continue
+        if _playbook_hit(financial, derived, rules, name, playbook) is not None:
+            continue
+        for field, permissive in relaxations.items():
+            if getattr(playbook, field, None) == permissive:
+                continue
+            relaxed = playbook.model_copy(update={field: permissive})
+            if _playbook_hit(financial, derived, rules, name, relaxed) is not None:
+                blocked.append(f"{name}:{field}")
+    return tuple(blocked)
+
+
+def _playbook_hit(
+    financial: FinancialSnapshot,
+    derived: DerivedMetrics,
+    rules: ScreeningRules,
+    name: str,
+    playbook: object,
+) -> EvidenceHit | None:
+    """Evaluate one playbook, discarding the null reasons a probe would otherwise emit."""
+    discarded: list[str] = []
+    match name:
+        case "cash-rich-asset-discount" if isinstance(playbook, CashRichPlaybook):
+            return _cash_rich_asset_discount(financial, playbook, discarded)
+        case "cashflow-yield-discount" if isinstance(playbook, CashflowYieldPlaybook):
+            return _cashflow_yield_discount(financial, playbook, discarded)
+        case "sales-discount-growth" if isinstance(playbook, SalesDiscountGrowthPlaybook):
+            return _sales_discount_growth(financial, derived, playbook, discarded)
+        case "valuation-reversion" if isinstance(playbook, ValuationReversionPlaybook):
+            return _valuation_reversion(
+                financial, derived, playbook, rules.quality.yoy_deterioration_threshold, discarded
+            )
+        case _:
+            return None
 
 
 def _valuation_reversion(

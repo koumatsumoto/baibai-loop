@@ -21,6 +21,7 @@ from baibai_engine.screening.rules import (
     REASON_SECTOR_SELF_RANGE,
     REASON_VALUATION_SIGMA,
     evaluate_screening,
+    threshold_blocks,
 )
 from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot, TTMQuality
 
@@ -421,3 +422,68 @@ class ScreeningRulesTests(unittest.TestCase):
             PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
         )
         self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)
+
+
+class ThresholdBlockTests(unittest.TestCase):
+    """`threshold_blocks` names the cut a row met every other condition of."""
+
+    def _cash_rich_shape(self, **overrides: object) -> FinancialSnapshot:
+        # Everything the cash-rich playbook asks for, at values that clear it.
+        base: dict[str, object] = {
+            "cash_to_market_cap": 0.6,
+            "pbr": 0.7,
+            "equity_ratio": 0.6,
+            "net_cash_to_market_cap": 0.3,
+            "operating_profit": 100.0,
+            "operating_profit_yoy": 0.1,
+        }
+        base.update(overrides)
+        return _financial(**base)
+
+    def test_a_row_the_playbook_takes_names_no_threshold(self) -> None:
+        blocks = threshold_blocks(self._cash_rich_shape(), _derived(), RULES, sector_33="機械")
+        self.assertNotIn(
+            "cash-rich-asset-discount", "|".join(block.split(":")[0] for block in blocks)
+        )
+
+    def test_the_one_cut_a_row_failed_is_the_one_named(self) -> None:
+        # Equity ratio below the 0.3 floor, everything else untouched.
+        blocks = threshold_blocks(
+            self._cash_rich_shape(equity_ratio=0.1), _derived(), RULES, sector_33="機械"
+        )
+        self.assertIn("cash-rich-asset-discount:equity_ratio_min", blocks)
+        self.assertNotIn("cash-rich-asset-discount:pbr_max", blocks)
+        self.assertNotIn("cash-rich-asset-discount:cash_to_market_cap_min", blocks)
+
+    def test_a_row_that_fails_two_cuts_names_neither(self) -> None:
+        # Relaxing either one alone still leaves the other blocking, so neither cut
+        # chose against this row and neither can be judged by it.
+        blocks = threshold_blocks(
+            self._cash_rich_shape(equity_ratio=0.1, pbr=3.0), _derived(), RULES, sector_33="機械"
+        )
+        self.assertNotIn("cash-rich-asset-discount:equity_ratio_min", blocks)
+        self.assertNotIn("cash-rich-asset-discount:pbr_max", blocks)
+
+    def test_a_missing_fact_is_not_a_threshold_rejection(self) -> None:
+        # The playbook refuses a null equity ratio outright; relaxing the floor does not
+        # admit it, so the coordinate stays silent rather than blaming the level.
+        blocks = threshold_blocks(
+            self._cash_rich_shape(equity_ratio=None), _derived(), RULES, sector_33="機械"
+        )
+        self.assertNotIn("cash-rich-asset-discount:equity_ratio_min", blocks)
+
+    def test_an_excluded_sector_produces_no_threshold_verdict(self) -> None:
+        blocks = threshold_blocks(
+            self._cash_rich_shape(equity_ratio=0.1), _derived(), RULES, sector_33="銀行業"
+        )
+        self.assertEqual(
+            [block for block in blocks if block.startswith("cash-rich-asset-discount")], []
+        )
+
+    def test_the_deterioration_gate_is_named_when_it_alone_blocks(self) -> None:
+        blocks = threshold_blocks(
+            self._cash_rich_shape(operating_profit_yoy=-0.9), _derived(), RULES, sector_33="機械"
+        )
+        self.assertIn(
+            "cash-rich-asset-discount:operating_profit_yoy_deterioration_threshold", blocks
+        )
