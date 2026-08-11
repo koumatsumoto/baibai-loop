@@ -103,6 +103,9 @@ def _valuation_reversion(
         reasons.append(REASON_SECTOR_SELF_RANGE)
         metrics["condition_a_metric"] = hit_metric_a
         metrics["condition_a_sector_median_gap"] = derived.sector_median_gap.get(hit_metric_a)
+        # 上の gap がどの母集団の中央値から作られたか。母数の薄い業種は市場中央値へ
+        # 落ちるので、同じ語が「業種との差」と「市場との差」の 2 つの量を指す。
+        metrics["condition_a_sector_median_basis"] = derived.sector_median_basis.get(hit_metric_a)
         metrics["condition_a_self_range_percentile"] = derived.self_range_percentile.get(
             hit_metric_a
         )
@@ -309,6 +312,7 @@ def _sales_discount_growth(
         metrics={
             "p_s": financial.p_s,
             "ps_sector_gap": ps_gap,
+            "ps_sector_median_basis": derived.sector_median_basis.get("p_s"),
             "sales_yoy": financial.sales_yoy,
             "operating_profit": financial.operating_profit,
             "ocf_ttm": financial.ocf_ttm,

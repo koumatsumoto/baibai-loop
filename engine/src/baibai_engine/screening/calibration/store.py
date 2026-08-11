@@ -24,7 +24,7 @@ from .forward import (
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 16
+CACHE_SCHEMA_VERSION = 17
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -202,6 +202,7 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         margin_std_long_share=_opt_float(raw, "margin_std_long_share"),
         pass_screen=raw["pass_screen"] == _BOOL_TRUE,
         evidence_playbooks=raw["evidence_playbooks"],
+        smg_market_fallback=raw["smg_market_fallback"],
         selection_rank=_opt_int(raw, "selection_rank"),
         recommended_rank=_opt_int(raw, "recommended_rank"),
         population_coverage_status=_population_coverage_status(raw["population_coverage_status"]),

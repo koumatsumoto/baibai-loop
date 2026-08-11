@@ -64,6 +64,9 @@ def _panel_row(
     equity_ratio: float | None = None,
     shareholder_return_change: bool | None = None,
     price_change_60d: float | None = None,
+    smg_p_s: float | None = None,
+    smg_market_fallback: str = "",
+    pass_screen: bool = False,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -103,7 +106,8 @@ def _panel_row(
         smg_per_trailing=None,
         smg_pbr=None,
         smg_ev_ebitda=None,
-        smg_p_s=None,
+        smg_p_s=smg_p_s,
+        smg_market_fallback=smg_market_fallback,
         srp_per_forward=None,
         srp_per_trailing=None,
         srp_pbr=None,
@@ -121,7 +125,7 @@ def _panel_row(
         margin_long_share=None,
         margin_long_delta_26w=None,
         margin_std_long_share=None,
-        pass_screen=rank is not None,
+        pass_screen=pass_screen or rank is not None,
         evidence_playbooks="",
         selection_rank=rank,
         recommended_rank=rank,
@@ -217,6 +221,69 @@ class RequiredMetricStatusTest(unittest.TestCase):
             ),
             {"er_calibration": "eligible", "er_level_calibration": "unresolved"},
         )
+
+
+class SectorMedianBasisTest(unittest.TestCase):
+    """The sector-gap axes are reported separately for each baseline that produced them."""
+
+    def _cohort(self) -> dict[str, object]:
+        # Two groups whose gaps are drawn from the same numbers but whose outcomes run
+        # opposite ways, so a single pooled result would report roughly nothing and only
+        # the split can show either effect.
+        panel = []
+        forwards = []
+        for index in range(120):
+            own = _panel_row(f"{4000 + index}", per_trailing=10.0, smg_p_s=-index / 100)
+            market = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                smg_p_s=-index / 100,
+                smg_market_fallback="p_s",
+                pass_screen=True,
+            )
+            panel.extend((own, market))
+            # own_sector: the cheapest end wins. market_fallback: it loses.
+            forwards.append(_forward_row(own.ticker, index / 100))
+            forwards.append(_forward_row(market.ticker, -index / 100))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        return result["6m"]
+
+    def test_each_baseline_reports_its_own_effect(self) -> None:
+        cohort = self._cohort()["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        own, market = axis["own_sector"], axis["market_fallback"]
+        assert isinstance(own, dict)
+        assert isinstance(market, dict)
+        self.assertEqual(own["n"], 120)
+        self.assertEqual(market["n"], 120)
+        # smg_p_s has direction -1, so the favoured end is the most negative gap.
+        assert isinstance(own["decile_spread_median"], float)
+        assert isinstance(market["decile_spread_median"], float)
+        self.assertGreater(own["decile_spread_median"], 0.0)
+        self.assertLess(market["decile_spread_median"], 0.0)
+        # Screen passage is counted per basis, which is what says how far a fallback
+        # reaches into the output.
+        self.assertEqual(own["passed_screen"], 0)
+        self.assertEqual(market["passed_screen"], 120)
+
+    def test_the_aggregate_keeps_the_two_baselines_apart(self) -> None:
+        aggregate = self._cohort()["aggregate"]
+        assert isinstance(aggregate, dict)
+        node = aggregate["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        own, market = axis["own_sector"], axis["market_fallback"]
+        assert isinstance(own, dict)
+        assert isinstance(market, dict)
+        self.assertEqual(own["cohorts"], 1)
+        self.assertEqual(own["decile_spread_positive_share"], 1.0)
+        self.assertEqual(market["decile_spread_positive_share"], 0.0)
+        self.assertEqual(market["passed_screen"], 120)
 
 
 class EvaluateCohortsTest(unittest.TestCase):

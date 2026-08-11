@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.metrics import (
+    MetricBuildResult,
     _normalize_summaries_to_asof_basis,
     _resolve_dividend_carry,
     _ttm_value,
@@ -2222,6 +2223,93 @@ class MedianPopulationTests(unittest.TestCase):
         # PER 100 vs liquid-population median 10 -> gap = 9.0; a full-population
         # median would shift the baseline and lower the gap.
         self.assertAlmostEqual(gap, 9.0, places=6)
+
+    def _two_sector_metrics(self) -> MetricBuildResult:
+        """A thick sector at PER 10 and a thin one at PER 4, priced by the same close.
+
+        The market median is 10 because the thick sector outnumbers the thin one, so the
+        thin sector's own median (4) and the market's (10) disagree. Whichever baseline
+        answers is then readable from the gap alone, and the basis label has to agree
+        with it.
+        """
+        from datetime import date as _date
+        from datetime import timedelta
+
+        from baibai_engine.screening.metrics import build_metrics
+        from baibai_engine.screening.providers.jquants import (
+            JQuantsDailyBar,
+            JQuantsFinancialSummary,
+        )
+        from baibai_engine.screening.schema import SecurityMaster
+
+        asof = _date(2026, 4, 24)
+        shares = 1e8
+
+        def bars(code: str) -> list[JQuantsDailyBar]:
+            return [
+                JQuantsDailyBar(
+                    ticker=code,
+                    traded_at=asof - timedelta(days=30 - index),
+                    close=100.0,
+                    turnover_value=2.0e8,
+                )
+                for index in range(30)
+            ]
+
+        def summary(code: str, eps: float) -> JQuantsFinancialSummary:
+            return JQuantsFinancialSummary(
+                ticker=code,
+                disclosed_at=_date(2026, 2, 1),
+                eps_ttm=eps,
+                profit=eps * shares,
+                shares_outstanding=shares,
+                treasury_shares=0.0,
+                type_of_current_period="FY",
+                period_start=_date(2025, 1, 1),
+                period_end=_date(2025, 12, 31),
+            )
+
+        thick = {f"11{index:02d}": "機械" for index in range(12)}
+        thin = {f"22{index:02d}": "海運業" for index in range(3)}
+        securities = {
+            code: SecurityMaster(
+                code=code,
+                name=f"name-{code}",
+                market_segment="プライム",
+                sector_33=sector,
+                is_common_stock=True,
+            )
+            for code, sector in (thick | thin).items()
+        }
+        summaries = {
+            code: [summary(code, eps=10.0 if code in thick else 25.0)] for code in securities
+        }
+        return build_metrics(
+            asof_date=asof,
+            securities_by_ticker=securities,
+            bars_by_ticker={code: bars(code) for code in securities},
+            summaries_by_ticker=summaries,
+            edinet_by_ticker={},
+            median_population=frozenset(securities),
+        )
+
+    def test_a_sector_above_the_floor_is_compared_against_itself(self) -> None:
+        result = self._two_sector_metrics()
+        derived = result.derived["1100"]
+        self.assertEqual(derived.sector_median_basis["per_trailing"], "sector")
+        self.assertAlmostEqual(derived.sector_median_value["per_trailing"], 10.0, places=6)
+        # Its own sector answers, so a name at the sector's own multiple has no gap.
+        self.assertAlmostEqual(derived.sector_median_gap["per_trailing"], 0.0, places=6)
+
+    def test_a_sector_below_the_floor_is_compared_against_the_market_and_says_so(self) -> None:
+        result = self._two_sector_metrics()
+        derived = result.derived["2200"]
+        self.assertEqual(derived.sector_median_basis["per_trailing"], "market")
+        # The market's 10, not the thin sector's own 4.
+        self.assertAlmostEqual(derived.sector_median_value["per_trailing"], 10.0, places=6)
+        # PER 4 against a baseline of 10 reads as 60% cheap, which is what sector
+        # composition alone produces here — the label is what separates the two readings.
+        self.assertAlmostEqual(derived.sector_median_gap["per_trailing"], -0.6, places=6)
 
 
 def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:

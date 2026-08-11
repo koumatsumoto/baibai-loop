@@ -210,9 +210,21 @@ EDINET の自己株券買付状況報告書（様式コード 220、訂正 230�
 
 ### 8.3 サンプル数下限
 
-- **n < 10 の業種**: 市場全体中央値に fallback
+- **n < 10 の業種**: 市場全体中央値に fallback（`metrics.MIN_SECTOR_MEDIAN_POPULATION`）
 - 中小規模業種で n が不安定な場合の判定歪みを防止
-- 例: 東証 33 業種の「空運業」「鉱業」は銘柄数が少ない場合 fallback 対象
+- 下限は軸ごとに判定する。母集団は同じでも欠損の入り方が軸で違うので、同じ業種でも `pbr` は自業種、`ev_ebitda` は市場、という状態になりうる
+
+### 8.4 fallback の素性
+
+fallback した値も `sector_median_gap` / `sector_median_value` に入るため、同じ field が「業種との差」と「市場との差」の 2 つの量を指す。**どちらから作られたかは `DerivedMetrics.sector_median_basis` が軸ごとに `sector` / `market` で持つ。**
+
+素性を残す理由は、2 つの母集団が体系的に違う水準にあることにある。母数が 10 に届かない業種は水産・農林業、海運業、空運業、鉱業、石油・石炭製品、倉庫・運輸関連業、パルプ・紙、保険業、ゴム製品に集中し、いずれも構造的に低倍率である。fallback が起きた組では自業種 P/S 中央値は市場中央値より 91% の組で低く、中央値で −44.0% 低い。したがって fallback した銘柄は業種構成だけで負の gap を受け取る。この幅は `ps_sector_gap_max`（−0.4）より大きいので、素性が無いと gate を越えた根拠を業種の割安と業種構成に分けられない。
+
+素性の出口:
+
+- `PanelRow.smg_market_fallback` — market から作られた軸を `|` で並べる。対応する `smg_*` が非 null の行でだけ意味を持つ
+- 較正の `sector_median_basis` 座標 — `smg_*` 軸ごとに own_sector / market_fallback の効果量、cohort 勝率、screen 通過数を分けて出す
+- selection evidence の `condition_a_sector_median_basis` / `ps_sector_median_basis`
 
 ## 9. 過去自己比較（過去 3 年レンジ）
 

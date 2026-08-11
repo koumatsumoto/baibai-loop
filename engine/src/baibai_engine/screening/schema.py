@@ -26,7 +26,12 @@ _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
 # (`unavailable`) とも別で、E[r] はこの行に順位を付けない。
 UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
 
+# `sector_median_basis` の 2 値。どちらの母集団が中央値を出したかを表す。
+SECTOR_MEDIAN_BASIS_SECTOR = "sector"
+SECTOR_MEDIAN_BASIS_MARKET = "market"
+
 type NullableFloatMap = Mapping[str, float | None]
+type StringMap = Mapping[str, str]
 type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
 type NonEmptyString = Annotated[str, Field(min_length=1)]
@@ -250,6 +255,12 @@ class DerivedMetrics:
     # sector 中央値倍率の絶対値と自己レンジ (750 営業日) の中央値倍率。
     # 機械 E[r] / FV アンカーの入力 (gap / percentile と違い水準そのもの)。
     sector_median_value: NullableFloatMap = Field(default_factory=dict)
+    # 上の 2 つがどの母集団から作られたかを軸ごとに記録する。母数が薄い業種では
+    # 市場全体へ落ちるので、同じ field が「業種との差」と「市場との差」の 2 つの量を
+    # 指す。落ちた業種は市場より低倍率に寄るため、素性が無いと gate を越えた根拠が
+    # 業種比較なのか市場比較なのか読めない。値は `SECTOR_MEDIAN_BASIS_SECTOR` /
+    # `SECTOR_MEDIAN_BASIS_MARKET` のいずれか。
+    sector_median_basis: StringMap = Field(default_factory=dict)
     self_range_percentile: NullableFloatMap = Field(default_factory=dict)
     self_range_median: NullableFloatMap = Field(default_factory=dict)
     sigma_gap: NullableFloatMap = Field(default_factory=dict)

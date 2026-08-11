@@ -167,6 +167,17 @@ GATE_BASE_AXES: tuple[str, ...] = ("per_trailing", "pbr", "ocf_yield")
 # 収束実現 (implied upside → realized) を測る sector 相対 gap 軸。
 REVERSION_AXES: tuple[str, ...] = ("smg_per_trailing", "smg_pbr", "smg_ev_ebitda")
 
+# 業種中央値との差を測る軸。`PanelRow.smg_market_fallback` はこの prefix を外した
+# metric 名を並べるので、軸と素性はその語彙で対応する。
+_SECTOR_MEDIAN_AXIS_PREFIX = "smg_"
+SECTOR_MEDIAN_AXES: tuple[str, ...] = (
+    "smg_per_forward",
+    "smg_per_trailing",
+    "smg_pbr",
+    "smg_ev_ebitda",
+    "smg_p_s",
+)
+
 
 def evaluate_cohorts(
     panels: Mapping[str, Sequence[PanelRow]],
@@ -293,6 +304,7 @@ def _evaluate_cohort(
             "axes": {},
             "selection": {},
             "gates": {},
+            "sector_median_basis": {},
             "reversion": {},
             "shareholder_return_change": {},
             "margin_supply_demand_hypotheses": {},
@@ -353,6 +365,7 @@ def _evaluate_cohort(
         "axes": axes,
         "selection": selection,
         "gates": _evaluate_gates(population, excess),
+        "sector_median_basis": _evaluate_sector_median_basis(population, excess),
         "reversion": _evaluate_reversion(population, excess),
         "shareholder_return_change": return_change,
         "margin_supply_demand_hypotheses": margin_hypotheses,
@@ -1143,6 +1156,50 @@ def _evaluate_gates(
     return result
 
 
+def _evaluate_sector_median_basis(
+    population: Sequence[PanelRow],
+    excess: Mapping[str, float],
+) -> dict[str, object]:
+    """Split each sector-gap axis by which population produced its median.
+
+    A sector below the head-count floor is compared against the whole market instead,
+    and the two answers are not the same quantity: the sectors that fall through sit
+    below the market on every valuation axis, so their names carry a negative gap that
+    sector composition alone can explain. The axis result is reported for each basis so
+    that a reader can tell an axis that works from an axis that works on one basis.
+    """
+    result: dict[str, object] = {}
+    for axis_name in SECTOR_MEDIAN_AXES:
+        spec = next(spec for spec in AXES if spec.name == axis_name)
+        metric = axis_name.removeprefix(_SECTOR_MEDIAN_AXIS_PREFIX)
+        groups: dict[str, list[tuple[float, float]]] = {"own_sector": [], "market_fallback": []}
+        screened: dict[str, int] = {"own_sector": 0, "market_fallback": 0}
+        for row in population:
+            value = getattr(row, axis_name)
+            if value is None:
+                continue
+            basis = (
+                "market_fallback" if metric in row.smg_market_fallback.split("|") else "own_sector"
+            )
+            groups[basis].append((value * spec.direction, excess[row.ticker]))
+            screened[basis] += row.pass_screen
+        entry: dict[str, object] = {}
+        for basis, pairs in groups.items():
+            decile_values = _decile_values(pairs) if len(pairs) >= MIN_AXIS_SAMPLE else None
+            best = decile_values[-1] if decile_values else []
+            worst = decile_values[0] if decile_values else []
+            entry[basis] = {
+                "n": len(pairs),
+                "passed_screen": screened[basis],
+                "best_decile_median_excess": round(median(best), 6) if best else None,
+                "decile_spread_median": (
+                    round(median(best) - median(worst), 6) if best and worst else None
+                ),
+            }
+        result[axis_name] = entry
+    return result
+
+
 def _evaluate_reversion(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
@@ -1486,12 +1543,93 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "cohort_count": len(cohorts),
         "axes": axis_summary,
         "selection": selection_summary,
+        "gates": _aggregate_gates(cohorts),
+        "sector_median_basis": _aggregate_sector_median_basis(cohorts),
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
         "asset_backed_hypotheses": _aggregate_asset_backed_hypotheses(cohorts),
         "er_calibration": _aggregate_er_calibration(cohorts),
     }
+
+
+def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    """Cross-cohort verdict on the deterioration gate, per valuation axis.
+
+    A per-cohort pass/blocked pair answers one as-of. Whether the gate earns its place is
+    a question about the cohorts together: the sign of the difference and how often it
+    holds. Reported as the gate's own effect — what the names it removes gave up — so a
+    negative number means the gate cost return on that axis.
+    """
+    result: dict[str, object] = {}
+    for axis_name in GATE_BASE_AXES:
+        deltas: list[float] = []
+        passed_n = blocked_n = 0
+        for cohort in cohorts:
+            gates = cohort.get("gates")
+            if not isinstance(gates, dict):
+                continue
+            entry = gates.get(axis_name)
+            if not isinstance(entry, dict):
+                continue
+            passed = entry.get("gate_pass")
+            blocked = entry.get("gate_blocked")
+            if not isinstance(passed, dict) or not isinstance(blocked, dict):
+                continue
+            passed_n += int(passed.get("n") or 0)
+            blocked_n += int(blocked.get("n") or 0)
+            passed_median = passed.get("median_excess")
+            blocked_median = blocked.get("median_excess")
+            if isinstance(passed_median, int | float) and isinstance(blocked_median, int | float):
+                deltas.append(float(passed_median) - float(blocked_median))
+        if not deltas:
+            continue
+        result[axis_name] = {
+            "cohorts": len(deltas),
+            "passed_n": passed_n,
+            "blocked_n": blocked_n,
+            "mean_gate_median_excess_delta": round(fmean(deltas), 6),
+            "gate_positive_share": round(sum(1 for value in deltas if value > 0) / len(deltas), 4),
+        }
+    return result
+
+
+def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    """Cross-cohort effect of each sector-gap axis, kept apart by baseline."""
+    result: dict[str, object] = {}
+    for axis_name in SECTOR_MEDIAN_AXES:
+        entry: dict[str, object] = {}
+        for basis in ("own_sector", "market_fallback"):
+            spreads: list[float] = []
+            total_n = passed_screen = 0
+            for cohort in cohorts:
+                node = cohort.get("sector_median_basis")
+                if not isinstance(node, dict):
+                    continue
+                axis = node.get(axis_name)
+                if not isinstance(axis, dict):
+                    continue
+                group = axis.get(basis)
+                if not isinstance(group, dict):
+                    continue
+                total_n += int(group.get("n") or 0)
+                passed_screen += int(group.get("passed_screen") or 0)
+                spread = group.get("decile_spread_median")
+                if isinstance(spread, int | float):
+                    spreads.append(float(spread))
+            entry[basis] = {
+                "cohorts": len(spreads),
+                "total_n": total_n,
+                "passed_screen": passed_screen,
+                "mean_decile_spread_median": round(fmean(spreads), 6) if spreads else None,
+                "decile_spread_positive_share": (
+                    round(sum(1 for value in spreads if value > 0) / len(spreads), 4)
+                    if spreads
+                    else None
+                ),
+            }
+        result[axis_name] = entry
+    return result
 
 
 def _aggregate_margin_hypotheses(

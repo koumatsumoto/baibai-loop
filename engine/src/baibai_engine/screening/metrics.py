@@ -48,6 +48,8 @@ from .providers.jquants import (
 )
 from .rule_config import ScreeningRules, TTMRules, load_screening_rules
 from .schema import (
+    SECTOR_MEDIAN_BASIS_MARKET,
+    SECTOR_MEDIAN_BASIS_SECTOR,
     UNRESOLVED_DIVIDEND_BASIS,
     DerivedMetrics,
     FinancialSnapshot,
@@ -57,6 +59,11 @@ from .schema import (
 )
 
 VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
+
+# 業種中央値を自業種から出すのに要る母数。これを下回る業種は市場全体の中央値へ落ちる。
+# 薄い標本の中央値は anchor として不安定なので落とす側を選ぶが、落ちた値は「業種との差」
+# ではなく「市場との差」なので、`DerivedMetrics.sector_median_basis` に素性を残す。
+MIN_SECTOR_MEDIAN_POPULATION = 10
 # run と calibration が同名の valuation を異なる式で作らないための method identity。
 # 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
 VALUATION_CALCULATION_REVISION = "treasury-adjusted-capital-v1"
@@ -328,17 +335,23 @@ def build_metrics(
         )
         sector_gaps: dict[str, float | None] = {}
         sector_medians: dict[str, float | None] = {}
+        sector_bases: dict[str, str] = {}
         self_percentiles: dict[str, float | None] = {}
         self_medians: dict[str, float | None] = {}
         sigma_gaps: dict[str, float | None] = {}
         for metric in VALUATION_METRICS:
             current = getattr(snapshot, metric)
             sector_values = sector_metric_values.get(sector, {}).get(metric, [])
-            baseline = (
-                sector_values if len(sector_values) >= 10 else market_metric_values.get(metric, [])
-            )
+            on_sector = len(sector_values) >= MIN_SECTOR_MEDIAN_POPULATION
+            baseline = sector_values if on_sector else market_metric_values.get(metric, [])
             sector_median = median(baseline) if baseline else None
             sector_medians[metric] = sector_median
+            # どちらの母集団が答えたかを値と同じ粒度で残す。両者は同じ語で呼ばれるが
+            # 別の量で、薄い業種は市場より低倍率へ寄るため、素性が無いと gap の符号を
+            # 業種の割安と読むか業種構成と読むかを後から分けられない。
+            sector_bases[metric] = (
+                SECTOR_MEDIAN_BASIS_SECTOR if on_sector else SECTOR_MEDIAN_BASIS_MARKET
+            )
             sector_gaps[metric] = (
                 ((current / sector_median) - 1.0)
                 if current is not None and sector_median not in (None, 0)
@@ -362,6 +375,7 @@ def build_metrics(
         derived[ticker] = DerivedMetrics(
             sector_median_gap=sector_gaps,
             sector_median_value=sector_medians,
+            sector_median_basis=sector_bases,
             self_range_percentile=self_percentiles,
             self_range_median=self_medians,
             price_change_1d=_price_change(ticker_bars, 1, asof_date),

@@ -29,6 +29,7 @@ from ..metrics import (
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
     VALUATION_CALCULATION_REVISION,
     VALUATION_HISTORY_SESSIONS,
+    VALUATION_METRICS,
     build_metrics,
     build_normalized_profit_signals,
     build_profitability_level_signals,
@@ -40,7 +41,7 @@ from ..metrics import (
 from ..render import candidate_entry
 from ..rule_config import ScreeningRules
 from ..rules import evaluate_screening
-from ..schema import ScreenedCandidate, TTMQuality
+from ..schema import SECTOR_MEDIAN_BASIS_MARKET, ScreenedCandidate, TTMQuality
 from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
 from ..sqlite_reader import (
@@ -198,6 +199,12 @@ class PanelRow:
     operating_profit_to_assets: float | None = None
     operating_margin: float | None = None
     asset_turnover: float | None = None
+    # `smg_*` のうち、業種の母数が足りず市場中央値から作られた軸を `|` で並べる。
+    # 薄い業種は市場より低倍率へ寄るので、この素性が無いと gap の符号を業種の割安と
+    # 読むか業種構成と読むかを分けられない。metric 名は `metrics.VALUATION_METRICS`
+    # と同じ語彙。空文字は「自業種から答えた」と「そもそも軸を評価していない」の
+    # 両方を取るので、素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
+    smg_market_fallback: str = ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -506,6 +513,11 @@ def build_panel(
                 asset_turnover=profitability.asset_turnover,
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
+                smg_market_fallback="|".join(
+                    metric
+                    for metric in VALUATION_METRICS
+                    if derived.sector_median_basis.get(metric) == SECTOR_MEDIAN_BASIS_MARKET
+                ),
                 selection_rank=selection_rank.get(ticker),
                 recommended_rank=recommended_rank.get(ticker),
                 self_range_degraded=not policy.production_authority,
