@@ -277,6 +277,33 @@ class SelectionLiquidityFilterTests(unittest.TestCase):
         assert isinstance(counts, Mapping)
         self.assertEqual(counts["after_er_filter"], 1)
         self.assertEqual(counts["er_missing"], 1)
+        # No dividend basis problem here, so the named list stays empty rather than
+        # inheriting the count.
+        self.assertEqual(counts["er_missing_unresolved_dividend_basis"], [])
+
+    def test_an_unresolvable_dividend_basis_is_named_where_the_candidate_left(self) -> None:
+        """The row never reaches the machine table, so the funnel has to say who left.
+
+        A year whose share basis cannot be resolved carries no yield and therefore no
+        E[r], which drops the name before ranking. Without the codes here, that name is
+        indistinguishable from one the screen found expensive.
+        """
+        payload = self._payload(
+            [
+                _candidate("1111", metrics={"er_annual": 0.05}),
+                _candidate(
+                    "2222",
+                    sector_33="化学",
+                    metrics={"er_annual": None, "dividend_basis": "unresolved_split_basis"},
+                ),
+                _candidate("3333", sector_33="機械", metrics={"er_annual": None}),
+            ]
+        )
+
+        counts = payload["selection"]["counts"]
+        assert isinstance(counts, Mapping)
+        self.assertEqual(counts["er_missing"], 2)
+        self.assertEqual(counts["er_missing_unresolved_dividend_basis"], ["2222"])
 
     def test_profile_config_can_relax_liquidity(self) -> None:
         payload = build_selection_payload(

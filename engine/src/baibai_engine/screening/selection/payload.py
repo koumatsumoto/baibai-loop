@@ -22,6 +22,7 @@ from ..rule_config import (
     SelectionLiquidityRules,
     SelectionRules,
 )
+from ..schema import UNRESOLVED_DIVIDEND_BASIS
 from ..tiers import position_tier
 from .lenses import _candidate_lenses
 from .macro_fit import (
@@ -103,6 +104,7 @@ def build_selection_payload(
     liquidity_fact_missing_count = 0
     evidence_annotated_count = 0
     er_missing_count = 0
+    unresolved_dividend_basis: list[str] = []
 
     ranked_entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
     for item in candidates:
@@ -115,6 +117,12 @@ def build_selection_payload(
         er_annual = optional_float(item.metrics.get("er_annual"))
         if er_annual is None:
             er_missing_count += 1
+            # A year whose dividend share basis cannot be resolved carries no yield, so
+            # no E[r], so the name leaves here. Naming those tickers is what separates
+            # "not cheap" from "not measurable" for a reader of the funnel: the row
+            # itself never reaches the machine table, and a count alone says neither.
+            if item.metrics.get("dividend_basis") == UNRESOLVED_DIVIDEND_BASIS:
+                unresolved_dividend_basis.append(item.ticker)
             continue
         eligible_evidence_hits = _sizing_eligible_evidence_hits(item.evidence_hits)
         if eligible_evidence_hits:
@@ -201,6 +209,7 @@ def build_selection_payload(
             "after_er_filter": len(ranked_candidates),
             "evidence_annotated": evidence_annotated_count,
             "er_missing": er_missing_count,
+            "er_missing_unresolved_dividend_basis": sorted(unresolved_dividend_basis),
         },
         "research_selection_target_max": rules.output.research_selection_target_max,
         "research_selection_playbook_order": list(rules.output.research_selection_playbook_order),
