@@ -52,7 +52,12 @@ from ..sqlite_reader import (
     read_margin_supply_demand_inputs,
     read_reported_short_metrics,
 )
-from ..universe import ELIGIBLE_MARKETS, build_universe, liquid_median_population
+from ..universe import (
+    ELIGIBLE_MARKETS,
+    TSE_33_SECTORS,
+    build_universe,
+    liquid_median_population,
+)
 from .forward import STALE_PRICE_MAX_LAG_DAYS
 from .identity import rules_contract_hash
 
@@ -554,10 +559,15 @@ def build_panel(
     # A historical master member without enough local bars is unavailable data,
     # not a silently excluded survivor. Keep an explicit row so its forward
     # observation and cohort coverage remain visible to authority checks.
+    # A name the policy removed is the other kind and belongs in the counts below, so
+    # every policy condition has to be asked here too. Asking only some of them puts the
+    # same row on the "could not evaluate" side and off the "removed on purpose" side,
+    # which are meant to be a pair.
     for security in securities:
         if (
             security.code not in universe_result.snapshots
             and security.is_common_stock
+            and security.sector_33 in TSE_33_SECTORS
             and security.market_segment.upper() in ELIGIBLE_MARKETS
         ):
             rows.append(
@@ -574,6 +584,10 @@ def build_panel(
     for security in securities:
         if not security.is_common_stock:
             policy_exclusions["non_common_stock"] = policy_exclusions.get("non_common_stock", 0) + 1
+        elif security.sector_33 not in TSE_33_SECTORS:
+            policy_exclusions["sector_out_of_classification"] = (
+                policy_exclusions.get("sector_out_of_classification", 0) + 1
+            )
         elif security.market_segment.upper() not in ELIGIBLE_MARKETS:
             policy_exclusions["market_out_of_scope"] = (
                 policy_exclusions.get("market_out_of_scope", 0) + 1
