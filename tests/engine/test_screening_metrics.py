@@ -56,6 +56,12 @@ def _summary(
     # 既定は「自己株式ゼロを観測した」。欠損 (None) は時価総額を出さない別の状態なので、
     # それを試す test だけが明示的に None を渡す。
     treasury_shares: float | None = 0.0,
+    dividend_q1: float | None = None,
+    dividend_interim: float | None = None,
+    dividend_q3: float | None = None,
+    dividend_year_end: float | None = None,
+    dividend_total_annual: float | None = None,
+    average_shares: float | None = None,
 ) -> JQuantsFinancialSummary:
     return JQuantsFinancialSummary(
         ticker=code,
@@ -78,6 +84,12 @@ def _summary(
         dps_actual_annual=dps_actual_annual,
         dps_forecast_annual=dps_forecast_annual,
         treasury_shares=treasury_shares,
+        dividend_q1=dividend_q1,
+        dividend_interim=dividend_interim,
+        dividend_q3=dividend_q3,
+        dividend_year_end=dividend_year_end,
+        dividend_total_annual=dividend_total_annual,
+        average_shares=average_shares,
     )
 
 
@@ -1957,6 +1969,176 @@ class DividendCarryResolverTests(unittest.TestCase):
         self.assertIsNone(carry.dividend_yield)
         assert carry.split_factor is not None
         self.assertAlmostEqual(carry.split_factor, 20.0, places=6)
+
+    def test_resolves_a_consolidation_that_precedes_every_payment(self) -> None:
+        # 1491 の形。20:1 併合が期中に起き、当期の配当は期末 1 回だけ。基準日 2026-03-31 は
+        # 併合より後なので報告値 34 は既に併合後の株式基準にある。支払ごとに換算すると
+        # 掛かる調整が無く、株価と同じ基準の 34 がそのまま出る。
+        summaries = [
+            _summary(
+                "1491",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=34.0,
+                dividend_year_end=34.0,
+            ),
+            _summary("1491", date(2025, 5, 15), dps_actual_annual=1.5),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("1491", date(2025, 9, 29), 20.0)],
+            latest_price=785.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 34.0 / 785.0, places=6)
+        # negative assertion: 併合 factor を掛けた 680 円で 86.6% を出さない。
+        self.assertLess(carry.dividend_yield, 0.10)
+
+    def test_resolves_an_interim_only_payer_whose_split_came_after_the_record_date(self) -> None:
+        # 4626 の形。当期の配当は中間 1 回だけで、基準日 2025-09-30 より後に 1:2 分割。
+        # その支払は分割前の株数で払われたので、株価と比べるには 0.5 を掛ける。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 4, 30),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=165.0,
+                dividend_interim=165.0,
+            ),
+            _summary("4626", date(2025, 4, 30), dps_actual_annual=190.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 11, 27), 0.5)],
+            latest_price=4827.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 82.5 / 4827.0, places=6)
+
+    def test_refuses_when_the_split_lands_beside_a_record_date(self) -> None:
+        # 1909 の形。権利落ちが 2026-03-30 で期末配当の基準日 2026-03-31 の前日に並ぶ。
+        # 効力発生日を持たない store からは、その配当が分割の前の株数で払われたのか後なのか
+        # を決められない。中間ぶんだけ換算して足すと 63.75 になり、正の 22.5 と 3 倍近く違う。
+        summaries = [
+            _summary(
+                "1909",
+                date(2026, 5, 13),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=90.0,
+                dividend_interim=35.0,
+                dividend_year_end=55.0,
+            ),
+            _summary("1909", date(2025, 5, 13), dps_actual_annual=70.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("1909", date(2026, 3, 30), 0.25)],
+            latest_price=3705.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+
+    def test_refuses_when_the_paid_amount_contradicts_the_payment_detail(self) -> None:
+        # 総額は円なので株式基準を持たない。支払ごとの換算と食い違うなら、どちらかが別の
+        # 株式基準を見ている。どちらが正しいかを機械が決められないので答えない。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 4, 30),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=165.0,
+                dividend_interim=165.0,
+                # 82.5 円/株になるはずのところ、総額は 165 円/株ぶんを示している。
+                dividend_total_annual=165.0 * 1_000_000.0,
+                shares_outstanding=1_000_000.0,
+                treasury_shares=0.0,
+                average_shares=1_000_000.0,
+            ),
+            _summary("4626", date(2025, 4, 30), dps_actual_annual=190.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 11, 27), 0.5)],
+            latest_price=4827.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+
+    def test_a_broken_share_count_does_not_veto_the_payment_detail(self) -> None:
+        # 8097 の形。feed が自己株式数の欄に株数そのものを入れており、自己株控除後株式数が
+        # 期中平均から 2 桁ずれる。この株数で総額を割った値は照合に使えないので、支払ごとの
+        # 換算をその値で否定しない。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 4, 30),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=165.0,
+                dividend_interim=165.0,
+                dividend_total_annual=82.5 * 1_000_000.0,
+                shares_outstanding=1_000_000.0,
+                treasury_shares=990_000.0,
+                average_shares=1_000_000.0,
+            ),
+            _summary("4626", date(2025, 4, 30), dps_actual_annual=190.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 11, 27), 0.5)],
+            latest_price=4827.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 82.5 / 4827.0, places=6)
+
+    def test_a_same_year_correction_does_not_collapse_the_detection_window(self) -> None:
+        # 判別窓の起点は当期会計期間の開始日。前期開示日を起点にすると、同一年度の訂正開示が
+        # 直前に来た行で窓が 2 日へ縮み、窓内の分割が窓の外へ出て報告値がそのまま通る。
+        summaries = [
+            _summary(
+                "3382",
+                date(2024, 4, 12),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 2, 29),
+                period_start=date(2023, 3, 1),
+                dps_actual_annual=113.0,
+                dividend_interim=56.5,
+                dividend_year_end=56.5,
+            ),
+            _summary(
+                "3382",
+                date(2024, 4, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 2, 29),
+                period_start=date(2023, 3, 1),
+                dps_actual_annual=113.0,
+            ),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("3382", date(2024, 2, 28), 1.0 / 3.0)],
+            latest_price=2000.0,
+            asof_date=date(2024, 6, 30),
+        )
+        self.assertNotEqual(carry.basis, "actual_reported")
+        self.assertIsNone(carry.dividend_yield)
 
     def test_forecast_still_answers_when_the_actual_basis_is_unresolved(self) -> None:
         # 予想 DPS は分割を跨ぐ行で正規化が None へ落とすので、残っていれば基準が揃って

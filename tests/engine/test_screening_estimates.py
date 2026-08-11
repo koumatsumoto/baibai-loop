@@ -16,7 +16,11 @@ from baibai_engine.screening.estimates import (
     UPSIDE_CAP,
     estimate_expected_return,
 )
-from baibai_engine.screening.schema import DerivedMetrics, FinancialSnapshot
+from baibai_engine.screening.schema import (
+    UNRESOLVED_DIVIDEND_BASIS,
+    DerivedMetrics,
+    FinancialSnapshot,
+)
 
 
 def _financial(
@@ -29,6 +33,7 @@ def _financial(
     market_cap: float | None = 1e10,
     shares_outstanding: float | None = 1e8,
     market_price_yen: float | None = 100.0,
+    dividend_basis: str | None = None,
 ) -> FinancialSnapshot:
     return FinancialSnapshot(
         latest_disclosed_at=None,
@@ -42,6 +47,7 @@ def _financial(
         sales_ttm=None,
         ocf_ttm=None,
         dividend_yield=dividend_yield,
+        dividend_basis=dividend_basis,
         net_share_change_yoy=net_share_change_yoy,
         market_cap=market_cap,
         shares_outstanding=shares_outstanding,
@@ -97,6 +103,22 @@ class EstimateExpectedReturnTest(unittest.TestCase):
         # 自己側 = close x (1.0/0.8) = 1250
         assert estimate.fv_self_range_yen is not None
         self.assertAlmostEqual(estimate.fv_self_range_yen, 1250.0)
+
+    def test_no_estimate_when_the_dividend_share_basis_is_unresolved(self) -> None:
+        # carry は `dividend_yield or 0.0` で組むので、利回りを出さないことが下流では
+        # 「無配」の主張になる。実際に配当を払っている銘柄を E[r] 降順から一方向に落と
+        # さないよう、基準が確定できない行には順位を付けない。
+        derived = _derived(
+            sector_median_value={"pbr": 1.2, "per_forward": 15.0},
+            self_range_median={"pbr": 1.0},
+        )
+        financial = _financial(dividend_yield=None, dividend_basis=UNRESOLVED_DIVIDEND_BASIS)
+        self.assertIsNone(estimate_expected_return(financial, derived, close=1000.0))
+        # negative assertion: 利回りが無いだけ (観測できない) の行は従来どおり値を出す。
+        unavailable = _financial(dividend_yield=None, dividend_basis="unavailable")
+        estimate = estimate_expected_return(unavailable, derived, close=1000.0)
+        assert estimate is not None
+        self.assertAlmostEqual(estimate.carry_annual, 0.02)
 
     def test_upside_is_capped_and_can_be_negative(self) -> None:
         # deep discount: anchor 3 倍 → +200% だが cap で +50% に制限。
