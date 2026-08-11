@@ -1212,11 +1212,19 @@ def _evaluate_sector_median_basis(
     sector composition alone can explain. The axis result is reported for each basis so
     that a reader can tell an axis that works from an axis that works on one basis.
 
+    **What the group did is not what the axis is worth.** Falling back is decided per
+    sector, so the market-basis group is a union of whole sectors and its median outcome
+    is that sector mix -- subtracting each row's own sector median drives it to zero on
+    every axis and cohort. `group_median_excess` is therefore reported as the mix it is,
+    and the axis is measured inside each group by splitting on the axis value itself:
+    the cheap half against the expensive half is a comparison the sector mix cannot
+    produce, because both halves carry the same sectors.
+
     The two sides are not the same size. A cohort holds a few thousand names on their own
     sector and roughly fifty on the market, because only nine sectors sit below the floor.
-    A decile spread over fifty rows puts five names in a bucket, so the group statistics
-    carry the comparison and the spread is reported only where the sample supports it.
-    Reporting a spread computed from five names would put a number where there is none.
+    A decile spread over fifty rows puts five names in a bucket, so the spread is reported
+    only where the sample supports it while the half-split, which needs far less, carries
+    the comparison on both sides.
     """
     result: dict[str, object] = {}
     for axis_name in SECTOR_MEDIAN_AXES:
@@ -1238,8 +1246,16 @@ def _evaluate_sector_median_basis(
             decile_values = _decile_values(pairs) if len(pairs) >= MIN_AXIS_SAMPLE else None
             best = decile_values[-1] if decile_values else []
             worst = decile_values[0] if decile_values else []
+            stats = _group_stats([outcome for _, outcome in pairs])
+            # Named field by field rather than splatted: on this coordinate a group
+            # level and an axis effect are different quantities, and `median_excess`
+            # would read as the second while being the first.
             entry[basis] = {
-                **_group_stats([outcome for _, outcome in pairs]),
+                "n": stats["n"],
+                "trap_rate": stats["trap_rate"],
+                "group_median_excess": stats["median_excess"],
+                "group_mean_excess": stats["mean_excess"],
+                "axis_effect": _half_split_effect(pairs),
                 "passed_screen": screened[basis],
                 "best_decile_median_excess": round(median(best), 6) if best else None,
                 "decile_spread_median": (
@@ -1248,6 +1264,36 @@ def _evaluate_sector_median_basis(
             }
         result[axis_name] = entry
     return result
+
+
+# 群内を軸値で 2 分割して効きを測るのに要る最小標本。市場 fallback 側は 1 cohort
+# あたり 50〜80 行なので decile は組めないが、半分ずつなら分位あたり 15 行以上を保てる。
+MIN_HALF_SPLIT_SAMPLE = 30
+
+
+def _half_split_effect(pairs: Sequence[tuple[float, float]]) -> dict[str, object]:
+    """群の中で「割安側」と「割高側」の実現超過を比べる。
+
+    群そのものの中央値は、群の決まり方 (業種が薄いかどうか) が持ち込む構成をそのまま
+    映す。同じ群を軸値で割れば両側が同じ構成を持つので、差は軸の効きだけを表す。
+    """
+    if len(pairs) < MIN_HALF_SPLIT_SAMPLE:
+        return {
+            "n": len(pairs),
+            "cheap_median_excess": None,
+            "expensive_median_excess": None,
+            "median_excess_delta": None,
+        }
+    ordered = sorted(pairs, key=lambda pair: pair[0])
+    half = len(ordered) // 2
+    expensive = [outcome for _, outcome in ordered[:half]]
+    cheap = [outcome for _, outcome in ordered[len(ordered) - half :]]
+    return {
+        "n": len(ordered),
+        "cheap_median_excess": round(median(cheap), 6),
+        "expensive_median_excess": round(median(expensive), 6),
+        "median_excess_delta": round(median(cheap) - median(expensive), 6),
+    }
 
 
 def _evaluate_reversion(
@@ -1685,13 +1731,19 @@ def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict
 
 
 def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
-    """Cross-cohort effect of each sector-gap axis, kept apart by baseline."""
+    """Cross-cohort effect of each sector-gap axis, kept apart by baseline.
+
+    `axis_effect` は群の中を軸値で割った差なので、両側とも同じ構成を持つ。これが軸の
+    効きを表す量で、`group_median_excess` の側は群の決まり方が持ち込む業種構成である。
+    2 つを別の名前で並べ、構成を効きとして読めないようにする。
+    """
     result: dict[str, object] = {}
     for axis_name in SECTOR_MEDIAN_AXES:
         entry: dict[str, object] = {}
         for basis in ("own_sector", "market_fallback"):
             spreads: list[float] = []
-            medians: list[float] = []
+            group_medians: list[float] = []
+            effects: list[float] = []
             traps: list[float] = []
             cohort_count = total_n = passed_screen = 0
             for cohort in cohorts:
@@ -1707,14 +1759,19 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 cohort_count += 1
                 total_n += int(group.get("n") or 0)
                 passed_screen += int(group.get("passed_screen") or 0)
-                # The market side rarely fills a decile, so the median carries the
-                # comparison and the spread joins it only where a cohort had the sample.
-                median_excess = group.get("median_excess")
-                if isinstance(median_excess, int | float):
-                    medians.append(float(median_excess))
+                group_median = group.get("group_median_excess")
+                if isinstance(group_median, int | float):
+                    group_medians.append(float(group_median))
+                effect = group.get("axis_effect")
+                if isinstance(effect, dict):
+                    delta = effect.get("median_excess_delta")
+                    if isinstance(delta, int | float):
+                        effects.append(float(delta))
                 trap = group.get("trap_rate")
                 if isinstance(trap, int | float):
                     traps.append(float(trap))
+                # The market side never fills a decile, so the spread joins the report
+                # only where a cohort had the sample; the half split carries both sides.
                 spread = group.get("decile_spread_median")
                 if isinstance(spread, int | float):
                     spreads.append(float(spread))
@@ -1722,10 +1779,17 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 "cohorts": cohort_count,
                 "total_n": total_n,
                 "passed_screen": passed_screen,
-                "mean_median_excess": round(fmean(medians), 6) if medians else None,
-                "median_positive_share": (
-                    round(sum(1 for value in medians if value > 0) / len(medians), 4)
-                    if medians
+                # 群そのものの水準。fallback 側では「薄い業種の集合が何をしたか」であり
+                # 軸の効きではない。
+                "mean_group_median_excess": (
+                    round(fmean(group_medians), 6) if group_medians else None
+                ),
+                # 軸の効き。群内を割安 / 割高で割った差。
+                "effect_cohorts": len(effects),
+                "mean_axis_effect": round(fmean(effects), 6) if effects else None,
+                "axis_effect_positive_share": (
+                    round(sum(1 for value in effects if value > 0) / len(effects), 4)
+                    if effects
                     else None
                 ),
                 "mean_trap_rate": round(fmean(traps), 4) if traps else None,

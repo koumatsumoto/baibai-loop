@@ -310,7 +310,9 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
                 pass_screen=True,
             )
             panel.append(row)
-            forwards.append(_forward_row(row.ticker, 0.30))
+            # The group sits well above the population and the axis orders it inside:
+            # the level is what the group did, the ordering is what the axis is worth.
+            forwards.append(_forward_row(row.ticker, 0.30 + index / 200))
         return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
             "6m"
         ]
@@ -328,9 +330,54 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
         self.assertEqual(market["passed_screen"], 40)
         # Too few rows for a decile, so the spread stays absent rather than being made up.
         self.assertIsNone(market["decile_spread_median"])
-        # The comparison it does support is present.
-        assert isinstance(market["median_excess"], float)
-        self.assertGreater(market["median_excess"], 0.0)
+        # The group's own level is reported under a name that says so.
+        assert isinstance(market["group_median_excess"], float)
+        self.assertGreater(market["group_median_excess"], 0.0)
+        # The half split needs far less sample, so the axis is measured on this side too.
+        effect = market["axis_effect"]
+        assert isinstance(effect, dict)
+        self.assertEqual(effect["n"], 40)
+        assert isinstance(effect["median_excess_delta"], float)
+        self.assertAlmostEqual(effect["median_excess_delta"], 0.10, places=6)
+
+    def test_a_group_the_axis_does_not_order_reports_a_level_and_no_effect(self) -> None:
+        """A level the group carries is not an effect the axis produced.
+
+        Falling back is decided per sector, so the market side is whole sectors and its
+        level is that mix. Splitting the same group on the axis puts the same sectors on
+        both sides, so a group the axis does not order has to come back at zero however
+        far the group sits from the population.
+        """
+        panel = []
+        forwards = []
+        for index in range(120):
+            row = _panel_row(f"{4000 + index}", per_trailing=10.0, smg_p_s=-index / 100)
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.05))
+        for index in range(40):
+            row = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                smg_p_s=-index / 100,
+                smg_market_fallback="p_s",
+            )
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.30))
+        cohort = evaluate_cohorts(
+            {"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"]
+        )["6m"]["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        market = axis["market_fallback"]
+        assert isinstance(market, dict)
+        assert isinstance(market["group_median_excess"], float)
+        self.assertGreater(market["group_median_excess"], 0.2)
+        effect = market["axis_effect"]
+        assert isinstance(effect, dict)
+        self.assertEqual(effect["median_excess_delta"], 0.0)
 
     def test_the_aggregate_counts_the_thin_side_as_a_cohort(self) -> None:
         aggregate = self._cohort()["aggregate"]
@@ -341,11 +388,14 @@ class SectorMedianBasisThinSideTest(unittest.TestCase):
         assert isinstance(axis, dict)
         market = axis["market_fallback"]
         assert isinstance(market, dict)
-        # It contributed a cohort even though it contributed no spread.
+        # It contributed a cohort and an axis effect even though it contributed no spread.
         self.assertEqual(market["cohorts"], 1)
         self.assertEqual(market["spread_cohorts"], 0)
-        self.assertEqual(market["median_positive_share"], 1.0)
         self.assertIsNone(market["mean_decile_spread_median"])
+        self.assertEqual(market["effect_cohorts"], 1)
+        self.assertEqual(market["axis_effect_positive_share"], 1.0)
+        assert isinstance(market["mean_axis_effect"], float)
+        self.assertAlmostEqual(market["mean_axis_effect"], 0.10, places=6)
 
 
 class SectorMedianBasisTest(unittest.TestCase):
