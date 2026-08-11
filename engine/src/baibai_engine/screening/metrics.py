@@ -1,3 +1,33 @@
+"""銘柄ごとの財務・派生指標。
+
+**この module で作る値はすべて 2 つの量の比か差であり、量は基準を持つ。基準の違う量を
+組むと、型は通り値は有限で単体テストも緑のまま、答えだけが間違う。** 実際に見つかった
+欠陥はすべてこの形だった (#901 / #903 / #907)。組む前に次の 4 つを一致させる。
+
+1. **資本基準** — 発行済 (`shares_outstanding`) / 自己株控除後 (`_shares_excluding_treasury`)
+   / 期中平均 (`average_shares`)。市場が値付けする量はすべて自己株控除後で組む
+2. **株式基準** — 開示時点 / asof / 支払の基準日ごと。`_normalize_summaries_to_asof_basis`
+   が per-share 値と株数を asof へ寄せるが、配当は支払ごとに基準が分かれる
+3. **実体** — 連結 / 単体。EDINET の書類はどちらかの基準で読まれる
+   (`_edinet_describes_same_entity`)
+4. **期間** — 時点 / 期中累計 / TTM / 会社予想
+
+基準の一致は推測でなく store 自身の冗長性で確かめられる。同じ量を別経路で出す値が
+あり、実データで次が成り立つ。
+
+- 開示された自己資本比率 == `bps` x 自己株控除後株数 / `total_assets` (97.1% が 1% 以内)
+- 報告 `profit` == `eps_ttm` x `average_shares` (94.5% が 1% 以内)
+- EDINET の `total_assets` == 短信の `total_assets` (連結基準では照合できた全行)
+
+派生する 2 つの規則:
+
+- **per-share 値の和・差を作らない。** 各項が自分の期の株数で割られているので、株数が
+  動いた会社では成立しない。合成は円で行い、1 株当たりへの換算は最後に 1 回だけ行う。
+  per-share 同士の**比** (YoY) は分母の違いが希薄化を映すので正しい
+- **per-share 値と株数を掛けて総額を作らない。** 掛ける株数はたいてい別の概念で、
+  分子と分母が別の量になる。総額が欲しいなら報告された総額の行を読む
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -543,6 +573,21 @@ SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
 ENTITY_SCALE_TOLERANCE = 2.0
 CONSOLIDATED_BASIS = "consolidated"
 ENTITY_SCALE_MISMATCH = "entity_scale_mismatch"
+
+# 1 株当たりで開示される field。期をまたぐ和・差を作れないので TTM 合成へ渡さない。
+_PER_SHARE_FIELDS = frozenset(
+    {
+        "eps_ttm",
+        "forecast_eps",
+        "bps",
+        "dps_actual_annual",
+        "dps_forecast_annual",
+        "dividend_q1",
+        "dividend_interim",
+        "dividend_q3",
+        "dividend_year_end",
+    }
+)
 
 
 def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
@@ -1160,14 +1205,6 @@ def _build_financial_snapshot(
     )
 
 
-def _latest_non_null(summaries: Sequence[JQuantsFinancialSummary], field_name: str) -> float | None:
-    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
-        value = getattr(summary, field_name)
-        if value is not None:
-            return float(value)
-    return None
-
-
 def _carry_forward(
     summaries: Sequence[JQuantsFinancialSummary],
     field_name: str,
@@ -1226,6 +1263,14 @@ def _ttm_value(
     field: str,
     ttm_rules: TTMRules,
 ) -> tuple[float | None, TTMQuality]:
+    """`直近累計 + 前期通期 - 前年同期間累計` で 12 か月へ直す。
+
+    この合成は各項が同じ単位で加減できることを前提にする。円の総額は満たすが、1 株当たり
+    の値は各項が自分の期の株数で割られているので満たさない。株数が動いた会社では黒字が
+    赤字に見える。per-share の field を渡すのは呼び出し側の誤りなので受け付けない。
+    """
+    if field in _PER_SHARE_FIELDS:
+        raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
     latest = _latest_summary(summaries)
     if latest is None or latest.period_start is None or latest.period_end is None:
         return None, TTMQuality.UNAVAILABLE

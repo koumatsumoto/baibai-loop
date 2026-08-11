@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 from baibai_engine.screening.metrics import (
     _normalize_summaries_to_asof_basis,
     _resolve_dividend_carry,
+    _ttm_value,
     build_metrics,
     build_normalized_profit_signals,
     build_shareholder_return_change_signals,
@@ -21,6 +22,7 @@ from baibai_engine.screening.metrics import (
 )
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.schema import FinancialSnapshot, SecurityMaster, TTMQuality
 
 
@@ -1200,6 +1202,31 @@ class ScreeningMetricsTests(unittest.TestCase):
             (latest_close * latest_shares) / expected_profit_ttm,
             places=6,
         )
+
+    def test_ttm_composition_refuses_per_share_fields(self) -> None:
+        """`直近累計 + 前期通期 - 前年同期間累計` は円の総額でしか成立しない。
+
+        各項が自分の期の株数で割られていると和・差が成立せず、株数が動いた会社で黒字が
+        赤字に見える。呼び出し側の誤りとして受け付けない。
+        """
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+            )
+        ]
+        rules = load_screening_rules()
+        for field in ("eps_ttm", "bps", "dps_actual_annual", "forecast_eps"):
+            with self.subTest(field=field), self.assertRaises(ValueError) as caught:
+                _ttm_value(summaries, field, rules.ttm)
+            self.assertIn("per share", str(caught.exception))
+        # 円の総額は通る。
+        value, quality = _ttm_value(summaries, "profit", rules.ttm)
+        self.assertIsNotNone(value)
+        self.assertEqual(quality, TTMQuality.EXACT)
 
     def _entity_scale_snapshot(self, edinet: EdinetMetricRecord) -> FinancialSnapshot:
         asof = date(2026, 7, 1)
