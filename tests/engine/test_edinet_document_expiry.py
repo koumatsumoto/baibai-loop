@@ -124,7 +124,7 @@ def test_a_served_response_fills_a_row_first_stored_after_its_period_ended(
 
 
 def test_a_description_is_not_carried_across_a_different_document(tmp_path: Path) -> None:
-    """The retained values follow the document id, not its position in the day's list."""
+    """A position the response fills with another filing keeps that filing's answer."""
 
     store = _empty_store(tmp_path / "market.sqlite")
     store_edinet_documents(store, _DAY, [_SERVED])
@@ -135,6 +135,82 @@ def test_a_description_is_not_carried_across_a_different_document(tmp_path: Path
     assert row["doc_id"] == "S100BBBB"
     assert row["sec_code"] is None
     assert row["doc_type_code"] is None
+
+
+# EDINET returns one document id at two positions in a day with different descriptions:
+# 113 days in the store do it, and 2026-01-29 `S100XCUA` even differs in form code
+# between its two rows. Retained values therefore cannot be held under the document id.
+_TWO_POSITIONS = (
+    {
+        "seqNumber": 204,
+        "docID": "S100XCUA",
+        "docTypeCode": "350",
+        "parentDocID": None,
+        "submitDateTime": "2026-01-29 09:00",
+        "docDescription": "大量保有報告書",
+        "legalStatus": "1",
+        "withdrawalStatus": "0",
+    },
+    {
+        "seqNumber": 206,
+        "docID": "S100XCUA",
+        "docTypeCode": "360",
+        "parentDocID": "S100X9JM",
+        "submitDateTime": "2026-01-29 09:05",
+        "docDescription": "変更報告書",
+        "legalStatus": "1",
+        "withdrawalStatus": "0",
+    },
+)
+
+
+def _rows_by_position(path: Path) -> dict[int, dict[str, str | None]]:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM edinet_documents").fetchall()
+        return {
+            int(row["sequence_number"]): dict(zip(row.keys(), row, strict=True)) for row in rows
+        }
+    finally:
+        conn.close()
+
+
+def test_two_positions_sharing_a_document_id_keep_their_own_descriptions(
+    tmp_path: Path,
+) -> None:
+    """Re-listing an unchanged day must not move one position's answer to the other."""
+
+    store = _empty_store(tmp_path / "market.sqlite")
+    store_edinet_documents(store, _DAY, list(_TWO_POSITIONS))
+
+    store_edinet_documents(store, _DAY, list(_TWO_POSITIONS))
+
+    rows = _rows_by_position(store)
+    assert rows[204]["doc_type_code"] == "350"
+    assert rows[204]["parent_doc_id"] is None
+    assert rows[206]["doc_type_code"] == "360"
+    assert rows[206]["parent_doc_id"] == "S100X9JM"
+
+
+def test_two_positions_sharing_a_document_id_expire_without_mixing(tmp_path: Path) -> None:
+    store = _empty_store(tmp_path / "market.sqlite")
+    store_edinet_documents(store, _DAY, list(_TWO_POSITIONS))
+
+    store_edinet_documents(
+        store,
+        _DAY,
+        [
+            {**_EXPIRED, "seqNumber": 204, "docID": "S100XCUA"},
+            {**_EXPIRED, "seqNumber": 206, "docID": "S100XCUA"},
+        ],
+    )
+
+    rows = _rows_by_position(store)
+    assert rows[204]["doc_type_code"] == "350"
+    assert rows[204]["parent_doc_id"] is None
+    assert rows[206]["doc_type_code"] == "360"
+    assert rows[206]["parent_doc_id"] == "S100X9JM"
 
 
 def test_a_column_outside_the_two_classifications_takes_the_new_answer(

@@ -164,20 +164,27 @@ def store_edinet_metrics(
 
 def _observed_descriptive_columns(
     conn: sqlite3.Connection, doc_date: str
-) -> dict[str, dict[str, str | None]]:
-    """What this store already saw a day's filings say, keyed by document id.
+) -> dict[int, tuple[str, Mapping[str, str | None]]]:
+    """What this store already saw a day's filings say, keyed by list position.
 
-    The document id rather than the list position, so that a day whose entries EDINET
-    returns in a different order cannot graft one filing's description onto another.
+    A document id is not unique within a day — EDINET returns the same one at two
+    positions with different descriptions, and 113 days in the store do — so the
+    retained values are held under the row identity the store itself enforces and carry
+    the document id they were read with. The caller applies them only when the new
+    response puts the same document at that position; anything else keeps the response
+    as it came, because inventing a description is worse than losing one.
     """
     rows = conn.execute(
-        "SELECT doc_id, sec_code, doc_type_code, parent_doc_id, submit_datetime, "
-        "doc_description FROM edinet_documents WHERE doc_date = ?",
+        "SELECT sequence_number, doc_id, sec_code, doc_type_code, parent_doc_id, "
+        "submit_datetime, doc_description FROM edinet_documents WHERE doc_date = ?",
         (doc_date,),
     ).fetchall()
     return {
-        str(doc_id): dict(zip(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS, values, strict=True))
-        for doc_id, *values in rows
+        int(sequence_number): (
+            str(doc_id),
+            dict(zip(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS, values, strict=True)),
+        )
+        for sequence_number, doc_id, *values in rows
     }
 
 
@@ -185,7 +192,7 @@ def _edinet_document_rows(
     doc_date: str,
     records: Iterable[Mapping[str, Any]],
     *,
-    observed: Mapping[str, Mapping[str, str | None]],
+    observed: Mapping[int, tuple[str, Mapping[str, str | None]]],
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     sequence_numbers: set[int] = set()
@@ -211,9 +218,12 @@ def _edinet_document_rows(
         sequence_numbers.add(sequence_number)
         # A list read after the inspection period ended reports these five as null. The
         # stored answer from a read while the filing was still served stays true, so the
-        # new response only ever adds to them. The lifecycle columns below take the new
+        # new response only ever adds to them — and only when the stored row at this
+        # position is the same document, so that a reordered day loses a description
+        # rather than gaining one it never had. The lifecycle columns below take the new
         # answer unconditionally: an expiry or a withdrawal is the point of re-reading.
-        retained = observed.get(doc_id, {})
+        stored = observed.get(sequence_number)
+        retained = stored[1] if stored is not None and stored[0] == doc_id else {}
         described = {
             column: value if value is not None else retained.get(column)
             for column, value in (

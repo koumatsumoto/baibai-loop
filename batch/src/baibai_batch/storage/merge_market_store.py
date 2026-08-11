@@ -138,10 +138,10 @@ SOURCE_MISSING_ALLOWED: Mapping[str, tuple[str, ...]] = {
     # only `backfill-edinet-identity` fills, and only on the operator's store. Comparing
     # them strictly would refuse every publish with no way to advance the published copy.
     # The descriptive columns are here because EDINET stops serving them once a filing's
-    # inspection period ends: the copy that read the day later is null on exactly those,
-    # and `_restore_expired_document_descriptions` has already given the target every
-    # value the source still had, so a remaining null on the source side is an expiry
-    # rather than a claim that the filing named nothing.
+    # inspection period ends, and `_restore_expired_document_descriptions` has already
+    # given the target every value the source still had. A remaining null on the source
+    # side is therefore either that expiry or a filing that genuinely has no securities
+    # code and no parent, and neither is a reason to erase what the target observed.
     "edinet_documents": (
         "edinet_code",
         "issuer_edinet_code",
@@ -195,19 +195,42 @@ WHERE s.doc_date = t.doc_date
 """
 
 
+# The two copies read a shared day at different moments, so the lifecycle columns can
+# hold two honest answers and the merge keeps the target's. That is silent by
+# construction, and the reading it drops can be the newer one — the source finalising a
+# day the target had already read, for instance. Counting the rows makes a day worth
+# re-listing visible instead of leaving the operator to notice a filing quietly missing
+# from an index.
+_COUNT_LIFECYCLE_DISAGREEMENTS = """
+SELECT count(*)
+FROM source.edinet_documents s
+JOIN main.edinet_documents t
+  ON s.doc_date = t.doc_date AND s.sequence_number = t.sequence_number
+WHERE s.legal_status IS NOT t.legal_status
+   OR s.withdrawal_status IS NOT t.withdrawal_status
+   OR s.csv_flag IS NOT t.csv_flag
+   OR s.xbrl_flag IS NOT t.xbrl_flag
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class MarketMergeReport(MergeReport):
-    """The merge result, plus the filing descriptions the source gave back."""
+    """The merge result, plus what it did with the two copies of the EDINET index."""
 
     restored_document_descriptions: int = 0
+    discarded_lifecycle_readings: int = 0
 
     def notes(self) -> tuple[str, ...]:
-        if not self.restored_document_descriptions:
-            return ()
+        # Always printed, so that a run which restored nothing is distinguishable from
+        # one where the restore never ran.
         return (
             (
                 "edinet_documents rows whose expired descriptions the source restored: "
                 f"{self.restored_document_descriptions}"
+            ),
+            (
+                "edinet_documents rows where the source read a different filing lifecycle "
+                f"and the target's reading was kept: {self.discarded_lifecycle_readings}"
             ),
         )
 
@@ -240,6 +263,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             try:
                 _require_compatible_source_coverage_counts(connection)
                 restored = _restore_expired_document_descriptions(connection)
+                lifecycle_disagreements = count(connection, _COUNT_LIFECYCLE_DISAGREEMENTS)
                 short_reports = _merge_short_sale_report_snapshots(connection)
                 ordinary_keys = {
                     table: keys
@@ -269,6 +293,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 return MarketMergeReport(
                     tables=tuple(by_name[table] for table in ALL_TABLES),
                     restored_document_descriptions=restored,
+                    discarded_lifecycle_readings=lifecycle_disagreements,
                 )
             except BaseException:
                 connection.rollback()

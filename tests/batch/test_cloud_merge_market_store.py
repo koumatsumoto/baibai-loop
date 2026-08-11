@@ -1144,7 +1144,7 @@ def test_restoring_expired_descriptions_is_idempotent(tmp_path: Path) -> None:
     merge_stores(published, local)
     second = merge_stores(published, local)
 
-    assert "restored" not in second.render()
+    assert "restored: 0" in second.render()
     assert _read_document(local)["doc_type_code"] == "220"
 
 
@@ -1226,11 +1226,12 @@ def test_lifecycle_columns_read_at_different_moments_do_not_refuse_the_publish(
         {**_SERVED_DOCUMENT, "legal_status": "2", "withdrawal_status": "2", "csv_flag": "0"},
     )
 
-    merge_stores(published, local)
+    report = merge_stores(published, local)
 
     row = _read_document(local)
     assert row["legal_status"] == "2"
     assert row["withdrawal_status"] == "2"
+    assert "target's reading was kept: 1" in report.render()
 
 
 def test_a_column_outside_the_two_classifications_still_refuses_the_publish(
