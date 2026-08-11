@@ -37,6 +37,37 @@ from .migrations import BASELINE_VERSION, LATEST_VERSION, MIGRATIONS
 SQLITE_SCHEMA_VERSION = LATEST_VERSION
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
+# EDINET serves a filing's descriptive columns only while its public-inspection period
+# runs. Once that period ends the day's list still returns the entry with these five
+# nulled — measured over the whole store, a row that has run out carries none of them,
+# while `doc_type_code`, `submit_datetime` and `doc_description` are present on every row
+# that has not. The converse does not hold for the other two: a filing can genuinely have
+# no securities code and no parent, so a null there is not by itself evidence of expiry.
+# The company, form, timestamp and title a filing carried do not stop being true when
+# they stop being served, so a store that once observed them keeps them — the ingest
+# refuses to blank a stored value on a later list, and the merge fills a null from
+# whichever copy read the day while it was still served. Two populated values that
+# disagree still refuse the merge, which is what makes a genuine corruption visible.
+EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS: tuple[str, ...] = (
+    "sec_code",
+    "doc_type_code",
+    "parent_doc_id",
+    "submit_datetime",
+    "doc_description",
+)
+
+# What EDINET currently does with the filing rather than what the filing says: whether
+# the inspection period is running, whether the document files are still downloadable,
+# and whether the filing has been withdrawn. Two stores that read the same day at
+# different moments differ here by construction and the later read is the accurate one,
+# so the ingest always takes the new answer and the merge does not compare them.
+EDINET_DOCUMENT_LIFECYCLE_COLUMNS: tuple[str, ...] = (
+    "legal_status",
+    "withdrawal_status",
+    "csv_flag",
+    "xbrl_flag",
+)
+
 _REQUIRED_TABLES = (
     "jquants_daily_bars",
     "jquants_fin_summaries",

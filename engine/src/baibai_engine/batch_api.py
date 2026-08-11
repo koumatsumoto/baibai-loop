@@ -43,6 +43,10 @@ from baibai_engine.macro.indicators.service import (
 )
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.schema import (
+    EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
+    EDINET_DOCUMENT_LIFECYCLE_COLUMNS,
+)
+from baibai_engine.market.sqlite.schema import (
     SQLITE_SCHEMA_VERSION as MARKET_SCHEMA_VERSION,
 )
 from baibai_engine.market.sqlite.schema import (
@@ -59,6 +63,8 @@ __all__ = [
     "CALIBRATION_DIR",
     "DEFAULT_LATEST_LOOKBACK_DAYS",
     "DEFAULT_MACRO_DB_PATH",
+    "EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS",
+    "EDINET_DOCUMENT_LIFECYCLE_COLUMNS",
     "LATEST_FETCH_LOOKBACK_DAYS",
     "MACRO_CONTEXT_SCHEMA_VERSION",
     "MACRO_DB_PATH",

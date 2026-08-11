@@ -14,6 +14,13 @@ are the exception: each disclosure date is a correction-prone complete snapshot,
 newer complete fetch replaces that date while response-order differences alone are
 ignored. Failure provenance remains explicit and is never a completeness claim.
 
+The EDINET document index is the one table the merge writes into rather than only adds
+to. That index is a view that decays: once a filing's public-inspection period ends the
+day's list still returns the entry with its company, form, timestamp, title and parent
+nulled, so a copy that read the day later holds strictly less than one that read it
+earlier, and no fetch can recover the difference. The merge therefore gives the target
+back every such value the source still holds before comparing the two.
+
 Both stores must carry the current schema. An older cloud copy is not migrated here —
 the cloud raises its own schema by opening the store, and doing it from this side would
 publish a shape the cloud has never written.
@@ -38,6 +45,10 @@ from baibai_batch.storage.store_merge import (
     count,
     merge_fact_tables,
     schema_name,
+)
+from baibai_engine.batch_api import (
+    EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
+    EDINET_DOCUMENT_LIFECYCLE_COLUMNS,
 )
 from baibai_engine.batch_api import (
     MARKET_SCHEMA_VERSION as SQLITE_SCHEMA_VERSION,
@@ -94,13 +105,16 @@ ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **DERIVED_KEYS}
 # `fetched_at_utc` — so comparing them would refuse every merge. EDINET is the reason the
 # other two are here: it revises a document's edit status and finalises a day's list after
 # first publishing them, so the later read carries a different marker for the same
-# document. `extractor_revision` identifies the local reader implementation rather than
-# an assertion in that document. The insert leaves the target's reading metadata in
-# place. Everything the source actually asserts — prices, financials, holdings, coverage
-# extents and counts — stays compared.
+# document. The filing lifecycle columns join them for the same reason: the inspection
+# period runs out, the document files stop being downloadable, and a filing can be
+# withdrawn, all after the day was first read, so two copies of the same row differ by
+# how long ago each was read. `extractor_revision` identifies the local reader
+# implementation rather than an assertion in that document. The insert leaves the
+# target's reading metadata in place. Everything the source actually asserts — prices,
+# financials, holdings, coverage extents and counts — stays compared.
 UNCOMPARED: Mapping[str, tuple[str, ...]] = {
     "edinet_document_lists": ("process_datetime", "fetched_at_utc", "is_final"),
-    "edinet_documents": ("doc_info_edit_status",),
+    "edinet_documents": ("doc_info_edit_status", *EDINET_DOCUMENT_LIFECYCLE_COLUMNS),
     "edinet_metrics": ("extractor_revision",),
     "jpx_regulation_flags": ("fetched_at_utc",),
     "jpx_regulation_sources": ("fetched_at_utc",),
@@ -123,7 +137,17 @@ SOURCE_MISSING_ALLOWED: Mapping[str, tuple[str, ...]] = {
     # the current day — so every historical row on the published side carries nulls that
     # only `backfill-edinet-identity` fills, and only on the operator's store. Comparing
     # them strictly would refuse every publish with no way to advance the published copy.
-    "edinet_documents": ("edinet_code", "issuer_edinet_code", "subject_edinet_code"),
+    # The descriptive columns are here because EDINET stops serving them once a filing's
+    # inspection period ends, and `_restore_expired_document_descriptions` has already
+    # given the target every value the source still had. A remaining null on the source
+    # side is therefore either that expiry or a filing that genuinely has no securities
+    # code and no parent, and neither is a reason to erase what the target observed.
+    "edinet_documents": (
+        "edinet_code",
+        "issuer_edinet_code",
+        "subject_edinet_code",
+        *EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
+    ),
 }
 
 # `record_count` receives a table-aware comparison below. It proves every clean
@@ -143,6 +167,72 @@ _NON_SHORT_COVERAGE = RowFilter(
     unaliased="source <> 'jquants_short_sale_reports'",
     aliased="s.source <> 'jquants_short_sale_reports'",
 )
+
+
+# Give the target back every description the source still holds. Both copies read the
+# same days, and EDINET nulls these five once a filing's inspection period ends, so a
+# null on one side and a value on the other means one copy read the day while the filing
+# was still served. The value was true then and stays true, and neither copy can fetch it
+# again. `doc_id` has to agree as well as the key: a day EDINET returned in a different
+# order would otherwise graft one filing's description onto another, and leaving those
+# rows alone lets the strict `doc_id` comparison refuse the merge instead.
+_RESTORE_EDINET_DESCRIPTIONS = """
+UPDATE main.edinet_documents AS t
+SET sec_code = COALESCE(t.sec_code, s.sec_code),
+    doc_type_code = COALESCE(t.doc_type_code, s.doc_type_code),
+    parent_doc_id = COALESCE(t.parent_doc_id, s.parent_doc_id),
+    submit_datetime = COALESCE(t.submit_datetime, s.submit_datetime),
+    doc_description = COALESCE(t.doc_description, s.doc_description)
+FROM source.edinet_documents AS s
+WHERE s.doc_date = t.doc_date
+  AND s.sequence_number = t.sequence_number
+  AND s.doc_id = t.doc_id
+  AND ((t.sec_code IS NULL AND s.sec_code IS NOT NULL)
+    OR (t.doc_type_code IS NULL AND s.doc_type_code IS NOT NULL)
+    OR (t.parent_doc_id IS NULL AND s.parent_doc_id IS NOT NULL)
+    OR (t.submit_datetime IS NULL AND s.submit_datetime IS NOT NULL)
+    OR (t.doc_description IS NULL AND s.doc_description IS NOT NULL))
+"""
+
+
+# The two copies read a shared day at different moments, so the lifecycle columns can
+# hold two honest answers and the merge keeps the target's. That is silent by
+# construction, and the reading it drops can be the newer one — the source finalising a
+# day the target had already read, for instance. Counting the rows makes a day worth
+# re-listing visible instead of leaving the operator to notice a filing quietly missing
+# from an index.
+_COUNT_LIFECYCLE_DISAGREEMENTS = """
+SELECT count(*)
+FROM source.edinet_documents s
+JOIN main.edinet_documents t
+  ON s.doc_date = t.doc_date AND s.sequence_number = t.sequence_number
+WHERE s.legal_status IS NOT t.legal_status
+   OR s.withdrawal_status IS NOT t.withdrawal_status
+   OR s.csv_flag IS NOT t.csv_flag
+   OR s.xbrl_flag IS NOT t.xbrl_flag
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class MarketMergeReport(MergeReport):
+    """The merge result, plus what it did with the two copies of the EDINET index."""
+
+    restored_document_descriptions: int = 0
+    discarded_lifecycle_readings: int = 0
+
+    def notes(self) -> tuple[str, ...]:
+        # Always printed, so that a run which restored nothing is distinguishable from
+        # one where the restore never ran.
+        return (
+            (
+                "edinet_documents rows whose expired descriptions the source restored: "
+                f"{self.restored_document_descriptions}"
+            ),
+            (
+                "edinet_documents rows where the source read a different filing lifecycle "
+                f"and the target's reading was kept: {self.discarded_lifecycle_readings}"
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +262,8 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 _require_compatible_source_coverage_counts(connection)
+                restored = _restore_expired_document_descriptions(connection)
+                lifecycle_disagreements = count(connection, _COUNT_LIFECYCLE_DISAGREEMENTS)
                 short_reports = _merge_short_sale_report_snapshots(connection)
                 ordinary_keys = {
                     table: keys
@@ -198,12 +290,22 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                     item.table: item
                     for item in (*ordinary_tables, short_reports, coverage_table, *derived)
                 }
-                return MergeReport(tables=tuple(by_name[table] for table in ALL_TABLES))
+                return MarketMergeReport(
+                    tables=tuple(by_name[table] for table in ALL_TABLES),
+                    restored_document_descriptions=restored,
+                    discarded_lifecycle_readings=lifecycle_disagreements,
+                )
             except BaseException:
                 connection.rollback()
                 raise
         finally:
             connection.execute("DETACH DATABASE source")
+
+
+def _restore_expired_document_descriptions(connection: sqlite3.Connection) -> int:
+    """Fill each target null the source still describes, and report how many rows moved."""
+
+    return connection.execute(_RESTORE_EDINET_DESCRIPTIONS).rowcount
 
 
 def _retain_derived_tables(connection: sqlite3.Connection) -> tuple[TableMerge, ...]:

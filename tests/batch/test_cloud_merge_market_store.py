@@ -16,6 +16,7 @@ from baibai_batch.storage.merge_market_store import (
     SOURCE_MISSING_ALLOWED,
     UNCOMPARED,
     MergeError,
+    _restore_expired_document_descriptions,
     main,
     merge_stores,
 )
@@ -1038,3 +1039,208 @@ def test_a_reworded_delisting_row_does_not_refuse_the_publish(tmp_path: Path) ->
         )
     finally:
         conn.close()
+
+
+# What a filing's list entry looks like while EDINET still serves it, and what the same
+# entry becomes once its public-inspection period ends. The copy that read the day first
+# holds the description; no fetch can recover it afterwards.
+_SERVED_DOCUMENT = {
+    "doc_id": "S100AAAA",
+    "sec_code": "72030",
+    "doc_type_code": "220",
+    "parent_doc_id": "S100PARENT",
+    "submit_datetime": "2026-05-01 15:49",
+    "doc_description": "自己株券買付状況報告書",
+    "csv_flag": "1",
+    "xbrl_flag": "1",
+    "legal_status": "1",
+    "withdrawal_status": "0",
+}
+_EXPIRED_DOCUMENT = {
+    "doc_id": "S100AAAA",
+    "sec_code": None,
+    "doc_type_code": None,
+    "parent_doc_id": None,
+    "submit_datetime": None,
+    "doc_description": None,
+    "csv_flag": "0",
+    "xbrl_flag": "0",
+    "legal_status": "0",
+    "withdrawal_status": "0",
+}
+
+
+def _add_document(path: Path, columns: Mapping[str, str | None]) -> None:
+    names = ("doc_date", "sequence_number", *columns)
+    values = ("2026-05-01", 1, *columns.values())
+    placeholders = ", ".join("?" for _ in names)
+    conn = open_connection(path)
+    try:
+        conn.execute(
+            f"INSERT INTO edinet_documents({', '.join(names)}) "  # nosec B608
+            f"VALUES ({placeholders})",
+            values,
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO edinet_document_lists("
+            "doc_date, result_count, fetched_at_utc, is_final"
+            ") VALUES ('2026-05-01', 1, '2026-05-01T00:00:00+00:00', 1)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _read_document(path: Path) -> Mapping[str, str | None]:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM edinet_documents").fetchone()
+        return dict(zip(row.keys(), row, strict=True))
+    finally:
+        conn.close()
+
+
+def test_a_description_the_local_copy_read_too_late_is_restored_from_the_published_copy(
+    tmp_path: Path,
+) -> None:
+    """Neither copy can fetch it again, so the merge keeps whichever one observed it."""
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(local, _EXPIRED_DOCUMENT)
+
+    report = merge_stores(published, local)
+
+    row = _read_document(local)
+    assert row["doc_type_code"] == "220"
+    assert row["sec_code"] == "72030"
+    assert row["doc_description"] == "自己株券買付状況報告書"
+    assert "restored: 1" in report.render()
+
+
+def test_restoring_an_expired_description_leaves_the_local_lifecycle_reading_alone(
+    tmp_path: Path,
+) -> None:
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(local, _EXPIRED_DOCUMENT)
+
+    merge_stores(published, local)
+
+    row = _read_document(local)
+    assert row["legal_status"] == "0"
+    assert row["csv_flag"] == "0"
+
+
+def test_restoring_expired_descriptions_is_idempotent(tmp_path: Path) -> None:
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(local, _EXPIRED_DOCUMENT)
+
+    merge_stores(published, local)
+    second = merge_stores(published, local)
+
+    assert "restored: 0" in second.render()
+    assert _read_document(local)["doc_type_code"] == "220"
+
+
+def test_a_description_only_the_local_copy_still_holds_does_not_refuse_the_publish(
+    tmp_path: Path,
+) -> None:
+    """The published copy is the one that read the day after the period ended."""
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _EXPIRED_DOCUMENT)
+    _add_document(local, _SERVED_DOCUMENT)
+
+    merge_stores(published, local)
+
+    assert _read_document(local)["doc_type_code"] == "220"
+
+
+def test_two_populated_descriptions_that_disagree_still_refuse_the_publish(
+    tmp_path: Path,
+) -> None:
+    """Expiry only ever removes a value, so two different values are a corruption."""
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(local, {**_SERVED_DOCUMENT, "doc_type_code": "230"})
+
+    with pytest.raises(MergeError, match="edinet_documents payload disagrees"):
+        merge_stores(published, local)
+
+
+def test_a_day_whose_documents_moved_position_refuses_the_publish(tmp_path: Path) -> None:
+    """Two filings at one position is a disagreement, not something to reconcile."""
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(local, {**_EXPIRED_DOCUMENT, "doc_id": "S100BBBB"})
+
+    with pytest.raises(MergeError, match="edinet_documents payload disagrees"):
+        merge_stores(published, local)
+
+    assert _read_document(local)["doc_type_code"] is None
+
+
+def test_a_description_is_not_restored_onto_a_different_document_id(tmp_path: Path) -> None:
+    """The restore is called directly because a whole merge cannot show its effect.
+
+    A shared key holding two different document ids is refused by the strict `doc_id`
+    comparison, and that refusal rolls the transaction back — so a restore that had
+    grafted one filing's description onto another would leave no trace through
+    `merge_stores`. The statement has to be right on its own.
+    """
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(local, {**_EXPIRED_DOCUMENT, "doc_id": "S100BBBB"})
+
+    conn = sqlite3.connect(local.resolve().as_uri(), uri=True, isolation_level=None)
+    try:
+        conn.execute("ATTACH DATABASE ? AS source", (f"{published.resolve().as_uri()}?mode=ro",))
+        assert _restore_expired_document_descriptions(conn) == 0
+    finally:
+        conn.close()
+
+    assert _read_document(local)["doc_type_code"] is None
+
+
+def test_lifecycle_columns_read_at_different_moments_do_not_refuse_the_publish(
+    tmp_path: Path,
+) -> None:
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(
+        local,
+        {**_SERVED_DOCUMENT, "legal_status": "2", "withdrawal_status": "2", "csv_flag": "0"},
+    )
+
+    report = merge_stores(published, local)
+
+    row = _read_document(local)
+    assert row["legal_status"] == "2"
+    assert row["withdrawal_status"] == "2"
+    assert "target's reading was kept: 1" in report.render()
+
+
+def test_a_column_outside_the_two_classifications_still_refuses_the_publish(
+    tmp_path: Path,
+) -> None:
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, {**_SERVED_DOCUMENT, "operation_datetime": "2026-05-01 15:50"})
+    _add_document(local, {**_SERVED_DOCUMENT, "operation_datetime": "2026-05-01 15:51"})
+
+    with pytest.raises(MergeError, match="edinet_documents payload disagrees"):
+        merge_stores(published, local)
