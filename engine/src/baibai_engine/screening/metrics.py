@@ -349,9 +349,13 @@ def build_metrics(
             # どちらの母集団が答えたかを値と同じ粒度で残す。両者は同じ語で呼ばれるが
             # 別の量で、薄い業種は市場より低倍率へ寄るため、素性が無いと gap の符号を
             # 業種の割安と読むか業種構成と読むかを後から分けられない。
-            sector_bases[metric] = (
-                SECTOR_MEDIAN_BASIS_SECTOR if on_sector else SECTOR_MEDIAN_BASIS_MARKET
-            )
+            # 中央値そのものが出なかった軸には基準が無い。どちらも答えていないのに
+            # 「市場へ落ちた」と書くと、EDINET 由来の軸のように母集団全体で値が立たない
+            # 軸が全行 fallback として並び、実際に落ちた軸と見分けが付かなくなる。
+            if sector_median is not None:
+                sector_bases[metric] = (
+                    SECTOR_MEDIAN_BASIS_SECTOR if on_sector else SECTOR_MEDIAN_BASIS_MARKET
+                )
             sector_gaps[metric] = (
                 ((current / sector_median) - 1.0)
                 if current is not None and sector_median not in (None, 0)

@@ -2301,6 +2301,18 @@ class MedianPopulationTests(unittest.TestCase):
         # Its own sector answers, so a name at the sector's own multiple has no gap.
         self.assertAlmostEqual(derived.sector_median_gap["per_trailing"], 0.0, places=6)
 
+    def test_an_axis_with_no_baseline_at_all_records_no_basis(self) -> None:
+        # EV/EBITDA needs an EDINET figure the fixture does not supply, so neither the
+        # sector nor the market can answer. Writing "market" there would put every row of
+        # a market-wide blank axis alongside the rows that genuinely fell through, and the
+        # two are not the same observation.
+        result = self._two_sector_metrics()
+        derived = result.derived["1100"]
+        self.assertIsNone(derived.sector_median_value["ev_ebitda"])
+        self.assertNotIn("ev_ebitda", derived.sector_median_basis)
+        # The axes that did answer still carry theirs.
+        self.assertIn("per_trailing", derived.sector_median_basis)
+
     def test_a_sector_below_the_floor_is_compared_against_the_market_and_says_so(self) -> None:
         result = self._two_sector_metrics()
         derived = result.derived["2200"]
