@@ -187,6 +187,36 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
 
 
 class CalibrationPanelTest(unittest.TestCase):
+    def test_a_filing_older_than_the_coverage_does_not_take_the_cohort_down(self) -> None:
+        """The history floor follows what the store may serve, not its oldest row.
+
+        Summaries arrive through a subscription window that moves, so a filing fetched
+        while the window still reached that far back stays in the table after the window
+        passes it. Reading from the oldest row then asks for a range the store refuses,
+        and the cohort that only needs recent history dies over a filing from years ago.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, eps_ttm, fiscal_period"
+                    ") VALUES (?, ?, ?, ?)",
+                    ("9001", "2016-08-01", 1.0, "FY"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            built = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+
+            self.assertEqual({row.ticker for row in built.rows}, {"9001", "9002"})
+            # The stranded filing stays unread: the panel keeps the multiples the covered
+            # window produced instead of mixing in a row the store no longer stands behind.
+            self.assertEqual(built.diagnostics.effective_fin_start, "2026-05-10")
+
     def test_panel_distinguishes_covered_no_report_from_source_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

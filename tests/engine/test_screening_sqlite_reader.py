@@ -25,6 +25,7 @@ from baibai_engine.screening.sqlite_cache import (
 )
 from baibai_engine.screening.sqlite_reader import (
     EDINETMetricBaselineError,
+    fin_summaries_readable_from,
     read_edinet_metric_baseline,
     read_eq_master,
     read_eq_master_asof,
@@ -346,6 +347,70 @@ class ReadFinSummariesTests(unittest.TestCase):
             conn.close()
 
             self.assertIsNone(read_fin_summaries(db, date(2025, 9, 28), date(2025, 10, 28)))
+
+
+class FinSummariesReadableFromTests(unittest.TestCase):
+    """The floor a caller may read from, which is not where the oldest row sits."""
+
+    @staticmethod
+    def _store_with_windows(tmp: str, windows: tuple[tuple[str, str, str, int], ...]) -> Path:
+        db = Path(tmp) / "market.sqlite"
+        conn = open_connection(db)
+        for coverage_key, min_date, max_date, record_count in windows:
+            _add_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                path=coverage_key,
+                record_count=record_count,
+                min_date=min_date,
+                max_date=max_date,
+            )
+        conn.commit()
+        conn.close()
+        return db
+
+    def test_returns_the_start_of_the_window_holding_the_asof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._store_with_windows(tmp, (("a", "2016-08-11", "2026-08-11", 180_186),))
+            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2016, 8, 11))
+
+    def test_abutting_windows_read_as_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._store_with_windows(
+                tmp,
+                (
+                    ("head", "2016-08-01", "2016-08-10", 1_911),
+                    ("body", "2016-08-11", "2026-08-11", 180_186),
+                ),
+            )
+            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2016, 8, 1))
+
+    def test_a_gap_puts_the_floor_after_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._store_with_windows(
+                tmp,
+                (
+                    ("old", "2016-08-01", "2018-12-31", 100),
+                    ("recent", "2020-01-01", "2026-08-11", 100),
+                ),
+            )
+            self.assertEqual(fin_summaries_readable_from(db, date(2025, 6, 30)), date(2020, 1, 1))
+
+    def test_returns_none_when_no_window_holds_the_asof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._store_with_windows(tmp, (("a", "2016-08-11", "2020-12-31", 100),))
+            self.assertIsNone(fin_summaries_readable_from(db, date(2025, 6, 30)))
+
+    def test_a_window_recorded_with_no_rows_is_not_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._store_with_windows(tmp, (("a", "2016-08-11", "2026-08-11", 0),))
+            self.assertIsNone(fin_summaries_readable_from(db, date(2025, 6, 30)))
+
+    def test_returns_none_when_sqlite_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(
+                fin_summaries_readable_from(Path(tmp) / "missing.sqlite", date(2025, 6, 30))
+            )
 
 
 class ReadJPXEarningsCalendarTests(unittest.TestCase):

@@ -21,6 +21,7 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.sqlite import (
     connect_current,
+    covered_intervals,
     optional_date,
     optional_float,
     range_covered,
@@ -795,6 +796,34 @@ def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:
         return range_covered(conn, "jquants_fin_summaries", start, end)
     finally:
         conn.close()
+
+
+def fin_summaries_readable_from(sqlite_path: Path, asof: date) -> date | None:
+    """The earliest date a summaries read ending at `asof` can start from.
+
+    The rows the store holds and the range it may serve are two different facts,
+    and the subscription window moves. A filing fetched while the window still
+    reached that far back keeps its row after the window passes it, so the oldest
+    row can sit outside the coverage. A caller that takes its floor from the oldest
+    row then asks for a range `read_fin_summaries` refuses, and a handful of rows at
+    the far edge of the history takes every read down.
+
+    Returns the start of the coverage window holding `asof`, or None when no window
+    holds it. None is the genuine outage, and leaving it to the caller's read keeps
+    the missing range in the error rather than silently narrowing the request.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        for interval_start, interval_end in covered_intervals(conn, "jquants_fin_summaries"):
+            if interval_start <= asof <= interval_end:
+                return interval_start
+    finally:
+        conn.close()
+    return None
 
 
 def count_fin_summaries(sqlite_path: Path, start: date, end: date) -> int:

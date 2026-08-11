@@ -45,6 +45,7 @@ from ..schema import SECTOR_MEDIAN_BASIS_MARKET, ScreenedCandidate, TTMQuality
 from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
 from ..sqlite_reader import (
+    fin_summaries_readable_from,
     read_edinet_metrics,
     read_eq_master_asof,
     read_fin_summaries,
@@ -291,7 +292,7 @@ def build_panel(
     securities = list(master_read.masters)
     if not securities:
         return _unavailable_master_panel(asof_date, rules, master_read.status, policy=policy)
-    bars_floor, fin_floor = _coverage_floors(sqlite_path)
+    bars_floor, fin_floor = _coverage_floors(sqlite_path, asof_date)
     bars_start = max(bars_floor, asof_date - timedelta(days=policy.bars_input_window_days))
     fin_start = max(fin_floor, asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS))
     return_history_start = max(
@@ -817,7 +818,18 @@ def _rules_with_uncapped_target(rules: ScreeningRules) -> ScreeningRules:
     return ScreeningRules.model_validate(data)
 
 
-def _coverage_floors(sqlite_path: Path) -> tuple[date, date]:
+def _coverage_floors(sqlite_path: Path, asof_date: date) -> tuple[date, date]:
+    """The earliest dates the history windows may start from.
+
+    The floor is where the store can be **read** from, which is the oldest row only
+    while the store may still serve it. Summaries come from a moving subscription
+    window, so rows fetched years ago outlive the window that produced them; taking
+    the floor from the oldest row alone asks `read_fin_summaries` for a range it
+    refuses, and every cohort fails over filings at the far edge of the history.
+    A raised floor shortens the history windows exactly as a younger store does, and
+    the rows it leaves behind stay unread rather than entering a cohort through a
+    window the store no longer stands behind.
+    """
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         bars_min = conn.execute("SELECT MIN(traded_at) FROM jquants_daily_bars").fetchone()[0]
@@ -826,7 +838,11 @@ def _coverage_floors(sqlite_path: Path) -> tuple[date, date]:
         conn.close()
     if bars_min is None or fin_min is None:
         raise CalibrationError("SQLite cache has no bars or fin summaries")
-    return date.fromisoformat(str(bars_min)), date.fromisoformat(str(fin_min))
+    fin_floor = date.fromisoformat(str(fin_min))
+    readable_from = fin_summaries_readable_from(sqlite_path, asof_date)
+    if readable_from is not None:
+        fin_floor = max(fin_floor, readable_from)
+    return date.fromisoformat(str(bars_min)), fin_floor
 
 
 PANEL_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(PanelRow))
