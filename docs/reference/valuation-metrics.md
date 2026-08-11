@@ -225,6 +225,8 @@ Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` �
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
 
+**自己レンジは倍率の履歴ではなく価格の履歴である。** fundamentals を最新値で固定して価格だけを動かすため、価格比例の軸（PER / PBR / P/S）では `自己レンジ中央値 ÷ 現在倍率` が軸によらず `median(750 営業日終値) ÷ 現値` に一致する（実データ 3,424 銘柄で 100% 一致）。percentile として「価格が自分のレンジのどこにいるか」を読むのが本来の用途で、機械 E[r] の anchor 水準として自己レンジ側が binding した銘柄では、reversion 成分は倍率でなく価格の平均回帰を測る。as-of 2026-03-31 の実測では E[r] を持つ 3,773 銘柄のうち 1,684（44.6%）が全軸で自己レンジ側 binding だった。真の倍率履歴との比較は #910 で事前登録する。
+
 自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、screening runのcandidate recordには直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
 
 - `price_history_sessions_750d`: 直近 750 暦日のうち bar が存在する営業日数

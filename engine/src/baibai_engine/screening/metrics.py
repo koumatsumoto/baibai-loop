@@ -346,8 +346,11 @@ def build_metrics(
             )
             history_values = valuation_history.get(metric, [])
             self_percentiles[metric] = _self_range_percentile(history_values, current)
-            # 自己レンジの中央値倍率。機械 E[r] の保守側 anchor に使う。標本が薄い
-            # 履歴 (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
+            # 自己レンジの中央値。機械 E[r] の保守側 anchor に使う。標本が薄い履歴
+            # (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
+            # `_valuation_history` は fundamentals を最新値で固定して価格だけを動かすので、
+            # これは倍率の履歴ではなく価格の履歴を倍率の単位で表したものである。価格比例の
+            # 軸では `自己中央値 / 現値` が軸によらず `median(終値) / 現値` に一致する。
             self_medians[metric] = median(history_values) if len(history_values) >= 100 else None
             sigma_gaps[metric] = _sigma_gap(history_values, current)
 
