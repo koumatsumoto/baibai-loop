@@ -26,7 +26,7 @@ from math import isfinite
 from statistics import fmean
 from typing import Literal
 
-from .schema import DerivedMetrics, FinancialSnapshot
+from .schema import UNRESOLVED_DIVIDEND_BASIS, DerivedMetrics, FinancialSnapshot
 
 # 現在の MODEL_V1 policy parameters。実証的な変更は long-horizon authority を満たす
 # artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
@@ -70,7 +70,16 @@ def estimate_expected_return(
     *,
     close: float | None,
 ) -> ExpectedReturnEstimate | None:
-    """E[r] と FV アンカーを見積もる。anchor 倍率が 1 軸も取れなければ None。"""
+    """E[r] と FV アンカーを見積もる。anchor 倍率が 1 軸も取れなければ None。
+
+    配当の株式基準が確定できない行も None にする。carry は `dividend_yield or 0.0` で
+    組むので、利回りを出さないことが下流では「無配」の主張になり、実際に配当を払って
+    いる銘柄を E[r] 降順から一方向に落とす。値を知らないことと 0 であることは別なので、
+    知らない年度は順位を付けない。
+    """
+    if financial.dividend_basis == UNRESOLVED_DIVIDEND_BASIS:
+        return None
+
     upsides: dict[str, float] = {}
     sector_ratios: list[float] = []
     self_ratios: list[float] = []

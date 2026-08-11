@@ -131,6 +131,12 @@ SOURCE_MISSING_ALLOWED: Mapping[str, tuple[str, ...]] = {
         "forecast_ordinary_profit",
         "treasury_shares",
         "equity_to_asset_ratio",
+        "dividend_q1",
+        "dividend_interim",
+        "dividend_q3",
+        "dividend_year_end",
+        "dividend_total_annual",
+        "average_shares",
     ),
     # The submitter and target company of a filing were added to the index after the
     # published copy had already stored those days, and the daily refresh only rewrites

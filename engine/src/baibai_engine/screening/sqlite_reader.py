@@ -835,7 +835,9 @@ def read_fin_summaries(
             "forecast_profit, forecast_ordinary_profit, "
             "fiscal_period, fiscal_year_end, period_start, period_end, "
             "dps_actual_annual, dps_forecast_annual, "
-            "treasury_shares, equity_to_asset_ratio "
+            "treasury_shares, equity_to_asset_ratio, "
+            "dividend_q1, dividend_interim, dividend_q3, dividend_year_end, "
+            "dividend_total_annual, average_shares "
             "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
             "ORDER BY ticker, disclosed_at",
             (start.isoformat(), end.isoformat()),
@@ -870,6 +872,12 @@ def read_fin_summaries(
             dps_forecast_annual,
             treasury_shares,
             equity_to_asset_ratio,
+            dividend_q1,
+            dividend_interim,
+            dividend_q3,
+            dividend_year_end,
+            dividend_total_annual,
+            average_shares,
         ) = row
         try:
             summaries.append(
@@ -898,6 +906,12 @@ def read_fin_summaries(
                     dps_forecast_annual=optional_float(dps_forecast_annual),
                     treasury_shares=optional_float(treasury_shares),
                     equity_to_asset_ratio=optional_float(equity_to_asset_ratio),
+                    dividend_q1=optional_float(dividend_q1),
+                    dividend_interim=optional_float(dividend_interim),
+                    dividend_q3=optional_float(dividend_q3),
+                    dividend_year_end=optional_float(dividend_year_end),
+                    dividend_total_annual=optional_float(dividend_total_annual),
+                    average_shares=optional_float(average_shares),
                 )
             )
         except (TypeError, ValueError) as exc:

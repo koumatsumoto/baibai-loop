@@ -18,6 +18,7 @@ from .providers.jquants import (
 )
 from .rule_config import ScreeningRules, TTMRules, load_screening_rules
 from .schema import (
+    UNRESOLVED_DIVIDEND_BASIS,
     DerivedMetrics,
     FinancialSnapshot,
     OperatingProfitSource,
@@ -514,12 +515,31 @@ def _actual_dps_rows(
     ]
 
 
-def _dividend_accrual_start(
-    row: JQuantsFinancialSummary, prior: JQuantsFinancialSummary | None
-) -> date:
-    """その年度の配当が積み上がり始めた日。前期の通期実績開示、無ければ約 1 年前。"""
-    if prior is not None and prior.dps_actual_annual is not None and prior.dps_actual_annual >= 0:
-        return prior.disclosed_at
+# 配当の基準日と corporate action がこの日数以内に並ぶ年度は換算しない。日本の分割は
+# 「権利落ち = 基準日の前営業日、効力発生 = 基準日の翌日」が定型なので、期末配当の基準日と
+# 分割の権利落ち日が数日違いで並ぶ。store が持つのは権利落ち日だけで効力発生日を持たない
+# ため、その配当が action の前の株数で払われたのか後なのかを言えない。実測では調整日は
+# 基準日の 5 日以内に集中し、5〜20 日の帯には 1 件も現れない (#901)。
+DIVIDEND_RECORD_DATE_GUARD_DAYS = 5
+# 総額から出した 1 株当たりと、支払ごとに換算した合計が食い違ってよい幅。総額は百万円
+# 単位で開示され、割る株数は期末時点なので、支払の基準日の株数とは自社株買いのぶんだけ
+# ずれる。この幅を超える食い違いは、どちらかの経路が別の株式基準を見ている合図になる。
+DIVIDEND_ROUTE_TOLERANCE = 0.05
+# 期末発行済から自己株を引いた株数が、提出者自身が EPS を出すのに使った期中平均株数から
+# この倍率を超えて外れる行は、株数を per-share の分母に使わない。
+SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
+
+
+def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
+    """その年度の配当が積み上がり始めた日。
+
+    当期会計期間の開始日を使う。前期の通期実績開示日を起点にすると、同一年度の訂正開示が
+    直前に来た行で窓が数日へ縮み、窓内の corporate action が消える。
+    """
+    if row.period_start is not None:
+        return row.period_start
+    if row.fiscal_year_end is not None:
+        return _shift_months(row.fiscal_year_end, -12)
     return row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
 
 
@@ -529,15 +549,88 @@ def _dividend_basis_factor(
     accrual_start: date,
     disclosed_at: date,
 ) -> float:
-    """accrual 期間に起きた分割・併合の累積 factor。1.0 なら基準が確定できる。
+    """会計期間に起きた分割・併合の累積 factor。1.0 なら年度を通じて基準が一意。
 
-    年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載され、開示日で基準が
-    決まるわけではない。accrual 期間に分割・併合が入ると、支払ごとに action の前か後
-    かが分かれ、判別には支払ごとの基準日が要る。store が持つのは権利落ち日だけで、
-    効力発生日とも基準日ともずれる。単一の factor では当てられないので、1.0 でない
-    年度は利回りを主張しない (#901)。
+    年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載され、開示日で基準が決まる
+    わけではない。期間内に分割・併合が入ると支払ごとに action の前後が分かれるので、
+    報告された年間値をそのまま株価と比べられない。
     """
     return _cumulative_adjustment_factor_after(ticker_bars, accrual_start, disclosed_at)
+
+
+def _dividend_record_dates(row: JQuantsFinancialSummary) -> tuple[tuple[float | None, date], ...]:
+    """支払ごとの 1 株当たり配当と、その基準日。基準日は四半期末に置く。"""
+    fiscal_year_end = row.fiscal_year_end
+    if fiscal_year_end is None:
+        return ()
+    return (
+        (row.dividend_q1, _shift_months(fiscal_year_end, -9)),
+        (row.dividend_interim, _shift_months(fiscal_year_end, -6)),
+        (row.dividend_q3, _shift_months(fiscal_year_end, -3)),
+        (row.dividend_year_end, fiscal_year_end),
+    )
+
+
+def _shares_for_per_share(row: JQuantsFinancialSummary) -> float | None:
+    """円の総額を 1 株当たりへ直すのに使える株数。壊れている行は答えない。"""
+    shares = _shares_excluding_treasury(row.shares_outstanding, row.treasury_shares)
+    if shares is None:
+        return None
+    anchor = row.average_shares
+    if anchor is None or anchor <= 0:
+        return shares
+    ratio = shares / anchor
+    if not 1 / SHARE_COUNT_ANCHOR_TOLERANCE <= ratio <= SHARE_COUNT_ANCHOR_TOLERANCE:
+        return None
+    return shares
+
+
+def _asof_basis_dividend(
+    row: JQuantsFinancialSummary,
+    ticker_bars: Sequence[JQuantsDailyBar],
+    *,
+    asof_date: date,
+) -> float | None:
+    """分割・併合を跨いだ年度の年間配当を asof の株式基準で答える。答えられなければ None。
+
+    支払ごとに、その基準日より後の調整だけを掛けて足す。この経路は期末発行済株式数を
+    使わないので、提出者がその株数を遡及修正したかどうかに左右されない。基準日のすぐ
+    そばに調整がある年度は、権利落ち日しか持たない store からは前後を決められないので
+    答えない。答えられた値は、株式基準を持たない配当総額から出した 1 株当たりと
+    突き合わせ、食い違えば答えない。
+    """
+    payments = _dividend_record_dates(row)
+    if not payments or all(value is None for value, _ in payments):
+        return None
+    window_start = _dividend_accrual_start(row)
+    adjustments = [
+        bar
+        for bar in ticker_bars
+        if window_start < bar.traded_at <= row.disclosed_at
+        and bar.adjustment_factor not in (None, 0.0, 1.0)
+    ]
+    guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
+    for value, record_date in payments:
+        if not value:
+            continue
+        if any(abs(bar.traded_at - record_date) <= guard for bar in adjustments):
+            return None
+    resolved = sum(
+        (value or 0.0) * _cumulative_adjustment_factor_after(ticker_bars, record_date, asof_date)
+        for value, record_date in payments
+    )
+    if resolved <= 0:
+        return None
+    amount = row.dividend_total_annual
+    shares = _shares_for_per_share(row)
+    if (
+        amount is not None
+        and amount > 0
+        and shares is not None
+        and abs((amount / shares) / resolved - 1.0) > DIVIDEND_ROUTE_TOLERANCE
+    ):
+        return None
+    return resolved
 
 
 def _resolve_dividend_carry(
@@ -549,13 +642,12 @@ def _resolve_dividend_carry(
     """carry 用の配当利回りと基準を解決する。
 
     実績 DPS は開示時点の株式基準で記載され、`_normalize_summaries_to_asof_basis` が
-    開示日より後の分割を掛けて asof 基準へ寄せている。残るのは accrual 期間 (前期通期
-    実績開示 〜 当期通期実績開示) の中で起きた分割・併合で、これは支払ごとの基準日を
-    見ないと前後を判別できない (`_dividend_basis_factor`)。判別できない年度は実績側の
-    利回りを出さず、carry は予想 DPS か buyback だけで組む。予想 DPS は分割を跨ぐ行で
-    正規化が None へ落としているので、同じ規律が既に効いている。
+    開示日より後の分割を掛けて asof 基準へ寄せている。残るのは会計期間の中で起きた
+    分割・併合で、報告された年間値は支払ごとに基準が分かれるためそのままでは株価と
+    比べられない。その年度は支払ごとに換算し直し (`_asof_basis_dividend`)、換算できな
+    ければ実績側の利回りを出さない。carry は予想 DPS か buyback だけで組む。予想 DPS は
+    分割を跨ぐ行で正規化が None へ落としているので、同じ規律が既に効いている。
     """
-    del asof_date  # asof 基準への換算は呼び出し側の正規化で済んでいる
     forecast = _latest_non_null(summaries, "dps_forecast_annual")
 
     actual_rows = _actual_dps_rows(summaries)
@@ -566,13 +658,13 @@ def _resolve_dividend_carry(
         assert latest_actual.dps_actual_annual is not None
         basis_factor = _dividend_basis_factor(
             ticker_bars,
-            accrual_start=_dividend_accrual_start(
-                latest_actual, actual_rows[1] if len(actual_rows) > 1 else None
-            ),
+            accrual_start=_dividend_accrual_start(latest_actual),
             disclosed_at=latest_actual.disclosed_at,
         )
         if basis_factor == 1.0:
             actual_annual = latest_actual.dps_actual_annual
+        else:
+            actual_annual = _asof_basis_dividend(latest_actual, ticker_bars, asof_date=asof_date)
 
     recorded_factor = basis_factor if basis_factor != 1.0 else None
 
@@ -591,11 +683,11 @@ def _resolve_dividend_carry(
             dividend_yield=actual_annual / latest_price,
             dps_actual_annual=actual_annual,
             dps_forecast_annual=forecast,
-            basis="actual_reported",
+            basis="actual_reported" if recorded_factor is None else "actual_record_date_resolved",
             split_factor=recorded_factor,
         )
     elif recorded_factor is not None:
-        basis = "unresolved_split_basis"
+        basis = UNRESOLVED_DIVIDEND_BASIS
     else:
         basis = "unavailable"
 
@@ -628,7 +720,7 @@ def build_shareholder_return_change_signals(
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
 
-    dps_values = _asof_basis_fy_dps(fy_rows, ticker_bars)
+    dps_values = _asof_basis_fy_dps(fy_rows, ticker_bars, asof_date=asof_date)
     latest_pair = _latest_consecutive_values(fy_rows, dps_values, count=2)
     latest_three = _latest_consecutive_values(fy_rows, dps_values, count=3)
 
@@ -716,26 +808,33 @@ def _latest_fy_revisions(
 def _asof_basis_fy_dps(
     fy_rows: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsDailyBar],
+    *,
+    asof_date: date,
 ) -> dict[date, float]:
     """通期実績 DPS を fiscal year end で引けるようにする。
 
     行は `_normalize_summaries_to_asof_basis` を通っているので asof 基準に揃っている。
-    accrual 期間に分割・併合が入った年度だけは基準を確定できない
-    (`_dividend_basis_factor`) ため落とす。落ちた年度を含む YoY と streak は
-    `_latest_consecutive_values` が None を返し、増配と減配を取り違えない。
+    会計期間に分割・併合が入った年度だけは報告値の基準が支払ごとに分かれるので、支払
+    ごとに換算し直す。換算できない年度は落とし、落ちた年度を含む YoY と streak は
+    `_latest_consecutive_values` が None を返して増配と減配を取り違えない。
     """
     values: dict[date, float] = {}
-    for index, row in enumerate(fy_rows):
+    for row in fy_rows:
         fiscal_year_end = row.fiscal_year_end
         value = row.dps_actual_annual
         if fiscal_year_end is None or value is None or value < 0:
             continue
-        accrual_start = _dividend_accrual_start(row, fy_rows[index - 1] if index > 0 else None)
         factor = _dividend_basis_factor(
-            ticker_bars, accrual_start=accrual_start, disclosed_at=row.disclosed_at
+            ticker_bars,
+            accrual_start=_dividend_accrual_start(row),
+            disclosed_at=row.disclosed_at,
         )
         if factor == 1.0:
             values[fiscal_year_end] = value
+            continue
+        resolved = _asof_basis_dividend(row, ticker_bars, asof_date=asof_date)
+        if resolved is not None:
+            values[fiscal_year_end] = resolved
     return values
 
 
@@ -1143,6 +1242,17 @@ def _period_days(summary: JQuantsFinancialSummary) -> int | None:
         return None
     days = (summary.period_end - summary.period_start).days + 1
     return days if days > 0 else None
+
+
+def _shift_months(value: date, months: int) -> date:
+    """`months` か月前後の同じ日。月末をまたぐ日付は月内に丸める。
+
+    配当の基準日を四半期末に置くために使う。期末が 3/31 の会社の中間基準日は 9/30 で、
+    暦の日数ではなく月数で数えないと四半期の境界からずれる。
+    """
+    total = value.year * 12 + (value.month - 1) + months
+    year, month = divmod(total, 12)
+    return date(year, month + 1, min(value.day, 28))
 
 
 def _shift_year(value: date, years: int) -> date | None:

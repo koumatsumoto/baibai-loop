@@ -20,6 +20,12 @@ _MODEL_CONFIG = ConfigDict(
 )
 _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
 
+# 配当の株式基準が確定できないことを表す `dividend_basis` の値。年間 DPS は中間・期末
+# それぞれの基準日時点の株式基準で記載されるので、会計期間に分割・併合が入り、かつ支払
+# ごとの換算もできない年度はこの状態になる。無配 (`dividend_yield=0`) とも、観測できない
+# (`unavailable`) とも別で、E[r] はこの行に順位を付けない。
+UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
+
 type NullableFloatMap = Mapping[str, float | None]
 type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
@@ -83,12 +89,11 @@ class FinancialSnapshot:
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
     # 直近実績の年間 DPS (asof の株式基準)・進行期の予想年間 DPS・carry 用配当利回り。
-    # dividend_yield は将来 carry なので予想 DPS を最優先し
-    # (dividend_basis=forecast_annual)、無ければ実績を使う (actual_reported)。
-    # 年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載されるので、その年度の
-    # accrual 期間に分割・併合が入ると株価と同じ基準か言えない。その年度は実績側の
-    # 利回りを出さず (dividend_basis=unresolved_split_basis)、dividend_split_factor に
-    # 判別できなかった累積 factor を残す (確定できる年度は None)。
+    # dividend_yield は将来 carry なので予想 DPS を最優先する (forecast_annual)。無ければ
+    # 実績を使い、会計期間に分割・併合が無ければ報告値をそのまま (actual_reported)、あれば
+    # 支払ごとに基準日より後の調整を掛け直した値を使う (actual_record_date_resolved)。
+    # 掛け直せない年度は利回りを出さず (unresolved_split_basis)、E[r] も付けない。
+    # dividend_split_factor は会計期間に起きた累積 factor で、期間内に何も無ければ None。
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None

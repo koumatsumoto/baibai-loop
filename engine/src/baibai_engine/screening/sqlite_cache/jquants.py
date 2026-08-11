@@ -65,8 +65,13 @@ def store_jquants_fin_summaries(
                   profit, forecast_profit, forecast_ordinary_profit,
                   fiscal_period, fiscal_year_end, period_start, period_end,
                   dps_actual_annual, dps_forecast_annual,
-                  treasury_shares, equity_to_asset_ratio
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  treasury_shares, equity_to_asset_ratio,
+                  dividend_q1, dividend_interim, dividend_q3, dividend_year_end,
+                  dividend_total_annual, average_shares
+                ) VALUES (
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 rows,
             )
@@ -876,6 +881,19 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                 # 自己資本比率をそれぞれ正しい分母で作るには両方が要る。
                 to_float(first(record, "TrShFY", "treasury_shares", "TreasuryStock")),
                 to_float(first(record, "EqAR", "equity_to_asset_ratio", "EquityToAssetRatio")),
+                # 支払ごとの 1 株当たり配当。年間の DivAnn は中間・期末それぞれの基準日
+                # 時点の株式基準で書かれるので、分割・併合を跨いだ年度は株価と基準が揃わ
+                # ない。支払ごとに持てば、各支払の基準日より後の調整だけを掛けられる。
+                to_float(first(record, "Div1Q")),
+                to_float(first(record, "Div2Q")),
+                to_float(first(record, "Div3Q")),
+                to_float(first(record, "DivFY")),
+                # DivTotalAnn=通期に支払った配当の総額 (円)。株式基準を持たないので、
+                # 自己株式を除いた株式数で割った値が上の換算の独立した照合になる。
+                to_float(first(record, "DivTotalAnn")),
+                # AvgSh=期中平均株式数。提出者が EPS を出すのに使った株数そのもので、
+                # 期末発行済から自己株を引いた株数が壊れていないかを同じ行の中で照合できる。
+                to_float(first(record, "AvgSh")),
             )
         )
     return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
