@@ -58,7 +58,6 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
     "edinet_document_lists": ("doc_date",),
     "edinet_documents": ("doc_date", "sequence_number"),
     "edinet_metrics": ("asof_date", "ticker"),
-    "jpx_delistings": ("delisted_on", "ticker"),
     "jpx_regulation_flags": ("asof_date", "source_name", "ticker", "flag"),
     "jpx_regulation_sources": ("asof_date", "source_name"),
     "jquants_daily_bars": ("ticker", "traded_at"),
@@ -82,6 +81,7 @@ FACT_KEYS: Mapping[str, tuple[str, ...]] = {
 # whole publish. Both are silent, and the first one puts a price into the calibration
 # forward that the current rules say cannot be established.
 DERIVED_KEYS: Mapping[str, tuple[str, ...]] = {
+    "jpx_delistings": ("delisted_on", "ticker"),
     "tender_offer_exit_values": ("ticker", "delisted_on"),
     "tse_capital_policy_snapshots": ("snapshot_month_end", "ticker"),
 }
@@ -118,6 +118,12 @@ SOURCE_MISSING_ALLOWED: Mapping[str, tuple[str, ...]] = {
         "treasury_shares",
         "equity_to_asset_ratio",
     ),
+    # The submitter and target company of a filing were added to the index after the
+    # published copy had already stored those days, and the daily refresh only rewrites
+    # the current day — so every historical row on the published side carries nulls that
+    # only `backfill-edinet-identity` fills, and only on the operator's store. Comparing
+    # them strictly would refuse every publish with no way to advance the published copy.
+    "edinet_documents": ("edinet_code", "issuer_edinet_code", "subject_edinet_code"),
 }
 
 # `record_count` receives a table-aware comparison below. It proves every clean

@@ -944,3 +944,97 @@ def test_a_corrected_exit_value_does_not_block_the_publish(tmp_path: Path) -> No
         )
     finally:
         conn.close()
+
+
+def test_identity_columns_the_published_copy_never_wrote_do_not_refuse_the_publish(
+    tmp_path: Path,
+) -> None:
+    """The daily refresh only rewrites the current day, so history stays null cloud-side.
+
+    Comparing those nulls strictly would refuse every publish, and the only way to
+    advance the published copy is a publish.
+    """
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    for path, code in ((published, None), (local, "E00001")):
+        conn = open_connection(path)
+        try:
+            conn.execute(
+                "INSERT INTO edinet_documents("
+                "doc_date, sequence_number, doc_id, doc_type_code, edinet_code"
+                ") VALUES ('2026-05-01', 1, 'S1', '120', ?)",
+                (code,),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO edinet_document_lists("
+                "doc_date, result_count, fetched_at_utc, is_final"
+                ") VALUES ('2026-05-01', 1, '2026-05-01T00:00:00+00:00', 1)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    merge_stores(published, local)
+
+    conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
+    try:
+        assert conn.execute("SELECT edinet_code FROM edinet_documents").fetchone()[0] == "E00001"
+    finally:
+        conn.close()
+
+
+def test_two_populated_identity_values_that_disagree_still_refuse_the_publish(
+    tmp_path: Path,
+) -> None:
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    for path, code in ((published, "E00002"), (local, "E00001")):
+        conn = open_connection(path)
+        try:
+            conn.execute(
+                "INSERT INTO edinet_documents("
+                "doc_date, sequence_number, doc_id, doc_type_code, edinet_code"
+                ") VALUES ('2026-05-01', 1, 'S1', '120', ?)",
+                (code,),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO edinet_document_lists("
+                "doc_date, result_count, fetched_at_utc, is_final"
+                ") VALUES ('2026-05-01', 1, '2026-05-01T00:00:00+00:00', 1)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    with pytest.raises(MergeError, match="edinet_documents payload disagrees"):
+        merge_stores(published, local)
+
+
+def test_a_reworded_delisting_row_does_not_refuse_the_publish(tmp_path: Path) -> None:
+    """JPX rewords its archive, and only the operator ever writes this table."""
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    for path, reason in ((published, "株式の併合"), (local, "ＭＢＯ（公開買付け、株式併合）")):
+        conn = open_connection(path)
+        try:
+            conn.execute(
+                "INSERT INTO jpx_delistings(delisted_on, ticker, name, market, reason) "
+                "VALUES ('2026-05-01', '2000', 'テスト', 'プライム', ?)",
+                (reason,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    merge_stores(published, local)
+
+    conn = sqlite3.connect(f"file:{local}?mode=ro", uri=True)
+    try:
+        assert (
+            conn.execute("SELECT reason FROM jpx_delistings").fetchone()[0]
+            == "ＭＢＯ（公開買付け、株式併合）"
+        )
+    finally:
+        conn.close()

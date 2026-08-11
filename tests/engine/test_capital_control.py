@@ -319,6 +319,53 @@ class JPXDelistingTest(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[1][2], "2000")
 
+    def test_only_jpx_archive_links_are_followed(self) -> None:
+        """The page decides what gets fetched next, so the filter is the whole control."""
+        index_html = (
+            "<table><tr><td>2026/05/01</td><td>（株）テスト</td><td>2000</td>"
+            "<td>プライム</td><td>ＭＢＯ（公開買付け、株式併合）</td></tr></table>"
+            '<a href="archives-01.html">過去分</a>'
+            '<a href="https://evil.example/listing/stocks/delisted/archives-02.html">x</a>'
+            '<a href="https://www.jpx.co.jp.evil.example/listing/stocks/delisted/archives-03.html">x</a>'
+            '<a href="//evil.example/listing/stocks/delisted/archives-04.html">x</a>'
+            '<a href="http://www.jpx.co.jp/listing/stocks/delisted/archives-05.html">x</a>'
+            '<a href="https://www.jpx.co.jp/listing/stocks/delisted/archives-06.html?to=evil">x</a>'
+            '<a href="https://www.jpx.co.jp/markets/statistics-equities/index.html">x</a>'
+            '<option value="https://www.jpx.co.jp/listing/stocks/delisted/archives-07.html">x</option>'
+        )
+        archive_html = (
+            "<table><tr><td>2024/05/01</td><td>（株）旧</td><td>1000</td>"
+            "<td>スタンダード</td><td>株式の併合</td></tr></table>"
+        )
+
+        class _Response:
+            def __init__(self, body: str) -> None:
+                self.status_code = 200
+                self.encoding = "ISO-8859-1"
+                self.content = body.encode()
+
+        class _Session:
+            def __init__(self) -> None:
+                self.requested: list[str] = []
+
+            def get(self, url: str, timeout: int) -> _Response:
+                self.requested.append(url)
+                return _Response(index_html if url.endswith("delisted/") else archive_html)
+
+        session = _Session()
+        rows = _download_jpx_delistings(session)  # type: ignore[arg-type]
+
+        self.assertEqual(
+            sorted(session.requested),
+            [
+                "https://www.jpx.co.jp/listing/stocks/delisted/",
+                "https://www.jpx.co.jp/listing/stocks/delisted/archives-01.html",
+                "https://www.jpx.co.jp/listing/stocks/delisted/archives-07.html",
+            ],
+        )
+        # The followed archive contributed its rows, so the allow side really ran.
+        self.assertEqual(sorted(row.ticker for row in rows), ["1000", "2000"])
+
     def test_a_latin1_decodable_page_is_still_decoded_as_utf8(self) -> None:
         class _Response:
             status_code = 200

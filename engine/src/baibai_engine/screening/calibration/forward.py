@@ -131,12 +131,11 @@ def compute_forward_returns(
     asofs: Sequence[date],
     tickers: Iterable[str],
     horizons: Sequence[str] = tuple(HORIZONS),
-    control_event_exits: Mapping[str, Sequence[ControlEventExit]] | None = None,
+    control_event_exits: Mapping[str, Sequence[ControlEventExit]],
 ) -> list[ForwardReturnRow]:
     if not asofs:
         return []
     specs = tuple(require_horizon(name) for name in horizons)
-    exits_by_ticker = control_event_exits if control_event_exits is not None else {}
     unique_tickers = sorted(set(tickers) | set(BENCHMARK_TICKERS))
     # Entry resolution accepts a bar up to STALE_PRICE_MAX_LAG_DAYS before asof, so
     # the load window has to start that far ahead of the earliest asof. Loading from
@@ -156,7 +155,7 @@ def compute_forward_returns(
                     asofs=asofs,
                     horizons=specs,
                     eval_cap=eval_cap,
-                    control_event_exits=tuple(exits_by_ticker.get(ticker, ())),
+                    control_event_exits=tuple(control_event_exits.get(ticker, ())),
                 )
             )
     finally:

@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 from baibai_engine.screening.capital_control import JPXDelistingRow, store_jpx_delistings
 from baibai_engine.screening.sqlite_cache import open_connection
 from baibai_engine.screening.tender_offer import (
+    TenderOfferError,
     build_control_event_exit_values,
     parse_ordinary_share_offer_price,
     pays_in_cash_only,
@@ -480,15 +481,38 @@ class ControlEventExitBuildTest(unittest.TestCase):
             self.assertEqual(values, ())
             self.assertEqual(summary.rejection_reason_counts, {"no_filing_in_document_window": 1})
 
-    def test_the_stored_table_is_replaced_by_the_derivation(self) -> None:
+    def test_an_empty_derivation_over_an_empty_table_is_accepted(self) -> None:
         with TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             open_connection(sqlite_path).close()
-            store_tender_offer_exit_values(
-                sqlite_path,
-                read_tender_offer_exit_values(sqlite_path),
-            )
+
+            store_tender_offer_exit_values(sqlite_path, ())
+
             self.assertEqual(read_tender_offer_exit_values(sqlite_path), ())
+
+    def test_an_empty_derivation_does_not_clear_values_already_established(self) -> None:
+        """The published copy cannot restore this table, so an empty run must not erase it."""
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(
+                tmp, self._registration_and_result(), reason="ＭＢＯ（公開買付け、株式併合）"
+            )
+            provider = _Provider(
+                {
+                    "REG": _archive(
+                        {_PRICE: "株券普通株式１株につき金1,060円算定の基礎…", _FUNDING: _CASH_ONLY}
+                    ),
+                    "RES": _archive({_OUTCOME: _SUCCESS}),
+                }
+            )
+            values, _ = build_control_event_exit_values(
+                sqlite_path, provider=provider, asof=self.ASOF
+            )
+            store_tender_offer_exit_values(sqlite_path, values)
+
+            with self.assertRaises(TenderOfferError):
+                store_tender_offer_exit_values(sqlite_path, ())
+
+            self.assertEqual(len(read_tender_offer_exit_values(sqlite_path)), 1)
 
 
 class DocumentBlocksTest(unittest.TestCase):

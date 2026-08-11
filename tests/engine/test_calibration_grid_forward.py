@@ -337,7 +337,11 @@ class ForwardEntryToleranceTest(unittest.TestCase):
             )
 
             rows = compute_forward_returns(
-                sqlite_path, asofs=[asof], tickers=["1000"], horizons=["3m"]
+                sqlite_path,
+                asofs=[asof],
+                tickers=["1000"],
+                horizons=["3m"],
+                control_event_exits={},
             )
 
             row = next(row for row in rows if row.ticker == "1000")

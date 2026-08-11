@@ -281,9 +281,26 @@ def build_control_event_exit_values(
 def store_tender_offer_exit_values(
     sqlite_path: Path, values: Sequence[TenderOfferExitValue]
 ) -> int:
-    """Replace the derived table wholesale: it is a function of the two sources."""
+    """Replace the derived table wholesale: it is a function of the two sources.
+
+    A derivation that established nothing does not clear a table that already holds
+    values. It reads the same as a real emptying, but the way it actually happens is a
+    run against a store whose EDINET identity columns are not filled in yet, and the
+    published copy cannot restore what it erases — the merge treats this table as owned
+    by whichever store derived it last.
+    """
     connection = open_connection(sqlite_path)
     try:
+        if not values:
+            stored = int(
+                connection.execute("SELECT COUNT(*) FROM tender_offer_exit_values").fetchone()[0]
+                or 0
+            )
+            if stored:
+                raise TenderOfferError(
+                    f"refusing to replace {stored} exit values with an empty derivation; "
+                    "run `screening backfill-edinet-identity` and retry"
+                )
         connection.execute("DELETE FROM tender_offer_exit_values")
         connection.executemany(
             "INSERT INTO tender_offer_exit_values("
