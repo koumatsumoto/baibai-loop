@@ -135,9 +135,12 @@ def build_normalized_profit_signals(
     asof_date: date,
     *,
     close: float | None,
-    current_eps: float | None,
 ) -> NormalizedProfitSignals:
-    """Build the preregistered 3/5-FY EPS anchors without filling missing years."""
+    """Build the preregistered 3/5-FY EPS anchors without filling missing years.
+
+    Each anchor averages full-year per-share earnings across years, which is a mean of
+    per-share values rather than a sum, so the years may carry different share counts.
+    """
     available = sorted(
         (summary for summary in summaries if summary.disclosed_at <= asof_date),
         key=lambda item: item.disclosed_at,
@@ -666,10 +669,15 @@ def _resolve_dividend_carry(
     比べられない。その年度は支払ごとに換算し直し (`_asof_basis_dividend`)、換算できな
     ければ実績側の利回りを出さない。carry は予想 DPS か buyback だけで組む。予想 DPS は
     分割を跨ぐ行で正規化が None へ落としているので、同じ規律が既に効いている。
-    """
-    forecast = _latest_non_null(summaries, "dps_forecast_annual")
 
+    予想は実績より優先するが、優先できるのは実績より新しいときだけである。会社が予想を
+    取り下げた後も過去の予想を引き当て続けると、無配化した会社に当時の配当額の利回りが
+    付き、E[r] の reversion 上限 (5%/年) を単独で超える carry を作る。
+    """
     actual_rows = _actual_dps_rows(summaries)
+    forecast = _latest_forecast_not_before(
+        summaries, actual_rows[0].disclosed_at if actual_rows else None
+    )
     basis_factor = 1.0
     actual_annual: float | None = None
     if actual_rows:
@@ -765,7 +773,9 @@ def build_shareholder_return_change_signals(
         latest_actual = dps_values[latest_actual_row.fiscal_year_end]
     else:
         latest_actual = None
-    forecast = _latest_forecast_after(normalized, latest_actual_row)
+    forecast = _latest_forecast_not_before(
+        normalized, latest_actual_row.disclosed_at if latest_actual_row else None
+    )
     dps_guidance_up = (
         forecast > latest_actual if forecast is not None and latest_actual is not None else None
     )
@@ -891,15 +901,19 @@ def _latest_row_with_value(
     return row if row.fiscal_year_end is not None and row.fiscal_year_end in values else None
 
 
-def _latest_forecast_after(
+def _latest_forecast_not_before(
     summaries: Sequence[JQuantsFinancialSummary],
-    latest_actual_row: JQuantsFinancialSummary | None,
+    threshold: date | None,
 ) -> float | None:
-    if latest_actual_row is None:
-        return None
-    for summary in reversed(summaries):
-        if summary.disclosed_at < latest_actual_row.disclosed_at:
-            break
+    """`threshold` 以降に開示された最新の予想年間 DPS。
+
+    予想は実績より優先するが、優先できるのは実績より新しいときだけである。会社が予想を
+    取り下げた後も過去の予想を引き当て続けると、無配化した会社に当時の配当額の利回りが
+    付く。上書きすべき実績が無いとき (`threshold` が None) は窓内の最新予想を使う。
+    """
+    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
+        if threshold is not None and summary.disclosed_at < threshold:
+            return None
         value = summary.dps_forecast_annual
         if value is not None and value >= 0:
             return value
@@ -952,14 +966,15 @@ def _build_financial_snapshot(
     forecast_full_year_loss_flag = (forecast_profit is not None and forecast_profit < 0) or (
         forecast_ordinary_profit is not None and forecast_ordinary_profit < 0
     )
-    # J-Quants の EPS (eps_ttm field) は期中累計で、年度途中の四半期開示では 12 か月分に
-    # ならない (Q1 開示だと 3 か月分)。sales / cfo と同じ rolling 合成
-    # (直近累計 + 前期通期 - 前年同期間累計) で TTM に直し、通期開示のときだけ
-    # そのまま使う。合成できない場合は per_trailing を出さない (単一四半期 EPS で
-    # 割った偽の割高 PER を作らない)。分割を跨ぐ行の per-share 基準は
-    # _normalize_summaries_to_asof_basis が呼び出し側で揃えている前提。
+    # 開示の利益は期中累計で、年度途中の四半期開示では 12 か月分にならない (Q1 開示だと
+    # 3 か月分)。sales / cfo と同じ rolling 合成 (直近累計 + 前期通期 - 前年同期間累計) で
+    # TTM に直し、通期開示のときだけそのまま使う。合成できない場合は per_trailing を
+    # 出さない (単一四半期の利益で割った偽の割高 PER を作らない)。
+    # 合成は 1 株当たりでなく円で行う。1 株当たりの各項は自分の期の株数で割られており、
+    # 株数が動いた会社では和・差が成立しない (新株発行で株数が倍になった期を跨ぐと、
+    # 黒字の会社が赤字に見える)。1 株当たりへの換算は最後に 1 回だけ行う。
     eps_cumulative = latest.eps_ttm if latest else None
-    eps_ttm, eps_quality = _ttm_value(summaries, "eps_ttm", rules.ttm)
+    profit_ttm, profit_quality = _ttm_value(summaries, "profit", rules.ttm)
     # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
     # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
     # latest 行だけを見ると四半期行が最新になる断面で PBR 等が季節的に大量欠損
@@ -990,7 +1005,6 @@ def _build_financial_snapshot(
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield
     per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
-    per_trailing = (latest_price / eps_ttm) if eps_ttm and eps_ttm > 0 else None
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
@@ -1021,9 +1035,13 @@ def _build_financial_snapshot(
         else None
     )
     ev_ebitda = _safe_positive_ratio(latest_enterprise_value, ebitda_ttm)
+    # 収益倍率も p_s / pcfr / ev_ebitda と同じ「時価総額 ÷ 円の TTM 系列」で組む。
+    # 1 株当たりへの換算はここで 1 回だけ行い、市場が値付けできる株数で割る。こうすると
+    # `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
+    per_trailing = _safe_positive_ratio(latest_market_cap, profit_ttm)
+    eps_ttm = _safe_ratio(profit_ttm, shares_ex_treasury)
     accruals_to_assets = _accruals_to_assets(
-        eps_ttm=eps_ttm,
-        shares=shares_outstanding,
+        net_income=profit_ttm,
         ocf_ttm=ocf_ttm,
         total_assets=total_assets,
         prior_total_assets=prior_year.total_assets if prior_year else None,
@@ -1104,7 +1122,7 @@ def _build_financial_snapshot(
             operating_profit_prior_year,
         ),
         ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
-        ttm_quality_per_trailing=eps_quality,
+        ttm_quality_per_trailing=profit_quality,
         ttm_quality_p_s=sales_quality,
         ttm_quality_pcfr=ocf_quality,
         ttm_quality_ocf_yield=ocf_quality,
@@ -1596,23 +1614,22 @@ def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
 
 def _accruals_to_assets(
     *,
-    eps_ttm: float | None,
-    shares: float | None,
+    net_income: float | None,
     ocf_ttm: float | None,
     total_assets: float | None,
     prior_total_assets: float | None,
 ) -> float | None:
     """Sloan (1996) accruals ratio: (NI - CFO) / average total assets.
 
-    NI is approximated as ``eps_ttm * shares_outstanding``; if a true NI line
-    becomes available later (J-Quants `profit` field), prefer it. The
-    denominator uses the average of current and prior-year total assets when
-    both are present, otherwise the current value. Returns None for any
-    missing input or zero denominator.
+    NI is the reported profit line composed to TTM, not a product of a per-share
+    figure and a share count: EPS is per average share excluding treasury while the
+    issued count includes it, so the product describes neither. The denominator uses
+    the average of current and prior-year total assets when both are present,
+    otherwise the current value. Returns None for any missing input or zero
+    denominator.
     """
-    if eps_ttm is None or shares is None or ocf_ttm is None or total_assets is None:
+    if net_income is None or ocf_ttm is None or total_assets is None:
         return None
-    net_income = eps_ttm * shares
     denominator = (
         (total_assets + prior_total_assets) / 2.0
         if prior_total_assets is not None and prior_total_assets > 0
@@ -1621,18 +1638,6 @@ def _accruals_to_assets(
     if denominator <= 0:
         return None
     return (net_income - ocf_ttm) / denominator
-
-
-def _ttm_pair(
-    current_summaries: Sequence[JQuantsFinancialSummary],
-    prior_summaries: Sequence[JQuantsFinancialSummary],
-    *,
-    field: str,
-    ttm_rules: TTMRules,
-) -> tuple[float | None, float | None]:
-    current, _ = _ttm_value(current_summaries, field, ttm_rules)
-    prior, _ = _ttm_value(prior_summaries, field, ttm_rules)
-    return current, prior
 
 
 def _loss_narrowing(current: float | None, previous: float | None) -> bool | None:

@@ -84,6 +84,9 @@ class FinancialSnapshot:
     ev_ebitda: float | None
     p_s: float | None
     pcfr: float | None
+    # TTM 純利益 ÷ 市場が値付けする株式数 (発行済 - 自己株)。提出者が開示する 1 株当たり
+    # 当期純利益ではなく、時価総額と同じ資本分母で組み直した値である。こうすると
+    # `market_price_yen / eps == per_trailing` が厳密に成立する。
     eps: float | None
     sales_ttm: float | None
     ocf_ttm: float | None

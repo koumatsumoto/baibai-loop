@@ -99,7 +99,9 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     1e10,
                     5e8,
                     5e8,
-                    4e8,
+                    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。
+                    # 倍率も accruals もこの行から出るので、行の中で恒等式を満たす。
+                    1e9,
                     "FY",
                     "2026-03-31",
                     "2025-04-01",
@@ -123,7 +125,7 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     5e9,
                     5e8,
                     5e8,
-                    4e8,
+                    1e8,
                     "FY",
                     "2026-03-31",
                     "2025-04-01",

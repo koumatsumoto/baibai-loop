@@ -407,7 +407,6 @@ def build_panel(
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=latest_close_by_ticker.get(ticker),
-            current_eps=financial.eps,
         )
         profitability = build_profitability_level_signals(
             summaries_by_ticker.get(ticker, ()), asof_date, rules.ttm

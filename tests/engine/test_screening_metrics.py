@@ -63,7 +63,14 @@ def _summary(
     dividend_year_end: float | None = None,
     dividend_total_annual: float | None = None,
     average_shares: float | None = None,
+    profit: float | None = None,
+    total_assets: float | None = None,
 ) -> JQuantsFinancialSummary:
+    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。trailing 倍率も
+    # accruals もこの行から出るので、既定値は行の中でその恒等式を満たす値にする。恒等式を
+    # 破った行を試す test だけが `profit` を明示的に渡す。
+    if profit is None and eps_ttm is not None:
+        profit = eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
     return JQuantsFinancialSummary(
         ticker=code,
         disclosed_at=disclosed_at,
@@ -73,9 +80,10 @@ def _summary(
         shares_outstanding=shares_outstanding,
         sales=sales,
         cfo=cfo,
+        total_assets=total_assets,
         operating_profit=operating_profit,
         ordinary_profit=None,
-        profit=None,
+        profit=profit,
         forecast_profit=forecast_profit,
         forecast_ordinary_profit=forecast_ordinary_profit,
         fiscal_period=fiscal_period,
@@ -201,7 +209,7 @@ class ScreeningMetricsTests(unittest.TestCase):
             )
         )
 
-        result = build_normalized_profit_signals(summaries, (), asof, close=200.0, current_eps=30.0)
+        result = build_normalized_profit_signals(summaries, (), asof, close=200.0)
 
         self.assertIsNone(result.normalized_per_3fy)
 
@@ -239,9 +247,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 eps_ttm=20.0,
             ),
         ]
-        split_safe = build_normalized_profit_signals(
-            summaries, bars, asof, close=100.0, current_eps=20.0
-        )
+        split_safe = build_normalized_profit_signals(summaries, bars, asof, close=100.0)
         loss_mean = build_normalized_profit_signals(
             [
                 replace(summary, eps_ttm=value)
@@ -250,7 +256,6 @@ class ScreeningMetricsTests(unittest.TestCase):
             (),
             asof,
             close=100.0,
-            current_eps=10.0,
         )
 
         self.assertAlmostEqual(split_safe.normalized_per_3fy or 0.0, 5.0)
@@ -988,12 +993,14 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertEqual(financial.bs_carry_forward_lag_days, 190)
 
     def test_split_crossing_composition_normalizes_per_share_basis(self) -> None:
-        """分割を跨ぐ TTM 合成・YoY・株数変化は、行を asof 基準へ正規化してから行う。
+        """分割を跨ぐ YoY・株数変化は、行を asof 基準へ正規化してから行う。
 
         1911 型の再現: 前年 Q1 (分割前基準 eps 98.65・株数 206M) → 1:3 分割
-        (factor 1/3) → 通期・直近 Q1 は分割後基準。正規化なしだと合成 EPS が
-        27.33+174.13-98.65=102.81 (per_trailing 過大)、net_share_change_yoy が
-        +200% の偽希薄化になる。正規化後は 98.65 x 1/3 = 32.88 を引く。
+        (factor 1/3) → 通期・直近 Q1 は分割後基準。正規化なしだと eps_yoy が
+        27.33/98.65 の偽減益、net_share_change_yoy が +200% の偽希薄化になる。
+
+        trailing 倍率は円で合成するので分割 factor を必要としない。円の利益額は分割で
+        動かず、1 株当たりへの換算は最後に 1 回だけ行うためである。
         """
         asof = date(2026, 7, 1)
         security = _security()
@@ -1050,9 +1057,13 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
         financial = result.financials["130A"]
         normalized_prior_q1 = 98.65 / 3.0
-        expected_eps_ttm = 27.33 + 174.13 - normalized_prior_q1
+        expected_profit_ttm = 27.33 * 618_555_804.0 + 174.13 * 618_555_804.0 - 98.65 * 206_068_168.0
         assert financial.per_trailing is not None
-        self.assertAlmostEqual(financial.per_trailing, 1328.0 / expected_eps_ttm, places=4)
+        self.assertAlmostEqual(
+            financial.per_trailing,
+            (1328.0 * 618_555_804.0) / expected_profit_ttm,
+            places=6,
+        )
         # eps_yoy は正規化済み累計同士 (27.33 vs 32.88) の比較になる。
         assert financial.eps_yoy is not None
         self.assertAlmostEqual(financial.eps_yoy, 27.33 / normalized_prior_q1 - 1.0, places=4)
@@ -1116,6 +1127,165 @@ class ScreeningMetricsTests(unittest.TestCase):
         assert financial.per_trailing is not None
         self.assertAlmostEqual(financial.per_trailing, latest_close / expected_eps_ttm, places=5)
         self.assertEqual(financial.ttm_quality_per_trailing.value, "exact")
+
+    def test_ttm_composition_survives_a_share_count_change_between_periods(self) -> None:
+        """株数が期をまたいで動いた会社でも trailing 収益は合成できる。
+
+        4502 型の再現: 買収の新株発行で株数が 783M -> 961M (期中平均) -> 1,556M と動いた
+        3 期。1 株当たりで合成すると各項の分母が違うため
+        21.32 + 113.50 - 161.76 = -26.94 となり、黒字の会社が赤字に見えて収益 anchor を
+        失う。円で合成すれば分母は 1 つで、実際の TTM 純利益が出る。
+        """
+        asof = date(2019, 11, 15)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        prior_same_shares, prior_fy_shares, latest_shares = (
+            783_061_325.0,
+            961_462_555.0,
+            1_556_472_795.0,
+        )
+        summaries = [
+            _summary(
+                "130A",
+                date(2018, 10, 31),
+                eps_ttm=161.76,
+                shares_outstanding=prior_same_shares,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2019, 3, 31),
+                period_start=date(2018, 4, 1),
+                period_end=date(2018, 9, 30),
+            ),
+            _summary(
+                "130A",
+                date(2019, 5, 14),
+                eps_ttm=113.5,
+                shares_outstanding=prior_fy_shares,
+                fiscal_period="FY",
+                fiscal_year_end=date(2019, 3, 31),
+                period_start=date(2018, 4, 1),
+                period_end=date(2019, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2019, 10, 31),
+                eps_ttm=21.32,
+                shares_outstanding=latest_shares,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2020, 3, 31),
+                period_start=date(2019, 4, 1),
+                period_end=date(2019, 9, 30),
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        self.assertLess(21.32 + 113.5 - 161.76, 0.0)
+        expected_profit_ttm = (
+            21.32 * latest_shares + 113.5 * prior_fy_shares - 161.76 * prior_same_shares
+        )
+        self.assertGreater(expected_profit_ttm, 0.0)
+        assert financial.eps is not None
+        self.assertAlmostEqual(financial.eps, expected_profit_ttm / latest_shares, places=6)
+        latest_close = 100.0 + 29
+        assert financial.per_trailing is not None
+        self.assertAlmostEqual(
+            financial.per_trailing,
+            (latest_close * latest_shares) / expected_profit_ttm,
+            places=6,
+        )
+
+    def test_price_over_eps_equals_the_trailing_multiple(self) -> None:
+        """同じ語が 2 つの値を指さない: `market_price_yen / eps` は `per_trailing` に一致する。
+
+        eps は時価総額と同じ資本分母 (発行済 - 自己株) で組み直した値なので、この等式は
+        自己株式を積み上げた会社でも成立する。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=40.0,
+                shares_outstanding=100_000_000.0,
+                treasury_shares=30_000_000.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+            )
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        assert financial.eps is not None
+        assert financial.per_trailing is not None
+        assert financial.market_price_yen is not None
+        assert financial.market_cap is not None
+        self.assertAlmostEqual(
+            financial.market_price_yen / financial.eps, financial.per_trailing, places=9
+        )
+        # 報告 1 株当たり当期純利益は期中平均株式数が分母なので、期末の資本分母で組み直した
+        # eps とは一致しなくてよい。倍率の分母は時価総額と揃っている側である。
+        self.assertAlmostEqual(financial.eps, 40.0, places=9)
+
+    def test_accruals_use_the_reported_profit_line_not_a_share_count_product(self) -> None:
+        """accruals の純利益は報告値。1 株当たり x 発行済株数で作らない。
+
+        自己株式を 30% 積み上げた会社では、発行済株数を掛けた再構成が純利益を 1.43 倍に
+        し、accruals が 0.04 から 0.09 へ動く。判定はこの水準で行うので、再構成の誤差だけ
+        で earnings-quality の結論が変わる。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=10.0,
+                shares_outstanding=100_000_000.0,
+                treasury_shares=30_000_000.0,
+                cfo=100_000_000.0,
+                total_assets=10_000_000_000.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+            )
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        reported_profit = 10.0 * (100_000_000.0 - 30_000_000.0)
+        assert financial.accruals_to_assets is not None
+        self.assertAlmostEqual(
+            financial.accruals_to_assets,
+            (reported_profit - 100_000_000.0) / 10_000_000_000.0,
+            places=9,
+        )
+        reconstructed = 10.0 * 100_000_000.0
+        self.assertNotAlmostEqual(
+            financial.accruals_to_assets,
+            (reconstructed - 100_000_000.0) / 10_000_000_000.0,
+            places=3,
+        )
 
     def test_per_trailing_is_null_when_ttm_composition_unavailable(self) -> None:
         """前期通期・前年同期間が無く合成できないときは per_trailing を出さない。"""
@@ -1859,10 +2029,14 @@ class MedianPopulationTests(unittest.TestCase):
             ]
 
         def summary(code: str, eps: float) -> JQuantsFinancialSummary:
+            shares = 1e8
             return JQuantsFinancialSummary(
                 ticker=code,
                 disclosed_at=_date(2026, 2, 1),
                 eps_ttm=eps,
+                profit=eps * shares,
+                shares_outstanding=shares,
+                treasury_shares=0.0,
                 type_of_current_period="FY",
                 period_start=_date(2025, 1, 1),
                 period_end=_date(2025, 12, 31),
@@ -1930,6 +2104,48 @@ class DividendCarryResolverTests(unittest.TestCase):
         self.assertEqual(carry.basis, "forecast_annual")
         assert carry.dividend_yield is not None
         self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
+
+    def test_a_withdrawn_forecast_does_not_outrank_a_newer_actual(self) -> None:
+        """8798 型の再現: 無配化した会社に、取り下げ前の予想の利回りを付けない。
+
+        2024-09 に予想 17.5 を出したあと 4 期連続赤字で無配になり、2025-11 の通期実績は
+        0.0、以降の提出に予想は無い。予想を無制限に遡ると 130 円の株に 13.46%/年の carry
+        が付き、reversion 上限 (5%/年) を単独で超えて E[r] 降順の最上位へ出る。
+        """
+        summaries = [
+            _summary("8798", date(2024, 9, 18), dps_forecast_annual=17.5),
+            _summary("8798", date(2025, 11, 27), dps_actual_annual=0.0),
+            _summary("8798", date(2026, 2, 13)),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=130.0, asof_date=date(2026, 8, 11)
+        )
+        self.assertIsNone(carry.dividend_yield)
+        self.assertIsNone(carry.dps_forecast_annual)
+        self.assertEqual(carry.basis, "unavailable")
+
+    def test_a_forecast_newer_than_the_actual_still_answers(self) -> None:
+        # 鮮度境界は予想を弱めない。実績より後に出た予想はそのまま carry になる。
+        summaries = [
+            _summary("8798", date(2025, 11, 27), dps_actual_annual=0.0),
+            _summary("8798", date(2026, 2, 13), dps_forecast_annual=6.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=130.0, asof_date=date(2026, 8, 11)
+        )
+        self.assertEqual(carry.basis, "forecast_annual")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 6.0 / 130.0, places=9)
+
+    def test_a_forecast_answers_before_any_actual_is_disclosed(self) -> None:
+        # 上書きすべき実績が 1 つも無い銘柄 (実績開示前の新規上場) は予想をそのまま使う。
+        summaries = [_summary("130A", date(2026, 5, 15), dps_forecast_annual=12.0)]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=600.0, asof_date=date(2026, 8, 11)
+        )
+        self.assertEqual(carry.basis, "forecast_annual")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 12.0 / 600.0, places=9)
 
     def test_refuses_the_actual_yield_when_a_split_falls_in_the_accrual_window(self) -> None:
         # 分割が期末に重なる形。期末配当の基準日は分割の効力発生日より前なので実績 DPS は
