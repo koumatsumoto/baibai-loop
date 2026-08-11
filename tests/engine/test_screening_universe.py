@@ -12,7 +12,11 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar
 from baibai_engine.screening.schema import SecurityMaster
-from baibai_engine.screening.universe import TSE_33_SECTORS, build_universe
+from baibai_engine.screening.universe import (
+    TSE_33_SECTORS,
+    UniverseSourceDriftError,
+    build_universe,
+)
 
 
 def _bars(
@@ -253,12 +257,21 @@ class SectorClassificationScopeTests(unittest.TestCase):
         self.assertNotIn("130A", result.snapshots)
         self.assertEqual(result.exclusion_counts.get("sector_out_of_classification"), 1)
 
-    def test_an_unrecognised_sector_label_leaves_the_universe(self) -> None:
-        # The schema already refuses an empty sector, so the shape a degraded source
-        # actually produces is a placeholder rather than a missing value.
-        result = self._result("-")
-        self.assertNotIn("130A", result.snapshots)
-        self.assertEqual(result.exclusion_counts.get("sector_out_of_classification"), 1)
+    def test_an_unrecognised_sector_label_stops_the_build(self) -> None:
+        """A label nobody knows is source drift, and drift here empties the population.
+
+        The exclusion matches sector names exactly, so a renamed sector reads as "none of
+        these are common stock" and removes every name carrying it. The count simply
+        falls, which no caller can tell from a quiet market, so an unknown label has to
+        stop the build instead of being excluded like a known one.
+        """
+        with self.assertRaises(UniverseSourceDriftError) as raised:
+            self._result("-")
+        self.assertIn("-", str(raised.exception))
+
+    def test_a_renamed_sector_stops_the_build_before_it_empties_the_universe(self) -> None:
+        with self.assertRaises(UniverseSourceDriftError):
+            self._result("情報通信業")  # the real label carries a nakaguro
 
     def test_every_tse_sector_stays_in_scope(self) -> None:
         # The positive side across the whole classification: an exclusion that removed a

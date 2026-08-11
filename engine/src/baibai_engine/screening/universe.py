@@ -97,6 +97,15 @@ class UniverseBuildResult:
     exclusion_counts: Mapping[str, int] = field(default_factory=dict)
 
 
+class UniverseSourceDriftError(RuntimeError):
+    """業種分類の語彙が、母集団の定義が知っている集合から外れたときに送出する。"""
+
+
+# 普通株でない銘柄に付く分類。33 業種と併せて、source が返しうる語彙の全体を成す。
+# 実 store の 568,329 行・136 snapshot で観測される値はこの和集合と厳密に一致する。
+NON_COMMON_STOCK_SECTORS = frozenset({"その他"})
+
+
 def build_universe(
     asof_date: date,
     securities: Sequence[SecurityMaster],
@@ -104,6 +113,24 @@ def build_universe(
     shares_outstanding_by_ticker: Mapping[str, float | None],
     jpx_flags_by_ticker: Mapping[str, Sequence[str]],
 ) -> UniverseBuildResult:
+    # 母集団の定義を業種名の完全一致に預けているので、source の語彙が動いた日は
+    # 「その業種の全銘柄が普通株でない」と読める。件数は減るだけで例外は出ないため、
+    # 知らない語を見た時点で止める。個別の除外より先に、語彙そのものを検査する。
+    unknown_sectors = sorted(
+        {
+            security.sector_33
+            for security in securities
+            if security.sector_33 not in TSE_33_SECTORS
+            and security.sector_33 not in NON_COMMON_STOCK_SECTORS
+        }
+    )
+    if unknown_sectors:
+        raise UniverseSourceDriftError(
+            f"unknown sector classification from the master source: {unknown_sectors}; "
+            "the universe excludes on exact sector names, so an unrecognised label would "
+            "silently drop every stock carrying it"
+        )
+
     snapshots: dict[str, UniverseSnapshot] = {}
     exclusion_counts: dict[str, int] = {}
 
