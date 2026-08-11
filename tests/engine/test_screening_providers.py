@@ -929,6 +929,24 @@ class ScreeningProviderTests(unittest.TestCase):
                 ]
             )
 
+    def test_select_document_candidates_rejects_unknown_withdrawal_status(self) -> None:
+        """The merge keeps the later reading of this column, so its domain has to hold."""
+
+        with self.assertRaisesRegex(EDINETProviderError, "unknown EDINET withdrawal status"):
+            select_document_candidates(
+                [
+                    {
+                        "docID": "S100TEST",
+                        "secCode": "72030",
+                        "docTypeCode": "120",
+                        "csvFlag": "1",
+                        "xbrlFlag": "1",
+                        "legalStatus": "1",
+                        "withdrawalStatus": "9",
+                    }
+                ]
+            )
+
     def test_select_document_candidates_prefers_same_period_annual_correction_from_description(
         self,
     ) -> None:

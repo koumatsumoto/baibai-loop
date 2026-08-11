@@ -16,6 +16,7 @@ from baibai_batch.storage.merge_market_store import (
     SOURCE_MISSING_ALLOWED,
     UNCOMPARED,
     MergeError,
+    _restore_expired_document_descriptions,
     main,
     merge_stores,
 )
@@ -1176,10 +1177,8 @@ def test_two_populated_descriptions_that_disagree_still_refuse_the_publish(
         merge_stores(published, local)
 
 
-def test_a_description_is_not_grafted_onto_a_different_filing_at_the_same_position(
-    tmp_path: Path,
-) -> None:
-    """A day returned in a different order must refuse rather than mix two filings."""
+def test_a_day_whose_documents_moved_position_refuses_the_publish(tmp_path: Path) -> None:
+    """Two filings at one position is a disagreement, not something to reconcile."""
 
     published = _store(tmp_path / "published.sqlite")
     local = _store(tmp_path / "local.sqlite")
@@ -1188,6 +1187,30 @@ def test_a_description_is_not_grafted_onto_a_different_filing_at_the_same_positi
 
     with pytest.raises(MergeError, match="edinet_documents payload disagrees"):
         merge_stores(published, local)
+
+    assert _read_document(local)["doc_type_code"] is None
+
+
+def test_a_description_is_not_restored_onto_a_different_document_id(tmp_path: Path) -> None:
+    """The restore is called directly because a whole merge cannot show its effect.
+
+    A shared key holding two different document ids is refused by the strict `doc_id`
+    comparison, and that refusal rolls the transaction back — so a restore that had
+    grafted one filing's description onto another would leave no trace through
+    `merge_stores`. The statement has to be right on its own.
+    """
+
+    published = _store(tmp_path / "published.sqlite")
+    local = _store(tmp_path / "local.sqlite")
+    _add_document(published, _SERVED_DOCUMENT)
+    _add_document(local, {**_EXPIRED_DOCUMENT, "doc_id": "S100BBBB"})
+
+    conn = sqlite3.connect(local.resolve().as_uri(), uri=True, isolation_level=None)
+    try:
+        conn.execute("ATTACH DATABASE ? AS source", (f"{published.resolve().as_uri()}?mode=ro",))
+        assert _restore_expired_document_descriptions(conn) == 0
+    finally:
+        conn.close()
 
     assert _read_document(local)["doc_type_code"] is None
 
