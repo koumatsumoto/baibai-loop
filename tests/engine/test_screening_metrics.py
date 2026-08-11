@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.metrics import (
+    _normalize_summaries_to_asof_basis,
     _resolve_dividend_carry,
     build_metrics,
     build_normalized_profit_signals,
@@ -2139,6 +2140,80 @@ class DividendCarryResolverTests(unittest.TestCase):
         )
         self.assertNotEqual(carry.basis, "actual_reported")
         self.assertIsNone(carry.dividend_yield)
+
+    def test_a_year_with_no_dividend_is_answered_even_across_a_split(self) -> None:
+        # 0 円は何倍しても 0 円なので、無配の年度に確定すべき株式基準は無い。ここを拒否に
+        # 倒すと、分割を出す無配銘柄が利回りだけでなく E[r] ごと判断面から消える。
+        summaries = [
+            _summary(
+                "7369",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=0.0,
+            ),
+            _summary("7369", date(2025, 5, 15), dps_actual_annual=0.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("7369", date(2025, 10, 1), 0.5)],
+            latest_price=1000.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertNotEqual(carry.basis, "unresolved_split_basis")
+
+    def test_refuses_when_the_payment_detail_does_not_add_up_to_the_reported_year(self) -> None:
+        # feed は明細を一部だけ返すことがある。調整前の合計が報告年間値と合わない行は真値の
+        # 一部しか持たないので、換算しても真値の一部にしかならない。総額が無い行では総額
+        # veto も効かないため、ここで止めないと過小な値が「解決済み」として出る。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=60.0,
+                dividend_year_end=30.0,
+            ),
+            _summary("4626", date(2025, 5, 15), dps_actual_annual=50.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 10, 1), 0.5)],
+            latest_price=1000.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dps_actual_annual)
+
+    def test_the_share_anchor_is_normalized_with_the_share_count_it_checks(self) -> None:
+        # 期中平均株式数は株数なので、asof 基準への正規化で `発行済` と同じ換算を受ける。
+        # 受けないと比が factor 倍ずれ、健全性 gate が veto の最も要る
+        # 母集団 (開示より後に分割がある行) でだけ静かに外れる。
+        row = _summary(
+            "4626",
+            date(2026, 4, 30),
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 3, 31),
+            shares_outstanding=1_000_000.0,
+            treasury_shares=0.0,
+            average_shares=1_000_000.0,
+        )
+        (normalized,) = _normalize_summaries_to_asof_basis(
+            [row],
+            [_split_bar("4626", date(2026, 6, 1), 1.0 / 3.0)],
+            date(2026, 8, 10),
+        )
+        assert normalized.shares_outstanding is not None
+        assert normalized.average_shares is not None
+        self.assertAlmostEqual(normalized.shares_outstanding, 3_000_000.0, places=3)
+        self.assertAlmostEqual(normalized.average_shares, 3_000_000.0, places=3)
+        # negative assertion: 生のまま残ると比が 3.0 になり 2.0 gate を外れる。
+        self.assertAlmostEqual(
+            normalized.shares_outstanding / normalized.average_shares, 1.0, places=6
+        )
 
     def test_forecast_still_answers_when_the_actual_basis_is_unresolved(self) -> None:
         # 予想 DPS は分割を跨ぐ行で正規化が None へ落とすので、残っていれば基準が揃って

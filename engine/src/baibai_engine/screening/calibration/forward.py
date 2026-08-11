@@ -505,6 +505,11 @@ def _asof_basis_dividend(
     reported = observation.dps_actual_annual
     if reported is None:
         return None
+    # 無配の年度に確定すべき株式基準は無い。0 円は何倍しても 0 円なので、期間内に調整が
+    # あっても答えは 0 で確定する。拒否に倒すと、分割を出す無配銘柄を含む保有窓が丸ごと
+    # 較正の標本から落ちる。
+    if reported == 0:
+        return 0.0
     window_start = observation.period_start or _shift_months(observation.fiscal_year_end, -12)
     if (
         _cumulative_adjustment_factor_after(
@@ -530,6 +535,10 @@ def _asof_basis_dividend(
     )
     if all(value is None for value, _ in payments):
         return None
+    # 明細が一部だけ来ている行は真値の一部しか持たない。調整前の合計が報告年間値と
+    # 合わなければ、換算しても真値の一部にしかならないので答えない。
+    if abs(sum(value or 0.0 for value, _ in payments) / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
+        return None
     guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
     adjustments = [
         bar.traded_at
@@ -547,7 +556,13 @@ def _asof_basis_dividend(
     )
     if resolved <= 0:
         return None
+    # 株数は開示日時点の値なので、basis_date 基準の `resolved` と比べる前に同じ基準へ
+    # 寄せる。寄せないと開示より後の調整のぶんだけ比がずれ、veto が誤発火する。
     shares = _per_share_denominator(observation)
+    if shares is not None:
+        shares /= _cumulative_adjustment_factor_after(
+            bars, after=observation.disclosed_at, asof_date=basis_date
+        )
     amount = observation.dividend_total_annual
     if (
         amount is not None

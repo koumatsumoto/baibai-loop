@@ -439,6 +439,12 @@ def _normalize_summaries_to_asof_basis(
                     if summary.shares_outstanding is not None
                     else None
                 ),
+                # 期中平均株式数も株数なので同じ換算を掛ける。掛けないと、開示より後に
+                # 分割のある行で「発行済 - 自己株」との比が factor 倍ずれ、健全性 gate が
+                # 本来効かせたい (分割が複数ある) 行でだけ静かに無効になる。
+                average_shares=(
+                    summary.average_shares / factor if summary.average_shares is not None else None
+                ),
                 # 自己株式数は発行済と同じ株数なので同じ換算を掛ける。片方だけ換算すると
                 # 差である自己株控除後株式数が分割のたびに壊れる。`equity_to_asset_ratio`
                 # は比率なので分割で動かず、そのまま持ち越される。
@@ -596,11 +602,24 @@ def _asof_basis_dividend(
     支払ごとに、その基準日より後の調整だけを掛けて足す。この経路は期末発行済株式数を
     使わないので、提出者がその株数を遡及修正したかどうかに左右されない。基準日のすぐ
     そばに調整がある年度は、権利落ち日しか持たない store からは前後を決められないので
-    答えない。答えられた値は、株式基準を持たない配当総額から出した 1 株当たりと
-    突き合わせ、食い違えば答えない。
+    答えない。答えられた値は 2 つの独立な量と突き合わせる。調整を掛ける前の明細合計が
+    報告された年間値と一致すること (明細の欠落を「解決済み」として出さない)、そして
+    株式基準を持たない配当総額から出した 1 株当たりと一致すること。
     """
+    reported = row.dps_actual_annual
+    if reported is None:
+        return None
+    # 無配の年度に確定すべき株式基準は無い。0 円は何倍しても 0 円なので、期間内に
+    # 調整があっても答えは 0 で確定する。ここを拒否に倒すと、分割を出す無配銘柄が
+    # 利回りだけでなく E[r] ごと判断面から消える。
+    if reported == 0:
+        return 0.0
     payments = _dividend_record_dates(row)
     if not payments or all(value is None for value, _ in payments):
+        return None
+    # 明細は feed の欠落で一部だけ来ることがある。調整前の合計が報告年間値と合わない行は
+    # 真値の一部しか持っていないので、換算しても真値の一部にしかならない。
+    if abs(sum(value or 0.0 for value, _ in payments) / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
         return None
     window_start = _dividend_accrual_start(row)
     adjustments = [
@@ -686,7 +705,10 @@ def _resolve_dividend_carry(
             basis="actual_reported" if recorded_factor is None else "actual_record_date_resolved",
             split_factor=recorded_factor,
         )
-    elif recorded_factor is not None:
+    elif recorded_factor is not None and actual_annual is None:
+        # 解決できなかった年度だけを拒否にする。解決できて 0 だった年度 (無配) は、
+        # 出す利回りが無いという点で観測できない年度と同じ扱いでよく、拒否にすると
+        # 分割を出す無配銘柄が E[r] ごと判断面から消える。
         basis = UNRESOLVED_DIVIDEND_BASIS
     else:
         basis = "unavailable"
