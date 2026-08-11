@@ -234,10 +234,19 @@ def build_metrics(
             continue
         latest_prices[ticker] = latest_bar.close
         ticker_bars = bars_by_ticker.get(ticker, ())
+        # bar は `_latest_bar_on_or_before` が asof で切る。開示行も同じ場所で切る。
+        # 較正リプレイは過去の断面を作り直すので、asof より後の開示が 1 行混ざると
+        # 「発表前の決算で割安に見える」行ができ、測ったすべての予測力が偽になる。
+        # 呼び出し側が窓で切っている前提を置かない (本 module の他の 3 つの入口も
+        # 同じ規律で自分で切っている)。
         financials[ticker] = _build_financial_snapshot(
             latest_price=latest_bar.close,
             summaries=_normalize_summaries_to_asof_basis(
-                summaries_by_ticker.get(ticker, ()),
+                [
+                    summary
+                    for summary in summaries_by_ticker.get(ticker, ())
+                    if summary.disclosed_at <= asof_date
+                ],
                 ticker_bars,
                 asof_date,
             ),

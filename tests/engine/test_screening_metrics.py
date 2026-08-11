@@ -1203,6 +1203,43 @@ class ScreeningMetricsTests(unittest.TestCase):
             places=6,
         )
 
+    def test_disclosures_after_the_asof_date_do_not_reach_the_snapshot(self) -> None:
+        """較正リプレイは過去の断面を作り直す。発表前の決算が 1 行混ざれば全部が偽になる。
+
+        bar は `_latest_bar_on_or_before` が切るので、開示行だけ呼び出し側任せにすると
+        「未発表の好決算で割安に見える」行ができる。
+        """
+        asof = date(2026, 3, 31)
+        security = _security()
+        bars = _daily_bars("130A", asof, 60)
+        disclosed = _summary(
+            "130A",
+            date(2026, 3, 1),
+            eps_ttm=10.0,
+            shares_outstanding=100_000_000.0,
+            treasury_shares=0.0,
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
+        )
+        undisclosed = replace(disclosed, disclosed_at=asof + timedelta(days=10), eps_ttm=99.0)
+
+        def snapshot(summaries: list[JQuantsFinancialSummary]) -> FinancialSnapshot:
+            return build_metrics(
+                asof_date=asof,
+                securities_by_ticker={"130A": security},
+                bars_by_ticker={"130A": bars},
+                summaries_by_ticker={"130A": summaries},
+                edinet_by_ticker={},
+            ).financials["130A"]
+
+        without = snapshot([disclosed])
+        with_future = snapshot([disclosed, undisclosed])
+        self.assertEqual(with_future.latest_disclosed_at, date(2026, 3, 1))
+        self.assertEqual(with_future.eps, without.eps)
+        self.assertEqual(with_future.per_trailing, without.per_trailing)
+
     def test_ttm_composition_refuses_per_share_fields(self) -> None:
         """`直近累計 + 前期通期 - 前年同期間累計` は円の総額でしか成立しない。
 
