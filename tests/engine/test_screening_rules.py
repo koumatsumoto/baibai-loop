@@ -503,6 +503,24 @@ class ThresholdBlockTests(unittest.TestCase):
         self.assertNotIn("cash-rich-asset-discount:equity_ratio_min", blocks)
         self.assertNotIn("cash-rich-asset-discount:pbr_max", blocks)
 
+    def test_a_missing_operating_profit_is_not_blamed_on_the_positive_requirement(self) -> None:
+        """The requirement is a level; an unreadable profit is not a level failing.
+
+        Both used to sit in one condition, so relaxing the requirement admitted the
+        unreadable row and the coordinate counted it as removed by the level. The two
+        groups then mixed loss-making companies with companies nobody could read.
+        """
+        blocks = threshold_blocks(
+            self._cash_rich_shape(operating_profit=None), _derived(), RULES, sector_33="機械"
+        )
+        self.assertNotIn("cash-rich-asset-discount:operating_profit_positive_required", blocks)
+
+    def test_a_negative_operating_profit_is_still_named(self) -> None:
+        blocks = threshold_blocks(
+            self._cash_rich_shape(operating_profit=-50.0), _derived(), RULES, sector_33="機械"
+        )
+        self.assertIn("cash-rich-asset-discount:operating_profit_positive_required", blocks)
+
     def test_a_missing_fact_is_not_a_threshold_rejection(self) -> None:
         # The playbook refuses a null equity ratio outright; relaxing the floor does not
         # admit it, so the coordinate stays silent rather than blaming the level.

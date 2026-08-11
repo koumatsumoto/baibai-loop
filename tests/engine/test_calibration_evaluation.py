@@ -278,9 +278,58 @@ class PlaybookThresholdTest(unittest.TestCase):
         entry = node["cash-rich-asset-discount:equity_ratio_min"]
         assert isinstance(entry, dict)
         self.assertEqual(entry["cohorts"], 1)
+        self.assertEqual(entry["eligible_cohorts"], 1)
         self.assertEqual(entry["positive_share"], 0.0)
         self.assertEqual(entry["admitted_n"], 120)
         self.assertEqual(entry["removed_n"], 120)
+
+    def test_a_threshold_too_few_rows_speak_for_reports_no_effect(self) -> None:
+        """Thresholds differ by two orders of magnitude in how many rows they remove.
+
+        A median over a couple of rows is one company's year, and averaging it beside a
+        threshold that removed hundreds reads as the same kind of evidence. The thin
+        cohort is counted and left out of the mean instead.
+        """
+        panel = []
+        forwards = []
+        for index in range(120):
+            taken = _panel_row(
+                f"{4000 + index}",
+                per_trailing=10.0,
+                evidence_playbooks="cash-rich-asset-discount",
+                pass_screen=True,
+            )
+            panel.append(taken)
+            forwards.append(_forward_row(taken.ticker, 0.05))
+        # Three rows: far below the floor, and all of them extreme.
+        for index in range(3):
+            turned_away = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                threshold_blocks="cash-rich-asset-discount:equity_ratio_min",
+            )
+            panel.append(turned_away)
+            forwards.append(_forward_row(turned_away.ticker, 0.90))
+        result = evaluate_cohorts(
+            {"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"]
+        )["6m"]
+        cohort = result["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["playbook_thresholds"]
+        assert isinstance(node, dict)
+        # The cohort still records what it saw; the aggregate decides what it can average.
+        self.assertIn("cash-rich-asset-discount:equity_ratio_min", node)
+
+        aggregate = result["aggregate"]
+        assert isinstance(aggregate, dict)
+        entry = aggregate["playbook_thresholds"]["cash-rich-asset-discount:equity_ratio_min"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["cohorts"], 1)
+        self.assertEqual(entry["eligible_cohorts"], 0)
+        self.assertIsNone(entry["mean_median_excess_delta"])
+        self.assertIsNone(entry["positive_share"])
+        # The row count is still reported, so a reader sees why nothing was averaged.
+        self.assertEqual(entry["removed_n"], 3)
 
 
 class SectorMedianBasisThinSideTest(unittest.TestCase):

@@ -14,7 +14,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
-from statistics import fmean, median
+from statistics import fmean, median, stdev
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
@@ -30,6 +30,10 @@ MIN_AXIS_SAMPLE = 100
 
 # IC 計算に要求する最小標本数。
 MIN_IC_SAMPLE = 30
+
+# 1 つの閾値が 1 cohort で除去した行数の下限。閾値ごとに除去数は 2 桁違うので、
+# 下限が無いと数行の中央値が数百行の中央値と同じ重みで平均へ入る。
+MIN_THRESHOLD_REMOVED_SAMPLE = 20
 
 DECILES = 10
 
@@ -1697,8 +1701,17 @@ def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict
     A single as-of can favour any cut. What a threshold is worth is whether the same sign
     survives the cohorts, so the share of cohorts where the admitted side led is reported
     beside the mean effect rather than instead of it.
+
+    **A cohort only speaks about a threshold when the threshold removed enough names.**
+    The thresholds differ by two orders of magnitude in how many rows they turn away --
+    one takes a few hundred per cohort, another a couple -- and a median over two rows is
+    one company's year. Those cohorts are left out of the mean and counted separately, so
+    a threshold nobody can measure reports no effect instead of a loud one. The spread
+    across cohorts rides along for the same reason: cohorts overlap heavily at monthly
+    as-of dates, so a mean without its dispersion reads far more settled than it is.
     """
     deltas: dict[str, list[float]] = defaultdict(list)
+    thin_cohorts: dict[str, int] = defaultdict(int)
     admitted_n: dict[str, int] = defaultdict(int)
     removed_n: dict[str, int] = defaultdict(int)
     for cohort in cohorts:
@@ -1712,21 +1725,32 @@ def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict
             removed = entry.get("removed")
             if isinstance(admitted, dict):
                 admitted_n[block] += int(admitted.get("n") or 0)
-            if isinstance(removed, dict):
-                removed_n[block] += int(removed.get("n") or 0)
+            removed_count = int(removed.get("n") or 0) if isinstance(removed, dict) else 0
+            removed_n[block] += removed_count
             delta = entry.get("median_excess_delta")
-            if isinstance(delta, int | float):
-                deltas[block].append(float(delta))
+            if not isinstance(delta, int | float):
+                continue
+            if removed_count < MIN_THRESHOLD_REMOVED_SAMPLE:
+                thin_cohorts[block] += 1
+                continue
+            deltas[block].append(float(delta))
     return {
         block: {
-            "cohorts": len(values),
+            "cohorts": len(deltas[block]) + thin_cohorts[block],
+            "eligible_cohorts": len(deltas[block]),
             "admitted_n": admitted_n[block],
             "removed_n": removed_n[block],
-            "mean_median_excess_delta": round(fmean(values), 6),
-            "positive_share": round(sum(1 for value in values if value > 0) / len(values), 4),
+            "mean_median_excess_delta": (round(fmean(deltas[block]), 6) if deltas[block] else None),
+            "stdev_median_excess_delta": (
+                round(stdev(deltas[block]), 6) if len(deltas[block]) > 1 else None
+            ),
+            "positive_share": (
+                round(sum(1 for value in deltas[block] if value > 0) / len(deltas[block]), 4)
+                if deltas[block]
+                else None
+            ),
         }
-        for block, values in sorted(deltas.items())
-        if values
+        for block in sorted(set(deltas) | set(thin_cohorts))
     }
 
 

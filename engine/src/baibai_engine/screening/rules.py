@@ -313,9 +313,13 @@ def _cash_rich_asset_discount(
     ):
         null_reasons.append("cash_rich_edinet_net_cash_contradiction")
         return None
-    if playbook.operating_profit_positive_required and (
-        financial.operating_profit is None or financial.operating_profit <= 0
-    ):
+    # 欠損と赤字を 1 つの条件に畳まない。畳むと、閾値を緩めて測る座標が「営業利益が
+    # 読めなかった行」を「赤字で落とした行」として数え、水準の効きに欠損方針が混ざる。
+    # 判定結果はどちらも非採用で変わらない。
+    if financial.operating_profit is None:
+        null_reasons.append("cash_rich_operating_profit_unavailable")
+        return None
+    if playbook.operating_profit_positive_required and financial.operating_profit <= 0:
         return None
     # C1: deterioration gate — block when operating_profit_yoy drops past the
     # configured threshold. Mirrors the valuation-reversion B/C conditions so
