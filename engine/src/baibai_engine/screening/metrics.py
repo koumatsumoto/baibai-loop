@@ -704,7 +704,15 @@ def _asof_basis_dividend(
         return None
     # 明細は feed の欠落で一部だけ来ることがある。調整前の合計が報告年間値と合わない行は
     # 真値の一部しか持っていないので、換算しても真値の一部にしかならない。
-    if abs(sum(value or 0.0 for value, _ in payments) / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
+    #
+    # 2 つの量は株式基準が違う。明細は開示されたままで、`dps_actual_annual` は
+    # `_normalize_summaries_to_asof_basis` が asof 基準へ寄せている。同じ換算を明細側へ
+    # 掛けてから比べる。掛けないと比は必ず換算係数の逆数になり、開示より後に調整のある
+    # 年度を「明細が欠けている」として捨てる。捨てた年度は増配判定ごと消える。
+    detail_sum = sum(value or 0.0 for value, _ in payments) * _cumulative_adjustment_factor_after(
+        ticker_bars, row.disclosed_at, asof_date
+    )
+    if abs(detail_sum / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
         return None
     window_start = _dividend_accrual_start(row)
     adjustments = [

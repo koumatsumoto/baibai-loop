@@ -2463,6 +2463,49 @@ class DividendCarryResolverTests(unittest.TestCase):
         # negative assertion: 併合 factor を掛けた 680 円で 86.6% を出さない。
         self.assertLess(carry.dividend_yield, 0.10)
 
+    def test_resolves_a_row_the_asof_normalisation_already_rewrote(self) -> None:
+        """The shape production always hands over: a row already moved to the as-of basis.
+
+        `dps_actual_annual` is rewritten by the as-of normalisation while the payment
+        details stay as disclosed, so comparing the two raw reads back the conversion
+        factor rather than a missing detail. A year with any adjustment after its
+        disclosure would be refused, taking its dividend growth signal with it.
+        """
+        summaries = [
+            _summary(
+                "3399",
+                date(2025, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                dps_actual_annual=100.0,
+                dividend_interim=40.0,
+                dividend_year_end=60.0,
+            ),
+            _summary("3399", date(2024, 5, 15), dps_actual_annual=80.0),
+        ]
+        bars = [
+            # Inside the accrual window, clear of both record dates.
+            _split_bar("3399", date(2024, 12, 15), 0.5),
+            # After the disclosure: this is the one the normalisation folds into
+            # `dps_actual_annual` and the detail sum never sees.
+            _split_bar("3399", date(2025, 10, 1), 0.5),
+        ]
+        asof = date(2026, 8, 10)
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, asof)
+        self.assertAlmostEqual(normalized[0].dps_actual_annual or 0.0, 50.0, places=6)
+        self.assertEqual(normalized[0].dividend_interim, 40.0)
+
+        carry = _resolve_dividend_carry(
+            normalized, bars, latest_price=1000.0, asof_date=asof
+        )
+
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
+        assert carry.dividend_yield is not None
+        # 40 paid on the pre-2024-12-15 basis (x0.25) plus 60 on the pre-2025-10-01
+        # basis (x0.5) is 40 yen at the as-of basis.
+        self.assertAlmostEqual(carry.dividend_yield, 40.0 / 1000.0, places=6)
+
     def test_resolves_an_interim_only_payer_whose_split_came_after_the_record_date(self) -> None:
         # 4626 の形。当期の配当は中間 1 回だけで、基準日 2025-09-30 より後に 1:2 分割。
         # その支払は分割前の株数で払われたので、株価と比べるには 0.5 を掛ける。
