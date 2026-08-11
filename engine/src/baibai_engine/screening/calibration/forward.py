@@ -36,8 +36,31 @@ TOTAL_RETURN_STATUSES = frozenset(
         "unresolved_missing_dividend",
         "unresolved_invalid_dividend",
         "unresolved_invalid_total_return",
+        # 会計期間に分割・併合が入り、支払ごとの換算でも株式基準を確定できない年度。
+        # 総リターンは配当を含む定義なので、基準の分からない配当を足した値を resolved と
+        # 名乗らせない。この窓は総リターンを読む metric の標本から外れる。
+        "unresolved_dividend_split_basis",
     }
 )
+
+# 配当の基準日と corporate action がこの日数以内に並ぶ年度は換算しない。日本の分割は
+# 「権利落ち = 基準日の前営業日、効力発生 = 基準日の翌日」が定型で、store が持つのは
+# 権利落ち日だけなので、その配当が action の前の株数で払われたか後かを言えない。
+DIVIDEND_RECORD_DATE_GUARD_DAYS = 5
+# 総額から出した 1 株当たりと支払ごとの換算が食い違ってよい幅。総額は百万円単位で開示され、
+# 割る株数は期末時点なので、支払の基準日の株数とは自社株買いのぶんだけずれる。
+DIVIDEND_ROUTE_TOLERANCE = 0.05
+# 期末発行済から自己株を引いた株数が、提出者自身が EPS を出すのに使った期中平均株数から
+# この倍率を超えて外れる行は、per-share の分母に使わない。
+SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
+
+
+def _shift_months(value: date, months: int) -> date:
+    """`months` か月前後の同じ日。配当の基準日を四半期末に置くために使う。"""
+    total = value.year * 12 + (value.month - 1) + months
+    year, month = divmod(total, 12)
+    return date(year, month + 1, min(value.day, 28))
+
 
 STALE_PRICE_MAX_LAG_DAYS = 15
 BENCHMARK_TICKERS: tuple[str, ...] = (TOPIX_ETF_PROXY,)
@@ -92,6 +115,14 @@ class _FYDividendObservation:
     fiscal_year_end: date
     disclosed_at: date
     dps_actual_annual: float | None
+    # 会計期間と支払ごとの内訳。期間内に分割・併合が入った年度は、報告された年間値では
+    # なくこちらを基準日ごとに換算する。総額と株数はその換算の独立した照合に使う。
+    period_start: date | None = None
+    payments: tuple[float | None, ...] = (None, None, None, None)
+    dividend_total_annual: float | None = None
+    shares_outstanding: float | None = None
+    treasury_shares: float | None = None
+    average_shares: float | None = None
 
 
 FORWARD_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(ForwardReturnRow))
@@ -383,7 +414,9 @@ def _load_fy_dividends(
     if cutoff is None:
         return []
     rows = conn.execute(
-        "SELECT fiscal_year_end, disclosed_at, dps_actual_annual "
+        "SELECT fiscal_year_end, disclosed_at, period_start, dps_actual_annual, "
+        "dividend_q1, dividend_interim, dividend_q3, dividend_year_end, "
+        "dividend_total_annual, shares_outstanding, treasury_shares, average_shares "
         "FROM jquants_fin_summaries "
         "WHERE ticker = ? AND fiscal_period = 'FY' AND fiscal_year_end IS NOT NULL "
         "AND disclosed_at <= ? ORDER BY fiscal_year_end, disclosed_at",
@@ -391,11 +424,17 @@ def _load_fy_dividends(
     ).fetchall()
     return [
         _FYDividendObservation(
-            fiscal_year_end=date.fromisoformat(str(fiscal_year_end)),
-            disclosed_at=date.fromisoformat(str(disclosed_at)),
-            dps_actual_annual=(float(dps) if dps is not None else None),
+            fiscal_year_end=date.fromisoformat(str(row[0])),
+            disclosed_at=date.fromisoformat(str(row[1])),
+            dps_actual_annual=(float(row[3]) if row[3] is not None else None),
+            period_start=(date.fromisoformat(str(row[2])) if row[2] is not None else None),
+            payments=tuple(float(value) if value is not None else None for value in row[4:8]),
+            dividend_total_annual=(float(row[8]) if row[8] is not None else None),
+            shares_outstanding=(float(row[9]) if row[9] is not None else None),
+            treasury_shares=(float(row[10]) if row[10] is not None else None),
+            average_shares=(float(row[11]) if row[11] is not None else None),
         )
-        for fiscal_year_end, disclosed_at, dps in rows
+        for row in rows
     ]
 
 
@@ -435,19 +474,107 @@ def _resolve_total_return(
         selected.append(latest)
 
     basis_date = bars[-1].traded_at
-    dividend_sum = sum(
-        float(observation.dps_actual_annual or 0.0)
-        * _cumulative_adjustment_factor_after(
-            bars, after=observation.disclosed_at, asof_date=basis_date
-        )
-        for observation in selected
-    )
+    dividend_sum = 0.0
+    for observation in selected:
+        resolved = _asof_basis_dividend(observation, bars, basis_date=basis_date)
+        if resolved is None:
+            return None, 0, None, "unresolved_dividend_split_basis"
+        dividend_sum += resolved
     if not isfinite(dividend_sum) or entry_close <= 0:
         return None, 0, None, "unresolved_invalid_dividend"
     total_return = price_return + dividend_sum / entry_close
     if not isfinite(total_return) or total_return < -1:
         return None, 0, None, "unresolved_invalid_total_return"
     return dividend_sum, len(selected), total_return, "resolved"
+
+
+def _asof_basis_dividend(
+    observation: _FYDividendObservation,
+    bars: Sequence[JQuantsDailyBar],
+    *,
+    basis_date: date,
+) -> float | None:
+    """その年度の年間配当を basis_date の株式基準で答える。答えられなければ None。
+
+    報告される年間 DPS は中間・期末それぞれの基準日時点の株式基準なので、会計期間に
+    分割・併合が入ると開示日を基準にした単一の factor では換算できない。期間内に何も
+    起きていなければ開示日より後の調整だけで足り、起きていれば支払ごとにその基準日より
+    後の調整を掛ける。screening の carry と同じ規約で、較正した量とランキングへ入れる量
+    の定義を揃える。
+    """
+    reported = observation.dps_actual_annual
+    if reported is None:
+        return None
+    window_start = observation.period_start or _shift_months(observation.fiscal_year_end, -12)
+    if (
+        _cumulative_adjustment_factor_after(
+            bars, after=window_start, asof_date=observation.disclosed_at
+        )
+        == 1.0
+    ):
+        return reported * _cumulative_adjustment_factor_after(
+            bars, after=observation.disclosed_at, asof_date=basis_date
+        )
+
+    payments = tuple(
+        zip(
+            observation.payments,
+            (
+                _shift_months(observation.fiscal_year_end, -9),
+                _shift_months(observation.fiscal_year_end, -6),
+                _shift_months(observation.fiscal_year_end, -3),
+                observation.fiscal_year_end,
+            ),
+            strict=True,
+        )
+    )
+    if all(value is None for value, _ in payments):
+        return None
+    guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
+    adjustments = [
+        bar.traded_at
+        for bar in bars
+        if window_start < bar.traded_at <= observation.disclosed_at
+        and bar.adjustment_factor not in (None, 0.0, 1.0)
+    ]
+    for value, record_date in payments:
+        if value and any(abs(day - record_date) <= guard for day in adjustments):
+            return None
+    resolved = sum(
+        (value or 0.0)
+        * _cumulative_adjustment_factor_after(bars, after=record_date, asof_date=basis_date)
+        for value, record_date in payments
+    )
+    if resolved <= 0:
+        return None
+    shares = _per_share_denominator(observation)
+    amount = observation.dividend_total_annual
+    if (
+        amount is not None
+        and amount > 0
+        and shares is not None
+        and abs((amount / shares) / resolved - 1.0) > DIVIDEND_ROUTE_TOLERANCE
+    ):
+        return None
+    return resolved
+
+
+def _per_share_denominator(observation: _FYDividendObservation) -> float | None:
+    """円の総額を 1 株当たりへ直せる株数。提出者自身の期中平均から外れる行は答えない。"""
+    shares = observation.shares_outstanding
+    treasury = observation.treasury_shares
+    if shares is None or treasury is None:
+        return None
+    remaining = shares - treasury
+    if remaining <= 0:
+        return None
+    anchor = observation.average_shares
+    if anchor is None or anchor <= 0:
+        return remaining
+    ratio = remaining / anchor
+    if not 1 / SHARE_COUNT_ANCHOR_TOLERANCE <= ratio <= SHARE_COUNT_ANCHOR_TOLERANCE:
+        return None
+    return remaining
 
 
 def _cumulative_adjustment_factor_after(

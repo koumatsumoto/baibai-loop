@@ -161,6 +161,15 @@ def _selection_candidate_summary(
         "dps_actual_annual": metrics.get("dps_actual_annual"),
         "dps_forecast_annual": metrics.get("dps_forecast_annual"),
         "dividend_yield": metrics.get("dividend_yield"),
+        # 配当利回りをどの経路で作ったか。forecast_annual は予想 DPS、actual_reported は
+        # 会計期間に分割・併合が無く短信の年間値をそのまま使った行、
+        # actual_record_date_resolved は期間内に分割があり支払ごとに基準日より後の調整を
+        # 掛け直した行。unresolved_split_basis は掛け直せず利回りを出していない状態で、
+        # 無配 (dividend_yield=0) とも観測できない (unavailable) とも別であり、E[r] も
+        # 付かない。carry 支配型ならここが unresolved の銘柄は短信の配当表へ戻る。
+        # dividend_split_factor は会計期間に起きた累積 factor (期間内に何も無ければ null)。
+        "dividend_basis": metrics.get("dividend_basis"),
+        "dividend_split_factor": metrics.get("dividend_split_factor"),
         # 自己株券買付状況報告書の提出観測 (buyback_authorization.py が判定し、ここは転記
         # だけ)。carry の buyback 成分は過去 1 年の株数変化なので、その carry を forward の
         # 現金還元として narrative に書くなら取得期間の終了日と残枠を一次開示で確認する。

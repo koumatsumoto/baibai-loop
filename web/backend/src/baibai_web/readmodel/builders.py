@@ -147,6 +147,7 @@ _NUMERIC_FIELDS = (
 )
 _METRIC_FIELDS = (
     "dividend_yield",
+    "dividend_basis",
     "normalized_per_3fy",
     "er_annual",
     "er_reversion_annual",
