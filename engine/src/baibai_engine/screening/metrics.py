@@ -67,7 +67,8 @@ VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 MIN_SECTOR_MEDIAN_POPULATION = 10
 # run と calibration が同名の valuation を異なる式で作らないための method identity。
 # 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
-VALUATION_CALCULATION_REVISION = "treasury-adjusted-capital-v1"
+# 現行の方式: trailing 系は円の総額で組み、価格側の量は自己株控除後の資本で割る。
+VALUATION_CALCULATION_REVISION = "yen-trailing-treasury-adjusted-capital-v2"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
