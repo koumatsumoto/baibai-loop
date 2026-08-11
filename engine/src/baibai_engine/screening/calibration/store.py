@@ -24,7 +24,7 @@ from .forward import (
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 15
+CACHE_SCHEMA_VERSION = 16
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"

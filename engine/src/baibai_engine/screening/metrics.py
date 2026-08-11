@@ -514,6 +514,32 @@ def _actual_dps_rows(
     ]
 
 
+def _dividend_accrual_start(
+    row: JQuantsFinancialSummary, prior: JQuantsFinancialSummary | None
+) -> date:
+    """その年度の配当が積み上がり始めた日。前期の通期実績開示、無ければ約 1 年前。"""
+    if prior is not None and prior.dps_actual_annual is not None and prior.dps_actual_annual >= 0:
+        return prior.disclosed_at
+    return row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+
+
+def _dividend_basis_factor(
+    ticker_bars: Sequence[JQuantsDailyBar],
+    *,
+    accrual_start: date,
+    disclosed_at: date,
+) -> float:
+    """accrual 期間に起きた分割・併合の累積 factor。1.0 なら基準が確定できる。
+
+    年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載され、開示日で基準が
+    決まるわけではない。accrual 期間に分割・併合が入ると、支払ごとに action の前か後
+    かが分かれ、判別には支払ごとの基準日が要る。store が持つのは権利落ち日だけで、
+    効力発生日とも基準日ともずれる。単一の factor では当てられないので、1.0 でない
+    年度は利回りを主張しない (#901)。
+    """
+    return _cumulative_adjustment_factor_after(ticker_bars, accrual_start, disclosed_at)
+
+
 def _resolve_dividend_carry(
     summaries: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsDailyBar],
@@ -522,61 +548,60 @@ def _resolve_dividend_carry(
 ) -> _DividendCarry:
     """carry 用の配当利回りと基準を解決する。
 
-    通期実績 DPS は accrual 期間 (前期通期実績開示 〜 当期通期実績開示) で積み上がる。
-    その期間内かつ開示前に分割が起きると、正規化 (各行の開示日基準) では捕捉できず、
-    実績 DPS が分割前・株価が分割後の混在になり配当利回りが factor 倍に膨らむ。
-    carry は将来利回りなので、分割後基準で開示される予想 DPS を最優先し、無ければ
-    accrual 期間の累積分割 factor で実績 DPS を分割後基準へ調整する。予想・実績とも
-    正の値が取れなければ利回りは None (buyback のみが carry に残る)。
+    実績 DPS は開示時点の株式基準で記載され、`_normalize_summaries_to_asof_basis` が
+    開示日より後の分割を掛けて asof 基準へ寄せている。残るのは accrual 期間 (前期通期
+    実績開示 〜 当期通期実績開示) の中で起きた分割・併合で、これは支払ごとの基準日を
+    見ないと前後を判別できない (`_dividend_basis_factor`)。判別できない年度は実績側の
+    利回りを出さず、carry は予想 DPS か buyback だけで組む。予想 DPS は分割を跨ぐ行で
+    正規化が None へ落としているので、同じ規律が既に効いている。
     """
-    del asof_date  # accrual 窓は実績開示日を基準に閉じるため asof は使わない
+    del asof_date  # asof 基準への換算は呼び出し側の正規化で済んでいる
     forecast = _latest_non_null(summaries, "dps_forecast_annual")
 
     actual_rows = _actual_dps_rows(summaries)
-    split_factor = 1.0
-    actual_split_safe: float | None = None
+    basis_factor = 1.0
+    actual_annual: float | None = None
     if actual_rows:
         latest_actual = actual_rows[0]
         assert latest_actual.dps_actual_annual is not None
-        # accrual 開始 = 前期の通期実績開示日。無ければ開示日から約 1 年遡る。
-        accrual_start = (
-            actual_rows[1].disclosed_at
-            if len(actual_rows) > 1
-            else latest_actual.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+        basis_factor = _dividend_basis_factor(
+            ticker_bars,
+            accrual_start=_dividend_accrual_start(
+                latest_actual, actual_rows[1] if len(actual_rows) > 1 else None
+            ),
+            disclosed_at=latest_actual.disclosed_at,
         )
-        # 正規化は開示日「後」の分割のみ反映済み。ここでは accrual 開始〜開示日の
-        # (開示前) 分割の差分 factor だけを掛け、二重計上を避ける。
-        split_factor = _cumulative_adjustment_factor_after(
-            ticker_bars, accrual_start, latest_actual.disclosed_at
-        )
-        actual_split_safe = latest_actual.dps_actual_annual * split_factor
+        if basis_factor == 1.0:
+            actual_annual = latest_actual.dps_actual_annual
 
-    recorded_factor = split_factor if split_factor != 1.0 else None
+    recorded_factor = basis_factor if basis_factor != 1.0 else None
 
     if latest_price <= 0:
         basis = "unavailable"
     elif forecast is not None and forecast > 0:
         return _DividendCarry(
             dividend_yield=forecast / latest_price,
-            dps_actual_annual=actual_split_safe,
+            dps_actual_annual=actual_annual,
             dps_forecast_annual=forecast,
             basis="forecast_annual",
             split_factor=recorded_factor,
         )
-    elif actual_split_safe is not None and actual_split_safe > 0:
+    elif actual_annual is not None and actual_annual > 0:
         return _DividendCarry(
-            dividend_yield=actual_split_safe / latest_price,
-            dps_actual_annual=actual_split_safe,
+            dividend_yield=actual_annual / latest_price,
+            dps_actual_annual=actual_annual,
             dps_forecast_annual=forecast,
-            basis="actual_split_adjusted" if split_factor != 1.0 else "actual_reported",
+            basis="actual_reported",
             split_factor=recorded_factor,
         )
+    elif recorded_factor is not None:
+        basis = "unresolved_split_basis"
     else:
         basis = "unavailable"
 
     return _DividendCarry(
         dividend_yield=None,
-        dps_actual_annual=actual_split_safe,
+        dps_actual_annual=actual_annual,
         dps_forecast_annual=forecast,
         basis=basis,
         split_factor=recorded_factor,
@@ -603,7 +628,7 @@ def build_shareholder_return_change_signals(
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
 
-    dps_values = _split_safe_fy_dps(fy_rows, ticker_bars)
+    dps_values = _asof_basis_fy_dps(fy_rows, ticker_bars)
     latest_pair = _latest_consecutive_values(fy_rows, dps_values, count=2)
     latest_three = _latest_consecutive_values(fy_rows, dps_values, count=3)
 
@@ -688,27 +713,29 @@ def _latest_fy_revisions(
     return [latest[fiscal_year_end] for fiscal_year_end in sorted(latest)]
 
 
-def _split_safe_fy_dps(
+def _asof_basis_fy_dps(
     fy_rows: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsDailyBar],
 ) -> dict[date, float]:
+    """通期実績 DPS を fiscal year end で引けるようにする。
+
+    行は `_normalize_summaries_to_asof_basis` を通っているので asof 基準に揃っている。
+    accrual 期間に分割・併合が入った年度だけは基準を確定できない
+    (`_dividend_basis_factor`) ため落とす。落ちた年度を含む YoY と streak は
+    `_latest_consecutive_values` が None を返し、増配と減配を取り違えない。
+    """
     values: dict[date, float] = {}
     for index, row in enumerate(fy_rows):
         fiscal_year_end = row.fiscal_year_end
         value = row.dps_actual_annual
         if fiscal_year_end is None or value is None or value < 0:
             continue
-        prior = fy_rows[index - 1] if index > 0 else None
-        accrual_start = (
-            prior.disclosed_at
-            if prior is not None
-            and prior.dps_actual_annual is not None
-            and prior.dps_actual_annual >= 0
-            else row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+        accrual_start = _dividend_accrual_start(row, fy_rows[index - 1] if index > 0 else None)
+        factor = _dividend_basis_factor(
+            ticker_bars, accrual_start=accrual_start, disclosed_at=row.disclosed_at
         )
-        factor = _cumulative_adjustment_factor_after(ticker_bars, accrual_start, row.disclosed_at)
-        if factor > 0:
-            values[fiscal_year_end] = value * factor
+        if factor == 1.0:
+            values[fiscal_year_end] = value
     return values
 
 

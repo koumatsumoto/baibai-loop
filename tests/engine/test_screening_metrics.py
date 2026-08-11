@@ -400,9 +400,57 @@ class ScreeningMetricsTests(unittest.TestCase):
 
         result = build_shareholder_return_change_signals(summaries, bars, asof)
 
+        # 分割は FY2024 の accrual 期間 (2023-05-10〜2024-05-10) に入る。その年度の
+        # 44 円が分割前基準か後かは支払ごとの基準日を見ないと言えないので、増配とも
+        # 減配とも判定しない。株数側の signal は配当と独立なので残る。
+        self.assertIsNone(result.dps_streak_up)
+        self.assertIsNone(result.dps_yoy_latest)
+        self.assertEqual(result.share_count_reduction_streak, 1)
+
+    def test_shareholder_return_change_normalizes_splits_after_the_last_disclosure(self) -> None:
+        # 分割が最新の通期開示より後なら、どの年度の accrual 期間にも入らない。各行は
+        # 正規化で asof 基準へ揃うので、増配 streak と YoY はそのまま出る。
+        asof = date(2026, 6, 30)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=date(2025, 6, 10),
+                close=50.0,
+                turnover_value=1_000_000.0,
+                adjustment_factor=0.5,
+            )
+        ]
+        summaries = [
+            _summary(
+                "130A",
+                date(2023, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2023, 3, 31),
+                dps_actual_annual=40.0,
+                shares_outstanding=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                dps_actual_annual=44.0,
+                shares_outstanding=200.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=48.0,
+                shares_outstanding=190.0,
+            ),
+        ]
+
+        result = build_shareholder_return_change_signals(summaries, bars, asof)
+
         self.assertTrue(result.dps_streak_up)
         self.assertAlmostEqual(result.dps_yoy_latest or 0.0, (24.0 / 22.0) - 1.0)
-        self.assertEqual(result.share_count_reduction_streak, 1)
 
     def test_build_metrics_excludes_future_bars_from_history(self) -> None:
         """look-ahead bias regression guard: bars after asof must not influence derived metrics."""
@@ -1852,7 +1900,7 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
 
 
 class DividendCarryResolverTests(unittest.TestCase):
-    """carry 用配当利回りの基準解決 (予想優先・分割 factor 調整) を直接検証する。"""
+    """carry 用配当利回りの基準解決 (予想優先・基準が確定できない年度の拒否) を検証する。"""
 
     def test_prefers_forecast_over_actual(self) -> None:
         # 予想 DPS があれば実績より優先し、分割後基準の予想で利回りを出す。
@@ -1870,10 +1918,10 @@ class DividendCarryResolverTests(unittest.TestCase):
         assert carry.dividend_yield is not None
         self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
 
-    def test_adjusts_fiscal_boundary_split_actual_when_no_forecast(self) -> None:
-        # 通期実績 DPS が accrual 期間内・開示前の分割前基準のまま、株価は分割後。
-        # 予想が無くても accrual 期間 (前期実績開示〜当期実績開示) の分割 factor で
-        # 実績を分割後基準へ寄せ、分割前配当 x 分割後株価の膨張利回りを拒否する。
+    def test_refuses_the_actual_yield_when_a_split_falls_in_the_accrual_window(self) -> None:
+        # 分割が期末に重なる形。期末配当の基準日は分割の効力発生日より前なので実績 DPS は
+        # 分割前基準だが、権利落ち日しか持たない store からはそれを言えない。基準が確定
+        # できない年度は利回りを出さず、判別できなかった factor だけを事実として残す。
         summaries = [
             _summary("5445", date(2026, 5, 7), dps_actual_annual=300.0, dps_forecast_annual=None),
             _summary("5445", date(2025, 5, 7), dps_actual_annual=375.0, dps_forecast_annual=None),
@@ -1884,15 +1932,49 @@ class DividendCarryResolverTests(unittest.TestCase):
             latest_price=1911.0,
             asof_date=date(2026, 7, 10),
         )
-        self.assertEqual(carry.basis, "actual_split_adjusted")
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+        self.assertIsNone(carry.dps_actual_annual)
         assert carry.split_factor is not None
         self.assertAlmostEqual(carry.split_factor, 1.0 / 3.0, places=6)
-        assert carry.dps_actual_annual is not None
-        self.assertAlmostEqual(carry.dps_actual_annual, 100.0, places=6)
+
+    def test_refuses_the_actual_yield_when_a_consolidation_falls_in_the_accrual_window(
+        self,
+    ) -> None:
+        # 逆向き。併合後に開示された実績 DPS を併合 factor で膨らませると、株価に対して
+        # 桁違いの利回りになる。こちらも基準を確定できないので出さない。
+        summaries = [
+            _summary("1491", date(2026, 5, 15), dps_actual_annual=34.0, dps_forecast_annual=None),
+            _summary("1491", date(2025, 5, 15), dps_actual_annual=1.5, dps_forecast_annual=None),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("1491", date(2025, 9, 29), 20.0)],
+            latest_price=785.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+        assert carry.split_factor is not None
+        self.assertAlmostEqual(carry.split_factor, 20.0, places=6)
+
+    def test_forecast_still_answers_when_the_actual_basis_is_unresolved(self) -> None:
+        # 予想 DPS は分割を跨ぐ行で正規化が None へ落とすので、残っていれば基準が揃って
+        # いる。実績側が確定できなくても carry は予想で組める。
+        summaries = [
+            _summary("5445", date(2026, 5, 7), dps_actual_annual=300.0, dps_forecast_annual=40.0),
+            _summary("5445", date(2025, 5, 7), dps_actual_annual=375.0, dps_forecast_annual=None),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("5445", date(2026, 3, 30), 1.0 / 3.0)],
+            latest_price=1911.0,
+            asof_date=date(2026, 7, 10),
+        )
+        self.assertEqual(carry.basis, "forecast_annual")
+        self.assertIsNone(carry.dps_actual_annual)
         assert carry.dividend_yield is not None
-        self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
-        # negative assertion: 分割前実績 300 を分割後株価で割った ~15.7% を出さない。
-        self.assertLess(carry.dividend_yield, 0.08)
+        self.assertAlmostEqual(carry.dividend_yield, 40.0 / 1911.0, places=6)
 
     def test_uses_actual_reported_when_no_split_and_no_forecast(self) -> None:
         summaries = [

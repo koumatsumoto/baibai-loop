@@ -82,11 +82,13 @@ class FinancialSnapshot:
     sales_ttm: float | None
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
-    # 直近実績の年間 DPS (accrual 期間の分割 factor で asof/分割後基準へ調整済み)・
-    # 進行期の予想年間 DPS・carry 用配当利回り。dividend_yield は将来 carry なので
-    # 予想 DPS を最優先し (dividend_basis=forecast_annual)、無ければ split-safe 実績を
-    # 使う (actual_split_adjusted / actual_reported)。dividend_split_factor は実績を
-    # 分割後基準へ寄せた累積 factor (調整不要なら None)。
+    # 直近実績の年間 DPS (asof の株式基準)・進行期の予想年間 DPS・carry 用配当利回り。
+    # dividend_yield は将来 carry なので予想 DPS を最優先し
+    # (dividend_basis=forecast_annual)、無ければ実績を使う (actual_reported)。
+    # 年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載されるので、その年度の
+    # accrual 期間に分割・併合が入ると株価と同じ基準か言えない。その年度は実績側の
+    # 利回りを出さず (dividend_basis=unresolved_split_basis)、dividend_split_factor に
+    # 判別できなかった累積 factor を残す (確定できる年度は None)。
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None
