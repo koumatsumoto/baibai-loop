@@ -1827,9 +1827,12 @@ def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict
                 "mean_group_median_excess": (
                     round(fmean(group_medians), 6) if group_medians else None
                 ),
-                # 軸の効き。群内を割安 / 割高で割った差。
+                # 軸の効き。群内を割安 / 割高で割った差。ばらつきを平均と並べるのは、
+                # 月末 as-of の窓が大きく重なり、cohort 数だけ独立観測があるように
+                # 見えるため。市場側は 1 cohort 50 行前後なので特に効く。
                 "effect_cohorts": len(effects),
                 "mean_axis_effect": round(fmean(effects), 6) if effects else None,
+                "stdev_axis_effect": round(stdev(effects), 6) if len(effects) > 1 else None,
                 "axis_effect_positive_share": (
                     round(sum(1 for value in effects if value > 0) / len(effects), 4)
                     if effects

@@ -104,9 +104,9 @@ buyback authorization の診断は `tools.experiments.measure_buyback_authorizat
 
 `sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。落ちる業種は構造的に低倍率へ寄る側に集中するため、分けないと業種の割安と業種構成が同じ数字に混ざる。
 
-**群の水準と軸の効きは別の量として出す。** 落ちるかどうかは業種単位で決まるので市場側の群は業種の集合そのものであり、その中央値超過（`group_median_excess`）はその業種構成である。実データで各行の自業種中央値を引くと、市場側の水準は全軸・全 cohort で 0 になる。軸の効きは群の中を軸値で 2 分割した差（`axis_effect.median_excess_delta`）で測る。両側が同じ業種を含むので、構成では作れない量になる。市場側は 1 cohort あたり 50〜80 行で decile を組めないため `decile_spread_median` は出ないが、2 分割は分位あたり 15 行以上を保てるので両側で成立する。
+**群の水準と軸の効きは別の量として出す。** 落ちるかどうかは業種単位で決まるので市場側の群は業種の集合そのものであり、その中央値超過（`group_median_excess`）はその業種構成である。実データで各行の自業種中央値を引くと、市場側の水準は全軸・全 cohort で 0 になる。軸の効きは群の中を軸値で 2 分割した差（`axis_effect.median_excess_delta`）で測る。両側が同じ業種集合から引かれるので、構成が作れる差はごく小さい（業種内 shuffle null で +1.1〜+2.9pp、観測は +7.0〜+11.7pp、p=0.000）。市場側は 1 cohort あたり 50〜80 行で decile を組めないため `decile_spread_median` は出ないが、2 分割は分位あたり 15 行以上を保てるので両側で成立する。**`mean_axis_effect` は `stdev_axis_effect` と併せて読む。** 月末 as-of の 1y 窓は大きく重なるため独立な窓は年数程度しかなく、cohort 数だけ独立観測があるようには読めない。2 つの basis は名前の集合そのものが違うので、basis 間で `mean_axis_effect` を直接比べると軸の効きと 9 業種の振る舞いが混ざる。
 
-2 つの側は母数が違う。母数下限を割る業種は 9 つしかないので、cohort あたり自業種が数千行に対し市場側は 50 行前後になる。50 行の decile は 1 分位 5 件なので、比較は群統計 (n / median / mean / trap rate) が担い、decile spread は 標本が足りる cohort でのみ併記する。cohort 横断集計は spread を出した cohort 数 (`spread_cohorts`) を cohort 数と別に持ち、spread が出せなかったことと効果が無かったことを混同させない。
+2 つの側は母数が違う。母数下限を割る業種は 9 つしかないので、cohort あたり自業種が数千行に対し市場側は 50 行前後になる。50 行の decile は 1 分位 5 件なので decile spread は標本が足りる cohort でのみ併記し、cohort 横断集計は spread を出した cohort 数 (`spread_cohorts`) を cohort 数と別に持つ。spread が出せなかったことと効果が無かったことを混同させないためである。群統計 (n / median / mean / trap rate) はその群が何だったかを記述するが、比較はしない。比較は上記の `axis_effect` が担う。
 
 `er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
