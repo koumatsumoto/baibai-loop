@@ -12,7 +12,7 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar
 from baibai_engine.screening.schema import SecurityMaster
-from baibai_engine.screening.universe import build_universe
+from baibai_engine.screening.universe import TSE_33_SECTORS, build_universe
 
 
 def _bars(
@@ -221,3 +221,57 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
         )
         self.assertNotIn("130A", result.snapshots)
         self.assertEqual(result.exclusion_counts.get("market_out_of_scope"), 1)
+
+
+class SectorClassificationScopeTests(unittest.TestCase):
+    """Instrument type is decided by the sector code, so both sides are pinned.
+
+    The master's own `is_common_stock` reads true for every row it has ever held, which is
+    why an ETF and a preferred-investment security sat inside the eligible market segments.
+    The sector code is the identifier the source actually fills in, and a screen that reads
+    it has to keep every 33-sector name while removing the ones outside the classification.
+    """
+
+    def _result(self, sector: str, *, is_common: bool = True) -> object:
+        security = SecurityMaster(
+            code="130A",
+            name="Sample",
+            market_segment="Prime",
+            sector_33=sector,
+            is_common_stock=is_common,
+        )
+        return build_universe(
+            asof_date=date(2026, 4, 24),
+            securities=[security],
+            bars_by_ticker={"130A": _bars("130A")},
+            shares_outstanding_by_ticker={"130A": 400_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+
+    def test_a_name_outside_the_classification_leaves_the_universe(self) -> None:
+        result = self._result("その他")
+        self.assertNotIn("130A", result.snapshots)
+        self.assertEqual(result.exclusion_counts.get("sector_out_of_classification"), 1)
+
+    def test_an_unrecognised_sector_label_leaves_the_universe(self) -> None:
+        # The schema already refuses an empty sector, so the shape a degraded source
+        # actually produces is a placeholder rather than a missing value.
+        result = self._result("-")
+        self.assertNotIn("130A", result.snapshots)
+        self.assertEqual(result.exclusion_counts.get("sector_out_of_classification"), 1)
+
+    def test_every_tse_sector_stays_in_scope(self) -> None:
+        # The positive side across the whole classification: an exclusion that removed a
+        # real sector would still pass a test that only checked one name.
+        for sector in sorted(TSE_33_SECTORS):
+            with self.subTest(sector=sector):
+                result = self._result(sector)
+                self.assertIn("130A", result.snapshots)
+                self.assertNotIn("sector_out_of_classification", result.exclusion_counts)
+
+    def test_the_master_flag_still_excludes_on_its_own(self) -> None:
+        # Kept separate from the sector test: the two conditions answer different
+        # questions and one going quiet must not silence the other.
+        result = self._result("情報・通信業", is_common=False)
+        self.assertNotIn("130A", result.snapshots)
+        self.assertEqual(result.exclusion_counts.get("non_common_stock"), 1)
