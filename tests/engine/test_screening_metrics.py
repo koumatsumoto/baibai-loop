@@ -165,9 +165,11 @@ def _edinet_metric_record(
     source_submit_datetime: str | None = "2026-04-01 12:00",
     source_period_start: date | None = date(2025, 4, 1),
     source_period_end: date | None = date(2026, 3, 31),
+    total_assets: float | None = None,
 ) -> EdinetMetricRecord:
     return EdinetMetricRecord(
         ticker=code,
+        total_assets=total_assets,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
         debt=debt,
@@ -1198,6 +1200,88 @@ class ScreeningMetricsTests(unittest.TestCase):
             (latest_close * latest_shares) / expected_profit_ttm,
             places=6,
         )
+
+    def _entity_scale_snapshot(self, edinet: EdinetMetricRecord) -> FinancialSnapshot:
+        asof = date(2026, 7, 1)
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 30)},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        date(2026, 5, 15),
+                        eps_ttm=10.0,
+                        shares_outstanding=100_000_000.0,
+                        treasury_shares=0.0,
+                        total_assets=10_000_000_000.0,
+                        fiscal_period="FY",
+                        fiscal_year_end=date(2026, 3, 31),
+                        period_start=date(2025, 4, 1),
+                        period_end=date(2026, 3, 31),
+                    )
+                ]
+            },
+            edinet_by_ticker={"130A": edinet},
+        )
+        return result.financials["130A"]
+
+    def test_edinet_values_are_refused_when_they_describe_another_entity(self) -> None:
+        """8253 型の再現: 単体の貸借対照表を連結の時価総額と組み合わせない。
+
+        抽出器が 1 つの書類を単体基準で読むと、負債・現金・EBITDA が親会社単独の値に
+        なる。時価総額と TTM 系列は短信由来なので、比率の分子と分母が別の会社を指す。
+        実データでは総資産が 1/1000 になる行がある。両側が総資産を持つので照合できる。
+        """
+        financial = self._entity_scale_snapshot(
+            _edinet_metric_record(
+                "130A", total_assets=10_000_000.0, consolidation_basis="non_consolidated"
+            )
+        )
+        self.assertIsNone(financial.net_cash)
+        self.assertIsNone(financial.net_cash_to_market_cap)
+        self.assertIsNone(financial.debt)
+        self.assertIsNone(financial.cash)
+        self.assertIsNone(financial.ev_ebitda)
+        self.assertEqual(financial.ttm_quality_ev_ebitda, TTMQuality.UNAVAILABLE)
+        assert financial.edinet_failure_reasons is not None
+        self.assertIn("entity_scale_mismatch", financial.edinet_failure_reasons)
+        # 実体を判断するための出所は残す。落としたのは値であって記録ではない。
+        self.assertEqual(financial.edinet_source_doc_id, "S100TEST")
+        self.assertEqual(financial.consolidation_basis, "non_consolidated")
+        # 短信由来の指標は残り、銘柄は母集団に留まる。
+        self.assertIsNotNone(financial.market_cap)
+        self.assertIsNotNone(financial.per_trailing)
+
+    def test_edinet_values_survive_when_the_balance_sheets_agree(self) -> None:
+        # 同じ実体を指す行は素通しする。単体基準でも、総資産が一致すれば連結財務諸表を
+        # 持たない会社であって取り違えではない。
+        for basis in ("consolidated", "non_consolidated"):
+            with self.subTest(basis=basis):
+                financial = self._entity_scale_snapshot(
+                    _edinet_metric_record(
+                        "130A", total_assets=10_100_000_000.0, consolidation_basis=basis
+                    )
+                )
+                self.assertEqual(financial.debt, 300.0)
+                self.assertIsNotNone(financial.net_cash)
+                assert financial.edinet_failure_reasons is None or (
+                    "entity_scale_mismatch" not in financial.edinet_failure_reasons
+                )
+
+    def test_an_unverifiable_non_consolidated_record_is_refused(self) -> None:
+        # 総資産を持たない行は照合できない。単体基準の母集団は実測で 17.6% が桁でずれて
+        # おり、どれがずれているかを他の field では言えないので答えない。連結基準は照合
+        # できた全行が一致するため素通しする。
+        refused = self._entity_scale_snapshot(
+            _edinet_metric_record("130A", total_assets=None, consolidation_basis="non_consolidated")
+        )
+        self.assertIsNone(refused.debt)
+        kept = self._entity_scale_snapshot(
+            _edinet_metric_record("130A", total_assets=None, consolidation_basis="consolidated")
+        )
+        self.assertEqual(kept.debt, 300.0)
 
     def test_price_over_eps_equals_the_trailing_multiple(self) -> None:
         """同じ語が 2 つの値を指さない: `market_price_yen / eps` は `per_trailing` に一致する。

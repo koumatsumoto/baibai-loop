@@ -538,6 +538,12 @@ DIVIDEND_ROUTE_TOLERANCE = 0.05
 # この倍率を超えて外れる行は、株数を per-share の分母に使わない。
 SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
 
+# EDINET の総資産が短信の総資産からこの倍率を超えて外れる行は、同じ会社の貸借対照表では
+# ないとみなし、EDINET 由来の値を判断面へ出さない。
+ENTITY_SCALE_TOLERANCE = 2.0
+CONSOLIDATED_BASIS = "consolidated"
+ENTITY_SCALE_MISMATCH = "entity_scale_mismatch"
+
 
 def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
     """その年度の配当が積み上がり始めた日。
@@ -1018,14 +1024,23 @@ def _build_financial_snapshot(
     shares_ex_treasury = _shares_excluding_treasury(shares_outstanding, treasury_shares)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
-    edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
-    debt = edinet.debt if edinet else None
-    cash = edinet.cash if edinet else None
-    ebitda_ttm = edinet.ebitda_ttm if edinet else None
-    fcf_ttm = edinet.fcf_ttm if edinet else None
-    net_cash = edinet.net_cash if edinet else None
-    investment_securities = edinet.investment_securities if edinet else None
-    edinet_failure_reasons = ",".join(edinet.failure_reasons) if edinet else None
+    # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
+    # TTM 系列は短信由来である。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の
+    # 分子と分母が別の会社を指す。両側が総資産を持つので実体の一致は直接確かめられる。
+    entity_matches = _edinet_describes_same_entity(edinet, total_assets)
+    edinet_metrics = edinet if entity_matches else None
+    edinet_ocf_ttm = edinet_metrics.ocf_ttm if edinet_metrics else None
+    debt = edinet_metrics.debt if edinet_metrics else None
+    cash = edinet_metrics.cash if edinet_metrics else None
+    ebitda_ttm = edinet_metrics.ebitda_ttm if edinet_metrics else None
+    fcf_ttm = edinet_metrics.fcf_ttm if edinet_metrics else None
+    net_cash = edinet_metrics.net_cash if edinet_metrics else None
+    investment_securities = edinet_metrics.investment_securities if edinet_metrics else None
+    edinet_failure_reasons = (
+        ",".join((*edinet.failure_reasons, *(() if entity_matches else (ENTITY_SCALE_MISMATCH,))))
+        if edinet
+        else None
+    )
     if net_cash is None and cash is not None and debt is not None:
         net_cash = cash - debt
     latest_market_cap = (latest_price * shares_ex_treasury) if shares_ex_treasury else None
@@ -1094,9 +1109,9 @@ def _build_financial_snapshot(
         ),
         fcf_ttm=fcf_ttm,
         fcf_yield=_safe_ratio(fcf_ttm, latest_market_cap),
-        capex_ttm=edinet.capex_ttm if edinet else None,
+        capex_ttm=edinet_metrics.capex_ttm if edinet_metrics else None,
         depreciation_and_amortization_ttm=(
-            edinet.depreciation_and_amortization_ttm if edinet else None
+            edinet_metrics.depreciation_and_amortization_ttm if edinet_metrics else None
         ),
         debt=debt,
         cash=cash,
@@ -1121,14 +1136,20 @@ def _build_financial_snapshot(
             operating_profit,
             operating_profit_prior_year,
         ),
-        ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
+        ttm_quality_ev_ebitda=(
+            edinet_metrics.ttm_quality_ev_ebitda if edinet_metrics else TTMQuality.UNAVAILABLE
+        ),
         ttm_quality_per_trailing=profit_quality,
         ttm_quality_p_s=sales_quality,
         ttm_quality_pcfr=ocf_quality,
         ttm_quality_ocf_yield=ocf_quality,
         ttm_quality_sales=sales_quality,
-        ttm_quality_fcf_yield=edinet.ttm_quality_fcf if edinet else TTMQuality.UNAVAILABLE,
-        ttm_quality_net_cash=edinet.ttm_quality_net_cash if edinet else TTMQuality.UNAVAILABLE,
+        ttm_quality_fcf_yield=(
+            edinet_metrics.ttm_quality_fcf if edinet_metrics else TTMQuality.UNAVAILABLE
+        ),
+        ttm_quality_net_cash=(
+            edinet_metrics.ttm_quality_net_cash if edinet_metrics else TTMQuality.UNAVAILABLE
+        ),
         shares_outstanding=shares_outstanding,
         accruals_to_assets=accruals_to_assets,
         net_share_change_yoy=net_share_change_yoy,
@@ -1560,6 +1581,30 @@ def _sigma_gap(history: Sequence[float], current: float | None) -> float | None:
     if stddev == 0:
         return 0.0
     return (current - avg) / stddev
+
+
+def _edinet_describes_same_entity(
+    edinet: EdinetMetricRecord | None,
+    total_assets: float | None,
+) -> bool:
+    """EDINET の記録が短信と同じ実体を指しているか。
+
+    抽出器は 1 つの書類を連結・単体のどちらかの基準で読む。連結財務諸表を持つ会社の
+    書類を単体基準で読むと、負債・現金・EBITDA が親会社単独の値になる。時価総額と TTM
+    系列は短信由来なので、比率の分子と分母が別の会社を指す (実測では総資産が 1/1000 に
+    なる行がある)。両側が総資産を持つので、実体の一致は直接確かめられる。
+
+    連結基準で読めた行は照合できた 3,117 行すべてで一致するため、総資産を持たない
+    連結行はそのまま通す。単体基準・基準不明の行はその母集団の 17.6% が桁でずれており、
+    どれがずれているかを他の field では言えないので、照合できなければ答えない。
+    """
+    if edinet is None:
+        return True
+    reported = edinet.total_assets
+    if reported is not None and reported > 0 and total_assets is not None and total_assets > 0:
+        ratio = reported / total_assets
+        return 1 / ENTITY_SCALE_TOLERANCE <= ratio <= ENTITY_SCALE_TOLERANCE
+    return edinet.consolidation_basis == CONSOLIDATED_BASIS
 
 
 def _shares_excluding_treasury(

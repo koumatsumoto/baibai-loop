@@ -146,10 +146,12 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
             max_date="2026-06-30",
         )
         conn.execute(
+            # 総資産と基準は、EDINET の貸借対照表が短信と同じ実体を指すことを示す事実として
+            # 持つ。短信の総資産 (1.5e10) と揃わない行は EDINET 由来の値を出さない。
             "INSERT INTO edinet_metrics("
             "asof_date, ticker, debt, cash, net_cash, investment_securities, "
-            "failure_reasons, extractor_revision"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "total_assets, consolidation_basis, failure_reasons, extractor_revision"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 ASOF.isoformat(),
                 "9001",
@@ -157,6 +159,8 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                 4e9,
                 3e9,
                 2e9,
+                1.5e10,
+                "consolidated",
                 "[]",
                 "a" * 64,
             ),
