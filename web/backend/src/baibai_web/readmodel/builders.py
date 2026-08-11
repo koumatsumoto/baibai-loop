@@ -147,6 +147,7 @@ _NUMERIC_FIELDS = (
 )
 _METRIC_FIELDS = (
     "dividend_yield",
+    "dividend_split_factor",
     "normalized_per_3fy",
     "er_annual",
     "er_reversion_annual",
@@ -169,6 +170,8 @@ _METRIC_FIELDS = (
 # tracks the measured top decile. `margin_short_to_adv` remains a raw annotation
 # even after adoption: its production contract does not authorize a warning, gate,
 # ranking, FV, E[r], or sizing effect.
+_METRIC_TEXT_FIELDS = ("dividend_basis",)
+
 _MARGIN_DEADLINE_SHARE = 0.75
 _STALE_RUN_AGE = timedelta(days=7)
 
@@ -1464,6 +1467,10 @@ def _candidate_row_view(
     metrics = metrics_raw if isinstance(metrics_raw, Mapping) else {}
     values = {name: _number(row.get(name)) for name in _NUMERIC_FIELDS}
     values.update({name: _number(metrics.get(name)) for name in _METRIC_FIELDS})
+    # 文字列の annotation は `_number` を通すと必ず None になるので別に詰める。
+    # `dividend_basis` は「配当利回りが空である理由」を持つ唯一の field で、
+    # unresolved_split_basis を無配と読み違えないために候補表まで届ける必要がある。
+    text_values = {name: _text(metrics.get(name)) for name in _METRIC_TEXT_FIELDS}
     flags = _data_quality_flags(row, metrics)
     anchor = (fair_value or {}).get(ticker)
     return CandidateRowView(
@@ -1480,6 +1487,7 @@ def _candidate_row_view(
         er_level_quintile=_er_level_quintile(values.get("er_annual"), er_level_calibration),
         er_meets_8_5pct_band=_er_meets_hurdle(values.get("er_annual"), er_level_calibration),
         **values,
+        **text_values,
     )
 
 

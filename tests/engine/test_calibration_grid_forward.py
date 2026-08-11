@@ -460,3 +460,86 @@ class ControlEventExitTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AdjustmentFactorGuardTest(unittest.TestCase):
+    """The factor guard has never fired on the stored bars, so it is exercised here.
+
+    Every stored bar carries an adjustment factor, which makes `adjustment_factor_coverage`
+    read `complete` on every row the store has ever produced. A check that has only ever
+    been observed passing is not a check that has been shown to work: what it refuses has
+    to be demonstrated, because the quantities behind it — a dividend carried to the final
+    share basis, an offer price placed on the entry's basis — are wrong rather than absent
+    when the factors are unknown.
+    """
+
+    ASOF = date(2020, 1, 31)
+
+    def _dividends(self) -> list[_FYDividendObservation]:
+        return [_FYDividendObservation(date(2020, 3, 31), date(2020, 5, 12), 50.0)]
+
+    def _row(self, bars: list[JQuantsDailyBar]) -> ForwardReturnRow:
+        return _ticker_forward_rows(
+            "7203",
+            bars,
+            fy_dividends=self._dividends(),
+            asofs=[self.ASOF],
+            horizons=(HORIZONS["1y"],),
+            eval_cap=date(2021, 6, 30),
+        )[0]
+
+    def test_bars_without_any_factor_refuse_the_total_return(self) -> None:
+        row = self._row(
+            [
+                _bar(self.ASOF, 2500.0, ticker="7203"),
+                _bar(date(2021, 1, 29), 3000.0, ticker="7203"),
+            ]
+        )
+        self.assertEqual(row.adjustment_factor_coverage, "unknown")
+        self.assertEqual(row.total_return_status, "unresolved_adjustment_factor")
+        self.assertIsNone(row.total_return)
+        self.assertIsNone(row.realized_dividend_sum)
+        # The price move is still observed; only the per-share facts are refused.
+        self.assertTrue(row.resolved)
+
+    def test_one_bar_missing_its_factor_refuses_the_total_return(self) -> None:
+        row = self._row(
+            [
+                _bar(self.ASOF, 2500.0, 1.0, ticker="7203"),
+                _bar(date(2020, 6, 30), 2700.0, ticker="7203"),
+                _bar(date(2021, 1, 29), 3000.0, ticker="7203"),
+            ]
+        )
+        self.assertEqual(row.adjustment_factor_coverage, "incomplete")
+        self.assertEqual(row.total_return_status, "unresolved_adjustment_factor")
+        self.assertIsNone(row.total_return)
+
+    def test_complete_factors_resolve_the_same_window(self) -> None:
+        # The positive side of the same guard, so a refusal that fires on everything
+        # cannot pass as a working check.
+        row = self._row(
+            [
+                _bar(self.ASOF, 2500.0, 1.0, ticker="7203"),
+                _bar(date(2020, 6, 30), 2700.0, 1.0, ticker="7203"),
+                _bar(date(2021, 1, 29), 3000.0, 1.0, ticker="7203"),
+            ]
+        )
+        self.assertEqual(row.adjustment_factor_coverage, "complete")
+        self.assertEqual(row.total_return_status, "resolved")
+        self.assertEqual(row.realized_dividend_sum, 50.0)
+
+    def test_a_settled_offer_is_not_priced_when_the_factors_are_unknown(self) -> None:
+        asof = date(2025, 1, 31)
+        delisted_on = date(2025, 3, 14)
+        rows = _ticker_forward_rows(
+            "1000",
+            [_bar(asof, 100.0), _bar(date(2025, 3, 13), 118.0)],
+            asofs=[asof],
+            horizons=(HORIZONS["3m"],),
+            eval_cap=date(2026, 6, 30),
+            control_event_exits=(ControlEventExit(delisted_on=delisted_on, offer_price_yen=120.0),),
+        )
+        row = rows[0]
+        self.assertEqual(row.adjustment_factor_coverage, "unknown")
+        self.assertNotEqual(row.status, "resolved_control_event_exit")
+        self.assertFalse(row.resolved)

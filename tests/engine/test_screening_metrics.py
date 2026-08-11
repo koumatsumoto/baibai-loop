@@ -12,7 +12,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from baibai_engine.screening.metrics import (
+    MetricBuildResult,
+    _normalize_summaries_to_asof_basis,
     _resolve_dividend_carry,
+    _ttm_value,
     build_metrics,
     build_normalized_profit_signals,
     build_shareholder_return_change_signals,
@@ -20,6 +23,7 @@ from baibai_engine.screening.metrics import (
 )
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
+from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.schema import FinancialSnapshot, SecurityMaster, TTMQuality
 
 
@@ -56,7 +60,20 @@ def _summary(
     # 既定は「自己株式ゼロを観測した」。欠損 (None) は時価総額を出さない別の状態なので、
     # それを試す test だけが明示的に None を渡す。
     treasury_shares: float | None = 0.0,
+    dividend_q1: float | None = None,
+    dividend_interim: float | None = None,
+    dividend_q3: float | None = None,
+    dividend_year_end: float | None = None,
+    dividend_total_annual: float | None = None,
+    average_shares: float | None = None,
+    profit: float | None = None,
+    total_assets: float | None = None,
 ) -> JQuantsFinancialSummary:
+    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。trailing 倍率も
+    # accruals もこの行から出るので、既定値は行の中でその恒等式を満たす値にする。恒等式を
+    # 破った行を試す test だけが `profit` を明示的に渡す。
+    if profit is None and eps_ttm is not None:
+        profit = eps_ttm * (shares_outstanding - (treasury_shares or 0.0))
     return JQuantsFinancialSummary(
         ticker=code,
         disclosed_at=disclosed_at,
@@ -66,9 +83,10 @@ def _summary(
         shares_outstanding=shares_outstanding,
         sales=sales,
         cfo=cfo,
+        total_assets=total_assets,
         operating_profit=operating_profit,
         ordinary_profit=None,
-        profit=None,
+        profit=profit,
         forecast_profit=forecast_profit,
         forecast_ordinary_profit=forecast_ordinary_profit,
         fiscal_period=fiscal_period,
@@ -78,6 +96,12 @@ def _summary(
         dps_actual_annual=dps_actual_annual,
         dps_forecast_annual=dps_forecast_annual,
         treasury_shares=treasury_shares,
+        dividend_q1=dividend_q1,
+        dividend_interim=dividend_interim,
+        dividend_q3=dividend_q3,
+        dividend_year_end=dividend_year_end,
+        dividend_total_annual=dividend_total_annual,
+        average_shares=average_shares,
     )
 
 
@@ -144,9 +168,11 @@ def _edinet_metric_record(
     source_submit_datetime: str | None = "2026-04-01 12:00",
     source_period_start: date | None = date(2025, 4, 1),
     source_period_end: date | None = date(2026, 3, 31),
+    total_assets: float | None = None,
 ) -> EdinetMetricRecord:
     return EdinetMetricRecord(
         ticker=code,
+        total_assets=total_assets,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
         debt=debt,
@@ -188,7 +214,7 @@ class ScreeningMetricsTests(unittest.TestCase):
             )
         )
 
-        result = build_normalized_profit_signals(summaries, (), asof, close=200.0, current_eps=30.0)
+        result = build_normalized_profit_signals(summaries, (), asof, close=200.0)
 
         self.assertIsNone(result.normalized_per_3fy)
 
@@ -226,9 +252,7 @@ class ScreeningMetricsTests(unittest.TestCase):
                 eps_ttm=20.0,
             ),
         ]
-        split_safe = build_normalized_profit_signals(
-            summaries, bars, asof, close=100.0, current_eps=20.0
-        )
+        split_safe = build_normalized_profit_signals(summaries, bars, asof, close=100.0)
         loss_mean = build_normalized_profit_signals(
             [
                 replace(summary, eps_ttm=value)
@@ -237,7 +261,6 @@ class ScreeningMetricsTests(unittest.TestCase):
             (),
             asof,
             close=100.0,
-            current_eps=10.0,
         )
 
         self.assertAlmostEqual(split_safe.normalized_per_3fy or 0.0, 5.0)
@@ -400,9 +423,57 @@ class ScreeningMetricsTests(unittest.TestCase):
 
         result = build_shareholder_return_change_signals(summaries, bars, asof)
 
+        # 分割は FY2024 の accrual 期間 (2023-05-10〜2024-05-10) に入る。その年度の
+        # 44 円が分割前基準か後かは支払ごとの基準日を見ないと言えないので、増配とも
+        # 減配とも判定しない。株数側の signal は配当と独立なので残る。
+        self.assertIsNone(result.dps_streak_up)
+        self.assertIsNone(result.dps_yoy_latest)
+        self.assertEqual(result.share_count_reduction_streak, 1)
+
+    def test_shareholder_return_change_normalizes_splits_after_the_last_disclosure(self) -> None:
+        # 分割が最新の通期開示より後なら、どの年度の accrual 期間にも入らない。各行は
+        # 正規化で asof 基準へ揃うので、増配 streak と YoY はそのまま出る。
+        asof = date(2026, 6, 30)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=date(2025, 6, 10),
+                close=50.0,
+                turnover_value=1_000_000.0,
+                adjustment_factor=0.5,
+            )
+        ]
+        summaries = [
+            _summary(
+                "130A",
+                date(2023, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2023, 3, 31),
+                dps_actual_annual=40.0,
+                shares_outstanding=100.0,
+            ),
+            _summary(
+                "130A",
+                date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                dps_actual_annual=44.0,
+                shares_outstanding=200.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                dps_actual_annual=48.0,
+                shares_outstanding=190.0,
+            ),
+        ]
+
+        result = build_shareholder_return_change_signals(summaries, bars, asof)
+
         self.assertTrue(result.dps_streak_up)
         self.assertAlmostEqual(result.dps_yoy_latest or 0.0, (24.0 / 22.0) - 1.0)
-        self.assertEqual(result.share_count_reduction_streak, 1)
 
     def test_build_metrics_excludes_future_bars_from_history(self) -> None:
         """look-ahead bias regression guard: bars after asof must not influence derived metrics."""
@@ -927,12 +998,14 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertEqual(financial.bs_carry_forward_lag_days, 190)
 
     def test_split_crossing_composition_normalizes_per_share_basis(self) -> None:
-        """分割を跨ぐ TTM 合成・YoY・株数変化は、行を asof 基準へ正規化してから行う。
+        """分割を跨ぐ YoY・株数変化は、行を asof 基準へ正規化してから行う。
 
         1911 型の再現: 前年 Q1 (分割前基準 eps 98.65・株数 206M) → 1:3 分割
-        (factor 1/3) → 通期・直近 Q1 は分割後基準。正規化なしだと合成 EPS が
-        27.33+174.13-98.65=102.81 (per_trailing 過大)、net_share_change_yoy が
-        +200% の偽希薄化になる。正規化後は 98.65 x 1/3 = 32.88 を引く。
+        (factor 1/3) → 通期・直近 Q1 は分割後基準。正規化なしだと eps_yoy が
+        27.33/98.65 の偽減益、net_share_change_yoy が +200% の偽希薄化になる。
+
+        trailing 倍率は円で合成するので分割 factor を必要としない。円の利益額は分割で
+        動かず、1 株当たりへの換算は最後に 1 回だけ行うためである。
         """
         asof = date(2026, 7, 1)
         security = _security()
@@ -989,9 +1062,13 @@ class ScreeningMetricsTests(unittest.TestCase):
         )
         financial = result.financials["130A"]
         normalized_prior_q1 = 98.65 / 3.0
-        expected_eps_ttm = 27.33 + 174.13 - normalized_prior_q1
+        expected_profit_ttm = 27.33 * 618_555_804.0 + 174.13 * 618_555_804.0 - 98.65 * 206_068_168.0
         assert financial.per_trailing is not None
-        self.assertAlmostEqual(financial.per_trailing, 1328.0 / expected_eps_ttm, places=4)
+        self.assertAlmostEqual(
+            financial.per_trailing,
+            (1328.0 * 618_555_804.0) / expected_profit_ttm,
+            places=6,
+        )
         # eps_yoy は正規化済み累計同士 (27.33 vs 32.88) の比較になる。
         assert financial.eps_yoy is not None
         self.assertAlmostEqual(financial.eps_yoy, 27.33 / normalized_prior_q1 - 1.0, places=4)
@@ -1055,6 +1132,309 @@ class ScreeningMetricsTests(unittest.TestCase):
         assert financial.per_trailing is not None
         self.assertAlmostEqual(financial.per_trailing, latest_close / expected_eps_ttm, places=5)
         self.assertEqual(financial.ttm_quality_per_trailing.value, "exact")
+
+    def test_ttm_composition_survives_a_share_count_change_between_periods(self) -> None:
+        """株数が期をまたいで動いた会社でも trailing 収益は合成できる。
+
+        4502 型の再現: 買収の新株発行で株数が 783M -> 961M (期中平均) -> 1,556M と動いた
+        3 期。1 株当たりで合成すると各項の分母が違うため
+        21.32 + 113.50 - 161.76 = -26.94 となり、黒字の会社が赤字に見えて収益 anchor を
+        失う。円で合成すれば分母は 1 つで、実際の TTM 純利益が出る。
+        """
+        asof = date(2019, 11, 15)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        prior_same_shares, prior_fy_shares, latest_shares = (
+            783_061_325.0,
+            961_462_555.0,
+            1_556_472_795.0,
+        )
+        summaries = [
+            _summary(
+                "130A",
+                date(2018, 10, 31),
+                eps_ttm=161.76,
+                shares_outstanding=prior_same_shares,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2019, 3, 31),
+                period_start=date(2018, 4, 1),
+                period_end=date(2018, 9, 30),
+            ),
+            _summary(
+                "130A",
+                date(2019, 5, 14),
+                eps_ttm=113.5,
+                shares_outstanding=prior_fy_shares,
+                fiscal_period="FY",
+                fiscal_year_end=date(2019, 3, 31),
+                period_start=date(2018, 4, 1),
+                period_end=date(2019, 3, 31),
+            ),
+            _summary(
+                "130A",
+                date(2019, 10, 31),
+                eps_ttm=21.32,
+                shares_outstanding=latest_shares,
+                fiscal_period="2Q",
+                fiscal_year_end=date(2020, 3, 31),
+                period_start=date(2019, 4, 1),
+                period_end=date(2019, 9, 30),
+            ),
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        self.assertLess(21.32 + 113.5 - 161.76, 0.0)
+        expected_profit_ttm = (
+            21.32 * latest_shares + 113.5 * prior_fy_shares - 161.76 * prior_same_shares
+        )
+        self.assertGreater(expected_profit_ttm, 0.0)
+        assert financial.eps is not None
+        self.assertAlmostEqual(financial.eps, expected_profit_ttm / latest_shares, places=6)
+        latest_close = 100.0 + 29
+        assert financial.per_trailing is not None
+        self.assertAlmostEqual(
+            financial.per_trailing,
+            (latest_close * latest_shares) / expected_profit_ttm,
+            places=6,
+        )
+
+    def test_disclosures_after_the_asof_date_do_not_reach_the_snapshot(self) -> None:
+        """較正リプレイは過去の断面を作り直す。発表前の決算が 1 行混ざれば全部が偽になる。
+
+        bar は `_latest_bar_on_or_before` が切るので、開示行だけ呼び出し側任せにすると
+        「未発表の好決算で割安に見える」行ができる。
+        """
+        asof = date(2026, 3, 31)
+        security = _security()
+        bars = _daily_bars("130A", asof, 60)
+        disclosed = _summary(
+            "130A",
+            date(2026, 3, 1),
+            eps_ttm=10.0,
+            shares_outstanding=100_000_000.0,
+            treasury_shares=0.0,
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2026, 3, 31),
+        )
+        undisclosed = replace(disclosed, disclosed_at=asof + timedelta(days=10), eps_ttm=99.0)
+
+        def snapshot(summaries: list[JQuantsFinancialSummary]) -> FinancialSnapshot:
+            return build_metrics(
+                asof_date=asof,
+                securities_by_ticker={"130A": security},
+                bars_by_ticker={"130A": bars},
+                summaries_by_ticker={"130A": summaries},
+                edinet_by_ticker={},
+            ).financials["130A"]
+
+        without = snapshot([disclosed])
+        with_future = snapshot([disclosed, undisclosed])
+        self.assertEqual(with_future.latest_disclosed_at, date(2026, 3, 1))
+        self.assertEqual(with_future.eps, without.eps)
+        self.assertEqual(with_future.per_trailing, without.per_trailing)
+
+    def test_ttm_composition_refuses_per_share_fields(self) -> None:
+        """`直近累計 + 前期通期 - 前年同期間累計` は円の総額でしか成立しない。
+
+        各項が自分の期の株数で割られていると和・差が成立せず、株数が動いた会社で黒字が
+        赤字に見える。呼び出し側の誤りとして受け付けない。
+        """
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+            )
+        ]
+        rules = load_screening_rules()
+        for field in ("eps_ttm", "bps", "dps_actual_annual", "forecast_eps"):
+            with self.subTest(field=field), self.assertRaises(ValueError) as caught:
+                _ttm_value(summaries, field, rules.ttm)
+            self.assertIn("per share", str(caught.exception))
+        # 円の総額は通る。
+        value, quality = _ttm_value(summaries, "profit", rules.ttm)
+        self.assertIsNotNone(value)
+        self.assertEqual(quality, TTMQuality.EXACT)
+
+    def _entity_scale_snapshot(self, edinet: EdinetMetricRecord) -> FinancialSnapshot:
+        asof = date(2026, 7, 1)
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": _daily_bars("130A", asof, 30)},
+            summaries_by_ticker={
+                "130A": [
+                    _summary(
+                        "130A",
+                        date(2026, 5, 15),
+                        eps_ttm=10.0,
+                        shares_outstanding=100_000_000.0,
+                        treasury_shares=0.0,
+                        total_assets=10_000_000_000.0,
+                        fiscal_period="FY",
+                        fiscal_year_end=date(2026, 3, 31),
+                        period_start=date(2025, 4, 1),
+                        period_end=date(2026, 3, 31),
+                    )
+                ]
+            },
+            edinet_by_ticker={"130A": edinet},
+        )
+        return result.financials["130A"]
+
+    def test_edinet_values_are_refused_when_they_describe_another_entity(self) -> None:
+        """8253 型の再現: 単体の貸借対照表を連結の時価総額と組み合わせない。
+
+        抽出器が 1 つの書類を単体基準で読むと、負債・現金・EBITDA が親会社単独の値に
+        なる。時価総額と TTM 系列は短信由来なので、比率の分子と分母が別の会社を指す。
+        実データでは総資産が 1/1000 になる行がある。両側が総資産を持つので照合できる。
+        """
+        financial = self._entity_scale_snapshot(
+            _edinet_metric_record(
+                "130A", total_assets=10_000_000.0, consolidation_basis="non_consolidated"
+            )
+        )
+        self.assertIsNone(financial.net_cash)
+        self.assertIsNone(financial.net_cash_to_market_cap)
+        self.assertIsNone(financial.debt)
+        self.assertIsNone(financial.cash)
+        self.assertIsNone(financial.ev_ebitda)
+        self.assertEqual(financial.ttm_quality_ev_ebitda, TTMQuality.UNAVAILABLE)
+        assert financial.edinet_failure_reasons is not None
+        self.assertIn("entity_scale_mismatch", financial.edinet_failure_reasons)
+        # 実体を判断するための出所は残す。落としたのは値であって記録ではない。
+        self.assertEqual(financial.edinet_source_doc_id, "S100TEST")
+        self.assertEqual(financial.consolidation_basis, "non_consolidated")
+        # 短信由来の指標は残り、銘柄は母集団に留まる。
+        self.assertIsNotNone(financial.market_cap)
+        self.assertIsNotNone(financial.per_trailing)
+
+    def test_edinet_values_survive_when_the_balance_sheets_agree(self) -> None:
+        # 同じ実体を指す行は素通しする。単体基準でも、総資産が一致すれば連結財務諸表を
+        # 持たない会社であって取り違えではない。
+        for basis in ("consolidated", "non_consolidated"):
+            with self.subTest(basis=basis):
+                financial = self._entity_scale_snapshot(
+                    _edinet_metric_record(
+                        "130A", total_assets=10_100_000_000.0, consolidation_basis=basis
+                    )
+                )
+                self.assertEqual(financial.debt, 300.0)
+                self.assertIsNotNone(financial.net_cash)
+                assert financial.edinet_failure_reasons is None or (
+                    "entity_scale_mismatch" not in financial.edinet_failure_reasons
+                )
+
+    def test_an_unverifiable_non_consolidated_record_is_refused(self) -> None:
+        # 総資産を持たない行は照合できない。単体基準の母集団は実測で 17.6% が桁でずれて
+        # おり、どれがずれているかを他の field では言えないので答えない。連結基準は照合
+        # できた全行が一致するため素通しする。
+        refused = self._entity_scale_snapshot(
+            _edinet_metric_record("130A", total_assets=None, consolidation_basis="non_consolidated")
+        )
+        self.assertIsNone(refused.debt)
+        kept = self._entity_scale_snapshot(
+            _edinet_metric_record("130A", total_assets=None, consolidation_basis="consolidated")
+        )
+        self.assertEqual(kept.debt, 300.0)
+
+    def test_price_over_eps_equals_the_trailing_multiple(self) -> None:
+        """同じ語が 2 つの値を指さない: `market_price_yen / eps` は `per_trailing` に一致する。
+
+        eps は時価総額と同じ資本分母 (発行済 - 自己株) で組み直した値なので、この等式は
+        自己株式を積み上げた会社でも成立する。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=40.0,
+                shares_outstanding=100_000_000.0,
+                treasury_shares=30_000_000.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+            )
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        assert financial.eps is not None
+        assert financial.per_trailing is not None
+        assert financial.market_price_yen is not None
+        assert financial.market_cap is not None
+        self.assertAlmostEqual(
+            financial.market_price_yen / financial.eps, financial.per_trailing, places=9
+        )
+        # 報告 1 株当たり当期純利益は期中平均株式数が分母なので、期末の資本分母で組み直した
+        # eps とは一致しなくてよい。倍率の分母は時価総額と揃っている側である。
+        self.assertAlmostEqual(financial.eps, 40.0, places=9)
+
+    def test_accruals_use_the_reported_profit_line_not_a_share_count_product(self) -> None:
+        """accruals の純利益は報告値。1 株当たり x 発行済株数で作らない。
+
+        自己株式を 30% 積み上げた会社では、発行済株数を掛けた再構成が純利益を 1.43 倍に
+        し、accruals が 0.04 から 0.09 へ動く。判定はこの水準で行うので、再構成の誤差だけ
+        で earnings-quality の結論が変わる。
+        """
+        asof = date(2026, 7, 1)
+        security = _security()
+        bars = _daily_bars("130A", asof, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2026, 5, 15),
+                eps_ttm=10.0,
+                shares_outstanding=100_000_000.0,
+                treasury_shares=30_000_000.0,
+                cfo=100_000_000.0,
+                total_assets=10_000_000_000.0,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                period_end=date(2026, 3, 31),
+            )
+        ]
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": security},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        )
+        financial = result.financials["130A"]
+        reported_profit = 10.0 * (100_000_000.0 - 30_000_000.0)
+        assert financial.accruals_to_assets is not None
+        self.assertAlmostEqual(
+            financial.accruals_to_assets,
+            (reported_profit - 100_000_000.0) / 10_000_000_000.0,
+            places=9,
+        )
+        reconstructed = 10.0 * 100_000_000.0
+        self.assertNotAlmostEqual(
+            financial.accruals_to_assets,
+            (reconstructed - 100_000_000.0) / 10_000_000_000.0,
+            places=3,
+        )
 
     def test_per_trailing_is_null_when_ttm_composition_unavailable(self) -> None:
         """前期通期・前年同期間が無く合成できないときは per_trailing を出さない。"""
@@ -1798,10 +2178,14 @@ class MedianPopulationTests(unittest.TestCase):
             ]
 
         def summary(code: str, eps: float) -> JQuantsFinancialSummary:
+            shares = 1e8
             return JQuantsFinancialSummary(
                 ticker=code,
                 disclosed_at=_date(2026, 2, 1),
                 eps_ttm=eps,
+                profit=eps * shares,
+                shares_outstanding=shares,
+                treasury_shares=0.0,
                 type_of_current_period="FY",
                 period_start=_date(2025, 1, 1),
                 period_end=_date(2025, 12, 31),
@@ -1840,6 +2224,105 @@ class MedianPopulationTests(unittest.TestCase):
         # median would shift the baseline and lower the gap.
         self.assertAlmostEqual(gap, 9.0, places=6)
 
+    def _two_sector_metrics(self) -> MetricBuildResult:
+        """A thick sector at PER 10 and a thin one at PER 4, priced by the same close.
+
+        The market median is 10 because the thick sector outnumbers the thin one, so the
+        thin sector's own median (4) and the market's (10) disagree. Whichever baseline
+        answers is then readable from the gap alone, and the basis label has to agree
+        with it.
+        """
+        from datetime import date as _date
+        from datetime import timedelta
+
+        from baibai_engine.screening.metrics import build_metrics
+        from baibai_engine.screening.providers.jquants import (
+            JQuantsDailyBar,
+            JQuantsFinancialSummary,
+        )
+        from baibai_engine.screening.schema import SecurityMaster
+
+        asof = _date(2026, 4, 24)
+        shares = 1e8
+
+        def bars(code: str) -> list[JQuantsDailyBar]:
+            return [
+                JQuantsDailyBar(
+                    ticker=code,
+                    traded_at=asof - timedelta(days=30 - index),
+                    close=100.0,
+                    turnover_value=2.0e8,
+                )
+                for index in range(30)
+            ]
+
+        def summary(code: str, eps: float) -> JQuantsFinancialSummary:
+            return JQuantsFinancialSummary(
+                ticker=code,
+                disclosed_at=_date(2026, 2, 1),
+                eps_ttm=eps,
+                profit=eps * shares,
+                shares_outstanding=shares,
+                treasury_shares=0.0,
+                type_of_current_period="FY",
+                period_start=_date(2025, 1, 1),
+                period_end=_date(2025, 12, 31),
+            )
+
+        thick = {f"11{index:02d}": "機械" for index in range(12)}
+        thin = {f"22{index:02d}": "海運業" for index in range(3)}
+        securities = {
+            code: SecurityMaster(
+                code=code,
+                name=f"name-{code}",
+                market_segment="プライム",
+                sector_33=sector,
+                is_common_stock=True,
+            )
+            for code, sector in (thick | thin).items()
+        }
+        summaries = {
+            code: [summary(code, eps=10.0 if code in thick else 25.0)] for code in securities
+        }
+        return build_metrics(
+            asof_date=asof,
+            securities_by_ticker=securities,
+            bars_by_ticker={code: bars(code) for code in securities},
+            summaries_by_ticker=summaries,
+            edinet_by_ticker={},
+            median_population=frozenset(securities),
+        )
+
+    def test_a_sector_above_the_floor_is_compared_against_itself(self) -> None:
+        result = self._two_sector_metrics()
+        derived = result.derived["1100"]
+        self.assertEqual(derived.sector_median_basis["per_trailing"], "sector")
+        self.assertAlmostEqual(derived.sector_median_value["per_trailing"], 10.0, places=6)
+        # Its own sector answers, so a name at the sector's own multiple has no gap.
+        self.assertAlmostEqual(derived.sector_median_gap["per_trailing"], 0.0, places=6)
+
+    def test_an_axis_with_no_baseline_at_all_records_no_basis(self) -> None:
+        # EV/EBITDA needs an EDINET figure the fixture does not supply, so neither the
+        # sector nor the market can answer. Writing "market" there would put every row of
+        # a market-wide blank axis alongside the rows that genuinely fell through, and the
+        # two are not the same observation.
+        result = self._two_sector_metrics()
+        derived = result.derived["1100"]
+        self.assertIsNone(derived.sector_median_value["ev_ebitda"])
+        self.assertNotIn("ev_ebitda", derived.sector_median_basis)
+        # The axes that did answer still carry theirs.
+        self.assertIn("per_trailing", derived.sector_median_basis)
+
+    def test_a_sector_below_the_floor_is_compared_against_the_market_and_says_so(self) -> None:
+        result = self._two_sector_metrics()
+        derived = result.derived["2200"]
+        self.assertEqual(derived.sector_median_basis["per_trailing"], "market")
+        # The market's 10, not the thin sector's own 4.
+        self.assertAlmostEqual(derived.sector_median_value["per_trailing"], 10.0, places=6)
+        # PER 4 against a baseline of 10 reads as 60% cheap, which is what sector
+        # composition alone produces here — the label is what separates the two readings.
+        self.assertAlmostEqual(derived.sector_median_gap["per_trailing"], -0.6, places=6)
+
 
 def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
     return JQuantsDailyBar(
@@ -1852,7 +2335,7 @@ def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
 
 
 class DividendCarryResolverTests(unittest.TestCase):
-    """carry 用配当利回りの基準解決 (予想優先・分割 factor 調整) を直接検証する。"""
+    """carry 用配当利回りの基準解決 (予想優先・基準が確定できない年度の拒否) を検証する。"""
 
     def test_prefers_forecast_over_actual(self) -> None:
         # 予想 DPS があれば実績より優先し、分割後基準の予想で利回りを出す。
@@ -1870,10 +2353,52 @@ class DividendCarryResolverTests(unittest.TestCase):
         assert carry.dividend_yield is not None
         self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
 
-    def test_adjusts_fiscal_boundary_split_actual_when_no_forecast(self) -> None:
-        # 通期実績 DPS が accrual 期間内・開示前の分割前基準のまま、株価は分割後。
-        # 予想が無くても accrual 期間 (前期実績開示〜当期実績開示) の分割 factor で
-        # 実績を分割後基準へ寄せ、分割前配当 x 分割後株価の膨張利回りを拒否する。
+    def test_a_withdrawn_forecast_does_not_outrank_a_newer_actual(self) -> None:
+        """8798 型の再現: 無配化した会社に、取り下げ前の予想の利回りを付けない。
+
+        2024-09 に予想 17.5 を出したあと 4 期連続赤字で無配になり、2025-11 の通期実績は
+        0.0、以降の提出に予想は無い。予想を無制限に遡ると 130 円の株に 13.46%/年の carry
+        が付き、reversion 上限 (5%/年) を単独で超えて E[r] 降順の最上位へ出る。
+        """
+        summaries = [
+            _summary("8798", date(2024, 9, 18), dps_forecast_annual=17.5),
+            _summary("8798", date(2025, 11, 27), dps_actual_annual=0.0),
+            _summary("8798", date(2026, 2, 13)),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=130.0, asof_date=date(2026, 8, 11)
+        )
+        self.assertIsNone(carry.dividend_yield)
+        self.assertIsNone(carry.dps_forecast_annual)
+        self.assertEqual(carry.basis, "unavailable")
+
+    def test_a_forecast_newer_than_the_actual_still_answers(self) -> None:
+        # 鮮度境界は予想を弱めない。実績より後に出た予想はそのまま carry になる。
+        summaries = [
+            _summary("8798", date(2025, 11, 27), dps_actual_annual=0.0),
+            _summary("8798", date(2026, 2, 13), dps_forecast_annual=6.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=130.0, asof_date=date(2026, 8, 11)
+        )
+        self.assertEqual(carry.basis, "forecast_annual")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 6.0 / 130.0, places=9)
+
+    def test_a_forecast_answers_before_any_actual_is_disclosed(self) -> None:
+        # 上書きすべき実績が 1 つも無い銘柄 (実績開示前の新規上場) は予想をそのまま使う。
+        summaries = [_summary("130A", date(2026, 5, 15), dps_forecast_annual=12.0)]
+        carry = _resolve_dividend_carry(
+            summaries, [], latest_price=600.0, asof_date=date(2026, 8, 11)
+        )
+        self.assertEqual(carry.basis, "forecast_annual")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 12.0 / 600.0, places=9)
+
+    def test_refuses_the_actual_yield_when_a_split_falls_in_the_accrual_window(self) -> None:
+        # 分割が期末に重なる形。期末配当の基準日は分割の効力発生日より前なので実績 DPS は
+        # 分割前基準だが、権利落ち日しか持たない store からはそれを言えない。基準が確定
+        # できない年度は利回りを出さず、判別できなかった factor だけを事実として残す。
         summaries = [
             _summary("5445", date(2026, 5, 7), dps_actual_annual=300.0, dps_forecast_annual=None),
             _summary("5445", date(2025, 5, 7), dps_actual_annual=375.0, dps_forecast_annual=None),
@@ -1884,15 +2409,334 @@ class DividendCarryResolverTests(unittest.TestCase):
             latest_price=1911.0,
             asof_date=date(2026, 7, 10),
         )
-        self.assertEqual(carry.basis, "actual_split_adjusted")
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+        self.assertIsNone(carry.dps_actual_annual)
         assert carry.split_factor is not None
         self.assertAlmostEqual(carry.split_factor, 1.0 / 3.0, places=6)
-        assert carry.dps_actual_annual is not None
-        self.assertAlmostEqual(carry.dps_actual_annual, 100.0, places=6)
+
+    def test_refuses_the_actual_yield_when_a_consolidation_falls_in_the_accrual_window(
+        self,
+    ) -> None:
+        # 逆向き。併合後に開示された実績 DPS を併合 factor で膨らませると、株価に対して
+        # 桁違いの利回りになる。こちらも基準を確定できないので出さない。
+        summaries = [
+            _summary("1491", date(2026, 5, 15), dps_actual_annual=34.0, dps_forecast_annual=None),
+            _summary("1491", date(2025, 5, 15), dps_actual_annual=1.5, dps_forecast_annual=None),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("1491", date(2025, 9, 29), 20.0)],
+            latest_price=785.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+        assert carry.split_factor is not None
+        self.assertAlmostEqual(carry.split_factor, 20.0, places=6)
+
+    def test_resolves_a_consolidation_that_precedes_every_payment(self) -> None:
+        # 1491 の形。20:1 併合が期中に起き、当期の配当は期末 1 回だけ。基準日 2026-03-31 は
+        # 併合より後なので報告値 34 は既に併合後の株式基準にある。支払ごとに換算すると
+        # 掛かる調整が無く、株価と同じ基準の 34 がそのまま出る。
+        summaries = [
+            _summary(
+                "1491",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=34.0,
+                dividend_year_end=34.0,
+            ),
+            _summary("1491", date(2025, 5, 15), dps_actual_annual=1.5),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("1491", date(2025, 9, 29), 20.0)],
+            latest_price=785.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
         assert carry.dividend_yield is not None
-        self.assertAlmostEqual(carry.dividend_yield, 100.0 / 1911.0, places=6)
-        # negative assertion: 分割前実績 300 を分割後株価で割った ~15.7% を出さない。
-        self.assertLess(carry.dividend_yield, 0.08)
+        self.assertAlmostEqual(carry.dividend_yield, 34.0 / 785.0, places=6)
+        # negative assertion: 併合 factor を掛けた 680 円で 86.6% を出さない。
+        self.assertLess(carry.dividend_yield, 0.10)
+
+    def test_resolves_a_row_the_asof_normalisation_already_rewrote(self) -> None:
+        """The shape production always hands over: a row already moved to the as-of basis.
+
+        `dps_actual_annual` is rewritten by the as-of normalisation while the payment
+        details stay as disclosed, so comparing the two raw reads back the conversion
+        factor rather than a missing detail. A year with any adjustment after its
+        disclosure would be refused, taking its dividend growth signal with it.
+        """
+        summaries = [
+            _summary(
+                "3399",
+                date(2025, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                period_start=date(2024, 4, 1),
+                dps_actual_annual=100.0,
+                dividend_interim=40.0,
+                dividend_year_end=60.0,
+            ),
+            _summary("3399", date(2024, 5, 15), dps_actual_annual=80.0),
+        ]
+        bars = [
+            # Inside the accrual window, clear of both record dates.
+            _split_bar("3399", date(2024, 12, 15), 0.5),
+            # After the disclosure: this is the one the normalisation folds into
+            # `dps_actual_annual` and the detail sum never sees.
+            _split_bar("3399", date(2025, 10, 1), 0.5),
+        ]
+        asof = date(2026, 8, 10)
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, asof)
+        self.assertAlmostEqual(normalized[0].dps_actual_annual or 0.0, 50.0, places=6)
+        self.assertEqual(normalized[0].dividend_interim, 40.0)
+
+        carry = _resolve_dividend_carry(normalized, bars, latest_price=1000.0, asof_date=asof)
+
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
+        assert carry.dividend_yield is not None
+        # 40 paid on the pre-2024-12-15 basis (x0.25) plus 60 on the pre-2025-10-01
+        # basis (x0.5) is 40 yen at the as-of basis.
+        self.assertAlmostEqual(carry.dividend_yield, 40.0 / 1000.0, places=6)
+
+    def test_resolves_an_interim_only_payer_whose_split_came_after_the_record_date(self) -> None:
+        # 4626 の形。当期の配当は中間 1 回だけで、基準日 2025-09-30 より後に 1:2 分割。
+        # その支払は分割前の株数で払われたので、株価と比べるには 0.5 を掛ける。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 4, 30),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=165.0,
+                dividend_interim=165.0,
+            ),
+            _summary("4626", date(2025, 4, 30), dps_actual_annual=190.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 11, 27), 0.5)],
+            latest_price=4827.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 82.5 / 4827.0, places=6)
+
+    def test_refuses_when_the_split_lands_beside_a_record_date(self) -> None:
+        # 1909 の形。権利落ちが 2026-03-30 で期末配当の基準日 2026-03-31 の前日に並ぶ。
+        # 効力発生日を持たない store からは、その配当が分割の前の株数で払われたのか後なのか
+        # を決められない。中間ぶんだけ換算して足すと 63.75 になり、正の 22.5 と 3 倍近く違う。
+        summaries = [
+            _summary(
+                "1909",
+                date(2026, 5, 13),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=90.0,
+                dividend_interim=35.0,
+                dividend_year_end=55.0,
+            ),
+            _summary("1909", date(2025, 5, 13), dps_actual_annual=70.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("1909", date(2026, 3, 30), 0.25)],
+            latest_price=3705.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+
+    def test_refuses_when_the_paid_amount_contradicts_the_payment_detail(self) -> None:
+        # 総額は円なので株式基準を持たない。支払ごとの換算と食い違うなら、どちらかが別の
+        # 株式基準を見ている。どちらが正しいかを機械が決められないので答えない。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 4, 30),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=165.0,
+                dividend_interim=165.0,
+                # 82.5 円/株になるはずのところ、総額は 165 円/株ぶんを示している。
+                dividend_total_annual=165.0 * 1_000_000.0,
+                shares_outstanding=1_000_000.0,
+                treasury_shares=0.0,
+                average_shares=1_000_000.0,
+            ),
+            _summary("4626", date(2025, 4, 30), dps_actual_annual=190.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 11, 27), 0.5)],
+            latest_price=4827.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dividend_yield)
+
+    def test_a_broken_share_count_does_not_veto_the_payment_detail(self) -> None:
+        # 8097 の形。feed が自己株式数の欄に株数そのものを入れており、自己株控除後株式数が
+        # 期中平均から 2 桁ずれる。この株数で総額を割った値は照合に使えないので、支払ごとの
+        # 換算をその値で否定しない。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 4, 30),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=165.0,
+                dividend_interim=165.0,
+                dividend_total_annual=82.5 * 1_000_000.0,
+                shares_outstanding=1_000_000.0,
+                treasury_shares=990_000.0,
+                average_shares=1_000_000.0,
+            ),
+            _summary("4626", date(2025, 4, 30), dps_actual_annual=190.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 11, 27), 0.5)],
+            latest_price=4827.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "actual_record_date_resolved")
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 82.5 / 4827.0, places=6)
+
+    def test_a_same_year_correction_does_not_collapse_the_detection_window(self) -> None:
+        # 判別窓の起点は当期会計期間の開始日。前期開示日を起点にすると、同一年度の訂正開示が
+        # 直前に来た行で窓が 2 日へ縮み、窓内の分割が窓の外へ出て報告値がそのまま通る。
+        summaries = [
+            _summary(
+                "3382",
+                date(2024, 4, 12),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 2, 29),
+                period_start=date(2023, 3, 1),
+                dps_actual_annual=113.0,
+                dividend_interim=56.5,
+                dividend_year_end=56.5,
+            ),
+            _summary(
+                "3382",
+                date(2024, 4, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 2, 29),
+                period_start=date(2023, 3, 1),
+                dps_actual_annual=113.0,
+            ),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("3382", date(2024, 2, 28), 1.0 / 3.0)],
+            latest_price=2000.0,
+            asof_date=date(2024, 6, 30),
+        )
+        self.assertNotEqual(carry.basis, "actual_reported")
+        self.assertIsNone(carry.dividend_yield)
+
+    def test_a_year_with_no_dividend_is_answered_even_across_a_split(self) -> None:
+        # 0 円は何倍しても 0 円なので、無配の年度に確定すべき株式基準は無い。ここを拒否に
+        # 倒すと、分割を出す無配銘柄が利回りだけでなく E[r] ごと判断面から消える。
+        summaries = [
+            _summary(
+                "7369",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=0.0,
+            ),
+            _summary("7369", date(2025, 5, 15), dps_actual_annual=0.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("7369", date(2025, 10, 1), 0.5)],
+            latest_price=1000.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertNotEqual(carry.basis, "unresolved_split_basis")
+
+    def test_refuses_when_the_payment_detail_does_not_add_up_to_the_reported_year(self) -> None:
+        # feed は明細を一部だけ返すことがある。調整前の合計が報告年間値と合わない行は真値の
+        # 一部しか持たないので、換算しても真値の一部にしかならない。総額が無い行では総額
+        # veto も効かないため、ここで止めないと過小な値が「解決済み」として出る。
+        summaries = [
+            _summary(
+                "4626",
+                date(2026, 5, 15),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=60.0,
+                dividend_year_end=30.0,
+            ),
+            _summary("4626", date(2025, 5, 15), dps_actual_annual=50.0),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("4626", date(2025, 10, 1), 0.5)],
+            latest_price=1000.0,
+            asof_date=date(2026, 8, 10),
+        )
+        self.assertEqual(carry.basis, "unresolved_split_basis")
+        self.assertIsNone(carry.dps_actual_annual)
+
+    def test_the_share_anchor_is_normalized_with_the_share_count_it_checks(self) -> None:
+        # 期中平均株式数は株数なので、asof 基準への正規化で `発行済` と同じ換算を受ける。
+        # 受けないと比が factor 倍ずれ、健全性 gate が veto の最も要る
+        # 母集団 (開示より後に分割がある行) でだけ静かに外れる。
+        row = _summary(
+            "4626",
+            date(2026, 4, 30),
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 3, 31),
+            shares_outstanding=1_000_000.0,
+            treasury_shares=0.0,
+            average_shares=1_000_000.0,
+        )
+        (normalized,) = _normalize_summaries_to_asof_basis(
+            [row],
+            [_split_bar("4626", date(2026, 6, 1), 1.0 / 3.0)],
+            date(2026, 8, 10),
+        )
+        assert normalized.shares_outstanding is not None
+        assert normalized.average_shares is not None
+        self.assertAlmostEqual(normalized.shares_outstanding, 3_000_000.0, places=3)
+        self.assertAlmostEqual(normalized.average_shares, 3_000_000.0, places=3)
+        # negative assertion: 生のまま残ると比が 3.0 になり 2.0 gate を外れる。
+        self.assertAlmostEqual(
+            normalized.shares_outstanding / normalized.average_shares, 1.0, places=6
+        )
+
+    def test_forecast_still_answers_when_the_actual_basis_is_unresolved(self) -> None:
+        # 予想 DPS は分割を跨ぐ行で正規化が None へ落とすので、残っていれば基準が揃って
+        # いる。実績側が確定できなくても carry は予想で組める。
+        summaries = [
+            _summary("5445", date(2026, 5, 7), dps_actual_annual=300.0, dps_forecast_annual=40.0),
+            _summary("5445", date(2025, 5, 7), dps_actual_annual=375.0, dps_forecast_annual=None),
+        ]
+        carry = _resolve_dividend_carry(
+            summaries,
+            [_split_bar("5445", date(2026, 3, 30), 1.0 / 3.0)],
+            latest_price=1911.0,
+            asof_date=date(2026, 7, 10),
+        )
+        self.assertEqual(carry.basis, "forecast_annual")
+        self.assertIsNone(carry.dps_actual_annual)
+        assert carry.dividend_yield is not None
+        self.assertAlmostEqual(carry.dividend_yield, 40.0 / 1911.0, places=6)
 
     def test_uses_actual_reported_when_no_split_and_no_forecast(self) -> None:
         summaries = [

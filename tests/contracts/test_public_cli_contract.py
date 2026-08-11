@@ -166,6 +166,8 @@ def test_select_cli_emits_stable_yaml_shape(
         "dps_actual_annual",
         "dps_forecast_annual",
         "dividend_yield",
+        "dividend_basis",
+        "dividend_split_factor",
         "buyback_authorization_status",
         "buyback_status_latest_filing_date",
         "buyback_status_filing_age_days",

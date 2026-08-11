@@ -326,7 +326,6 @@ def run_command(
             normalized_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=financial.market_price_yen,
-            current_eps=financial.eps,
         )
         screened_candidates.append(
             build_screened_candidate(

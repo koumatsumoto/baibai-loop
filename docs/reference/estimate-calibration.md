@@ -27,6 +27,8 @@ panel は cohort as-of 以下の最新 `eq_master` snapshot だけを読む。pr
 
 forward row は解決済み status（市場終値による `resolved`、成立した現金公開買付けによる `resolved_control_event_exit`）または明示的な unresolved status を持ち、`resolved` flag は前者 2 つと一致する。target と entry はそれぞれ target/as-of 以下の最終取引日で解決し、15 日超の stale exit は resolved return に入れない。価格は as-of basis adjustment factor で正規化するが、metric basis は `price_return_only` であり配当 accrual を加えない。entry 時点の配当利回りを horizon 年数で按分する固定 accrual は、期間中の増配・減配・無配・支払時期を観測した実現配当ではないため、実現値として扱わない。
 
+財務サマリーの購読窓は 10 年の移動窓であり、store が読み取りを許す最古の日付は日々進む。panel の履歴窓（正規化 EPS 2,200 日、株主還元 1,200 日）はこの下限で切られるので、下限に近い古い cohort ほど履歴が短く、必要な期数に届かない値は null で出る。窓が通り過ぎた行は table に残るが読まない。**下限は store が持つ最古の行ではなく coverage が答える範囲から取る。** 両者は同じ「履歴の始まり」を指しながら別の量であり、行の側を採ると source が出せない範囲を要求して全 cohort が構築不能になる。
+
 <a id="coverage-verdicts"></a>
 
 ### Coverage 判定の導出
@@ -96,6 +98,16 @@ cohort 比較（`tools.experiments.measure_signal_cohorts`）は `--basis price|
 
 buyback authorization の診断は `tools.experiments.measure_buyback_authorization` が production panel と forward store を read-only で結合する。Form 220 は提出日と報告月末がともに cohort as-of 以下の行だけを使い、`net_share_change_yoy` 単独、直近3報告月の取得ペース単独、終了済み carry を0にする composition を同じ resolved row で比較する。3m / 6m は regression alert、1y は leading evidenceである。3y / 5y双方の全対象 identity が point-in-time source、resolved return、比較両群を満たすことは production 検討の必要条件にすぎず、artifact 自体は採用権限を持たない。production 変更は本書の事前登録・design/confirm・coverage gateを別途通す。処理状況の消却・従業員報酬/持株会・その他再放出は実行済み行を分類し、将来の取得目的とは呼ばない。source ZIP、既知の全 table category、明示的なゼロ行のいずれかが欠ける場合は目的なしでなく未観測にする。
 
+閾値座標 `playbook_thresholds` は、playbook が採用した銘柄と、同じ playbook の他条件をすべて満たしながらその閾値 1 本だけで落ちた銘柄の実現超過を並べる。落ちた側は `rules.threshold_blocks` が決める。判定は閾値を無効化した config で同じ playbook 判定関数を呼び直して得るので、条件の意味も null の扱いも `rules.py` の 1 か所にとどまり、座標側に書き写さない。2 本以上の閾値で落ちた行はどちらの閾値も選んでいないので、どちらの群にも入らない。欠損や除外業種で判定できない行も同様に入らないため、この座標は閾値の水準を測り、null 方針は測らない。cohort 横断では平均効果量と、採用側が上回った cohort の比率を出す。
+
+`gates` 座標は deterioration gate を割安 decile 内で通過群と非通過群に分けて測り、cohort 横断で同じ形の集計を持つ。
+
+`sector_median_basis` 座標は `smg_*` 軸を、業種中央値から作られた行と市場中央値へ落ちた行に分けて測る。素性は `PanelRow.smg_market_fallback` が持つ。落ちる業種は構造的に低倍率へ寄る側に集中するため、分けないと業種の割安と業種構成が同じ数字に混ざる。
+
+**群の水準と軸の効きは別の量として出す。** 落ちるかどうかは業種単位で決まるので市場側の群は業種の集合そのものであり、その中央値超過（`group_median_excess`）はその業種構成である。実データで各行の自業種中央値を引くと、市場側の水準は全軸・全 cohort で 0 になる。軸の効きは群の中を軸値で 2 分割した差（`axis_effect.median_excess_delta`）で測る。両側が同じ業種集合から引かれるので、構成が作れる差はごく小さい（業種内 shuffle null で +1.1〜+2.9pp、観測は +7.0〜+11.7pp、p=0.000）。市場側は 1 cohort あたり 50〜80 行で decile を組めないため `decile_spread_median` は出ないが、2 分割は分位あたり 15 行以上を保てるので両側で成立する。**`mean_axis_effect` は `stdev_axis_effect` と併せて読む。** 月末 as-of の 1y 窓は大きく重なるため独立な窓は年数程度しかなく、cohort 数だけ独立観測があるようには読めない。2 つの basis は名前の集合そのものが違うので、basis 間で `mean_axis_effect` を直接比べると軸の効きと 9 業種の振る舞いが混ざる。
+
+2 つの側は母数が違う。母数下限を割る業種は 9 つしかないので、cohort あたり自業種が数千行に対し市場側は 50 行前後になる。50 行の decile は 1 分位 5 件なので decile spread は標本が足りる cohort でのみ併記し、cohort 横断集計は spread を出した cohort 数 (`spread_cohorts`) を cohort 数と別に持つ。spread が出せなかったことと効果が無かったことを混同させないためである。群統計 (n / median / mean / trap rate) はその群が何だったかを記述するが、比較はしない。比較は上記の `axis_effect` が担う。
+
 `er_level_calibration` は E[r] 合計の絶対年率と、実績 FY 配当を加えた実現 total return の絶対年率を `er_annual` quintile ごとに比較する。実現配当は `entry_date < fiscal_year_end <= exit_date` の FY 行を対象に、同じ FY の最新 non-null `DivAnn` を forward store の最終 bar 株式基準へ正規化して合算する。対象 FY 行なし、`DivAnn` 欠損、adjustment factor 不完全は 0 円とせず total-return 側を unresolved にする。明示された `DivAnn == 0` は観測済み無配である。端の FY は月割りしないため、この座標は実際の中間・期末配当の権利落ち日を再現する cash-flow ledger ではない。
 
 Shortlist の判断面が読む最新文脈の正本は `reports/published/er-level-calibration-latest.yaml` である。`calibration-evaluate --context-out` が、production authority の成立した明示的な required scope だけから、3y / 5y の固定 E[r] quintile と独立した starter要求利回りfloor以上帯を生成する。各帯は実績 FY 配当込み total return を主 basis、price-only を副 basis とし、ticker-as-of 等重みの絶対年率 median / q25 / q10 / trap rate / n、cohort 等重みの同じ統計、median n、cohort 数を持つ。trap は同 cohort・同 basis の母集団累積return中央値より20pt以上劣後した観測である。3y / 5y の共通 cohort 窓は期間だけでなく同じ帯別分布も別に記録し、horizon差と期間差を混同しない。
@@ -110,7 +122,7 @@ forward row は price-only の `price_return` / `status` と、`realized_dividen
 
 `er_level_calibration`、`margin_short_to_adv`、`normalized_per_3fy` は production core metricではなくoptionalな既知metricである。各metricをproduction判断に使う事前登録済みrunは、core 3 metricと併せて対象を`--required-metric`へ明示する。
 
-cache schema version は `14`。panel は、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTM の `operating_profit_to_assets`・`operating_margin`・`asset_turnover` を記録する。収益性 level は calibration 専用で、production の candidate、E[r]、FV、rank、gate へ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。`rules_hash` は rules・variant・入力窓に加えて valuation calculation revision を含む。valuation の式・資本分母・価格基準が異なる panel は、method identity と cache schema の不一致で fail closed にする。
+cache schema version は `18`。panel は、production の730日財務入力を変えずに補助履歴から、3 FY の split-safe DPS、DPS YoY・予想増配・配当開始、グロス株数減少 streak と還元変化 composite、赤字を含む連続3/5 FYのsplit-safe平均EPSによる正規化PER、PIT-TTM の `operating_profit_to_assets`・`operating_margin`・`asset_turnover` を記録する。収益性 level は calibration 専用で、production の candidate、E[r]、FV、rank、gate へ渡さない。グロス株数減少は自己株取得の事実ではなく、消却・発行等の純変化 proxy である。`rules_hash` は rules・variant・入力窓に加えて valuation calculation revision を含む。valuation の式・資本分母・価格基準が異なる panel は、method identity と cache schema の不一致で fail closed にする。
 
 報告空売り残高の L1 は disclosure date と calculation date を分け、reporter 名tuple、ratio / shares / units、取消、provider row ordinalを保存する。panel の `reported_short_ratio` / `reported_short_breadth` / `reported_short_latest_disclosed_at` は両日が cohort as-of 以下の最新stateだけを集約する。公式 dataset floor から連続coverageを証明できる場合だけ無報告を明示的0とし、plan floor、coverage gap、同率最新stateの競合では該当値をnullにする。0は「0.5%未満または報告不在」であって空売り不存在を意味しない。この軸も calibration annotation 専用である。
 

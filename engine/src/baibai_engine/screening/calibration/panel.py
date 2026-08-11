@@ -29,6 +29,7 @@ from ..metrics import (
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
     VALUATION_CALCULATION_REVISION,
     VALUATION_HISTORY_SESSIONS,
+    VALUATION_METRICS,
     build_metrics,
     build_normalized_profit_signals,
     build_profitability_level_signals,
@@ -39,18 +40,23 @@ from ..metrics import (
 )
 from ..render import candidate_entry
 from ..rule_config import ScreeningRules
-from ..rules import evaluate_screening
-from ..schema import ScreenedCandidate, TTMQuality
+from ..rules import evaluate_screening, threshold_blocks
+from ..schema import SECTOR_MEDIAN_BASIS_MARKET, ScreenedCandidate, TTMQuality
 from ..selection import build_selection_payload
 from ..selection.records import candidate_record_from_mapping
 from ..sqlite_reader import (
+    fin_summaries_readable_from,
     read_edinet_metrics,
     read_eq_master_asof,
     read_fin_summaries,
     read_margin_supply_demand_inputs,
     read_reported_short_metrics,
 )
-from ..universe import ELIGIBLE_MARKETS, build_universe, liquid_median_population
+from ..universe import (
+    POLICY_EXCLUSION_REASONS,
+    build_universe,
+    liquid_median_population,
+)
 from .forward import STALE_PRICE_MAX_LAG_DAYS
 from .identity import rules_contract_hash
 
@@ -198,6 +204,16 @@ class PanelRow:
     operating_profit_to_assets: float | None = None
     operating_margin: float | None = None
     asset_turnover: float | None = None
+    # `smg_*` のうち、業種の母数が足りず市場中央値から作られた軸を `|` で並べる。
+    # 薄い業種は市場より低倍率へ寄るので、この素性が無いと gap の符号を業種の割安と
+    # 読むか業種構成と読むかを分けられない。metric 名は `metrics.VALUATION_METRICS`
+    # と同じ語彙。空文字は「自業種から答えた」と「そもそも軸を評価していない」の
+    # 両方を取るので、素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
+    smg_market_fallback: str = ""
+    # `<playbook>:<threshold>` を `|` で並べる。その playbook の他条件をすべて満たし、
+    # この閾値だけで落ちた行にだけ入る。閾値が選んだ相手はこの行なので、通した群と
+    # 並べれば閾値の水準そのものを実現値で測れる。判定は `rules.threshold_blocks`。
+    threshold_blocks: str = ""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -280,7 +296,7 @@ def build_panel(
     securities = list(master_read.masters)
     if not securities:
         return _unavailable_master_panel(asof_date, rules, master_read.status, policy=policy)
-    bars_floor, fin_floor = _coverage_floors(sqlite_path)
+    bars_floor, fin_floor = _coverage_floors(sqlite_path, asof_date)
     bars_start = max(bars_floor, asof_date - timedelta(days=policy.bars_input_window_days))
     fin_start = max(fin_floor, asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS))
     return_history_start = max(
@@ -353,6 +369,7 @@ def build_panel(
     )
 
     evidence_by_ticker: dict[str, tuple[str, ...]] = {}
+    blocks_by_ticker: dict[str, tuple[str, ...]] = {}
     candidates: list[ScreenedCandidate] = []
     for ticker in sorted(universe_result.snapshots):
         result = evaluate_screening(
@@ -364,6 +381,15 @@ def build_panel(
 
         if result.pass_fail:
             evidence_by_ticker[ticker] = tuple(hit.name for hit in result.evidence_hits)
+        # Every row, not just the rejected ones: a name the screen took on one playbook
+        # can still be the counterfactual another playbook's threshold removed, and that
+        # is the row that says what the threshold chose against.
+        blocks_by_ticker[ticker] = threshold_blocks(
+            metric_result.financials[ticker],
+            metric_result.derived[ticker],
+            rules,
+            sector_33=securities_by_ticker[ticker].sector_33,
+        )
         candidates.append(
             build_screened_candidate(
                 ticker=ticker,
@@ -407,7 +433,6 @@ def build_panel(
             normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
             close=latest_close_by_ticker.get(ticker),
-            current_eps=financial.eps,
         )
         profitability = build_profitability_level_signals(
             summaries_by_ticker.get(ticker, ()), asof_date, rules.ttm
@@ -507,6 +532,12 @@ def build_panel(
                 asset_turnover=profitability.asset_turnover,
                 pass_screen=ticker in evidence_by_ticker,
                 evidence_playbooks="|".join(evidence_by_ticker.get(ticker, ())),
+                smg_market_fallback="|".join(
+                    metric
+                    for metric in VALUATION_METRICS
+                    if derived.sector_median_basis.get(metric) == SECTOR_MEDIAN_BASIS_MARKET
+                ),
+                threshold_blocks="|".join(blocks_by_ticker.get(ticker, ())),
                 selection_rank=selection_rank.get(ticker),
                 recommended_rank=recommended_rank.get(ticker),
                 self_range_degraded=not policy.production_authority,
@@ -526,31 +557,35 @@ def build_panel(
     }
     # A historical master member without enough local bars is unavailable data,
     # not a silently excluded survivor. Keep an explicit row so its forward
-    # observation and cohort coverage remain visible to authority checks.
+    # observation and cohort coverage remain visible to authority checks. A name the
+    # policy removed is the other kind and belongs in the counts below instead.
+    #
+    # Both sides read the reasons `build_universe` already decided. Re-deriving them
+    # here is what let the same diagnostic name mean two different quantities: the
+    # policy conditions live in one place, so a condition added there reaches both
+    # surfaces without anyone remembering to copy it.
+    policy_reasons = frozenset(POLICY_EXCLUSION_REASONS)
     for security in securities:
-        if (
-            security.code not in universe_result.snapshots
-            and security.is_common_stock
-            and security.market_segment.upper() in ELIGIBLE_MARKETS
-        ):
-            rows.append(
-                _unresolved_master_member_row(
-                    asof_date,
-                    security.code,
-                    security.sector_33,
-                    priced_at_asof=security.code in asof_priced,
-                    self_range_degraded=not policy.production_authority,
-                )
+        if security.code in universe_result.snapshots:
+            continue
+        flags = frozenset(universe_result.exclusion_flags.get(security.code, ()))
+        if flags & policy_reasons:
+            continue
+        rows.append(
+            _unresolved_master_member_row(
+                asof_date,
+                security.code,
+                security.sector_33,
+                priced_at_asof=security.code in asof_priced,
+                self_range_degraded=not policy.production_authority,
             )
+        )
 
-    policy_exclusions: dict[str, int] = {}
-    for security in securities:
-        if not security.is_common_stock:
-            policy_exclusions["non_common_stock"] = policy_exclusions.get("non_common_stock", 0) + 1
-        elif security.market_segment.upper() not in ELIGIBLE_MARKETS:
-            policy_exclusions["market_out_of_scope"] = (
-                policy_exclusions.get("market_out_of_scope", 0) + 1
-            )
+    policy_exclusions = {
+        reason: count
+        for reason, count in universe_result.exclusion_counts.items()
+        if reason in policy_reasons
+    }
     population_rows = [row for row in rows if row.in_population]
     panel_tickers = {row.ticker for row in rows}
     master_tickers = {security.code for security in securities}
@@ -791,7 +826,18 @@ def _rules_with_uncapped_target(rules: ScreeningRules) -> ScreeningRules:
     return ScreeningRules.model_validate(data)
 
 
-def _coverage_floors(sqlite_path: Path) -> tuple[date, date]:
+def _coverage_floors(sqlite_path: Path, asof_date: date) -> tuple[date, date]:
+    """The earliest dates the history windows may start from.
+
+    The floor is where the store can be **read** from, which is the oldest row only
+    while the store may still serve it. Summaries come from a moving subscription
+    window, so rows fetched years ago outlive the window that produced them; taking
+    the floor from the oldest row alone asks `read_fin_summaries` for a range it
+    refuses, and every cohort fails over filings at the far edge of the history.
+    A raised floor shortens the history windows exactly as a younger store does, and
+    the rows it leaves behind stay unread rather than entering a cohort through a
+    window the store no longer stands behind.
+    """
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         bars_min = conn.execute("SELECT MIN(traded_at) FROM jquants_daily_bars").fetchone()[0]
@@ -800,7 +846,11 @@ def _coverage_floors(sqlite_path: Path) -> tuple[date, date]:
         conn.close()
     if bars_min is None or fin_min is None:
         raise CalibrationError("SQLite cache has no bars or fin summaries")
-    return date.fromisoformat(str(bars_min)), date.fromisoformat(str(fin_min))
+    fin_floor = date.fromisoformat(str(fin_min))
+    readable_from = fin_summaries_readable_from(sqlite_path, asof_date)
+    if readable_from is not None:
+        fin_floor = max(fin_floor, readable_from)
+    return date.fromisoformat(str(bars_min)), fin_floor
 
 
 PANEL_FIELD_NAMES: tuple[str, ...] = tuple(field.name for field in fields(PanelRow))

@@ -126,7 +126,6 @@ _EXPECTED_NUMERIC_METRICS = frozenset(
         "investment_securities",
         "ocf_yield",
         "operating_profit",
-        "price_to_equity",
         "sales_yoy",
     }
 )

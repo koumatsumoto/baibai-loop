@@ -99,7 +99,9 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     1e10,
                     5e8,
                     5e8,
-                    4e8,
+                    # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。
+                    # 倍率も accruals もこの行から出るので、行の中で恒等式を満たす。
+                    1e9,
                     "FY",
                     "2026-03-31",
                     "2025-04-01",
@@ -123,7 +125,7 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     5e9,
                     5e8,
                     5e8,
-                    4e8,
+                    1e8,
                     "FY",
                     "2026-03-31",
                     "2025-04-01",
@@ -144,10 +146,12 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
             max_date="2026-06-30",
         )
         conn.execute(
+            # 総資産と基準は、EDINET の貸借対照表が短信と同じ実体を指すことを示す事実として
+            # 持つ。短信の総資産 (1.5e10) と揃わない行は EDINET 由来の値を出さない。
             "INSERT INTO edinet_metrics("
             "asof_date, ticker, debt, cash, net_cash, investment_securities, "
-            "failure_reasons, extractor_revision"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "total_assets, consolidation_basis, failure_reasons, extractor_revision"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 ASOF.isoformat(),
                 "9001",
@@ -155,6 +159,8 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                 4e9,
                 3e9,
                 2e9,
+                1.5e10,
+                "consolidated",
                 "[]",
                 "a" * 64,
             ),
@@ -181,6 +187,68 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
 
 
 class CalibrationPanelTest(unittest.TestCase):
+    def test_a_filing_older_than_the_coverage_does_not_take_the_cohort_down(self) -> None:
+        """The history floor follows what the store may serve, not its oldest row.
+
+        Summaries arrive through a subscription window that moves, so a filing fetched
+        while the window still reached that far back stays in the table after the window
+        passes it. Reading from the oldest row then asks for a range the store refuses,
+        and the cohort that only needs recent history dies over a filing from years ago.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, eps_ttm, fiscal_period"
+                    ") VALUES (?, ?, ?, ?)",
+                    ("9001", "2016-08-01", 1.0, "FY"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            built = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+
+            self.assertEqual({row.ticker for row in built.rows}, {"9001", "9002"})
+            # The stranded filing stays unread: the panel keeps the multiples the covered
+            # window produced instead of mixing in a row the store no longer stands behind.
+            self.assertEqual(built.diagnostics.effective_fin_start, "2026-05-10")
+
+    def test_policy_exclusions_count_every_reason_the_universe_counted(self) -> None:
+        """One decision, read twice -- not made twice.
+
+        A name can miss the population on more than one policy ground at once, and the
+        universe counts each. Re-deriving the reasons here once produced an exclusive
+        chain, so the same diagnostic name meant "any of these" on one surface and
+        "the first of these" on the other.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO jquants_master_snapshots("
+                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                    ") VALUES (?, ?, ?, ?, ?, ?)",
+                    ("2026-06-01", "1306", "指数連動 ETF", "その他", "その他", 1),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            built = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+
+            counts = built.diagnostics.policy_exclusion_reason_counts or {}
+            self.assertEqual(counts.get("sector_out_of_classification"), 1)
+            self.assertEqual(counts.get("market_out_of_scope"), 1)
+            # Data-shortage reasons stay on the other side of the pair.
+            self.assertNotIn("insufficient_bar_history", counts)
+            self.assertNotIn("1306", {row.ticker for row in built.rows})
+
     def test_panel_distinguishes_covered_no_report_from_source_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

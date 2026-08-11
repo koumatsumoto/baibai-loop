@@ -24,7 +24,10 @@ from .forward import (
 from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-CACHE_SCHEMA_VERSION = 15
+# 列の形だけでなく、列に入る観測の範囲が変わったときも進める。同じ列名で狭い観測を
+# 持つ cohort と広い観測を持つ cohort が 1 つの集計に混ざると、測っていないことが
+# 「効かなかった」として読まれる。
+CACHE_SCHEMA_VERSION = 18
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
@@ -202,6 +205,8 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
         margin_std_long_share=_opt_float(raw, "margin_std_long_share"),
         pass_screen=raw["pass_screen"] == _BOOL_TRUE,
         evidence_playbooks=raw["evidence_playbooks"],
+        smg_market_fallback=raw["smg_market_fallback"],
+        threshold_blocks=raw["threshold_blocks"],
         selection_rank=_opt_int(raw, "selection_rank"),
         recommended_rank=_opt_int(raw, "recommended_rank"),
         population_coverage_status=_population_coverage_status(raw["population_coverage_status"]),

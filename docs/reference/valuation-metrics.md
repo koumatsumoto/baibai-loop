@@ -14,7 +14,7 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 | 指標 | 定義 | データ項目 |
 | --- | --- | --- |
 | PER (Forward) | 株価 / 会社予想 EPS | 株価、会社予想 EPS |
-| PER (Trailing) | 株価 / 直近 4 四半期 EPS | 株価、EPS 直近 4Q 合算 |
+| PER (Trailing) | 時価総額 / 直近 4 四半期の純利益 | 時価総額、純利益 直近 4Q 合算 |
 | PER (3FY normalized) | 株価 / 直近 3 FY の分割補正後 EPS 平均 | 株価、FY EPS、株式分割・併合係数 |
 | PBR | 株価 / 1 株純資産（BPS） | 株価、BPS |
 | EV/EBITDA | (時価総額 + 有利子負債 - 現金) / EBITDA | 時価総額、有利子負債、現金、EBITDA |
@@ -57,9 +57,14 @@ Baibai Loop スクリーニングで使う valuation 指標の算出仕様とデ
 
 ## 3. Trailing PER の算出
 
-- 直近 4 四半期の合算 EPS を使用
+- 直近 4 四半期の合算**純利益**（円）を使い、`時価総額 / 純利益 TTM` とする。P/S・PCFR・EV/EBITDA と同じ形になる
+- 開示の利益は期中累計なので、`直近累計 + 前期通期 - 前年同期間累計` で 12 か月へ直す。合成できない期は `null`（単一四半期で割った偽の割高 PER を作らない）
 - 決算期またぎの場合、確報前期と確報後期の混在を避ける（確報確定後のみ更新）
-- 赤字期（EPS マイナス）は `null` を採用（割安検出に意味を持たない）
+- 赤字期（純利益マイナス）は `null` を採用（割安検出に意味を持たない）
+
+**合成は円で行い、1 株当たりへの換算は最後に 1 回だけ行う。** 1 株当たりの各項は自分の期の株式数で割られているため、株式数が動いた会社では和・差が成立しない。買収の新株発行で株式数が 783M → 1,556M と動いた会社では、1 株当たりで合成すると `21.32 + 113.50 - 161.76 = -26.94` となり、黒字の会社が赤字に見えて収益 anchor を失う。**1 株当たり同士の比（YoY）は分母の違いが希薄化を映すので正しく、和・差だけが誤りである。**
+
+`FinancialSnapshot.eps` は `純利益 TTM / 自己株控除後株式数`で、提出者が開示する 1 株当たり当期純利益（分母は期中平均株式数）ではない。時価総額と同じ資本分母で組み直すことで `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
 
 ### 3.1 3FY normalized PER の算出と用途
 
@@ -89,6 +94,10 @@ shortlist UI では trailing PER と並べて表示するが、warning、除外�
 | 時価総額の株式数 | `ShOutFY` − `TrShFY`（発行済 − 期末自己株式） | `ShOutFY` 単独（自己株式を含む） |
 | 自己資本比率 | `EqAR`（開示値） | `Eq / TA`（`Eq` は非支配株主持分を含む純資産） |
 | 株価 / 1 株純資産 | `pbr` = 終値 / `BPS`（`BPS` は自己資本 ÷ 自己株控除後株式数） | 時価総額 / 純資産 |
+| trailing 収益 | 報告純利益の TTM 合成（円）。倍率は時価総額 ÷ それ | `EPS` × 株式数の再構成 |
+| accruals の純利益 | 報告純利益の TTM 合成（円） | `EPS` × `ShOutFY` |
+
+**per-share の値と株式数を掛けて総額を作らない。** `EPS` の分母は期中平均株式数、`BPS` の分母は期末の自己株控除後株式数で、`ShOutFY` は自己株式を含む。掛け合わせると分子と分母が別の概念になる。store の恒等式で確かめられる — 開示された自己資本比率と `BPS × 株数 ÷ 総資産` の一致は自己株控除後で 97.2%（発行済では 40.4%、n=40,477）、報告純利益と `EPS × 株数` の一致は期中平均で 95.2%（発行済では 30.8%、n=39,567）。いずれも**通期行だけで測る**。四半期行の `eps_ttm` は期中累計であり期間基準が違うので、同じ式を全期間の行へ広げると 4 つの基準を混ぜた数（91.0%）になり、どの基準の一致率でもなくなる。
 
 自己株式は議決権も配当請求権も持たないので、時価総額に含めると過大になり、現金比率・利回りが薄く、倍率が割高に出る。**歪みが最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業**で、機械 E[r] の carry が上位へ押し上げる群と重なる。
 
@@ -129,15 +138,41 @@ EDINET `type=5` CSV-derived metrics から以下を抽出する。
 
 J-Quants 財務サマリー由来の `ocf_ttm` は OCF yield / PCFR 系の判定に使う。
 
+**EDINET の値は、同じ実体の貸借対照表だと確かめられた行だけ使う。** 抽出器は 1 つの書類を連結・単体のどちらかの基準で読み、screening はその値を短信由来の時価総額・TTM 系列と組み合わせて比率にする。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の分子と分母が別の会社を指す。両側が総資産を持つので照合できる — EDINET の総資産が短信の総資産から 2 倍を超えて外れる行は、EDINET 由来の値（`cash` / `debt` / `net_cash` / `ebitda_ttm` / `fcf_ttm` / `capex_ttm` / `investment_securities` / `edinet_ocf_ttm`）を出さず、`edinet_failure_reasons` に `entity_scale_mismatch` を載せる。
+
+総資産を持たず照合できない行は、連結基準ならそのまま使い、単体基準・基準不明なら使わない。連結基準は照合できた全行が一致する一方、単体基準は 17.6% が桁でずれており、どれがずれているかを他の field では言えない。
+
+落とすのは値だけで、`consolidation_basis` と書類の出所は残す。短信由来の指標（PBR・PER・`cash_to_market_cap`・自己資本比率）も残るので、**銘柄は universe に留まり screening され続ける**。`edinet_net_cash_to_market_cap_min_if_available` は名前のとおり任意の矛盾検査なので、値が無ければ発火しない。
+
 対象書類は有価証券報告書 / 四半期報告書 / 半期報告書と、それぞれの訂正書を扱う。訂正書は EDINET documents API 上で `periodStart` / `periodEnd` が欠損しやすいため、欠損時のみ `docDescription` の対象期間から fallback parse する。document selection の期間比較と訂正書の tie-break は [`./screening-runtime.md`](./screening-runtime.md) §5 を正本とする。
 
 `edinet_source_period_start` / `edinet_source_period_end` は EDINET documents metadata 上の書類対象期間であり、必ずしも抽出 metric の測定期間そのものではない。特に半期報告書 / 訂正半期報告書では fiscal year 全体の period end が入ることがある。screening では source traceability と document selection に使い、research では対象書類の CF 計算書 / BS 表示期間を一次確認する。
 
 ## 7.2 配当（DPS・dividend_yield）
 
-- `dps_actual_annual`: 直近実績の年間 1 株配当。J-Quants `DivAnn`（FY 開示にのみ記載）を、**開示行群の直近非 null 行から carry-forward** して使う（直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続けるため。bps のような latest-row-only の季節欠損を避ける）。分割・併合を跨ぐ行は adjustment_factor 累積で asof-basis へ換算する。
+- `dps_actual_annual`: 直近実績の年間 1 株配当。J-Quants `DivAnn`（FY 開示にのみ記載）を、**開示行群の直近非 null 行から carry-forward** して使う（直近 FY の実績年間配当は次の FY 開示まで最新の実績であり続けるため。bps のような latest-row-only の季節欠損を避ける）。
 - `dps_forecast_annual`: 進行期の予想年間 1 株配当。四半期開示の `FDivAnn`、本決算開示では進行期ガイダンスの `NxFDivAnn` を使う。分割を跨ぐ行は forecast EPS と同じく開示基準を機械判別できないため None に落とす。
-- `dividend_yield` は、正の `dps_forecast_annual` を取得できる場合は `dps_forecast_annual / 直近終値`、取得できない場合は分割調整済みの正の `dps_actual_annual / 直近終値` とする。どちらも取れなければ `null` とする。
+- `dividend_yield` は、正の `dps_forecast_annual` を取得できる場合は `dps_forecast_annual / 直近終値`、取得できない場合は asof の株式基準へ揃えた正の実績年間配当 / 直近終値とする。どちらも取れなければ `null` とする。
+
+**予想は実績より優先するが、優先できるのは実績より新しいときだけである。** 実績年間 DPS を持つ最新行より前に開示された予想は使わない。会社が予想を取り下げた後も過去の予想を引き当て続けると、無配化した会社に当時の配当額の利回りが付き、reversion 項の上限（5%/年）を単独で超える carry を作る。上書きすべき実績が 1 つも無い銘柄（実績開示前の新規上場）は入力窓内の最新予想をそのまま使う。同じ規則が判断面の carry と較正 panel の増配判定の両方で 1 つの実装から効く。
+
+**年間 DPS の株式基準**。決算短信・有価証券報告書は 1 株当たり配当を各支払の基準日時点の株式基準で記載する一方、1 株当たり財務数値（EPS・BPS）は分割へ遡及修正される。したがって同じ開示行の中で per-share の基準が混在し、**会計期間が分割・併合を跨いだ年度は年間 DPS を単一の係数で asof の株式基準へ換算できない**。期末発行済株式数を遡及修正するかどうかも提出者ごとに割れており、開示 payload に判別できる field は無い。`dividend_basis` はどの経路で答えたかを持つ。
+
+| `dividend_basis` | 意味 |
+| --- | --- |
+| `forecast_annual` | 予想 DPS から出した。carry は将来利回りなのでこれを最優先する |
+| `actual_reported` | 会計期間に分割・併合が無く、短信の年間値をそのまま使った（厳密値） |
+| `actual_record_date_resolved` | 期間内に分割があり、支払ごとにその基準日より後の調整を掛け直した |
+| `unresolved_split_basis` | 掛け直せず**利回りを出していない**。E[r] も付かない |
+| `unavailable` | 予想も実績も観測できない、または価格が無い |
+
+`unresolved_split_basis` は無配（`dividend_yield = 0`）とも観測不能（`unavailable`）とも別の状態で、**判断面で読み替えない**。carry 支配型の銘柄でこの値が出たら、短信の配当表へ戻って基準を確認する。
+
+支払ごとの換算は、配当の基準日と corporate action の権利落ち日が 5 日以内に並ぶ年度では行わない。日本の分割は権利落ちが基準日の前営業日、効力発生が基準日の翌日という形が定型で、store は権利落ち日しか持たないため、その配当が調整の前の株数で払われたのか後なのかを言えない。換算した値は、株式基準を持たない配当総額を自己株控除後株式数で割った値と突き合わせ、5% を超えて食い違えば答えない。その株数は提出者自身が EPS を出すのに使った期中平均株式数から 2 倍以上外れていれば per-share の分母に使わない（自己株式数の欄に株数そのものが入る開示があり、時価総額が桁で小さくなる）。
+
+この突き合わせが効く規模は store で測れる。配当総額と `年間 DPS × 自己株控除後株式数` は 79.2% が 1% 以内で一致し（発行済株式数では 30.7%、n=31,826）、残差の 514 行（1.6%）が 0.2〜0.55 倍の帯に固まる。帯の位置は分割比の逆数に並び、分割を跨いだ年度を per-share から合成すると 2〜5 倍ずれることを示す。**総額は円で書かれていて株式基準を持たないので、この帯を作らない。**
+
+`dividend_split_factor` は会計期間に起きた累積 factor で、期間内に何も無ければ `null`。
 - この利回りは将来 carry の機械 E[r] anchor に使う。較正リプレイの実現値は price-only であり、entry 時点の利回りを保有年数で按分する疑似配当 accrual は加えない。
 
 ## 7.3 自己株式取得枠の状態（buyback_authorization_status）
@@ -177,9 +212,21 @@ EDINET の自己株券買付状況報告書（様式コード 220、訂正 230�
 
 ### 8.3 サンプル数下限
 
-- **n < 10 の業種**: 市場全体中央値に fallback
+- **n < 10 の業種**: 市場全体中央値に fallback（`metrics.MIN_SECTOR_MEDIAN_POPULATION`）
 - 中小規模業種で n が不安定な場合の判定歪みを防止
-- 例: 東証 33 業種の「空運業」「鉱業」は銘柄数が少ない場合 fallback 対象
+- 下限は軸ごとに判定する。母集団は同じでも欠損の入り方が軸で違うので、同じ業種でも `pbr` は自業種、`ev_ebitda` は市場、という状態になりうる
+
+### 8.4 fallback の素性
+
+fallback した値も `sector_median_gap` / `sector_median_value` に入るため、同じ field が「業種との差」と「市場との差」の 2 つの量を指す。**どちらから作られたかは `DerivedMetrics.sector_median_basis` が軸ごとに `sector` / `market` で持つ。**
+
+素性を残す理由は、2 つの母集団が体系的に違う水準にあることにある。母数が 10 に届かない業種は水産・農林業、海運業、空運業、鉱業、石油・石炭製品、倉庫・運輸関連業、パルプ・紙、保険業、ゴム製品に集中し、いずれも構造的に低倍率である。fallback が起きた組では自業種 P/S 中央値は市場中央値より 91% の組で低く、中央値で −44.0% 低い。したがって fallback した銘柄は業種構成だけで負の gap を受け取る。この幅は `ps_sector_gap_max`（−0.4）より大きいので、素性が無いと gate を越えた根拠を業種の割安と業種構成に分けられない。
+
+素性の出口:
+
+- `PanelRow.smg_market_fallback` — market から作られた軸を `|` で並べる。対応する `smg_*` が非 null の行でだけ意味を持つ
+- 較正の `sector_median_basis` 座標 — `smg_*` 軸ごとに own_sector / market_fallback の効果量、cohort 勝率、screen 通過数を分けて出す
+- selection evidence の `condition_a_sector_median_basis` / `ps_sector_median_basis`
 
 ## 9. 過去自己比較（過去 3 年レンジ）
 
@@ -191,6 +238,8 @@ EDINET の自己株券買付状況報告書（様式コード 220、訂正 230�
 Historical P/S と EV/EBITDA は、各日の raw close を `adjustment_factor` から as-of の株式分割基準へ揃え、最新の自己株式控除後株式数（`latest_shares_ex_treasury`）で時価総額だけを変化させる。P/S は `(historical_asof_basis_close * latest_shares_ex_treasury) / latest_sales_ttm`、EV/EBITDA は `(historical_asof_basis_close * latest_shares_ex_treasury + latest_debt - latest_cash) / latest_ebitda_ttm` とする。現在倍率と history の資本分母を揃えることで、自己株比率ではなく価格変化だけを自己レンジへ反映する。自己株式を含む発行済株式数・自己株式数のいずれかが欠損または破損していれば history は `null` とする。EV がゼロ以下、または EBITDA がゼロ以下の場合も `null` とし、`ttm_quality_ev_ebitda = exact` かつ正の EV/EBITDA だけ mechanical 判定に使う。PBR / PER の history も同じ as-of 株式分割基準の price を使うため、株式分割があっても history は連続になる。
 
 ### 9.0 価格履歴の連続性 fact（`price_history_sessions_750d` / `price_history_coverage_750d`）
+
+**自己レンジは倍率の履歴ではなく価格の履歴である。** fundamentals を最新値で固定して価格だけを動かすため、価格比例の軸（PER / PBR / P/S）では `自己レンジ中央値 ÷ 現在倍率` が軸によらず `median(750 営業日終値) ÷ 現値` に一致する（実データ 3,424 銘柄で 100% 一致）。percentile として「価格が自分のレンジのどこにいるか」を読むのが本来の用途で、機械 E[r] の anchor 水準として自己レンジ側が binding した銘柄では、reversion 成分は倍率でなく価格の平均回帰を測る。as-of 2026-03-31 の実測では E[r] を持つ 3,773 銘柄のうち 1,684（44.6%）が全軸で自己レンジ側 binding だった。真の倍率履歴との比較は #910 で事前登録する。
 
 自己レンジ / sigma gap は直近 750 本の bar（営業日ベース ≒ 3 年、§9）を代表的標本として前提にするが、上場が古くても bar 履歴に長期ギャップがある銘柄(上場区分変更・データ供給断など)では、レンジが実質それより短い期間で計算される。これを検出するため、screening runのcandidate recordには直近 **750 暦日窓**の bar 密度を以下の事実として記録する（窓が暦日なのは、取引カレンダーを fetch せず population 内の最大 bar 数を分母にして密度を出すため）。
 

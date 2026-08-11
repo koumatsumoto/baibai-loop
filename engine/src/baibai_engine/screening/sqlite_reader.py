@@ -21,6 +21,7 @@ from baibai_engine.foundation.date_utils import weekday_distance
 from baibai_engine.foundation.time import JST
 from baibai_engine.market.sqlite import (
     connect_current,
+    covered_intervals,
     optional_date,
     optional_float,
     range_covered,
@@ -797,6 +798,41 @@ def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:
         conn.close()
 
 
+def fin_summaries_readable_from(sqlite_path: Path, asof: date) -> date | None:
+    """Where the store's **continuous** history ending at `asof` begins.
+
+    The rows the store holds and the range it may serve are two different facts, and
+    the subscription window moves. A filing fetched while the window still reached
+    that far back keeps its row after the window passes it, so the oldest row can sit
+    outside the coverage. A caller that takes its floor from the oldest row then asks
+    for a range `read_fin_summaries` refuses, and a handful of rows at the far edge of
+    the history takes every read down.
+
+    Answering only for a continuous history is what keeps that relief from covering a
+    real hole. A store that simply does not reach further back has one window and
+    gets its floor; a store missing months in the middle has an older window too, and
+    gets None so the caller keeps its own floor and the read reports the range it
+    cannot serve. Silently starting after a gap would turn an outage into a quietly
+    shorter history, which no diagnostic distinguishes from a young store.
+
+    None also covers "no window holds `asof`" -- the same outage seen from the other
+    end.
+    """
+    if not sqlite_path.exists():
+        return None
+    conn = connect_current(sqlite_path)
+    if conn is None:
+        return None
+    try:
+        intervals = covered_intervals(conn, "jquants_fin_summaries")
+    finally:
+        conn.close()
+    for index, (interval_start, interval_end) in enumerate(intervals):
+        if interval_start <= asof <= interval_end:
+            return interval_start if index == 0 else None
+    return None
+
+
 def count_fin_summaries(sqlite_path: Path, start: date, end: date) -> int:
     """Count stored summary rows in `[start, end]`; 0 when the store cannot be read."""
     if not sqlite_path.exists():
@@ -835,7 +871,9 @@ def read_fin_summaries(
             "forecast_profit, forecast_ordinary_profit, "
             "fiscal_period, fiscal_year_end, period_start, period_end, "
             "dps_actual_annual, dps_forecast_annual, "
-            "treasury_shares, equity_to_asset_ratio "
+            "treasury_shares, equity_to_asset_ratio, "
+            "dividend_q1, dividend_interim, dividend_q3, dividend_year_end, "
+            "dividend_total_annual, average_shares "
             "FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ? "
             "ORDER BY ticker, disclosed_at",
             (start.isoformat(), end.isoformat()),
@@ -870,6 +908,12 @@ def read_fin_summaries(
             dps_forecast_annual,
             treasury_shares,
             equity_to_asset_ratio,
+            dividend_q1,
+            dividend_interim,
+            dividend_q3,
+            dividend_year_end,
+            dividend_total_annual,
+            average_shares,
         ) = row
         try:
             summaries.append(
@@ -898,6 +942,12 @@ def read_fin_summaries(
                     dps_forecast_annual=optional_float(dps_forecast_annual),
                     treasury_shares=optional_float(treasury_shares),
                     equity_to_asset_ratio=optional_float(equity_to_asset_ratio),
+                    dividend_q1=optional_float(dividend_q1),
+                    dividend_interim=optional_float(dividend_interim),
+                    dividend_q3=optional_float(dividend_q3),
+                    dividend_year_end=optional_float(dividend_year_end),
+                    dividend_total_annual=optional_float(dividend_total_annual),
+                    average_shares=optional_float(average_shares),
                 )
             )
         except (TypeError, ValueError) as exc:

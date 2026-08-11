@@ -20,7 +20,18 @@ _MODEL_CONFIG = ConfigDict(
 )
 _TICKER_PATTERN = r"^[0-9A-Z]{4}$"
 
+# 配当の株式基準が確定できないことを表す `dividend_basis` の値。年間 DPS は中間・期末
+# それぞれの基準日時点の株式基準で記載されるので、会計期間に分割・併合が入り、かつ支払
+# ごとの換算もできない年度はこの状態になる。無配 (`dividend_yield=0`) とも、観測できない
+# (`unavailable`) とも別で、E[r] はこの行に順位を付けない。
+UNRESOLVED_DIVIDEND_BASIS = "unresolved_split_basis"
+
+# `sector_median_basis` の 2 値。どちらの母集団が中央値を出したかを表す。
+SECTOR_MEDIAN_BASIS_SECTOR = "sector"
+SECTOR_MEDIAN_BASIS_MARKET = "market"
+
 type NullableFloatMap = Mapping[str, float | None]
+type StringMap = Mapping[str, str]
 type MetricValueMap = Mapping[str, float | int | bool | str | None]
 type Ticker = Annotated[str, Field(pattern=_TICKER_PATTERN)]
 type NonEmptyString = Annotated[str, Field(min_length=1)]
@@ -78,15 +89,19 @@ class FinancialSnapshot:
     ev_ebitda: float | None
     p_s: float | None
     pcfr: float | None
+    # TTM 純利益 ÷ 市場が値付けする株式数 (発行済 - 自己株)。提出者が開示する 1 株当たり
+    # 当期純利益ではなく、時価総額と同じ資本分母で組み直した値である。こうすると
+    # `market_price_yen / eps == per_trailing` が厳密に成立する。
     eps: float | None
     sales_ttm: float | None
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
-    # 直近実績の年間 DPS (accrual 期間の分割 factor で asof/分割後基準へ調整済み)・
-    # 進行期の予想年間 DPS・carry 用配当利回り。dividend_yield は将来 carry なので
-    # 予想 DPS を最優先し (dividend_basis=forecast_annual)、無ければ split-safe 実績を
-    # 使う (actual_split_adjusted / actual_reported)。dividend_split_factor は実績を
-    # 分割後基準へ寄せた累積 factor (調整不要なら None)。
+    # 直近実績の年間 DPS (asof の株式基準)・進行期の予想年間 DPS・carry 用配当利回り。
+    # dividend_yield は将来 carry なので予想 DPS を最優先する (forecast_annual)。無ければ
+    # 実績を使い、会計期間に分割・併合が無ければ報告値をそのまま (actual_reported)、あれば
+    # 支払ごとに基準日より後の調整を掛け直した値を使う (actual_record_date_resolved)。
+    # 掛け直せない年度は利回りを出さず (unresolved_split_basis)、E[r] も付けない。
+    # dividend_split_factor は会計期間に起きた累積 factor で、期間内に何も無ければ None。
     dps_actual_annual: float | None = None
     dps_forecast_annual: float | None = None
     dividend_yield: float | None = None
@@ -240,6 +255,12 @@ class DerivedMetrics:
     # sector 中央値倍率の絶対値と自己レンジ (750 営業日) の中央値倍率。
     # 機械 E[r] / FV アンカーの入力 (gap / percentile と違い水準そのもの)。
     sector_median_value: NullableFloatMap = Field(default_factory=dict)
+    # 上の 2 つがどの母集団から作られたかを軸ごとに記録する。母数が薄い業種では
+    # 市場全体へ落ちるので、同じ field が「業種との差」と「市場との差」の 2 つの量を
+    # 指す。落ちた業種は市場より低倍率に寄るため、素性が無いと gate を越えた根拠が
+    # 業種比較なのか市場比較なのか読めない。値は `SECTOR_MEDIAN_BASIS_SECTOR` /
+    # `SECTOR_MEDIAN_BASIS_MARKET` のいずれか。
+    sector_median_basis: StringMap = Field(default_factory=dict)
     self_range_percentile: NullableFloatMap = Field(default_factory=dict)
     self_range_median: NullableFloatMap = Field(default_factory=dict)
     sigma_gap: NullableFloatMap = Field(default_factory=dict)

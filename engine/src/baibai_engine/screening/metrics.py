@@ -1,3 +1,34 @@
+"""銘柄ごとの財務・派生指標。
+
+**この module で作る値はすべて 2 つの量の比か差であり、量は基準を持つ。基準の違う量を
+組むと、型は通り値は有限で単体テストも緑のまま、答えだけが間違う。** 実際に見つかった
+欠陥はすべてこの形だった (#901 / #903 / #907)。組む前に次の 4 つを一致させる。
+
+1. **資本基準** — 発行済 (`shares_outstanding`) / 自己株控除後 (`_shares_excluding_treasury`)
+   / 期中平均 (`average_shares`)。市場が値付けする量はすべて自己株控除後で組む
+2. **株式基準** — 開示時点 / asof / 支払の基準日ごと。`_normalize_summaries_to_asof_basis`
+   が per-share 値と株数を asof へ寄せるが、配当は支払ごとに基準が分かれる
+3. **実体** — 連結 / 単体。EDINET の書類はどちらかの基準で読まれる
+   (`_edinet_describes_same_entity`)
+4. **期間** — 時点 / 期中累計 / TTM / 会社予想
+
+基準の一致は推測でなく store 自身の冗長性で確かめられる。同じ量を別経路で出す値が
+あり、実データの通期行で次が成り立つ (四半期行の `eps_ttm` は期中累計なので期間基準が
+違い、全期間の行へ広げると 4 つの基準を混ぜた数になる)。
+
+- 開示された自己資本比率 == `bps` x 自己株控除後株数 / `total_assets` (97.2% が 1% 以内)
+- 報告 `profit` == `eps_ttm` x `average_shares` (95.2% が 1% 以内)
+- EDINET の `total_assets` == 短信の `total_assets` (連結基準では照合できた全行)
+
+派生する 2 つの規則:
+
+- **per-share 値の和・差を作らない。** 各項が自分の期の株数で割られているので、株数が
+  動いた会社では成立しない。合成は円で行い、1 株当たりへの換算は最後に 1 回だけ行う。
+  per-share 同士の**比** (YoY) は分母の違いが希薄化を映すので正しい
+- **per-share 値と株数を掛けて総額を作らない。** 掛ける株数はたいてい別の概念で、
+  分子と分母が別の量になる。総額が欲しいなら報告された総額の行を読む
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -18,6 +49,9 @@ from .providers.jquants import (
 )
 from .rule_config import ScreeningRules, TTMRules, load_screening_rules
 from .schema import (
+    SECTOR_MEDIAN_BASIS_MARKET,
+    SECTOR_MEDIAN_BASIS_SECTOR,
+    UNRESOLVED_DIVIDEND_BASIS,
     DerivedMetrics,
     FinancialSnapshot,
     OperatingProfitSource,
@@ -26,9 +60,15 @@ from .schema import (
 )
 
 VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
+
+# 業種中央値を自業種から出すのに要る母数。これを下回る業種は市場全体の中央値へ落ちる。
+# 薄い標本の中央値は anchor として不安定なので落とす側を選ぶが、落ちた値は「業種との差」
+# ではなく「市場との差」なので、`DerivedMetrics.sector_median_basis` に素性を残す。
+MIN_SECTOR_MEDIAN_POPULATION = 10
 # run と calibration が同名の valuation を異なる式で作らないための method identity。
 # 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
-VALUATION_CALCULATION_REVISION = "treasury-adjusted-capital-v1"
+# 現行の方式: trailing 系は円の総額で組み、価格側の量は自己株控除後の資本で割る。
+VALUATION_CALCULATION_REVISION = "yen-trailing-treasury-adjusted-capital-v2"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -134,9 +174,12 @@ def build_normalized_profit_signals(
     asof_date: date,
     *,
     close: float | None,
-    current_eps: float | None,
 ) -> NormalizedProfitSignals:
-    """Build the preregistered 3/5-FY EPS anchors without filling missing years."""
+    """Build the preregistered 3/5-FY EPS anchors without filling missing years.
+
+    Each anchor averages full-year per-share earnings across years, which is a mean of
+    per-share values rather than a sum, so the years may carry different share counts.
+    """
     available = sorted(
         (summary for summary in summaries if summary.disclosed_at <= asof_date),
         key=lambda item: item.disclosed_at,
@@ -200,10 +243,19 @@ def build_metrics(
             continue
         latest_prices[ticker] = latest_bar.close
         ticker_bars = bars_by_ticker.get(ticker, ())
+        # bar は `_latest_bar_on_or_before` が asof で切る。開示行も同じ場所で切る。
+        # 較正リプレイは過去の断面を作り直すので、asof より後の開示が 1 行混ざると
+        # 「発表前の決算で割安に見える」行ができ、測ったすべての予測力が偽になる。
+        # 呼び出し側が窓で切っている前提を置かない (本 module の他の 3 つの入口も
+        # 同じ規律で自分で切っている)。
         financials[ticker] = _build_financial_snapshot(
             latest_price=latest_bar.close,
             summaries=_normalize_summaries_to_asof_basis(
-                summaries_by_ticker.get(ticker, ()),
+                [
+                    summary
+                    for summary in summaries_by_ticker.get(ticker, ())
+                    if summary.disclosed_at <= asof_date
+                ],
                 ticker_bars,
                 asof_date,
             ),
@@ -285,17 +337,27 @@ def build_metrics(
         )
         sector_gaps: dict[str, float | None] = {}
         sector_medians: dict[str, float | None] = {}
+        sector_bases: dict[str, str] = {}
         self_percentiles: dict[str, float | None] = {}
         self_medians: dict[str, float | None] = {}
         sigma_gaps: dict[str, float | None] = {}
         for metric in VALUATION_METRICS:
             current = getattr(snapshot, metric)
             sector_values = sector_metric_values.get(sector, {}).get(metric, [])
-            baseline = (
-                sector_values if len(sector_values) >= 10 else market_metric_values.get(metric, [])
-            )
+            on_sector = len(sector_values) >= MIN_SECTOR_MEDIAN_POPULATION
+            baseline = sector_values if on_sector else market_metric_values.get(metric, [])
             sector_median = median(baseline) if baseline else None
             sector_medians[metric] = sector_median
+            # どちらの母集団が答えたかを値と同じ粒度で残す。両者は同じ語で呼ばれるが
+            # 別の量で、薄い業種は市場より低倍率へ寄るため、素性が無いと gap の符号を
+            # 業種の割安と読むか業種構成と読むかを後から分けられない。
+            # 中央値そのものが出なかった軸には基準が無い。どちらも答えていないのに
+            # 「市場へ落ちた」と書くと、EDINET 由来の軸のように母集団全体で値が立たない
+            # 軸が全行 fallback として並び、実際に落ちた軸と見分けが付かなくなる。
+            if sector_median is not None:
+                sector_bases[metric] = (
+                    SECTOR_MEDIAN_BASIS_SECTOR if on_sector else SECTOR_MEDIAN_BASIS_MARKET
+                )
             sector_gaps[metric] = (
                 ((current / sector_median) - 1.0)
                 if current is not None and sector_median not in (None, 0)
@@ -303,8 +365,11 @@ def build_metrics(
             )
             history_values = valuation_history.get(metric, [])
             self_percentiles[metric] = _self_range_percentile(history_values, current)
-            # 自己レンジの中央値倍率。機械 E[r] の保守側 anchor に使う。標本が薄い
-            # 履歴 (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
+            # 自己レンジの中央値。機械 E[r] の保守側 anchor に使う。標本が薄い履歴
+            # (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
+            # `_valuation_history` は fundamentals を最新値で固定して価格だけを動かすので、
+            # これは倍率の履歴ではなく価格の履歴を倍率の単位で表したものである。価格比例の
+            # 軸では `自己中央値 / 現値` が軸によらず `median(終値) / 現値` に一致する。
             self_medians[metric] = median(history_values) if len(history_values) >= 100 else None
             sigma_gaps[metric] = _sigma_gap(history_values, current)
 
@@ -316,6 +381,7 @@ def build_metrics(
         derived[ticker] = DerivedMetrics(
             sector_median_gap=sector_gaps,
             sector_median_value=sector_medians,
+            sector_median_basis=sector_bases,
             self_range_percentile=self_percentiles,
             self_range_median=self_medians,
             price_change_1d=_price_change(ticker_bars, 1, asof_date),
@@ -438,6 +504,12 @@ def _normalize_summaries_to_asof_basis(
                     if summary.shares_outstanding is not None
                     else None
                 ),
+                # 期中平均株式数も株数なので同じ換算を掛ける。掛けないと、開示より後に
+                # 分割のある行で「発行済 - 自己株」との比が factor 倍ずれ、健全性 gate が
+                # 本来効かせたい (分割が複数ある) 行でだけ静かに無効になる。
+                average_shares=(
+                    summary.average_shares / factor if summary.average_shares is not None else None
+                ),
                 # 自己株式数は発行済と同じ株数なので同じ換算を掛ける。片方だけ換算すると
                 # 差である自己株控除後株式数が分割のたびに壊れる。`equity_to_asset_ratio`
                 # は比率なので分割で動かず、そのまま持ち越される。
@@ -514,6 +586,166 @@ def _actual_dps_rows(
     ]
 
 
+# 配当の基準日と corporate action がこの日数以内に並ぶ年度は換算しない。日本の分割は
+# 「権利落ち = 基準日の前営業日、効力発生 = 基準日の翌日」が定型なので、期末配当の基準日と
+# 分割の権利落ち日が数日違いで並ぶ。store が持つのは権利落ち日だけで効力発生日を持たない
+# ため、その配当が action の前の株数で払われたのか後なのかを言えない。実測では調整日は
+# 基準日の 5 日以内に集中し、5〜20 日の帯には 1 件も現れない (#901)。
+DIVIDEND_RECORD_DATE_GUARD_DAYS = 5
+# 総額から出した 1 株当たりと、支払ごとに換算した合計が食い違ってよい幅。総額は百万円
+# 単位で開示され、割る株数は期末時点なので、支払の基準日の株数とは自社株買いのぶんだけ
+# ずれる。この幅を超える食い違いは、どちらかの経路が別の株式基準を見ている合図になる。
+DIVIDEND_ROUTE_TOLERANCE = 0.05
+# 期末発行済から自己株を引いた株数が、提出者自身が EPS を出すのに使った期中平均株数から
+# この倍率を超えて外れる行は、株数を per-share の分母に使わない。
+SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
+
+# EDINET の総資産が短信の総資産からこの倍率を超えて外れる行は、同じ会社の貸借対照表では
+# ないとみなし、EDINET 由来の値を判断面へ出さない。
+ENTITY_SCALE_TOLERANCE = 2.0
+CONSOLIDATED_BASIS = "consolidated"
+ENTITY_SCALE_MISMATCH = "entity_scale_mismatch"
+
+# 1 株当たりで開示される field。期をまたぐ和・差を作れないので TTM 合成へ渡さない。
+_PER_SHARE_FIELDS = frozenset(
+    {
+        "eps_ttm",
+        "forecast_eps",
+        "bps",
+        "dps_actual_annual",
+        "dps_forecast_annual",
+        "dividend_q1",
+        "dividend_interim",
+        "dividend_q3",
+        "dividend_year_end",
+    }
+)
+
+
+def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
+    """その年度の配当が積み上がり始めた日。
+
+    当期会計期間の開始日を使う。前期の通期実績開示日を起点にすると、同一年度の訂正開示が
+    直前に来た行で窓が数日へ縮み、窓内の corporate action が消える。
+    """
+    if row.period_start is not None:
+        return row.period_start
+    if row.fiscal_year_end is not None:
+        return _shift_months(row.fiscal_year_end, -12)
+    return row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+
+
+def _dividend_basis_factor(
+    ticker_bars: Sequence[JQuantsDailyBar],
+    *,
+    accrual_start: date,
+    disclosed_at: date,
+) -> float:
+    """会計期間に起きた分割・併合の累積 factor。1.0 なら年度を通じて基準が一意。
+
+    年間 DPS は中間・期末それぞれの基準日時点の株式基準で記載され、開示日で基準が決まる
+    わけではない。期間内に分割・併合が入ると支払ごとに action の前後が分かれるので、
+    報告された年間値をそのまま株価と比べられない。
+    """
+    return _cumulative_adjustment_factor_after(ticker_bars, accrual_start, disclosed_at)
+
+
+def _dividend_record_dates(row: JQuantsFinancialSummary) -> tuple[tuple[float | None, date], ...]:
+    """支払ごとの 1 株当たり配当と、その基準日。基準日は四半期末に置く。"""
+    fiscal_year_end = row.fiscal_year_end
+    if fiscal_year_end is None:
+        return ()
+    return (
+        (row.dividend_q1, _shift_months(fiscal_year_end, -9)),
+        (row.dividend_interim, _shift_months(fiscal_year_end, -6)),
+        (row.dividend_q3, _shift_months(fiscal_year_end, -3)),
+        (row.dividend_year_end, fiscal_year_end),
+    )
+
+
+def _shares_for_per_share(row: JQuantsFinancialSummary) -> float | None:
+    """円の総額を 1 株当たりへ直すのに使える株数。壊れている行は答えない。"""
+    shares = _shares_excluding_treasury(row.shares_outstanding, row.treasury_shares)
+    if shares is None:
+        return None
+    anchor = row.average_shares
+    if anchor is None or anchor <= 0:
+        return shares
+    ratio = shares / anchor
+    if not 1 / SHARE_COUNT_ANCHOR_TOLERANCE <= ratio <= SHARE_COUNT_ANCHOR_TOLERANCE:
+        return None
+    return shares
+
+
+def _asof_basis_dividend(
+    row: JQuantsFinancialSummary,
+    ticker_bars: Sequence[JQuantsDailyBar],
+    *,
+    asof_date: date,
+) -> float | None:
+    """分割・併合を跨いだ年度の年間配当を asof の株式基準で答える。答えられなければ None。
+
+    支払ごとに、その基準日より後の調整だけを掛けて足す。この経路は期末発行済株式数を
+    使わないので、提出者がその株数を遡及修正したかどうかに左右されない。基準日のすぐ
+    そばに調整がある年度は、権利落ち日しか持たない store からは前後を決められないので
+    答えない。答えられた値は 2 つの独立な量と突き合わせる。調整を掛ける前の明細合計が
+    報告された年間値と一致すること (明細の欠落を「解決済み」として出さない)、そして
+    株式基準を持たない配当総額から出した 1 株当たりと一致すること。
+    """
+    reported = row.dps_actual_annual
+    if reported is None:
+        return None
+    # 無配の年度に確定すべき株式基準は無い。0 円は何倍しても 0 円なので、期間内に
+    # 調整があっても答えは 0 で確定する。ここを拒否に倒すと、分割を出す無配銘柄が
+    # 利回りだけでなく E[r] ごと判断面から消える。
+    if reported == 0:
+        return 0.0
+    payments = _dividend_record_dates(row)
+    if not payments or all(value is None for value, _ in payments):
+        return None
+    # 明細は feed の欠落で一部だけ来ることがある。調整前の合計が報告年間値と合わない行は
+    # 真値の一部しか持っていないので、換算しても真値の一部にしかならない。
+    #
+    # 2 つの量は株式基準が違う。明細は開示されたままで、`dps_actual_annual` は
+    # `_normalize_summaries_to_asof_basis` が asof 基準へ寄せている。同じ換算を明細側へ
+    # 掛けてから比べる。掛けないと比は必ず換算係数の逆数になり、開示より後に調整のある
+    # 年度を「明細が欠けている」として捨てる。捨てた年度は増配判定ごと消える。
+    detail_sum = sum(value or 0.0 for value, _ in payments) * _cumulative_adjustment_factor_after(
+        ticker_bars, row.disclosed_at, asof_date
+    )
+    if abs(detail_sum / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
+        return None
+    window_start = _dividend_accrual_start(row)
+    adjustments = [
+        bar
+        for bar in ticker_bars
+        if window_start < bar.traded_at <= row.disclosed_at
+        and bar.adjustment_factor not in (None, 0.0, 1.0)
+    ]
+    guard = timedelta(days=DIVIDEND_RECORD_DATE_GUARD_DAYS)
+    for value, record_date in payments:
+        if not value:
+            continue
+        if any(abs(bar.traded_at - record_date) <= guard for bar in adjustments):
+            return None
+    resolved = sum(
+        (value or 0.0) * _cumulative_adjustment_factor_after(ticker_bars, record_date, asof_date)
+        for value, record_date in payments
+    )
+    if resolved <= 0:
+        return None
+    amount = row.dividend_total_annual
+    shares = _shares_for_per_share(row)
+    if (
+        amount is not None
+        and amount > 0
+        and shares is not None
+        and abs((amount / shares) / resolved - 1.0) > DIVIDEND_ROUTE_TOLERANCE
+    ):
+        return None
+    return resolved
+
+
 def _resolve_dividend_carry(
     summaries: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsDailyBar],
@@ -522,61 +754,67 @@ def _resolve_dividend_carry(
 ) -> _DividendCarry:
     """carry 用の配当利回りと基準を解決する。
 
-    通期実績 DPS は accrual 期間 (前期通期実績開示 〜 当期通期実績開示) で積み上がる。
-    その期間内かつ開示前に分割が起きると、正規化 (各行の開示日基準) では捕捉できず、
-    実績 DPS が分割前・株価が分割後の混在になり配当利回りが factor 倍に膨らむ。
-    carry は将来利回りなので、分割後基準で開示される予想 DPS を最優先し、無ければ
-    accrual 期間の累積分割 factor で実績 DPS を分割後基準へ調整する。予想・実績とも
-    正の値が取れなければ利回りは None (buyback のみが carry に残る)。
-    """
-    del asof_date  # accrual 窓は実績開示日を基準に閉じるため asof は使わない
-    forecast = _latest_non_null(summaries, "dps_forecast_annual")
+    実績 DPS は開示時点の株式基準で記載され、`_normalize_summaries_to_asof_basis` が
+    開示日より後の分割を掛けて asof 基準へ寄せている。残るのは会計期間の中で起きた
+    分割・併合で、報告された年間値は支払ごとに基準が分かれるためそのままでは株価と
+    比べられない。その年度は支払ごとに換算し直し (`_asof_basis_dividend`)、換算できな
+    ければ実績側の利回りを出さない。carry は予想 DPS か buyback だけで組む。予想 DPS は
+    分割を跨ぐ行で正規化が None へ落としているので、同じ規律が既に効いている。
 
+    予想は実績より優先するが、優先できるのは実績より新しいときだけである。会社が予想を
+    取り下げた後も過去の予想を引き当て続けると、無配化した会社に当時の配当額の利回りが
+    付き、E[r] の reversion 上限 (5%/年) を単独で超える carry を作る。
+    """
     actual_rows = _actual_dps_rows(summaries)
-    split_factor = 1.0
-    actual_split_safe: float | None = None
+    forecast = _latest_forecast_not_before(
+        summaries, actual_rows[0].disclosed_at if actual_rows else None
+    )
+    basis_factor = 1.0
+    actual_annual: float | None = None
     if actual_rows:
         latest_actual = actual_rows[0]
         assert latest_actual.dps_actual_annual is not None
-        # accrual 開始 = 前期の通期実績開示日。無ければ開示日から約 1 年遡る。
-        accrual_start = (
-            actual_rows[1].disclosed_at
-            if len(actual_rows) > 1
-            else latest_actual.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+        basis_factor = _dividend_basis_factor(
+            ticker_bars,
+            accrual_start=_dividend_accrual_start(latest_actual),
+            disclosed_at=latest_actual.disclosed_at,
         )
-        # 正規化は開示日「後」の分割のみ反映済み。ここでは accrual 開始〜開示日の
-        # (開示前) 分割の差分 factor だけを掛け、二重計上を避ける。
-        split_factor = _cumulative_adjustment_factor_after(
-            ticker_bars, accrual_start, latest_actual.disclosed_at
-        )
-        actual_split_safe = latest_actual.dps_actual_annual * split_factor
+        if basis_factor == 1.0:
+            actual_annual = latest_actual.dps_actual_annual
+        else:
+            actual_annual = _asof_basis_dividend(latest_actual, ticker_bars, asof_date=asof_date)
 
-    recorded_factor = split_factor if split_factor != 1.0 else None
+    recorded_factor = basis_factor if basis_factor != 1.0 else None
 
     if latest_price <= 0:
         basis = "unavailable"
     elif forecast is not None and forecast > 0:
         return _DividendCarry(
             dividend_yield=forecast / latest_price,
-            dps_actual_annual=actual_split_safe,
+            dps_actual_annual=actual_annual,
             dps_forecast_annual=forecast,
             basis="forecast_annual",
             split_factor=recorded_factor,
         )
-    elif actual_split_safe is not None and actual_split_safe > 0:
+    elif actual_annual is not None and actual_annual > 0:
         return _DividendCarry(
-            dividend_yield=actual_split_safe / latest_price,
-            dps_actual_annual=actual_split_safe,
+            dividend_yield=actual_annual / latest_price,
+            dps_actual_annual=actual_annual,
             dps_forecast_annual=forecast,
-            basis="actual_split_adjusted" if split_factor != 1.0 else "actual_reported",
+            basis="actual_reported" if recorded_factor is None else "actual_record_date_resolved",
             split_factor=recorded_factor,
         )
+    elif recorded_factor is not None and actual_annual is None:
+        # 解決できなかった年度だけを拒否にする。解決できて 0 だった年度 (無配) は、
+        # 出す利回りが無いという点で観測できない年度と同じ扱いでよく、拒否にすると
+        # 分割を出す無配銘柄が E[r] ごと判断面から消える。
+        basis = UNRESOLVED_DIVIDEND_BASIS
     else:
         basis = "unavailable"
 
     return _DividendCarry(
         dividend_yield=None,
-        dps_actual_annual=actual_split_safe,
+        dps_actual_annual=actual_annual,
         dps_forecast_annual=forecast,
         basis=basis,
         split_factor=recorded_factor,
@@ -603,7 +841,7 @@ def build_shareholder_return_change_signals(
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
 
-    dps_values = _split_safe_fy_dps(fy_rows, ticker_bars)
+    dps_values = _asof_basis_fy_dps(fy_rows, ticker_bars, asof_date=asof_date)
     latest_pair = _latest_consecutive_values(fy_rows, dps_values, count=2)
     latest_three = _latest_consecutive_values(fy_rows, dps_values, count=3)
 
@@ -626,7 +864,9 @@ def build_shareholder_return_change_signals(
         latest_actual = dps_values[latest_actual_row.fiscal_year_end]
     else:
         latest_actual = None
-    forecast = _latest_forecast_after(normalized, latest_actual_row)
+    forecast = _latest_forecast_not_before(
+        normalized, latest_actual_row.disclosed_at if latest_actual_row else None
+    )
     dps_guidance_up = (
         forecast > latest_actual if forecast is not None and latest_actual is not None else None
     )
@@ -688,27 +928,36 @@ def _latest_fy_revisions(
     return [latest[fiscal_year_end] for fiscal_year_end in sorted(latest)]
 
 
-def _split_safe_fy_dps(
+def _asof_basis_fy_dps(
     fy_rows: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsDailyBar],
+    *,
+    asof_date: date,
 ) -> dict[date, float]:
+    """通期実績 DPS を fiscal year end で引けるようにする。
+
+    行は `_normalize_summaries_to_asof_basis` を通っているので asof 基準に揃っている。
+    会計期間に分割・併合が入った年度だけは報告値の基準が支払ごとに分かれるので、支払
+    ごとに換算し直す。換算できない年度は落とし、落ちた年度を含む YoY と streak は
+    `_latest_consecutive_values` が None を返して増配と減配を取り違えない。
+    """
     values: dict[date, float] = {}
-    for index, row in enumerate(fy_rows):
+    for row in fy_rows:
         fiscal_year_end = row.fiscal_year_end
         value = row.dps_actual_annual
         if fiscal_year_end is None or value is None or value < 0:
             continue
-        prior = fy_rows[index - 1] if index > 0 else None
-        accrual_start = (
-            prior.disclosed_at
-            if prior is not None
-            and prior.dps_actual_annual is not None
-            and prior.dps_actual_annual >= 0
-            else row.disclosed_at - timedelta(days=DIVIDEND_ACCRUAL_LOOKBACK_DAYS)
+        factor = _dividend_basis_factor(
+            ticker_bars,
+            accrual_start=_dividend_accrual_start(row),
+            disclosed_at=row.disclosed_at,
         )
-        factor = _cumulative_adjustment_factor_after(ticker_bars, accrual_start, row.disclosed_at)
-        if factor > 0:
-            values[fiscal_year_end] = value * factor
+        if factor == 1.0:
+            values[fiscal_year_end] = value
+            continue
+        resolved = _asof_basis_dividend(row, ticker_bars, asof_date=asof_date)
+        if resolved is not None:
+            values[fiscal_year_end] = resolved
     return values
 
 
@@ -743,15 +992,19 @@ def _latest_row_with_value(
     return row if row.fiscal_year_end is not None and row.fiscal_year_end in values else None
 
 
-def _latest_forecast_after(
+def _latest_forecast_not_before(
     summaries: Sequence[JQuantsFinancialSummary],
-    latest_actual_row: JQuantsFinancialSummary | None,
+    threshold: date | None,
 ) -> float | None:
-    if latest_actual_row is None:
-        return None
-    for summary in reversed(summaries):
-        if summary.disclosed_at < latest_actual_row.disclosed_at:
-            break
+    """`threshold` 以降に開示された最新の予想年間 DPS。
+
+    予想は実績より優先するが、優先できるのは実績より新しいときだけである。会社が予想を
+    取り下げた後も過去の予想を引き当て続けると、無配化した会社に当時の配当額の利回りが
+    付く。上書きすべき実績が無いとき (`threshold` が None) は窓内の最新予想を使う。
+    """
+    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
+        if threshold is not None and summary.disclosed_at < threshold:
+            return None
         value = summary.dps_forecast_annual
         if value is not None and value >= 0:
             return value
@@ -804,14 +1057,15 @@ def _build_financial_snapshot(
     forecast_full_year_loss_flag = (forecast_profit is not None and forecast_profit < 0) or (
         forecast_ordinary_profit is not None and forecast_ordinary_profit < 0
     )
-    # J-Quants の EPS (eps_ttm field) は期中累計で、年度途中の四半期開示では 12 か月分に
-    # ならない (Q1 開示だと 3 か月分)。sales / cfo と同じ rolling 合成
-    # (直近累計 + 前期通期 - 前年同期間累計) で TTM に直し、通期開示のときだけ
-    # そのまま使う。合成できない場合は per_trailing を出さない (単一四半期 EPS で
-    # 割った偽の割高 PER を作らない)。分割を跨ぐ行の per-share 基準は
-    # _normalize_summaries_to_asof_basis が呼び出し側で揃えている前提。
+    # 開示の利益は期中累計で、年度途中の四半期開示では 12 か月分にならない (Q1 開示だと
+    # 3 か月分)。sales / cfo と同じ rolling 合成 (直近累計 + 前期通期 - 前年同期間累計) で
+    # TTM に直し、通期開示のときだけそのまま使う。合成できない場合は per_trailing を
+    # 出さない (単一四半期の利益で割った偽の割高 PER を作らない)。
+    # 合成は 1 株当たりでなく円で行う。1 株当たりの各項は自分の期の株数で割られており、
+    # 株数が動いた会社では和・差が成立しない (新株発行で株数が倍になった期を跨ぐと、
+    # 黒字の会社が赤字に見える)。1 株当たりへの換算は最後に 1 回だけ行う。
     eps_cumulative = latest.eps_ttm if latest else None
-    eps_ttm, eps_quality = _ttm_value(summaries, "eps_ttm", rules.ttm)
+    profit_ttm, profit_quality = _ttm_value(summaries, "profit", rules.ttm)
     # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
     # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
     # latest 行だけを見ると四半期行が最新になる断面で PBR 等が季節的に大量欠損
@@ -842,7 +1096,6 @@ def _build_financial_snapshot(
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield
     per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
-    per_trailing = (latest_price / eps_ttm) if eps_ttm and eps_ttm > 0 else None
     pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
@@ -856,14 +1109,23 @@ def _build_financial_snapshot(
     shares_ex_treasury = _shares_excluding_treasury(shares_outstanding, treasury_shares)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
-    edinet_ocf_ttm = edinet.ocf_ttm if edinet else None
-    debt = edinet.debt if edinet else None
-    cash = edinet.cash if edinet else None
-    ebitda_ttm = edinet.ebitda_ttm if edinet else None
-    fcf_ttm = edinet.fcf_ttm if edinet else None
-    net_cash = edinet.net_cash if edinet else None
-    investment_securities = edinet.investment_securities if edinet else None
-    edinet_failure_reasons = ",".join(edinet.failure_reasons) if edinet else None
+    # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
+    # TTM 系列は短信由来である。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の
+    # 分子と分母が別の会社を指す。両側が総資産を持つので実体の一致は直接確かめられる。
+    entity_matches = _edinet_describes_same_entity(edinet, total_assets)
+    edinet_metrics = edinet if entity_matches else None
+    edinet_ocf_ttm = edinet_metrics.ocf_ttm if edinet_metrics else None
+    debt = edinet_metrics.debt if edinet_metrics else None
+    cash = edinet_metrics.cash if edinet_metrics else None
+    ebitda_ttm = edinet_metrics.ebitda_ttm if edinet_metrics else None
+    fcf_ttm = edinet_metrics.fcf_ttm if edinet_metrics else None
+    net_cash = edinet_metrics.net_cash if edinet_metrics else None
+    investment_securities = edinet_metrics.investment_securities if edinet_metrics else None
+    edinet_failure_reasons = (
+        ",".join((*edinet.failure_reasons, *(() if entity_matches else (ENTITY_SCALE_MISMATCH,))))
+        if edinet
+        else None
+    )
     if net_cash is None and cash is not None and debt is not None:
         net_cash = cash - debt
     latest_market_cap = (latest_price * shares_ex_treasury) if shares_ex_treasury else None
@@ -873,9 +1135,13 @@ def _build_financial_snapshot(
         else None
     )
     ev_ebitda = _safe_positive_ratio(latest_enterprise_value, ebitda_ttm)
+    # 収益倍率も p_s / pcfr / ev_ebitda と同じ「時価総額 ÷ 円の TTM 系列」で組む。
+    # 1 株当たりへの換算はここで 1 回だけ行い、市場が値付けできる株数で割る。こうすると
+    # `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
+    per_trailing = _safe_positive_ratio(latest_market_cap, profit_ttm)
+    eps_ttm = _safe_ratio(profit_ttm, shares_ex_treasury)
     accruals_to_assets = _accruals_to_assets(
-        eps_ttm=eps_ttm,
-        shares=shares_outstanding,
+        net_income=profit_ttm,
         ocf_ttm=ocf_ttm,
         total_assets=total_assets,
         prior_total_assets=prior_year.total_assets if prior_year else None,
@@ -928,9 +1194,9 @@ def _build_financial_snapshot(
         ),
         fcf_ttm=fcf_ttm,
         fcf_yield=_safe_ratio(fcf_ttm, latest_market_cap),
-        capex_ttm=edinet.capex_ttm if edinet else None,
+        capex_ttm=edinet_metrics.capex_ttm if edinet_metrics else None,
         depreciation_and_amortization_ttm=(
-            edinet.depreciation_and_amortization_ttm if edinet else None
+            edinet_metrics.depreciation_and_amortization_ttm if edinet_metrics else None
         ),
         debt=debt,
         cash=cash,
@@ -955,14 +1221,20 @@ def _build_financial_snapshot(
             operating_profit,
             operating_profit_prior_year,
         ),
-        ttm_quality_ev_ebitda=edinet.ttm_quality_ev_ebitda if edinet else TTMQuality.UNAVAILABLE,
-        ttm_quality_per_trailing=eps_quality,
+        ttm_quality_ev_ebitda=(
+            edinet_metrics.ttm_quality_ev_ebitda if edinet_metrics else TTMQuality.UNAVAILABLE
+        ),
+        ttm_quality_per_trailing=profit_quality,
         ttm_quality_p_s=sales_quality,
         ttm_quality_pcfr=ocf_quality,
         ttm_quality_ocf_yield=ocf_quality,
         ttm_quality_sales=sales_quality,
-        ttm_quality_fcf_yield=edinet.ttm_quality_fcf if edinet else TTMQuality.UNAVAILABLE,
-        ttm_quality_net_cash=edinet.ttm_quality_net_cash if edinet else TTMQuality.UNAVAILABLE,
+        ttm_quality_fcf_yield=(
+            edinet_metrics.ttm_quality_fcf if edinet_metrics else TTMQuality.UNAVAILABLE
+        ),
+        ttm_quality_net_cash=(
+            edinet_metrics.ttm_quality_net_cash if edinet_metrics else TTMQuality.UNAVAILABLE
+        ),
         shares_outstanding=shares_outstanding,
         accruals_to_assets=accruals_to_assets,
         net_share_change_yoy=net_share_change_yoy,
@@ -971,14 +1243,6 @@ def _build_financial_snapshot(
         forecast_special_gain_flag=forecast_special_gain_flag,
         forecast_full_year_loss_flag=forecast_full_year_loss_flag,
     )
-
-
-def _latest_non_null(summaries: Sequence[JQuantsFinancialSummary], field_name: str) -> float | None:
-    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
-        value = getattr(summary, field_name)
-        if value is not None:
-            return float(value)
-    return None
 
 
 def _carry_forward(
@@ -1039,6 +1303,14 @@ def _ttm_value(
     field: str,
     ttm_rules: TTMRules,
 ) -> tuple[float | None, TTMQuality]:
+    """`直近累計 + 前期通期 - 前年同期間累計` で 12 か月へ直す。
+
+    この合成は各項が同じ単位で加減できることを前提にする。円の総額は満たすが、1 株当たり
+    の値は各項が自分の期の株数で割られているので満たさない。株数が動いた会社では黒字が
+    赤字に見える。per-share の field を渡すのは呼び出し側の誤りなので受け付けない。
+    """
+    if field in _PER_SHARE_FIELDS:
+        raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
     latest = _latest_summary(summaries)
     if latest is None or latest.period_start is None or latest.period_end is None:
         return None, TTMQuality.UNAVAILABLE
@@ -1116,6 +1388,17 @@ def _period_days(summary: JQuantsFinancialSummary) -> int | None:
         return None
     days = (summary.period_end - summary.period_start).days + 1
     return days if days > 0 else None
+
+
+def _shift_months(value: date, months: int) -> date:
+    """`months` か月前後の同じ日。月末をまたぐ日付は月内に丸める。
+
+    配当の基準日を四半期末に置くために使う。期末が 3/31 の会社の中間基準日は 9/30 で、
+    暦の日数ではなく月数で数えないと四半期の境界からずれる。
+    """
+    total = value.year * 12 + (value.month - 1) + months
+    year, month = divmod(total, 12)
+    return date(year, month + 1, min(value.day, 28))
 
 
 def _shift_year(value: date, years: int) -> date | None:
@@ -1385,6 +1668,30 @@ def _sigma_gap(history: Sequence[float], current: float | None) -> float | None:
     return (current - avg) / stddev
 
 
+def _edinet_describes_same_entity(
+    edinet: EdinetMetricRecord | None,
+    total_assets: float | None,
+) -> bool:
+    """EDINET の記録が短信と同じ実体を指しているか。
+
+    抽出器は 1 つの書類を連結・単体のどちらかの基準で読む。連結財務諸表を持つ会社の
+    書類を単体基準で読むと、負債・現金・EBITDA が親会社単独の値になる。時価総額と TTM
+    系列は短信由来なので、比率の分子と分母が別の会社を指す (実測では総資産が 1/1000 に
+    なる行がある)。両側が総資産を持つので、実体の一致は直接確かめられる。
+
+    連結基準で読めた行は照合できた 3,117 行すべてで一致するため、総資産を持たない
+    連結行はそのまま通す。単体基準・基準不明の行はその母集団の 17.6% が桁でずれており、
+    どれがずれているかを他の field では言えないので、照合できなければ答えない。
+    """
+    if edinet is None:
+        return True
+    reported = edinet.total_assets
+    if reported is not None and reported > 0 and total_assets is not None and total_assets > 0:
+        ratio = reported / total_assets
+        return 1 / ENTITY_SCALE_TOLERANCE <= ratio <= ENTITY_SCALE_TOLERANCE
+    return edinet.consolidation_basis == CONSOLIDATED_BASIS
+
+
 def _shares_excluding_treasury(
     shares_outstanding: float | None, treasury_shares: float | None
 ) -> float | None:
@@ -1437,23 +1744,22 @@ def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
 
 def _accruals_to_assets(
     *,
-    eps_ttm: float | None,
-    shares: float | None,
+    net_income: float | None,
     ocf_ttm: float | None,
     total_assets: float | None,
     prior_total_assets: float | None,
 ) -> float | None:
     """Sloan (1996) accruals ratio: (NI - CFO) / average total assets.
 
-    NI is approximated as ``eps_ttm * shares_outstanding``; if a true NI line
-    becomes available later (J-Quants `profit` field), prefer it. The
-    denominator uses the average of current and prior-year total assets when
-    both are present, otherwise the current value. Returns None for any
-    missing input or zero denominator.
+    NI is the reported profit line composed to TTM, not a product of a per-share
+    figure and a share count: EPS is per average share excluding treasury while the
+    issued count includes it, so the product describes neither. The denominator uses
+    the average of current and prior-year total assets when both are present,
+    otherwise the current value. Returns None for any missing input or zero
+    denominator.
     """
-    if eps_ttm is None or shares is None or ocf_ttm is None or total_assets is None:
+    if net_income is None or ocf_ttm is None or total_assets is None:
         return None
-    net_income = eps_ttm * shares
     denominator = (
         (total_assets + prior_total_assets) / 2.0
         if prior_total_assets is not None and prior_total_assets > 0
@@ -1462,18 +1768,6 @@ def _accruals_to_assets(
     if denominator <= 0:
         return None
     return (net_income - ocf_ttm) / denominator
-
-
-def _ttm_pair(
-    current_summaries: Sequence[JQuantsFinancialSummary],
-    prior_summaries: Sequence[JQuantsFinancialSummary],
-    *,
-    field: str,
-    ttm_rules: TTMRules,
-) -> tuple[float | None, float | None]:
-    current, _ = _ttm_value(current_summaries, field, ttm_rules)
-    prior, _ = _ttm_value(prior_summaries, field, ttm_rules)
-    return current, prior
 
 
 def _loss_narrowing(current: float | None, previous: float | None) -> bool | None:

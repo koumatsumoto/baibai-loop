@@ -59,10 +59,10 @@ def _evidence_strength_key(name: str, metrics: Mapping[str, object]) -> tuple[fl
                 float_or(metrics.get("price_change_60d"), 1.0),
             )
         case "cash-rich-asset-discount":
-            return (
-                -float_or(metrics.get("cash_to_market_cap"), 0.0),
-                float_or(metrics.get("price_to_equity"), 99.0),
-            )
+            # 現金の厚みだけで並べる。簿価に対する割安を第 2 キーに置く案は、順位を実際に
+            # 動かす変更なので較正の裏づけが要る。書かれない key を読んで既定値へ落ちる形は
+            # 「第 2 キーがある」という見た目だけを作り、同点は ticker 順へ落ちていた。
+            return (-float_or(metrics.get("cash_to_market_cap"), 0.0),)
         case "cashflow-yield-discount":
             return (
                 -float_or(metrics.get("ocf_yield"), 0.0),

@@ -224,6 +224,10 @@ class CandidateRowView(BaseModel):
     p_s: float | None
     pcfr: float | None
     dividend_yield: float | None
+    # 配当利回りが空である理由。unresolved_split_basis は分割・併合を跨いだ年度で株式
+    # 基準を確定できず値を出していない状態で、無配 (0) とも観測不能とも別である。
+    dividend_basis: str | None = None
+    dividend_split_factor: float | None = None
     er_annual: float | None
     er_reversion_annual: float | None
     er_carry_annual: float | None

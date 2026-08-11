@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math import inf
+
 from .rule_config import (
     CashflowYieldPlaybook,
     CashRichPlaybook,
@@ -89,6 +91,116 @@ def _is_excluded_sector(sector_33: str, excluded_sectors: tuple[str, ...]) -> bo
     return sector_33 in excluded_sectors
 
 
+# 閾値を無効化する値。緩めた config で同じ判定関数を呼び直し、hit するかどうかで
+# 「その 1 条件だけが落としたか」を見る。判定を書き写さないので、条件の意味も null の
+# 扱いも rules 側の 1 か所にとどまる。
+_RELAXED_THRESHOLDS: dict[str, dict[str, object]] = {
+    PLAYBOOK_CASH_RICH: {
+        "cash_to_market_cap_min": -inf,
+        "pbr_max": inf,
+        "equity_ratio_min": -inf,
+        "edinet_net_cash_to_market_cap_min_if_available": None,
+        "operating_profit_positive_required": False,
+        "operating_profit_yoy_deterioration_threshold": None,
+    },
+    PLAYBOOK_CASHFLOW_YIELD: {
+        "ocf_yield_min": -inf,
+        "cfo_yoy_min": -inf,
+        "operating_profit_yoy_deterioration_threshold": None,
+        "fcf_yield_required_positive": False,
+    },
+    PLAYBOOK_SALES_DISCOUNT: {
+        "ps_sector_gap_max": inf,
+        "sales_yoy_min": -inf,
+        "operating_margin_min": None,
+    },
+    PLAYBOOK_VALUATION_REVERSION: {
+        "sector_median_gap_max": inf,
+        # 自己レンジ percentile は [0, 1] なので 1.0 が全通しであり、field 自身の
+        # 上限を破らずに緩められる。
+        "self_range_percentile_max": 1.0,
+        "sigma_gap_max": inf,
+    },
+}
+
+# 閾値でない field。水準を持たないので緩めても意味を成さず、`threshold_blocks` の
+# 契約 (「判断できない行は閾値に落とされたのではない」) からも外れる。
+# `_RELAXED_THRESHOLDS` との和が playbook の全 field を覆うことをテストで固定する。
+_NON_THRESHOLD_FIELDS = frozenset(
+    {
+        # 素性と適用範囲
+        "playbook_id",
+        "excluded_sectors",
+        "metrics",
+        # data 要件。落とすのは水準ではなく事実の有無
+        "cfo_yoy_required",
+        "ttm_cfo_required",
+        # 行を通す側の緩和条件。緩めると条件が厳しくなる向きなので同じ形で測れない
+        "allow_operating_loss_if_cfo_positive_or_loss_narrowing",
+    }
+)
+
+
+def threshold_blocks(
+    financial: FinancialSnapshot,
+    derived: DerivedMetrics,
+    rules: ScreeningRules,
+    *,
+    sector_33: str = "",
+) -> tuple[str, ...]:
+    """`<playbook>:<threshold>` for each threshold that alone kept this row out.
+
+    A threshold that removes a row which failed three other conditions says nothing about
+    the threshold — the row was never a candidate for it. What answers whether a threshold
+    earns its place is the row that met every other condition of the same playbook and was
+    removed by this one, because that row is the counterfactual the threshold is choosing
+    against. Each threshold is therefore tested by relaxing it and asking the real playbook
+    predicate again; nothing about the conditions is restated here.
+
+    Rows the playbook cannot judge — a missing fact, an excluded sector — are not blocked
+    by a threshold and produce no entry, so the coordinate measures the level a threshold
+    is set at rather than its null policy.
+    """
+    blocked: list[str] = []
+    for name, playbook in rules.screening_playbooks.items():
+        relaxations = _RELAXED_THRESHOLDS.get(name)
+        if relaxations is None or _is_excluded_sector(sector_33, playbook.excluded_sectors):
+            continue
+        if _playbook_hit(financial, derived, rules, name, playbook) is not None:
+            continue
+        for field, permissive in relaxations.items():
+            if getattr(playbook, field, None) == permissive:
+                continue
+            relaxed = playbook.model_copy(update={field: permissive})
+            if _playbook_hit(financial, derived, rules, name, relaxed) is not None:
+                blocked.append(f"{name}:{field}")
+    return tuple(blocked)
+
+
+def _playbook_hit(
+    financial: FinancialSnapshot,
+    derived: DerivedMetrics,
+    rules: ScreeningRules,
+    name: str,
+    playbook: object,
+) -> EvidenceHit | None:
+    """Evaluate one playbook, discarding the null reasons a probe would otherwise emit."""
+    discarded: list[str] = []
+    match name:
+        case "cash-rich-asset-discount" if isinstance(playbook, CashRichPlaybook):
+            return _cash_rich_asset_discount(financial, playbook, discarded)
+        case "cashflow-yield-discount" if isinstance(playbook, CashflowYieldPlaybook):
+            return _cashflow_yield_discount(financial, playbook, discarded)
+        case "sales-discount-growth" if isinstance(playbook, SalesDiscountGrowthPlaybook):
+            return _sales_discount_growth(financial, derived, playbook, discarded)
+        case "valuation-reversion" if isinstance(playbook, ValuationReversionPlaybook):
+            return _valuation_reversion(
+                financial, derived, playbook, rules.quality.yoy_deterioration_threshold, discarded
+            )
+        case _:
+            return None
+
+
 def _valuation_reversion(
     financial: FinancialSnapshot,
     derived: DerivedMetrics,
@@ -103,6 +215,9 @@ def _valuation_reversion(
         reasons.append(REASON_SECTOR_SELF_RANGE)
         metrics["condition_a_metric"] = hit_metric_a
         metrics["condition_a_sector_median_gap"] = derived.sector_median_gap.get(hit_metric_a)
+        # 上の gap がどの母集団の中央値から作られたか。母数の薄い業種は市場中央値へ
+        # 落ちるので、同じ語が「業種との差」と「市場との差」の 2 つの量を指す。
+        metrics["condition_a_sector_median_basis"] = derived.sector_median_basis.get(hit_metric_a)
         metrics["condition_a_self_range_percentile"] = derived.self_range_percentile.get(
             hit_metric_a
         )
@@ -161,6 +276,10 @@ def _condition_b_metric(
     # 条件 B は σギャップ判定かつ悪化ゲート。60 日下落は要件にしない。price_change_60d
     # は evidence hit に事実として記録するが判定には使わない
     # (metrics["price_change_60d"] は None を許容する)。
+    # σギャップは自己レンジから作るので、価格比例の軸 (per_forward / per_trailing /
+    # pbr / p_s) では軸によらず同じ値になる (実 store の 3,441 銘柄で差が厳密に 0)。
+    # したがってこの loop が実際に別の値を試すのは ev_ebitda だけで、返す軸名は
+    # 「その軸が固有に安い」ことを意味しない。詳細と E[r] 側への影響は #910。
     if _has_deterioration(financial, deterioration_threshold):
         null_reasons.append("valuation_reversion_condition_b_deterioration")
         return None
@@ -194,9 +313,13 @@ def _cash_rich_asset_discount(
     ):
         null_reasons.append("cash_rich_edinet_net_cash_contradiction")
         return None
-    if playbook.operating_profit_positive_required and (
-        financial.operating_profit is None or financial.operating_profit <= 0
-    ):
+    # 欠損と赤字を 1 つの条件に畳まない。畳むと、閾値を緩めて測る座標が「営業利益が
+    # 読めなかった行」を「赤字で落とした行」として数え、水準の効きに欠損方針が混ざる。
+    # 判定結果はどちらも非採用で変わらない。
+    if financial.operating_profit is None:
+        null_reasons.append("cash_rich_operating_profit_unavailable")
+        return None
+    if playbook.operating_profit_positive_required and financial.operating_profit <= 0:
         return None
     # C1: deterioration gate — block when operating_profit_yoy drops past the
     # configured threshold. Mirrors the valuation-reversion B/C conditions so
@@ -305,6 +428,7 @@ def _sales_discount_growth(
         metrics={
             "p_s": financial.p_s,
             "ps_sector_gap": ps_gap,
+            "ps_sector_median_basis": derived.sector_median_basis.get("p_s"),
             "sales_yoy": financial.sales_yoy,
             "operating_profit": financial.operating_profit,
             "ocf_ttm": financial.ocf_ttm,

@@ -333,6 +333,24 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=23,
+        statements=(
+            # A year whose per-share dividend straddles a split cannot be converted to
+            # today's share basis with one factor, because each payment is stated on the
+            # basis at its own record date. Holding the payments separately makes that
+            # conversion possible, and the paid amount over the share count checks it
+            # from a direction that does not use the per-share figures at all. All stay
+            # nullable: the source omits them for part of the filings, and a refetch is
+            # what fills them for days already stored.
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN dividend_q1 REAL",
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN dividend_interim REAL",
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN dividend_q3 REAL",
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN dividend_year_end REAL",
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN dividend_total_annual REAL",
+            "ALTER TABLE jquants_fin_summaries ADD COLUMN average_shares REAL",
+        ),
+    ),
 )
 
 LATEST_VERSION = MIGRATIONS[-1].version if MIGRATIONS else BASELINE_VERSION

@@ -8,6 +8,11 @@ doctrine 柱 5(b) との整合: E[r] は単位 (%/年) と前提 (anchor・実�
 
 - anchor 倍率 = min(sector 中央値倍率, 自己レンジ中央値倍率) — 保守側 (低い方) を
   採る。片方欠損時はもう片方。
+  — 自己レンジ側は**倍率の履歴ではなく価格の履歴**である。`_valuation_history` が
+    fundamentals を最新値で固定して調整後終値だけを動かすので、価格比例の軸
+    (per_forward / per_trailing / pbr / p_s) では `自己中央値 / 現値` が軸によらず
+    `median(750 営業日終値) / 現値` に一致する (実データ 3,424 銘柄で 100% 一致)。
+    自己レンジ側が binding する銘柄では、この成分は倍率でなく価格の平均回帰を測る。
 - implied upside = anchor / current - 1 (signed。割高なら負)
 - reversion (年率) = REALIZATION_RATE_ANNUAL x clip(upside, ±UPSIDE_CAP)
   — model policy parameter により過大な upside を保守側へ制限する。
@@ -26,7 +31,7 @@ from math import isfinite
 from statistics import fmean
 from typing import Literal
 
-from .schema import DerivedMetrics, FinancialSnapshot
+from .schema import UNRESOLVED_DIVIDEND_BASIS, DerivedMetrics, FinancialSnapshot
 
 # 現在の MODEL_V1 policy parameters。実証的な変更は long-horizon authority を満たす
 # artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
@@ -37,7 +42,9 @@ EXPECTED_RETURN_MODEL_VERSION = "expected-return-v1"
 EXPECTED_RETURN_UNIT = "annual_ratio"
 
 # anchor に使う倍率軸。資産 (pbr) と収益 (per_forward → per_trailing fallback) の
-# 2 系統を blend して単一軸のノイズを平均で薄める。
+# 2 系統を blend する。ただし両軸とも自己レンジ側で binding した銘柄では 2 つの upside が
+# 同じ値になり (自己レンジは価格の履歴なので軸に依存しない)、平均はノイズを薄めない。
+# as-of 2026-03-31 の実測では、E[r] を持つ 3,773 銘柄のうち 1,434 (38.0%) がこの形。
 _EARNINGS_METRICS = ("per_forward", "per_trailing")
 
 
@@ -70,7 +77,16 @@ def estimate_expected_return(
     *,
     close: float | None,
 ) -> ExpectedReturnEstimate | None:
-    """E[r] と FV アンカーを見積もる。anchor 倍率が 1 軸も取れなければ None。"""
+    """E[r] と FV アンカーを見積もる。anchor 倍率が 1 軸も取れなければ None。
+
+    配当の株式基準が確定できない行も None にする。carry は `dividend_yield or 0.0` で
+    組むので、利回りを出さないことが下流では「無配」の主張になり、実際に配当を払って
+    いる銘柄を E[r] 降順から一方向に落とす。値を知らないことと 0 であることは別なので、
+    知らない年度は順位を付けない。
+    """
+    if financial.dividend_basis == UNRESOLVED_DIVIDEND_BASIS:
+        return None
+
     upsides: dict[str, float] = {}
     sector_ratios: list[float] = []
     self_ratios: list[float] = []

@@ -167,6 +167,18 @@ class JQuantsFinancialSummary:
     # 開示された自己資本比率。`equity` は非支配株主持分を含む純資産なので、`equity / total_assets`
     # は自己資本比率にならない。導出でなく開示値を持つのは、自己資本を別途持たずに済むため。
     equity_to_asset_ratio: float | None = None
+    # 支払ごとの 1 株当たり配当と、通期に支払った配当の総額 (円)。`dps_actual_annual` は
+    # 中間・期末それぞれの基準日時点の株式基準で記載されるため、分割・併合を跨いだ年度は
+    # 株価と基準が揃わない。支払ごとに持てば各支払の基準日より後の調整だけを掛けられ、
+    # 総額は株式基準を持たないのでその換算の独立した照合になる。
+    dividend_q1: float | None = None
+    dividend_interim: float | None = None
+    dividend_q3: float | None = None
+    dividend_year_end: float | None = None
+    dividend_total_annual: float | None = None
+    # 期中平均株式数。提出者が EPS を出すのに使った株数で、期末発行済から自己株を引いた
+    # 株数が壊れていないかを同じ行の中で照合するのに使う。
+    average_shares: float | None = None
 
     @field_validator("ticker", mode="before")
     @classmethod
@@ -192,6 +204,12 @@ class JQuantsFinancialSummary:
         "dps_forecast_annual",
         "treasury_shares",
         "equity_to_asset_ratio",
+        "dividend_q1",
+        "dividend_interim",
+        "dividend_q3",
+        "dividend_year_end",
+        "dividend_total_annual",
+        "average_shares",
     )
     @classmethod
     def _finite_numeric_fields(cls, value: float | None) -> float | None:
@@ -1099,4 +1117,14 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         equity_to_asset_ratio=to_float(
             coalesce_field(record, "EqAR", "equity_to_asset_ratio", "EquityToAssetRatio")
         ),
+        # 支払ごとの 1 株当たり配当。各支払の基準日 (四半期末) より後の調整だけを掛ければ
+        # as-of 基準へ寄せられる。DivTotalAnn は円なので株式基準を持たず、自己株式を除いた
+        # 株式数で割った値がその換算の独立した照合になる。AvgSh はその株数の健全性を同じ
+        # 行の中で確かめるためのアンカー。
+        dividend_q1=to_float(coalesce_field(record, "Div1Q")),
+        dividend_interim=to_float(coalesce_field(record, "Div2Q")),
+        dividend_q3=to_float(coalesce_field(record, "Div3Q")),
+        dividend_year_end=to_float(coalesce_field(record, "DivFY")),
+        dividend_total_annual=to_float(coalesce_field(record, "DivTotalAnn")),
+        average_shares=to_float(coalesce_field(record, "AvgSh")),
     )

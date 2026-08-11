@@ -64,6 +64,12 @@ def _panel_row(
     equity_ratio: float | None = None,
     shareholder_return_change: bool | None = None,
     price_change_60d: float | None = None,
+    smg_p_s: float | None = None,
+    smg_market_fallback: str = "",
+    pass_screen: bool = False,
+    evidence_playbooks: str = "",
+    threshold_blocks: str = "",
+    operating_profit_yoy: float | None = None,
 ) -> PanelRow:
     return PanelRow(
         asof="2025-06-30",
@@ -90,7 +96,7 @@ def _panel_row(
         dividend_yield=dividend_yield,
         eps_yoy=None,
         sales_yoy=None,
-        operating_profit_yoy=None,
+        operating_profit_yoy=operating_profit_yoy,
         cfo_yoy=None,
         accruals_to_assets=None,
         net_share_change_yoy=None,
@@ -103,7 +109,8 @@ def _panel_row(
         smg_per_trailing=None,
         smg_pbr=None,
         smg_ev_ebitda=None,
-        smg_p_s=None,
+        smg_p_s=smg_p_s,
+        smg_market_fallback=smg_market_fallback,
         srp_per_forward=None,
         srp_per_trailing=None,
         srp_pbr=None,
@@ -121,8 +128,9 @@ def _panel_row(
         margin_long_share=None,
         margin_long_delta_26w=None,
         margin_std_long_share=None,
-        pass_screen=rank is not None,
-        evidence_playbooks="",
+        pass_screen=pass_screen or rank is not None,
+        evidence_playbooks=evidence_playbooks,
+        threshold_blocks=threshold_blocks,
         selection_rank=rank,
         recommended_rank=rank,
         shareholder_return_change=shareholder_return_change,
@@ -217,6 +225,340 @@ class RequiredMetricStatusTest(unittest.TestCase):
             ),
             {"er_calibration": "eligible", "er_level_calibration": "unresolved"},
         )
+
+
+class DeteriorationGateTest(unittest.TestCase):
+    """The gate is judged inside the best decile of the axis it guards."""
+
+    @staticmethod
+    def _cohort(blocked_rows: int) -> dict[str, object]:
+        # 400 names so the best decile holds 40; the deteriorating ones sit inside it.
+        panel = []
+        forwards = []
+        for index in range(400):
+            deteriorating = index < blocked_rows
+            row = _panel_row(
+                f"{4000 + index}",
+                # Lower per_trailing is the better side, so the low indices are the
+                # best decile and the deteriorating rows land there.
+                per_trailing=1.0 + index / 100,
+                operating_profit_yoy=-0.5 if deteriorating else 0.1,
+            )
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.30 if deteriorating else 0.05))
+        return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
+
+    def test_a_populated_blocked_side_reports_the_gate_effect(self) -> None:
+        aggregate = self._cohort(blocked_rows=25)["aggregate"]
+        assert isinstance(aggregate, dict)
+        entry = aggregate["gates"]["per_trailing"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["eligible_cohorts"], 1)
+        assert isinstance(entry["mean_gate_median_excess_delta"], float)
+        # The names the gate removed did better, so the gate cost return here.
+        self.assertLess(entry["mean_gate_median_excess_delta"], 0.0)
+
+    def test_a_thin_blocked_side_is_counted_and_left_out_of_the_mean(self) -> None:
+        """The blocked side is the deteriorating names inside one decile, so it is small.
+
+        Averaging a median over a handful of them reads like the same evidence as a
+        gate measured on hundreds.
+        """
+        aggregate = self._cohort(blocked_rows=5)["aggregate"]
+        assert isinstance(aggregate, dict)
+        entry = aggregate["gates"]["per_trailing"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["cohorts"], 1)
+        self.assertEqual(entry["eligible_cohorts"], 0)
+        self.assertIsNone(entry["mean_gate_median_excess_delta"])
+        self.assertIsNone(entry["gate_positive_share"])
+        self.assertEqual(entry["blocked_n"], 5)
+
+
+class PlaybookThresholdTest(unittest.TestCase):
+    """A threshold is judged against the names it alone turned away."""
+
+    def _cohort(self) -> dict[str, object]:
+        panel = []
+        forwards = []
+        for index in range(120):
+            taken = _panel_row(
+                f"{4000 + index}",
+                per_trailing=10.0,
+                evidence_playbooks="cash-rich-asset-discount",
+                pass_screen=True,
+            )
+            turned_away = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                threshold_blocks="cash-rich-asset-discount:equity_ratio_min",
+            )
+            panel.extend((taken, turned_away))
+            # The rows the floor removed did better, which is the shape that says a
+            # threshold costs return rather than saving it.
+            forwards.append(_forward_row(taken.ticker, 0.05))
+            forwards.append(_forward_row(turned_away.ticker, 0.25))
+        return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
+
+    def test_the_cohort_reports_both_sides_of_the_cut(self) -> None:
+        cohort = self._cohort()["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["playbook_thresholds"]
+        assert isinstance(node, dict)
+        entry = node["cash-rich-asset-discount:equity_ratio_min"]
+        assert isinstance(entry, dict)
+        admitted = entry["admitted"]
+        removed = entry["removed"]
+        assert isinstance(admitted, dict)
+        assert isinstance(removed, dict)
+        self.assertEqual(admitted["n"], 120)
+        self.assertEqual(removed["n"], 120)
+        # Admitted minus removed: negative means the floor gave up return.
+        assert isinstance(entry["median_excess_delta"], float)
+        self.assertLess(entry["median_excess_delta"], 0.0)
+
+    def test_the_aggregate_reports_how_often_the_cut_held(self) -> None:
+        aggregate = self._cohort()["aggregate"]
+        assert isinstance(aggregate, dict)
+        node = aggregate["playbook_thresholds"]
+        assert isinstance(node, dict)
+        entry = node["cash-rich-asset-discount:equity_ratio_min"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["cohorts"], 1)
+        self.assertEqual(entry["eligible_cohorts"], 1)
+        self.assertEqual(entry["positive_share"], 0.0)
+        self.assertEqual(entry["admitted_n"], 120)
+        self.assertEqual(entry["removed_n"], 120)
+
+    def test_a_threshold_too_few_rows_speak_for_reports_no_effect(self) -> None:
+        """Thresholds differ by two orders of magnitude in how many rows they remove.
+
+        A median over a couple of rows is one company's year, and averaging it beside a
+        threshold that removed hundreds reads as the same kind of evidence. The thin
+        cohort is counted and left out of the mean instead.
+        """
+        panel = []
+        forwards = []
+        for index in range(120):
+            taken = _panel_row(
+                f"{4000 + index}",
+                per_trailing=10.0,
+                evidence_playbooks="cash-rich-asset-discount",
+                pass_screen=True,
+            )
+            panel.append(taken)
+            forwards.append(_forward_row(taken.ticker, 0.05))
+        # Three rows: far below the floor, and all of them extreme.
+        for index in range(3):
+            turned_away = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                threshold_blocks="cash-rich-asset-discount:equity_ratio_min",
+            )
+            panel.append(turned_away)
+            forwards.append(_forward_row(turned_away.ticker, 0.90))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
+        cohort = result["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["playbook_thresholds"]
+        assert isinstance(node, dict)
+        # The cohort still records what it saw; the aggregate decides what it can average.
+        self.assertIn("cash-rich-asset-discount:equity_ratio_min", node)
+
+        aggregate = result["aggregate"]
+        assert isinstance(aggregate, dict)
+        entry = aggregate["playbook_thresholds"]["cash-rich-asset-discount:equity_ratio_min"]
+        assert isinstance(entry, dict)
+        self.assertEqual(entry["cohorts"], 1)
+        self.assertEqual(entry["eligible_cohorts"], 0)
+        self.assertIsNone(entry["mean_median_excess_delta"])
+        self.assertIsNone(entry["positive_share"])
+        # The row count is still reported, so a reader sees why nothing was averaged.
+        self.assertEqual(entry["removed_n"], 3)
+
+
+class SectorMedianBasisThinSideTest(unittest.TestCase):
+    """The market side is a fraction of the cohort, so it has to report without deciles.
+
+    Only nine sectors sit below the head-count floor, which leaves roughly fifty rows a
+    cohort on the market baseline against several thousand on their own. A decile over
+    fifty rows puts five names in a bucket, so the axis minimum refuses the spread — and
+    the group statistics have to carry the comparison, or the thin side reports nothing at
+    all and the coordinate cannot answer the question it exists for.
+    """
+
+    def _cohort(self) -> dict[str, object]:
+        panel = []
+        forwards = []
+        for index in range(150):
+            row = _panel_row(f"{4000 + index}", per_trailing=10.0, smg_p_s=-index / 100)
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.05))
+        # Below MIN_AXIS_SAMPLE on purpose: this is the real shape of the market side.
+        for index in range(40):
+            row = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                smg_p_s=-index / 100,
+                smg_market_fallback="p_s",
+                pass_screen=True,
+            )
+            panel.append(row)
+            # The group sits well above the population and the axis orders it inside:
+            # the level is what the group did, the ordering is what the axis is worth.
+            forwards.append(_forward_row(row.ticker, 0.30 + index / 200))
+        return evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]
+
+    def test_the_thin_side_reports_its_group_without_a_spread(self) -> None:
+        cohort = self._cohort()["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        market = axis["market_fallback"]
+        assert isinstance(market, dict)
+        self.assertEqual(market["n"], 40)
+        self.assertEqual(market["passed_screen"], 40)
+        # Too few rows for a decile, so the spread stays absent rather than being made up.
+        self.assertIsNone(market["decile_spread_median"])
+        # The group's own level is reported under a name that says so.
+        assert isinstance(market["group_median_excess"], float)
+        self.assertGreater(market["group_median_excess"], 0.0)
+        # The half split needs far less sample, so the axis is measured on this side too.
+        effect = market["axis_effect"]
+        assert isinstance(effect, dict)
+        self.assertEqual(effect["n"], 40)
+        assert isinstance(effect["median_excess_delta"], float)
+        self.assertAlmostEqual(effect["median_excess_delta"], 0.10, places=6)
+
+    def test_a_group_the_axis_does_not_order_reports_a_level_and_no_effect(self) -> None:
+        """A level the group carries is not an effect the axis produced.
+
+        Falling back is decided per sector, so the market side is whole sectors and its
+        level is that mix. Splitting the same group on the axis puts the same sectors on
+        both sides, so a group the axis does not order has to come back at zero however
+        far the group sits from the population.
+        """
+        panel = []
+        forwards = []
+        for index in range(120):
+            row = _panel_row(f"{4000 + index}", per_trailing=10.0, smg_p_s=-index / 100)
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.05))
+        for index in range(40):
+            row = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                smg_p_s=-index / 100,
+                smg_market_fallback="p_s",
+            )
+            panel.append(row)
+            forwards.append(_forward_row(row.ticker, 0.30))
+        cohort = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])[
+            "6m"
+        ]["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        market = axis["market_fallback"]
+        assert isinstance(market, dict)
+        assert isinstance(market["group_median_excess"], float)
+        self.assertGreater(market["group_median_excess"], 0.2)
+        effect = market["axis_effect"]
+        assert isinstance(effect, dict)
+        self.assertEqual(effect["median_excess_delta"], 0.0)
+
+    def test_the_aggregate_counts_the_thin_side_as_a_cohort(self) -> None:
+        aggregate = self._cohort()["aggregate"]
+        assert isinstance(aggregate, dict)
+        node = aggregate["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        market = axis["market_fallback"]
+        assert isinstance(market, dict)
+        # It contributed a cohort and an axis effect even though it contributed no spread.
+        self.assertEqual(market["cohorts"], 1)
+        self.assertEqual(market["spread_cohorts"], 0)
+        self.assertIsNone(market["mean_decile_spread_median"])
+        self.assertEqual(market["effect_cohorts"], 1)
+        self.assertEqual(market["axis_effect_positive_share"], 1.0)
+        assert isinstance(market["mean_axis_effect"], float)
+        self.assertAlmostEqual(market["mean_axis_effect"], 0.10, places=6)
+
+
+class SectorMedianBasisTest(unittest.TestCase):
+    """The sector-gap axes are reported separately for each baseline that produced them."""
+
+    def _cohort(self) -> dict[str, object]:
+        # Two groups whose gaps are drawn from the same numbers but whose outcomes run
+        # opposite ways, so a single pooled result would report roughly nothing and only
+        # the split can show either effect.
+        panel = []
+        forwards = []
+        for index in range(120):
+            own = _panel_row(f"{4000 + index}", per_trailing=10.0, smg_p_s=-index / 100)
+            market = _panel_row(
+                f"{5000 + index}",
+                per_trailing=10.0,
+                smg_p_s=-index / 100,
+                smg_market_fallback="p_s",
+                pass_screen=True,
+            )
+            panel.extend((own, market))
+            # own_sector: the cheapest end wins. market_fallback: it loses.
+            forwards.append(_forward_row(own.ticker, index / 100))
+            forwards.append(_forward_row(market.ticker, -index / 100))
+        result = evaluate_cohorts({"2025-06-30": panel}, {"2025-06-30": forwards}, horizons=["6m"])
+        return result["6m"]
+
+    def test_each_baseline_reports_its_own_effect(self) -> None:
+        cohort = self._cohort()["cohorts"][0]
+        assert isinstance(cohort, dict)
+        node = cohort["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        own, market = axis["own_sector"], axis["market_fallback"]
+        assert isinstance(own, dict)
+        assert isinstance(market, dict)
+        self.assertEqual(own["n"], 120)
+        self.assertEqual(market["n"], 120)
+        # smg_p_s has direction -1, so the favoured end is the most negative gap.
+        assert isinstance(own["decile_spread_median"], float)
+        assert isinstance(market["decile_spread_median"], float)
+        self.assertGreater(own["decile_spread_median"], 0.0)
+        self.assertLess(market["decile_spread_median"], 0.0)
+        # Screen passage is counted per basis, which is what says how far a fallback
+        # reaches into the output.
+        self.assertEqual(own["passed_screen"], 0)
+        self.assertEqual(market["passed_screen"], 120)
+
+    def test_the_aggregate_keeps_the_two_baselines_apart(self) -> None:
+        aggregate = self._cohort()["aggregate"]
+        assert isinstance(aggregate, dict)
+        node = aggregate["sector_median_basis"]
+        assert isinstance(node, dict)
+        axis = node["smg_p_s"]
+        assert isinstance(axis, dict)
+        own, market = axis["own_sector"], axis["market_fallback"]
+        assert isinstance(own, dict)
+        assert isinstance(market, dict)
+        self.assertEqual(own["cohorts"], 1)
+        self.assertEqual(own["decile_spread_positive_share"], 1.0)
+        self.assertEqual(market["decile_spread_positive_share"], 0.0)
+        self.assertEqual(market["passed_screen"], 120)
 
 
 class EvaluateCohortsTest(unittest.TestCase):

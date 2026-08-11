@@ -10,10 +10,11 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite, sqrt
-from statistics import fmean, median
+from statistics import fmean, median, stdev
 
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
@@ -29,6 +30,10 @@ MIN_AXIS_SAMPLE = 100
 
 # IC 計算に要求する最小標本数。
 MIN_IC_SAMPLE = 30
+
+# 1 つの閾値が 1 cohort で除去した行数の下限。閾値ごとに除去数は 2 桁違うので、
+# 下限が無いと数行の中央値が数百行の中央値と同じ重みで平均へ入る。
+MIN_THRESHOLD_REMOVED_SAMPLE = 20
 
 DECILES = 10
 
@@ -167,6 +172,17 @@ GATE_BASE_AXES: tuple[str, ...] = ("per_trailing", "pbr", "ocf_yield")
 # 収束実現 (implied upside → realized) を測る sector 相対 gap 軸。
 REVERSION_AXES: tuple[str, ...] = ("smg_per_trailing", "smg_pbr", "smg_ev_ebitda")
 
+# 業種中央値との差を測る軸。`PanelRow.smg_market_fallback` はこの prefix を外した
+# metric 名を並べるので、軸と素性はその語彙で対応する。
+_SECTOR_MEDIAN_AXIS_PREFIX = "smg_"
+SECTOR_MEDIAN_AXES: tuple[str, ...] = (
+    "smg_per_forward",
+    "smg_per_trailing",
+    "smg_pbr",
+    "smg_ev_ebitda",
+    "smg_p_s",
+)
+
 
 def evaluate_cohorts(
     panels: Mapping[str, Sequence[PanelRow]],
@@ -293,6 +309,8 @@ def _evaluate_cohort(
             "axes": {},
             "selection": {},
             "gates": {},
+            "sector_median_basis": {},
+            "playbook_thresholds": {},
             "reversion": {},
             "shareholder_return_change": {},
             "margin_supply_demand_hypotheses": {},
@@ -353,6 +371,8 @@ def _evaluate_cohort(
         "axes": axes,
         "selection": selection,
         "gates": _evaluate_gates(population, excess),
+        "sector_median_basis": _evaluate_sector_median_basis(population, excess),
+        "playbook_thresholds": _evaluate_playbook_thresholds(population, excess),
         "reversion": _evaluate_reversion(population, excess),
         "shareholder_return_change": return_change,
         "margin_supply_demand_hypotheses": margin_hypotheses,
@@ -1143,6 +1163,143 @@ def _evaluate_gates(
     return result
 
 
+def _evaluate_playbook_thresholds(
+    population: Sequence[PanelRow],
+    excess: Mapping[str, float],
+) -> dict[str, object]:
+    """What each playbook threshold admitted, against what it alone removed.
+
+    The axes say which signals order returns. They do not say whether the numbers that
+    decide admission are set where they should be, because a threshold is not a ranking:
+    it is one cut, and the only rows that speak to it are the ones that satisfied every
+    other condition of the same playbook. `rules.threshold_blocks` names those rows, so
+    the comparison here is between the names a playbook took and the names one of its
+    thresholds turned away.
+    """
+    admitted: dict[str, list[float]] = defaultdict(list)
+    removed: dict[str, list[float]] = defaultdict(list)
+    for row in population:
+        value = excess.get(row.ticker)
+        if value is None:
+            continue
+        for playbook in row.evidence_playbooks.split("|"):
+            if playbook:
+                admitted[playbook].append(value)
+        for block in row.threshold_blocks.split("|"):
+            if block:
+                removed[block].append(value)
+    result: dict[str, object] = {}
+    for block, removed_values in removed.items():
+        playbook = block.split(":", 1)[0]
+        admitted_values = admitted.get(playbook, [])
+        if not admitted_values:
+            continue
+        result[block] = {
+            "admitted": _group_stats(admitted_values),
+            "removed": _group_stats(removed_values),
+            "median_excess_delta": _rounded_difference(
+                median(admitted_values), median(removed_values)
+            ),
+        }
+    return result
+
+
+def _evaluate_sector_median_basis(
+    population: Sequence[PanelRow],
+    excess: Mapping[str, float],
+) -> dict[str, object]:
+    """Split each sector-gap axis by which population produced its median.
+
+    A sector below the head-count floor is compared against the whole market instead,
+    and the two answers are not the same quantity: the sectors that fall through sit
+    below the market on every valuation axis, so their names carry a negative gap that
+    sector composition alone can explain. The axis result is reported for each basis so
+    that a reader can tell an axis that works from an axis that works on one basis.
+
+    **What the group did is not what the axis is worth.** Falling back is decided per
+    sector, so the market-basis group is a union of whole sectors and its median outcome
+    is that sector mix -- subtracting each row's own sector median drives it to zero on
+    every axis and cohort. `group_median_excess` is therefore reported as the mix it is,
+    and the axis is measured inside each group by splitting on the axis value itself:
+    the cheap half against the expensive half is a comparison the sector mix cannot
+    produce, because both halves carry the same sectors.
+
+    The two sides are not the same size. A cohort holds a few thousand names on their own
+    sector and roughly fifty on the market, because only nine sectors sit below the floor.
+    A decile spread over fifty rows puts five names in a bucket, so the spread is reported
+    only where the sample supports it while the half-split, which needs far less, carries
+    the comparison on both sides.
+    """
+    result: dict[str, object] = {}
+    for axis_name in SECTOR_MEDIAN_AXES:
+        spec = next(spec for spec in AXES if spec.name == axis_name)
+        metric = axis_name.removeprefix(_SECTOR_MEDIAN_AXIS_PREFIX)
+        groups: dict[str, list[tuple[float, float]]] = {"own_sector": [], "market_fallback": []}
+        screened: dict[str, int] = {"own_sector": 0, "market_fallback": 0}
+        for row in population:
+            value = getattr(row, axis_name)
+            if value is None:
+                continue
+            basis = (
+                "market_fallback" if metric in row.smg_market_fallback.split("|") else "own_sector"
+            )
+            groups[basis].append((value * spec.direction, excess[row.ticker]))
+            screened[basis] += row.pass_screen
+        entry: dict[str, object] = {}
+        for basis, pairs in groups.items():
+            decile_values = _decile_values(pairs) if len(pairs) >= MIN_AXIS_SAMPLE else None
+            best = decile_values[-1] if decile_values else []
+            worst = decile_values[0] if decile_values else []
+            stats = _group_stats([outcome for _, outcome in pairs])
+            # Named field by field rather than splatted: on this coordinate a group
+            # level and an axis effect are different quantities, and `median_excess`
+            # would read as the second while being the first.
+            entry[basis] = {
+                "n": stats["n"],
+                "trap_rate": stats["trap_rate"],
+                "group_median_excess": stats["median_excess"],
+                "group_mean_excess": stats["mean_excess"],
+                "axis_effect": _half_split_effect(pairs),
+                "passed_screen": screened[basis],
+                "best_decile_median_excess": round(median(best), 6) if best else None,
+                "decile_spread_median": (
+                    round(median(best) - median(worst), 6) if best and worst else None
+                ),
+            }
+        result[axis_name] = entry
+    return result
+
+
+# 群内を軸値で 2 分割して効きを測るのに要る最小標本。市場 fallback 側は 1 cohort
+# あたり 50〜80 行なので decile は組めないが、半分ずつなら分位あたり 15 行以上を保てる。
+MIN_HALF_SPLIT_SAMPLE = 30
+
+
+def _half_split_effect(pairs: Sequence[tuple[float, float]]) -> dict[str, object]:
+    """群の中で「割安側」と「割高側」の実現超過を比べる。
+
+    群そのものの中央値は、群の決まり方 (業種が薄いかどうか) が持ち込む構成をそのまま
+    映す。同じ群を軸値で割れば両側が同じ構成を持つので、差は軸の効きだけを表す。
+    """
+    if len(pairs) < MIN_HALF_SPLIT_SAMPLE:
+        return {
+            "n": len(pairs),
+            "cheap_median_excess": None,
+            "expensive_median_excess": None,
+            "median_excess_delta": None,
+        }
+    ordered = sorted(pairs, key=lambda pair: pair[0])
+    half = len(ordered) // 2
+    expensive = [outcome for _, outcome in ordered[:half]]
+    cheap = [outcome for _, outcome in ordered[len(ordered) - half :]]
+    return {
+        "n": len(ordered),
+        "cheap_median_excess": round(median(cheap), 6),
+        "expensive_median_excess": round(median(expensive), 6),
+        "median_excess_delta": round(median(cheap) - median(expensive), 6),
+    }
+
+
 def _evaluate_reversion(
     population: Sequence[PanelRow],
     excess: Mapping[str, float],
@@ -1486,12 +1643,212 @@ def _aggregate(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
         "cohort_count": len(cohorts),
         "axes": axis_summary,
         "selection": selection_summary,
+        "gates": _aggregate_gates(cohorts),
+        "sector_median_basis": _aggregate_sector_median_basis(cohorts),
+        "playbook_thresholds": _aggregate_playbook_thresholds(cohorts),
         "shareholder_return_change": _aggregate_shareholder_return_change(cohorts),
         "margin_supply_demand_hypotheses": _aggregate_margin_hypotheses(cohorts),
         "profit_normalization_hypotheses": _aggregate_profit_normalization(cohorts),
         "asset_backed_hypotheses": _aggregate_asset_backed_hypotheses(cohorts),
         "er_calibration": _aggregate_er_calibration(cohorts),
     }
+
+
+def _aggregate_gates(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    """Cross-cohort verdict on the deterioration gate, per valuation axis.
+
+    A per-cohort pass/blocked pair answers one as-of. Whether the gate earns its place is
+    a question about the cohorts together: the sign of the difference and how often it
+    holds. Reported as the gate's own effect — what the names it removes gave up — so a
+    negative number means the gate cost return on that axis.
+
+    The blocked side is the small one: it is the deteriorating names inside a value axis's
+    best decile, which can be a handful. A cohort speaks only when that side reaches the
+    same floor the threshold coordinate uses, and the rest are counted apart, so a gate
+    nobody can measure reports no effect rather than one drawn from a few names.
+    """
+    result: dict[str, object] = {}
+    for axis_name in GATE_BASE_AXES:
+        deltas: list[float] = []
+        thin_cohorts = 0
+        passed_n = blocked_n = 0
+        for cohort in cohorts:
+            gates = cohort.get("gates")
+            if not isinstance(gates, dict):
+                continue
+            entry = gates.get(axis_name)
+            if not isinstance(entry, dict):
+                continue
+            passed = entry.get("gate_pass")
+            blocked = entry.get("gate_blocked")
+            if not isinstance(passed, dict) or not isinstance(blocked, dict):
+                continue
+            blocked_count = int(blocked.get("n") or 0)
+            passed_n += int(passed.get("n") or 0)
+            blocked_n += blocked_count
+            passed_median = passed.get("median_excess")
+            blocked_median = blocked.get("median_excess")
+            if not isinstance(passed_median, int | float) or not isinstance(
+                blocked_median, int | float
+            ):
+                continue
+            if blocked_count < MIN_THRESHOLD_REMOVED_SAMPLE:
+                thin_cohorts += 1
+                continue
+            deltas.append(float(passed_median) - float(blocked_median))
+        if not deltas and not thin_cohorts:
+            continue
+        result[axis_name] = {
+            "cohorts": len(deltas) + thin_cohorts,
+            "eligible_cohorts": len(deltas),
+            "passed_n": passed_n,
+            "blocked_n": blocked_n,
+            "mean_gate_median_excess_delta": round(fmean(deltas), 6) if deltas else None,
+            "stdev_gate_median_excess_delta": (
+                round(stdev(deltas), 6) if len(deltas) > 1 else None
+            ),
+            "gate_positive_share": (
+                round(sum(1 for value in deltas if value > 0) / len(deltas), 4) if deltas else None
+            ),
+        }
+    return result
+
+
+def _aggregate_playbook_thresholds(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    """Cross-cohort verdict per threshold: the effect and how often it holds.
+
+    A single as-of can favour any cut. What a threshold is worth is whether the same sign
+    survives the cohorts, so the share of cohorts where the admitted side led is reported
+    beside the mean effect rather than instead of it.
+
+    **A cohort only speaks about a threshold when the threshold removed enough names.**
+    The thresholds differ by two orders of magnitude in how many rows they turn away --
+    one takes a few hundred per cohort, another a couple -- and a median over two rows is
+    one company's year. Those cohorts are left out of the mean and counted separately, so
+    a threshold nobody can measure reports no effect instead of a loud one. The spread
+    across cohorts rides along for the same reason: cohorts overlap heavily at monthly
+    as-of dates, so a mean without its dispersion reads far more settled than it is.
+    """
+    deltas: dict[str, list[float]] = defaultdict(list)
+    thin_cohorts: dict[str, int] = defaultdict(int)
+    admitted_n: dict[str, int] = defaultdict(int)
+    removed_n: dict[str, int] = defaultdict(int)
+    for cohort in cohorts:
+        node = cohort.get("playbook_thresholds")
+        if not isinstance(node, dict):
+            continue
+        for block, entry in node.items():
+            if not isinstance(entry, dict):
+                continue
+            admitted = entry.get("admitted")
+            removed = entry.get("removed")
+            if isinstance(admitted, dict):
+                admitted_n[block] += int(admitted.get("n") or 0)
+            removed_count = int(removed.get("n") or 0) if isinstance(removed, dict) else 0
+            removed_n[block] += removed_count
+            delta = entry.get("median_excess_delta")
+            if not isinstance(delta, int | float):
+                continue
+            if removed_count < MIN_THRESHOLD_REMOVED_SAMPLE:
+                thin_cohorts[block] += 1
+                continue
+            deltas[block].append(float(delta))
+    return {
+        block: {
+            "cohorts": len(deltas[block]) + thin_cohorts[block],
+            "eligible_cohorts": len(deltas[block]),
+            "admitted_n": admitted_n[block],
+            "removed_n": removed_n[block],
+            "mean_median_excess_delta": (round(fmean(deltas[block]), 6) if deltas[block] else None),
+            "stdev_median_excess_delta": (
+                round(stdev(deltas[block]), 6) if len(deltas[block]) > 1 else None
+            ),
+            "positive_share": (
+                round(sum(1 for value in deltas[block] if value > 0) / len(deltas[block]), 4)
+                if deltas[block]
+                else None
+            ),
+        }
+        for block in sorted(set(deltas) | set(thin_cohorts))
+    }
+
+
+def _aggregate_sector_median_basis(cohorts: Sequence[dict[str, object]]) -> dict[str, object]:
+    """Cross-cohort effect of each sector-gap axis, kept apart by baseline.
+
+    `axis_effect` は群の中を軸値で割った差なので、両側とも同じ構成を持つ。これが軸の
+    効きを表す量で、`group_median_excess` の側は群の決まり方が持ち込む業種構成である。
+    2 つを別の名前で並べ、構成を効きとして読めないようにする。
+    """
+    result: dict[str, object] = {}
+    for axis_name in SECTOR_MEDIAN_AXES:
+        entry: dict[str, object] = {}
+        for basis in ("own_sector", "market_fallback"):
+            spreads: list[float] = []
+            group_medians: list[float] = []
+            effects: list[float] = []
+            traps: list[float] = []
+            cohort_count = total_n = passed_screen = 0
+            for cohort in cohorts:
+                node = cohort.get("sector_median_basis")
+                if not isinstance(node, dict):
+                    continue
+                axis = node.get(axis_name)
+                if not isinstance(axis, dict):
+                    continue
+                group = axis.get(basis)
+                if not isinstance(group, dict) or not group.get("n"):
+                    continue
+                cohort_count += 1
+                total_n += int(group.get("n") or 0)
+                passed_screen += int(group.get("passed_screen") or 0)
+                group_median = group.get("group_median_excess")
+                if isinstance(group_median, int | float):
+                    group_medians.append(float(group_median))
+                effect = group.get("axis_effect")
+                if isinstance(effect, dict):
+                    delta = effect.get("median_excess_delta")
+                    if isinstance(delta, int | float):
+                        effects.append(float(delta))
+                trap = group.get("trap_rate")
+                if isinstance(trap, int | float):
+                    traps.append(float(trap))
+                # The market side never fills a decile, so the spread joins the report
+                # only where a cohort had the sample; the half split carries both sides.
+                spread = group.get("decile_spread_median")
+                if isinstance(spread, int | float):
+                    spreads.append(float(spread))
+            entry[basis] = {
+                "cohorts": cohort_count,
+                "total_n": total_n,
+                "passed_screen": passed_screen,
+                # 群そのものの水準。fallback 側では「薄い業種の集合が何をしたか」であり
+                # 軸の効きではない。
+                "mean_group_median_excess": (
+                    round(fmean(group_medians), 6) if group_medians else None
+                ),
+                # 軸の効き。群内を割安 / 割高で割った差。ばらつきを平均と並べるのは、
+                # 月末 as-of の窓が大きく重なり、cohort 数だけ独立観測があるように
+                # 見えるため。市場側は 1 cohort 50 行前後なので特に効く。
+                "effect_cohorts": len(effects),
+                "mean_axis_effect": round(fmean(effects), 6) if effects else None,
+                "stdev_axis_effect": round(stdev(effects), 6) if len(effects) > 1 else None,
+                "axis_effect_positive_share": (
+                    round(sum(1 for value in effects if value > 0) / len(effects), 4)
+                    if effects
+                    else None
+                ),
+                "mean_trap_rate": round(fmean(traps), 4) if traps else None,
+                "spread_cohorts": len(spreads),
+                "mean_decile_spread_median": round(fmean(spreads), 6) if spreads else None,
+                "decile_spread_positive_share": (
+                    round(sum(1 for value in spreads if value > 0) / len(spreads), 4)
+                    if spreads
+                    else None
+                ),
+            }
+        result[axis_name] = entry
+    return result
 
 
 def _aggregate_margin_hypotheses(

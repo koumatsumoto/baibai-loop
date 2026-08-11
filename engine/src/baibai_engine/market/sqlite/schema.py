@@ -133,6 +133,12 @@ _REQUIRED_COLUMNS: Mapping[str, tuple[str, ...]] = {
         "dps_forecast_annual",
         "treasury_shares",
         "equity_to_asset_ratio",
+        "dividend_q1",
+        "dividend_interim",
+        "dividend_q3",
+        "dividend_year_end",
+        "dividend_total_annual",
+        "average_shares",
     ),
     "jquants_master_snapshots": (
         "snapshot_date",
@@ -364,6 +370,20 @@ CREATE TABLE IF NOT EXISTS jquants_fin_summaries(
   -- 比率をそれぞれ正しい分母で作るには両方が要る。
   treasury_shares REAL,
   equity_to_asset_ratio REAL,
+  -- 支払ごとの 1 株当たり配当と、通期に支払った配当の総額 (円)。年間 DPS は中間・期末
+  -- それぞれの基準日時点の株式基準で記載されるので、分割・併合を跨いだ年度は株価と同じ
+  -- 基準か言えない。支払ごとに持てば、各支払の基準日 (四半期末) より後の調整だけを掛けて
+  -- as-of 基準へ寄せられる。総額は円なので株式基準を持たず、自己株式を除いた株式数で
+  -- 割った値がその換算の独立した照合になる。
+  dividend_q1 REAL,
+  dividend_interim REAL,
+  dividend_q3 REAL,
+  dividend_year_end REAL,
+  dividend_total_annual REAL,
+  -- 期中平均株式数。提出者が EPS を出すのに使った株数そのもので、期末発行済と自己株から
+  -- 引いた株数が壊れていないかを同じ行の中で照合できる。`shares_outstanding` は期末の
+  -- 発行済総数で、両者は別の量なので独立した列で持つ。
+  average_shares REAL,
   PRIMARY KEY (ticker, disclosed_at)
 );
 
