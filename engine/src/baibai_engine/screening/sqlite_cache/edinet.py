@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Iterable, Mapping
 from datetime import UTC, date, datetime
 from math import isfinite
@@ -21,7 +22,10 @@ from baibai_engine.market.sqlite.coverage import (
     delete_overlapping_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.market.sqlite.schema import open_connection
+from baibai_engine.market.sqlite.schema import (
+    EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
+    open_connection,
+)
 
 
 def store_edinet_documents(
@@ -36,7 +40,11 @@ def store_edinet_documents(
     conn = open_connection(db_path)
     try:
         records_list = list(records)
-        rows = _edinet_document_rows(on_date.isoformat(), records_list)
+        rows = _edinet_document_rows(
+            on_date.isoformat(),
+            records_list,
+            observed=_observed_descriptive_columns(conn, on_date.isoformat()),
+        )
         expected_count = len(records_list) if result_count is None else result_count
         if expected_count != len(records_list):
             raise ValueError(
@@ -154,9 +162,30 @@ def store_edinet_metrics(
         conn.close()
 
 
+def _observed_descriptive_columns(
+    conn: sqlite3.Connection, doc_date: str
+) -> dict[str, dict[str, str | None]]:
+    """What this store already saw a day's filings say, keyed by document id.
+
+    The document id rather than the list position, so that a day whose entries EDINET
+    returns in a different order cannot graft one filing's description onto another.
+    """
+    rows = conn.execute(
+        "SELECT doc_id, sec_code, doc_type_code, parent_doc_id, submit_datetime, "
+        "doc_description FROM edinet_documents WHERE doc_date = ?",
+        (doc_date,),
+    ).fetchall()
+    return {
+        str(doc_id): dict(zip(EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS, values, strict=True))
+        for doc_id, *values in rows
+    }
+
+
 def _edinet_document_rows(
     doc_date: str,
     records: Iterable[Mapping[str, Any]],
+    *,
+    observed: Mapping[str, Mapping[str, str | None]],
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     sequence_numbers: set[int] = set()
@@ -180,23 +209,44 @@ def _edinet_document_rows(
         if sequence_number in sequence_numbers:
             raise ValueError(f"duplicate EDINET seqNumber: {sequence_number}")
         sequence_numbers.add(sequence_number)
+        # A list read after the inspection period ended reports these five as null. The
+        # stored answer from a read while the filing was still served stays true, so the
+        # new response only ever adds to them. The lifecycle columns below take the new
+        # answer unconditionally: an expiry or a withdrawal is the point of re-reading.
+        retained = observed.get(doc_id, {})
+        described = {
+            column: value if value is not None else retained.get(column)
+            for column, value in (
+                ("sec_code", to_str_or_none(first(record, "secCode", "sec_code"))),
+                ("doc_type_code", to_str_or_none(first(record, "docTypeCode", "doc_type_code"))),
+                ("parent_doc_id", to_str_or_none(first(record, "parentDocID", "parent_doc_id"))),
+                (
+                    "submit_datetime",
+                    to_str_or_none(first(record, "submitDateTime", "submit_datetime")),
+                ),
+                (
+                    "doc_description",
+                    to_str_or_none(first(record, "docDescription", "doc_description")),
+                ),
+            )
+        }
         rows.append(
             (
                 doc_date,
                 sequence_number,
                 doc_id,
-                to_str_or_none(first(record, "secCode", "sec_code")),
-                to_str_or_none(first(record, "docTypeCode", "doc_type_code")),
+                described["sec_code"],
+                described["doc_type_code"],
                 to_str_or_none(first(record, "csvFlag", "csv_flag")),
                 to_str_or_none(first(record, "xbrlFlag", "xbrl_flag")),
                 to_str_or_none(first(record, "legalStatus", "legal_status")),
                 to_str_or_none(first(record, "disclosureStatus", "disclosure_status")),
                 to_str_or_none(first(record, "withdrawalStatus", "withdrawal_status")),
                 to_str_or_none(first(record, "docInfoEditStatus", "doc_info_edit_status")),
-                to_str_or_none(first(record, "parentDocID", "parent_doc_id")),
+                described["parent_doc_id"],
                 to_str_or_none(first(record, "opeDateTime", "operation_datetime")),
-                to_str_or_none(first(record, "submitDateTime", "submit_datetime")),
-                to_str_or_none(first(record, "docDescription", "doc_description")),
+                described["submit_datetime"],
+                described["doc_description"],
                 date_iso(first(record, "periodStart", "period_start")),
                 date_iso(first(record, "periodEnd", "period_end")),
                 to_str_or_none(first(record, "edinetCode", "edinet_code")),
