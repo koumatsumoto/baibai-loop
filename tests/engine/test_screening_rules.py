@@ -14,6 +14,8 @@ if str(SRC) not in sys.path:
 
 from baibai_engine.screening.rule_config import load_screening_rules
 from baibai_engine.screening.rules import (
+    _NON_THRESHOLD_FIELDS,
+    _RELAXED_THRESHOLDS,
     PLAYBOOK_CASH_RICH,
     PLAYBOOK_CASHFLOW_YIELD,
     PLAYBOOK_SALES_DISCOUNT,
@@ -422,6 +424,43 @@ class ScreeningRulesTests(unittest.TestCase):
             PLAYBOOK_CASH_RICH, [evidence_hit.name for evidence_hit in result.evidence_hits]
         )
         self.assertIn("cash_rich_edinet_net_cash_contradiction", result.null_reasons)
+
+
+class ThresholdCoverageTests(unittest.TestCase):
+    """Every configured threshold is either measured or declared not to be one.
+
+    A threshold missing from the relaxation table produces no block, and no block is
+    indistinguishable from a threshold that never removed anybody -- the coordinate
+    would report a level it never tested. Deciding each field is what keeps a new
+    threshold from arriving unmeasured.
+    """
+
+    def test_every_playbook_field_is_classified(self) -> None:
+        rules = load_screening_rules()
+        for name, playbook in rules.screening_playbooks.items():
+            with self.subTest(playbook=name):
+                relaxed = set(_RELAXED_THRESHOLDS.get(name, {}))
+                fields = set(type(playbook).model_fields)
+                unclassified = fields - relaxed - _NON_THRESHOLD_FIELDS
+                self.assertEqual(unclassified, set())
+                self.assertEqual(relaxed - fields, set())
+
+    def test_every_playbook_has_a_relaxation_entry(self) -> None:
+        rules = load_screening_rules()
+        self.assertEqual(
+            set(rules.screening_playbooks) - set(_RELAXED_THRESHOLDS),
+            set(),
+        )
+
+    def test_the_relaxed_value_admits_what_the_threshold_rejects(self) -> None:
+        """A permissive value that is not permissive would silently measure nothing."""
+        rules = load_screening_rules()
+        reversion = rules.screening_playbooks[PLAYBOOK_VALUATION_REVERSION]
+        relaxed = _RELAXED_THRESHOLDS[PLAYBOOK_VALUATION_REVERSION]
+        # The self-range percentile is a share, so 1.0 admits every observation while
+        # staying inside the field's own bound.
+        self.assertEqual(relaxed["self_range_percentile_max"], 1.0)
+        self.assertLess(reversion.self_range_percentile_max, 1.0)
 
 
 class ThresholdBlockTests(unittest.TestCase):

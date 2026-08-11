@@ -114,7 +114,31 @@ _RELAXED_THRESHOLDS: dict[str, dict[str, object]] = {
         "sales_yoy_min": -inf,
         "operating_margin_min": None,
     },
+    PLAYBOOK_VALUATION_REVERSION: {
+        "sector_median_gap_max": inf,
+        # 自己レンジ percentile は [0, 1] なので 1.0 が全通しであり、field 自身の
+        # 上限を破らずに緩められる。
+        "self_range_percentile_max": 1.0,
+        "sigma_gap_max": inf,
+    },
 }
+
+# 閾値でない field。水準を持たないので緩めても意味を成さず、`threshold_blocks` の
+# 契約 (「判断できない行は閾値に落とされたのではない」) からも外れる。
+# `_RELAXED_THRESHOLDS` との和が playbook の全 field を覆うことをテストで固定する。
+_NON_THRESHOLD_FIELDS = frozenset(
+    {
+        # 素性と適用範囲
+        "playbook_id",
+        "excluded_sectors",
+        "metrics",
+        # data 要件。落とすのは水準ではなく事実の有無
+        "cfo_yoy_required",
+        "ttm_cfo_required",
+        # 行を通す側の緩和条件。緩めると条件が厳しくなる向きなので同じ形で測れない
+        "allow_operating_loss_if_cfo_positive_or_loss_narrowing",
+    }
+)
 
 
 def threshold_blocks(
