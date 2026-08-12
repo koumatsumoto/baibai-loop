@@ -76,6 +76,16 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 
 **schemaを上げるcodeはmainへ入れてからpushする。** ローカルがmainより先のversionでstoreを置くと、次の日次batchがそのversionを知らずfail-fastする。手順と失敗時の見え方は [`batch/OPERATIONS.md`](./batch/OPERATIONS.md#ローカルからクラウドを更新する) を正本とする。
 
+### 移行はローカルで完結させる
+
+**日次batchは開発の無い日の定常処理である。移行をそこで走らせない。** schema変更・store再構築・全期間再取得・較正storeの作り直しといった移行は、ローカルで完結させ、**その成果をローカルからクラウドへ反映する**。
+
+- 移行を含むmerge後にやること: ローカルでstoreを完全にし、判断成果物（run / selection / serving view / application DB）までローカルで作り、`r2_transfer.sh` の push系と `batch/scripts/publish.sh` でクラウドへ出す
+- やらないこと: 日次batchをdispatchして移行を吸収させる、その完走を待つ、クラウドに再取得させる
+- 理由は3つある。(a) 完全なデータはローカルに在るので、クラウドの再取得は同じ行をもう一度買うだけになる。(b) 日次batchはその日の増分のために組まれており、移行の入力（深い履歴・再構築済みcache）を持たない。(c) 移行がクラウドで途中失敗すると、正本が新旧混在のまま残る
+
+判断（`screening run` / `select` / shortlist publish）も同じで、**ローカルのstoreが完全なら、クラウドのrunを待つ理由は無い**。
+
 ## Repository-local skills
 
 repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（一覧と選び方は上記「運用の入口」）。`.claude/skills/<name>`は同じdirectoryへのrelative symlinkであり、別内容として編集しない。skillが参照するreferenceとpublic `--help`を優先し、tests/fixturesやsrcから日常手順を推測しない。
