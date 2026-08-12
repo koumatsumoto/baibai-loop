@@ -3060,3 +3060,111 @@ class DividendCrossCheckBoundaryTests(unittest.TestCase):
 
         self.assertIsNotNone(resolved)
         self.assertAlmostEqual(resolved or 0.0, 50.0, places=6)
+
+
+class InterimSplitShareBasisTests(unittest.TestCase):
+    """期末と開示日の間に権利落ちがある行の株式基準を、行ごとに決める。
+
+    提出者によって期末基準のまま出す行と分割を遡及適用した行に割れる。取り違えると
+    株数が分割比だけずれ、時価総額・倍率・株数変化がまとめて壊れる。
+    """
+
+    @staticmethod
+    def _bar(traded_at: date, factor: float | None = None) -> JQuantsDailyBar:
+        return JQuantsDailyBar(
+            ticker="1111",
+            traded_at=traded_at,
+            close=1000.0,
+            turnover_value=3e8,
+            adjustment_factor=factor,
+        )
+
+    def _normalized_shares(self, *, reported: float, reference: float) -> float | None:
+        """権利落ちを挟んで 2 行を並べ、後の行の正規化後株数を返す。"""
+
+        bars = [
+            self._bar(date(2026, 1, 30)),
+            self._bar(date(2026, 4, 20), 0.5),
+            self._bar(date(2026, 5, 15)),
+        ]
+        summaries = [
+            _summary(
+                "1111",
+                date(2026, 2, 10),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=reference,
+                treasury_shares=0.0,
+            ),
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=reported,
+                treasury_shares=0.0,
+            ),
+        ]
+        return _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 5, 29))[
+            1
+        ].shares_outstanding
+
+    def test_a_row_still_on_the_period_end_basis_is_converted(self) -> None:
+        """分割前の株数のまま出た行。価格だけ分割後になるので換算しないと時価総額が半分。"""
+
+        self.assertAlmostEqual(
+            self._normalized_shares(reported=1_000_000.0, reference=1_000_000.0),
+            2_000_000.0,
+            places=0,
+        )
+
+    def test_a_row_that_already_applied_the_split_is_left_alone(self) -> None:
+        """提出者が遡及適用済みの行。もう一度掛けると株数が 2 倍になる。"""
+
+        self.assertAlmostEqual(
+            self._normalized_shares(reported=2_000_000.0, reference=1_000_000.0),
+            2_000_000.0,
+            places=0,
+        )
+
+    def test_a_small_issue_alongside_the_split_does_not_block_the_call(self) -> None:
+        """分割と同時の数 % の増資は極を動かさない。固定幅の帯だとここで答えられなくなる。"""
+
+        self.assertAlmostEqual(
+            self._normalized_shares(reported=2_048_000.0, reference=1_000_000.0),
+            2_048_000.0,
+            places=0,
+        )
+
+    def test_a_large_capital_change_alongside_the_split_is_refused(self) -> None:
+        """どちらの仮説でも残差が大きい行は答えない。時価総額が出ないので母集団に入らない。"""
+
+        self.assertIsNone(self._normalized_shares(reported=1_500_000.0, reference=1_000_000.0))
+
+    def test_a_refused_row_keeps_the_yen_quantities(self) -> None:
+        """円の総額は株式基準に依存しない。落とすのは株数と per-share だけ。"""
+
+        bars = [self._bar(date(2026, 4, 20), 0.5), self._bar(date(2026, 5, 15))]
+        summaries = [
+            _summary(
+                "1111",
+                date(2026, 2, 10),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=1_000_000.0,
+                treasury_shares=0.0,
+            ),
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=1_500_000.0,
+                treasury_shares=0.0,
+                total_assets=5e8,
+                equity_to_asset_ratio=0.5,
+            ),
+        ]
+
+        row = _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 5, 29))[1]
+
+        self.assertIsNone(row.shares_outstanding)
+        self.assertIsNone(row.bps)
+        self.assertEqual(row.total_assets, 5e8)
+        self.assertEqual(row.equity_to_asset_ratio, 0.5)
