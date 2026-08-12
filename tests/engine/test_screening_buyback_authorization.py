@@ -6,10 +6,13 @@ from pathlib import Path
 from baibai_engine.screening.buyback_authorization import (
     OBSERVATION_WINDOW_DAYS,
     RECENT_FILING_WINDOW_DAYS,
+    BuybackAuthorization,
     build_buyback_authorization,
     index_buyback_status_filings,
     read_buyback_status_filings,
+    with_authorization_state,
 )
+from baibai_engine.screening.buyback_store import StoredBuybackReport
 from baibai_engine.screening.rule_config import DEFAULT_RULES_PATH, load_screening_rules
 from baibai_engine.screening.selection import build_selection_payload, candidate_record_from_mapping
 from baibai_engine.screening.sqlite_cache import open_connection, store_edinet_documents
@@ -324,6 +327,7 @@ def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
                 "buyback_status_observed_from": "2025-08-01",
                 # 枠の中身。提出の齢と違い、carry が forward の還元かを直接決める。
                 "buyback_remaining_share_ratio": 0.32,
+                "buyback_remaining_amount_ratio": 0.001,
                 "buyback_trailing_3m_acquired_ratio": 0.004,
                 "buyback_authorization_window_end": "2026-03-13",
                 "buyback_report_month_end": "2026-03-31",
@@ -351,6 +355,9 @@ def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
     # "recent enough" off a window that closed months ago.
     assert recommendation["buyback_authorization_window_end"] == "2026-03-13"
     assert recommendation["buyback_remaining_share_ratio"] == 0.32
+    # 枠は株数と金額の 2 本を上限に持つ。株数側だけを出すと、金額枠を使い切った銘柄が
+    # 「枠が 3 割残っている」と読める。
+    assert recommendation["buyback_remaining_amount_ratio"] == 0.001
     assert recommendation["buyback_trailing_3m_acquired_ratio"] == 0.004
     longlist_row = payload["longlist"][0]
     assert longlist_row["buyback_authorization"] == {
@@ -359,7 +366,71 @@ def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
         "filing_age_days": 113,
         "observed_from": "2025-08-01",
         "remaining_share_ratio": 0.32,
+        "remaining_amount_ratio": 0.001,
         "trailing_3m_acquired_ratio": 0.004,
         "authorization_window_end": "2026-03-13",
         "report_month_end": "2026-03-31",
     }
+
+
+def test_the_amount_cap_is_read_independently_of_the_share_cap() -> None:
+    """決議は株数と金額の 2 本を上限に持ち、先に尽きた方で取得が終わる。
+
+    決議後に株価が上がった銘柄は金額枠を先に使い切り、株数枠を残したまま取得を終える。
+    株数側だけを見ると枠が残っているように読めるので、両方が同じ面に出る必要がある。
+    """
+
+    annotation = BuybackAuthorization(
+        status="recent_filing",
+        latest_filing_date=date(2026, 7, 15),
+        latest_filing_age_days=20,
+        observed_from=COVERED_FROM,
+    )
+    reports = (
+        StoredBuybackReport(
+            report_month_end=date(2026, 6, 30),
+            window_start=date(2026, 2, 1),
+            window_end=date(2026, 9, 30),
+            resolved_shares=1_000_000,
+            cumulative_shares=620_000,
+            month_shares=40_000,
+            issued_shares=50_000_000,
+            resolved_amount_yen=1_000_000_000,
+            cumulative_amount_yen=999_990_000,
+        ),
+    )
+
+    state = with_authorization_state(annotation, reports)
+
+    assert state.remaining_share_ratio == 0.38
+    assert state.remaining_amount_ratio is not None
+    assert state.remaining_amount_ratio < 0.0001
+
+
+def test_an_unreadable_amount_cap_is_not_reported_as_a_spent_one() -> None:
+    """欠損は「読めなかった」であって「使い切った」ではない。0.0 で埋めない。"""
+
+    annotation = BuybackAuthorization(
+        status="recent_filing",
+        latest_filing_date=date(2026, 7, 15),
+        latest_filing_age_days=20,
+        observed_from=COVERED_FROM,
+    )
+    reports = (
+        StoredBuybackReport(
+            report_month_end=date(2026, 6, 30),
+            window_start=date(2026, 2, 1),
+            window_end=date(2026, 9, 30),
+            resolved_shares=1_000_000,
+            cumulative_shares=620_000,
+            month_shares=40_000,
+            issued_shares=50_000_000,
+            resolved_amount_yen=None,
+            cumulative_amount_yen=None,
+        ),
+    )
+
+    state = with_authorization_state(annotation, reports)
+
+    assert state.remaining_share_ratio == 0.38
+    assert state.remaining_amount_ratio is None

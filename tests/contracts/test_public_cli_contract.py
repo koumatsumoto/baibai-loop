@@ -173,6 +173,7 @@ def test_select_cli_emits_stable_yaml_shape(
         "buyback_status_filing_age_days",
         "buyback_status_observed_from",
         "buyback_remaining_share_ratio",
+        "buyback_remaining_amount_ratio",
         "buyback_trailing_3m_acquired_ratio",
         "buyback_authorization_window_end",
         "buyback_report_month_end",
