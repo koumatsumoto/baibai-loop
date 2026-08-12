@@ -9,7 +9,6 @@ from pathlib import Path
 import yaml
 
 from baibai_engine.screening.calibration.store import (
-    CACHE_SCHEMA_VERSION,
     CalibrationCacheError,
     cache_meta_path,
     read_panel,
@@ -160,7 +159,7 @@ class CalibrationCacheVersionTest(unittest.TestCase):
             root = Path(tmp)
             cache_meta_path(root).parent.mkdir(parents=True, exist_ok=True)
             cache_meta_path(root).write_text(
-                yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION - 1}),
+                yaml.safe_dump({"cache_schema_version": "0000000000000000"}),
                 encoding="utf-8",
             )
             (root / "panel-2020-01-31.csv").write_text("asof,ticker\n2020-01-31,7203\n", "utf-8")
