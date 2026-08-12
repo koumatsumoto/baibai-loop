@@ -11,8 +11,15 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.screening.calibration.forward import (
+    _asof_basis_dividend as _forward_asof_basis_dividend,
+)
+from baibai_engine.screening.calibration.forward import (
+    _FYDividendObservation,
+)
 from baibai_engine.screening.metrics import (
     MetricBuildResult,
+    _asof_basis_dividend,
     _normalize_summaries_to_asof_basis,
     _resolve_dividend_carry,
     _ttm_value,
@@ -2768,3 +2775,121 @@ class DividendCarryResolverTests(unittest.TestCase):
         )
         self.assertEqual(carry.basis, "unavailable")
         self.assertIsNone(carry.dividend_yield)
+
+
+class DividendBasisRouteEquivalenceTests(unittest.TestCase):
+    """screening と較正が同じ年度に同じ配当を出すことを強制する。
+
+    判定は 2 か所に書かれている。`metrics._asof_basis_dividend` は
+    `_normalize_summaries_to_asof_basis` を通った行を受け、
+    `calibration.forward._asof_basis_dividend` は SQL から読んだ as-reported の行を受ける。
+    **どちらも正しいが正しさの理由が逆で、片方だけを直すと較正が測る量と本番が使う量が
+    別になる。** 実際 2026-08 に metrics 側だけが基準を揃えておらず、この経路を通る配当
+    年度の約 9% を捨てていた。
+    """
+
+    @staticmethod
+    def _bar(traded_at: date, factor: float | None = None) -> JQuantsDailyBar:
+        return JQuantsDailyBar(
+            ticker="1111",
+            traded_at=traded_at,
+            close=1000.0,
+            turnover_value=3e8,
+            adjustment_factor=factor,
+        )
+
+    def _both_routes(
+        self,
+        *,
+        interim: float,
+        year_end: float,
+        reported: float,
+        split_on: date | None,
+        split_factor: float,
+        asof: date,
+    ) -> tuple[float | None, float | None]:
+        fiscal_year_end = date(2026, 3, 31)
+        disclosed_at = date(2026, 5, 15)
+        bars = [self._bar(date(2025, 4, 1) + timedelta(days=index * 7)) for index in range(70)]
+        if split_on is not None:
+            bars.append(self._bar(split_on, split_factor))
+        bars.sort(key=lambda bar: bar.traded_at)
+
+        summaries = [
+            _summary(
+                "1111",
+                disclosed_at,
+                fiscal_period="FY",
+                fiscal_year_end=fiscal_year_end,
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=reported,
+                dividend_interim=interim,
+                dividend_year_end=year_end,
+            )
+        ]
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, asof)
+        from_metrics = _asof_basis_dividend(normalized[0], bars, asof_date=asof)
+
+        observation = _FYDividendObservation(
+            fiscal_year_end=fiscal_year_end,
+            disclosed_at=disclosed_at,
+            dps_actual_annual=reported,
+            period_start=date(2025, 4, 1),
+            payments=(None, interim, None, year_end),
+        )
+        from_forward = _forward_asof_basis_dividend(observation, bars, basis_date=asof)
+        return from_metrics, from_forward
+
+    def test_a_split_inside_the_year_resolves_the_same_on_both_routes(self) -> None:
+        metrics_value, forward_value = self._both_routes(
+            interim=40.0,
+            year_end=60.0,
+            reported=100.0,
+            split_on=date(2025, 12, 15),
+            split_factor=0.5,
+            asof=date(2026, 8, 10),
+        )
+        self.assertIsNotNone(metrics_value)
+        self.assertIsNotNone(forward_value)
+        assert metrics_value is not None
+        assert forward_value is not None
+        self.assertAlmostEqual(metrics_value, forward_value, places=6)
+
+    def test_a_split_after_the_disclosure_resolves_the_same_on_both_routes(self) -> None:
+        """metrics 側だけが正規化を受ける形。ここがずれていた実際の欠陥である。"""
+        metrics_value, forward_value = self._both_routes(
+            interim=40.0,
+            year_end=60.0,
+            reported=100.0,
+            split_on=date(2026, 7, 1),
+            split_factor=0.5,
+            asof=date(2026, 8, 10),
+        )
+        assert metrics_value is not None
+        assert forward_value is not None
+        self.assertAlmostEqual(metrics_value, forward_value, places=6)
+
+    def test_a_payment_beside_a_split_is_refused_on_both_routes(self) -> None:
+        metrics_value, forward_value = self._both_routes(
+            interim=40.0,
+            year_end=60.0,
+            reported=100.0,
+            # 期末配当の基準日 (2026-03-31) の 1 日前。どちらの経路も答えない。
+            split_on=date(2026, 3, 30),
+            split_factor=0.5,
+            asof=date(2026, 8, 10),
+        )
+        self.assertIsNone(metrics_value)
+        self.assertIsNone(forward_value)
+
+    def test_incomplete_details_are_refused_on_both_routes(self) -> None:
+        metrics_value, forward_value = self._both_routes(
+            interim=40.0,
+            year_end=10.0,
+            reported=100.0,
+            split_on=date(2025, 12, 15),
+            split_factor=0.5,
+            asof=date(2026, 8, 10),
+        )
+        self.assertIsNone(metrics_value)
+        self.assertIsNone(forward_value)
