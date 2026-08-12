@@ -1,0 +1,810 @@
+- input_id: series-aud-jpy
+  provider: ecb_fx
+  series_id: aud_jpy
+  window: percentile 実効窓 10y（観測 2558 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:32:21.223999+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 為替 の fact 根拠
+- input_id: series-brent
+  provider: fred_csv
+  series_id: brent
+  window: percentile 実効窓 10y（観測 2530 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-03'
+  published_at: '2026-08-06T11:03:35.878897+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト・リスク環境・監視 の fact 根拠
+- input_id: series-copper
+  provider: yahoo
+  series_id: copper
+  window: percentile 実効窓 10y（観測 2513 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-12'
+  published_at: '2026-08-12T10:32:22.814232+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-credit-hy-ig-spread
+  provider: derived
+  series_id: credit.hy_ig_spread
+  window: percentile 実効窓 3y（観測 784 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:34:08.987027+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-credit-us-ccc-oas
+  provider: fred_csv
+  series_id: credit.us_ccc_oas
+  window: percentile 実効窓 3y（観測 785 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:32:23.339889+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用・リスク環境 の fact 根拠
+- input_id: series-credit-us-hy-oas
+  provider: fred_csv
+  series_id: credit.us_hy_oas
+  window: percentile 実効窓 3y（観測 785 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:32:23.356094+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用・リスク環境・監視 の fact 根拠
+- input_id: series-credit-us-ig-oas
+  provider: fred_csv
+  series_id: credit.us_ig_oas
+  window: percentile 実効窓 3y（観測 784 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:32:23.370723+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-de-10y
+  provider: fred_csv
+  series_id: de.10y
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:32:29.330810+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-ecb-policy-rate
+  provider: fred_csv
+  series_id: ecb.policy_rate
+  window: percentile 実効窓 10y（観測 3652 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:32:23.417956+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-em-equity
+  provider: yahoo
+  series_id: em.equity
+  window: percentile 実効窓 10y（観測 2512 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:32:23.506239+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-eur-jpy
+  provider: ecb_fx
+  series_id: eur_jpy
+  window: percentile 実効窓 10y（観測 2558 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:32:23.536722+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 為替 の fact 根拠
+- input_id: series-gold
+  provider: yahoo
+  series_id: gold
+  window: percentile 実効窓 10y（観測 2512 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-12'
+  published_at: '2026-08-12T10:32:23.732255+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: バリュエーション の fact 根拠
+- input_id: series-jp-10y
+  provider: mof_jgb
+  series_id: jp.10y
+  window: percentile 実効窓 10y（観測 2445 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:32:26.291648+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 局面サマリー・金利・金融政策・リスク環境・監視 の fact 根拠
+- input_id: series-jp-2y
+  provider: mof_jgb
+  series_id: jp.2y
+  window: percentile 実効窓 10y（観測 2441 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:32:26.438357+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-jp-30y
+  provider: mof_jgb
+  series_id: jp.30y
+  window: percentile 実効窓 10y（観測 2441 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:32:26.521593+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-jp-bank-lending-yoy
+  provider: boj_timeseries
+  series_id: jp.bank_lending_yoy
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:08:15.046343+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-bankruptcies
+  provider: tsr_bankruptcies
+  series_id: jp.bankruptcies
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:08:19.985211+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本・リスク環境・監視 の fact 根拠
+- input_id: series-jp-cgpi
+  provider: boj_timeseries
+  series_id: jp.cgpi
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:56:35.250900+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-jp-consumer-confidence
+  provider: estat
+  series_id: jp.consumer_confidence
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-07T09:54:27.810159+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-cpi-core-yoy
+  provider: estat
+  series_id: jp.cpi.core_yoy
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T12:16:25.948799+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-jp-cpi-services
+  provider: estat
+  series_id: jp.cpi.services
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:47:16.963664+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-jp-erp
+  provider: derived
+  series_id: jp.erp
+  window: percentile 実効窓 10y（観測 2441 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:34:09.018142+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 局面サマリー・バリュエーション・リスク環境・監視 の fact 根拠
+- input_id: series-jp-export-price-index
+  provider: boj_timeseries
+  series_id: jp.export_price_index
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:56:37.317965+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-jp-import-price-index
+  provider: boj_timeseries
+  series_id: jp.import_price_index
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:56:36.191971+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-jp-industrial-production
+  provider: estat
+  series_id: jp.industrial_production
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-07T09:54:32.331705+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-job-openings-ratio
+  provider: estat
+  series_id: jp.job_openings_ratio
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-07T09:54:32.652581+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-machinery-orders
+  provider: estat
+  series_id: jp.machinery_orders
+  window: percentile 実効窓 10y（観測 117 件）/ asof 2026-08-12
+  observation_as_of: '2026-05-01'
+  published_at: '2026-07-26T08:48:56.180302+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-jp-monetary-base
+  provider: boj
+  series_id: jp.monetary_base
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-04T11:06:24.269547+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-nikkei225
+  provider: fred_csv
+  series_id: jp.nikkei225
+  window: percentile 実効窓 10y（観測 2441 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:33:31.421496+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 局面サマリー・バリュエーション の fact 根拠
+- input_id: series-jp-nikkei-pbr
+  provider: nikkei_indexes
+  series_id: jp.nikkei_pbr
+  window: percentile 実効窓 10y（観測 2442 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-12'
+  published_at: '2026-08-12T10:33:32.064074+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: バリュエーション の fact 根拠
+- input_id: series-jp-nikkei-per
+  provider: nikkei_indexes
+  series_id: jp.nikkei_per
+  window: percentile 実効窓 10y（観測 2442 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-12'
+  published_at: '2026-08-12T10:33:32.473592+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: バリュエーション の fact 根拠
+- input_id: series-jp-nominal-wage-index
+  provider: estat_dashboard
+  series_id: jp.nominal_wage_index
+  window: percentile 実効窓 10y（観測 117 件）/ asof 2026-08-12
+  observation_as_of: '2026-05-01'
+  published_at: '2026-07-26T08:10:37.386011+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-pmi-manufacturing
+  provider: spglobal_pmi
+  series_id: jp.pmi_manufacturing
+  window: percentile 実効窓 3y（観測 35 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:33:17.444006+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-jp-pmi-services
+  provider: spglobal_pmi
+  series_id: jp.pmi_services
+  window: percentile 実効窓 3y（観測 34 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:33:17.708309+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-jp-policy-path-gap
+  provider: derived
+  series_id: jp.policy_path_gap
+  window: percentile 実効窓 10y（観測 2440 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-07'
+  published_at: '2026-08-12T10:34:09.034446+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-jp-policy-rate
+  provider: boj_timeseries
+  series_id: jp.policy_rate
+  window: percentile 実効窓 10y（観測 2444 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-07'
+  published_at: '2026-08-12T10:33:33.526792+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-jp-real-consumption
+  provider: boj
+  series_id: jp.real_consumption
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-07T09:54:35.457208+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本・リスク環境 の fact 根拠
+- input_id: series-jp-real-effective-exchange-rate
+  provider: fred_csv
+  series_id: jp.real_effective_exchange_rate
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-23T17:41:19.356782+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 為替 の fact 根拠
+- input_id: series-jp-real-exports
+  provider: boj
+  series_id: jp.real_exports
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:52:31.443406+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-real-wage-index
+  provider: estat_dashboard
+  series_id: jp.real_wage_index
+  window: percentile 実効窓 10y（観測 117 件）/ asof 2026-08-12
+  observation_as_of: '2026-05-01'
+  published_at: '2026-07-26T08:48:58.106626+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-tankan-large-mfg-di
+  provider: boj_timeseries
+  series_id: jp.tankan_large_mfg_di
+  window: percentile 実効窓 10y（観測 40 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:56:38.166349+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-tankan-large-nonmfg-di
+  provider: boj_timeseries
+  series_id: jp.tankan_large_nonmfg_di
+  window: percentile 実効窓 10y（観測 40 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-26T08:48:57.965897+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-jp-terms-of-trade
+  provider: derived
+  series_id: jp.terms_of_trade
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-10T08:08:51.620856+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-jp-unemployment
+  provider: estat_dashboard
+  series_id: jp.unemployment
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-02T06:32:52.528569+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 日本 の fact 根拠
+- input_id: series-positioning-jpy-noncomm-net
+  provider: cftc
+  series_id: positioning.jpy_noncomm_net
+  window: percentile 実効窓 10y（観測 521 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-04'
+  published_at: '2026-08-10T08:08:10.591040+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 為替 の fact 根拠
+- input_id: series-positioning-sp500-noncomm-net
+  provider: cftc
+  series_id: positioning.sp500_noncomm_net
+  window: percentile 実効窓 10y（観測 521 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-04'
+  published_at: '2026-08-10T08:08:10.829102+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-positioning-ust10y-noncomm-net
+  provider: cftc
+  series_id: positioning.ust10y_noncomm_net
+  window: percentile 実効窓 10y（観測 521 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-04'
+  published_at: '2026-08-10T08:08:11.065994+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-rate-diff-us-jp-10y
+  provider: derived
+  series_id: rate_diff.us_jp_10y
+  window: percentile 実効窓 10y（観測 2350 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:34:09.061238+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 為替 の fact 根拠
+- input_id: series-silver
+  provider: yahoo
+  series_id: silver
+  window: percentile 実効窓 10y（観測 2512 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-12'
+  published_at: '2026-08-12T10:33:34.365835+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: バリュエーション の fact 根拠
+- input_id: series-us-10y
+  provider: frb_h15
+  series_id: us.10y
+  window: percentile 実効窓 10y（観測 2497 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:33:34.490242+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-us-10y-2y-spread
+  provider: frb_h15
+  series_id: us.10y_2y_spread
+  window: percentile 実効窓 10y（観測 2497 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:33:34.544303+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-us-30y
+  provider: frb_h15
+  series_id: us.30y
+  window: percentile 実効窓 10y（観測 2497 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:33:34.707314+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-us-average-hourly-earnings
+  provider: fred_csv
+  series_id: us.average_hourly_earnings
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:08:43.221970+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-us-breakeven-10y
+  provider: fred_csv
+  series_id: us.breakeven_10y
+  window: percentile 実効窓 10y（観測 2498 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:33:34.809919+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-us-claims-4wk-ma
+  provider: fred_csv
+  series_id: us.claims_4wk_ma
+  window: percentile 実効窓 10y（観測 521 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-01'
+  published_at: '2026-08-07T09:54:17.910888+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-consumer-sentiment
+  provider: umich_sca
+  series_id: us.consumer_sentiment
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-02T06:32:54.369378+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-core-capex-orders
+  provider: fred_csv
+  series_id: us.core_capex_orders
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-05T13:12:51.843655+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用・リスク環境・監視 の fact 根拠
+- input_id: series-us-cpi-core
+  provider: fred_csv
+  series_id: us.cpi.core
+  window: percentile 実効窓 10y（観測 117 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-20T07:26:33.047666+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-us-cpi-headline
+  provider: fred_csv
+  series_id: us.cpi.headline
+  window: percentile 実効窓 10y（観測 117 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-20T07:26:32.610487+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-us-empire-manufacturing
+  provider: fred_csv
+  series_id: us.empire_manufacturing
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-07-26T08:48:58.601192+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-erp
+  provider: derived
+  series_id: us.erp
+  window: percentile 実効窓 10y（観測 120 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:34:10.807998+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 局面サマリー・バリュエーション の fact 根拠
+- input_id: series-us-fed-funds-upper
+  provider: fred_csv
+  series_id: us.fed_funds.upper
+  window: percentile 実効窓 10y（観測 3652 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:33:35.638328+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-us-federal-deficit
+  provider: fred_csv
+  series_id: us.federal_deficit
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:31:36.194335+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-us-gdp-growth
+  provider: fred_csv
+  series_id: us.gdp_growth
+  window: percentile 実効窓 10y（観測 39 件）/ asof 2026-08-12
+  observation_as_of: '2026-04-01'
+  published_at: '2026-08-02T06:32:55.757195+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-housing-starts
+  provider: fred_csv
+  series_id: us.housing_starts
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:31:38.300836+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-inflation-5y5y
+  provider: fred_csv
+  series_id: us.inflation_5y5y
+  window: percentile 実効窓 10y（観測 2498 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:33:37.008087+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-us-initial-claims
+  provider: fred_csv
+  series_id: us.initial_claims
+  window: percentile 実効窓 10y（観測 521 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-01'
+  published_at: '2026-08-07T09:54:18.375348+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用・リスク環境・監視 の fact 根拠
+- input_id: series-us-jolts-openings
+  provider: fred_csv
+  series_id: us.jolts_openings
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-05T13:12:53.322217+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-m2
+  provider: fred_csv
+  series_id: us.m2
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-29T12:06:04.331525+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-us-move
+  provider: yahoo
+  series_id: us.move
+  window: percentile 実効窓 10y（観測 2468 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:33:37.060302+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-us-net-liquidity
+  provider: derived
+  series_id: us.net_liquidity
+  window: percentile 実効窓 10y（観測 513 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-05'
+  published_at: '2026-08-10T08:08:50.774493+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-us-nfci
+  provider: fred_csv
+  series_id: us.nfci
+  window: percentile 実効窓 10y（観測 521 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-31'
+  published_at: '2026-08-05T13:12:26.669717+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-us-nonfarm-payrolls
+  provider: fred_csv
+  series_id: us.nonfarm_payrolls
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:08:45.655194+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-pce-core
+  provider: fred_csv
+  series_id: us.pce.core
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-08-02T06:32:56.221859+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-us-philly-fed-manufacturing
+  provider: fred_csv
+  series_id: us.philly_fed_manufacturing
+  window: percentile 実効窓 10y（観測 119 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-07-26T08:48:59.129769+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-pmi-manufacturing
+  provider: spglobal_pmi
+  series_id: us.pmi_manufacturing
+  window: percentile 実効窓 3y（観測 34 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:33:25.790627+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-pmi-services
+  provider: spglobal_pmi
+  series_id: us.pmi_services
+  window: percentile 実効窓 3y（観測 35 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:33:25.954526+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-policy-path-gap
+  provider: derived
+  series_id: us.policy_path_gap
+  window: percentile 実効窓 10y（観測 2497 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:34:09.096421+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策 の fact 根拠
+- input_id: series-us-ppi
+  provider: fred_csv
+  series_id: us.ppi
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:32:05.589165+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠
+- input_id: series-us-real-10y
+  provider: fred_csv
+  series_id: us.real_10y
+  window: percentile 実効窓 10y（観測 2497 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:33:37.193761+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 金利・金融政策・リスク環境 の fact 根拠
+- input_id: series-us-retail-sales
+  provider: fred_csv
+  series_id: us.retail_sales
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-06-01'
+  published_at: '2026-07-24T11:31:35.924339+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-us-sloos-ci-tightening
+  provider: fred_csv
+  series_id: us.sloos_ci_tightening
+  window: percentile 実効窓 10y（観測 40 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-04T11:06:39.709115+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-us-sox
+  provider: yahoo
+  series_id: us.sox
+  window: percentile 実効窓 10y（観測 2512 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:33:37.352053+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: バリュエーション の fact 根拠
+- input_id: series-us-sp500-cape
+  provider: multpl
+  series_id: us.sp500_cape
+  window: percentile 実効窓 10y（観測 120 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:33:37.665674+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: バリュエーション の fact 根拠
+- input_id: series-us-unemployment
+  provider: fred_csv
+  series_id: us.unemployment
+  window: percentile 実効窓 10y（観測 118 件）/ asof 2026-08-12
+  observation_as_of: '2026-07-01'
+  published_at: '2026-08-10T08:08:48.908731+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-usd-cny
+  provider: fred_csv
+  series_id: usd_cny
+  window: percentile 実効窓 10y（観測 2493 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-07'
+  published_at: '2026-08-12T10:33:37.903250+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 需要・雇用 の fact 根拠
+- input_id: series-usd-index-broad
+  provider: fred_csv
+  series_id: usd_index.broad
+  window: percentile 実効窓 10y（観測 2491 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-07'
+  published_at: '2026-08-12T10:33:37.966986+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 為替 の fact 根拠
+- input_id: series-usd-jpy
+  provider: ecb_fx
+  series_id: usd_jpy
+  window: percentile 実効窓 10y（観測 2558 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-11'
+  published_at: '2026-08-12T10:33:37.993444+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 局面サマリー・為替・リスク環境・監視 の fact 根拠
+- input_id: series-vix
+  provider: fred_csv
+  series_id: vix
+  window: percentile 実効窓 10y（観測 2543 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-10'
+  published_at: '2026-08-12T10:33:38.105910+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: 流動性・信用 の fact 根拠
+- input_id: series-wti
+  provider: fred_csv
+  series_id: wti
+  window: percentile 実効窓 10y（観測 2493 件）/ asof 2026-08-12
+  observation_as_of: '2026-08-03'
+  published_at: '2026-08-06T11:05:27.480302+00:00'
+  accessed_at: '2026-08-12T20:55:00+09:00'
+  status: ok
+  used_for: インフレ・コスト の fact 根拠

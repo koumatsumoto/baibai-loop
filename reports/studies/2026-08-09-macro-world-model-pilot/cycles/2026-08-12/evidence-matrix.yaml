@@ -1,0 +1,172 @@
+schema_version: 1
+as_of: "2026-08-12"
+# 同じ証拠を 3 仮説すべてに対して評価する。仮説ごとに別の証拠集合を使わないための共通行列。
+rows:
+  - evidence_id: series:us.real_10y
+    note: 実質 10 年 2.43%、99.5 パーセンタイル、3 か月 +44bp。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: mixed
+  - evidence_id: series:jp.10y
+    note: 10 年 2.815%、99.8 パーセンタイル、3 か月 +26.9bp。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: contradicts
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:jp.erp
+    note: 株式リスクプレミアム 2.96%、5.1 パーセンタイル、12 か月 -1.23pt。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:us.erp
+    note: 米株式リスクプレミアム -1.36%、0.8 パーセンタイル、非正フラグ。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:rate_diff.us_jp_10y
+    note: 米日 10 年金利差 1.905%、29.7 パーセンタイル、12 か月 -87bp。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: contradicts
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:usd_jpy
+    note: 159.203、97.0 パーセンタイル。7/28 の 163.913 から 8/3 の 156.680 へ 7.233 円、以後 6 営業日で +2.523 円。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: mixed
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:positioning.jpy_noncomm_net
+    note: 円ネットショート -45,473 枚、54.7 パーセンタイル、3 か月で 29,629 枚の買い戻し。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: neutral
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:jp.real_effective_exchange_rate
+    note: 実質実効為替 65.3、0.8 パーセンタイル、12 か月 -7.11。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: neutral
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: mixed
+  - evidence_id: series:brent
+    note: 88.90 ドル、87.0 パーセンタイル。3 か月 -22.47 ドル、12 か月 +22.10 ドル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: neutral
+      h-structural-yen-outflow: mixed
+      h-supply-constraint-persistence: mixed
+  - evidence_id: series:jp.import_price_index
+    note: 輸入物価 前年比 +29.7%、88.1 パーセンタイル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: neutral
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: supports
+  - evidence_id: series:jp.cpi.core_yoy
+    note: コア CPI 前年比 1.6%、60.2 パーセンタイル。前月 1.4% から +0.2pt。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: contradicts
+      h-structural-yen-outflow: contradicts
+      h-supply-constraint-persistence: contradicts
+  - evidence_id: series:jp.bankruptcies
+    note: 倒産 1,028 件、100 パーセンタイル、3 か月 +248 件、12 か月 +223 件。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: mixed
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: supports
+  - evidence_id: series:jp.real_wage_index
+    note: 実質賃金 前年比 +1.8%、95.7 パーセンタイル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: neutral
+      h-structural-yen-outflow: contradicts
+      h-supply-constraint-persistence: contradicts
+  - evidence_id: series:jp.nikkei225
+    note: 66,970.22、前年比 +60.1%、96.6 パーセンタイル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: contradicts
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: contradicts
+  - evidence_id: series:jp.foreign_flows
+    note: 海外投資家 週次ネット -4,903 億円、12.9 パーセンタイル、3 か月で -1.70 兆円の振れ。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: mixed
+      h-structural-yen-outflow: supports
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:us.nonfarm_payrolls
+    note: 雇用者数 前年比 +0.2%、14.3 パーセンタイル。5 月・6 月が合計 103,000 人下方改定。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: contradicts
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: supports
+  - evidence_id: series:us.initial_claims
+    note: 新規失業保険 199,000 件、2.3 パーセンタイル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: contradicts
+  - evidence_id: series:us.core_capex_orders
+    note: コア資本財受注 前年比 +12.9%、94.9 パーセンタイル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: contradicts
+  - evidence_id: series:credit.us_ccc_oas
+    note: CCC スプレッド 10.14%、96.4 パーセンタイル、3 か月 +77bp。実効窓は 3 年。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: supports
+  - evidence_id: series:credit.us_hy_oas
+    note: HY スプレッド 2.70%、8.9 パーセンタイル。実効窓は 3 年。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: contradicts
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: contradicts
+  - evidence_id: series:us.sloos_ci_tightening
+    note: C&I 厳格化ネット 0.0%、12 か月で -9.5pt。大・中堅企業の需要は強まり。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: contradicts
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: contradicts
+  - evidence_id: series:copper
+    note: 銅 6.6905 ドル、100 パーセンタイル、12 か月 +48.4%。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: mixed
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: supports
+  - evidence_id: series:positioning.ust10y_noncomm_net
+    note: 10 年国債 投機ネット -979,243 枚、1.5 パーセンタイル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: neutral
+  - evidence_id: series:jp.policy_path_gap
+    note: 2 年 − 無担保コール 0.634%、97.9 パーセンタイル。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: contradicts
+      h-supply-constraint-persistence: neutral
+  - evidence_id: ext:eia-steo-202608
+    note: 2026-08-11 公表。Brent は 2026 年 87 ドル・2027 年 69 ドル。ホルムズ海峡制約で日量 60 万バレルの途絶が 2027 年末まで継続。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: neutral
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: mixed
+  - evidence_id: ext:frb-beigebook-202607
+    note: 2026-07-15 公表。12 地区中 11 地区が緩やかな拡大。データセンター・機械・防衛が牽引、燃料価格が消費を抑制、農業は与信逼迫で悪化。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: mixed
+  - evidence_id: ext:fomc-20260729
+    note: 3.50-3.75% 据え置き、9 対 3。反対 3 名は 25bp 利上げを主張。物価上昇の一部を供給ショックに帰属。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: supports
+      h-structural-yen-outflow: neutral
+      h-supply-constraint-persistence: supports
+  - evidence_id: ext:mof-feio-monthly
+    note: 月次公表の対象は 2026-06-29〜2026-07-29 までで、7/30 以降の操作は未開示。
+    hypothesis_assessments:
+      h-real-rate-regime-shift: neutral
+      h-structural-yen-outflow: mixed
+      h-supply-constraint-persistence: neutral

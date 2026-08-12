@@ -1,0 +1,306 @@
+schema_version: 1
+as_of: "2026-08-12"
+# standing coverage は preregistration が固定した block を持ち、機械 materiality が立たない cycle でも
+# 構造 exposure の面を必ず走査する。analyst addition は今 cycle の問いに直接効く非候補を足す。
+standing_coverage:
+  - series_id: usd_jpy
+    block: japan
+  - series_id: jp.10y
+    block: japan
+  - series_id: jp.policy_rate
+    block: japan
+  - series_id: jp.cpi.core_yoy
+    block: japan
+  - series_id: jp.real_wage_index
+    block: japan
+  - series_id: jp.industrial_production
+    block: japan
+  - series_id: jp.erp
+    block: japan
+  - series_id: jp.nikkei_per
+    block: japan
+  - series_id: us.10y
+    block: united_states
+  - series_id: us.real_10y
+    block: united_states
+  - series_id: us.core_capex_orders
+    block: united_states
+  - series_id: us.initial_claims
+    block: united_states
+  - series_id: us.cpi.core
+    block: united_states
+  - series_id: us.erp
+    block: united_states
+  - series_id: copper
+    block: china_proxy
+  - series_id: aud_jpy
+    block: china_proxy
+  - series_id: em.equity
+    block: china_proxy
+  - series_id: usd_cny
+    block: china_proxy
+  - series_id: de.10y
+    block: euro_area
+  - series_id: ecb.policy_rate
+    block: euro_area
+  - series_id: wti
+    block: energy
+  - series_id: brent
+    block: energy
+  - series_id: us.net_liquidity
+    block: cross_cutting_financial_conditions
+  - series_id: us.nfci
+    block: cross_cutting_financial_conditions
+  - series_id: vix
+    block: cross_cutting_financial_conditions
+  - series_id: credit.us_hy_oas
+    block: cross_cutting_financial_conditions
+  - series_id: credit.us_ccc_oas
+    block: cross_cutting_financial_conditions
+analyst_additions:
+  - series_id: rate_diff.us_jp_10y
+    reason: >-
+      円の水準を金利差で説明できるかを識別する変数であり、水準が中位でも今 cycle の中心的な問いに直接効く。
+  - series_id: jp.import_price_index
+    reason: >-
+      円安の輸入コスト転嫁経路を測る。交易条件と組で読む。
+  - series_id: jp.cgpi
+    reason: >-
+      企業間取引段階の価格転嫁を測り、消費者物価への波及の手前を識別する。
+  - series_id: jp.real_exports
+    reason: >-
+      数量ベースの外需を測る。名目輸出は為替換算で膨らむため、需要の実体はこちらで読む。
+  - series_id: jp.n225_iv_30d
+    reason: >-
+      日本株の恐怖観測。VIX は米国市場の指標であり、判断対象が日本株なら代理にならない。
+  - series_id: us.unemployment
+    reason: >-
+      求人・新規失業保険・雇用者数と組で労働市場の状態を確定するために必要。
+  - series_id: us.retail_sales
+    reason: >-
+      米最終需要の水準。設備投資と家計需要の分岐を識別する。
+  - series_id: us.breakeven_10y
+    reason: >-
+      名目金利を実質と期待インフレへ分解するために必要。
+  - series_id: credit.hy_ig_spread
+    reason: >-
+      HY と IG の質的分散を測り、CCC 単独のワイド化が信用全体の逼迫かを識別する。
+decisions:
+  - series_id: aud_jpy
+    status: selected
+  - series_id: brent
+    status: selected
+  - series_id: copper
+    status: selected
+  - series_id: credit.hy_ig_spread
+    status: selected
+  - series_id: credit.us_ccc_oas
+    status: selected
+  - series_id: credit.us_hy_oas
+    status: selected
+  - series_id: credit.us_ig_oas
+    status: selected
+  - series_id: de.10y
+    status: selected
+  - series_id: ecb.policy_rate
+    status: selected
+  - series_id: em.equity
+    status: selected
+  - series_id: eur_jpy
+    status: selected
+  - series_id: gold
+    status: selected
+  - series_id: jp.10y
+    status: selected
+  - series_id: jp.20y
+    status: selected
+  - series_id: jp.2y
+    status: selected
+  - series_id: jp.30y
+    status: selected
+  - series_id: jp.5y
+    status: selected
+  - series_id: jp.bank_lending_yoy
+    status: selected
+  - series_id: jp.bankruptcies
+    status: selected
+  - series_id: jp.cgpi
+    status: selected
+  - series_id: jp.consumer_confidence
+    status: selected
+  - series_id: jp.cpi.core_yoy
+    status: selected
+  - series_id: jp.cpi.services
+    status: selected
+  - series_id: jp.erp
+    status: selected
+  - series_id: jp.export_price_index
+    status: selected
+  - series_id: jp.foreign_flows
+    status: selected
+  - series_id: jp.import_price_index
+    status: selected
+  - series_id: jp.industrial_production
+    status: selected
+  - series_id: jp.job_openings_ratio
+    status: selected
+  - series_id: jp.machinery_orders
+    status: selected
+  - series_id: jp.monetary_base
+    status: selected
+  - series_id: jp.n225_iv_30d
+    status: selected
+  - series_id: jp.n225_iv_skew
+    status: selected
+  - series_id: jp.n225_iv_term
+    status: selected
+  - series_id: jp.nikkei225
+    status: selected
+  - series_id: jp.nikkei_pbr
+    status: selected
+  - series_id: jp.nikkei_per
+    status: selected
+  - series_id: jp.nominal_wage_index
+    status: selected
+  - series_id: jp.pmi_manufacturing
+    status: selected
+  - series_id: jp.pmi_services
+    status: selected
+  - series_id: jp.policy_path_gap
+    status: selected
+  - series_id: jp.policy_rate
+    status: selected
+  - series_id: jp.real_10y_proxy
+    status: selected
+  - series_id: jp.real_consumption
+    status: selected
+  - series_id: jp.real_effective_exchange_rate
+    status: selected
+  - series_id: jp.real_exports
+    status: selected
+  - series_id: jp.real_wage_index
+    status: selected
+  - series_id: jp.tankan_large_mfg_di
+    status: selected
+  - series_id: jp.tankan_large_nonmfg_di
+    status: selected
+  - series_id: jp.terms_of_trade
+    status: selected
+  - series_id: jp.unemployment
+    status: selected
+  - series_id: jp.watcher_current_di
+    status: excluded
+    reason: >-
+      jp.consumer_confidence と同じ家計センチメント面を測り、今 cycle の問いに独立の識別力を加えない。
+  - series_id: natgas
+    status: excluded
+    reason: >-
+      米 Henry Hub は日本の LNG 調達価格（長期契約と JKM）と別市場であり、今 cycle の energy 経路は原油と為替が識別する。
+  - series_id: positioning.jpy_noncomm_net
+    status: selected
+  - series_id: positioning.sp500_noncomm_net
+    status: selected
+  - series_id: positioning.ust10y_noncomm_net
+    status: selected
+  - series_id: rate_diff.us_jp_10y
+    status: selected
+  - series_id: silver
+    status: selected
+  - series_id: us.10y
+    status: selected
+  - series_id: us.10y_2y_spread
+    status: selected
+  - series_id: us.30y
+    status: selected
+  - series_id: us.average_hourly_earnings
+    status: selected
+  - series_id: us.breakeven_10y
+    status: selected
+  - series_id: us.building_permits
+    status: excluded
+    reason: >-
+      us.housing_starts と同じ住宅サイクルを先行側から測る。今 cycle の問いは着工水準の変化であり、permit は判断を変えない。
+  - series_id: us.claims_4wk_ma
+    status: selected
+  - series_id: us.consumer_sentiment
+    status: selected
+  - series_id: us.core_capex_orders
+    status: selected
+  - series_id: us.cpi.core
+    status: selected
+  - series_id: us.cpi.headline
+    status: selected
+  - series_id: us.empire_manufacturing
+    status: selected
+  - series_id: us.erp
+    status: selected
+  - series_id: us.fed_funds.lower
+    status: excluded
+    reason: >-
+      us.fed_funds.upper と同一の政策決定を二重に数える。誘導レンジの評価は上限で足りる。
+  - series_id: us.fed_funds.upper
+    status: selected
+  - series_id: us.federal_deficit
+    status: selected
+  - series_id: us.gdp_growth
+    status: selected
+  - series_id: us.housing_starts
+    status: selected
+  - series_id: us.industrial_production
+    status: excluded
+    reason: >-
+      materiality の理由が定例の月次改定のみで水準は中位。米製造業の状態は PMI・地区連銀調査・設備投資受注が識別する。
+  - series_id: us.inflation_5y5y
+    status: selected
+  - series_id: us.initial_claims
+    status: selected
+  - series_id: us.jolts_openings
+    status: selected
+  - series_id: us.m2
+    status: selected
+  - series_id: us.move
+    status: selected
+  - series_id: us.net_liquidity
+    status: selected
+  - series_id: us.nfci
+    status: selected
+  - series_id: us.nonfarm_payrolls
+    status: selected
+  - series_id: us.pce.core
+    status: selected
+  - series_id: us.philly_fed_manufacturing
+    status: selected
+  - series_id: us.pmi_manufacturing
+    status: selected
+  - series_id: us.pmi_services
+    status: selected
+  - series_id: us.policy_path_gap
+    status: selected
+  - series_id: us.ppi
+    status: selected
+  - series_id: us.real_10y
+    status: selected
+  - series_id: us.retail_sales
+    status: selected
+  - series_id: us.reverse_repo
+    status: excluded
+    reason: >-
+      us.net_liquidity の構成要素であり、合成系列を選んでいるため同じ資金量を二重に数える。
+  - series_id: us.sloos_ci_tightening
+    status: selected
+  - series_id: us.sox
+    status: selected
+  - series_id: us.sp500_cape
+    status: selected
+  - series_id: us.unemployment
+    status: selected
+  - series_id: usd_cny
+    status: selected
+  - series_id: usd_index.broad
+    status: selected
+  - series_id: usd_jpy
+    status: selected
+  - series_id: vix
+    status: selected
+  - series_id: wti
+    status: selected

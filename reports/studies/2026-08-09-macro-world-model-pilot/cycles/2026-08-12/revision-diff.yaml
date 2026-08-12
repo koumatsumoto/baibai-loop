@@ -1,0 +1,117 @@
+schema_version: 1
+as_of: "2026-08-12"
+predecessor_as_of: "2026-08-07"
+basis: >-
+  凍結済み workspace（blind freeze e33acb7e4208139044795376a0f2c3a4997ba30c73adaa6deabb58eeadcc1bb7）と
+  前回発行済みレポートの比較。diff は frozen workspace を変更しない。
+
+changes:
+  - area: 為替の機構
+    summary: >-
+      為替操作の効果減衰を初めて量として測った。7/28 の 163.913 から 8/3 の 156.680 までの 7.233 円
+      （4.4%）に対し、続く 6 営業日で 2.523 円（34.9%）戻した。前回は円を breadth 制約の一要素として
+      扱い、水準の戻り速度を測っていない。key judgment kj-intervention-decay として独立させた。
+  - area: 割引率の位置づけ
+    summary: >-
+      前回の dominant force `discount-rate-tail-asymmetry` は「失望が来たときに増幅する tail」だったが、
+      今回は 3 仮説の第 1 位（h-real-rate-regime-shift）として現在の配置そのものを説明する主機構へ格上げ
+      した。根拠は米実質 10 年 2.43%（99.5 パーセンタイル）、日 10 年 2.815%（99.8）、独 10 年 2.97%（98.3、
+      観測 2026-06）、10 年国債投機ネット -979,243 枚（1.5）の同時成立。
+  - area: 日本の内需
+    summary: >-
+      倒産件数の 7 月分（1,028 件）が 2026-08-10 に store へ入り、6 月 1,021 件と合わせて 2 か月連続で
+      1,000 件超であることが機械層で確認できるようになった。前回レポートは 6 月分 1,021 件を引用して
+      いる。輸入コストから中小企業の支払能力への経路を edge e09 として明示した。
+  - area: 米労働
+    summary: >-
+      5 月・6 月の雇用者数下方改定（合計 103,000 人）が L1 の vintage として store に入った。前回は
+      同じ事実を外部記事の入力として扱っていた。新規失業保険 2.3 パーセンタイルとの併存を「解雇なき
+      採用停止」として機構化し、kj-us-hiring-freeze にした。
+  - area: 競合仮説の導入
+    summary: >-
+      前回は 4 つの dominant force を並列に置いたが、今回は同じ証拠集合を 3 仮説（実質金利レジーム転換 /
+      構造的な円流出 / 供給制約の残存）へ割り当て、28 行の共通行列で supports・contradicts・mixed・neutral
+      を明示した。どの証拠がどの仮説を否定するかが読めるようになった。
+  - area: 機械監視面
+    summary: >-
+      前回 head の monitoring machine_conditions は us.initial_claims / us.10y / credit.us_hy_oas /
+      jp.real_consumption / jp.bankruptcies / brent の 7 条件で、usd_jpy と jp.10y を 1 件も持たない。
+      今 cycle の v4 は円と JGB の機械監視面を必ず置く。
+
+dropped_or_demoted:
+  - target: dominant force `external-energy-trade-tail` の energy 部分
+    disposition: demoted
+    reason: >-
+      Brent は 5/12 の 111.37 ドルから 8/3 の 88.90 ドルへ 3 か月で 22.47 ドル下落し、EIA の
+      2026-08-11 公表 Short-Term Energy Outlook は 2027 年の Brent を 69 ドルとした。現在の配置を
+      説明する主機構ではなくなったため、支配的な力から plausibility 第 3 位の競合仮説
+      h-supply-constraint-persistence へ格下げした。energy を消したのではなく、順位を落とした。
+  - target: dominant force `external-energy-trade-tail` の通商措置（関税）部分
+    disposition: dropped
+    reason: >-
+      frozen world model には通商政策の node も edge も置いていない。freeze 前の時点で一次資料を
+      解決できず、観測可能な falsifier を持つ関係を書けなかったためである。freeze 後に Federal Register の
+      API から Proclamation 11052（文書番号 2026-16400、署名 2026-08-06、公示 2026-08-11）を一次確認し、
+      v4 の inflation_costs には事実として記載した。ただし官報全文は redirect で取得できず税率と発効日は
+      断定していないため、world model の機構としては次 cycle まで持ち越す。この非対称（v4 に事実はあるが
+      world model に機構が無い）が、freeze 後に得た証拠の扱いに関する本 cycle の実例である。
+  - target: dominant force `japan-breadth-test` の「breadth 制約」という枠組み
+    disposition: demoted
+    reason: >-
+      「国内 breadth が制約される」という記述は、どの経路で制約されるかを名指ししていない。同じ事実
+      （倒産・実質賃金・弱い円）を、輸入コスト → 中小企業の支払能力 → 内需（edge e09・e10）と、
+      円 → 外貨建て利益の円換算（edge e12）という 2 経路の非対称として書き直した。枠組みとしては
+      demote し、内容は kj-asymmetric-yen-cost が引き継ぐ。
+  - target: 前回 connection の座標「円157.8」
+    disposition: dropped
+    reason: >-
+      前回レポートの as_of は 2026-08-07（実観測 158.336）だが hint は 2026-08-06 の 157.832 を書いて
+      おり、1 営業日のずれがある。今 cycle はこの座標を引き継がず、as_of の観測（8/11 の 159.203）を
+      使う。前回の座標そのものを訂正はしない（発行済み revision は不変）。
+
+authoring_variance_split:
+  counts:
+    note: >-
+      cycle 1 と cycle 2 の workspace 規模の比較。key judgment は 4 件で同数だが、内容は 3 件が入れ替わっている
+      （cycle 1 は前回 head の 4 dominant force に対応し、cycle 2 は kj-intervention-decay を新設して
+      kj-discount-rate-compression・kj-us-hiring-freeze・kj-asymmetric-yen-cost へ再編した）。
+    states: {cycle_1: 7, cycle_2: 8}
+    hypotheses: {cycle_1: 3, cycle_2: 3}
+    scenarios: {cycle_1: 3, cycle_2: 3}
+    key_judgments: {cycle_1: 4, cycle_2: 4}
+    graph_nodes: {cycle_1: 14, cycle_2: 20}
+    graph_edges: {cycle_1: 15, cycle_2: 24}
+    evidence_total: {cycle_1: 139, cycle_2: 138}
+    selected_coverage: {cycle_1: 39, cycle_2: 97}
+    external_sources: {cycle_1: 17, cycle_2: 16}
+  justified_by_new_release:
+    - {change: kj-intervention-decay の新設, release: "USD/JPY の 8/4〜8/11 の新規観測 6 営業日", justified: true}
+    - {change: kj-us-hiring-freeze の機構化, release: "5 月・6 月雇用者数の下方改定が L1 vintage として到着", justified: true}
+    - {change: kj-asymmetric-yen-cost の新設, release: "7 月倒産 1,028 件が 2026-08-10 に到着", justified: true}
+    - {change: energy の格下げ, release: "EIA Short-Term Energy Outlook 2026-08-11 公表", justified: true}
+    - {change: kj-discount-rate-compression の格上げ, release: "H.15 の 2026-08-10 分（米 10 年 4.72%・30 年 5.25%）", justified: partial}
+    - {change: 並列 force から競合仮説 3 件への骨格変更, release: null, justified: false}
+    - {change: coverage 選択 39 → 97, release: null, justified: false}
+    - {change: graph 14/15 → 20/24 node/edge, release: null, justified: false}
+    - {change: state 7 → 8 と block 命名規約の統一, release: null, justified: false}
+  world_change:
+    - 7 月の倒産件数 1,028 件が 2026-08-10 に store へ到着（新規公表）。
+    - 5 月・6 月の米雇用者数が合計 103,000 人下方改定され L1 の新 vintage として到着。
+    - USD/JPY が 8/3 の 156.680 から 8/11 の 159.203 へ 2.523 円戻した（新規観測）。
+    - EIA Short-Term Energy Outlook が 2026-08-11 に公表され、2027 年 Brent 見通し 69 ドルとホルムズ制約の継続を提示（新規公表）。
+    - 日銀の 7 月会合議事要旨（Summary of Opinions）が 2026-08-10 に公表（新規公表）。
+    - 米実質 10 年が 3 か月で +44bp、日 10 年が +26.9bp 上昇（新規観測）。
+  authoring_fluctuation:
+    - coverage の選択数が 39 から 97 へ増えた。機械候補の数（92 → 90）はほぼ同じで、変わったのは
+      「既に選択した系列で識別できる冗長分だけ除外する」という選択規則の解釈である。
+    - 分析の骨格が「4 つの並列な力」から「3 つの競合仮説 + 4 つの key judgment」へ変わった。同じ
+      証拠集合に対する構成の違いであり、新しい release で説明できる部分は限られる。
+    - state の粒度が 7 から 8 へ変わり、block 名が geography_block の命名規約へ揃った。
+    - graph の規模が 14 node / 15 edge から 20 node / 24 edge へ増えた。cap（20 / 30）に対して node は
+      上限に達している。
+  assessment: >-
+    「世界の変化」で説明できるのは倒産の新規月・雇用改定・為替の戻り・EIA 見通しの 4 点で、これらは
+    key judgment のうち kj-intervention-decay・kj-us-hiring-freeze・kj-asymmetric-yen-cost を直接
+    正当化する。一方で分析骨格の変更（並列の力 → 競合仮説）と coverage 選択数の 2.5 倍化は新しい
+    release では説明できず、執筆ゆらぎに属する。promotion 判定では、この骨格変更が cycle 3 でも
+    再現するか（= 手順が同じ構造を再生産するか）を確認する必要がある。
