@@ -346,6 +346,10 @@ def _selection_candidate(
         "gap_from_52w_low": item.gap_from_52w_low,
         "turnover_spike_5d": item.turnover_spike_5d,
         "split_adjustment_flag": item.split_adjustment_flag,
+        # 悪化ゲートが判定材料を持たないまま通した銘柄。通過は「悪化していない」
+        # ことの観測ではないので、risk tag の入力として候補へ載せる。
+        "deterioration_gate_unmeasurable": item.metrics.get("deterioration_gate_unmeasurable")
+        is True,
         "evidence_hits": list(item.evidence_hits),
         "freshness_warnings": list(item.freshness_warnings),
         "selection_playbook": selection_playbook,

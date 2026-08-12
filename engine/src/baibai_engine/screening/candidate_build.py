@@ -151,6 +151,15 @@ def candidate_metrics_map(
         "operating_profit": financial.operating_profit,
         "operating_profit_yoy": financial.operating_profit_yoy,
         "operating_profit_loss_narrowing": financial.operating_profit_loss_narrowing,
+        # 悪化ゲートは「観測できた YoY のどれかが閾値以下なら悪化」で判定するので、3 つとも
+        # 欠測の銘柄では判定材料が無いまま通る。止めると母集団の 12.4% (screen 通過の 7.1%)
+        # が落ちるので止めないが、通ったことが観測できないと安全弁が効いた銘柄と区別が
+        # 付かない。判定できなかった事実を候補へ残す。
+        "deterioration_gate_unmeasurable": (
+            financial.eps_yoy is None
+            and financial.sales_yoy is None
+            and financial.operating_profit_yoy is None
+        ),
         "shares_outstanding": financial.shares_outstanding,
         # D2 / D3 academic signals — surface in candidate metrics so the
         # research layer can read them without a second cache fetch.
