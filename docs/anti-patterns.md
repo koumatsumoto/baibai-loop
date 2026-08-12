@@ -247,6 +247,11 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] `planned_limit`のportfolio exposureは、共通as-of・分母・current / prospective円額・比率・閾値・fallback銘柄が必須かつ機械整合し、欠損 / null / 0 / 負値 / nested未知field / 閾値warningの過不足 / fallback warningの過不足を拒否するか
 - [ ] **新 validator rule を追加するときは必ず本 docs/anti-patterns.md AP-08 の
       checklist を更新**して、次回 review で同じ穴が再発しないように記録する
+- [ ] immutable dataset / release manifestを変更する場合、rootとnested objectの未知field、
+      required fieldの欠落・null・0/負値、layer別source IDの必須/禁止、重複partition/object key、
+      contract versionごとのordered partition layoutと各partitionのexact key集合、object keyの
+      dataset/contract/partition/content hash不一致、totals不一致、duplicate JSON key、path
+      traversalをそれぞれnegative testでfail closedにするか
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
