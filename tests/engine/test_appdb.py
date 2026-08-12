@@ -194,3 +194,88 @@ def test_migration_v10_rewrites_legacy_vocabulary_rows(tmp_path: Path) -> None:
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         connection.close()
+
+
+def test_migration_v15_moves_the_retired_handoff_into_result(tmp_path: Path) -> None:
+    """model から外れた field を持つ行が、読み手を落とさない形へ移る。
+
+    `OperationPayload` は `extra="forbid"` なので、`handoff` を持つ行が 1 つでもあると
+    `operation show` が全件で落ちる。読み取り側を寛容にすると model から field を外す
+    たびに分岐が積もるので、保存済みの行を 1 度だけ移す。
+    """
+    path = tmp_path / "app.sqlite"
+    assert initialize_database(path, migrations=MIGRATIONS[:14]) == 14
+    connection = connect_rw(path)
+    try:
+        rows = (
+            # 内容を持ち result が空の行: 判断内容を result へ畳む。
+            (
+                "op-20260729-opportunity-1",
+                '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
+                ' "human_confirmation": null, "completion_reason": null, "result": null,'
+                ' "next": null, "handoff": {"order_proposal": "none", "reason": "割高"}}',
+            ),
+            # 内容を持つが result が既に埋まっている行: 記録済みの結論を上書きしない。
+            (
+                "op-20260728-opportunity-1",
+                '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
+                ' "human_confirmation": null, "completion_reason": null,'
+                ' "result": "no actionable bargain", "next": null,'
+                ' "handoff": {"order_proposal": "none", "reason": "後で"}}',
+            ),
+            # 値の無い行: key を落とすだけ。
+            (
+                "op-20260717-opportunity-1",
+                '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
+                ' "human_confirmation": null, "completion_reason": null, "result": null,'
+                ' "next": null, "handoff": null}',
+            ),
+        )
+        for operation_id, payload in rows:
+            connection.execute(
+                "INSERT INTO operation_session VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    operation_id,
+                    "opportunity",
+                    "completed",
+                    "2026-07-29",
+                    None,
+                    "2026-07-29T09:00:00+09:00",
+                    "2026-07-29T18:00:00+09:00",
+                    payload,
+                ),
+            )
+    finally:
+        connection.close()
+
+    assert initialize_database(path) == LATEST_VERSION
+
+    connection = connect_rw(path)
+    try:
+        remaining = connection.execute(
+            "SELECT COUNT(*) FROM operation_session"
+            " WHERE json_type(payload, '$.handoff') IS NOT NULL"
+        ).fetchone()[0]
+        assert remaining == 0
+        results = dict(
+            connection.execute(
+                "SELECT operation_id, json_extract(payload, '$.result') FROM operation_session"
+            ).fetchall()
+        )
+        assert results["op-20260729-opportunity-1"] == "none: 割高"
+        # 記録済みの結論はそのまま。
+        assert results["op-20260728-opportunity-1"] == "no actionable bargain"
+        # 値の無かった行は result を作らない。
+        assert results["op-20260717-opportunity-1"] is None
+        # 完了 session の不変性を守る trigger は復元されている。
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+                " AND tbl_name = 'operation_session'"
+            ).fetchall()
+        }
+        assert "operation_session_completed_no_update" in triggers
+        assert "operation_session_completed_no_delete" in triggers
+    finally:
+        connection.close()
