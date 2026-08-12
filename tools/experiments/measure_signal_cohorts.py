@@ -12,7 +12,6 @@ E[r] policy parameter の変更を提案する artifact ではない。screening
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
@@ -23,7 +22,13 @@ from typing import Literal, TextIO
 
 import yaml
 
-from baibai_engine.screening.calibration.forward import RESOLVED_STATUSES
+from baibai_engine.screening.calibration.panel import PanelRow as StoredPanelRow
+from baibai_engine.screening.calibration.store import (
+    published_cohorts,
+    read_forward,
+    read_panel,
+    read_panel_meta,
+)
 
 DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_HORIZONS = ("1y", "3y", "5y")
@@ -97,33 +102,23 @@ def _load_forward_returns(
     wanted = set(horizons)
     resolved: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
     counts: dict[str, dict[str, int]] = {horizon: {"price": 0, "total": 0} for horizon in horizons}
-    paths = sorted(calibration_dir.glob("forward-*.csv"))
-    if not paths:
+    asofs = published_cohorts(calibration_dir)
+    if not asofs:
         raise SignalCohortMeasurementError(f"no forward rows under {calibration_dir}")
-    for path in paths:
-        with path.open(newline="", encoding="utf-8") as handle:
-            for row in csv.DictReader(handle):
-                horizon = row.get("horizon") or ""
-                if horizon not in wanted:
-                    continue
-                price = (
-                    _optional_float(row.get("price_return"))
-                    if row.get("status") in RESOLVED_STATUSES
-                    else None
-                )
-                total = (
-                    _optional_float(row.get("total_return"))
-                    if row.get("total_return_status") == "resolved"
-                    else None
-                )
-                if price is not None:
-                    counts[horizon]["price"] += 1
-                if total is not None:
-                    counts[horizon]["total"] += 1
-                value = price if basis == "price" else total
-                if value is None:
-                    continue
-                resolved[(row.get("asof") or "", row.get("ticker") or "")][horizon] = value
+    for asof in asofs:
+        for row in read_forward(calibration_dir, asof):
+            if row.horizon not in wanted:
+                continue
+            price = row.price_return if row.resolved else None
+            total = row.total_return if row.total_return_status == "resolved" else None
+            if price is not None:
+                counts[row.horizon]["price"] += 1
+            if total is not None:
+                counts[row.horizon]["total"] += 1
+            value = price if basis == "price" else total
+            if value is None:
+                continue
+            resolved[(row.asof, row.ticker)][row.horizon] = value
     return resolved, counts
 
 
@@ -135,17 +130,16 @@ def require_single_rules_hash(calibration_dir: Path) -> str:
     """
 
     hashes: dict[str, list[str]] = {}
-    metas = sorted(calibration_dir.glob("panel-*.meta.yaml"))
-    if not metas:
+    asofs = published_cohorts(calibration_dir)
+    if not asofs:
         raise SignalCohortMeasurementError(f"no panel metadata under {calibration_dir}")
-    for path in metas:
-        meta = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if not isinstance(meta, Mapping):
-            raise SignalCohortMeasurementError(f"panel metadata is not a mapping: {path.name}")
-        value = meta.get("rules_hash")
+    for asof in asofs:
+        value = read_panel_meta(calibration_dir, asof).get("rules_hash")
         if not isinstance(value, str) or not value:
-            raise SignalCohortMeasurementError(f"panel metadata carries no rules_hash: {path.name}")
-        hashes.setdefault(value, []).append(path.name)
+            raise SignalCohortMeasurementError(
+                f"panel metadata carries no rules_hash: {asof.isoformat()}"
+            )
+        hashes.setdefault(value, []).append(asof.isoformat())
     if len(hashes) > 1:
         summary = ", ".join(
             f"{value}={len(names)} panel(s)" for value, names in sorted(hashes.items())
@@ -158,62 +152,54 @@ def _load_panel(
     calibration_dir: Path,
     forward: Mapping[tuple[str, str], Mapping[str, float]],
 ) -> list[PanelRow]:
-    paths = sorted(calibration_dir.glob("panel-*.csv"))
-    if not paths:
+    asofs = published_cohorts(calibration_dir)
+    if not asofs:
         raise SignalCohortMeasurementError(f"no panel rows under {calibration_dir}")
     rows: list[PanelRow] = []
-    for path in paths:
-        asof = path.name.removeprefix("panel-").removesuffix(".csv")
-        with path.open(newline="", encoding="utf-8") as handle:
-            for raw in csv.DictReader(handle):
-                row = _panel_row(asof, raw, forward)
-                if row is not None:
-                    rows.append(row)
+    for asof in asofs:
+        for stored in read_panel(calibration_dir, asof):
+            row = _panel_row(stored, forward)
+            if row is not None:
+                rows.append(row)
     if not rows:
         raise SignalCohortMeasurementError("panel rows carry no liquidity-passing candidates")
     return rows
 
 
 def _panel_row(
-    asof: str,
-    raw: Mapping[str, str],
+    stored: StoredPanelRow,
     forward: Mapping[tuple[str, str], Mapping[str, float]],
 ) -> PanelRow | None:
-    market_cap = _optional_float(raw.get("market_cap_oku"))
-    turnover = _optional_float(raw.get("avg_turnover_oku"))
-    listing_span = _optional_float(raw.get("listing_span_days"))
+    market_cap = stored.market_cap_oku
+    turnover = stored.avg_turnover_oku
+    listing_span = stored.listing_span_days
     if market_cap is None or market_cap < MIN_MARKET_CAP_OKU:
         return None
     if turnover is None or turnover < MIN_AVG_TURNOVER_OKU:
         return None
     if listing_span is None or listing_span < MIN_LISTING_SPAN_DAYS:
         return None
-    er_annual = _optional_float(raw.get("er_annual"))
-    if er_annual is None:
+    if stored.er_annual is None:
         return None
-    share_change = _optional_float(raw.get("net_share_change_yoy"))
+    share_change = stored.net_share_change_yoy
     # 欠測を 0 と読むと「株数が動かなかった」と「株数変化が分からない」が control 群へ
     # 一緒に入る。buyback 比較では欠測を None のまま持ち、どちらの群にも入れない。
     buyback = None if share_change is None else max(-BUYBACK_CLIP, min(BUYBACK_CLIP, -share_change))
-    per_forward = _optional_float(raw.get("per_forward"))
-    per_trailing = _optional_float(raw.get("per_trailing"))
-    streak = _optional_float(raw.get("share_count_reduction_streak"))
-    ticker = raw.get("ticker") or ""
     return PanelRow(
-        asof=asof,
-        ticker=ticker,
-        er_annual=er_annual,
-        reversion_annual=_optional_float(raw.get("er_reversion_annual")) or 0.0,
-        carry_annual=_optional_float(raw.get("er_carry_annual")) or 0.0,
-        dividend_yield=_optional_float(raw.get("dividend_yield")) or 0.0,
+        asof=stored.asof,
+        ticker=stored.ticker,
+        er_annual=stored.er_annual,
+        reversion_annual=stored.er_reversion_annual or 0.0,
+        carry_annual=stored.er_carry_annual or 0.0,
+        dividend_yield=stored.dividend_yield or 0.0,
         buyback_yield=buyback,
-        upside_capped=_optional_float(raw.get("er_upside_capped")),
+        upside_capped=stored.er_upside_capped,
         earnings_anchor_available=bool(
-            (per_forward is not None and per_forward > 0)
-            or (per_trailing is not None and per_trailing > 0)
+            (stored.per_forward is not None and stored.per_forward > 0)
+            or (stored.per_trailing is not None and stored.per_trailing > 0)
         ),
-        reduction_streak=None if streak is None else int(streak),
-        forward=forward.get((asof, ticker), {}),
+        reduction_streak=stored.share_count_reduction_streak,
+        forward=forward.get((stored.asof, stored.ticker), {}),
     )
 
 

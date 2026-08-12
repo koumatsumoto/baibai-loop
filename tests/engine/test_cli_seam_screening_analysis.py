@@ -25,7 +25,19 @@ from tests.engine.test_calibration_panel import ASOF as PANEL_ASOF
 from tests.engine.test_calibration_panel import _build_fixture_sqlite
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from baibai_engine.market.lake.retention import read_l2_pointer
 from baibai_engine.read_api import list_shortlist_payloads
+from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_DIAGNOSTICS,
+    CALIBRATION_FORWARD,
+    CALIBRATION_PANEL,
+)
+from baibai_engine.screening.calibration.store import (
+    published_cohorts,
+    read_forward,
+    read_panel,
+    read_panel_meta,
+)
 from baibai_engine.screening.cli import main as screening_main
 from baibai_engine.screening.run_store import ScreeningRunReader, ScreeningRunStore
 from baibai_engine.screening.sqlite_cache import open_connection
@@ -346,17 +358,17 @@ def test_calibration_build_cli_writes_the_panel_and_forward_store(
     captured = capsys.readouterr()
 
     assert code == 0
-    panel = calibration_dir / f"panel-{PANEL_ASOF.isoformat()}.csv"
-    meta = calibration_dir / f"panel-{PANEL_ASOF.isoformat()}.meta.yaml"
-    forward = calibration_dir / f"forward-{PANEL_ASOF.isoformat()}.csv"
-    assert panel.is_file()
-    assert meta.is_file()
-    assert forward.is_file()
+    assert published_cohorts(calibration_dir) == [PANEL_ASOF]
     # The panel holds the fixture's own names, so an empty grid or an unread store
     # cannot pass as a build.
-    assert "9001" in panel.read_text(encoding="utf-8")
-    assert yaml.safe_load(meta.read_text(encoding="utf-8"))["panel_variant"] == "production"
+    assert {row.ticker for row in read_panel(calibration_dir, PANEL_ASOF)} >= {"9001"}
+    assert read_panel_meta(calibration_dir, PANEL_ASOF)["panel_variant"] == "production"
+    assert read_forward(calibration_dir, PANEL_ASOF) != []
     assert "panels built=1" in captured.out
+    # Every dataset the build publishes has a current pointer, and the pointer is
+    # what a reader resolves — a file sitting in the tree is not a published build.
+    for dataset in (CALIBRATION_PANEL, CALIBRATION_DIAGNOSTICS, CALIBRATION_FORWARD):
+        assert read_l2_pointer(calibration_dir, dataset.name) is not None
 
 
 def test_calibration_evaluate_cli_writes_the_evaluation_yaml(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import sqlite3
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Any
 
 import pytest
 import yaml
+from tests.helpers.calibration_store import publish_panel
 from tools.experiments.measure_signal_cohorts import SignalCohortMeasurementError
 from tools.experiments.measure_supply_context import SupplyContextError, build_supply_context, main
 
@@ -30,14 +30,7 @@ PANEL_COLUMNS = (
 def _panel(
     directory: Path, asof: str, rows: list[dict[str, Any]], *, rules_hash: str = "abc123"
 ) -> None:
-    (directory / f"panel-{asof}.meta.yaml").write_text(
-        f"asof: '{asof}'\nrules_hash: {rules_hash}\n", encoding="utf-8"
-    )
-    with (directory / f"panel-{asof}.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=PANEL_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column, "") for column in PANEL_COLUMNS})
+    publish_panel(directory, asof, rows, rules_hash=rules_hash)
 
 
 def _liquid(ticker: str, asof: str, *, er: float, rank: int | str = "") -> dict[str, Any]:

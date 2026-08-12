@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import contextlib
-import csv
 import io
 import sys
 import tempfile
 import unittest
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -18,23 +17,34 @@ if str(SRC) not in sys.path:
 
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
+from baibai_engine.market.lake.retention import read_l2_pointer
 from baibai_engine.screening.calibration.cli import (
     calibration_build_command,
     calibration_evaluate_command,
 )
 from baibai_engine.screening.calibration.forward import (
     STALE_PRICE_MAX_LAG_DAYS,
+    TOTAL_RETURN_BASIS,
     ForwardReturnRow,
 )
 from baibai_engine.screening.calibration.identity import rules_contract_hash
+from baibai_engine.screening.calibration.lake import (
+    CALIBRATION_PANEL,
+    CalibrationLakeError,
+    load_manifest,
+    require_build_inputs,
+)
 from baibai_engine.screening.calibration.panel import (
     PRE2019_SELF_RANGE_POLICY,
     build_panel,
     rules_content_hash,
 )
 from baibai_engine.screening.calibration.store import (
+    CACHE_SCHEMA_VERSION,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
+    forward_row_from_mapping,
+    panel_row_from_mapping,
     read_forward,
     read_panel,
     write_forward,
@@ -185,6 +195,12 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
             end_date=ASOF,
             turnover_value=2e8,
         )
+
+
+def _current_panel_manifest(root):  # type: ignore[no-untyped-def]
+    pointer = read_l2_pointer(root, CALIBRATION_PANEL.name)
+    assert pointer is not None
+    return load_manifest(root / pointer.manifest_key)
 
 
 class CalibrationPanelTest(unittest.TestCase):
@@ -656,215 +672,137 @@ class CalibrationPanelTest(unittest.TestCase):
 
             self.assertEqual(read_panel(store_dir, ASOF), [excluded_row])
 
-    def test_store_reads_a_cache_that_carries_a_column_the_contract_dropped(self) -> None:
-        # 46 cohort を読み続けられることが、判定を評価時導出にした前提そのもの。
-        # 厳格一致へ戻すと既存 store が読めなくなるので、その契約を固定する。
+    def _panel_row(self, **updates: object) -> dict[str, object]:
+        """A stored panel row as native values, with the named fields replaced.
+
+        The invariants below are what the store enforces on every row it reads, so
+        they are exercised at the materializer rather than by editing a published
+        object — an edited object fails on its digest long before a value is parsed.
+        """
+
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            rows = [
-                ForwardReturnRow(
-                    asof=ASOF.isoformat(),
-                    ticker="9001",
-                    horizon="6m",
-                    target_date="2026-12-29",
-                    resolved=False,
-                    price_return=None,
-                    stale_price=False,
-                    entry_date=ASOF.isoformat(),
-                    exit_date=None,
-                    status="unresolved_future_horizon",
-                )
-            ]
-            write_forward(store_dir, ASOF, rows)
-            path = store_dir / f"forward-{ASOF.isoformat()}.csv"
-            header, body = path.read_text(encoding="utf-8").splitlines()
-            path.write_text(
-                f"{header},retired_column\n{body},not_assessed\n",
-                encoding="utf-8",
-            )
+        payload = asdict(result.rows[0])
+        payload.update(updates)
+        return payload
 
-            self.assertEqual(read_forward(store_dir, ASOF), rows)
+    def test_store_rejects_a_row_whose_population_coverage_status_is_unknown(self) -> None:
+        row = self._panel_row(population_coverage_status="unknown")
 
-    def test_store_rejects_a_cache_missing_a_column_the_contract_reads(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _build_fixture_sqlite(sqlite_path)
-            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-            store_dir = Path(tmp) / "calibration"
-            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            write_forward(store_dir, ASOF, [])
-            path = store_dir / f"forward-{ASOF.isoformat()}.csv"
-            header = path.read_text(encoding="utf-8").splitlines()[0]
-            kept = [name for name in header.split(",") if name != "status"]
-            path.write_text(",".join(kept) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "population coverage status"):
+            panel_row_from_mapping(row)
 
-            with self.assertRaisesRegex(CalibrationCacheError, "missing status"):
-                read_forward(store_dir, ASOF)
+    def test_store_rejects_invalid_shareholder_return_change_fields(self) -> None:
+        for updates in (
+            {"dps_yoy_latest": float("nan")},
+            {"share_count_reduction_streak": 3},
+            {"shareholder_return_change": False},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
+
+    def test_store_rejects_invalid_asset_backed_fields(self) -> None:
+        for updates in (
+            {"investment_securities": -1.0},
+            {"asset_backed_ratio": float("nan")},
+            {"asset_backed_ratio": 0.6},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
+
+    def test_store_rejects_invalid_margin_hypothesis_fields(self) -> None:
+        for updates in (
+            {"margin_short_to_adv": -0.1},
+            {"realized_volatility_60d": -0.1},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
+
+    def test_store_rejects_invalid_normalized_profit_fields(self) -> None:
+        for updates in (
+            {"normalized_per_3fy": -1.0},
+            {"self_range_observed_sessions": -1},
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                panel_row_from_mapping(self._panel_row(**updates))
 
     def test_store_rejects_total_return_basis_or_status_bypass(self) -> None:
         for field, invalid in (
             ("total_return_basis", "price_return_only"),
             ("total_return_status", "resolved_by_claim"),
         ):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                row = ForwardReturnRow(
-                    asof=ASOF.isoformat(),
-                    ticker="9001",
-                    horizon="1y",
-                    target_date="2027-06-30",
-                    resolved=True,
-                    price_return=0.10,
-                    stale_price=False,
-                    entry_date=ASOF.isoformat(),
-                    exit_date="2027-06-30",
-                    realized_dividend_sum=10.0,
-                    realized_dividend_fy_count=1,
-                    total_return=0.12,
-                    total_return_status="resolved",
-                )
-                write_forward(store_dir, ASOF, [row])
-                path = store_dir / f"forward-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0][field] = invalid
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
+            with self.subTest(field=field):
+                payload = {
+                    "asof": ASOF.isoformat(),
+                    "ticker": "9001",
+                    "horizon": "1y",
+                    "target_date": "2027-06-30",
+                    "resolved": True,
+                    "price_return": 0.10,
+                    "stale_price": False,
+                    "entry_date": ASOF.isoformat(),
+                    "exit_date": "2027-06-30",
+                    "status": "resolved",
+                    "adjustment_factor_coverage": "unknown",
+                    "realized_dividend_sum": 10.0,
+                    "realized_dividend_fy_count": 1,
+                    "total_return": 0.12,
+                    "total_return_status": "resolved",
+                    "total_return_basis": TOTAL_RETURN_BASIS,
+                }
+                payload[field] = invalid
 
-                with self.assertRaisesRegex(CalibrationCacheError, "forward cache is invalid"):
-                    read_forward(store_dir, ASOF)
+                with self.assertRaises(ValueError):
+                    forward_row_from_mapping(payload)
 
-    def test_store_rejects_an_unknown_population_coverage_status(self) -> None:
+    def test_store_rejects_a_published_object_whose_bytes_changed(self) -> None:
+        """Tampering is caught by the object digest, before any value is read."""
+
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
             _build_fixture_sqlite(sqlite_path)
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-            path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-            with path.open(encoding="utf-8", newline="") as handle:
-                rows = list(csv.DictReader(handle))
-                fieldnames = list(rows[0])
-            rows[0]["population_coverage_status"] = "unknown"
-            with path.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
+            objects = sorted((store_dir / "lake" / "l2").rglob("*.parquet"))
+            self.assertTrue(objects)
+            objects[0].write_bytes(objects[0].read_bytes() + b"tamper")
 
             with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
                 read_panel(store_dir, ASOF)
 
-    def test_store_rejects_invalid_shareholder_return_change_fields(self) -> None:
-        for field, invalid in (
-            ("dps_guidance_up", "claimed_true"),
-            ("dps_yoy_latest", "nan"),
-            ("share_count_reduction_streak", "3"),
-            ("shareholder_return_change", "false"),
-        ):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0][field] = invalid
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
+    def test_store_rejects_a_build_produced_by_another_transform(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
 
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
+            with self.assertRaisesRegex(CalibrationLakeError, "different transform"):
+                require_build_inputs(
+                    _current_panel_manifest(store_dir),
+                    dataset=CALIBRATION_PANEL,
+                    cache_schema_version="0" * 16,
+                )
 
-    def test_store_rejects_invalid_asset_backed_fields(self) -> None:
-        invalid_updates = (
-            {"investment_securities": "-1"},
-            {"asset_backed_ratio": "nan"},
-            {"asset_backed_ratio": "0.6"},
-        )
-        for updates in invalid_updates:
-            with self.subTest(updates=updates), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0].update(updates)
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
+    def test_store_rejects_a_build_that_was_not_bound_to_the_expected_release(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            store_dir = Path(tmp) / "calibration"
+            write_panel(store_dir, ASOF, result.rows, result.diagnostics)
 
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
-
-    def test_store_rejects_invalid_margin_hypothesis_fields(self) -> None:
-        for field, invalid in (
-            ("margin_short_to_adv", "-0.1"),
-            ("realized_volatility_60d", "-0.1"),
-        ):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0][field] = invalid
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
-
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
-
-    def test_store_rejects_invalid_normalized_profit_fields(self) -> None:
-        invalid_updates = (
-            {"normalized_per_3fy": "-1"},
-            {"self_range_observed_sessions": "-1"},
-        )
-        for updates in invalid_updates:
-            with self.subTest(updates=updates), tempfile.TemporaryDirectory() as tmp:
-                sqlite_path = Path(tmp) / "market.sqlite"
-                _build_fixture_sqlite(sqlite_path)
-                result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
-                store_dir = Path(tmp) / "calibration"
-                write_panel(store_dir, ASOF, result.rows, result.diagnostics)
-                path = store_dir / f"panel-{ASOF.isoformat()}.csv"
-                with path.open(encoding="utf-8", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                    fieldnames = list(rows[0])
-                rows[0].update(updates)
-                with path.open("w", encoding="utf-8", newline="") as handle:
-                    writer = csv.DictWriter(handle, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
-
-                with self.assertRaisesRegex(CalibrationCacheError, "cache is invalid"):
-                    read_panel(store_dir, ASOF)
+            with self.assertRaisesRegex(CalibrationLakeError, "not built from"):
+                require_build_inputs(
+                    _current_panel_manifest(store_dir),
+                    dataset=CALIBRATION_PANEL,
+                    cache_schema_version=CACHE_SCHEMA_VERSION,
+                    source_release_id="release-that-was-not-used",
+                )
 
     def test_store_rejects_unversioned_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

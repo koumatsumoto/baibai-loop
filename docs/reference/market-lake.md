@@ -150,6 +150,67 @@ content-addressed に格納する。object key は content hash なので、変�
 成立しないため）。build は一意な一時 file へ書いて 1 回の rename で公開するので、途中状態が
 読まれることはなく、失敗しても直前の projection は壊れない。
 
+<a id="l2-calibration"></a>
+
+## L2 calibration builds
+
+calibration の cohort（panel・panel diagnostics・forward outcome）は typed Parquet の L2 dataset
+として publish する。Arrow schema は `PanelRow` / `PanelDiagnostics` / `ForwardReturnRow` から
+導くので、行の契約と保存列がずれない。partition は cohort の as-of の `year/month`。
+
+cohort を 1 つ書くと immutable な新 build を publish し、dataset pointer を CAS で進める。
+書き換わるのはその cohort の月の partition だけで、他の月は publish 済み object をそのまま
+引き継ぐ。`calibration-build` は cohort ごとにこの経路を通るので、再構築の単位は partition に
+なる。
+
+build が記録する identity は `source_release_id`、`producer_git_commit`、`transform_fingerprint`、
+`contract_version`、partition と object の hash である。calibration の入力がまだ legacy store から
+読まれる間、`source_release_id` は L1 release ではなくそれを明示する固定値になる（束縛していない
+release の id を書くと、build が持っていない provenance を主張することになる）。読み取りは transform fingerprint 不一致、
+source release 不在、schema 不一致、object digest 不一致をすべて fail-close する。contract を
+変える場合は published object を書き換えず、新しい `contract_version` の immutable build を作る。
+
+retention の root は 3 種類で、そこから到達できる object は齢によらず残す。
+
+- 各 L2 dataset の current build と previous build
+- L1 の current release と previous release
+- 明示 pin
+
+```bash
+uv run baibai-engine lake pin create \
+  --mirror <local-mirror> --pin-id <id> \
+  --build <build-id> --dataset calibration.panel \
+  --reason "adopted as calibration evidence" --owner <owner>
+
+uv run baibai-engine lake gc --mirror <local-mirror>
+uv run baibai-engine lake gc --mirror <local-mirror> --apply --plan-hash <hash>
+```
+
+L2 の root は `lake/pointers/l2/` を列挙して store から導くので、dataset 名を挙げる必要はない。
+`--l2-dataset` はその dataset に current pointer が在ることを要求する追加の assertion で、
+無ければ root 未解決として扱う。
+
+`gc` は既定が dry-run で、root closure と削除候補と plan hash を出す。`--apply` はその plan hash
+を要求するので、別の状態で作った計画は適用できない。root が 1 つでも解決できない場合は削除を
+拒否する（読めない pointer や、object は在るのに pointer が無い状態を「root が無い」と扱うと、
+それが守っていたものが未参照に見える）。
+
+Raw archive はこの sweep の対象外である。保持の判断が manifest 到達性ではなく retention class と
+齢で決まるので、到達性の sweep が候補に挙げてはならない。
+
+R2 への publish は L1 と同じ順序で、object と manifest を `If-None-Match: *` で immutable に
+転送してから `lake/pointers/l2/<dataset>/current.json` を `If-Match` で切り替える。
+
+```bash
+uv run python -m baibai_batch.storage.lake_publish \
+  --mirror <local-mirror> \
+  --l2-manifest <dataset-manifest>
+```
+
+L2 契約より前に書かれた CSV cache は `calibration.legacy_csv` の read-only adapter で読める。
+adapter は書き込まず、そこから build も作らないので、cohort の正本は publish 済み build だけで
+ある。
+
 ## Shadow parity
 
 release から作った projection と legacy store で screening を 2 回実行し、candidate / metric /

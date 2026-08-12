@@ -46,7 +46,8 @@ from .store import (
     CACHE_SCHEMA_VERSION,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
-    panel_path,
+    has_cohort,
+    published_cohorts,
     read_forward,
     read_panel,
     read_panel_meta,
@@ -95,9 +96,8 @@ def calibration_build_command(
     built = 0
     expected_rules_hash = rules_content_hash(rules, policy)
     for asof in asofs:
-        path = panel_path(work_dir, asof)
         try:
-            if path.exists() and not force:
+            if has_cohort(work_dir, asof) and not force:
                 meta = read_panel_meta(work_dir, asof)
                 if (
                     meta.get("rules_hash") != expected_rules_hash
@@ -113,10 +113,10 @@ def calibration_build_command(
                 tickers_by_asof[asof] = {row.ticker for row in read_panel(work_dir, asof)}
                 continue
             result = build_panel(asof, sqlite_path=sqlite_path, rules=rules, policy=policy)
+            write_panel(work_dir, asof, result.rows, result.diagnostics)
         except (CalibrationError, CalibrationCacheError) as exc:
             print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
             return 1
-        write_panel(work_dir, asof, result.rows, result.diagnostics)
         tickers_by_asof[asof] = {row.ticker for row in result.rows}
         built += 1
     control_event_exits = read_control_event_exits(sqlite_path) if use_control_event_exits else {}
@@ -130,7 +130,11 @@ def calibration_build_command(
         ):
             by_asof.setdefault(row.asof, []).append(row)
     for asof in asofs:
-        write_forward(work_dir, asof, by_asof.get(asof.isoformat(), []))
+        try:
+            write_forward(work_dir, asof, by_asof.get(asof.isoformat(), []))
+        except CalibrationCacheError as exc:
+            print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
+            return 1
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
@@ -233,10 +237,7 @@ def calibration_evaluate_command(
                 file=sys.stderr,
             )
             return 1
-    all_asofs = [
-        date.fromisoformat(path.stem.removeprefix("panel-"))
-        for path in calibration_dir.glob("panel-*.csv")
-    ]
+    all_asofs = published_cohorts(calibration_dir)
     asofs = sorted(
         asof
         for asof in all_asofs

@@ -44,12 +44,16 @@ from baibai_engine.macro.indicators.service import (
 from baibai_engine.market.lake.keys import (
     current_l1_pointer_key as lake_current_l1_pointer_key,
 )
+from baibai_engine.market.lake.keys import (
+    current_l2_pointer_key as lake_current_l2_pointer_key,
+)
 from baibai_engine.market.lake.keys import dataset_manifest_key as lake_dataset_manifest_key
 from baibai_engine.market.lake.keys import release_manifest_key as lake_release_manifest_key
 from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
 from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManifest
 from baibai_engine.market.lake.raw import RawArchiveMetadata as LakeRawArchiveMetadata
 from baibai_engine.market.lake.release import L1ReleasePointer, canonical_json_bytes
+from baibai_engine.market.lake.retention import L2DatasetPointer as LakeL2DatasetPointer
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
@@ -87,6 +91,7 @@ __all__ = [
     "IndicatorsSchemaError",
     "L1ReleasePointer",
     "LakeDatasetManifest",
+    "LakeL2DatasetPointer",
     "LakeRawArchiveMetadata",
     "LakeReleaseManifest",
     "LegacyStorePathError",
@@ -97,6 +102,7 @@ __all__ = [
     "connect_read_only",
     "database_path",
     "lake_current_l1_pointer_key",
+    "lake_current_l2_pointer_key",
     "lake_dataset_manifest_key",
     "lake_release_manifest_key",
     "load_definitions",

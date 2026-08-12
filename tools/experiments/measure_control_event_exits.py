@@ -15,18 +15,27 @@ different slice than the one registered.
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 from typing import Any, TextIO
 
 import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.lake.retention import read_l2_pointer
+from baibai_engine.screening.calibration.lake import CALIBRATION_PANEL, load_manifest
+from baibai_engine.screening.calibration.legacy_csv import (
+    legacy_cohorts,
+    legacy_panel_path,
+    read_legacy_forward,
+)
+from baibai_engine.screening.calibration.store import published_cohorts, read_forward
 
 CONTROL_EVENT_STATUS = "resolved_control_event_exit"
 AUTHORITY_HORIZONS = ("3y", "5y")
@@ -57,30 +66,61 @@ class ComparisonError(RuntimeError):
     """The two stores cannot be compared on the registered terms."""
 
 
-def _rows(path: Path) -> list[dict[str, str]]:
-    with path.open(encoding="utf-8", newline="") as handle:
-        return [dict(row) for row in csv.DictReader(handle)]
-
-
-def _key(row: Mapping[str, str]) -> tuple[str, str, str]:
-    return row["asof"], row["ticker"], row["horizon"]
-
-
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
+def _cohorts(root: Path) -> list[date]:
+    """The cohorts a store holds, whichever representation it was written in.
+
+    The baseline half of this comparison is a frozen store from an earlier study, so
+    it can still be in the retired per-cohort CSV layout. Reading it through the
+    legacy adapter keeps the pre-registered comparison runnable without rebuilding it.
+    """
+
+    if read_l2_pointer(root, CALIBRATION_PANEL.name) is not None:
+        return published_cohorts(root)
+    return legacy_cohorts(root)
+
+
+def _rows(root: Path, asof: date) -> list[dict[str, object]]:
+    if read_l2_pointer(root, CALIBRATION_PANEL.name) is not None:
+        return [asdict(row) for row in read_forward(root, asof)]
+    return [asdict(row) for row in read_legacy_forward(root, asof)]
+
+
+def _key(row: Mapping[str, object]) -> tuple[str, str, str]:
+    return str(row["asof"]), str(row["ticker"]), str(row["horizon"])
+
+
 def _panel_identity(root: Path) -> dict[str, str]:
-    return {path.name: _sha256(path) for path in sorted(root.glob("panel-*.csv"))}
+    """Identify each published panel cohort by the objects the build fixed.
+
+    The build manifest already addresses every object by content, so the cohort
+    identity is read from it rather than hashed off the filesystem: two stores that
+    publish the same rows resolve to the same object keys.
+    """
+
+    pointer = read_l2_pointer(root, CALIBRATION_PANEL.name)
+    if pointer is None:
+        return {
+            asof.isoformat(): _sha256(legacy_panel_path(root, asof))
+            for asof in legacy_cohorts(root)
+        }
+    manifest = load_manifest(root / pointer.manifest_key)
+    return {
+        f"{int(partition.values['year']):04d}-{int(partition.values['month']):02d}": item.sha256
+        for partition in manifest.partitions
+        for item in partition.objects
+    }
 
 
 def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
     """Count what the exit values replaced and prove nothing else moved."""
-    baseline_files = {path.name for path in baseline_dir.glob("forward-*.csv")}
-    actual_files = {path.name for path in actual_dir.glob("forward-*.csv")}
-    if baseline_files != actual_files:
+    baseline_cohorts = _cohorts(baseline_dir)
+    if baseline_cohorts != _cohorts(actual_dir):
         raise ComparisonError("the two stores hold different cohorts")
 
     replaced_by_horizon: Counter[str] = Counter()
@@ -90,17 +130,18 @@ def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
     unresolved_before: Counter[str] = Counter()
     unresolved_after: Counter[str] = Counter()
     unexpected: list[str] = []
-    for name in sorted(baseline_files):
-        before = {_key(row): row for row in _rows(baseline_dir / name)}
-        after = {_key(row): row for row in _rows(actual_dir / name)}
+    for asof in baseline_cohorts:
+        name = asof.isoformat()
+        before = {_key(row): row for row in _rows(baseline_dir, asof)}
+        after = {_key(row): row for row in _rows(actual_dir, asof)}
         if before.keys() != after.keys():
             raise ComparisonError(f"{name} holds a different row set in the two stores")
         for key, baseline_row in before.items():
             actual_row = after[key]
             horizon = key[2]
-            if baseline_row["status"].startswith("unresolved"):
+            if str(baseline_row["status"]).startswith("unresolved"):
                 unresolved_before[horizon] += 1
-            if actual_row["status"].startswith("unresolved"):
+            if str(actual_row["status"]).startswith("unresolved"):
                 unresolved_after[horizon] += 1
             if baseline_row == actual_row:
                 continue
@@ -115,7 +156,7 @@ def compare_forward(baseline_dir: Path, actual_dir: Path) -> dict[str, Any]:
                 unexpected.append(f"{name}:{key[1]}:{horizon}")
                 continue
             replaced_by_horizon[horizon] += 1
-            replaced_prior_status[baseline_row["status"]] += 1
+            replaced_prior_status[str(baseline_row["status"])] += 1
             replaced_tickers.add(key[1])
             replaced_cohorts.setdefault(horizon, set()).add(key[0])
     return {

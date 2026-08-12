@@ -30,7 +30,7 @@ current pointerを1度だけ解決し、`lake projection build`はその固定re
 | `market/projection.sqlite` | disposable projection of one fixed L1 release | lake projection build | 削除して固定releaseから再構築 | uploadしない |
 | `macro/macro.sqlite` | cloud rolling + local full history | macro indicator service + controlled merge | provider series から再取得可能 | no-loss merge 後のみ push |
 | `screening/runs.sqlite` | cloud canonical | daily batch screening service | screening run から再生成可能 | local から push 禁止 |
-| `screening/calibration/` | rebuildable L2 | engine calibration command | market/ledger evidence から再生成可能 | production store upload対象外 |
+| `screening/calibration/` | rebuildable L2（typed Parquet build + dataset pointer） | engine calibration command | market/ledger evidence から再生成可能 | L2 manifest と object を publish |
 
 ## Allowed / Forbidden dependencies
 

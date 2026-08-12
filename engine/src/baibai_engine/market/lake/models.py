@@ -98,7 +98,11 @@ class DatasetManifest(BaseModel):
     created_at: datetime
     data_as_of: date
     partition_by: tuple[str, ...] = Field(min_length=1)
-    partitions: tuple[PartitionManifest, ...] = Field(min_length=1)
+    # An analytical build can legitimately publish nothing — a forward cohort where
+    # no observation has resolved yet is a real state, and representing it as an
+    # absent build would make "not computed" indistinguishable from "computed and
+    # empty". A canonical L1 build with no partition is not a usable release input.
+    partitions: tuple[PartitionManifest, ...] = ()
     totals: ManifestTotals
 
     @field_validator("dataset")
@@ -143,11 +147,16 @@ class DatasetManifest(BaseModel):
 
     @model_validator(mode="after")
     def validate_semantics(self) -> DatasetManifest:
+        # An L1 build is produced from provider ingests and nothing else; an L2 build
+        # from a fixed input generation and nothing else. Each layer names exactly one
+        # kind of source, so a manifest cannot describe a lineage it does not have.
         if self.layer == "l1_canonical":
             if not self.source_ingest_ids or self.source_release_ids:
                 raise ValueError(
                     "l1_canonical requires source_ingest_ids and forbids source_release_ids"
                 )
+            if not self.partitions:
+                raise ValueError("l1_canonical requires at least one partition")
         elif not self.source_release_ids or self.source_ingest_ids:
             raise ValueError(
                 "l2_analytical requires source_release_ids and forbids source_ingest_ids"

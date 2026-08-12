@@ -16,9 +16,10 @@ from .projection import ProjectionError, build_projection
 from .raw import RawRetentionClass, archive_raw_file
 from .reader import LakeReadError, resolve_current_release, resolve_release
 from .release import create_l1_release
+from .retention import LakeRetentionError, apply_gc, create_pin, plan_gc, remove_pin
 from .writer import export_legacy_sqlite, validate_legacy_parity
 
-WRITE_COMMANDS = frozenset({"archive-raw", "export-legacy", "projection", "release"})
+WRITE_COMMANDS = frozenset({"archive-raw", "export-legacy", "gc", "pin", "projection", "release"})
 
 
 def main(argv: list[str]) -> int:
@@ -75,6 +76,38 @@ def main(argv: list[str]) -> int:
     build.add_argument("--dataset", action="append", default=[], choices=sorted(PILOT_DATASETS))
     build.add_argument("--force", action="store_true")
     build.add_argument("--producer-git-commit", default=None)
+
+    pin = commands.add_parser("pin", help="keep one release or build reachable indefinitely")
+    pin_commands = pin.add_subparsers(dest="pin_command", required=True)
+    pin_create = pin_commands.add_parser("create")
+    pin_create.add_argument("--mirror", type=Path, required=True)
+    pin_create.add_argument("--pin-id", required=True)
+    pin_create.add_argument("--release", help="L1 release id to pin")
+    pin_create.add_argument("--build", help="L2 build id to pin (requires --dataset)")
+    pin_create.add_argument("--dataset")
+    pin_create.add_argument("--reason", required=True)
+    pin_create.add_argument("--owner", required=True)
+    pin_remove = pin_commands.add_parser("remove")
+    pin_remove.add_argument("--mirror", type=Path, required=True)
+    pin_remove.add_argument("--pin-id", required=True)
+
+    gc = commands.add_parser("gc", help="plan or apply deletion of unreachable objects")
+    gc.add_argument("--mirror", type=Path, required=True)
+    gc.add_argument(
+        "--l2-dataset",
+        action="append",
+        default=[],
+        help=(
+            "require this L2 dataset to have a current pointer; roots are read from "
+            "the store, so naming datasets is an assertion rather than the root list"
+        ),
+    )
+    gc.add_argument(
+        "--apply",
+        action="store_true",
+        help="delete the planned keys; requires the plan hash the dry run printed",
+    )
+    gc.add_argument("--plan-hash", help="plan hash from the dry run; required with --apply")
 
     args = parser.parse_args(argv)
     if args.command == "archive-raw":
@@ -145,6 +178,10 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "projection":
         return _projection_build(args)
+    if args.command == "pin":
+        return _pin(args)
+    if args.command == "gc":
+        return _gc(args)
     path, release_manifest = create_l1_release(
         dataset_manifest_paths=args.dataset_manifest,
         mirror_root=args.mirror,
@@ -212,6 +249,54 @@ def _projection_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pin(args: argparse.Namespace) -> int:
+    """Create or remove one explicit retention root."""
+
+    try:
+        if args.pin_command == "remove":
+            removed = remove_pin(args.mirror, pin_id=args.pin_id)
+            print(json.dumps({"pin_id": args.pin_id, "removed": removed}, sort_keys=True))
+            return 0 if removed else 1
+        if bool(args.release) == bool(args.build):
+            print("error: pin exactly one of --release or --build", file=sys.stderr)
+            return 1
+        path = create_pin(
+            args.mirror,
+            pin_id=args.pin_id,
+            target_kind="l1_release" if args.release else "l2_build",
+            target_id=args.release or args.build,
+            dataset=args.dataset if args.build else None,
+            reason=args.reason,
+            owner=args.owner,
+        )
+    except (LakeObjectError, LakeRetentionError, OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps({"pin": str(path), "pin_id": args.pin_id}, sort_keys=True))
+    return 0
+
+
+def _gc(args: argparse.Namespace) -> int:
+    """Plan deletion from the root closure; delete only against that same plan."""
+
+    try:
+        plan = plan_gc(args.mirror, l2_datasets=tuple(args.l2_dataset))
+        if args.apply:
+            if not args.plan_hash:
+                print("error: --apply requires --plan-hash from the dry run", file=sys.stderr)
+                return 1
+            deleted = apply_gc(args.mirror, plan, plan_hash=args.plan_hash)
+            print(
+                json.dumps({"deleted": list(deleted), "plan_hash": plan.plan_hash}, sort_keys=True)
+            )
+            return 0
+    except (LakeObjectError, LakeRetentionError, OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(plan.as_dict(), sort_keys=True))
+    return 0
+
+
 def print_combined_help() -> None:
     print(
         """usage: baibai-engine lake [-h] COMMAND ...
@@ -224,6 +309,9 @@ commands:
   export-legacy      export affected SQLite months as canonical Parquet
   release create     create an immutable L1 release manifest
   projection build   materialize a local SQLite projection of one fixed release
+  pin create         keep one release or build reachable indefinitely
+  pin remove         drop one explicit retention root
+  gc                 plan (default) or apply deletion of unreachable objects
 """
     )
 

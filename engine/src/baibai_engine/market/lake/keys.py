@@ -153,3 +153,13 @@ def release_manifest_key(*, release_id: str) -> str:
 
 def current_l1_pointer_key() -> str:
     return "lake/pointers/l1/current.json"
+
+
+def current_l2_pointer_key(*, dataset: str) -> str:
+    validate_dataset_name(dataset)
+    return validate_lake_object_key(f"lake/pointers/l2/{dataset}/current.json")
+
+
+def pin_key(*, pin_id: str) -> str:
+    validate_identifier(pin_id, label="pin_id")
+    return validate_lake_object_key(f"lake/manifests/pins/{pin_id}.json")

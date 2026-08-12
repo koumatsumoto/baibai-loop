@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import csv
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from tests.helpers.calibration_store import publish_forward, publish_panel
 from tools.experiments.measure_signal_cohorts import (
     SignalCohortMeasurementError,
     build_measurement,
@@ -42,24 +42,11 @@ FORWARD_COLUMNS = (
 def _write_panel(
     directory: Path, asof: str, rows: list[dict[str, Any]], *, rules_hash: str = "abc123"
 ) -> None:
-    (directory / f"panel-{asof}.meta.yaml").write_text(
-        f"asof: '{asof}'\nrules_hash: {rules_hash}\n", encoding="utf-8"
-    )
-    path = directory / f"panel-{asof}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=PANEL_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column, "") for column in PANEL_COLUMNS})
+    publish_panel(directory, asof, rows, rules_hash=rules_hash)
 
 
 def _write_forward(directory: Path, asof: str, rows: list[dict[str, Any]]) -> None:
-    path = directory / f"forward-{asof}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FORWARD_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({column: row.get(column, "") for column in FORWARD_COLUMNS})
+    publish_forward(directory, asof, rows)
 
 
 def _liquid(ticker: str, asof: str, **overrides: Any) -> dict[str, Any]:

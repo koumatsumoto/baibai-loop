@@ -1,11 +1,27 @@
-"""Versioned local cache for point-in-time panel and forward observations."""
+"""The calibration cohort store: immutable typed L2 builds under a moving pointer.
+
+A cohort is written by publishing a new immutable build and advancing the dataset
+pointer to it. Objects are content addressed, so a cohort that did not change costs
+nothing to carry into the next build, and a build that was superseded remains
+addressable until retention decides otherwise.
+
+Storage is typed Parquet whose schema is derived from ``PanelRow``,
+``PanelDiagnostics``, and ``ForwardReturnRow``. Nothing here migrates a published
+object: a contract change produces a new build, which is what keeps a cohort
+measured under one set of rules from ever merging with a cohort measured under
+another.
+
+``CACHE_SCHEMA_VERSION`` remains the compatibility statement for the cohort, and it
+is folded into the transform fingerprint of every build, so a store written under
+different measurement rules is rejected rather than read.
+"""
 
 from __future__ import annotations
 
-import csv
-from collections.abc import Mapping
-from dataclasses import asdict, fields
-from datetime import date
+import subprocess  # nosec B404
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from datetime import UTC, date, datetime
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
@@ -15,6 +31,13 @@ import yaml
 
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.market.lake.models import DatasetManifest, PartitionManifest
+from baibai_engine.market.lake.objects import sha256_bytes
+from baibai_engine.market.lake.retention import (
+    LakeRetentionError,
+    advance_l2_pointer,
+    read_l2_pointer,
+)
 
 from ..metrics import VALUATION_CALCULATION_REVISION
 from ..rules import _RELAXED_THRESHOLDS as _RELAXED_TABLE
@@ -24,6 +47,23 @@ from .forward import (
     TOTAL_RETURN_BASIS,
     TOTAL_RETURN_STATUSES,
     ForwardReturnRow,
+)
+from .lake import (
+    CALIBRATION_DIAGNOSTICS,
+    CALIBRATION_FORWARD,
+    CALIBRATION_PANEL,
+    CalibrationLakeError,
+    L2BuildInputs,
+    L2Dataset,
+    asof_month,
+    build_identifier,
+    load_manifest,
+    publish_l2_build,
+    read_l2_partition,
+    require_build_inputs,
+    require_manifest_contract,
+    transform_fingerprint,
+    write_l2_partition,
 )
 from .panel import (
     DIAGNOSTIC_FIELD_NAMES,
@@ -36,6 +76,11 @@ from .panel import (
 RELAXED = _RELAXED_TABLE
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
+
+# The identity a build records when no L1 release was bound to it: every input came
+# from the legacy store. It is a real, checkable value rather than an empty field, so
+# a reader that requires a release fails on the value instead of on an absence.
+LEGACY_ONLY_RELEASE_ID = "legacy-sqlite-only"
 
 
 def _derive_cache_schema_version() -> str:
@@ -65,9 +110,9 @@ def _derive_cache_schema_version() -> str:
                 sorted(
                     "{}:{}".format(
                         name,
-                        ",".join(f"{field}={value}" for field, value in sorted(fields.items())),
+                        ",".join(f"{key}={value}" for key, value in sorted(thresholds.items())),
                     )
-                    for name, fields in RELAXED.items()
+                    for name, thresholds in RELAXED.items()
                 )
             ),
             VALUATION_CALCULATION_REVISION,
@@ -78,8 +123,6 @@ def _derive_cache_schema_version() -> str:
 
 CACHE_SCHEMA_VERSION = _derive_cache_schema_version()
 
-_BOOL_TRUE = "true"
-_BOOL_FALSE = "false"
 _POPULATION_COVERAGE_STATUSES = {
     "evaluated",
     "priced_master_without_universe",
@@ -88,7 +131,7 @@ _POPULATION_COVERAGE_STATUSES = {
 
 
 class CalibrationCacheError(RuntimeError):
-    """The local cache cannot prove that it uses the current contract."""
+    """The local store cannot prove that it uses the current contract."""
 
 
 def cache_meta_path(root: Path) -> Path:
@@ -96,6 +139,7 @@ def cache_meta_path(root: Path) -> Path:
 
 
 def _write_cache_meta(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
     cache_meta_path(root).write_text(
         yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}, sort_keys=False),
         encoding="utf-8",
@@ -121,160 +165,319 @@ def _require_current_cache(root: Path) -> None:
         )
 
 
-def panel_path(root: Path, asof: date) -> Path:
-    return root / f"panel-{asof.isoformat()}.csv"
+def producer_git_commit() -> str:
+    try:
+        result = subprocess.run(  # nosec B603
+            ("git", "rev-parse", "HEAD"),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "0" * 40
+    commit = result.stdout.strip()
+    return commit if len(commit) == 40 else "0" * 40
 
 
-def panel_meta_path(root: Path, asof: date) -> Path:
-    return root / f"panel-{asof.isoformat()}.meta.yaml"
+def _inputs() -> L2BuildInputs:
+    """What this build declares, and nothing it does not have.
+
+    No L1 release is bound while calibration's inputs are still read from the legacy
+    store, so the recorded release is the named value that says so rather than an id
+    that would imply a provenance the build did not have.
+    """
+
+    return L2BuildInputs(
+        source_release_id=LEGACY_ONLY_RELEASE_ID,
+        producer_git_commit=producer_git_commit(),
+        cache_schema_version=CACHE_SCHEMA_VERSION,
+    )
 
 
-def forward_path(root: Path, asof: date) -> Path:
-    return root / f"forward-{asof.isoformat()}.csv"
+def _require_partition_objects(
+    root: Path, dataset: L2Dataset, partition: PartitionManifest
+) -> None:
+    """A carried partition must still have its objects, or the build inherits a hole."""
+
+    for item in partition.objects:
+        if not (root / item.key).is_file():
+            raise CalibrationLakeError(f"{dataset.name}: published object is missing: {item.key}")
+
+
+def _current_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
+    """The build the pointer names, or ``None`` when the dataset has no head yet.
+
+    The pointer's digest is checked here. A manifest key is derived from
+    ``(dataset, build_id)``, so without it the same pointer could be made to resolve
+    to a different set of objects by replacing that key — and every check below it
+    would pass, because the object digests it compares against would come from the
+    replacement.
+    """
+
+    pointer = read_l2_pointer(root, dataset.name)
+    if pointer is None:
+        return None
+    path = root / pointer.manifest_key
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise CalibrationLakeError(f"L2 dataset manifest is unreadable: {path}") from exc
+    if sha256_bytes(payload) != pointer.manifest_sha256:
+        raise CalibrationLakeError(f"{dataset.name}: manifest digest does not match the pointer")
+    manifest = load_manifest(path)
+    require_manifest_contract(dataset, manifest)
+    return manifest
+
+
+def _publish_cohort(
+    root: Path,
+    *,
+    dataset: L2Dataset,
+    asof: date,
+    rows: Sequence[object],
+) -> None:
+    """Publish a build that carries every cohort already published plus this one.
+
+    A month can hold more than one cohort, so the partition being replaced is
+    rebuilt from the rows the current build holds for the other as-ofs plus the new
+    ones. Content addressing makes the untouched months resolve to the objects that
+    are already stored.
+    """
+
+    root.mkdir(parents=True, exist_ok=True)
+    month = (asof.year, asof.month)
+    manifest = _current_manifest(root, dataset)
+    if manifest is not None:
+        # Carrying a partition from a build made under other measurement rules would
+        # publish it under this build's fingerprint, which is exactly the mixing the
+        # cohort contract exists to prevent. The version stamp is written only after
+        # this passes, so a refused build leaves the store describing itself truthfully.
+        require_build_inputs(manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
+    _write_cache_meta(root)
+    inputs = _inputs()
+
+    carried: list[PartitionManifest] = []
+    same_month: list[object] = []
+    data_as_of = asof
+    if manifest is not None:
+        data_as_of = max(data_as_of, manifest.data_as_of)
+        for partition in manifest.partitions:
+            other = (int(partition.values["year"]), int(partition.values["month"]))
+            if other != month:
+                _require_partition_objects(root, dataset, partition)
+                carried.append(partition)
+                continue
+            for payload in read_l2_partition(
+                dataset=dataset, manifest=manifest, mirror_root=root, month=other
+            ):
+                if str(payload["asof"]) != asof.isoformat():
+                    same_month.append(_materialize(dataset, payload))
+    replacement = write_l2_partition(
+        dataset=dataset,
+        mirror_root=root,
+        month=month,
+        rows=[*same_month, *rows],
+        inputs=inputs,
+    )
+    if replacement is not None:
+        carried.append(replacement)
+
+    fingerprint = transform_fingerprint(dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
+    now = datetime.now(UTC)
+    report = publish_l2_build(
+        dataset=dataset,
+        mirror_root=root,
+        partitions=carried,
+        inputs=inputs,
+        build_id=build_identifier(dataset=dataset, fingerprint=fingerprint, now=now),
+        data_as_of=data_as_of,
+        created_at=now,
+    )
+    advance_l2_pointer(
+        root,
+        dataset=dataset.name,
+        build_id=report.build_id,
+        manifest_path=report.manifest_path,
+        expected_current_build_id=None if manifest is None else manifest.build_id,
+    )
+
+
+def _materialize(dataset: L2Dataset, payload: Mapping[str, object]) -> object:
+    if dataset.name == CALIBRATION_PANEL.name:
+        return panel_row_from_mapping(payload)
+    if dataset.name == CALIBRATION_DIAGNOSTICS.name:
+        return PanelDiagnostics(**payload)  # type: ignore[arg-type]
+    return forward_row_from_mapping(payload)
 
 
 def write_panel(
-    root: Path, asof: date, rows: tuple[PanelRow, ...], diagnostics: PanelDiagnostics
+    root: Path,
+    asof: date,
+    rows: tuple[PanelRow, ...],
+    diagnostics: PanelDiagnostics,
 ) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    _write_cache_meta(root)
-    _write_rows(panel_path(root, asof), [asdict(row) for row in rows], PanelRow)
-    panel_meta_path(root, asof).write_text(
-        yaml.safe_dump(asdict(diagnostics), sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
+    with _store_errors():
+        _publish_cohort(root, dataset=CALIBRATION_PANEL, asof=asof, rows=rows)
+        _publish_cohort(root, dataset=CALIBRATION_DIAGNOSTICS, asof=asof, rows=(diagnostics,))
+
+
+def write_forward(
+    root: Path,
+    asof: date,
+    rows: list[ForwardReturnRow],
+) -> None:
+    with _store_errors():
+        _publish_cohort(root, dataset=CALIBRATION_FORWARD, asof=asof, rows=rows)
+
+
+@contextmanager
+def _store_errors() -> Iterator[None]:
+    """Present one error type at the store boundary, on the write side too.
+
+    The read side already translates, and a caller that handles a failed read but
+    receives a raw lower-layer exception from a failed write ends up as a traceback
+    instead of the message that tells the operator to rebuild.
+    """
+
+    try:
+        yield
+    except (CalibrationLakeError, LakeRetentionError) as exc:
+        raise CalibrationCacheError(str(exc)) from exc
+
+
+def has_cohort(root: Path, asof: date) -> bool:
+    """Whether the current panel build already holds this cohort.
+
+    Only "there is no build yet" answers False. A store that exists but cannot be
+    read — a drifted contract, a missing object, an unreadable pointer — raises, so a
+    build never treats a broken store as an empty one and rebuilds into it.
+    """
+
+    try:
+        return bool(_cohort_payloads(root, CALIBRATION_PANEL, asof))
+    except (CalibrationLakeError, LakeRetentionError) as exc:
+        raise CalibrationCacheError(str(exc)) from exc
+
+
+def published_cohorts(root: Path) -> list[date]:
+    """Every as-of the current panel build holds, in order.
+
+    The build manifest is the inventory: a cohort exists because the current build
+    publishes rows for it, not because a file with a matching name is on disk.
+    """
+
+    try:
+        manifest = _current_manifest(root, CALIBRATION_PANEL)
+        if manifest is None:
+            return []
+        asofs: set[date] = set()
+        for partition in manifest.partitions:
+            month = (int(partition.values["year"]), int(partition.values["month"]))
+            for payload in read_l2_partition(
+                dataset=CALIBRATION_PANEL,
+                manifest=manifest,
+                mirror_root=root,
+                month=month,
+                columns=["asof"],
+            ):
+                asofs.add(date.fromisoformat(str(payload["asof"])))
+    except (CalibrationLakeError, LakeRetentionError) as exc:
+        # An unreadable build is not an empty store. Reporting it as "no cohorts"
+        # would make evaluate say the store holds nothing when it holds 81 cohorts.
+        raise CalibrationCacheError(f"calibration cache is invalid: {exc}") from exc
+    return sorted(asofs)
+
+
+def _cohort_payloads(root: Path, dataset: L2Dataset, asof: date) -> list[Mapping[str, object]]:
+    manifest = _current_manifest(root, dataset)
+    if manifest is None:
+        return []
+    require_build_inputs(manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
+    payloads = read_l2_partition(
+        dataset=dataset, manifest=manifest, mirror_root=root, month=asof_month(asof.isoformat())
     )
+    return [item for item in payloads if str(item["asof"]) == asof.isoformat()]
+
+
+def read_panel(root: Path, asof: date) -> list[PanelRow]:
+    _require_current_cache(root)
+    try:
+        payloads = _cohort_payloads(root, CALIBRATION_PANEL, asof)
+    except (CalibrationLakeError, LakeRetentionError) as exc:
+        raise CalibrationCacheError(f"calibration panel cache is invalid: {exc}") from exc
+    if not payloads:
+        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
+    try:
+        return [panel_row_from_mapping(payload) for payload in payloads]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CalibrationCacheError(
+            "calibration panel cache is invalid; run calibration-build --force"
+        ) from exc
 
 
 def read_panel_meta(root: Path, asof: date) -> dict[str, object]:
     _require_current_cache(root)
-    path = panel_meta_path(root, asof)
-    if not path.exists():
-        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
     try:
-        payload = safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
+        payloads = _cohort_payloads(root, CALIBRATION_DIAGNOSTICS, asof)
+    except (CalibrationLakeError, LakeRetentionError) as exc:
+        raise CalibrationCacheError(f"calibration cache metadata is invalid: {exc}") from exc
+    if not payloads:
+        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
+    if len(payloads) != 1:
         raise CalibrationCacheError(
-            "calibration cache metadata is invalid; run calibration-build --force"
-        ) from exc
-    if not isinstance(payload, dict) or not isinstance(payload.get("rules_hash"), str):
+            "calibration cache holds more than one diagnostics row for a cohort"
+        )
+    payload = dict(payloads[0])
+    if not isinstance(payload.get("rules_hash"), str):
         raise CalibrationCacheError(
             "calibration cache metadata is invalid; run calibration-build --force"
         )
     return payload
 
 
-def read_panel(root: Path, asof: date) -> list[PanelRow]:
-    _require_current_cache(root)
-    path = panel_path(root, asof)
-    if not path.exists():
-        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
-    try:
-        return [_panel_row_from_csv(raw) for raw in _read_rows(path, PanelRow)]
-    except (KeyError, ValueError, csv.Error) as exc:
-        raise CalibrationCacheError(
-            "calibration panel cache is invalid; run calibration-build --force"
-        ) from exc
-
-
-def write_forward(root: Path, asof: date, rows: list[ForwardReturnRow]) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    _write_cache_meta(root)
-    _write_rows(forward_path(root, asof), [asdict(row) for row in rows], ForwardReturnRow)
-
-
 def read_forward(root: Path, asof: date) -> list[ForwardReturnRow]:
     _require_current_cache(root)
-    path = forward_path(root, asof)
-    if not path.exists():
-        raise CalibrationCacheError("calibration cache is partial; run calibration-build --force")
     try:
-        return [_forward_row_from_csv(raw) for raw in _read_rows(path, ForwardReturnRow)]
-    except (KeyError, ValueError, csv.Error) as exc:
+        manifest = _current_manifest(root, CALIBRATION_FORWARD)
+        if manifest is None:
+            raise CalibrationCacheError(
+                "calibration cache is partial; run calibration-build --force"
+            )
+        require_build_inputs(
+            manifest, dataset=CALIBRATION_FORWARD, cache_schema_version=CACHE_SCHEMA_VERSION
+        )
+        if asof > manifest.data_as_of:
+            # The build has not reached this cohort. Returning an empty list would
+            # send an uncomputed cohort into evaluation as "observed, nothing
+            # resolved", which is the one reading the rows cannot support.
+            raise CalibrationCacheError(
+                "calibration cache is partial; run calibration-build --force"
+            )
+        payloads = [
+            item
+            for item in read_l2_partition(
+                dataset=CALIBRATION_FORWARD,
+                manifest=manifest,
+                mirror_root=root,
+                month=asof_month(asof.isoformat()),
+            )
+            if str(item["asof"]) == asof.isoformat()
+        ]
+    except (CalibrationLakeError, LakeRetentionError) as exc:
+        raise CalibrationCacheError(f"calibration forward cache is invalid: {exc}") from exc
+    try:
+        return [forward_row_from_mapping(payload) for payload in payloads]
+    except (KeyError, TypeError, ValueError) as exc:
         raise CalibrationCacheError(
             "calibration forward cache is invalid; run calibration-build --force"
         ) from exc
 
 
-def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
-    row = PanelRow(
-        asof=raw["asof"],
-        ticker=raw["ticker"],
-        sector_33=raw["sector_33"],
-        in_population=raw["in_population"] == _BOOL_TRUE,
-        market_cap_oku=_opt_float(raw, "market_cap_oku"),
-        avg_turnover_oku=_opt_float(raw, "avg_turnover_oku"),
-        listing_span_days=_opt_int(raw, "listing_span_days"),
-        close=_opt_float(raw, "close"),
-        per_forward=_opt_float(raw, "per_forward"),
-        per_trailing=_opt_float(raw, "per_trailing"),
-        pbr=_opt_float(raw, "pbr"),
-        ev_ebitda=_opt_float(raw, "ev_ebitda"),
-        p_s=_opt_float(raw, "p_s"),
-        pcfr=_opt_float(raw, "pcfr"),
-        ocf_yield=_opt_float(raw, "ocf_yield"),
-        fcf_yield=_opt_float(raw, "fcf_yield"),
-        net_cash_to_market_cap=_opt_float(raw, "net_cash_to_market_cap"),
-        cash_to_market_cap=_opt_float(raw, "cash_to_market_cap"),
-        investment_securities=_opt_float(raw, "investment_securities"),
-        asset_backed_ratio=_opt_float(raw, "asset_backed_ratio"),
-        equity_ratio=_opt_float(raw, "equity_ratio"),
-        dividend_yield=_opt_float(raw, "dividend_yield"),
-        eps_yoy=_opt_float(raw, "eps_yoy"),
-        sales_yoy=_opt_float(raw, "sales_yoy"),
-        operating_profit_yoy=_opt_float(raw, "operating_profit_yoy"),
-        cfo_yoy=_opt_float(raw, "cfo_yoy"),
-        accruals_to_assets=_opt_float(raw, "accruals_to_assets"),
-        net_share_change_yoy=_opt_float(raw, "net_share_change_yoy"),
-        ttm_quality_per_trailing=raw["ttm_quality_per_trailing"],
-        ttm_quality_ocf_yield=raw["ttm_quality_ocf_yield"],
-        price_change_60d=_opt_float(raw, "price_change_60d"),
-        gap_from_52w_low=_opt_float(raw, "gap_from_52w_low"),
-        price_history_coverage_750d=_opt_float(raw, "price_history_coverage_750d"),
-        smg_per_forward=_opt_float(raw, "smg_per_forward"),
-        smg_per_trailing=_opt_float(raw, "smg_per_trailing"),
-        smg_pbr=_opt_float(raw, "smg_pbr"),
-        smg_ev_ebitda=_opt_float(raw, "smg_ev_ebitda"),
-        smg_p_s=_opt_float(raw, "smg_p_s"),
-        srp_per_forward=_opt_float(raw, "srp_per_forward"),
-        srp_per_trailing=_opt_float(raw, "srp_per_trailing"),
-        srp_pbr=_opt_float(raw, "srp_pbr"),
-        srp_ev_ebitda=_opt_float(raw, "srp_ev_ebitda"),
-        srp_p_s=_opt_float(raw, "srp_p_s"),
-        er_annual=_opt_float(raw, "er_annual"),
-        er_reversion_annual=_opt_float(raw, "er_reversion_annual"),
-        er_carry_annual=_opt_float(raw, "er_carry_annual"),
-        er_upside_capped=_opt_float(raw, "er_upside_capped"),
-        reported_short_ratio=_opt_float(raw, "reported_short_ratio"),
-        reported_short_breadth=_opt_int(raw, "reported_short_breadth"),
-        reported_short_latest_disclosed_at=(raw.get("reported_short_latest_disclosed_at") or None),
-        margin_week_end=raw.get("margin_week_end") or None,
-        margin_long_to_adv=_opt_float(raw, "margin_long_to_adv"),
-        margin_long_share=_opt_float(raw, "margin_long_share"),
-        margin_long_delta_26w=_opt_float(raw, "margin_long_delta_26w"),
-        margin_std_long_share=_opt_float(raw, "margin_std_long_share"),
-        pass_screen=raw["pass_screen"] == _BOOL_TRUE,
-        evidence_playbooks=raw["evidence_playbooks"],
-        smg_market_fallback=raw["smg_market_fallback"],
-        threshold_blocks=raw["threshold_blocks"],
-        selection_rank=_opt_int(raw, "selection_rank"),
-        recommended_rank=_opt_int(raw, "recommended_rank"),
-        population_coverage_status=_population_coverage_status(raw["population_coverage_status"]),
-        self_range_degraded=raw["self_range_degraded"] == _BOOL_TRUE,
-        dps_streak_up=_opt_bool(raw, "dps_streak_up"),
-        dps_yoy_latest=_opt_float(raw, "dps_yoy_latest"),
-        dps_guidance_up=_opt_bool(raw, "dps_guidance_up"),
-        dividend_initiation=_opt_bool(raw, "dividend_initiation"),
-        share_count_reduction_streak=_opt_int(raw, "share_count_reduction_streak"),
-        shareholder_return_change=_opt_bool(raw, "shareholder_return_change"),
-        margin_short_to_adv=_opt_float(raw, "margin_short_to_adv"),
-        realized_volatility_60d=_opt_float(raw, "realized_volatility_60d"),
-        normalized_per_3fy=_opt_float(raw, "normalized_per_3fy"),
-        normalized_per_5fy=_opt_float(raw, "normalized_per_5fy"),
-        self_range_observed_sessions=int(raw["self_range_observed_sessions"]),
-        operating_profit_to_assets=_opt_float(raw, "operating_profit_to_assets"),
-        operating_margin=_opt_float(raw, "operating_margin"),
-        asset_turnover=_opt_float(raw, "asset_turnover"),
-    )
+def panel_row_from_mapping(raw: Mapping[str, object]) -> PanelRow:
+    """Build one panel row from stored values, checking the invariants it must hold."""
+
+    row = PanelRow(**cast(dict[str, object], dict(raw)))  # type: ignore[arg-type]
+    _population_coverage_status(str(row.population_coverage_status))
     _validate_asset_backed(row)
     _validate_shareholder_return_change(row)
     _validate_margin_supply_demand(row)
@@ -283,25 +486,8 @@ def _panel_row_from_csv(raw: Mapping[str, str]) -> PanelRow:
     return row
 
 
-def _forward_row_from_csv(raw: Mapping[str, str]) -> ForwardReturnRow:
-    row = ForwardReturnRow(
-        asof=raw["asof"],
-        ticker=raw["ticker"],
-        horizon=raw["horizon"],
-        target_date=raw["target_date"],
-        resolved=raw["resolved"] == _BOOL_TRUE,
-        price_return=_opt_float(raw, "price_return"),
-        stale_price=raw["stale_price"] == _BOOL_TRUE,
-        entry_date=raw["entry_date"] or None,
-        exit_date=raw["exit_date"] or None,
-        status=str(raw["status"]),
-        adjustment_factor_coverage=raw["adjustment_factor_coverage"],
-        realized_dividend_sum=_opt_float(raw, "realized_dividend_sum"),
-        realized_dividend_fy_count=_opt_int(raw, "realized_dividend_fy_count") or 0,
-        total_return=_opt_float(raw, "total_return"),
-        total_return_status=raw["total_return_status"],
-        total_return_basis=raw["total_return_basis"],
-    )
+def forward_row_from_mapping(raw: Mapping[str, object]) -> ForwardReturnRow:
+    row = ForwardReturnRow(**cast(dict[str, object], dict(raw)))  # type: ignore[arg-type]
     _validate_total_return_contract(row)
     return row
 
@@ -330,27 +516,6 @@ def _validate_total_return_contract(row: ForwardReturnRow) -> None:
         or row.total_return is not None
     ):
         raise ValueError("unresolved total return carries resolved values")
-
-
-def _opt_float(raw: Mapping[str, str], key: str) -> float | None:
-    text = raw.get(key, "")
-    return float(text) if text else None
-
-
-def _opt_int(raw: Mapping[str, str], key: str) -> int | None:
-    text = raw.get(key, "")
-    return int(text) if text else None
-
-
-def _opt_bool(raw: Mapping[str, str], key: str) -> bool | None:
-    text = raw.get(key, "")
-    if not text:
-        return None
-    if text == _BOOL_TRUE:
-        return True
-    if text == _BOOL_FALSE:
-        return False
-    raise ValueError(f"invalid boolean value for {key}: {text!r}")
 
 
 def _validate_asset_backed(row: PanelRow) -> None:
@@ -451,44 +616,3 @@ def _population_coverage_status(value: str) -> PopulationCoverageStatus:
     if value not in _POPULATION_COVERAGE_STATUSES:
         raise ValueError(f"invalid population coverage status: {value!r}")
     return cast(PopulationCoverageStatus, value)
-
-
-def _write_rows(
-    path: Path, rows: list[dict[str, object]], row_type: type[PanelRow] | type[ForwardReturnRow]
-) -> None:
-    names = [field.name for field in fields(row_type)]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(names)
-        for row in rows:
-            writer.writerow([_encode(row[name]) for name in names])
-
-
-def _read_rows(
-    path: Path, row_type: type[PanelRow] | type[ForwardReturnRow]
-) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        expected_names = {field.name for field in fields(row_type)}
-        # Every column the current contract reads must be present, while a column
-        # the contract no longer reads is ignored. Parsing is by name, so an extra
-        # column cannot shift a value into the wrong field, and the cache version
-        # remains the guard against a column whose meaning changed.
-        missing = sorted(expected_names.difference(reader.fieldnames or ()))
-        if missing:
-            raise CalibrationCacheError(
-                f"calibration cache is missing {', '.join(missing)}; run calibration-build --force"
-            )
-        return [dict(raw) for raw in reader]
-
-
-def _encode(value: object) -> str:
-    if value is None:
-        return ""
-    if value is True:
-        return _BOOL_TRUE
-    if value is False:
-        return _BOOL_FALSE
-    if isinstance(value, float):
-        return repr(value)
-    return str(value)

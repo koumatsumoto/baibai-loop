@@ -16,7 +16,6 @@ adoption still requires the repository's generic calibration decision process.
 from __future__ import annotations
 
 import argparse
-import csv
 import sqlite3
 import sys
 from collections import defaultdict
@@ -41,7 +40,11 @@ from baibai_engine.screening.buyback_report import (
     parse_buyback_report,
 )
 from baibai_engine.screening.buyback_store import StoredBuybackReport, read_buyback_reports
-from baibai_engine.screening.calibration.forward import RESOLVED_STATUSES
+from baibai_engine.screening.calibration.store import (
+    published_cohorts,
+    read_forward,
+    read_panel,
+)
 
 from .measure_signal_cohorts import require_single_rules_hash
 
@@ -120,47 +123,37 @@ def _annualized(cumulative_return: float, horizon: str) -> float:
 def _load_panel(calibration_dir: Path) -> Mapping[str, tuple[_BasePanelRow, ...]]:
     rows: dict[str, list[_BasePanelRow]] = defaultdict(list)
     identities: set[tuple[str, str]] = set()
-    for path in sorted(calibration_dir.glob("panel-*.csv")):
-        asof = path.name.removeprefix("panel-").removesuffix(".csv")
-        with path.open(newline="", encoding="utf-8") as handle:
-            for raw in csv.DictReader(handle):
-                raw_asof = raw.get("asof") or ""
-                ticker = raw.get("ticker") or ""
-                if raw_asof != asof:
-                    raise BuybackAuthorizationMeasurementError(
-                        f"panel asof does not match filename: {path}: {raw_asof!r}"
-                    )
-                identity = (asof, ticker)
-                if not ticker or identity in identities:
-                    raise BuybackAuthorizationMeasurementError(
-                        f"invalid or duplicate panel identity: {identity!r}"
-                    )
-                identities.add(identity)
-                market_cap = _optional_float(raw.get("market_cap_oku"))
-                turnover = _optional_float(raw.get("avg_turnover_oku"))
-                listing_span = _optional_float(raw.get("listing_span_days"))
-                if (
-                    market_cap is None
-                    or market_cap < MIN_MARKET_CAP_OKU
-                    or turnover is None
-                    or turnover < MIN_AVG_TURNOVER_OKU
-                    or listing_span is None
-                    or listing_span < MIN_LISTING_SPAN_DAYS
-                ):
-                    continue
-                share_change = _optional_float(raw.get("net_share_change_yoy"))
-                signal = (
-                    None
-                    if share_change is None
-                    else max(-BUYBACK_CLIP, min(BUYBACK_CLIP, -share_change))
+    for asof_date in published_cohorts(calibration_dir):
+        asof = asof_date.isoformat()
+        for stored in read_panel(calibration_dir, asof_date):
+            if stored.asof != asof:
+                raise BuybackAuthorizationMeasurementError(
+                    f"panel asof does not match its cohort: {asof}: {stored.asof!r}"
                 )
-                rows[asof].append(
-                    _BasePanelRow(
-                        asof=asof,
-                        ticker=ticker,
-                        share_change_signal=signal,
-                    )
+            identity = (asof, stored.ticker)
+            if not stored.ticker or identity in identities:
+                raise BuybackAuthorizationMeasurementError(
+                    f"invalid or duplicate panel identity: {identity!r}"
                 )
+            identities.add(identity)
+            if (
+                stored.market_cap_oku is None
+                or stored.market_cap_oku < MIN_MARKET_CAP_OKU
+                or stored.avg_turnover_oku is None
+                or stored.avg_turnover_oku < MIN_AVG_TURNOVER_OKU
+                or stored.listing_span_days is None
+                or stored.listing_span_days < MIN_LISTING_SPAN_DAYS
+            ):
+                continue
+            share_change = stored.net_share_change_yoy
+            signal = (
+                None
+                if share_change is None
+                else max(-BUYBACK_CLIP, min(BUYBACK_CLIP, -share_change))
+            )
+            rows[asof].append(
+                _BasePanelRow(asof=asof, ticker=stored.ticker, share_change_signal=signal)
+            )
     if not rows:
         raise BuybackAuthorizationMeasurementError(
             f"no liquidity-passing panel rows under {calibration_dir}"
@@ -174,34 +167,25 @@ def _load_forward(
     wanted = set(horizons)
     forward: dict[tuple[str, str], dict[str, float]] = defaultdict(dict)
     identities: set[tuple[str, str, str]] = set()
-    paths = sorted(calibration_dir.glob("forward-*.csv"))
-    if not paths:
+    asofs = published_cohorts(calibration_dir)
+    if not asofs:
         raise BuybackAuthorizationMeasurementError(f"no forward rows under {calibration_dir}")
-    for path in paths:
-        file_asof = path.name.removeprefix("forward-").removesuffix(".csv")
-        with path.open(newline="", encoding="utf-8") as handle:
-            for raw in csv.DictReader(handle):
-                raw_asof = raw.get("asof") or ""
-                ticker = raw.get("ticker") or ""
-                horizon = raw.get("horizon") or ""
-                if raw_asof != file_asof:
-                    raise BuybackAuthorizationMeasurementError(
-                        f"forward asof does not match filename: {path}: {raw_asof!r}"
-                    )
-                identity = (raw_asof, ticker, horizon)
-                if not ticker or identity in identities:
-                    raise BuybackAuthorizationMeasurementError(
-                        f"invalid or duplicate forward identity: {identity!r}"
-                    )
-                identities.add(identity)
-                value = _optional_float(raw.get("price_return"))
-                if (
-                    horizon not in wanted
-                    or raw.get("status") not in RESOLVED_STATUSES
-                    or value is None
-                ):
-                    continue
-                forward[(raw_asof, ticker)][horizon] = value
+    for asof_date in asofs:
+        asof = asof_date.isoformat()
+        for row in read_forward(calibration_dir, asof_date):
+            if row.asof != asof:
+                raise BuybackAuthorizationMeasurementError(
+                    f"forward asof does not match its cohort: {asof}: {row.asof!r}"
+                )
+            identity = (row.asof, row.ticker, row.horizon)
+            if not row.ticker or identity in identities:
+                raise BuybackAuthorizationMeasurementError(
+                    f"invalid or duplicate forward identity: {identity!r}"
+                )
+            identities.add(identity)
+            if row.horizon not in wanted or not row.resolved or row.price_return is None:
+                continue
+            forward[(row.asof, row.ticker)][row.horizon] = row.price_return
     return forward
 
 

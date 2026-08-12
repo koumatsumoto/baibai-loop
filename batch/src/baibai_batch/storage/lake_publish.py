@@ -17,10 +17,12 @@ from typing import Protocol
 from baibai_engine.batch_api import (
     L1ReleasePointer,
     LakeDatasetManifest,
+    LakeL2DatasetPointer,
     LakeRawArchiveMetadata,
     LakeReleaseManifest,
     canonical_json_bytes,
     lake_current_l1_pointer_key,
+    lake_current_l2_pointer_key,
     lake_dataset_manifest_key,
     lake_release_manifest_key,
 )
@@ -64,6 +66,15 @@ class ObjectStore(Protocol):
 @dataclass(frozen=True)
 class PublishReport:
     release_id: str
+    uploaded_objects: int
+    reused_objects: int
+    pointer_etag: str
+
+
+@dataclass(frozen=True)
+class L2PublishReport:
+    dataset: str
+    build_id: str
     uploaded_objects: int
     reused_objects: int
     pointer_etag: str
@@ -218,6 +229,90 @@ def publish_l1_release(
     )
 
 
+def publish_l2_build(
+    *,
+    mirror_root: Path,
+    dataset_manifest_path: Path,
+    store: ObjectStore,
+) -> L2PublishReport:
+    """Upload one analytical build immutably, then switch its dataset pointer by CAS.
+
+    The order is the same as the L1 release path and for the same reason: every
+    object and the manifest exist before anything points at them, so a failure part
+    way through leaves unreferenced objects rather than a pointer to a build that is
+    not fully published.
+    """
+
+    manifest = LakeDatasetManifest.model_validate_json(dataset_manifest_path.read_bytes())
+    if manifest.layer != "l2_analytical":
+        raise LakePublishError("L2 publish accepts l2_analytical dataset manifests only")
+    expected_key = lake_dataset_manifest_key(dataset=manifest.dataset, build_id=manifest.build_id)
+    if dataset_manifest_path != mirror_root / expected_key:
+        raise LakePublishError("dataset manifest path does not match its dataset and build")
+
+    uploads: list[tuple[str, Path, str]] = []
+    for partition in manifest.partitions:
+        for item in partition.objects:
+            object_path = mirror_root / item.key
+            if _sha256(object_path) != item.sha256 or object_path.stat().st_size != item.bytes:
+                raise LakePublishError(f"local object does not match manifest: {item.key}")
+            uploads.append((item.key, object_path, "application/vnd.apache.parquet"))
+    uploads.append((expected_key, dataset_manifest_path, "application/json"))
+
+    uploaded = 0
+    reused = 0
+    for key, path, content_type in uploads:
+        if _ensure_immutable(store, key=key, path=path, content_type=content_type):
+            uploaded += 1
+        else:
+            reused += 1
+
+    pointer_key = lake_current_l2_pointer_key(dataset=manifest.dataset)
+    current = store.head(pointer_key)
+    previous_build_id = None
+    if current is not None:
+        previous = LakeL2DatasetPointer.model_validate_json(store.get_bytes(pointer_key))
+        if previous.build_id == manifest.build_id:
+            return L2PublishReport(
+                dataset=manifest.dataset,
+                build_id=manifest.build_id,
+                uploaded_objects=uploaded,
+                reused_objects=reused,
+                pointer_etag=current.etag,
+            )
+        previous_build_id = previous.build_id
+    pointer = LakeL2DatasetPointer(
+        dataset=manifest.dataset,
+        build_id=manifest.build_id,
+        manifest_key=expected_key,
+        manifest_sha256=_sha256(dataset_manifest_path),
+        previous_build_id=previous_build_id,
+    )
+    with tempfile.NamedTemporaryFile(prefix="baibai-l2-pointer-", suffix=".json") as temporary:
+        temporary.write(canonical_json_bytes(pointer))
+        temporary.flush()
+        try:
+            result = store.put_file(
+                pointer_key,
+                Path(temporary.name),
+                sha256=_sha256(Path(temporary.name)),
+                content_type="application/json",
+                if_match=current.etag if current is not None else None,
+                if_none_match=current is None,
+            )
+        except LakeCASConflict:
+            raise
+        except Exception as exc:
+            raise LakePublishError(f"L2 pointer switch failed: {manifest.dataset}") from exc
+    return L2PublishReport(
+        dataset=manifest.dataset,
+        build_id=manifest.build_id,
+        uploaded_objects=uploaded,
+        reused_objects=reused,
+        pointer_etag=result.etag,
+    )
+
+
 def _ensure_immutable(
     store: ObjectStore,
     *,
@@ -364,6 +459,7 @@ def build_parser() -> argparse.ArgumentParser:
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--release-manifest", type=Path)
     target.add_argument("--raw-metadata", type=Path)
+    target.add_argument("--l2-manifest", type=Path)
     parser.add_argument("--bucket", default="baibai-stores")
     return parser
 
@@ -378,6 +474,14 @@ def main(argv: list[str] | None = None) -> int:
             store=store,
         )
         print(json.dumps(raw_report.__dict__, sort_keys=True))
+        return 0
+    if args.l2_manifest is not None:
+        l2_report = publish_l2_build(
+            mirror_root=args.mirror,
+            dataset_manifest_path=args.l2_manifest,
+            store=store,
+        )
+        print(json.dumps(l2_report.__dict__, sort_keys=True))
         return 0
     assert args.release_manifest is not None
     release_report = publish_l1_release(

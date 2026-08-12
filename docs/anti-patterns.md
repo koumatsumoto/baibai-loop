@@ -259,6 +259,11 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       traversalをそれぞれfail closeにするnegative testを持つか。projectionは完全一致でだけ
       再利用し、削除・破損・partialから再構築でき、一時fileが公開されないことと、
       credentialがSQL文・例外・metadataへ出ないことをtestで固定したか
+- [ ] L2 analytical buildを変更する場合、schemaを行のcontractから導き、transform fingerprint /
+      source release / schema / object digestの不一致をそれぞれfail closeにするnegative testを
+      持つか。cohort 1つの書き込みがその月のpartitionだけを書き換えること、current / previous /
+      pinから到達できるobjectがGC候補にならないこと、plan hash不一致とroot未解決で削除を拒否する
+      ことをtestで固定したか
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか

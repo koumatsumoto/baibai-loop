@@ -61,6 +61,7 @@ engine は web / batch / tools に依存しない。Web が engine へ触れる�
 | `stores/application/baibai.sqlite` | canonical application DB | task、macro context、shortlist、thesis revision、holding review、proposal、ledger event / price / meta、outcome、operation session | `baibai-engine` application service |
 | `stores/market/market.sqlite` | rebuildable L1 | J-Quants / EDINET / JPX の price、calendar、financial input と、資本配分・支配権イベントの typed fact | market / screening provider |
 | `stores/screening/runs.sqlite` | rebuildable L2 run store | 最新数世代を保持するprunable screening run / machine selection cache | screening service |
+| `stores/screening/calibration/` | rebuildable L2 analytical build | typed Parquet の calibration panel / diagnostics / forward outcome と、その dataset manifest・pointer・pin | screening calibration service |
 | `stores/macro/macro.sqlite` | rebuildable L1 | provider 別 macro indicator series。manual 観測は git seed から同期 | macro indicator service |
 
 application DB の default path は `stores/application/baibai.sqlite` で、`BAIBAI_DB` または各 CLI の `--db` で差し替えられる。手動 backup は `baibai-engine db backup` を使う。自動 backup、世代管理、監査 table、transition history は持たない。
@@ -79,7 +80,7 @@ materialized read model だけを読む。
 | --- | --- | --- | --- |
 | L1 Raw | canonical Raw archiveなし | R2 immutable object | provider original と request range / retrieved-at / content hash。credential と認証 header は保存しない |
 | L1 Canonical | `market.sqlite` | Parquet object + dataset / release manifest | typed source fact、source identity、publication / effective / retrieved time、revision semantics |
-| L2 Analytical | dataset別の既存rebuildable cache | Parquet object + dataset manifest | 再生成可能な panel、feature、forward outcome |
+| L2 Analytical | dataset別の既存rebuildable cache | Parquet object + dataset manifest + dataset pointer | 再生成可能な panel、feature、forward outcome |
 | L2 Operational / L3 | SQLite | SQLite | run metadata、selection、thesis、proposal、ledger、operation 等の transaction / point lookup state |
 
 R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
@@ -124,6 +125,8 @@ repository-internal entry point で、domain の利用者向け surface では�
 contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は
 current pointer を 1 度だけ解決して固定 release の identity を出し、`lake projection build` は
 その release から local projection を再構築する。どちらも immutable object を書き換えない。
+`lake pin` は retention root を明示し、`lake gc` は root closure から削除候補と plan hash を出す
+（既定は dry-run で、`--apply` は同じ plan hash を要求する）。
 schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run /
 select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の
 意味を変えない。
