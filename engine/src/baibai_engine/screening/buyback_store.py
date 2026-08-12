@@ -18,7 +18,12 @@ from typing import Protocol
 from baibai_engine.market.sqlite import connect_current, open_connection
 from baibai_engine.market.ticker import normalize_ticker
 
-from .buyback_report import BuybackReport, BuybackReportError, parse_buyback_report
+from .buyback_report import (
+    BuybackReport,
+    BuybackReportError,
+    inconsistent_buyback_fields,
+    parse_buyback_report,
+)
 from .providers.edinet import EDINETProviderError, EDINETRateLimitError
 
 # 自己株券買付状況報告書 and its correction. A correction supersedes the original for the
@@ -310,7 +315,8 @@ def read_buyback_reports(
         placeholders = ", ".join("?" for _ in tickers)
         rows = connection.execute(
             "SELECT ticker, report_month_end, window_start, window_end, resolved_shares, "  # nosec B608
-            "cumulative_shares, month_shares, issued_shares, doc_id, filed_on "
+            "cumulative_shares, month_shares, issued_shares, doc_id, filed_on, "
+            "resolved_amount_yen, cumulative_amount_yen, treasury_shares "
             f"FROM edinet_buyback_reports WHERE ticker IN ({placeholders}) "
             "AND report_month_end <= ? AND filed_on <= ? "
             "ORDER BY ticker, report_month_end DESC, filed_on DESC",
@@ -326,15 +332,34 @@ def read_buyback_reports(
         bucket = grouped.setdefault(str(row[0]), [])
         if len(bucket) >= months:
             continue
+        window_start = None if row[2] is None else date.fromisoformat(str(row[2]))
+        window_end = None if row[3] is None else date.fromisoformat(str(row[3]))
+        resolved_shares = None if row[4] is None else int(row[4])
+        cumulative_shares = None if row[5] is None else int(row[5])
+        month_shares = None if row[6] is None else int(row[6])
+        issued_shares = None if row[7] is None else int(row[7])
+        # 規則が書かれる前に保存された行は取り込みをやり直さないと直らないので、読み取り側
+        # でも同じ検査を通す。取り込み時と同じ関数なので規則は 1 か所にとどまる。
+        dropped = inconsistent_buyback_fields(
+            window_start=window_start,
+            window_end=window_end,
+            resolved_shares=resolved_shares,
+            resolved_amount_yen=None if row[10] is None else int(row[10]),
+            cumulative_shares=cumulative_shares,
+            cumulative_amount_yen=None if row[11] is None else int(row[11]),
+            month_shares=month_shares,
+            issued_shares=issued_shares,
+            treasury_shares=None if row[12] is None else int(row[12]),
+        )
         bucket.append(
             StoredBuybackReport(
                 report_month_end=date.fromisoformat(str(row[1])),
-                window_start=None if row[2] is None else date.fromisoformat(str(row[2])),
-                window_end=None if row[3] is None else date.fromisoformat(str(row[3])),
-                resolved_shares=None if row[4] is None else int(row[4]),
-                cumulative_shares=None if row[5] is None else int(row[5]),
-                month_shares=None if row[6] is None else int(row[6]),
-                issued_shares=None if row[7] is None else int(row[7]),
+                window_start=None if "window_start" in dropped else window_start,
+                window_end=None if "window_end" in dropped else window_end,
+                resolved_shares=None if "resolved_shares" in dropped else resolved_shares,
+                cumulative_shares=None if "cumulative_shares" in dropped else cumulative_shares,
+                month_shares=None if "month_shares" in dropped else month_shares,
+                issued_shares=None if "issued_shares" in dropped else issued_shares,
                 doc_id=None if row[8] is None else str(row[8]),
                 filed_on=None if row[9] is None else date.fromisoformat(str(row[9])),
             )
