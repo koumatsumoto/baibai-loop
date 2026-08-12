@@ -2950,12 +2950,11 @@ class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):
         self.assertAlmostEqual(normalized[0].shares_outstanding or 0.0, 2_800_000_000.0, places=0)
 
 
-class CarriedCommonEquityDivergenceTests(unittest.TestCase):
-    """円経路を採るのは、行内の一致と carry 後の一致の両方が成り立つときだけ。
+class CarriedCommonEquityTests(unittest.TestCase):
+    """円経路を採るかは突き合わせ行の中で決め、carry 後の乖離では決めない。
 
-    行内の一致は会社の資本構成についての判定で、実際に使う 2 値が同じ株式基準に乗って
-    いるかは答えない。`bps` 経路は時価総額と同じ株数を分母にも置くので株数の誤りが相殺
-    するが、円経路は相殺しない。
+    乖離はほとんどが実際の資本変動なので、倍率で切ると減損や大幅増資で自己資本が動いた
+    会社の新しい値を捨てて古い `bps` を採ることになり、割安側へ大きくずれる。
     """
 
     @staticmethod
@@ -2976,7 +2975,7 @@ class CarriedCommonEquityDivergenceTests(unittest.TestCase):
             bps=bps,
         )
 
-    def test_a_carried_pair_within_the_band_keeps_the_fresher_yen_route(self) -> None:
+    def test_the_fresher_yen_route_is_kept_when_the_row_agrees(self) -> None:
         summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
 
         equity = _common_equity_yen(
@@ -2989,8 +2988,25 @@ class CarriedCommonEquityDivergenceTests(unittest.TestCase):
 
         self.assertAlmostEqual(equity or 0.0, 1.2e8, places=0)
 
-    def test_a_carried_pair_beyond_the_band_falls_back_to_the_cancelling_route(self) -> None:
+    def test_a_collapsed_equity_ratio_keeps_the_fresh_value(self) -> None:
+        """自己資本が実際に崩れた会社で古い `bps` へ退避すると、割安側へ大きくずれる。"""
+
         summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=2e8,
+            equity_to_asset_ratio=0.05,
+            bps=100.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, 1e7, places=0)
+
+    def test_a_row_that_disagrees_uses_the_common_share_basis(self) -> None:
+        """行内で 2 経路が食い違う会社は資本構成の違いなので、普通株基準の `bps` を採る。"""
+
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=4e8, ratio=0.5)]
 
         equity = _common_equity_yen(
             summaries,
@@ -3001,37 +3017,6 @@ class CarriedCommonEquityDivergenceTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(equity or 0.0, 1e8, places=0)
-
-    def test_a_zero_equity_row_is_answered_instead_of_dividing_by_zero(self) -> None:
-        """自己資本比率 0 の行で倍率は取れない。落とさずに相殺する側を返す。"""
-
-        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
-
-        equity = _common_equity_yen(
-            summaries,
-            total_assets=4e8,
-            equity_to_asset_ratio=0.0,
-            bps=100.0,
-            shares_ex_treasury=1_000_000.0,
-        )
-
-        self.assertAlmostEqual(equity or 0.0, 1e8, places=0)
-
-    def test_a_negative_book_value_stays_negative_rather_than_becoming_a_ratio(self) -> None:
-        """債務超過は倍率で表せない。純資産倍率はこの先で欠測になる。"""
-
-        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
-
-        equity = _common_equity_yen(
-            summaries,
-            total_assets=4e8,
-            equity_to_asset_ratio=-0.2,
-            bps=-50.0,
-            shares_ex_treasury=1_000_000.0,
-        )
-
-        self.assertIsNotNone(equity)
-        self.assertLess(equity or 0.0, 0.0)
 
 
 class DividendCrossCheckBoundaryTests(unittest.TestCase):
