@@ -90,6 +90,10 @@ def _candidate_risk_tags(candidate: Mapping[str, object]) -> list[str]:
     # corporate action check を必ず通すよう triage 段階で注意を立てる。
     if candidate.get("split_adjustment_flag") is True:
         tags.append("split_adjustment_recent")
+    # 悪化ゲートは 3 つの YoY がすべて欠測だと判定材料を持たないまま通す。通過は
+    # 「悪化していない」ことの観測ではないので、その区別を判断面へ残す。
+    if candidate.get("deterioration_gate_unmeasurable") is True:
+        tags.append("deterioration_unmeasurable")
     if string_or_none(candidate.get("next_earnings_date")):
         tags.append("earnings_scheduled")
     if candidate.get("freshness_warnings"):

@@ -176,6 +176,42 @@ class SelectionMarketStateTests(unittest.TestCase):
         # A genuinely new listing is short_history territory, not a gap.
         self.assertNotIn("price_history_gap", by_ticker["9999"]["risk_tags"])
 
+    def test_an_unmeasurable_deterioration_gate_becomes_a_risk_tag(self) -> None:
+        """Passing the gate is not the same as not deteriorating.
+
+        The gate answers "did any observed YoY fall past the threshold", so a name with
+        all three missing passes with no evidence either way. That is 12.4% of the
+        population and 7.1% of screen passers, and nothing on the decision surface told
+        them apart from names the gate actually cleared.
+        """
+        blind = dict(_CALM_CANDIDATE)
+        blind["metrics"] = {
+            **dict(_CALM_CANDIDATE["metrics"]),  # type: ignore[arg-type]
+            "deterioration_gate_unmeasurable": True,
+        }
+        seeing = dict(_DECLINER_CANDIDATE)
+        seeing["metrics"] = {
+            **dict(_DECLINER_CANDIDATE["metrics"]),  # type: ignore[arg-type]
+            "deterioration_gate_unmeasurable": False,
+        }
+        payload = build_selection_payload(
+            asof_date=_ASOF,
+            candidates=(
+                candidate_record_from_mapping(blind),
+                candidate_record_from_mapping(seeing),
+            ),
+            macro_context=None,
+            rules=self.rules,
+            top=10,
+            profile="balanced",
+            candidates_ref="test.yaml",
+            macro_context_ref=None,
+            market_regime=None,
+        )
+        by_ticker = {item["ticker"]: item for item in self._recommendations(payload)}
+        self.assertIn("deterioration_unmeasurable", by_ticker["1111"]["risk_tags"])
+        self.assertNotIn("deterioration_unmeasurable", by_ticker["9999"]["risk_tags"])
+
     def test_split_adjustment_flag_becomes_risk_tag(self) -> None:
         # 分割・併合直後は market_cap / net_cash 比率が corporate action 未反映で
         # 歪み得るため、triage 段階で risk tag として必ず表面化させる。
