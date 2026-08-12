@@ -211,24 +211,31 @@ def test_migration_v15_moves_the_retired_handoff_into_result(tmp_path: Path) -> 
             # 内容を持ち result が空の行: 判断内容を result へ畳む。
             (
                 "op-20260729-opportunity-1",
-                '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
-                ' "human_confirmation": null, "completion_reason": null, "result": null,'
-                ' "next": null, "handoff": {"order_proposal": "none", "reason": "割高"}}',
+                (
+                    '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
+                    ' "human_confirmation": null, "completion_reason": null,'
+                    ' "result": null, "next": null,'
+                    ' "handoff": {"order_proposal": "none", "reason": "割高"}}'
+                ),
             ),
             # 内容を持つが result が既に埋まっている行: 記録済みの結論を上書きしない。
             (
                 "op-20260728-opportunity-1",
-                '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
-                ' "human_confirmation": null, "completion_reason": null,'
-                ' "result": "no actionable bargain", "next": null,'
-                ' "handoff": {"order_proposal": "none", "reason": "後で"}}',
+                (
+                    '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
+                    ' "human_confirmation": null, "completion_reason": null,'
+                    ' "result": "no actionable bargain", "next": null,'
+                    ' "handoff": {"order_proposal": "none", "reason": "後で"}}'
+                ),
             ),
             # 値の無い行: key を落とすだけ。
             (
                 "op-20260717-opportunity-1",
-                '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
-                ' "human_confirmation": null, "completion_reason": null, "result": null,'
-                ' "next": null, "handoff": null}',
+                (
+                    '{"checkpoint": "done", "artifacts": [], "canonical_refs": [],'
+                    ' "human_confirmation": null, "completion_reason": null,'
+                    ' "result": null, "next": null, "handoff": null}'
+                ),
             ),
         )
         for operation_id, payload in rows:
