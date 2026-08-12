@@ -16,8 +16,8 @@ import yaml
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
 from baibai_engine.foundation.yaml_io import safe_load
 
+from ..metrics import VALUATION_CALCULATION_REVISION
 from ..rules import _RELAXED_THRESHOLDS as _RELAXED_TABLE
-from .evaluation import GATE_BASE_AXES, SECTOR_MEDIAN_AXES
 from .forward import (
     FORWARD_FIELD_NAMES,
     RESOLVED_STATUSES,
@@ -46,24 +46,31 @@ def _derive_cache_schema_version() -> str:
     1 つの集計へ混ざる状態だった。同じ列名で狭い観測と広い観測が並ぶと、測っていない
     ことが「効かなかった」として読まれる。
 
-    互換性を決めるのは 2 つある。**列の形** (panel / diagnostics / forward の field) と、
-    **列に入る観測の範囲** — どの playbook 閾値を測るか、どの gate 軸を測るか、どの
-    sector-gap 軸を basis 別に測るか。どれも実行時に読める値なので、変えれば版が動く。
+    互換性を決めるのは 3 つある。**列の形** (panel / diagnostics / forward の field)、
+    **列に入る観測の範囲** (どの playbook 閾値をどの緩和値で測るか)、そして **列の値の
+    意味** (`metrics.VALUATION_CALCULATION_REVISION`)。式の意味の変更だけは内容から
+    導けないので人が宣言するが、宣言すれば cache 版もそれに従って動く。
 
-    版は市場 store の `user_version` のように自動で進む。手で書く識別子は
-    `metrics.VALUATION_CALCULATION_REVISION` だけになる — 式の意味の変更は内容から
-    導けないので、そこだけは人が宣言する。
+    評価時にだけ読む軸の一覧 (`GATE_BASE_AXES` / `SECTOR_MEDIAN_AXES`) はここに入れない。
+    どれも既存の panel 列を指すので、軸を足し引きしても cache の中身は 1 バイトも変わらず、
+    版へ入れると 81 cohort・503MB の再構築を互換性上は不要な変更のたびに要求する。
     """
     contract = "|".join(
         (
             ",".join(PANEL_FIELD_NAMES),
             ",".join(DIAGNOSTIC_FIELD_NAMES),
             ",".join(FORWARD_FIELD_NAMES),
+            # 閾値名だけでなく緩和値も入れる。同じ閾値を別の値で測った cohort は互換でない。
             ",".join(
-                sorted(f"{name}:{','.join(sorted(fields))}" for name, fields in RELAXED.items())
+                sorted(
+                    "{}:{}".format(
+                        name,
+                        ",".join(f"{field}={value}" for field, value in sorted(fields.items())),
+                    )
+                    for name, fields in RELAXED.items()
+                )
             ),
-            ",".join(GATE_BASE_AXES),
-            ",".join(SECTOR_MEDIAN_AXES),
+            VALUATION_CALCULATION_REVISION,
         )
     )
     return sha256(contract.encode("utf-8")).hexdigest()[:16]
