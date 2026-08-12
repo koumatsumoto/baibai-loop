@@ -281,12 +281,13 @@ def run_command(
     )
     # 枠の中身は別 table から読む。提出の有無と枠の状態は別の観測なので、片方が欠けても
     # もう片方は出る。
-    buyback_reports = read_buyback_reports(
+    buyback_read = read_buyback_reports(
         config.sqlite_cache_dir / "market.sqlite",
         tickers=sorted(securities_by_ticker),
         asof=asof_date,
         months=ACQUISITION_PACE_MONTHS,
     )
+    buyback_reports = buyback_read.reports
     metric_result = build_metrics(
         asof_date=asof_date,
         securities_by_ticker=securities_by_ticker,
@@ -407,6 +408,14 @@ def run_command(
     if population_yoy_missing:
         fallback_lines.append(
             f"業績悪化フィルタ入力欠損(流動性母集団): {population_yoy_missing} 銘柄"
+        )
+    if buyback_read.inconsistent_rows:
+        # 落とした行を数に残さないと、判断面では「様式が読めなかった」と「そもそも提出が
+        # 無い」が同じ null になる。単価の上限は普通株の実勢 (実測最大 68,185 円) を前提に
+        # 置いた固定値なので、その前提が崩れたときはここの件数が先に動く。
+        fallback_lines.append(
+            f"自己株券買付の様式が読めず field を落とした報告: "
+            f"{buyback_read.inconsistent_rows} 行 / {buyback_read.inconsistent_tickers} 銘柄"
         )
     if edinet_load_error is not None:
         fallback_lines.append(f"EDINET 読み込み失敗: {edinet_load_error}")

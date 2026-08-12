@@ -305,7 +305,7 @@ def _join_diagnostic_rows(
             tickers=tickers,
             asof=asof,
             months=12,
-        )
+        ).reports
         for base in base_rows:
             reports = reports_by_ticker.get(base.ticker, ())
             annotation = with_authorization_state(

@@ -301,9 +301,23 @@ class StoredBuybackReport:
     filed_on: date | None = None
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BuybackReportRead:
+    """読めた報告と、読み取りで field を落とした行の数。
+
+    落とした事実を数に残さないと、「様式が読めなかった」と「そもそも提出が無い」が
+    判断面では同じ `null` になり、annotation が消えたことを誰も観測できない。数は
+    run の fallback 行へ出す。
+    """
+
+    reports: dict[str, tuple[StoredBuybackReport, ...]]
+    inconsistent_rows: int = 0
+    inconsistent_tickers: int = 0
+
+
 def read_buyback_reports(
     sqlite_path: Path, *, tickers: Sequence[str], asof: date, months: int
-) -> dict[str, tuple[StoredBuybackReport, ...]]:
+) -> BuybackReportRead:
     """The newest `months` reports per ticker whose month end is at or before `asof`.
 
     Both reporting month and filing date are bounded by `asof`.  The report describes a
@@ -311,10 +325,10 @@ def read_buyback_reports(
     later publication into a historical replay.
     """
     if not tickers or months <= 0:
-        return {}
+        return BuybackReportRead(reports={})
     connection = connect_current(sqlite_path)
     if connection is None:
-        return {}
+        return BuybackReportRead(reports={})
     try:
         placeholders = ", ".join("?" for _ in tickers)
         rows = connection.execute(
@@ -327,11 +341,13 @@ def read_buyback_reports(
             (*tickers, asof.isoformat(), asof.isoformat()),
         ).fetchall()
     except sqlite3.OperationalError:
-        return {}
+        return BuybackReportRead(reports={})
     finally:
         connection.close()
 
     grouped: dict[str, list[StoredBuybackReport]] = {}
+    inconsistent_rows = 0
+    inconsistent_tickers: set[str] = set()
     for row in rows:
         bucket = grouped.setdefault(str(row[0]), [])
         if len(bucket) >= months:
@@ -357,6 +373,9 @@ def read_buyback_reports(
             issued_shares=issued_shares,
             treasury_shares=None if row[12] is None else int(row[12]),
         )
+        if dropped:
+            inconsistent_rows += 1
+            inconsistent_tickers.add(str(row[0]))
         bucket.append(
             StoredBuybackReport(
                 report_month_end=date.fromisoformat(str(row[1])),
@@ -376,4 +395,8 @@ def read_buyback_reports(
                 filed_on=None if row[9] is None else date.fromisoformat(str(row[9])),
             )
         )
-    return {ticker: tuple(reports) for ticker, reports in grouped.items()}
+    return BuybackReportRead(
+        reports={ticker: tuple(reports) for ticker, reports in grouped.items()},
+        inconsistent_rows=inconsistent_rows,
+        inconsistent_tickers=len(inconsistent_tickers),
+    )
