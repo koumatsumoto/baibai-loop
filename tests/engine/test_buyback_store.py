@@ -113,7 +113,9 @@ def test_refresh_stores_one_row_per_reporting_month(tmp_path: Path) -> None:
 
     assert summary.stored == 2
     assert summary.unreadable == 0
-    reports = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 31), months=6)["6088"]
+    reports = read_buyback_reports(
+        path, tickers=["6088"], asof=date(2026, 8, 31), months=6
+    ).reports["6088"]
     assert [report.report_month_end for report in reports] == [
         date(2026, 7, 31),
         date(2026, 6, 30),
@@ -308,7 +310,10 @@ def test_a_month_ending_after_the_filing_is_rejected_not_stored(tmp_path: Path) 
 
     assert summary.without_usable_month == 1
     assert summary.stored == 1
-    assert read_buyback_reports(path, tickers=["6363"], asof=date(2026, 12, 31), months=24) == {}
+    assert (
+        read_buyback_reports(path, tickers=["6363"], asof=date(2026, 12, 31), months=24).reports
+        == {}
+    )
 
 
 def test_a_filing_whose_month_cannot_be_read_is_skipped(tmp_path: Path) -> None:
@@ -362,7 +367,9 @@ def test_reads_are_bounded_by_the_as_of(tmp_path: Path) -> None:
     )
     refresh_buyback_reports(path, provider=provider, since=date(2026, 1, 1))
 
-    reports = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 7, 15), months=6)["6088"]
+    reports = read_buyback_reports(
+        path, tickers=["6088"], asof=date(2026, 7, 15), months=6
+    ).reports["6088"]
 
     assert [report.report_month_end for report in reports] == [date(2026, 6, 30)]
 
@@ -385,8 +392,12 @@ def test_a_closed_report_month_is_not_visible_before_its_filing_date(tmp_path: P
         since=date(2026, 1, 1),
     )
 
-    assert read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 4), months=6) == {}
-    visible = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 5), months=6)["6088"]
+    assert (
+        read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 4), months=6).reports == {}
+    )
+    visible = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 5), months=6).reports[
+        "6088"
+    ]
     assert visible[0].doc_id == "DOC-JULY"
     assert visible[0].filed_on == date(2026, 8, 5)
 
@@ -468,7 +479,9 @@ def test_a_ticker_without_rows_is_absent_from_the_read(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     _store_with_documents(path, [])
 
-    assert read_buyback_reports(path, tickers=["9999"], asof=date(2026, 8, 31), months=6) == {}
+    assert (
+        read_buyback_reports(path, tickers=["9999"], asof=date(2026, 8, 31), months=6).reports == {}
+    )
 
 
 class _RefusingFilings:
@@ -562,3 +575,42 @@ def test_a_rate_limited_pass_keeps_what_it_already_stored(tmp_path: Path) -> Non
     assert summary.stored == 1
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT count(*) FROM edinet_buyback_reports").fetchone()[0] == 1
+
+
+def test_a_row_dropped_at_read_time_is_counted(tmp_path: Path) -> None:
+    """落とした事実を数に残さないと、様式が読めないことと提出が無いことが同じ null になる。
+
+    規則が書かれる前に保存された行は取り込みをやり直さないと直らないので、読み取り側でも
+    同じ検査を通す。そこで落ちた件数は run の fallback 行へ出す。
+    """
+
+    path = tmp_path / "market.sqlite"
+    _store_with_documents(path, [("2026-08-05", "DOC-JULY", "60880", "220")])
+    provider = _Filings(
+        {
+            "DOC-JULY": _filing(
+                month_end="2026年７月31日",
+                resolved="600,000",
+                cumulative="533,500",
+                month="220,400",
+            )
+        }
+    )
+    refresh_buyback_reports(path, provider=provider, since=date(2026, 1, 1))
+
+    clean = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 31), months=6)
+    assert clean.inconsistent_rows == 0
+    assert clean.reports["6088"][0].cumulative_shares == 533_500
+
+    # 桁落ちで累計株数だけが 1 株になった行。金額の側は正しいまま残る形で、実 store にも
+    # 2 行ある (6417 / 3221)。
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE edinet_buyback_reports SET cumulative_shares = 1, "
+            "cumulative_amount_yen = 4800600 WHERE ticker = '6088'"
+        )
+
+    broken = read_buyback_reports(path, tickers=["6088"], asof=date(2026, 8, 31), months=6)
+    assert broken.inconsistent_rows == 1
+    assert broken.inconsistent_tickers == 1
+    assert broken.reports["6088"][0].cumulative_shares is None
