@@ -51,6 +51,8 @@ def _dataset_payload() -> dict[str, object]:
         "partitions": [
             {
                 "values": {"year": 2026, "month": 8},
+                "source_ingest_ids": ["20260812T120000Z-ingest"],
+                "source_state_sha256": "b" * 64,
                 "objects": [
                     {
                         "key": key,

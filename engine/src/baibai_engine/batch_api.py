@@ -41,6 +41,15 @@ from baibai_engine.macro.indicators.service import (
     DEFAULT_LATEST_LOOKBACK_DAYS,
     LATEST_FETCH_LOOKBACK_DAYS,
 )
+from baibai_engine.market.lake.keys import (
+    current_l1_pointer_key as lake_current_l1_pointer_key,
+)
+from baibai_engine.market.lake.keys import dataset_manifest_key as lake_dataset_manifest_key
+from baibai_engine.market.lake.keys import release_manifest_key as lake_release_manifest_key
+from baibai_engine.market.lake.models import DatasetManifest as LakeDatasetManifest
+from baibai_engine.market.lake.models import ReleaseManifest as LakeReleaseManifest
+from baibai_engine.market.lake.raw import RawArchiveMetadata as LakeRawArchiveMetadata
+from baibai_engine.market.lake.release import L1ReleasePointer, canonical_json_bytes
 from baibai_engine.market.sqlite import open_connection as open_market_store
 from baibai_engine.market.sqlite.schema import (
     EDINET_DOCUMENT_DESCRIPTIVE_COLUMNS,
@@ -76,12 +85,20 @@ __all__ = [
     "STORE_LAYOUT_MAPPINGS",
     "IndicatorDefinitions",
     "IndicatorsSchemaError",
+    "L1ReleasePointer",
+    "LakeDatasetManifest",
+    "LakeRawArchiveMetadata",
+    "LakeReleaseManifest",
     "LegacyStorePathError",
     "MacroContextDocument",
     "MarketSchemaError",
+    "canonical_json_bytes",
     "cited_series_ids",
     "connect_read_only",
     "database_path",
+    "lake_current_l1_pointer_key",
+    "lake_dataset_manifest_key",
+    "lake_release_manifest_key",
     "load_definitions",
     "monitoring_condition_series_ids",
     "open_macro_store",

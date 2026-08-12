@@ -57,6 +57,22 @@ class PartitionManifest(BaseModel):
 
     values: dict[str, PartitionValue] = Field(min_length=1)
     objects: tuple[LakeObject, ...] = Field(min_length=1)
+    source_ingest_ids: tuple[str, ...]
+    source_state_sha256: str
+
+    @field_validator("source_ingest_ids")
+    @classmethod
+    def validate_ingest_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        for value in values:
+            validate_identifier(value, label="source_ingest_id")
+        if len(values) != len(set(values)):
+            raise ValueError("source_ingest_ids cannot contain duplicates")
+        return values
+
+    @field_validator("source_state_sha256")
+    @classmethod
+    def validate_source_state_sha256(cls, value: str) -> str:
+        return validate_sha256(value)
 
 
 class ManifestTotals(BaseModel):
@@ -170,6 +186,16 @@ class DatasetManifest(BaseModel):
                 object_count += 1
                 byte_count += lake_object.bytes
                 row_count += lake_object.rows
+        if self.layer == "l1_canonical":
+            partition_sources = {
+                source_id
+                for partition in self.partitions
+                for source_id in partition.source_ingest_ids
+            }
+            if any(not partition.source_ingest_ids for partition in self.partitions):
+                raise ValueError("each L1 partition requires source_ingest_ids")
+            if partition_sources != set(self.source_ingest_ids):
+                raise ValueError("L1 source_ingest_ids must equal the partition lineage union")
         expected_totals = (object_count, byte_count, row_count)
         actual_totals = (self.totals.objects, self.totals.bytes, self.totals.rows)
         if actual_totals != expected_totals:

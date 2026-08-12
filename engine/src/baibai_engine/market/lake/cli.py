@@ -54,7 +54,7 @@ def _validation_error(error: ValidationError) -> str:
     return "; ".join(failures)
 
 
-def main(argv: list[str] | None = None) -> int:
+def _read_only_main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "inventory":
@@ -95,6 +95,21 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    import sys
+
+    from .write_cli import WRITE_COMMANDS, print_combined_help
+    from .write_cli import main as write_main
+
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments or arguments[0] in {"-h", "--help"}:
+        print_combined_help()
+        return 0
+    if arguments[0] in WRITE_COMMANDS:
+        return write_main(arguments)
+    return _read_only_main(arguments)
 
 
 if __name__ == "__main__":
