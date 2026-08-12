@@ -322,6 +322,11 @@ def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
                 "buyback_status_latest_filing_date": "2026-04-13",
                 "buyback_status_filing_age_days": 113,
                 "buyback_status_observed_from": "2025-08-01",
+                # 枠の中身。提出の齢と違い、carry が forward の還元かを直接決める。
+                "buyback_remaining_share_ratio": 0.32,
+                "buyback_trailing_3m_acquired_ratio": 0.004,
+                "buyback_authorization_window_end": "2026-03-13",
+                "buyback_report_month_end": "2026-03-31",
             },
         }
     ]
@@ -341,10 +346,20 @@ def test_the_annotation_reaches_both_selection_views_that_op3_reads() -> None:
     recommendation = payload["recommendations"][0]
     assert recommendation["buyback_authorization_status"] == "stale_filing"
     assert recommendation["buyback_status_filing_age_days"] == 113
+    # The window is what decides whether the carry is forward cash, so it has to be on
+    # the same surface as the status. A reader who only sees the filing age reads
+    # "recent enough" off a window that closed months ago.
+    assert recommendation["buyback_authorization_window_end"] == "2026-03-13"
+    assert recommendation["buyback_remaining_share_ratio"] == 0.32
+    assert recommendation["buyback_trailing_3m_acquired_ratio"] == 0.004
     longlist_row = payload["longlist"][0]
     assert longlist_row["buyback_authorization"] == {
         "status": "stale_filing",
         "latest_filing_date": "2026-04-13",
         "filing_age_days": 113,
         "observed_from": "2025-08-01",
+        "remaining_share_ratio": 0.32,
+        "trailing_3m_acquired_ratio": 0.004,
+        "authorization_window_end": "2026-03-13",
+        "report_month_end": "2026-03-31",
     }
