@@ -570,6 +570,50 @@ MIGRATIONS: tuple[Migration, ...] = (
             """,
         ),
     ),
+    Migration(
+        version=15,
+        statements=(
+            # `payload.handoff` は model から外れたが、保存済みの 10 行はまだ持っている。
+            # `OperationPayload` は `extra="forbid"` なので、履歴を 1 行でも読むと
+            # `operation show` が全件で落ちる。session 規約が求める「開始時に active を
+            # 確認する」ができない状態だった。
+            #
+            # 読み取り側を寛容にする案は採らない。model から field を外すたびに読み取り
+            # 経路へ分岐が積もり、落とした内容が観測されないまま消える。移行は 1 度で
+            # 終わり、後の経路に何も残さない。
+            #
+            # 内容を持つ行は現行 model の `result` へ畳む。`handoff` が記録していたのは
+            # 発注提案の可否と理由で、`result` が同じ役割を持つ。
+            "DROP TRIGGER IF EXISTS operation_session_completed_no_update",
+            """
+            UPDATE operation_session
+            SET payload = json_set(
+                json_remove(payload, '$.handoff'),
+                '$.result',
+                json_extract(payload, '$.handoff.order_proposal')
+                || ': '
+                || COALESCE(json_extract(payload, '$.handoff.reason'), '')
+            )
+            WHERE json_extract(payload, '$.handoff') IS NOT NULL
+              AND json_extract(payload, '$.result') IS NULL
+            """,
+            # 値の無い `handoff` は key を落とすだけでよい。`result` が既に埋まっている
+            # 行も同じで、記録済みの結論を上書きしない。
+            """
+            UPDATE operation_session
+            SET payload = json_remove(payload, '$.handoff')
+            WHERE json_type(payload, '$.handoff') IS NOT NULL
+            """,
+            """
+            CREATE TRIGGER operation_session_completed_no_update
+            BEFORE UPDATE ON operation_session
+            WHEN OLD.status = 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'completed operation session is immutable');
+            END
+            """,
+        ),
+    ),
 )
 
 LATEST_VERSION = APPLICATION_SCHEMA_VERSION

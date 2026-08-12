@@ -11,6 +11,7 @@ from baibai_batch.storage.store_layout_migration import (
     StoreLayoutMigrationError,
     migrate,
 )
+from baibai_engine.appdb.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.batch_api import STORE_LAYOUT_MAPPINGS
 
 
@@ -47,7 +48,8 @@ def test_forward_dry_run_is_read_only_and_reports_pending(tmp_path: Path) -> Non
     assert result.applied is False
     assert next(item for item in result.verification if item["kind"] == "application") == {
         "kind": "application",
-        "schema_version": 14,
+        # 版は migration の追加で動くので、期待値は定数から取る。
+        "schema_version": APPLICATION_SCHEMA_VERSION,
         "size_bytes": (tmp_path / STORE_LAYOUT_MAPPINGS[0][0]).stat().st_size,
         "table_count": len(store_layout_migration._REQUIRED_TABLES["application"]),
         "application_row_counts": {
