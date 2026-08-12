@@ -33,7 +33,6 @@ from baibai_engine.screening.calibration.panel import (
     rules_content_hash,
 )
 from baibai_engine.screening.calibration.store import (
-    CACHE_SCHEMA_VERSION,
     DEFAULT_CALIBRATION_DIR,
     CalibrationCacheError,
     read_forward,
@@ -883,7 +882,7 @@ class CalibrationPanelTest(unittest.TestCase):
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)
             (store_dir / "calibration.meta.yaml").write_text(
-                f"cache_schema_version: {CACHE_SCHEMA_VERSION - 1}\n", encoding="utf-8"
+                "cache_schema_version: 0000000000000000\n", encoding="utf-8"
             )
 
             with self.assertRaisesRegex(CalibrationCacheError, "calibration-build --force"):
@@ -1168,3 +1167,52 @@ class CalibrationPanelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DerivedCacheIdentityTests(unittest.TestCase):
+    """互換性を決める入力が動けば版も動く。手で進める判断を残さないための検査。"""
+
+    def test_a_new_panel_column_moves_the_identity(self) -> None:
+        from baibai_engine.screening.calibration import store as calibration_store
+
+        before = calibration_store._derive_cache_schema_version()
+        with patch.object(
+            calibration_store,
+            "PANEL_FIELD_NAMES",
+            (*calibration_store.PANEL_FIELD_NAMES, "new_axis"),
+        ):
+            after = calibration_store._derive_cache_schema_version()
+        self.assertNotEqual(before, after)
+
+    def test_measuring_one_more_threshold_moves_the_identity(self) -> None:
+        """列の形を変えずに観測の範囲だけ広げた変更が、実際に進め忘れを起こした形。"""
+        from baibai_engine.screening.calibration import store as calibration_store
+
+        before = calibration_store._derive_cache_schema_version()
+        widened = {
+            name: {**fields, "newly_measured_threshold": None}
+            for name, fields in calibration_store.RELAXED.items()
+        }
+        with patch.object(calibration_store, "RELAXED", widened):
+            after = calibration_store._derive_cache_schema_version()
+        self.assertNotEqual(before, after)
+
+    def test_a_new_gate_axis_moves_the_identity(self) -> None:
+        from baibai_engine.screening.calibration import store as calibration_store
+
+        before = calibration_store._derive_cache_schema_version()
+        with patch.object(
+            calibration_store,
+            "GATE_BASE_AXES",
+            (*calibration_store.GATE_BASE_AXES, "p_s"),
+        ):
+            after = calibration_store._derive_cache_schema_version()
+        self.assertNotEqual(before, after)
+
+    def test_the_identity_is_stable_for_the_same_inputs(self) -> None:
+        from baibai_engine.screening.calibration import store as calibration_store
+
+        self.assertEqual(
+            calibration_store._derive_cache_schema_version(),
+            calibration_store._derive_cache_schema_version(),
+        )

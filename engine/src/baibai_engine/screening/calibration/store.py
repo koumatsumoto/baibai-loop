@@ -6,6 +6,7 @@ import csv
 from collections.abc import Mapping
 from dataclasses import asdict, fields
 from datetime import date
+from hashlib import sha256
 from math import isfinite
 from pathlib import Path
 from typing import cast
@@ -15,19 +16,60 @@ import yaml
 from baibai_engine.foundation.repository_layout import CALIBRATION_DIR
 from baibai_engine.foundation.yaml_io import safe_load
 
+from ..rules import _RELAXED_THRESHOLDS as _RELAXED_TABLE
+from .evaluation import GATE_BASE_AXES, SECTOR_MEDIAN_AXES
 from .forward import (
+    FORWARD_FIELD_NAMES,
     RESOLVED_STATUSES,
     TOTAL_RETURN_BASIS,
     TOTAL_RETURN_STATUSES,
     ForwardReturnRow,
 )
-from .panel import PanelDiagnostics, PanelRow, PopulationCoverageStatus
+from .panel import (
+    DIAGNOSTIC_FIELD_NAMES,
+    PANEL_FIELD_NAMES,
+    PanelDiagnostics,
+    PanelRow,
+    PopulationCoverageStatus,
+)
+
+RELAXED = _RELAXED_TABLE
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-# 列の形だけでなく、列に入る観測の範囲が変わったときも進める。同じ列名で狭い観測を
-# 持つ cohort と広い観測を持つ cohort が 1 つの集計に混ざると、測っていないことが
-# 「効かなかった」として読まれる。
-CACHE_SCHEMA_VERSION = 18
+
+
+def _derive_cache_schema_version() -> str:
+    """cohort が互換かどうかを、互換性を決める入力そのものから導く。
+
+    手で進める版は、進める判断を人がするから忘れる。実際 2026-08 には列の形を変えずに
+    観測の範囲だけを広げた変更で進め忘れ、独立レビューが見つけるまで新旧の cohort が
+    1 つの集計へ混ざる状態だった。同じ列名で狭い観測と広い観測が並ぶと、測っていない
+    ことが「効かなかった」として読まれる。
+
+    互換性を決めるのは 2 つある。**列の形** (panel / diagnostics / forward の field) と、
+    **列に入る観測の範囲** — どの playbook 閾値を測るか、どの gate 軸を測るか、どの
+    sector-gap 軸を basis 別に測るか。どれも実行時に読める値なので、変えれば版が動く。
+
+    版は市場 store の `user_version` のように自動で進む。手で書く識別子は
+    `metrics.VALUATION_CALCULATION_REVISION` だけになる — 式の意味の変更は内容から
+    導けないので、そこだけは人が宣言する。
+    """
+    contract = "|".join(
+        (
+            ",".join(PANEL_FIELD_NAMES),
+            ",".join(DIAGNOSTIC_FIELD_NAMES),
+            ",".join(FORWARD_FIELD_NAMES),
+            ",".join(
+                sorted(f"{name}:{','.join(sorted(fields))}" for name, fields in RELAXED.items())
+            ),
+            ",".join(GATE_BASE_AXES),
+            ",".join(SECTOR_MEDIAN_AXES),
+        )
+    )
+    return sha256(contract.encode("utf-8")).hexdigest()[:16]
+
+
+CACHE_SCHEMA_VERSION = _derive_cache_schema_version()
 
 _BOOL_TRUE = "true"
 _BOOL_FALSE = "false"
