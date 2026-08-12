@@ -1071,10 +1071,11 @@ def _build_financial_snapshot(
     # latest 行だけを見ると四半期行が最新になる断面で PBR 等が季節的に大量欠損
     # する。直近の非 null 行から carry-forward し (値は asof-basis 正規化済み)、
     # どの field をいつの開示から引いたかを staleness fact として残す。
-    bps, bps_lag = _carry_forward(summaries, "bps", latest)
+
     cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest)
     total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest)
     equity_to_asset_ratio, eq_ratio_lag = _carry_forward(summaries, "equity_to_asset_ratio", latest)
+    bps, bps_lag = _carry_forward(summaries, "bps", latest)
     carried_lags = {
         "bps": bps_lag,
         "cash_eq": cash_eq_lag,
@@ -1096,7 +1097,6 @@ def _build_financial_snapshot(
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield
     per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
-    pbr = (latest_price / bps) if bps and bps > 0 else None
     operating_profit, operating_profit_source = _select_operating_profit(latest)
     operating_profit_prior_year, _ = _select_operating_profit(prior_year)
     shares_outstanding, _shares_lag = _carry_forward(summaries, "shares_outstanding", latest)
@@ -1140,6 +1140,26 @@ def _build_financial_snapshot(
     # `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
     per_trailing = _safe_positive_ratio(latest_market_cap, profit_ttm)
     eps_ttm = _safe_ratio(profit_ttm, shares_ex_treasury)
+    # 純資産倍率も円で組む。自己資本は `総資産 x 開示自己資本比率` で出せるので 1 株当たり
+    # 純資産を経由せずに済み、`bps` が四半期開示に載らないことによる古さを避けられる
+    # (実測: 両方を持つ 4,032 銘柄で bps 経路の齢が中央値 90 日、円経路は 11 日、円経路が
+    # 古い銘柄は 0)。
+    #
+    # **ただし 2 経路は同じ量とは限らない。** 自己資本比率の分子は優先株・非支配株主持分を
+    # 含みうる一方、`bps` は普通株主に帰属する 1 株当たり純資産である。実測では通期行
+    # 40,477 のうち 97.2% が 1% 以内で一致するが、447 行は円経路が 20% 以上大きく、155 行は
+    # 2 倍を超える。円経路をそのまま使うと、その銘柄の PBR だけが割安側へ倒れる。
+    #
+    # 差は会社の資本構成から来るので銘柄ごとに判定できる。両方を持つ直近の行で突き合わせ、
+    # 一致する会社だけ円経路の鮮度を使い、食い違う会社は普通株基準の `bps` を使う。
+    equity_yen = _common_equity_yen(
+        summaries,
+        total_assets=total_assets,
+        equity_to_asset_ratio=equity_to_asset_ratio,
+        bps=bps,
+        shares_ex_treasury=shares_ex_treasury,
+    )
+    pbr = _safe_positive_ratio(latest_market_cap, equity_yen)
     accruals_to_assets = _accruals_to_assets(
         net_income=profit_ttm,
         ocf_ttm=ocf_ttm,
@@ -1690,6 +1710,57 @@ def _edinet_describes_same_entity(
         ratio = reported / total_assets
         return 1 / ENTITY_SCALE_TOLERANCE <= ratio <= ENTITY_SCALE_TOLERANCE
     return edinet.consolidation_basis == CONSOLIDATED_BASIS
+
+
+# 円経路の自己資本を普通株基準として採るために要求する一致幅。実測では通期行の 97.2% が
+# 1% 以内に収まり、外れる 677 行は優先株・非支配株主持分を含む資本構成である。
+_COMMON_EQUITY_BASIS_TOLERANCE = 0.05
+
+
+def _common_equity_yen(
+    summaries: Sequence[JQuantsFinancialSummary],
+    *,
+    total_assets: float | None,
+    equity_to_asset_ratio: float | None,
+    bps: float | None,
+    shares_ex_treasury: float | None,
+) -> float | None:
+    """普通株主に帰属する自己資本 (円)。
+
+    `総資産 x 自己資本比率` は四半期行にも載るので新しいが、分子が普通株主の持分とは
+    限らない。`bps x 自己株控除後株数` は普通株基準だが古い。両方を持つ直近の行で 2 つが
+    一致するなら、その会社では円経路も普通株基準なので鮮度を採る。食い違う会社は基準の
+    違いなので `bps` 側を採る。どちらか一方しか無ければそれを使う。
+    """
+    yen_equity = (
+        total_assets * equity_to_asset_ratio
+        if total_assets is not None and equity_to_asset_ratio is not None
+        else None
+    )
+    bps_equity = bps * shares_ex_treasury if bps is not None and shares_ex_treasury else None
+    if yen_equity is None:
+        return bps_equity
+    if bps_equity is None:
+        return yen_equity
+    for summary in reversed(summaries):
+        if (
+            summary.bps is None
+            or summary.total_assets is None
+            or summary.equity_to_asset_ratio is None
+            or summary.shares_outstanding is None
+        ):
+            continue
+        row_shares = _shares_excluding_treasury(summary.shares_outstanding, summary.treasury_shares)
+        row_yen = summary.total_assets * summary.equity_to_asset_ratio
+        if row_shares is None or row_yen <= 0:
+            continue
+        row_bps_equity = summary.bps * row_shares
+        if row_bps_equity <= 0:
+            continue
+        agrees = abs(row_yen / row_bps_equity - 1.0) <= _COMMON_EQUITY_BASIS_TOLERANCE
+        return yen_equity if agrees else bps_equity
+    # 突き合わせられる行が無い会社では、狭い方の基準を採る。
+    return bps_equity
 
 
 def _shares_excluding_treasury(
