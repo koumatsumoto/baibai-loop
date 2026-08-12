@@ -37,7 +37,7 @@ baibai-loop/
 | package | responsibility | public surface |
 | --- | --- | --- |
 | `foundation` | 共通 primitive と境界 utility | engine 内部 |
-| `market` | market fact の取得、L1 SQLite、immutable lake contract | `baibai-engine lake`（read-only） |
+| `market` | market fact の取得、L1 SQLite、immutable lake contract、固定 release の local projection | `baibai-engine lake` |
 | `macro` | indicator series（L1）、macro reading（L2）、published macro context（L3） | `baibai-engine macro` |
 | `screening` | screening run、machine selection、shortlist、calibration | `baibai-engine screening` |
 | `research` | opportunity workspace、thesis / thesis review、planning-only limit | `baibai-engine research` |
@@ -101,6 +101,14 @@ rollback条件を満たしたpointer switchで `lake_authority` へ移り、R2 r
 なる。その後のSQLiteはfixed releaseから削除・再構築できるprojectionであり、R2 canonical key
 としてfull-file publishしない。
 
+読み取り側は実行開始時に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
+immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は
+fail-close で、prefix listing・glob・`union_by_name` による吸収・provider fallback はいずれも
+持たない。projection の再利用は release、manifest digest、object digest、projection contract
+fingerprint、producer commit の完全一致だけで決め、不一致・partial・破損は一時 file への再構築と
+atomic replace で扱う。手順は [`reference/market-lake.md`](./reference/market-lake.md#fixed-release-read)
+を正本とする。
+
 ## Stable CLI
 
 安定した利用者向け entry point は次の2本である。
@@ -113,10 +121,12 @@ repository-internal entry point で、domain の利用者向け surface では�
 
 主要 domain は `lake / screening / macro / operation / position / proposal / research / task / db`。
 `lake inventory` は local R2 mirror の metadata だけを読み、`lake validate` は JSON manifest
-contract だけを検査して object の dereference・publish・rewrite をしない。schema field、option、
-stdout YAML は public `--help` と engine modelを正とする。screening `run / select /
-ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の意味を
-変えない。
+contract だけを検査して object の dereference・publish・rewrite をしない。`lake resolve` は
+current pointer を 1 度だけ解決して固定 release の identity を出し、`lake projection build` は
+その release から local projection を再構築する。どちらも immutable object を書き換えない。
+schema field、option、stdout YAML は public `--help` と engine modelを正とする。screening `run /
+select / ticker-profile` の YAML view は AI 向け安定契約であり、保存先が SQLite でも field の
+意味を変えない。
 
 ## Application data semantics
 

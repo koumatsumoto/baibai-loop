@@ -42,17 +42,17 @@ def create_l1_release(
 ) -> tuple[Path, ReleaseManifest]:
     if not dataset_manifest_paths:
         raise ValueError("at least one dataset manifest is required")
-    manifests = [
-        DatasetManifest.model_validate_json(path.read_bytes()) for path in dataset_manifest_paths
-    ]
+    payloads = [path.read_bytes() for path in dataset_manifest_paths]
+    manifests = [DatasetManifest.model_validate_json(payload) for payload in payloads]
     if any(item.layer != "l1_canonical" for item in manifests):
         raise ValueError("L1 release accepts l1_canonical dataset manifests only")
     datasets = {
         item.dataset: ReleaseDataset(
             build_id=item.build_id,
             contract_version=item.contract_version,
+            manifest_sha256=hashlib.sha256(payload).hexdigest(),
         )
-        for item in manifests
+        for item, payload in zip(manifests, payloads, strict=True)
     }
     if len(datasets) != len(manifests):
         raise ValueError("L1 release contains duplicate datasets")

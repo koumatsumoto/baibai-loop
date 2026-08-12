@@ -86,8 +86,8 @@ def test_dataset_manifest_is_strict_and_round_trips() -> None:
     assert manifest.model_dump(mode="json") == payload
 
 
-def test_release_manifest_is_strict_and_round_trips() -> None:
-    payload = {
+def _release_payload() -> dict[str, object]:
+    return {
         "manifest_version": 1,
         "release_id": "20260812T130000Z-release",
         "created_at": "2026-08-12T13:00:00Z",
@@ -96,14 +96,43 @@ def test_release_manifest_is_strict_and_round_trips() -> None:
             "jquants.daily_bars": {
                 "build_id": "20260812T123456Z-58d3057a-build",
                 "contract_version": 1,
+                "manifest_sha256": "d" * 64,
             }
         },
     }
+
+
+def test_release_manifest_is_strict_and_round_trips() -> None:
+    payload = _release_payload()
 
     manifest = load_manifest_json(json.dumps(payload))
 
     assert isinstance(manifest, ReleaseManifest)
     assert ReleaseManifest.model_validate_json(manifest.model_dump_json()) == manifest
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("manifest_sha256", None),
+        ("manifest_sha256", ""),
+        ("manifest_sha256", "D" * 64),
+        ("manifest_sha256", "d" * 63),
+    ],
+)
+def test_release_dataset_requires_a_well_formed_manifest_digest(field: str, value: object) -> None:
+    """The digest is what makes a release pin data rather than names."""
+
+    payload = _release_payload()
+    datasets = payload["datasets"]
+    assert isinstance(datasets, dict)
+    if value is None:
+        del datasets["jquants.daily_bars"][field]
+    else:
+        datasets["jquants.daily_bars"][field] = value
+
+    with pytest.raises((ValidationError, ValueError)):
+        load_manifest_json(json.dumps(payload))
 
 
 @pytest.mark.parametrize(

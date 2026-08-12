@@ -10,8 +10,11 @@ from pathlib import Path
 import yaml
 from pydantic import JsonValue, ValidationError
 
+from .duck import LakeCredentialError
 from .inventory import inventory
 from .models import DatasetManifest, load_manifest_json
+from .objects import LakeObjectError, open_lake
+from .reader import LakeReadError, resolve_current_release, resolve_release
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +39,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_parser.add_argument("--manifest", type=Path, required=True)
     validate_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
+
+    resolve_parser = subparsers.add_parser(
+        "resolve",
+        help="resolve one fixed release and print the immutable identity a run would use",
+    )
+    resolve_parser.add_argument("--mirror", type=Path, required=True)
+    resolve_parser.add_argument(
+        "--bucket", help="read manifests from this R2 bucket instead of the local mirror"
+    )
+    resolve_parser.add_argument(
+        "--release", help="resolve this release instead of reading the current pointer"
+    )
+    resolve_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
     return parser
 
 
@@ -44,6 +60,40 @@ def _emit(payload: dict[str, JsonValue], output_format: str) -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
     else:
         print(yaml.safe_dump(payload, sort_keys=False))
+
+
+def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
+    """Freeze one release and describe it, without dereferencing any data object."""
+
+    with open_lake(mirror=args.mirror, bucket=args.bucket) as (_session, cache):
+        release = (
+            resolve_release(cache.source, args.release)
+            if args.release is not None
+            else resolve_current_release(cache.source)
+        )
+    return {
+        "schema_version": 1,
+        "kind": "lake_release",
+        "status": "ok",
+        "release_id": release.release_id,
+        "manifest_key": release.manifest_key,
+        "manifest_sha256": release.manifest_sha256,
+        "previous_release_id": release.previous_release_id,
+        "data_as_of": release.data_as_of.isoformat(),
+        "datasets": [
+            {
+                "dataset": name,
+                "build_id": manifest.build_id,
+                "contract_version": manifest.contract_version,
+                "manifest_sha256": release.dataset_manifest_sha256[name],
+                "partitions": len(manifest.partitions),
+                "objects": manifest.totals.objects,
+                "bytes": manifest.totals.bytes,
+                "rows": manifest.totals.rows,
+            }
+            for name, manifest in sorted(release.dataset_manifests.items())
+        ],
+    }
 
 
 def _validation_error(error: ValidationError) -> str:
@@ -59,6 +109,9 @@ def _read_only_main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "inventory":
             _emit(inventory(args.root), args.format)
+            return 0
+        if args.command == "resolve":
+            _emit(_resolved_release(args), args.format)
             return 0
 
         path: Path = args.manifest
@@ -91,6 +144,9 @@ def _read_only_main(argv: list[str] | None = None) -> int:
         return 0
     except ValidationError as error:
         print(f"error: invalid manifest: {_validation_error(error)}", file=sys.stderr)
+        return 1
+    except (LakeCredentialError, LakeObjectError, LakeReadError) as error:
+        print(f"error: {error}", file=sys.stderr)
         return 1
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)

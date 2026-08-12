@@ -252,6 +252,13 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       contract versionごとのordered partition layoutと各partitionのexact key集合、object keyの
       dataset/contract/partition/content hash不一致、totals不一致、duplicate JSON key、path
       traversalをそれぞれnegative testでfail closedにするか
+- [ ] 固定releaseのreaderやprojectionを変更する場合、pointerを実行中に1度しか読まないこと、
+      pointerのmid-run変更が入力releaseを変えないこと、release manifest digest / pointer
+      manifest key / dataset manifestとrelease entryの不一致 / 未受入contract version /
+      object digest・byte数・row数・Arrow schemaの不一致 / 未publishのmonth要求 / path
+      traversalをそれぞれfail closeにするnegative testを持つか。projectionは完全一致でだけ
+      再利用し、削除・破損・partialから再構築でき、一時fileが公開されないことと、
+      credentialがSQL文・例外・metadataへ出ないことをtestで固定したか
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか

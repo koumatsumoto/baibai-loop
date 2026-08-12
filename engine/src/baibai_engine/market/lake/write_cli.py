@@ -5,15 +5,20 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess  # nosec B404
+import sys
 from datetime import date
 from pathlib import Path
 
 from .datasets import PILOT_DATASETS
+from .duck import LakeCredentialError
+from .objects import LakeObjectError, open_lake
+from .projection import ProjectionError, build_projection
 from .raw import RawRetentionClass, archive_raw_file
+from .reader import LakeReadError, resolve_current_release, resolve_release
 from .release import create_l1_release
 from .writer import export_legacy_sqlite, validate_legacy_parity
 
-WRITE_COMMANDS = frozenset({"archive-raw", "export-legacy", "release"})
+WRITE_COMMANDS = frozenset({"archive-raw", "export-legacy", "projection", "release"})
 
 
 def main(argv: list[str]) -> int:
@@ -51,6 +56,25 @@ def main(argv: list[str]) -> int:
     create.add_argument("--dataset-manifest", type=Path, action="append", required=True)
     create.add_argument("--mirror", type=Path, required=True)
     create.add_argument("--release-id")
+
+    projection = commands.add_parser(
+        "projection", help="materialize a local SQLite projection of one fixed release"
+    )
+    projection_commands = projection.add_subparsers(dest="projection_command", required=True)
+    build = projection_commands.add_parser("build")
+    build.add_argument("--mirror", type=Path, required=True)
+    build.add_argument("--projection", type=Path, required=True)
+    build.add_argument(
+        "--bucket",
+        help="fetch missing objects from this R2 bucket; omit to build from the mirror alone",
+    )
+    build.add_argument(
+        "--release",
+        help="build this release instead of the one the current pointer names",
+    )
+    build.add_argument("--dataset", action="append", default=[], choices=sorted(PILOT_DATASETS))
+    build.add_argument("--force", action="store_true")
+    build.add_argument("--producer-git-commit", default=None)
 
     args = parser.parse_args(argv)
     if args.command == "archive-raw":
@@ -119,6 +143,8 @@ def main(argv: list[str]) -> int:
             )
         )
         return 0
+    if args.command == "projection":
+        return _projection_build(args)
     path, release_manifest = create_l1_release(
         dataset_manifest_paths=args.dataset_manifest,
         mirror_root=args.mirror,
@@ -137,16 +163,67 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+def _projection_build(args: argparse.Namespace) -> int:
+    """Resolve one release, then materialize it into a disposable SQLite projection."""
+
+    datasets = tuple(dict.fromkeys(args.dataset)) or tuple(sorted(PILOT_DATASETS))
+    commit = args.producer_git_commit or _git_commit()
+    try:
+        with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
+            release = (
+                resolve_release(cache.source, args.release)
+                if args.release is not None
+                else resolve_current_release(cache.source)
+            )
+            report = build_projection(
+                session,
+                release=release,
+                cache=cache,
+                destination=args.projection,
+                dataset_names=datasets,
+                producer_git_commit=commit,
+                force=args.force,
+            )
+    except (
+        LakeCredentialError,
+        LakeObjectError,
+        LakeReadError,
+        ProjectionError,
+        OSError,
+        ValueError,
+    ) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {
+                "built_at": report.built_at.isoformat(),
+                "data_as_of": report.identity.data_as_of.isoformat(),
+                "objects": len(report.identity.objects),
+                "projection": str(report.path),
+                "release_id": report.identity.source_release_id,
+                "reused": report.reused,
+                "rows": dict(sorted(report.rows.items())),
+                **report.transfers.as_dict(),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def print_combined_help() -> None:
     print(
         """usage: baibai-engine lake [-h] COMMAND ...
 
 commands:
-  inventory       inspect a local lake mirror without reading object contents
-  validate        validate one manifest contract without changing objects
-  archive-raw     archive original provider bytes append-only
-  export-legacy   export affected SQLite months as canonical Parquet
-  release create  create an immutable L1 release manifest
+  inventory          inspect a local lake mirror without reading object contents
+  validate           validate one manifest contract without changing objects
+  resolve            resolve one fixed release and print its immutable identity
+  archive-raw        archive original provider bytes append-only
+  export-legacy      export affected SQLite months as canonical Parquet
+  release create     create an immutable L1 release manifest
+  projection build   materialize a local SQLite projection of one fixed release
 """
     )
 

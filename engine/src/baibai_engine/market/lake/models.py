@@ -204,15 +204,30 @@ class DatasetManifest(BaseModel):
 
 
 class ReleaseDataset(BaseModel):
+    """One dataset build a release pins, named by identity and closed by digest.
+
+    ``manifest_sha256`` is what makes the release fix data rather than names. A
+    dataset manifest key is derived from ``(dataset, build_id)``, so without the
+    digest the same release could be made to resolve to different objects by
+    republishing that key — and every downstream check would pass, because the
+    object digests it compares against come from the replaced manifest.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     build_id: str
     contract_version: int = Field(ge=1)
+    manifest_sha256: str
 
     @field_validator("build_id")
     @classmethod
     def validate_build_id(cls, value: str) -> str:
         return validate_identifier(value, label="build_id")
+
+    @field_validator("manifest_sha256")
+    @classmethod
+    def validate_manifest_sha256(cls, value: str) -> str:
+        return validate_sha256(value)
 
 
 class ReleaseManifest(BaseModel):

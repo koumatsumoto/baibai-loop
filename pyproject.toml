@@ -23,6 +23,7 @@ dependencies = [
   "xlrd>=2.0.0",
   "fastapi>=0.140.0",
   "uvicorn>=0.51.0",
+  "duckdb>=1.5.5",
 ]
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
