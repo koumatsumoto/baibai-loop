@@ -24,12 +24,22 @@ from typing import TextIO, cast
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.macro.indicators import cli as macro_cli
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MATERIALITY_POLICY_REVISION = "stage-a-v2"
 REVISION_LOOKBACK_MONTHS = 24
 REVISION_FALLBACK_DAYS = 90
 REVISION_SERIES_CAP = 20
 REPOSITORY_SOURCE_PREFIX = "https://github.com/koumatsumoto/baibai-loop/"
+READING_SEMANTIC_FIELDS = (
+    "window_years",
+    "window_observations",
+    "expected_observations",
+    "statistic",
+    "statistic_unit",
+    "statistic_value",
+    "next_print_estimate",
+    "print_due_in_days",
+)
 
 
 class EvidenceSnapshotError(ValueError):
@@ -374,6 +384,11 @@ def build_snapshot(
             raise EvidenceSnapshotError("every reading row requires series_id")
         if series_id in by_id:
             raise EvidenceSnapshotError(f"duplicate reading series_id: {series_id}")
+        missing_semantics = [field for field in READING_SEMANTIC_FIELDS if field not in row]
+        if missing_semantics:
+            raise EvidenceSnapshotError(
+                f"reading series {series_id} is missing semantic fields: {missing_semantics}"
+            )
         by_id[series_id] = row
 
     standing, additions, decisions = _coverage_config(coverage_config)
@@ -425,6 +440,7 @@ def build_snapshot(
                     "flags": row.get("flags"),
                     "z_score": row.get("z_score"),
                     "percentile": row.get("percentile"),
+                    **{field: row.get(field) for field in READING_SEMANTIC_FIELDS},
                     "short_trend": row.get("short_trend"),
                     "long_trend": row.get("long_trend"),
                     "release_change": change,
