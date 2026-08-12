@@ -249,6 +249,38 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertNotIn("insufficient_bar_history", counts)
             self.assertNotIn("1306", {row.ticker for row in built.rows})
 
+    def test_the_panel_counts_how_many_names_carry_an_edinet_axis(self) -> None:
+        """A cohort with no EDINET source replays a screen production does not run.
+
+        `read_edinet_metrics` returns an empty mapping when the store has no rows for the
+        as-of, and the axes it feeds simply come out null. Production carries the same
+        axes for 53-64% of names, so a cohort at zero is measuring a different screen —
+        which nothing states unless the count is reported.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+
+            with_edinet = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            self.assertGreaterEqual(with_edinet.diagnostics.population_edinet_axis_nonnull, 1)
+
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute("DELETE FROM edinet_metrics")
+                conn.commit()
+            finally:
+                conn.close()
+
+            without_edinet = build_panel(
+                ASOF, sqlite_path=sqlite_path, rules=load_screening_rules()
+            )
+            self.assertEqual(without_edinet.diagnostics.population_edinet_axis_nonnull, 0)
+            # The population itself is unchanged: only the EDINET-derived axes go absent.
+            self.assertEqual(
+                without_edinet.diagnostics.population_size,
+                with_edinet.diagnostics.population_size,
+            )
+
     def test_panel_distinguishes_covered_no_report_from_source_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

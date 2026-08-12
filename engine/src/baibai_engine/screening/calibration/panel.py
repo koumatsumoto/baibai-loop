@@ -235,6 +235,11 @@ class PanelDiagnostics:
     population_per_trailing_nonnull: int
     population_pbr_nonnull: int
     population_ocf_yield_nonnull: int
+    # EDINET の書類から作る軸 (ev_ebitda / net_cash / fcf_yield / asset_backed_ratio) を
+    # 持つ母集団の行数。この source は最近の as-of 分しか store に無いので、古い cohort は
+    # ここが 0 になる。0 の cohort は production と同じ入力で screen を再現していない —
+    # production は同じ軸を銘柄の 53〜64% で持つ。判定は読み手が件数から導く。
+    population_edinet_axis_nonnull: int = 0
     population_per_trailing_exact: int
     master_snapshot_date: str | None = None
     master_snapshot_status: str = "unavailable"
@@ -609,6 +614,14 @@ def build_panel(
         ),
         population_pbr_nonnull=sum(1 for row in population_rows if row.pbr is not None),
         population_ocf_yield_nonnull=sum(1 for row in population_rows if row.ocf_yield is not None),
+        population_edinet_axis_nonnull=sum(
+            1
+            for row in population_rows
+            if row.ev_ebitda is not None
+            or row.net_cash_to_market_cap is not None
+            or row.fcf_yield is not None
+            or row.asset_backed_ratio is not None
+        ),
         population_per_trailing_exact=sum(
             1 for row in population_rows if row.ttm_quality_per_trailing == TTMQuality.EXACT.value
         ),

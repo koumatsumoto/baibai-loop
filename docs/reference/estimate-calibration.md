@@ -46,8 +46,11 @@ forward row は解決済み status（市場終値による `resolved`、成立�
 | `delisting_exclusion.direction_stable` | 窓中に価格が途切れた銘柄の除外が結論を作っていないか | `true` |
 | `entry_price_gap_count` / `future_horizon_count` / `unclassified_unresolved_count` | 未解決 row の分類（下記） | `0` |
 | `input_range_clamped` / `candidate_partition_complete` | 入力窓が要求長を満たし、panel と forward の銘柄集合が一致するか | clamp なし / 一致 |
+| `edinet_axis_population_count` | EDINET の書類から作る軸（`ev_ebitda` / `net_cash_to_market_cap` / `fcf_yield` / `asset_backed_ratio`）を持つ母集団の行数 | 件数として読む（blocker は立てない） |
 
 survivorship は population の性質なので panel が件数を測り、verdict は読み手が件数から導く（凍結すると complete の定義を変えたときに既存 cohort へ届かない）。bar store は市場から消えた銘柄の価格も保持するため、**as-of 当日に価格が付いた集合**を master snapshot と独立に観測できる。master が as-of より後なら当時上場していて現在は廃止された銘柄を欠き、前なら以降に上場した銘柄を欠く。どちらも断面が as-of の投資可能 universe ではないので incomplete とする。当日を基準にするのは、as-of 前に最終売買を終えた銘柄を master が持たないのは正しいからで、entry の staleness 許容（15 日）をここへ流用するとどの master でも mismatch を 0 にできなくなる。計測前に書かれた panel は件数を null として報告する（未計測を「欠けなし」と読めないようにする）。
+
+EDINET の取込は最近の as-of 分しか無いので、それ以前の cohort は `edinet_axis_population_count` が 0 になる。0 の cohort は EDINET 由来の軸を 1 つも持たずに screen を再現しており、production は同じ軸を銘柄の 53〜64% で持つ。**その cohort が測っているのは、production が実際に走らせている screen とは入力の違う screen である。** 件数を出し、判定は読み手が導く（blocker にすると長期 horizon の evidence が原理的に成立しない）。`null` は計測前に書かれた panel で、0（観測して 1 件も無い）と読み替えない。
 
 `adjustment_factor_coverage` は bar store が答えられる唯一の corporate-action 観測である。系列を調整しない action（合併の対価、株主割当増資）はローカルに source が無いので、この残余は判定に畳まず、外部 source を要する既知の限界として扱う。
 
