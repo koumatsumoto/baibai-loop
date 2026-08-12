@@ -138,6 +138,70 @@ def test_a_reading_that_contradicts_the_form_is_discarded() -> None:
     assert report.remaining_shares is None
 
 
+def test_a_truncated_cumulative_below_the_month_is_discarded() -> None:
+    """The split can end early and keep only the leading digits of a number.
+
+    Truncation makes the value smaller, so every upper-bound check passes it: the store
+    holds no row whose cumulative exceeds its authorization, yet 13 rows have a cumulative
+    that fell below the previous month. The month's own acquisition is part of the
+    cumulative, which is the relation a shrunken read breaks.
+    """
+    board = _BOARD_FULL_WIDTH.replace(
+        "報告月末現在の累計取得自己株式533,500299,960,100",
+        "報告月末現在の累計取得自己株式53299,960,100",
+    )
+
+    report = parse_buyback_report(_default_filing(board))
+
+    assert report.cumulative_shares is None
+    assert report.cumulative_amount_yen is None
+    assert report.month_shares is None
+    # The authorization row is read from a different label and survives.
+    assert report.resolved_shares == 600_000
+
+
+def test_a_cumulative_priced_above_any_real_share_is_discarded() -> None:
+    """A share count that lost digits inflates the implied price per share.
+
+    The store's real range runs to 68,184 yen; the only rows above it carry cumulative
+    counts of 700 and 1 shares.
+    """
+    board = _BOARD_FULL_WIDTH.replace(
+        "報告月末現在の累計取得自己株式533,500299,960,100",
+        # 220,400 の月次を下回らない株数にして、単価だけが実在しない水準になる形にする。
+        "報告月末現在の累計取得自己株式533,500299,960,100,000",
+    )
+
+    report = parse_buyback_report(_default_filing(board))
+
+    assert report.cumulative_shares is None
+    assert report.cumulative_amount_yen is None
+
+
+def test_a_cumulative_amount_above_the_authorized_amount_is_discarded() -> None:
+    board = _BOARD_FULL_WIDTH.replace(
+        "報告月末現在の累計取得自己株式533,500299,960,100",
+        "報告月末現在の累計取得自己株式533,500999,960,100",
+    )
+
+    report = parse_buyback_report(_default_filing(board))
+
+    assert report.resolved_amount_yen is None
+    assert report.cumulative_amount_yen is None
+
+
+def test_a_window_that_ends_before_it_starts_is_discarded() -> None:
+    board = _BOARD_FULL_WIDTH.replace(
+        "取得期間　2026年５月11日～2026年７月31日",
+        "取得期間　2026年７月31日～2026年５月11日",
+    )
+
+    report = parse_buyback_report(_default_filing(board))
+
+    assert report.window_start is None
+    assert report.window_end is None
+
+
 def test_treasury_above_issued_is_discarded_as_a_misread() -> None:
     holding = _HOLDING.replace("保有自己株式数4,504,427", "保有自己株式数99,000,000")
 

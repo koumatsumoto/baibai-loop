@@ -250,30 +250,109 @@ def classify_buyback_disposition(
     return tuple(purpose for purpose in order if purpose in purposes)
 
 
-def _drop_inconsistent(report: BuybackReport) -> BuybackReport:
-    """Discard a reading that contradicts the form rather than passing it downstream.
+# 1 株当たり取得価額の上限。国内の最高値銘柄でも数万円台で、store 全 5,277 行の実測は
+# 68,184 円までが連続し、その上は 711,140 円と 4,800,600 円の 2 行しか無い。どちらも累計
+# 株数が 700 株・1 株という桁落ちの形をしている。境界はこの空白に置く。
+_MAX_PLAUSIBLE_UNIT_PRICE_YEN = 100_000
 
-    A label-anchored read can in principle latch onto the wrong number if a filing
-    reshapes its table. These two relations always hold in the real form, so a violation
-    means the read is wrong — and a wrong buyback size is worse than an absent one.
+
+def inconsistent_buyback_fields(
+    *,
+    window_start: date | None = None,
+    window_end: date | None = None,
+    resolved_shares: int | None = None,
+    resolved_amount_yen: int | None = None,
+    cumulative_shares: int | None = None,
+    cumulative_amount_yen: int | None = None,
+    month_shares: int | None = None,
+    issued_shares: int | None = None,
+    treasury_shares: int | None = None,
+) -> frozenset[str]:
+    """The fields whose values contradict the form and must not reach a judgement.
+
+    A label-anchored read can latch onto the wrong number if a filing reshapes its table,
+    and the concatenated-integer split can end early and take only the leading digits of
+    a number. These relations always hold in the real form, so a violation means the read
+    is wrong — and a wrong buyback size is worse than an absent one.
+
+    **桁落ちは値を小さくするので、上限だけを見る検査では捕まらない。** 決議株数を超える
+    累計という形は store 全 4,904 行で 1 件も無い一方、累計が前月より減る行は 13 件ある。
+    下限側の関係 (月次取得は累計の一部である・1 株当たり価額は実在する水準である) を
+    併せて見る。
+
+    取り込み時と読み取り時の両方から呼ぶ。規則が書かれる前に保存された行は取り込みを
+    やり直さないと直らないが、読み取り側で同じ規則を通せば判断面へは出ない。
     """
-    updates: dict[str, None] = {}
+    dropped: set[str] = set()
     if (
-        report.resolved_shares is not None
-        and report.cumulative_shares is not None
-        and report.cumulative_shares > report.resolved_shares
+        resolved_shares is not None
+        and cumulative_shares is not None
+        and cumulative_shares > resolved_shares
     ):
-        updates["resolved_shares"] = None
-        updates["resolved_amount_yen"] = None
-        updates["cumulative_shares"] = None
-        updates["cumulative_amount_yen"] = None
+        dropped.update(
+            {
+                "resolved_shares",
+                "resolved_amount_yen",
+                "cumulative_shares",
+                "cumulative_amount_yen",
+            }
+        )
     if (
-        report.issued_shares is not None
-        and report.treasury_shares is not None
-        and report.treasury_shares > report.issued_shares
+        resolved_amount_yen is not None
+        and cumulative_amount_yen is not None
+        and cumulative_amount_yen > resolved_amount_yen
     ):
-        updates["issued_shares"] = None
-        updates["treasury_shares"] = None
+        dropped.update(
+            {
+                "resolved_shares",
+                "resolved_amount_yen",
+                "cumulative_shares",
+                "cumulative_amount_yen",
+            }
+        )
+    # 報告月の取得は累計に含まれるので、累計を上回ることはない。桁落ちした累計はこの
+    # 関係を破る側へ倒れる。どちらが壊れたかは行からは決められないので両方落とす。
+    if (
+        month_shares is not None
+        and cumulative_shares is not None
+        and month_shares > cumulative_shares
+    ):
+        dropped.update(
+            {"cumulative_shares", "cumulative_amount_yen", "month_shares", "month_amount_yen"}
+        )
+    if (
+        cumulative_shares is not None
+        and cumulative_shares > 0
+        and cumulative_amount_yen is not None
+        and cumulative_amount_yen / cumulative_shares > _MAX_PLAUSIBLE_UNIT_PRICE_YEN
+    ):
+        dropped.update({"cumulative_shares", "cumulative_amount_yen"})
+    if window_start is not None and window_end is not None and window_start > window_end:
+        dropped.update({"window_start", "window_end"})
+    if (
+        issued_shares is not None
+        and treasury_shares is not None
+        and treasury_shares > issued_shares
+    ):
+        dropped.update({"issued_shares", "treasury_shares"})
+    return frozenset(dropped)
+
+
+def _drop_inconsistent(report: BuybackReport) -> BuybackReport:
+    """Apply `inconsistent_buyback_fields` to a freshly parsed filing."""
+    updates: dict[str, None] = dict.fromkeys(
+        inconsistent_buyback_fields(
+            window_start=report.window_start,
+            window_end=report.window_end,
+            resolved_shares=report.resolved_shares,
+            resolved_amount_yen=report.resolved_amount_yen,
+            cumulative_shares=report.cumulative_shares,
+            cumulative_amount_yen=report.cumulative_amount_yen,
+            month_shares=report.month_shares,
+            issued_shares=report.issued_shares,
+            treasury_shares=report.treasury_shares,
+        )
+    )
     if not updates:
         return report
     return BuybackReport(
