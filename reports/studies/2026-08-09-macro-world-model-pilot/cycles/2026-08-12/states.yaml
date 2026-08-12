@@ -1,0 +1,399 @@
+schema_version: 1
+as_of: "2026-08-12"
+states:
+  - state_id: japan_policy_rates
+    geography: japan
+    block: policy_and_rates
+    reference_frame: 名目利回りは年率パーセント、位置は各系列の実効窓に対するパーセンタイルで測る。政策金利は無担保コール O/N の実効平均であり、誘導目標そのものではない。
+    horizons:
+      now:
+        level: 全年限が歴史的上端。2y 1.618%（100 パーセンタイル）、5y 2.101%（100）、10y 2.815%（99.8）、20y 3.696%（99.5）、30y 3.957%（99.4）、実効コール 0.977%（99.3）。
+        momentum: 3 か月で 10y +26.9bp、2y +22bp、5y +17bp。短中期がより速く、政策織り込みが主導している。
+        acceleration: 8/3-8/4 に 10y が 2.848% まで進んだ後 8/6 に 2.773% へ戻し、8/10 は 2.815%。上昇の勢いは足元で鈍化している。
+        breadth: 2y から 30y まで全年限が上端にあり、曲線の一部ではなく水準全体の移動である。
+        persistence: マネタリーベースが前年比 -13.8%（0.8 パーセンタイル）で量的縮小が続き、水準の巻き戻しを促す力が観測されない。
+      0_3m:
+        level: 政策金利 1.00% を起点に、2y が 62bp 上乗せした水準を維持する見込み。
+        momentum: 9/17-18 の会合までは織り込みの調整が中心で、水準の大きな移動は起きにくい。
+        acceleration: 加速要因は 2026 年度後半の物価加速が確認された場合に限られる。
+        breadth: 短期主導のまま。超長期は財政要因が独立に効く。
+        persistence: 量的縮小の継続が下支えとなり、低下方向への持続的な力は乏しい。
+      3_12m:
+        level: 追加利上げが 1 回入れば実効コールは 1.2% 台、10y は 3% 近傍が中心。
+        momentum: 利上げ 1 回あたり短期が先に動き、長期は財政と海外金利に従属する。
+        acceleration: 物価が BOJ 見通しどおり 2% を明確に上回れば加速、内需が折れれば減速。
+        breadth: 曲線全体が平行に移動するのではなく、短期の上昇と超長期の期間プレミアムが別々に効く。
+        persistence: 正常化の方向自体は反転しにくいが、速度は内需に依存する。
+      12_24m:
+        level: 政策金利 1.25-1.50%、10y 3% 台前半が中心的な帰結。
+        momentum: 正常化の終着点に近づくにつれ変化率は縮む。
+        acceleration: エネルギー再上昇か財政拡張があれば超長期だけが再加速する。
+        breadth: 水準の高さは定着し、変動は年限別の要因に分かれる。
+        persistence: 1990 年代以来の水準が新しい基準線になる可能性が高い。
+    evidence_for:
+      - series:jp.policy_rate
+      - series:jp.2y
+      - series:jp.10y
+      - series:jp.30y
+      - series:jp.policy_path_gap
+      - series:jp.monetary_base
+      - ext:boj-statements-2026
+      - ext:mof-jgb-rates
+    evidence_against:
+      - series:jp.cpi.core_yoy
+      - series:jp.bank_lending_yoy
+    uncertainty:
+      data: 実効コールレートは目標そのものではないため、政策の水準を 1 系列で代表させると誘導レンジの幅だけ誤差が入る。
+      state: 2y と実効コールの 64bp の差を利上げ織り込みと期間プレミアムへ分解できていない。
+      structural: 国債保有構造の変化（日銀の買入減額）が利回りへ与える恒常的な押し上げ幅を測れていない。
+      policy: 会合ごとの決定であり、9/17-18 の判断は本 cycle の情報では確率を置くにとどまる。
+  - state_id: japan_prices_costs
+    geography: japan
+    block: prices_and_costs
+    reference_frame: 物価は指数の前年比パーセント。輸入・輸出物価は円建て契約通貨ベースで、為替の効果を含む。交易条件は輸出価格を輸入価格で割った比。
+    horizons:
+      now:
+        level: 輸入物価 前年比 +29.7%（88.1 パーセンタイル）、輸出物価 +20.7%（100）、企業物価 +7.1%（84.7）に対し、消費者物価コア +1.5%（59.3）、サービス +1.0%（65.3）。交易条件 0.827（19.5）。
+        momentum: 上流ほど速い。輸入物価は 3 か月で +2.5pt、消費者物価コアは +0.1pt。
+        acceleration: コア前年比は 6 月に 1.4% から 1.6% へ 0.2pt 上がり、下げ止まりから上向きに転じている。
+        breadth: 上流の価格上昇は資源と為替の双方に起因し、品目横断で広い。消費者段階は狭い。
+        persistence: 交易条件の悪化は 3 か月連続で、円と原油の水準が続く限り解消しない。
+      0_3m:
+        level: 消費者物価コアは 1.5-2.0% の範囲。上流は高止まり。
+        momentum: エネルギー負担軽減策の影響で総合は抑制され、コアの上昇は緩やか。
+        acceleration: 為替が 160 円台へ進めば輸入物価の再加速が起きる。
+        breadth: 転嫁は食品・サービスの一部に偏る。
+        persistence: 上流と下流の乖離は政策措置の期限まで続く。
+      3_12m:
+        level: BOJ 見通しどおりなら 2026 年度後半のコアは 2% を明確に上回る。
+        momentum: 賃金上昇の転嫁が主経路になり、サービス価格が主導する。
+        acceleration: 政策措置の終了時点で総合が段差的に上がる。
+        breadth: 品目横断へ広がるかが正常化速度の分岐点。
+        persistence: 賃金起点の物価は資源起点より持続的である。
+      12_24m:
+        level: 2% 近傍で安定するか、内需の毀損で再び 1% 台へ落ちるかに分岐する。
+        momentum: 為替の寄与は逓減し、賃金と生産性の関係が支配的になる。
+        acceleration: 中小企業の価格転嫁力が持続の条件。
+        breadth: サービス価格の広がりが判定材料。
+        persistence: 定着すれば政策金利の中立水準そのものが上がる。
+    evidence_for:
+      - series:jp.import_price_index
+      - series:jp.export_price_index
+      - series:jp.cgpi
+      - series:jp.terms_of_trade
+    evidence_against:
+      - series:jp.cpi.core_yoy
+      - series:jp.cpi.services
+    uncertainty:
+      data: 消費者物価は 6 月分までで、7 月分は本 cycle の cutoff 後に公表される。
+      state: 上流と下流の 28pt の差が転嫁の遅れか政策の抑制かを分離できていない。
+      structural: 企業の価格設定行動が転換したかどうかを直接測る系列がない。
+      policy: エネルギー負担軽減策の延長判断が総合物価の段差を決めるが、決定は未公表である。
+  - state_id: japan_labor_domestic_demand
+    geography: japan
+    block: labor_and_domestic_demand
+    reference_frame: 賃金と消費は指数の前年比、雇用は率と倍率、業況は DI の水準。倒産は月次件数（負債 1,000 万円以上）。
+    horizons:
+      now:
+        level: 実質賃金 前年比 +1.8%（95.7 パーセンタイル）、名目 +3.5%（95.7）、失業率 2.5%（44.9）、実質消費 +1.6%（78.8）、鉱工業生産 +2.4%（81.4）。一方 サービス PMI 51.2（29.4）、消費者態度 33.8（27.1）、有効求人倍率 1.18（20.3）、倒産 1,028 件（100）。
+        momentum: 3 か月で 業況 DI は製造 +7pt・非製造 +3pt と改善、倒産は +248 件と悪化。方向が分かれている。
+        acceleration: 機械受注は前月比 -12.4% と反落し、設備投資の勢いは一様でない。
+        breadth: 改善は大企業と製造に、悪化は中小・サービスに偏る。サービス業の倒産が 342 件で最多。
+        persistence: 人手不足起因の倒産が過去最多水準にあり、コスト構造に由来するため景気循環では解消しない。
+      0_3m:
+        level: 実質賃金プラスと家計センチメント低位が併存する状態が続く。
+        momentum: 8/17 の 4-6 月期 GDP で四半期の需要水準が確定するまで方向は確定しない。
+        acceleration: 夏季賞与の反映で実質賃金が一段強まる可能性がある。
+        breadth: 大企業と中小の差はさらに開きやすい。
+        persistence: 倒産の高止まりは少なくとも年内続く。
+      3_12m:
+        level: 実質賃金が正のまま推移すれば消費は緩やかに回復する。
+        momentum: 春闘の次サイクルが賃金の持続性を決める。
+        acceleration: 物価の再加速は実質賃金を再びマイナスへ戻す。
+        breadth: 内需の回復は都市・大企業から先に出る。
+        persistence: 労働供給制約は構造的で、賃金上昇は持続しやすい。
+      12_24m:
+        level: 人手不足が価格転嫁力のある企業と無い企業を選別し、内需の集約が進む。
+        momentum: 生産性投資の効果が出るかで分岐する。
+        acceleration: 機械受注と設備投資の持続が加速条件。
+        breadth: 選別の結果として上場企業の需要は総量より底堅くなり得る。
+        persistence: 人口動態に根ざすため反転しない。
+    evidence_for:
+      - series:jp.real_wage_index
+      - series:jp.nominal_wage_index
+      - series:jp.real_consumption
+      - series:jp.industrial_production
+      - series:jp.tankan_large_mfg_di
+      - series:jp.tankan_large_nonmfg_di
+      - series:jp.pmi_manufacturing
+      - ext:esri-gdp-schedule
+    evidence_against:
+      - series:jp.bankruptcies
+      - series:jp.pmi_services
+      - series:jp.consumer_confidence
+      - series:jp.job_openings_ratio
+      - series:jp.machinery_orders
+      - series:jp.unemployment
+      - series:jp.real_exports
+      - ext:esri-machinery-orders
+    uncertainty:
+      data: 賃金は 5 月分、消費・生産は 6 月分で、月次系列の観測時点が揃っていない。
+      state: 実質賃金 95.7 パーセンタイルと消費者態度 27.1 パーセンタイルの乖離を説明する分布情報を持たない。
+      structural: 人手不足が供給制約なのか賃金水準の問題なのかを分離できない。
+      policy: 内需支援策の有無が家計の可処分所得を左右するが、本 cycle では未確定である。
+  - state_id: japan_external_currency
+    geography: japan
+    block: external_and_currency
+    reference_frame: 為替は 1 通貨あたりの円、実質実効為替は指数。金利差は米 10 年 − 日 10 年のパーセントポイント。投機ポジションは非商業ネットの枚数。
+    horizons:
+      now:
+        level: USD/JPY 159.203（97.0 パーセンタイル）、EUR/JPY 183.72（95.6）、AUD/JPY 112.46（97.3）、実質実効為替 65.3（0.8）。金利差 1.905%（29.7）、円ネットショート -45,473 枚（54.7）。
+        momentum: 7/28 の 163.913 から 8/3 の 156.680 まで 7.233 円（4.4%）円高になった後、6 営業日で 159.203 まで 2.523 円戻した。戻り率 34.9%。
+        acceleration: 戻りは 1 営業日あたり平均 0.42 円で、方向は一貫している。
+        breadth: 対ドルだけでなく対ユーロ・対豪ドルでも上端にあり、円固有の弱さである。
+        persistence: 12 か月で金利差が 87bp 縮小したにもかかわらず円は 10.75 円弱くなった。金利差では説明されない持続力がある。
+      0_3m:
+        level: 155-165 円の範囲。当局の対応が上限側を、金利差の縮小が下限側を作る。
+        momentum: 現在の戻り速度が続けば 8 月末までに介入前水準へ復帰する。
+        acceleration: 当局の再介入があれば段差的に円高へ振れるが、6 営業日の実測では効果は逓減する。
+        breadth: クロス円全体で同じ方向。
+        persistence: フロー要因が変わらない限り戻りは続く。
+      3_12m:
+        level: 追加利上げが入れば 150 円台、入らなければ 165 円超の再試行。
+        momentum: 金利差より政策の方向転換が効く局面へ移る。
+        acceleration: BOJ の利上げと Fed の据え置きが同時に起きたときだけ大きく円高へ動く。
+        breadth: 対ドルが先行し、クロスは遅れて追随する。
+        persistence: 実質実効為替が 0.8 パーセンタイルにある水準の是正には年単位を要する。
+      12_24m:
+        level: 購買力から見た大幅な割安が続くか、正常化の進展で部分的に是正されるかに分岐する。
+        momentum: 是正が起きるなら緩やかである。
+        acceleration: 資本収支の反転が唯一の加速要因。
+        breadth: 是正は全通貨に対して同時に起きる。
+        persistence: 構造要因は年単位で持続する。
+    evidence_for:
+      - series:usd_jpy
+      - series:eur_jpy
+      - series:aud_jpy
+      - series:jp.real_effective_exchange_rate
+      - series:usd_index.broad
+      - ext:mof-feio-monthly
+    evidence_against:
+      - series:rate_diff.us_jp_10y
+      - series:positioning.jpy_noncomm_net
+    uncertainty:
+      data: 為替は ECB 参照レート（中央欧州時間 16 時）であり、東京市場の終値ではない。
+      state: 7/28-8/3 の円高が当局の操作によるものかを一次情報で確認できていない。
+      structural: 資本収支のフローを機械系列で持たないため、金利差で説明されない残差の中身が不明である。
+      policy: 介入の実績額は財務省の月次公表（次回は 8 月下旬）まで開示されない。
+  - state_id: japan_equity_flows
+    geography: japan
+    block: equity_and_flows
+    reference_frame: 株価指数は水準と前年比、バリュエーションは加重平均の倍率、株式リスクプレミアムは益回り − 10 年国債利回りのパーセントポイント。海外投資家フローは週次ネット（千円単位）。
+    horizons:
+      now:
+        level: 日経平均 66,970.22（前年比 +60.1%、96.6 パーセンタイル）、PBR 1.91（99.3）、PER 17.48（80.6）、株式リスクプレミアム 2.96%（5.1）。IV 28.84（93.2）、スキュー 1.83（3.4）、期間構造 -0.51（26.7）。海外投資家 -4,903 億円（12.9）。
+        momentum: 3 か月で 日経 +4,228 円、PBR +0.04、リスクプレミアム +0.57pt。株価上昇に対して PER は 3 か月で -2.77 低下しており、利益の伸びが価格を上回っている。
+        acceleration: リスクプレミアムは 5 月の 2.39% を底に戻しつつあるが、12 か月では -1.23pt と圧縮方向。
+        breadth: 海外投資家が売り越しへ転じる一方で価格は上昇しており、買い手の広がりを観測できない。
+        persistence: 割引率の上昇が続く限りリスクプレミアムへの圧力は残る。
+      0_3m:
+        level: リスクプレミアム 2.5-3.5% の範囲。10 年金利が 3% を超えると 2% 台前半へ再圧縮する。
+        momentum: 4-6 月期決算の反映で PER はさらに低下しうる。
+        acceleration: IV が 93 パーセンタイルにあり、水準変化は段差的に起きやすい。
+        breadth: 為替感応度の高い輸出企業に偏る。
+        persistence: 海外資金の流出が続けば上値は重い。
+      3_12m:
+        level: 利益成長が割引率上昇を上回るかがリスクプレミアムの方向を決める。
+        momentum: 円が戻れば換算益が剥落し、利益の伸びは鈍る。
+        acceleration: 利上げと円高が同時に来ると圧縮と利益減が重なる。
+        breadth: 内需企業とのバリュエーション差が開く。
+        persistence: PBR 1.91 は自己資本利益率の改善が前提であり、改善が止まれば維持できない。
+      12_24m:
+        level: 割引率 3% 前提のリスクプレミアム正常化には益回り 6% 超が必要になる。
+        momentum: 資本効率改革の進展速度に依存する。
+        acceleration: 自社株買いの継続が下支え要因。
+        breadth: 選別が進み、指数と個別の差が広がる。
+        persistence: 割引率の高い環境が定着すればバリュエーションの上限も下がる。
+    evidence_for:
+      - series:jp.nikkei225
+      - series:jp.nikkei_per
+      - series:jp.nikkei_pbr
+    evidence_against:
+      - series:jp.erp
+      - series:jp.foreign_flows
+      - series:jp.n225_iv_30d
+      - series:jp.n225_iv_skew
+      - series:jp.n225_iv_term
+    uncertainty:
+      data: 海外投資家フローは 7/31 週までで、直近 2 週の動きを反映していない。日経平均の観測は 2026-08-10、PER と PBR の観測は 2026-08-12 であり、同じ指数を指す系列の時点が 2 営業日ずれている。
+      state: 誰が買っているかを機械系列で帰属できない。
+      structural: PBR 1.91 が資本効率の改善を織り込んでいるのか、円安による名目利益の膨張を織り込んでいるのかを分離できない。
+      policy: 東証の資本コスト改革の進捗を定量観測する系列がない。
+  - state_id: united_states_demand_prices
+    geography: united_states
+    block: demand_and_prices
+    reference_frame: 労働は水準と前年比、業況は DI、物価は指数の前年比パーセント。設備投資は受注額の前年比。
+    horizons:
+      now:
+        level: 新規失業保険 199,000 件（2.3 パーセンタイル）、4 週平均 198,750（0.6）、求人 7,359 千件（55.9）、雇用者数 前年比 +0.2%（14.3）、失業率 4.1%（55.1）。設備投資受注 前年比 +12.9%（94.9）、Philadelphia 連銀 41.4（98.3）、New York 連銀 15.6（73.9）、製造業 PMI 53.9（94.1）。消費者態度 55.2（10.9）、GDP 成長率 1.5%（23.1）。コア CPI +2.6%、コア PCE +3.3%、PPI +5.5%。
+        momentum: 5 月・6 月の雇用者数がそれぞれ 66,000 人・37,000 人下方改定され、7 月は 23,000 人減。労働は明確に減速している。一方 Philadelphia 連銀は前月比 +301.9%、消費者態度は 3 か月で +10.4pt と反発。
+        acceleration: 解雇は増えていない（失業保険が歴史的低位）が採用が止まっており、減速の質が異なる。
+        breadth: Beige Book は 12 地区中 11 地区が緩やかな拡大と報告し、データセンター・機械・防衛が牽引、農業は悪化。広がりは投資側に偏る。
+        persistence: 設備投資の強さは AI 関連投資に依存しており、集中している分だけ脆い。
+      0_3m:
+        level: 雇用者数の伸びは月 0-50,000 人、失業率 4.0-4.3%。
+        momentum: 7 月の消費者物価が 8/12 に公表され、物価の方向が更新される。
+        acceleration: 燃料価格が下がれば実質所得が改善し家計需要が戻る。
+        breadth: 投資主導・家計低調の構図は続く。
+        persistence: 採用停止が解雇へ転じるかが最大の分岐。
+      3_12m:
+        level: 潜在成長を下回る 1-2% の成長。
+        momentum: 労働供給の縮小が失業率の上昇を抑える。
+        acceleration: 設備投資の一巡が減速要因。
+        breadth: 地域差が広がる。
+        persistence: 物価が 2% へ収束しない限り政策の緩和余地は出ない。
+      12_24m:
+        level: 生産性上昇が続けば低成長でも企業利益は維持される。
+        momentum: AI 投資の収益化が確認される時期に当たる。
+        acceleration: 投資の回収が遅れれば設備投資が反転する。
+        breadth: 収益化できる企業とできない企業の差が開く。
+        persistence: 労働供給制約は構造的で、賃金の下方硬直を生む。
+    evidence_for:
+      - series:us.core_capex_orders
+      - series:us.philly_fed_manufacturing
+      - series:us.empire_manufacturing
+      - series:us.pmi_manufacturing
+      - series:us.pmi_services
+      - series:us.retail_sales
+      - series:us.housing_starts
+      - series:us.initial_claims
+      - series:us.claims_4wk_ma
+      - series:us.jolts_openings
+      - ext:frb-beigebook-202607
+    evidence_against:
+      - series:us.nonfarm_payrolls
+      - series:us.unemployment
+      - series:us.consumer_sentiment
+      - series:us.gdp_growth
+      - series:us.average_hourly_earnings
+      - series:us.cpi.core
+      - series:us.cpi.headline
+      - series:us.pce.core
+      - series:us.ppi
+      - series:us.inflation_5y5y
+      - series:us.breakeven_10y
+    uncertainty:
+      data: 物価は 6 月分までで、7 月分は cutoff 後の公表である。雇用者数は改定の幅が大きく、初回値の信頼区間が広い。
+      state: 採用停止と解雇のどちらに向かうかを先行して測る系列がない。
+      structural: 設備投資のうちデータセンター向けの比率を機械的に分離できない。
+      policy: 通商政策の追加措置が投入コストへ与える影響は個別品目ごとで、集計系列に現れるまで時間差がある。
+  - state_id: united_states_policy_valuation
+    geography: united_states
+    block: policy_and_valuation
+    reference_frame: 政策金利は誘導レンジ上限、利回りは年率パーセント、株式リスクプレミアムは益回り − 10 年金利。投機ポジションは非商業ネットの枚数。
+    horizons:
+      now:
+        level: FF 上限 3.75%（68.9 パーセンタイル）、2 年 4.25%、10 年 4.72%（99.2）、30 年 5.25%（100）、実質 10 年 2.43%（99.5）。政策経路ギャップ +0.625%（80.2）。10 年 -2 年 47bp（54.1）。株式リスクプレミアム -1.36%（0.8、非正）、CAPE 42.24（100）、SOX 前年比 +113%（96.7）。10 年国債の投機ネット -979,243 枚（1.5）。
+        momentum: 3 か月で 10 年 +26bp、実質 10 年 +44bp。実質金利の上昇が名目を上回り、期待インフレは低下している。政策経路ギャップは +25bp 拡大。
+        acceleration: 7/29 の FOMC で 3 名が 25bp の利上げを求めて反対した。2016 年 9 月以来、同一方向の 3 反対である。
+        breadth: 名目・実質・超長期のすべてが上端にあり、曲線の一部ではない。
+        persistence: 財政赤字の拡大と国債投機ポジションの記録的な売り持ちが、期間プレミアムの高止まりを支える。
+      0_3m:
+        level: 据え置きが基本線。2 年は 4.0-4.5%。
+        momentum: 物価が上振れれば利上げ観測が実体化する。
+        acceleration: 労働のさらなる減速は利上げ観測を後退させる。
+        breadth: 短期は政策、長期は財政と期間プレミアムで別々に動く。
+        persistence: 実質金利 2.4% は投資判断の割引率として高止まりする。
+      3_12m:
+        level: 利上げ 1 回か据え置き継続か。利下げは物価が 2% へ収束した場合に限られる。
+        momentum: 政策より期間プレミアムの変動が長期金利を動かす。
+        acceleration: 財政の追加拡張は超長期を直接押し上げる。
+        breadth: 世界的な長期金利の連動が強く、日独も同方向。
+        persistence: 株式リスクプレミアムが負のまま持続するには利益成長の継続が要る。
+      12_24m:
+        level: 名目 10 年 4.5-5.5%、実質 2-3% の範囲が新しい基準線になる。
+        momentum: 変化率は縮み、水準が問題になる。
+        acceleration: 景気後退が入れば急速に低下する。
+        breadth: 低下局面では全年限が同時に動く。
+        persistence: 財政構造が変わらない限り期間プレミアムは戻らない。
+    evidence_for:
+      - series:us.fed_funds.upper
+      - series:us.policy_path_gap
+      - series:us.10y
+      - series:us.30y
+      - series:us.real_10y
+      - series:us.10y_2y_spread
+      - series:positioning.ust10y_noncomm_net
+      - series:us.federal_deficit
+      - ext:fomc-20260729
+      - ext:frb-h15
+      - ext:fomc-materials-20260729
+    evidence_against:
+      - series:us.erp
+      - series:us.sp500_cape
+      - series:us.sox
+      - series:positioning.sp500_noncomm_net
+    uncertainty:
+      data: 政策経路ギャップは 2 年と FF 中点の差であり、利上げ確率そのものではない。
+      state: 62.5bp のギャップを政策織り込みと期間プレミアムへ分解できない。
+      structural: CAPE 100 パーセンタイルが構造的な収益力の変化を反映しているのか過大評価かを判定する材料がない。
+      policy: 会合ごとの判断であり、反対票 3 が次回の決定を規定するとは限らない。
+  - state_id: global_liquidity_credit_commodities
+    geography: global
+    block: liquidity_credit_and_commodities
+    reference_frame: 流動性は米ドル建て残高、信用スプレッドは対国債の年率パーセント（OAS）、商品は現物価格。信用スプレッドの実効窓は 3 年である。
+    horizons:
+      now:
+        level: ネット流動性 5,841 十億ドル（51.5 パーセンタイル）、NFCI -0.529（36.9、緩和側）、SLOOS の C&I 厳格化ネット 0.0%（42.5）。IG 0.78%（17.7）、HY 2.70%（8.9）、HY-IG 192bp（9.2）に対し CCC 10.14%（96.4）。VIX 15.46（37.4）、MOVE 77.92（56.9）。銅 6.69（100）、金 4,479.5（96.1）、銀 66.60（95.2）、WTI 81.96（83.8）、Brent 88.90（87.0）。
+        momentum: CCC は 3 か月で +77bp 拡大、HY 全体は -12bp 縮小。質の分散が進んでいる。原油は 5 月の 111.37 ドルから 22.47 ドル下落。
+        acceleration: 銅は 12 か月で +48.4% と加速し、中国の実需（7 月の未加工銅輸入 +9.1% 前年比）が価格を支えている。
+        breadth: 資金条件の緩和は広く、信用ストレスは最低格付け層に限られる。
+        persistence: EIA は 2027 年末までホルムズ海峡の制約で日量 60 万バレルの供給途絶が続くとみており、エネルギー価格の下支えは持続的である。
+      0_3m:
+        level: 資金条件は緩和のまま。CCC は 10% 台で高止まり。
+        momentum: 原油は EIA の 2026 年平均 87 ドル前後で推移。
+        acceleration: 中東情勢の再燃だけが段差的な変化要因。
+        breadth: 信用の分散は続く。
+        persistence: 低格付け層のストレスが上位格付けへ波及する兆候はない。
+      3_12m:
+        level: EIA 見通しでは 2027 年の Brent は 69 ドルへ低下する。
+        momentum: 供給正常化が価格低下の主経路。
+        acceleration: 供給正常化が遅れれば高止まりする。
+        breadth: エネルギー低下は各国の物価を同時に押し下げる。
+        persistence: 銅の強さは電力・データセンター投資に支えられ、原油とは別の持続性を持つ。
+      12_24m:
+        level: エネルギーの正常化と金属の高止まりが併存する。
+        momentum: 商品内部の相対価格が変化する。
+        acceleration: 中国の景気刺激があれば金属が再加速する。
+        breadth: 資源国通貨と新興国株へ波及する。
+        persistence: 電化投資は構造的な需要であり循環では消えない。
+    evidence_for:
+      - series:us.net_liquidity
+      - series:us.nfci
+      - series:us.m2
+      - series:us.sloos_ci_tightening
+      - series:credit.us_ig_oas
+      - series:credit.us_hy_oas
+      - series:credit.hy_ig_spread
+      - series:vix
+      - series:copper
+      - series:em.equity
+      - series:usd_cny
+      - series:de.10y
+      - series:ecb.policy_rate
+      - ext:frb-sloos-202607
+      - ext:frb-h41-20260806
+      - ext:ecb-mp-20260723
+    evidence_against:
+      - series:credit.us_ccc_oas
+      - series:us.move
+      - series:gold
+      - series:silver
+      - series:wti
+      - series:brent
+      - ext:eia-steo-202608
+    uncertainty:
+      data: 信用スプレッドの実効窓は 3 年で、10 年窓の同じパーセンタイルより含意が弱い。原油は 8/3 が最新観測である。
+      state: CCC の単独ワイド化が信用サイクルの初期兆候か構成要因かを判定できない。
+      structural: 中国の直接系列が 1 本しかなく、需要の実体は proxy でしか読めない。
+      policy: 中東情勢の推移は政策変数ではなく外生であり、確率を置く根拠が弱い。

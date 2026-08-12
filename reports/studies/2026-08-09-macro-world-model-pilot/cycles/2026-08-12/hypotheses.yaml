@@ -1,0 +1,118 @@
+schema_version: 1
+as_of: "2026-08-12"
+hypotheses:
+  - hypothesis_id: h-real-rate-regime-shift
+    mechanism_summary: >-
+      今の配置を作っている主因は、日米独で同時に起きている実質割引率の水準転換である。米実質 10 年
+      2.43%（99.5 パーセンタイル、観測 2026-08-10）、日 10 年 2.815%（99.8、2026-08-10）、独 10 年
+      2.97%（98.3、月次系列で観測は 2026-06）が同時に上端にあり、
+      米株式リスクプレミアムは -1.36%（0.8）、日本の株式リスクプレミアムは 2.96%（5.1）まで圧縮した。
+      財政拡張と中銀のバランスシート縮小が期間プレミアムを押し上げ、10 年国債の投機ネットは
+      -979,243 枚（1.5 パーセンタイル）の記録的売り持ちにある。為替はこの再価格付けの残差であり、
+      各国の正常化速度の差として現れる。
+    plausibility_rank: 1
+    evidence_for:
+      - series:us.real_10y
+      - series:jp.10y
+      - series:de.10y
+      - series:us.erp
+      - series:jp.erp
+      - series:us.sp500_cape
+      - series:positioning.ust10y_noncomm_net
+      - series:us.federal_deficit
+      - series:jp.monetary_base
+      - series:gold
+    evidence_against:
+      - series:credit.us_hy_oas
+      - series:us.nfci
+      - series:vix
+      - series:jp.nikkei225
+    unexplained_residuals:
+      - 割引率が上がったのに 日経平均が前年比 +60%、PBR 1.91（99.3 パーセンタイル）まで上昇した理由をこの仮説だけでは説明できない。
+      - 資金条件（NFCI -0.529、HY スプレッド 8.9 パーセンタイル）が緩和側にあることは、割引率の上昇が金融の逼迫を伴っていないことを示す。
+      - 金利差が 87bp 縮小したのに円が 10.75 円弱くなった向きは、この仮説が予測する残差の符号と逆である。
+    required_assumptions:
+      - 期間プレミアムの上昇が景気循環ではなく財政と中銀の資産構成に由来していること。
+      - 株式の益回りが名目利益成長で追いつく前提が崩れていないこと。
+    discriminating_signposts:
+      - 米実質 10 年が 2.0% を下回るのに 米株式リスクプレミアムが負のままなら、割引率以外の要因が価格を作っている。
+      - 日 10 年が 3.0% を超えたときに 日本の株式リスクプレミアムが 2.5% を割るか、益回りの上昇で吸収されるか。
+      - 10 年国債の投機ネット売り持ちが 1.5 パーセンタイルから解消する局面で長期金利が下がるか。
+    invalidation:
+      - 米実質 10 年と 日 10 年が同時に 3 か月で 50bp 以上低下し、株式リスクプレミアムが両国とも中位へ戻る。
+      - 財政赤字の縮小が確認され、超長期の利回りが年限別に分かれて低下する。
+  - hypothesis_id: h-structural-yen-outflow
+    mechanism_summary: >-
+      今の配置を作っている主因は、金利差では説明されない円の構造的な流出である。米日 10 年金利差は
+      1.905%（29.7 パーセンタイル、12 か月で -87bp）まで縮小し、投機筋の円ネットショートは -45,473 枚
+      （54.7 パーセンタイル）と極端ではないのに、USD/JPY は 159.203（97.0）、実質実効為替は 65.3（0.8）に
+      ある。7/28 の 163.913 から 8/3 の 156.680 への 7.233 円の円高は 6 営業日で 2.523 円（34.9%）戻された。
+      恒常的な対外投資と交易条件の悪化（0.827、19.5 パーセンタイル）が需給の底流を作り、当局の操作は
+      水準を動かすが向きを変えない。
+    plausibility_rank: 2
+    evidence_for:
+      - series:usd_jpy
+      - series:eur_jpy
+      - series:aud_jpy
+      - series:jp.real_effective_exchange_rate
+      - series:rate_diff.us_jp_10y
+      - series:positioning.jpy_noncomm_net
+      - series:jp.terms_of_trade
+      - ext:mof-feio-monthly
+    evidence_against:
+      - series:jp.policy_path_gap
+      - series:jp.real_exports
+      - series:jp.export_price_index
+    unexplained_residuals:
+      - 円が構造的に流出しているなら、日本の政策金利が 1.00% へ上がっても流出が止まらない理由を独立に示す観測が要る。
+      - 対ユーロ・対豪ドルでも上端にあることは円固有の弱さを示すが、その原因を資本収支の系列で確認できていない。
+    required_assumptions:
+      - 対外直接投資と家計の外貨建て投資が金利差に対して非弾力的であること。
+      - 当局の操作が継続的でなく、単発であること。
+    discriminating_signposts:
+      - 米日金利差が 1.5% を下回っても USD/JPY が 155 円より円安に留まるか。
+      - 当局の再操作があった場合、6 営業日の戻り率が今回の 34.9% より小さくなるか。
+      - 財務省の月次公表（次回は 8 月下旬、対象は 2026-07-30 以降）で操作額が開示されたとき、その規模と価格効果の比が前回介入と一致するか。
+    invalidation:
+      - 米日金利差の 50bp 以上の縮小に対して USD/JPY が 5 円以上円高へ動く。
+      - 投機ポジションが極端な売り持ちへ戻り、それだけで円安が説明できる状態になる。
+  - hypothesis_id: h-supply-constraint-persistence
+    mechanism_summary: >-
+      今の配置を作っている主因は、エネルギーと労働の供給制約が解けていないことである。EIA は
+      ホルムズ海峡の通航制約により日量 60 万バレルの供給途絶が 2027 年末まで続くとみており、Brent は
+      88.90 ドル（87.0 パーセンタイル、前年比 +33%）にある。日本の輸入物価は前年比 +29.7%、交易条件は
+      19.5 パーセンタイル。倒産は 1,028 件（100 パーセンタイル）で、人手不足と価格上昇が主因である。
+      FOMC は物価上昇の一部を供給ショックに帰し、ECB もエネルギーショックの二次的効果を注視している。
+      この仮説では、金融引き締めは物価を直さずに需要だけを削る。
+    plausibility_rank: 3
+    evidence_for:
+      - series:brent
+      - series:wti
+      - series:jp.import_price_index
+      - series:jp.terms_of_trade
+      - series:jp.bankruptcies
+      - series:us.consumer_sentiment
+      - series:jp.job_openings_ratio
+      - ext:eia-steo-202608
+      - ext:ecb-mp-20260723
+      - ext:fomc-20260729
+    evidence_against:
+      - series:jp.industrial_production
+      - series:us.pmi_manufacturing
+      - series:us.core_capex_orders
+      - series:jp.real_wage_index
+      - series:us.initial_claims
+    unexplained_residuals:
+      - 原油は 5 月の 111.37 ドルから 3 か月で 22.47 ドル下落しており、供給制約が価格をいま押し上げ続けているとは言えない。
+      - 米消費者態度は 3 か月で +10.4pt 反発しており、供給ショックによる実質所得の毀損が悪化していない。
+      - 日本の実質賃金が前年比 +1.8%（95.7 パーセンタイル）でプラスであることは、労働の供給制約が需要を壊す前に賃金へ回っていることを示す。
+    required_assumptions:
+      - ホルムズ海峡の制約が 2027 年まで解けないこと。
+      - 労働の供給制約が生産性投資で吸収されないこと。
+    discriminating_signposts:
+      - EIA の次回 Short-Term Energy Outlook が中東の供給途絶見積りを下方修正するか。
+      - 倒産件数が 1,000 件を下回る月が 2 か月続くか。
+      - 日本のサービス業 PMI が 53 を超えるか。
+    invalidation:
+      - Brent が 3 か月続けて 75 ドルを下回り、日本の輸入物価の前年比が 10% 未満へ低下する。
+      - 倒産件数が 850 件を下回り、人手不足起因の件数が前年を割る。
