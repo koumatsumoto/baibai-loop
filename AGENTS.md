@@ -86,6 +86,8 @@ storeごとに正本の所在が違う。ローカルで進めたstoreをクラ�
 
 判断（`screening run` / `select` / shortlist publish）も同じで、**ローカルのstoreが完全なら、クラウドのrunを待つ理由は無い**。
 
+**store schemaを上げるmergeは、移行済みstoreのpushまでが1つの作業である。** クラウドのcodeはstoreのschema版を検査してfail-closeするので、codeだけがmainへ入った状態ではその日の日次batchが落ち、serving viewが更新されない。migrationをmergeしたら、同じ作業の中でローカルを移行し、`integrity_check`と行数を移行前と突き合わせてからpushする。「次のcycleで一緒に出す」と後回しにしない。
+
 ## Repository-local skills
 
 repository-local skillの正本は`.agents/skills/<name>/SKILL.md`である（一覧と選び方は上記「運用の入口」）。`.claude/skills/<name>`は同じdirectoryへのrelative symlinkであり、別内容として編集しない。skillが参照するreferenceとpublic `--help`を優先し、tests/fixturesやsrcから日常手順を推測しない。
