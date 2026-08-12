@@ -43,16 +43,14 @@ TOTAL_RETURN_STATUSES = frozenset(
     }
 )
 
-# 配当の基準日と corporate action がこの日数以内に並ぶ年度は換算しない。日本の分割は
-# 「権利落ち = 基準日の前営業日、効力発生 = 基準日の翌日」が定型で、store が持つのは
-# 権利落ち日だけなので、その配当が action の前の株数で払われたか後かを言えない。
-DIVIDEND_RECORD_DATE_GUARD_DAYS = 5
-# 総額から出した 1 株当たりと支払ごとの換算が食い違ってよい幅。総額は百万円単位で開示され、
-# 割る株数は期末時点なので、支払の基準日の株数とは自社株買いのぶんだけずれる。
-DIVIDEND_ROUTE_TOLERANCE = 0.05
-# 期末発行済から自己株を引いた株数が、提出者自身が EPS を出すのに使った期中平均株数から
-# この倍率を超えて外れる行は、per-share の分母に使わない。
-SHARE_COUNT_ANCHOR_TOLERANCE = 2.0
+# 配当の基準日規約は screening の carry と同じでなければならない。較正した量とランキング
+# へ入れる量の定義が別になると、較正が測っているものと本番が使うものが別になる。値は
+# metrics 側を正本として import する (2 か所に書くと片方だけが動く)。
+from ..metrics import (  # noqa: E402
+    DIVIDEND_RECORD_DATE_GUARD_DAYS,
+    DIVIDEND_ROUTE_TOLERANCE,
+    SHARE_COUNT_ANCHOR_TOLERANCE,
+)
 
 
 def _shift_months(value: date, months: int) -> date:
