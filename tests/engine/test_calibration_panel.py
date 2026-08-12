@@ -95,12 +95,14 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     5e9,
                     1e9,
                     4e9,
-                    1.5e10,
-                    1e10,
+                    3e10,
+                    2e10,
                     5e8,
                     5e8,
                     # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。
-                    # 倍率も accruals もこの行から出るので、行の中で恒等式を満たす。
+                    # 自己資本も `bps x 自己株控除後株数 == 総資産 x 自己資本比率`
+                    # (200 x 1e8 == 3e10 x 2/3) を満たす。倍率はこの行から出るので、
+                    # 行の中で両方の恒等式が成り立っている必要がある。
                     1e9,
                     "FY",
                     "2026-03-31",
@@ -109,7 +111,7 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                     4.0,
                     4.5,
                     0.0,
-                    1e10 / 1.5e10,
+                    2e10 / 3e10,
                 ),
                 (
                     "9002",
@@ -147,7 +149,7 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
         )
         conn.execute(
             # 総資産と基準は、EDINET の貸借対照表が短信と同じ実体を指すことを示す事実として
-            # 持つ。短信の総資産 (1.5e10) と揃わない行は EDINET 由来の値を出さない。
+            # 持つ。短信の総資産 (3e10) と揃わない行は EDINET 由来の値を出さない。
             "INSERT INTO edinet_metrics("
             "asof_date, ticker, debt, cash, net_cash, investment_securities, "
             "total_assets, consolidation_basis, failure_reasons, extractor_revision"
@@ -159,7 +161,7 @@ def _build_fixture_sqlite(sqlite_path: Path) -> None:
                 4e9,
                 3e9,
                 2e9,
-                1.5e10,
+                3e10,
                 "consolidated",
                 "[]",
                 "a" * 64,
@@ -346,11 +348,9 @@ class CalibrationPanelTest(unittest.TestCase):
             result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
             by_ticker = {row.ticker: row for row in result.rows}
 
-            self.assertAlmostEqual(
-                by_ticker["9001"].operating_profit_to_assets or 0.0, 5e8 / 1.5e10
-            )
+            self.assertAlmostEqual(by_ticker["9001"].operating_profit_to_assets or 0.0, 5e8 / 3e10)
             self.assertAlmostEqual(by_ticker["9001"].operating_margin or 0.0, 5e8 / 5e9)
-            self.assertAlmostEqual(by_ticker["9001"].asset_turnover or 0.0, 5e9 / 1.5e10)
+            self.assertAlmostEqual(by_ticker["9001"].asset_turnover or 0.0, 5e9 / 3e10)
 
             store_dir = Path(tmp) / "calibration"
             write_panel(store_dir, ASOF, result.rows, result.diagnostics)

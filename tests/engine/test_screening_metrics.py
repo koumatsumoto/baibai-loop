@@ -68,6 +68,7 @@ def _summary(
     average_shares: float | None = None,
     profit: float | None = None,
     total_assets: float | None = None,
+    equity_to_asset_ratio: float | None = None,
 ) -> JQuantsFinancialSummary:
     # 報告純利益は 1 株当たり当期純利益 x 自己株控除後株数と一致する。trailing 倍率も
     # accruals もこの行から出るので、既定値は行の中でその恒等式を満たす値にする。恒等式を
@@ -84,6 +85,7 @@ def _summary(
         sales=sales,
         cfo=cfo,
         total_assets=total_assets,
+        equity_to_asset_ratio=equity_to_asset_ratio,
         operating_profit=operating_profit,
         ordinary_profit=None,
         profit=profit,
@@ -960,6 +962,10 @@ class ScreeningMetricsTests(unittest.TestCase):
             fiscal_period="FY",
             period_start=date(2024, 4, 1),
             period_end=date(2025, 3, 31),
+            # 自己資本は円で 4.8e10 (= bps 120 x 自己株控除後 400M) になる値を置く。
+            # PBR は円経路で組むので、この 2 つが carry-forward される側になる。
+            total_assets=8e10,
+            equity_to_asset_ratio=0.6,
         )
         quarterly = JQuantsFinancialSummary(
             ticker="130A",
@@ -989,10 +995,14 @@ class ScreeningMetricsTests(unittest.TestCase):
             edinet_by_ticker={},
         )
         financial = result.financials["130A"]
-        # FY 行の bps=120 が carry-forward され PBR が計算できる。
+        # FY 行の総資産と自己資本比率が carry-forward され PBR が計算できる。値は
+        # 1 株当たり純資産経由と同じで、恒等式が成り立つ限り経路は答えを変えない。
         assert financial.pbr is not None
         self.assertAlmostEqual(financial.pbr, 100.0 / 120.0, places=6)
         fields = financial.bs_carry_forward_fields or ""
+        self.assertIn("total_assets", fields)
+        self.assertIn("equity_to_asset_ratio", fields)
+        # `bps` は基準の突き合わせに使うので carry 対象のまま残る。
         self.assertIn("bps", fields)
         assert financial.bs_carry_forward_lag_days is not None
         self.assertEqual(financial.bs_carry_forward_lag_days, 190)
