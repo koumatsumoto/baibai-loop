@@ -722,10 +722,11 @@ def _asof_basis_dividend(
     #
     # 2 つの量は株式基準が違う。明細は開示されたままで、`dps_actual_annual` は
     # `_normalize_summaries_to_asof_basis` が asof 基準へ寄せている。同じ換算を明細側へ
-    # 掛けてから比べる。掛けないと比は必ず換算係数の逆数になり、開示より後に調整のある
-    # 年度を「明細が欠けている」として捨てる。捨てた年度は増配判定ごと消える。
+    # 掛けてから比べる。境界も揃える — 片方だけが換算する、あるいは片方だけが開示日当日の
+    # 権利落ちを数えると、比は必ず換算係数の逆数になり、その年度を「明細が欠けている」と
+    # して捨てる。捨てた年度は増配判定ごと消える。
     detail_sum = sum(value or 0.0 for value, _ in payments) * _cumulative_adjustment_factor_after(
-        ticker_bars, row.disclosed_at, asof_date
+        ticker_bars, row.disclosed_at, asof_date, include_boundary_day=True
     )
     if abs(detail_sum / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
         return None

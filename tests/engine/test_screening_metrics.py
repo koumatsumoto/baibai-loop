@@ -3032,3 +3032,46 @@ class CarriedCommonEquityDivergenceTests(unittest.TestCase):
 
         self.assertIsNotNone(equity)
         self.assertLess(equity or 0.0, 0.0)
+
+
+class DividendCrossCheckBoundaryTests(unittest.TestCase):
+    """明細合計の検算は、行の正規化と同じ境界で換算しなければならない。
+
+    片方だけが開示日当日の権利落ちを数えると、比が必ず換算係数の逆数になり、その年度を
+    「明細が欠けている」として捨てる。捨てた年度は増配判定ごと消える。
+    """
+
+    @staticmethod
+    def _bar(traded_at: date, factor: float | None = None) -> JQuantsDailyBar:
+        return JQuantsDailyBar(
+            ticker="1111",
+            traded_at=traded_at,
+            close=1000.0,
+            turnover_value=3e8,
+            adjustment_factor=factor,
+        )
+
+    def test_a_split_going_ex_on_the_disclosure_date_keeps_the_year(self) -> None:
+        disclosed_at = date(2026, 5, 15)
+        asof = date(2026, 5, 29)
+        bars = [self._bar(date(2025, 4, 1) + timedelta(days=index * 7)) for index in range(60)]
+        bars.append(self._bar(disclosed_at, 0.5))
+        bars.sort(key=lambda bar: bar.traded_at)
+        summaries = [
+            _summary(
+                "1111",
+                disclosed_at,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=100.0,
+                dividend_interim=40.0,
+                dividend_year_end=60.0,
+            )
+        ]
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, asof)
+
+        resolved = _asof_basis_dividend(normalized[0], bars, asof_date=asof)
+
+        self.assertIsNotNone(resolved)
+        self.assertAlmostEqual(resolved or 0.0, 50.0, places=6)
