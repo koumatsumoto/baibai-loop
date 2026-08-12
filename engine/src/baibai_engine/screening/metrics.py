@@ -34,8 +34,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, timedelta
+from enum import Enum
 from itertools import pairwise
-from math import isfinite, sqrt
+from math import exp, isfinite, log, sqrt
 from statistics import fmean, mean, median
 
 from baibai_engine.market.bars import asof_basis_closes
@@ -69,8 +70,9 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
 # 現行の方式: trailing 系も純資産倍率も円の総額で組み、価格側の量は自己株控除後の資本で
 # 割る。純資産は普通株主に帰属する側を採り、円経路と 1 株当たり経路が食い違う会社では
-# 後者を使う。
-VALUATION_CALCULATION_REVISION = "yen-multiples-common-equity-v3"
+# 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
+# 判定してから換算し、判定できない行は株数と per-share を答えない。
+VALUATION_CALCULATION_REVISION = "interim-split-share-basis-v4"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -465,6 +467,126 @@ def _cumulative_adjustment_factor_after(
     return factor
 
 
+class _ShareBasis(Enum):
+    """開示行が申告している株式基準。
+
+    期末と開示日の間に権利落ちがある行は、提出者によって期末基準のままのものと分割を
+    遡及適用したものに割れる。どちらかで換算の要否が逆になるので、行ごとに決める。
+    """
+
+    AS_OF_PERIOD_END = "as_of_period_end"
+    AS_OF_DISCLOSURE = "as_of_disclosure"
+    INDETERMINATE = "indeterminate"
+
+
+def _closer_share_basis(ratio: float, interim: float) -> _ShareBasis:
+    """株数比を、分割前基準と分割後基準のどちらに寄せるか。
+
+    2 つの仮説は `1/interim` 倍 (実データで 1.3〜10 倍) 離れており、その間に乗るのは
+    実際の増減資である。増減資は普通この間隔よりずっと小さいので、**対数空間で近い方の
+    極へ寄せ、どちらの極からも幾何中点より遠いときだけ答えない**。固定幅の帯は極の間隔を
+    無視するため、分割と同時に数 % の増資があった行 (7066 は比 2.048 / 期待 2.0) を
+    分けられなくなる。
+    """
+
+    if ratio <= 0 or interim <= 0:
+        return _ShareBasis.INDETERMINATE
+    separation = abs(log(1.0 / interim))
+    if separation == 0.0:
+        return _ShareBasis.INDETERMINATE
+    to_period_end = abs(log(ratio))
+    to_disclosure = abs(log(ratio * interim))
+    nearest = min(to_period_end, to_disclosure)
+    # 幾何中点より遠い比は、どちらの極から見ても説明が付かない。分割が小さいほど極が
+    # 近いので、この条件だけが効く場面がある (1.3 倍の分割では残差 14% で中点に届く)。
+    if nearest > separation / 2.0:
+        return _ShareBasis.INDETERMINATE
+    # 極に寄せたあとに残る株数変化。実データではここが 12.4% までと 29.3% からに分かれ、
+    # 間の 17pt は空である。空白の中央で切り、残差の大きい行は答えない — 分割と同時に
+    # 大きな増減資があった行は、どちらの仮説を採っても株数が数倍ずれうる (6628 は
+    # 1:5 併合と増資が重なり、比 0.51 が対数上は分割前基準に近く見える)。
+    if abs(exp(-nearest) - 1.0) > _SPLIT_RESIDUAL_SHARE_CHANGE_LIMIT:
+        return _ShareBasis.INDETERMINATE
+    return (
+        _ShareBasis.AS_OF_PERIOD_END
+        if to_period_end <= to_disclosure
+        else _ShareBasis.AS_OF_DISCLOSURE
+    )
+
+
+# 極へ寄せたあとに残ってよい株数変化。実測の空白 (12.4% / 29.3%) の中央に置く。
+_SPLIT_RESIDUAL_SHARE_CHANGE_LIMIT = 0.20
+
+
+def _interim_split_basis(
+    summaries: Sequence[JQuantsFinancialSummary],
+    index: int,
+    ticker_bars: Sequence[JQuantsDailyBar],
+) -> tuple[float, _ShareBasis]:
+    """期末と開示日の間の権利落ちの累積と、その行が申告している株式基準。
+
+    権利落ちが無ければ換算は 1.0 で、基準を問う必要も無い。あるときは **権利落ち日以前に
+    開示された最新行** の as-reported 株数と比べる。その行は分割より前に公表されているので
+    必ず分割前基準にある。比が 1 ならこの行も分割前基準 (=期末基準) のまま公表されており、
+    `1/factor` なら提出者が分割を遡及適用している。
+
+    参照を「直前の行」にすると、訂正開示のように同じ値を持つ行が並んだ場合に基準の未確定な
+    行と比べることになり、比 1.0 が「前行と同じ」ではなく「基準が同じ」と読めてしまう。
+    """
+
+    summary = summaries[index]
+    if summary.period_end is None:
+        return 1.0, _ShareBasis.AS_OF_DISCLOSURE
+    interim = 1.0
+    first_ex: date | None = None
+    for bar in ticker_bars:
+        if not (summary.period_end < bar.traded_at < summary.disclosed_at):
+            continue
+        if bar.adjustment_factor in (None, 0.0, 1.0):
+            continue
+        assert bar.adjustment_factor is not None
+        interim *= bar.adjustment_factor
+        if first_ex is None or bar.traded_at < first_ex:
+            first_ex = bar.traded_at
+    if interim in (0.0, 1.0) or first_ex is None:
+        return 1.0, _ShareBasis.AS_OF_DISCLOSURE
+    shares = summary.shares_outstanding
+    previous = next(
+        (
+            row.shares_outstanding
+            for row in reversed(summaries[:index])
+            if row.shares_outstanding is not None
+            and row.shares_outstanding > 0
+            and row.disclosed_at < first_ex
+        ),
+        None,
+    )
+    if shares is None or shares <= 0 or previous is None:
+        return interim, _ShareBasis.INDETERMINATE
+    return interim, _closer_share_basis(shares / previous, interim)
+
+
+def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSummary:
+    """株式基準を決められなかった行から、基準に依存する量を落とす。
+
+    円の総額 (総資産・売上・利益) は基準に依存しないので残す。株数と per-share は
+    どちらの基準か分からないまま価格と組むと時価総額が分割比だけずれるので答えない。
+    時価総額が出ない銘柄は母集団に入らない。
+    """
+
+    return replace(
+        summary,
+        eps_ttm=None,
+        forecast_eps=None,
+        bps=None,
+        dps_actual_annual=None,
+        dps_forecast_annual=None,
+        shares_outstanding=None,
+        average_shares=None,
+        treasury_shares=None,
+    )
+
+
 def _normalize_summaries_to_asof_basis(
     summaries: Sequence[JQuantsFinancialSummary],
     ticker_bars: Sequence[JQuantsDailyBar],
@@ -492,10 +614,17 @@ def _normalize_summaries_to_asof_basis(
     if not has_adjustment:
         return summaries
     normalized: list[JQuantsFinancialSummary] = []
-    for summary in summaries:
+    for index, summary in enumerate(summaries):
         factor = _cumulative_adjustment_factor_after(
             ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
         )
+        interim, basis = _interim_split_basis(summaries, index, ticker_bars)
+        if basis is _ShareBasis.INDETERMINATE:
+            normalized.append(_without_share_basis(summary))
+            continue
+        if basis is _ShareBasis.AS_OF_PERIOD_END:
+            # 期末基準のまま公表された行なので、期末と開示日の間の権利落ちも数える。
+            factor *= interim
         if factor <= 0 or factor == 1.0:
             normalized.append(summary)
             continue
