@@ -67,8 +67,10 @@ VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 MIN_SECTOR_MEDIAN_POPULATION = 10
 # run と calibration が同名の valuation を異なる式で作らないための method identity。
 # 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
-# 現行の方式: trailing 系は円の総額で組み、価格側の量は自己株控除後の資本で割る。
-VALUATION_CALCULATION_REVISION = "yen-trailing-treasury-adjusted-capital-v2"
+# 現行の方式: trailing 系も純資産倍率も円の総額で組み、価格側の量は自己株控除後の資本で
+# 割る。純資産は普通株主に帰属する側を採り、円経路と 1 株当たり経路が食い違う会社では
+# 後者を使う。
+VALUATION_CALCULATION_REVISION = "yen-multiples-common-equity-v3"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -440,11 +442,21 @@ def _cumulative_adjustment_factor_after(
     ticker_bars: Sequence[JQuantsDailyBar],
     after: date,
     asof_date: date,
+    *,
+    include_boundary_day: bool = False,
 ) -> float:
-    """`after` より後・asof 以前の bar の adjustment_factor の累積を返す。"""
+    """`after` より後・asof 以前の bar の adjustment_factor の累積を返す。
+
+    `include_boundary_day` は境界日当日の権利落ちも数える。財務開示行が申告する株式基準は
+    期末であって開示日ではないので、開示日当日に権利落ちがあった行は分割前基準のまま公表
+    される (store 全数で該当 3 行、いずれも直前開示行と同じ株数=分割前基準。分割後基準の
+    例は無い)。開示行の正規化はこれを数える。期末と開示日の間に権利落ちがある行は逆に
+    134 行中 103 行が既に分割後基準なので、境界を期末側へ広げると大半を二重換算する。
+    """
     factor = 1.0
     for bar in ticker_bars:
-        if bar.traded_at <= after or bar.traded_at > asof_date:
+        before_start = bar.traded_at < after if include_boundary_day else bar.traded_at <= after
+        if before_start or bar.traded_at > asof_date:
             continue
         if bar.adjustment_factor in (None, 0.0, 1.0):
             continue
@@ -481,7 +493,9 @@ def _normalize_summaries_to_asof_basis(
         return summaries
     normalized: list[JQuantsFinancialSummary] = []
     for summary in summaries:
-        factor = _cumulative_adjustment_factor_after(ticker_bars, summary.disclosed_at, asof_date)
+        factor = _cumulative_adjustment_factor_after(
+            ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
+        )
         if factor <= 0 or factor == 1.0:
             normalized.append(summary)
             continue
@@ -1715,6 +1729,11 @@ def _edinet_describes_same_entity(
 # 円経路の自己資本を普通株基準として採るために要求する一致幅。実測では通期行の 97.2% が
 # 1% 以内に収まり、外れる 677 行は優先株・非支配株主持分を含む資本構成である。
 _COMMON_EQUITY_BASIS_TOLERANCE = 0.05
+# carry 後の 2 経路がこの倍率以上に離れたら円経路を使わない。分類器ではなく大きさの遮断で、
+# 分割 (3:2 で 1.5 倍) 級のズレだけを落とす。実測 (as-of 2026-07-31、2 経路とも出た 3,452 社)
+# の乖離分布は 1.05 未満 2,951 / 1.30 未満 3,391 / p99 1.31 と連続で、誤りと自然な鮮度差を
+# 分ける切れ目は無い。5:4 分割 (1.25 倍) の取り違えはこの遮断を通る。
+_CARRIED_EQUITY_DIVERGENCE_LIMIT = 1.5
 
 
 def _common_equity_yen(
@@ -1731,6 +1750,9 @@ def _common_equity_yen(
     限らない。`bps x 自己株控除後株数` は普通株基準だが古い。両方を持つ直近の行で 2 つが
     一致するなら、その会社では円経路も普通株基準なので鮮度を採る。食い違う会社は基準の
     違いなので `bps` 側を採る。どちらか一方しか無ければそれを使う。
+
+    採るのは 2 つの検査を通った会社だけである。行内の一致は資本構成を、carry 後の 2 値の
+    乖離は株式基準の混在を見る。前者だけでは後者を見られない。
     """
     yen_equity = (
         total_assets * equity_to_asset_ratio
@@ -1742,6 +1764,19 @@ def _common_equity_yen(
         return bps_equity
     if bps_equity is None:
         return yen_equity
+    # 行内の一致は会社の資本構成についての判定で、実際に使う 2 値は carry-forward で別々の
+    # 行から来る。分割の遡及が行ごとに適用済み・未適用へ割れると円経路だけが誤った株数の
+    # 時価総額と組み合わさり、PBR が数倍割安側へ倒れる。`bps` 経路は時価総額と同じ
+    # `shares_ex_treasury` を分母にも置くので株数が相殺し、この誤りを構造的に免れる。
+    # 大きく離れた会社は相殺する側を採る。
+    #
+    # 債務超過や自己資本比率 0 の行では倍率そのものが意味を持たない (0 除算になる)。
+    # 突き合わせられないので、ここでも相殺する側を採る。純資産倍率は分母が正のときだけ
+    # 出るので、非正の自己資本はこの先で値ではなく欠測になる。
+    if yen_equity <= 0 or bps_equity <= 0:
+        return bps_equity
+    if max(yen_equity / bps_equity, bps_equity / yen_equity) >= _CARRIED_EQUITY_DIVERGENCE_LIMIT:
+        return bps_equity
     for summary in reversed(summaries):
         if (
             summary.bps is None

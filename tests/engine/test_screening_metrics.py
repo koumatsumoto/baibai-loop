@@ -20,6 +20,7 @@ from baibai_engine.screening.calibration.forward import (
 from baibai_engine.screening.metrics import (
     MetricBuildResult,
     _asof_basis_dividend,
+    _common_equity_yen,
     _normalize_summaries_to_asof_basis,
     _resolve_dividend_carry,
     _ttm_value,
@@ -2893,3 +2894,141 @@ class DividendBasisRouteEquivalenceTests(unittest.TestCase):
         )
         self.assertIsNone(metrics_value)
         self.assertIsNone(forward_value)
+
+
+class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):
+    """開示日当日に権利落ちがある行の株式基準。
+
+    財務開示行が申告する株数の基準は期末であって開示日ではない。権利落ちが開示日当日に
+    来た行は分割前基準のまま公表されるので、当日の adjustment_factor を数えないと株数だけ
+    分割前・価格だけ分割後になり、時価総額が分割比のぶん過少になる。
+    """
+
+    @staticmethod
+    def _bar(traded_at: date, factor: float | None = None) -> JQuantsDailyBar:
+        return JQuantsDailyBar(
+            ticker="1111",
+            traded_at=traded_at,
+            close=1000.0,
+            turnover_value=3e8,
+            adjustment_factor=factor,
+        )
+
+    def test_a_split_going_ex_on_the_disclosure_date_normalizes_that_row(self) -> None:
+        disclosed_at = date(2026, 7, 30)
+        bars = [self._bar(date(2026, 7, 29)), self._bar(disclosed_at, 0.25)]
+        summaries = [
+            _summary(
+                "1111",
+                disclosed_at,
+                shares_outstanding=700_000_000.0,
+                treasury_shares=0.0,
+            )
+        ]
+
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 7, 31))
+
+        self.assertAlmostEqual(normalized[0].shares_outstanding or 0.0, 2_800_000_000.0, places=0)
+        self.assertAlmostEqual(normalized[0].bps or 0.0, 30.0, places=6)
+
+    def test_a_split_going_ex_after_the_disclosure_date_still_normalizes(self) -> None:
+        """当日を数える変更が、翌日以降の権利落ちの扱いを変えていないこと。"""
+
+        disclosed_at = date(2026, 7, 30)
+        bars = [self._bar(disclosed_at), self._bar(date(2026, 7, 31), 0.25)]
+        summaries = [
+            _summary(
+                "1111",
+                disclosed_at,
+                shares_outstanding=700_000_000.0,
+                treasury_shares=0.0,
+            )
+        ]
+
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 7, 31))
+
+        self.assertAlmostEqual(normalized[0].shares_outstanding or 0.0, 2_800_000_000.0, places=0)
+
+
+class CarriedCommonEquityDivergenceTests(unittest.TestCase):
+    """円経路を採るのは、行内の一致と carry 後の一致の両方が成り立つときだけ。
+
+    行内の一致は会社の資本構成についての判定で、実際に使う 2 値が同じ株式基準に乗って
+    いるかは答えない。`bps` 経路は時価総額と同じ株数を分母にも置くので株数の誤りが相殺
+    するが、円経路は相殺しない。
+    """
+
+    @staticmethod
+    def _row(
+        *, bps: float, shares: float, total_assets: float, ratio: float
+    ) -> JQuantsFinancialSummary:
+        """行内で 2 経路が一致する突き合わせ行。判定はこの行だけを見る。"""
+
+        return replace(
+            _summary(
+                "1111",
+                date(2026, 5, 14),
+                shares_outstanding=shares,
+                treasury_shares=0.0,
+                total_assets=total_assets,
+                equity_to_asset_ratio=ratio,
+            ),
+            bps=bps,
+        )
+
+    def test_a_carried_pair_within_the_band_keeps_the_fresher_yen_route(self) -> None:
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=2.4e8,
+            equity_to_asset_ratio=0.5,
+            bps=100.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, 1.2e8, places=0)
+
+    def test_a_carried_pair_beyond_the_band_falls_back_to_the_cancelling_route(self) -> None:
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=4e8,
+            equity_to_asset_ratio=0.5,
+            bps=100.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, 1e8, places=0)
+
+    def test_a_zero_equity_row_is_answered_instead_of_dividing_by_zero(self) -> None:
+        """自己資本比率 0 の行で倍率は取れない。落とさずに相殺する側を返す。"""
+
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=4e8,
+            equity_to_asset_ratio=0.0,
+            bps=100.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, 1e8, places=0)
+
+    def test_a_negative_book_value_stays_negative_rather_than_becoming_a_ratio(self) -> None:
+        """債務超過は倍率で表せない。純資産倍率はこの先で欠測になる。"""
+
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=4e8,
+            equity_to_asset_ratio=-0.2,
+            bps=-50.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertIsNotNone(equity)
+        self.assertLess(equity or 0.0, 0.0)
