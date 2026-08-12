@@ -1197,17 +1197,42 @@ class DerivedCacheIdentityTests(unittest.TestCase):
             after = calibration_store._derive_cache_schema_version()
         self.assertNotEqual(before, after)
 
-    def test_a_new_gate_axis_moves_the_identity(self) -> None:
+    def test_changing_a_relaxed_value_moves_the_identity(self) -> None:
+        """同じ閾値を別の値で測った cohort は互換でない。名前だけ見ると気付けない。"""
         from baibai_engine.screening.calibration import store as calibration_store
 
         before = calibration_store._derive_cache_schema_version()
-        with patch.object(
-            calibration_store,
-            "GATE_BASE_AXES",
-            (*calibration_store.GATE_BASE_AXES, "p_s"),
-        ):
+        name, fields = next(iter(calibration_store.RELAXED.items()))
+        field = next(iter(fields))
+        retuned = {
+            **calibration_store.RELAXED,
+            name: {**fields, field: "retuned-sentinel"},
+        }
+        with patch.object(calibration_store, "RELAXED", retuned):
             after = calibration_store._derive_cache_schema_version()
         self.assertNotEqual(before, after)
+
+    def test_a_new_valuation_revision_moves_the_identity(self) -> None:
+        """式の意味の変更は内容から導けないので人が宣言するが、宣言すれば版も動く。"""
+        from baibai_engine.screening.calibration import store as calibration_store
+
+        before = calibration_store._derive_cache_schema_version()
+        with patch.object(calibration_store, "VALUATION_CALCULATION_REVISION", "next-revision"):
+            after = calibration_store._derive_cache_schema_version()
+        self.assertNotEqual(before, after)
+
+    def test_a_new_gate_axis_leaves_the_identity_alone(self) -> None:
+        """評価軸は既存の panel 列を指すだけで、cache の中身を 1 バイトも変えない。
+
+        版へ入れると 81 cohort の再構築を互換性上は不要な変更のたびに要求する。
+        """
+        from baibai_engine.screening.calibration import evaluation
+        from baibai_engine.screening.calibration import store as calibration_store
+
+        before = calibration_store._derive_cache_schema_version()
+        with patch.object(evaluation, "GATE_BASE_AXES", (*evaluation.GATE_BASE_AXES, "p_s")):
+            after = calibration_store._derive_cache_schema_version()
+        self.assertEqual(before, after)
 
     def test_the_identity_is_stable_for_the_same_inputs(self) -> None:
         from baibai_engine.screening.calibration import store as calibration_store

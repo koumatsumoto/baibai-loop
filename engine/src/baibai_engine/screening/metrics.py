@@ -67,8 +67,10 @@ VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 MIN_SECTOR_MEDIAN_POPULATION = 10
 # run と calibration が同名の valuation を異なる式で作らないための method identity。
 # 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
-# 現行の方式: trailing 系は円の総額で組み、価格側の量は自己株控除後の資本で割る。
-VALUATION_CALCULATION_REVISION = "yen-trailing-treasury-adjusted-capital-v2"
+# 現行の方式: trailing 系も純資産倍率も円の総額で組み、価格側の量は自己株控除後の資本で
+# 割る。純資産は普通株主に帰属する側を採り、円経路と 1 株当たり経路が食い違う会社では
+# 後者を使う。
+VALUATION_CALCULATION_REVISION = "yen-multiples-common-equity-v3"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -440,11 +442,21 @@ def _cumulative_adjustment_factor_after(
     ticker_bars: Sequence[JQuantsDailyBar],
     after: date,
     asof_date: date,
+    *,
+    include_boundary_day: bool = False,
 ) -> float:
-    """`after` より後・asof 以前の bar の adjustment_factor の累積を返す。"""
+    """`after` より後・asof 以前の bar の adjustment_factor の累積を返す。
+
+    `include_boundary_day` は境界日当日の権利落ちも数える。財務開示行が申告する株式基準は
+    期末であって開示日ではないので、開示日当日に権利落ちがあった行は分割前基準のまま公表
+    される (store 全数で該当 3 行、いずれも直前開示行と同じ株数=分割前基準。分割後基準の
+    例は無い)。開示行の正規化はこれを数える。期末と開示日の間に権利落ちがある行は逆に
+    134 行中 103 行が既に分割後基準なので、境界を期末側へ広げると大半を二重換算する。
+    """
     factor = 1.0
     for bar in ticker_bars:
-        if bar.traded_at <= after or bar.traded_at > asof_date:
+        before_start = bar.traded_at < after if include_boundary_day else bar.traded_at <= after
+        if before_start or bar.traded_at > asof_date:
             continue
         if bar.adjustment_factor in (None, 0.0, 1.0):
             continue
@@ -481,7 +493,9 @@ def _normalize_summaries_to_asof_basis(
         return summaries
     normalized: list[JQuantsFinancialSummary] = []
     for summary in summaries:
-        factor = _cumulative_adjustment_factor_after(ticker_bars, summary.disclosed_at, asof_date)
+        factor = _cumulative_adjustment_factor_after(
+            ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
+        )
         if factor <= 0 or factor == 1.0:
             normalized.append(summary)
             continue
@@ -708,10 +722,11 @@ def _asof_basis_dividend(
     #
     # 2 つの量は株式基準が違う。明細は開示されたままで、`dps_actual_annual` は
     # `_normalize_summaries_to_asof_basis` が asof 基準へ寄せている。同じ換算を明細側へ
-    # 掛けてから比べる。掛けないと比は必ず換算係数の逆数になり、開示より後に調整のある
-    # 年度を「明細が欠けている」として捨てる。捨てた年度は増配判定ごと消える。
+    # 掛けてから比べる。境界も揃える — 片方だけが換算する、あるいは片方だけが開示日当日の
+    # 権利落ちを数えると、比は必ず換算係数の逆数になり、その年度を「明細が欠けている」と
+    # して捨てる。捨てた年度は増配判定ごと消える。
     detail_sum = sum(value or 0.0 for value, _ in payments) * _cumulative_adjustment_factor_after(
-        ticker_bars, row.disclosed_at, asof_date
+        ticker_bars, row.disclosed_at, asof_date, include_boundary_day=True
     )
     if abs(detail_sum / reported - 1.0) > DIVIDEND_ROUTE_TOLERANCE:
         return None
@@ -1731,6 +1746,13 @@ def _common_equity_yen(
     限らない。`bps x 自己株控除後株数` は普通株基準だが古い。両方を持つ直近の行で 2 つが
     一致するなら、その会社では円経路も普通株基準なので鮮度を採る。食い違う会社は基準の
     違いなので `bps` 側を採る。どちらか一方しか無ければそれを使う。
+
+    判定は突き合わせ行の中で行い、carry 後の 2 値が離れていることは理由にしない。乖離は
+    ほとんどが実際の資本変動だからである — as-of 2026-07-31 で 1.5 倍を超えた 55 社のうち、
+    未適用の分割で説明できるのは 1 社だけで、残り 54 社は `bps` の出所行から as-of まで
+    調整係数を 1 つも持たない。倍率で切ると、減損や大幅増資で自己資本が実際に動いた会社の
+    新しい値を捨てて古い `bps` を採ることになり、7069 (自己資本比率 0.441 -> 0.062) の
+    PBR は 36.3 から 3.08 へ、割安側へ 12 倍ずれる。
     """
     yen_equity = (
         total_assets * equity_to_asset_ratio

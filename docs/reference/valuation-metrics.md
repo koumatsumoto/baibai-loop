@@ -190,7 +190,7 @@ EDINET の自己株券買付状況報告書（様式コード 220、訂正 230�
 | `no_filing` | 観測窓 365 日に提出が 1 件も無い |
 | `unknown` | 提出が見つからず、store の提出観測も as-of から 365 日を覆えていない。観測済みの提出は no-filing 窓が未成熟でも `recent_filing` / `stale_filing` として残る |
 
-**`recent_filing` は「今も枠が在る」を意味しない。** 提出は報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。`buyback_remaining_share_ratio` と `buyback_authorization_window_end` が、直近報告月末の残枠と取得期間を別々に示す。提出日と報告月末の双方が as-of 以下の報告だけを使い、提出前の内容を historical 診断へ混ぜない。残枠・期間が欠損なら、使い切りとも継続中とも推定しない。
+**`recent_filing` は「今も枠が在る」を意味しない。** 提出は報告月の翌月に出るので、取得期間が終了した月の報告書も期間終了後に提出される。`buyback_remaining_share_ratio` / `buyback_remaining_amount_ratio` と `buyback_authorization_window_end` が、直近報告月末の残枠と取得期間を別々に示す。取締役会決議は取得し得る株式の総数と取得価額の総額の 2 本を上限に持ち、先に到達した方で取得が終わるので、**残枠は 2 つの比率のうち小さい方**である。決議後に株価が上がった銘柄は金額側を先に使い切り、株数側だけが残る。提出日と報告月末の双方が as-of 以下の報告だけを使い、提出前の内容を historical 診断へ混ぜない。残枠・期間が欠損なら、使い切りとも継続中とも推定しない。
 
 `no_filing` の観測窓は、EDINET の全様式を含む日次一覧について `is_final`、一覧 metadata 件数、永続行数、`source_coverage` の status・件数が一致し、as-of から日単位で連続する範囲だけを使う。Form 220 / 230 が1件ある日はその提出の positive evidence にはなるが、universe 全体の「提出なし」を証明しない。途中の欠落・partial・件数不一致・未確定日はそこで窓を切る。
 

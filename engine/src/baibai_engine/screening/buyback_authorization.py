@@ -85,6 +85,9 @@ class BuybackAuthorization:
     # 直近報告月末時点で、決議した株式数のうちまだ買っていない割合。1.0 なら手つかず、
     # 0.0 なら使い切り。`None` は「読めなかった」であって「残っていない」ではない。
     remaining_share_ratio: float | None = None
+    # 同じ時点で、決議した取得価額の総額のうちまだ使っていない割合。決議は株数と金額の
+    # 2 本を上限に持ち、先に尽きた方で取得が終わるので、残枠は 2 つのうち小さい方である。
+    remaining_amount_ratio: float | None = None
     # 直近 3 報告月に取得した株数 ÷ 発行済株式総数。carry の buyback 成分は trailing の
     # 株数変化なので、取得を始めたばかりの会社はそこにまだ現れない。こちらは現れる。
     trailing_3m_acquired_ratio: float | None = None
@@ -282,14 +285,10 @@ def with_authorization_state(
     if not reports:
         return annotation
     latest = reports[0]
-    remaining_ratio: float | None = None
-    if (
-        latest.resolved_shares is not None
-        and latest.cumulative_shares is not None
-        and latest.resolved_shares > 0
-    ):
-        remaining = max(latest.resolved_shares - latest.cumulative_shares, 0)
-        remaining_ratio = remaining / latest.resolved_shares
+    remaining_ratio = _remaining_ratio(latest.resolved_shares, latest.cumulative_shares)
+    remaining_amount_ratio = _remaining_ratio(
+        latest.resolved_amount_yen, latest.cumulative_amount_yen
+    )
     acquired = [
         report.month_shares
         for report in reports[:ACQUISITION_PACE_MONTHS]
@@ -303,7 +302,16 @@ def with_authorization_state(
     return replace(
         annotation,
         remaining_share_ratio=remaining_ratio,
+        remaining_amount_ratio=remaining_amount_ratio,
         trailing_3m_acquired_ratio=pace,
         authorization_window_end=latest.window_end,
         report_month_end=latest.report_month_end,
     )
+
+
+def _remaining_ratio(resolved: int | None, cumulative: int | None) -> float | None:
+    """決議した上限のうちまだ使っていない割合。読めない側は答えない。"""
+
+    if resolved is None or cumulative is None or resolved <= 0:
+        return None
+    return max(resolved - cumulative, 0) / resolved

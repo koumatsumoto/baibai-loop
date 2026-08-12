@@ -29,6 +29,9 @@ _EVENT_RISK_TAGS = frozenset(
         "forecast_special_gain",
         "forecast_full_year_loss",
         "stale_financials",
+        # 悪化ゲートを判定材料なしで通ったこと。longlist 20 件は点検 view で、
+        # `risk_tags` を持つのは推奨行だけなので、ここに入れないと点検面の半分に出ない。
+        "deterioration_unmeasurable",
     }
 )
 
@@ -183,10 +186,11 @@ def _selection_candidate_summary(
         "buyback_status_latest_filing_date": metrics.get("buyback_status_latest_filing_date"),
         "buyback_status_filing_age_days": metrics.get("buyback_status_filing_age_days"),
         "buyback_status_observed_from": metrics.get("buyback_status_observed_from"),
-        # 枠の中身。提出の齢だけでは carry が forward の還元かを答えられないので、決議株式数
-        # のうち未取得の割合・直近 3 報告月の取得割合・取得期間の終了日を同じ面へ出す。
-        # 終了日が as-of より前なら、提出が新しくても forward の還元は無い。
+        # 枠の中身。提出の齢だけでは carry が forward の還元かを答えられないので、決議した
+        # 株数・金額のうち未取得の割合・直近 3 報告月の取得割合・取得期間の終了日を同じ面へ
+        # 出す。終了日が as-of より前なら、提出が新しくても forward の還元は無い。
         "buyback_remaining_share_ratio": metrics.get("buyback_remaining_share_ratio"),
+        "buyback_remaining_amount_ratio": metrics.get("buyback_remaining_amount_ratio"),
         "buyback_trailing_3m_acquired_ratio": metrics.get("buyback_trailing_3m_acquired_ratio"),
         "buyback_authorization_window_end": metrics.get("buyback_authorization_window_end"),
         "buyback_report_month_end": metrics.get("buyback_report_month_end"),
@@ -256,14 +260,15 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
         # 自己株券買付状況報告書の提出観測。longlist は OP3 が 20 件を点検する view なので、
         # carry を forward の現金還元として narrative に書けるかの判断材料をここに置く。
         # 提出の齢だけでは答えられない — 枠が満了していれば新しい提出でも forward の還元は
-        # 無いので、決議株式数のうち未取得の割合・直近 3 報告月の取得割合・取得期間の終了日を
-        # 同じ面へ出す。`window_end` が as-of より前なら carry は過去の資本配分の記録である。
+        # 無いので、決議した株数・金額のうち未取得の割合・直近 3 報告月の取得割合・取得期間の
+        # 終了日を同じ面へ出す。`window_end` が as-of より前なら carry は過去の記録である。
         "buyback_authorization": {
             "status": metrics.get("buyback_authorization_status"),
             "latest_filing_date": metrics.get("buyback_status_latest_filing_date"),
             "filing_age_days": metrics.get("buyback_status_filing_age_days"),
             "observed_from": metrics.get("buyback_status_observed_from"),
             "remaining_share_ratio": metrics.get("buyback_remaining_share_ratio"),
+            "remaining_amount_ratio": metrics.get("buyback_remaining_amount_ratio"),
             "trailing_3m_acquired_ratio": metrics.get("buyback_trailing_3m_acquired_ratio"),
             "authorization_window_end": metrics.get("buyback_authorization_window_end"),
             "report_month_end": metrics.get("buyback_report_month_end"),

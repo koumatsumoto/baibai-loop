@@ -20,6 +20,7 @@ from baibai_engine.screening.calibration.forward import (
 from baibai_engine.screening.metrics import (
     MetricBuildResult,
     _asof_basis_dividend,
+    _common_equity_yen,
     _normalize_summaries_to_asof_basis,
     _resolve_dividend_carry,
     _ttm_value,
@@ -2893,3 +2894,169 @@ class DividendBasisRouteEquivalenceTests(unittest.TestCase):
         )
         self.assertIsNone(metrics_value)
         self.assertIsNone(forward_value)
+
+
+class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):
+    """開示日当日に権利落ちがある行の株式基準。
+
+    財務開示行が申告する株数の基準は期末であって開示日ではない。権利落ちが開示日当日に
+    来た行は分割前基準のまま公表されるので、当日の adjustment_factor を数えないと株数だけ
+    分割前・価格だけ分割後になり、時価総額が分割比のぶん過少になる。
+    """
+
+    @staticmethod
+    def _bar(traded_at: date, factor: float | None = None) -> JQuantsDailyBar:
+        return JQuantsDailyBar(
+            ticker="1111",
+            traded_at=traded_at,
+            close=1000.0,
+            turnover_value=3e8,
+            adjustment_factor=factor,
+        )
+
+    def test_a_split_going_ex_on_the_disclosure_date_normalizes_that_row(self) -> None:
+        disclosed_at = date(2026, 7, 30)
+        bars = [self._bar(date(2026, 7, 29)), self._bar(disclosed_at, 0.25)]
+        summaries = [
+            _summary(
+                "1111",
+                disclosed_at,
+                shares_outstanding=700_000_000.0,
+                treasury_shares=0.0,
+            )
+        ]
+
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 7, 31))
+
+        self.assertAlmostEqual(normalized[0].shares_outstanding or 0.0, 2_800_000_000.0, places=0)
+        self.assertAlmostEqual(normalized[0].bps or 0.0, 30.0, places=6)
+
+    def test_a_split_going_ex_after_the_disclosure_date_still_normalizes(self) -> None:
+        """当日を数える変更が、翌日以降の権利落ちの扱いを変えていないこと。"""
+
+        disclosed_at = date(2026, 7, 30)
+        bars = [self._bar(disclosed_at), self._bar(date(2026, 7, 31), 0.25)]
+        summaries = [
+            _summary(
+                "1111",
+                disclosed_at,
+                shares_outstanding=700_000_000.0,
+                treasury_shares=0.0,
+            )
+        ]
+
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 7, 31))
+
+        self.assertAlmostEqual(normalized[0].shares_outstanding or 0.0, 2_800_000_000.0, places=0)
+
+
+class CarriedCommonEquityTests(unittest.TestCase):
+    """円経路を採るかは突き合わせ行の中で決め、carry 後の乖離では決めない。
+
+    乖離はほとんどが実際の資本変動なので、倍率で切ると減損や大幅増資で自己資本が動いた
+    会社の新しい値を捨てて古い `bps` を採ることになり、割安側へ大きくずれる。
+    """
+
+    @staticmethod
+    def _row(
+        *, bps: float, shares: float, total_assets: float, ratio: float
+    ) -> JQuantsFinancialSummary:
+        """行内で 2 経路が一致する突き合わせ行。判定はこの行だけを見る。"""
+
+        return replace(
+            _summary(
+                "1111",
+                date(2026, 5, 14),
+                shares_outstanding=shares,
+                treasury_shares=0.0,
+                total_assets=total_assets,
+                equity_to_asset_ratio=ratio,
+            ),
+            bps=bps,
+        )
+
+    def test_the_fresher_yen_route_is_kept_when_the_row_agrees(self) -> None:
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=2.4e8,
+            equity_to_asset_ratio=0.5,
+            bps=100.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, 1.2e8, places=0)
+
+    def test_a_collapsed_equity_ratio_keeps_the_fresh_value(self) -> None:
+        """自己資本が実際に崩れた会社で古い `bps` へ退避すると、割安側へ大きくずれる。"""
+
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=2e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=2e8,
+            equity_to_asset_ratio=0.05,
+            bps=100.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, 1e7, places=0)
+
+    def test_a_row_that_disagrees_uses_the_common_share_basis(self) -> None:
+        """行内で 2 経路が食い違う会社は資本構成の違いなので、普通株基準の `bps` を採る。"""
+
+        summaries = [self._row(bps=100.0, shares=1_000_000.0, total_assets=4e8, ratio=0.5)]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=4e8,
+            equity_to_asset_ratio=0.5,
+            bps=100.0,
+            shares_ex_treasury=1_000_000.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, 1e8, places=0)
+
+
+class DividendCrossCheckBoundaryTests(unittest.TestCase):
+    """明細合計の検算は、行の正規化と同じ境界で換算しなければならない。
+
+    片方だけが開示日当日の権利落ちを数えると、比が必ず換算係数の逆数になり、その年度を
+    「明細が欠けている」として捨てる。捨てた年度は増配判定ごと消える。
+    """
+
+    @staticmethod
+    def _bar(traded_at: date, factor: float | None = None) -> JQuantsDailyBar:
+        return JQuantsDailyBar(
+            ticker="1111",
+            traded_at=traded_at,
+            close=1000.0,
+            turnover_value=3e8,
+            adjustment_factor=factor,
+        )
+
+    def test_a_split_going_ex_on_the_disclosure_date_keeps_the_year(self) -> None:
+        disclosed_at = date(2026, 5, 15)
+        asof = date(2026, 5, 29)
+        bars = [self._bar(date(2025, 4, 1) + timedelta(days=index * 7)) for index in range(60)]
+        bars.append(self._bar(disclosed_at, 0.5))
+        bars.sort(key=lambda bar: bar.traded_at)
+        summaries = [
+            _summary(
+                "1111",
+                disclosed_at,
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                period_start=date(2025, 4, 1),
+                dps_actual_annual=100.0,
+                dividend_interim=40.0,
+                dividend_year_end=60.0,
+            )
+        ]
+        normalized = _normalize_summaries_to_asof_basis(summaries, bars, asof)
+
+        resolved = _asof_basis_dividend(normalized[0], bars, asof_date=asof)
+
+        self.assertIsNotNone(resolved)
+        self.assertAlmostEqual(resolved or 0.0, 50.0, places=6)

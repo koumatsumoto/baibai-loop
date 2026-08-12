@@ -152,9 +152,11 @@ def candidate_metrics_map(
         "operating_profit_yoy": financial.operating_profit_yoy,
         "operating_profit_loss_narrowing": financial.operating_profit_loss_narrowing,
         # 悪化ゲートは「観測できた YoY のどれかが閾値以下なら悪化」で判定するので、3 つとも
-        # 欠測の銘柄では判定材料が無いまま通る。止めると母集団の 12.4% (screen 通過の 7.1%)
-        # が落ちるので止めないが、通ったことが観測できないと安全弁が効いた銘柄と区別が
-        # 付かない。判定できなかった事実を候補へ残す。
+        # 欠測の銘柄では判定材料が無いまま通る。止めても実際に落ちるのは screen を通った
+        # 流動性母集団の 0.9% (as-of 2026-07-31 で 4/433。母集団だけなら 7.9%、screen 通過
+        # だけなら 3.2%) なので量は理由にならないが、欠測は悪化の証拠でもないので止めない。
+        # 通ったことが観測できないと安全弁が効いた銘柄と区別が付かないので、判定できなかった
+        # 事実を候補へ残す。
         "deterioration_gate_unmeasurable": (
             financial.eps_yoy is None
             and financial.sales_yoy is None
@@ -216,6 +218,9 @@ def candidate_metrics_map(
         # 「残っていない」ではない。
         "buyback_remaining_share_ratio": (
             None if buyback_authorization is None else buyback_authorization.remaining_share_ratio
+        ),
+        "buyback_remaining_amount_ratio": (
+            None if buyback_authorization is None else buyback_authorization.remaining_amount_ratio
         ),
         "buyback_trailing_3m_acquired_ratio": (
             None

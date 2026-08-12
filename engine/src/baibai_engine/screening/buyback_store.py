@@ -293,6 +293,10 @@ class StoredBuybackReport:
     cumulative_shares: int | None
     month_shares: int | None
     issued_shares: int | None
+    # 決議は「取得し得る株式の総数」と「取得価額の総額」の 2 本を上限に持ち、先に尽きた方で
+    # 取得が終わる。株数側だけでは残枠を答えられないので金額側も持つ。
+    resolved_amount_yen: int | None = None
+    cumulative_amount_yen: int | None = None
     doc_id: str | None = None
     filed_on: date | None = None
 
@@ -338,15 +342,17 @@ def read_buyback_reports(
         cumulative_shares = None if row[5] is None else int(row[5])
         month_shares = None if row[6] is None else int(row[6])
         issued_shares = None if row[7] is None else int(row[7])
+        resolved_amount_yen = None if row[10] is None else int(row[10])
+        cumulative_amount_yen = None if row[11] is None else int(row[11])
         # 規則が書かれる前に保存された行は取り込みをやり直さないと直らないので、読み取り側
         # でも同じ検査を通す。取り込み時と同じ関数なので規則は 1 か所にとどまる。
         dropped = inconsistent_buyback_fields(
             window_start=window_start,
             window_end=window_end,
             resolved_shares=resolved_shares,
-            resolved_amount_yen=None if row[10] is None else int(row[10]),
+            resolved_amount_yen=resolved_amount_yen,
             cumulative_shares=cumulative_shares,
-            cumulative_amount_yen=None if row[11] is None else int(row[11]),
+            cumulative_amount_yen=cumulative_amount_yen,
             month_shares=month_shares,
             issued_shares=issued_shares,
             treasury_shares=None if row[12] is None else int(row[12]),
@@ -360,6 +366,12 @@ def read_buyback_reports(
                 cumulative_shares=None if "cumulative_shares" in dropped else cumulative_shares,
                 month_shares=None if "month_shares" in dropped else month_shares,
                 issued_shares=None if "issued_shares" in dropped else issued_shares,
+                resolved_amount_yen=(
+                    None if "resolved_amount_yen" in dropped else resolved_amount_yen
+                ),
+                cumulative_amount_yen=(
+                    None if "cumulative_amount_yen" in dropped else cumulative_amount_yen
+                ),
                 doc_id=None if row[8] is None else str(row[8]),
                 filed_on=None if row[9] is None else date.fromisoformat(str(row[9])),
             )
