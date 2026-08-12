@@ -12,7 +12,7 @@ self-check (a)–(p) に対する cycle artifact の自己検証である。独�
 | 3 | pass | 24 edges すべてが relation kind / claim strength / sign / lag 範囲 / current-cycle evidence / 名指しの falsifier を持つ（validator が強制）。 |
 | 4 | pass | `identified` は 3 edge だけで、いずれも定義上の恒等式である（e04 株式リスクプレミアム = 益回り − 10 年国債利回り、e07 実質賃金 = 名目賃金 ÷ 物価、e12 外貨建て利益の円換算 = 外貨額 × 為替）。DCF・行動的伝達には `model_based_relation` / `externally_identified_empirical_relation` / `internal_observational_association` / `judgmental_hypothesis` を割り当てた。 |
 | 5 | pass | 対立する証拠（日経 +60.1% と株式リスクプレミアム 5.1 パーセンタイル、IV 93.2 とスキュー 3.4、新規失業保険 2.3 と雇用者数 14.3、CCC 96.4 と HY 8.9、実質賃金 95.7 と消費者態度 27.1、介入額の未開示）は 6 件すべて `unresolved_tensions` に束縛した。 |
-| 6 | pass | 3 scenario は initial shock（無ショック / 介入効果の完全減衰 / ホルムズ制約の早期解消）と policy reaction（利上げ検討 / 見送り / 緩和余地）で baseline と異なる。 |
+| 6 | pass（限界つき） | 判定条件は「shock / persistence / propagation / reaction の**いずれでも** baseline と異ならない」であり、1 次元でも差があれば該当しない。rank 2 と rank 3 は initial shock（介入効果の完全減衰 / ホルムズ制約の早期解消）から異なる。rank 1 の `capex-led-plateau` は shock が「新しい外生ショックは入らず、政策の現状維持が続く」で無ショック、persistence（実質割引率は上端に留まる）と policy reaction（BOJ 1 回の利上げ検討 / FOMC 据え置き）と paths（円 155-165、日 10 年 2.7-3.1%）が baseline_path の now / 0_3m / 3_12m と同内容だが、`propagation_delta` は「米国の設備投資が需要の穴を埋め、実質賃金が消費を下支えする。倒産の増加は中小に限られ、上場企業の需要には波及しない」と baseline に無い伝播の主張を持つ。したがって該当はしない。ただし rank 1 が 4 次元のうち 3 次元で baseline と区別できないことは記録に残す。cycle 1 の rank 1 は固有の initial shock を持っており、この点では後退している。 |
 | 7 | pass | data cutoff は 2026-08-12T20:00+09:00。米 7 月消費者物価は cutoff 後の公表なので証拠に用いず、charter の conditioning assumption に明記した。全 external source の公表日は cutoff 以前である。 |
 | 8 | pass | 歴史 replay は使わない（preregistration の固定条件どおり）。機械読み値の point-in-time 品質は、`ProviderSpec.point_in_time_vintage` を宣言する source だけが clamp される契約であることを踏まえ、独 10 年が月次で観測 2026-06、原油が 2026-08-03、日経平均と PER の観測が 2 営業日ずれることを state の uncertainty と operation log に明記した。 |
 | 9 | pass | 3 scenario すべてに policy reaction を書いた。 |
@@ -22,9 +22,13 @@ self-check (a)–(p) に対する cycle artifact の自己検証である。独�
 | 13 | pass | blind validator が prior context id と prior 由来 field を拒否し、freeze `e33acb7e4208139044795376a0f2c3a4997ba30c73adaa6deabb58eeadcc1bb7` が成立した。 |
 | 14 | pass | freeze 後に開いた前回 head からの変更は `revision-diff.yaml` に隔離し、`dropped_or_demoted` 4 件に帰属させた。 |
 | 15 | pass | one-page は renderer が world model の必須 5 部から生成し、coverage のためだけの段落を持たない。 |
-| 16 | pass | 全 edge に series または公表 event の falsifier があり、world model の `signposts` 10 件のうち 3 件は日付確定の公表イベント（2026-08-17 GDP、2026-09-17〜18 日銀会合、EIA 次回 STEO）である。 |
+| 16 | pass | 全 edge に series または公表 event の falsifier があり、world model の `signposts` 10 件のうち 2 件は日付が確定した公表イベント（2026-08-17 GDP、2026-09-17〜18 日銀会合）、2 件は日付未定の公表イベント（EIA 次回 STEO、財務省の外国為替平衡操作 月次公表）、残り 6 件は series の閾値である。 |
 
-hard fail: **0**（自己申告）。独立監査は外部レビュアが別途行う。
+hard fail: **0**。ただし #6 は「いずれでも異ならない」という文言に救われた pass であり、rank 1 scenario は
+4 次元のうち 3 次元で baseline と区別できない。実質的な代替経路は 3 本ではなく 2 本と読むのが正確で、
+昇格判定では hard fail の件数ではなくこの情報量で評価する必要がある。base scenario を baseline から機構として
+分離するか、#6 の判定対象を baseline 以外の scenario に限るかは preregistration の改訂を要する論点であり、
+結果後に基準を動かさないため本 cycle では触れない。
 
 ## macro-context skill の敵対的 self-check
 
@@ -37,7 +41,7 @@ hard fail: **0**（自己申告）。独立監査は外部レビュアが別途�
 | (e) research ヒントの識別力 | pass | 4 件の `applies_to` はいずれも定量条件または取引先属性で候補タイプを判別できる。 |
 | (f) 各 fact が当該統計の最新公表か | pass | SLOOS は 7 月調査（2026-08-03 公表）、Beige Book は 7 月、EIA STEO は 8 月、FOMC は 7/29、ECB は 7/23、日銀は 7/31、倒産は 7 月分、雇用は 7 月分。米 7 月 CPI だけが cutoff 後で、その旨を明記した。 |
 | (g) scorecard の機械照合性と期限 | pass | 6 条件すべてが series + 比較 + 閾値 + 期限を持ち、期限は 2026-12-31 と 2027-01-31。重複条件は無い（usd_jpy は比較演算が逆）。publish gate が検証済み。 |
-| (h) machine_conditions の有無と引用 | pass | 7 監視点に 10 条件。usd_jpy と jp.10y を常置し、全条件の series を monitoring が引用する。 |
+| (h) machine_conditions の有無と引用 | pass | 7 監視点に 9 条件。usd_jpy と jp.10y は上下 2 条件ずつを常置し、全条件の series を monitoring が引用する。 |
 | (i) core・synthesis の行動指示 | fixed | risk_environment の judgment と stance summary に「構成は避ける」「感応度で選別する」という行動寄りの語があったため、環境評価の記述へ書き直した。 |
 | (j) force のチャネル波及 | pass | 4 force がそれぞれ 3 チャネルを名指しし、各チャネルへ相異なる系列を割り当てている。 |
 | (k) 確率の整合と合計 | pass | 0.50 / 0.30 / 0.20 = 1.00。world model の plausibility 順と一致し、stance neutral と base 0.50 が整合する。 |

@@ -24,25 +24,42 @@ passes:
   - {pass: 11, name: v4-derivation, started_at: "2026-08-12T20:42:17+09:00", ended_at: "2026-08-12T20:59:09+09:00", wall_clock_minutes: 17, note: scorecard settle、revision diff、indicator scaffold、v4 draft、schema 修正 2 回、通商政策の一次確認、self-check (a)-(p)}
   - {pass: 12, name: cas-publish, started_at: "2026-08-12T21:28:15+09:00", ended_at: "2026-08-12T21:28:36+09:00", wall_clock_minutes: 1}
 totals:
-  authoring_and_publish_minutes: 58
+  # 合計は各 pass の端点差（秒）から積む。pass 行の wall_clock_minutes は 1 分解像度へ切り上げた
+  # 表示値であり、12 区分ぶんの切り上げ誤差が合計へ入るため総計には使わない。
+  basis: pass の started_at / ended_at の秒差の総和
+  authoring_and_publish_seconds: 3349
+  authoring_and_publish_minutes: 55.8
   pass_count: 12
-  v4_derivation_minutes: 17
+  v4_derivation_minutes: 16.9
   post_publish_operations_minutes: 3
-  end_to_end_minutes: 95
-  end_to_end_excluding_owner_checkpoint_minutes: 66
+  end_to_end_minutes: 87.9
+  end_to_end_excluding_owner_checkpoint_minutes: 58.8
 tokens:
   status: unavailable
 budget_assessment:
   baseline_B_minutes: 28
   budget_formula: min(2B, B + 4h)
   budget_minutes: 56
-  measured_minutes: 58
-  within_budget: false
-  overrun_minutes: 2
+  measured_minutes: 55.8
+  within_budget: true
+  margin_minutes: 0.2
   pass_limit: 12
   pass_limit_met: true
+  strict_preregistration_reading:
+    baseline_B_minutes: 27
+    budget_minutes: 54
+    within_budget: false
+    overrun_minutes: 1.8
+    basis: >-
+      preregistration は B を「第 1 サイクルの world-model authoring 実測（publish / cloud 待ちを除く）」と
+      定義する。cycle 1 の `authoring_and_publish_minutes: 28` は pass 12（cas-publish、1 分）を含むため、
+      publish を除いた B は 27 で予算は 54 分になる。B = 28 で取ると予算が 2 分ゆるむため、両方を記録して
+      昇格判定の材料にする。cycle 1 の pass timestamp は全て分刻みで端点差 28 分ちょうどのため、B 側には
+      切り上げ誤差が入っていない。
   note: >-
-    予算を 2 分（3.6%）超過した。超過は hard fail ではなく stop criteria の評価材料である。超過の主因は
+    指示された予算 56 分に対しては 55.8 分で内側（余裕 0.2 分）、preregistration の文言に厳密な 54 分に
+    対しては 1.8 分（3.4%）超過である。超過は hard fail ではなく stop criteria の評価材料である。
+    時間の配分でみた主因は
     pass 4（21 分）で、内訳は一次 source の取得可否の切り分けである。この作業環境では報道媒体と一部の
     政府サイト（BLS・METI・JPX・Federal Register の HTML）が HTTP 403 または redirect で取得できず、
     取得できる公表機関を探す試行が繰り返し発生した。depth 契約の「外部記事 15 本以上」を満たすために

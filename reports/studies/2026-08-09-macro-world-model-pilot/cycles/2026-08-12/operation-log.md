@@ -12,7 +12,7 @@
 - blind freeze: `e33acb7e4208139044795376a0f2c3a4997ba30c73adaa6deabb58eeadcc1bb7`
 - scorecard snapshot: `scorecard-macro-context-2026-08-07-labor-capex-divergence-2026-08-12-f5eb31ec6282`
   （result digest `f3b5a145795179b42fb13b43008b053aec42aa6da7be0aba140b8162940013e9`）
-- cloud workflow: 未実行（下記「クラウド反映の保留」を参照）
+- cloud workflow: `cloud-materialize` run `31601341210`（success。下記「クラウド反映」を参照）
 
 ## Execution
 
@@ -65,6 +65,10 @@
 | relation_kind の基準 | `identified` は定義上の恒等式 3 edge のみ。DCF・行動的伝達は model_based / empirical / observational / judgmental へ割り当てた |
 | economy-level の node 命名 | 20 node すべてが economy-level。portfolio・保有・配分・cashflow の語彙を使っていない |
 
+機械監視面が実際に効くのは cloud の read model へ反映されてからである。`macro context publish` は
+ローカル正本を進めるだけで、cloud 側の日次 trigger は反映まで前 head の条件で回る。本 cycle は
+`push-app` と `cloud-materialize` まで実行しているため、上表の 2 行は cloud 側でも成立している。
+
 ## Point-in-time note
 
 - data cutoff は 2026-08-12T20:00+09:00 とした。`as_of` は JST の市場営業日だが、cutoff は執筆時刻である。
@@ -83,10 +87,18 @@ JPX（投資部門別売買）、東京商工リサーチ、Federal Register の
 7 月 158,858 千人 → 6 月 +20 千人・7 月 -23 千人）、通商措置は Federal Register の API から署名日
 2026-08-06・公示日 2026-08-11・文書番号 2026-16400 だけを確認して税率と発効日は書かなかった。
 
-## クラウド反映の保留
+## クラウド反映
 
-`batch/scripts/publish.sh push-app` と `cloud-materialize` は**実行していない**。実行中に所有者から
-「別作業でデータを変更しているのでクラウド反映は事前に確認せよ」との指示があり、選択肢を提示したうえで
-「ローカル publish のみ実行し、クラウド反映で停止」の判断を受けたためである。`push-app` は application DB
-全体を R2 へ上げ、materialize は market / macro / runs も読むため、更新途中の store の断面が正本へ載る
-risk がある。SKILL 手順 6.7 と完了条件のうち cloud 側は未達であり、所有者の指示で再開する。
+`batch/scripts/publish.sh` は application DB（1,703,936 bytes）を R2 へ上げ、`cloud-materialize`
+run `31601341210` を dispatch する。run は store pull、read model の materialize、serving views 3,738 と
+serving tail 4 の upload をすべて成功させる。
+
+反映は独立に検証できる。materialize が export したファイル数は、本 push の直前 run（`31598846613`）の
+3,741 に対し 3,742 で、ちょうど 1 件増えている。増分は新 context の詳細 view であり、円と JGB の
+machine_conditions は cloud 側の read model でも読める状態になった。
+
+`push-app` は application DB を無条件に上書きする（`push_keys baibai.sqlite`）。これが安全なのは
+application DB の正本がローカル側にあるためで、`pull_app` 自身がローカルにファイルがあれば cloud copy に
+よる置換を拒否する。上書き前に世代バックアップを 1 つ残す。market / macro / runs の pull は行っていない。
+これらは `push-app` の対象外であり、materialize は R2 側の store を読むため、ローカル側を置換する必要が
+無いからである。
