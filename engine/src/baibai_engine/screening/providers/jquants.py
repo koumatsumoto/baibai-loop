@@ -136,11 +136,28 @@ class JQuantsShortSaleReport:
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
 class JQuantsFinancialSummary:
+    """短信 1 行。**2 つの field は名前が中身と違う。** source の語をそのまま持つため。
+
+    - `eps_ttm` は TTM ではなく **その開示期間の期中累計** EPS である。1Q 開示なら 3 か月分
+      で、TTM への合成は `_ttm_value` が `直近累計 + 前期通期 - 前年同期間累計` で行う。
+      「もう TTM である」と読むと、四半期行を年換算値として扱う誤りになる
+    - `shares_outstanding` は **自己株式を含む**発行済株式総数である。市場が値付けする株数は
+      `_shares_excluding_treasury(shares_outstanding, treasury_shares)` で作る。含んだまま
+      時価総額や per-share の分母に使うと、自己株を積んだ企業ほど倍率が割安側へ倒れる
+      (実測: 自己資本比率の一致率が 97.2% から 40.4%、報告純利益の一致率が 95.2% から
+      30.8% へ落ちる)
+
+    基準は型で強制できないので、組む前に `metrics.py` module docstring の 4 基準
+    (資本 / 株式 / 実体 / 期間) を突き合わせる。
+    """
+
     ticker: str
     disclosed_at: date
     forecast_eps: float | None = None
+    # 期中累計 EPS。TTM ではない (上の docstring)。
     eps_ttm: float | None = None
     bps: float | None = None
+    # 自己株式を含む発行済株式総数。市場が値付けする株数ではない (上の docstring)。
     shares_outstanding: float | None = None
     sales: float | None = None
     cfo: float | None = None
