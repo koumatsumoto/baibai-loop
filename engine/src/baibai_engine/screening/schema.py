@@ -116,12 +116,16 @@ class FinancialSnapshot:
     cfo: float | None = None
     cash_eq: float | None = None
     total_assets: float | None = None
-    # as-of の raw close。時価総額は自己株式を除いた株式数を分母にするため、発行済株式数で
-    # 逆算すると自己株比率だけ価格を過小にする。E[r] と selection 表示はこの観測値を使う。
+    # 最後の raw close を as-of の株式基準へ換算した screening 参考価格。時価総額・E[r]・
+    # selection 表示は同じ基準の株数と組み合わせる。約定価格ではなく、plan-limit は SQLite
+    # の raw/unadjusted close を再取得する。
     market_price_yen: float | None = None
     # 市場が値付けする株式数 (発行済 - 自己株式)。valuation history も現在倍率と同じ
     # 資本分母で組み、自己株比率の変化ではなく価格変化だけを自己レンジへ反映する。
     shares_ex_treasury: float | None = None
+    # 発行済と自己株式を安全に合成できなかった理由。None は通常の欠損も含み、ここには
+    # 「値はあるが異なる資本状態に属する」と検出できた場合だけ理由を残す。
+    capital_basis_failure_reason: str | None = None
     market_cap: float | None = None
     cash_to_market_cap: float | None = None
     equity_ratio: float | None = None

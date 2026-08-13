@@ -131,6 +131,31 @@ class ComputeMarketRegimeTests(unittest.TestCase):
             assert snapshot.benchmark_return_20d is not None
             self.assertGreater(snapshot.benchmark_return_20d, 0.0)
 
+    def test_compute_keeps_adjustment_event_when_event_day_has_no_close(self) -> None:
+        asof = date(2026, 5, 29)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            # A 1:2 split turns the raw 100 close into 50.  The ex-rights session is
+            # suspended, so its event row legitimately has no close.
+            _insert_bars(sqlite_path, "1321", [100.0] * 20 + [50.0] * 5, end=asof)
+            event_day = asof - timedelta(days=4)
+            conn = sqlite3.connect(sqlite_path)
+            try:
+                conn.execute(
+                    "UPDATE jquants_daily_bars SET close = NULL, adjustment_close = NULL, "
+                    "adjustment_factor = 0.5 WHERE ticker = '1321' AND traded_at = ?",
+                    (event_day.isoformat(),),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            snapshot = compute_market_regime(sqlite_path, asof)
+
+            assert snapshot is not None
+            self.assertAlmostEqual(snapshot.benchmark_return_20d or 0.0, 0.0)
+            self.assertIs(snapshot.regime, MarketRegime.NEUTRAL_RANGE)
+
 
 if __name__ == "__main__":
     unittest.main()

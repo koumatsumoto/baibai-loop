@@ -15,7 +15,7 @@ from baibai_engine.position.ledger import PortfolioLedgerDocument
 from baibai_engine.screening.cli import build_parser, ticker_profile_command
 from baibai_engine.screening.run_store import ScreeningRunStore
 from baibai_engine.screening.sqlite_cache import open_connection
-from baibai_engine.screening.ticker_profile import build_ticker_profile
+from baibai_engine.screening.ticker_profile import _load_bars, build_ticker_profile
 
 _ASOF = date(2026, 5, 29)
 
@@ -179,6 +179,53 @@ class BuildTickerProfileTests(unittest.TestCase):
             entry = screening["entry"]
             assert isinstance(entry, dict)
             self.assertEqual(entry["metrics"], {"ocf_yield": 0.11})
+
+    def test_price_series_keeps_an_action_event_without_a_close(self) -> None:
+        """売買停止日のfactorを落とさず、前後価格を同じ株式基準へ揃える。"""
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars("
+                    "ticker, traded_at, close, turnover_value, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?, ?)",
+                    [
+                        ("6731", "2023-12-26", 1.0, 2.0e8, 1.0),
+                        ("6731", "2023-12-27", None, None, 100.0),
+                        ("6731", "2023-12-29", 100.0, 2.0e8, 1.0),
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with_event = _load_bars(
+                sqlite_path,
+                tickers=("6731",),
+                start=date(2023, 12, 26),
+                end=date(2023, 12, 29),
+            )["6731"]
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "WHERE ticker = ? AND traded_at = ?",
+                    ("6731", "2023-12-27"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            without_event = _load_bars(
+                sqlite_path,
+                tickers=("6731",),
+                start=date(2023, 12, 26),
+                end=date(2023, 12, 29),
+            )["6731"]
+
+            self.assertEqual([bar.price for bar in with_event], [100.0, 100.0])
+            self.assertEqual([bar.price for bar in without_event], [1.0, 100.0])
 
     def test_thesis_degrades_explicitly_for_unknown_ticker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

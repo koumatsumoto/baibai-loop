@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
 
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.screening.calibration.forward import (
     HORIZONS,
@@ -124,6 +125,169 @@ class ForwardReturnTest(unittest.TestCase):
         assert row.price_return is not None
         self.assertAlmostEqual(row.price_return, 60.0 / 50.0 - 1)
 
+    def test_forward_return_keeps_adjustment_event_without_close(self) -> None:
+        """取引停止日のfactorを価格barから独立に読み、100:1併合をリターンにしない。"""
+
+        bars = [
+            _bar(date(2025, 1, 31), 1.0),
+            _bar(date(2025, 4, 30), 100.0),
+        ]
+        events = [JQuantsAdjustmentFactorEvent("1000", date(2025, 3, 3), 100.0)]
+
+        fixed = _ticker_forward_rows(
+            "1000",
+            bars,
+            adjustment_events=events,
+            asofs=[date(2025, 1, 31)],
+            horizons=(HORIZONS["3m"],),
+            eval_cap=date(2025, 4, 30),
+        )[0]
+        mutation = _ticker_forward_rows(
+            "1000",
+            bars,
+            adjustment_events=(),
+            asofs=[date(2025, 1, 31)],
+            horizons=(HORIZONS["3m"],),
+            eval_cap=date(2025, 4, 30),
+        )[0]
+
+        self.assertEqual(fixed.price_return, 0.0)
+        self.assertEqual(mutation.price_return, 99.0)
+
+    def test_forward_reader_keeps_adjustment_event_without_close(self) -> None:
+        """DB reader自体がclose欠損eventをforward計算へ渡すことを固定する。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars("
+                    "ticker, traded_at, close, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?)",
+                    [
+                        ("1000", "2025-01-31", 1.0, 1.0),
+                        ("1000", "2025-03-03", None, 100.0),
+                        ("1000", "2025-04-30", 100.0, 1.0),
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            fixed = next(
+                row
+                for row in compute_forward_returns(
+                    sqlite_path,
+                    asofs=[date(2025, 1, 31)],
+                    tickers=["1000"],
+                    horizons=["3m"],
+                    control_event_exits={},
+                )
+                if row.ticker == "1000"
+            )
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "WHERE ticker = ? AND traded_at = ?",
+                    ("1000", "2025-03-03"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            mutation = next(
+                row
+                for row in compute_forward_returns(
+                    sqlite_path,
+                    asofs=[date(2025, 1, 31)],
+                    tickers=["1000"],
+                    horizons=["3m"],
+                    control_event_exits={},
+                )
+                if row.ticker == "1000"
+            )
+
+            self.assertEqual(fixed.price_return, 0.0)
+            self.assertEqual(mutation.price_return, 99.0)
+
+    def test_forward_reader_loads_events_from_the_first_selected_fiscal_year(self) -> None:
+        """entry前でも対象FY内のfactorは支払別DPS換算に必要である。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            conn = open_connection(sqlite_path)
+            try:
+                conn.executemany(
+                    "INSERT INTO jquants_daily_bars("
+                    "ticker, traded_at, close, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?)",
+                    [
+                        ("1000", "2019-08-01", None, 0.5),
+                        ("1000", "2020-01-31", 100.0, 1.0),
+                        ("1000", "2021-01-29", 100.0, 1.0),
+                        ("1000", "2021-02-01", 100.0, 1.0),
+                    ],
+                )
+                conn.execute(
+                    "INSERT INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, fiscal_period, fiscal_year_end, period_start, "
+                    "dps_actual_annual, dividend_q1, dividend_interim"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        "1000",
+                        "2020-05-12",
+                        "FY",
+                        "2020-03-31",
+                        "2019-04-01",
+                        75.0,
+                        50.0,
+                        25.0,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            fixed = next(
+                row
+                for row in compute_forward_returns(
+                    sqlite_path,
+                    asofs=[date(2020, 1, 31)],
+                    tickers=["1000"],
+                    horizons=["1y"],
+                    control_event_exits={},
+                )
+                if row.ticker == "1000"
+            )
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "WHERE ticker = ? AND traded_at = ?",
+                    ("1000", "2019-08-01"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            mutation = next(
+                row
+                for row in compute_forward_returns(
+                    sqlite_path,
+                    asofs=[date(2020, 1, 31)],
+                    tickers=["1000"],
+                    horizons=["1y"],
+                    control_event_exits={},
+                )
+                if row.ticker == "1000"
+            )
+
+            self.assertEqual(fixed.total_return_status, "resolved")
+            self.assertEqual(fixed.realized_dividend_sum, 50.0)
+            self.assertEqual(fixed.total_return, 0.5)
+            self.assertEqual(mutation.realized_dividend_sum, 75.0)
+            self.assertEqual(mutation.total_return, 0.75)
+
     def test_forward_return_unresolved_beyond_eval_cap(self) -> None:
         bars = [_bar(date(2025, 1, 31), 100.0), _bar(date(2025, 3, 31), 110.0)]
         rows = _ticker_forward_rows(
@@ -205,6 +369,28 @@ class ForwardReturnTest(unittest.TestCase):
         row = _ticker_forward_rows(
             "7203",
             bars,
+            fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0)],
+            asofs=[date(2021, 1, 31)],
+            horizons=(HORIZONS["1y"],),
+            eval_cap=date(2022, 3, 1),
+        )[0]
+
+        self.assertEqual(row.total_return_status, "resolved")
+        self.assertEqual(row.realized_dividend_sum, 20.0)
+        self.assertAlmostEqual(row.price_return or 0.0, 60.0 / 50.0 - 1)
+        self.assertAlmostEqual(row.total_return or 0.0, 60.0 / 50.0 - 1 + 20.0 / 50.0)
+
+    def test_total_return_uses_close_null_event_for_price_and_dps_basis(self) -> None:
+        bars = [
+            _bar(date(2021, 1, 31), 100.0, 1.0, ticker="7203"),
+            _bar(date(2022, 1, 31), 120.0, 1.0, ticker="7203"),
+        ]
+        events = [JQuantsAdjustmentFactorEvent("7203", date(2022, 3, 1), 0.5)]
+
+        row = _ticker_forward_rows(
+            "7203",
+            bars,
+            adjustment_events=events,
             fy_dividends=[_FYDividendObservation(date(2021, 3, 31), date(2021, 5, 12), 40.0)],
             asofs=[date(2021, 1, 31)],
             horizons=(HORIZONS["1y"],),

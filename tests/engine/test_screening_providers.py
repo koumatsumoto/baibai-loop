@@ -39,6 +39,7 @@ from baibai_engine.screening.providers.jpx import (
 )
 from baibai_engine.screening.providers.jquants import (
     JQuantsProvider,
+    normalize_adjustment_factor_event,
     normalize_daily_bar,
     normalize_financial_summary,
     normalize_market_calendar,
@@ -1491,6 +1492,21 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(bar.close, 100.0)
         self.assertIsNone(bar.adjustment_close)
 
+    def test_normalize_adjustment_event_does_not_require_close(self) -> None:
+        event = normalize_adjustment_factor_event(
+            {
+                "Code": "67310",
+                "Date": "2023-12-27T00:00:00",
+                "C": None,
+                "AdjustmentFactor": 100.0,
+            }
+        )
+
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.ticker, "6731")
+        self.assertEqual(event.adjustment_factor, 100.0)
+
     def test_normalize_financial_summary_supports_client_v2_short_keys(self) -> None:
         summary = normalize_financial_summary(
             {
@@ -1504,6 +1520,10 @@ class ScreeningProviderTests(unittest.TestCase):
                 "OP": "1840000000",
                 "OdP": "1720000000",
                 "NP": "1070000000",
+                "CurPerType": "1Q",
+                "CurFYEn": "2027-03-31T00:00:00",
+                "CurPerSt": "2026-04-01T00:00:00",
+                "CurPerEn": "2026-06-30T00:00:00",
             }
         )
         self.assertIsNotNone(summary)
@@ -1513,6 +1533,10 @@ class ScreeningProviderTests(unittest.TestCase):
         self.assertEqual(summary.eps_ttm, 300.50)
         self.assertEqual(summary.shares_outstanding, 1000000.0)
         self.assertEqual(summary.operating_profit, 1840000000.0)
+        self.assertEqual(summary.fiscal_period, "1Q")
+        self.assertEqual(summary.fiscal_year_end, date(2027, 3, 31))
+        self.assertEqual(summary.period_start, date(2026, 4, 1))
+        self.assertEqual(summary.period_end, date(2026, 6, 30))
 
     def test_normalize_financial_summary_falls_back_to_next_year_forecast(self) -> None:
         # Full-year (FY) disclosures leave the current-period FEPS empty and carry the
@@ -1530,6 +1554,100 @@ class ScreeningProviderTests(unittest.TestCase):
         assert fy is not None
         self.assertEqual(fy.forecast_eps, 360.26)
         self.assertEqual(fy.eps_ttm, 349.18)
+
+    def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
+        summary = normalize_financial_summary(
+            {
+                "Code": "97150",
+                "DiscDate": "2026-05-13T00:00:00",
+                "FEPS": float("nan"),
+                "NxFEPS": "120.0",
+                "FNP": float("inf"),
+                "NxFNp": "2000000000",
+                "FOdP": float("nan"),
+                "NxFOdP": "1800000000",
+                "FDivAnn": float("-inf"),
+                "NxFDivAnn": "12.0",
+                "Sales": float("inf"),
+                "CFO": float("-inf"),
+                "TA": float("nan"),
+                "ShOutFY": float("inf"),
+                "TrShFY": float("-inf"),
+                "EqAR": float("nan"),
+            }
+        )
+
+        assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        self.assertIsNone(summary.forecast_profit)
+        self.assertIsNone(summary.forecast_ordinary_profit)
+        self.assertIsNone(summary.dps_forecast_annual)
+        self.assertIsNone(summary.sales)
+        self.assertIsNone(summary.cfo)
+        self.assertIsNone(summary.total_assets)
+        self.assertIsNone(summary.shares_outstanding)
+        self.assertIsNone(summary.treasury_shares)
+        self.assertIsNone(summary.equity_to_asset_ratio)
+
+    def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
+        summary = normalize_financial_summary(
+            {
+                "Code": "97150",
+                "DiscDate": "2026-05-13T00:00:00",
+                "FEPS": pd.NA,
+                "NxFEPS": "120.0",
+                "FNP": pd.NA,
+                "NxFNp": "2000000000",
+                "FOdP": pd.NA,
+                "NxFOdP": "1800000000",
+                "FDivAnn": pd.NA,
+                "NxFDivAnn": "12.0",
+            }
+        )
+
+        assert summary is not None
+        self.assertIsNone(summary.forecast_eps)
+        self.assertIsNone(summary.forecast_profit)
+        self.assertIsNone(summary.forecast_ordinary_profit)
+        self.assertIsNone(summary.dps_forecast_annual)
+
+    def test_normalize_financial_summary_keeps_zero_current_forecasts(self) -> None:
+        summary = normalize_financial_summary(
+            {
+                "Code": "97150",
+                "DiscDate": "2026-05-13T00:00:00",
+                "FEPS": 0,
+                "NxFEPS": "120.0",
+                "FNP": "1000000000",
+                "NxFNp": "2000000000",
+                "FOdP": "900000000",
+                "NxFOdP": "1800000000",
+                "FDivAnn": 0,
+                "NxFDivAnn": "12.0",
+            }
+        )
+
+        assert summary is not None
+        self.assertEqual(summary.forecast_eps, 0.0)
+        self.assertEqual(summary.forecast_profit, 1_000_000_000.0)
+        self.assertEqual(summary.forecast_ordinary_profit, 900_000_000.0)
+        self.assertEqual(summary.dps_forecast_annual, 0.0)
+
+    def test_normalize_financial_summary_keeps_average_shares_separate(self) -> None:
+        summary = normalize_financial_summary(
+            {
+                "Code": "41670",
+                "DiscDate": "2024-08-14T00:00:00",
+                "AvgSh": "7563857",
+                "TrShFY": "352373",
+            }
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIsNone(summary.shares_outstanding)
+        self.assertEqual(summary.average_shares, 7_563_857.0)
+        self.assertEqual(summary.treasury_shares, 352_373.0)
 
     def test_normalize_financial_summary_prefers_current_forecast_over_next_year(self) -> None:
         # Mid-year (Q1-Q3) disclosures carry the current-FY forecast in FEPS; it takes

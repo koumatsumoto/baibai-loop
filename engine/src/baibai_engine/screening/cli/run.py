@@ -45,6 +45,7 @@ from baibai_engine.screening.metrics import (
     build_metrics,
     build_normalized_profit_signals,
     build_shares_outstanding_index,
+    group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
@@ -220,11 +221,14 @@ def run_command(
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
     normalized_fy_by_ticker = group_summaries_by_ticker(normalized_fy_summaries)
-    normalized_split_bars_by_ticker = group_bars_by_ticker(normalized_split_bars)
+    normalized_split_bars_by_ticker = group_adjustment_events_by_ticker(normalized_split_bars)
     next_earnings_by_ticker = _index_next_earnings(earnings_snapshot.entries, asof_date)
     calendar_announcements = index_calendar_announcements(earnings_snapshot.entries)
     shares_by_ticker = build_shares_outstanding_index(
-        summaries_by_ticker, bars_by_ticker, asof_date
+        summaries_by_ticker,
+        bars_by_ticker,
+        asof_date,
+        adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
     edinet_load_error: str | None = None
     edinet_by_ticker: Mapping[str, EdinetMetricRecord] = {}
@@ -257,6 +261,7 @@ def run_command(
         bars_by_ticker=bars_by_ticker,
         shares_outstanding_by_ticker=shares_by_ticker,
         jpx_flags_by_ticker=jpx_snapshot.flags_by_ticker,
+        adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
     # is_common_stock フィルタを明示して、同一 4 桁 code に優先株などが混じった場合の
     # dict 上書きを防ぐ (build_universe は非共通株を弾くが、snapshots に残った共通株の
@@ -298,6 +303,7 @@ def run_command(
         median_population=median_population,
         margin_latest=margin_latest,
         margin_prior_26w=margin_prior_26w,
+        adjustment_events_by_ticker=normalized_split_bars_by_ticker,
     )
     disclosure_load_result = load_disclosure_events(
         config.cache_dir / "disclosures",

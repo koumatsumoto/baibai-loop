@@ -51,7 +51,8 @@ _REQUIRED_FIELD_VALUES_CTE = (
 )
 
 _MARKET_CAP_FIELDS_USABLE = (
-    "shares_asof IS NOT NULL AND treasury_asof IS NOT NULL AND shares_asof > treasury_asof"
+    "shares_asof IS NOT NULL AND treasury_asof IS NOT NULL AND shares_asof > treasury_asof "
+    "AND (treasury_asof = 0 OR shares_date = treasury_date)"
 )
 
 
