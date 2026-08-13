@@ -436,14 +436,14 @@ def _load_bars(
     rows = _query_all(sqlite_path, query, (start.isoformat(), end.isoformat(), *tickers))
     # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
     # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
-    raw: dict[str, list[tuple[date, float, float | None, float | None]]] = {}
+    raw: dict[str, list[tuple[date, float | None, float | None, float | None]]] = {}
     for ticker, traded_at, close, adjustment_factor, turnover_value in rows:
-        if not isinstance(close, int | float) or not isinstance(traded_at, str):
+        if not isinstance(traded_at, str):
             continue
         raw.setdefault(str(ticker), []).append(
             (
                 date.fromisoformat(traded_at),
-                float(close),
+                float(close) if isinstance(close, int | float) else None,
                 float(adjustment_factor) if isinstance(adjustment_factor, int | float) else None,
                 float(turnover_value) if isinstance(turnover_value, int | float) else None,
             )
@@ -453,9 +453,10 @@ def _load_bars(
         factor = 1.0
         normalized: list[_Bar] = []
         for traded_at, close, adjustment_factor, turnover_value in reversed(entries):
-            normalized.append(
-                _Bar(traded_at=traded_at, price=close * factor, turnover_value=turnover_value)
-            )
+            if close is not None:
+                normalized.append(
+                    _Bar(traded_at=traded_at, price=close * factor, turnover_value=turnover_value)
+                )
             if adjustment_factor not in (None, 0.0, 1.0):
                 assert adjustment_factor is not None
                 factor *= adjustment_factor

@@ -6,6 +6,7 @@ from .jpx import (
     JPXProviderError,
 )
 from .jquants import (
+    JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
     JQuantsFinancialSummary,
     JQuantsMarketCalendarDay,
@@ -21,6 +22,7 @@ __all__ = [
     "JPXEarningsCalendarSnapshot",
     "JPXProvider",
     "JPXProviderError",
+    "JQuantsAdjustmentFactorEvent",
     "JQuantsDailyBar",
     "JQuantsFinancialSummary",
     "JQuantsMarketCalendarDay",

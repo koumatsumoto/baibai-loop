@@ -35,6 +35,33 @@ def _insert_sector(sqlite_path: Path, ticker: str, sector: str) -> None:
 
 
 class BuildMarketSnapshotTests(unittest.TestCase):
+    def test_close_null_adjustment_event_is_applied_to_series(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sqlite_path = Path(tmpdir) / "market.sqlite"
+            _insert_bars(sqlite_path, "1321", [1.0] * 50 + [100.0] * 10, end=_ASOF)
+            conn = open_connection(sqlite_path)
+            try:
+                event_day = date(2026, 5, 20)
+                conn.execute(
+                    "INSERT OR REPLACE INTO jquants_daily_bars"
+                    "(ticker, traded_at, close, adjustment_factor) VALUES (?, ?, NULL, 100.0)",
+                    ("1321", event_day.isoformat()),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            payload = build_market_snapshot(
+                sqlite_path=sqlite_path,
+                asof_date=_ASOF,
+                history_weeks=1,
+                min_breadth_sample=1,
+            )
+
+            points = payload["points"]
+            assert isinstance(points, list)
+            self.assertAlmostEqual(float(points[-1]["benchmark_return_20d"]), 0.0, places=12)
+
     def test_points_and_sectors_reflect_trend_and_breadth(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"

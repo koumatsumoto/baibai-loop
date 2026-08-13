@@ -659,8 +659,14 @@ class SQLiteCoverageTests(unittest.TestCase):
             split_adjusted = read_required_field_coverage(sqlite_path, start=start, asof=asof)
             self.assertIsNotNone(split_adjusted)
             assert split_adjusted is not None
-            self.assertEqual(split_adjusted.market_cap_required_fields_tickers, 100)
-            self.assertEqual(split_adjusted.blocking_fields, ())
+            # Split normalization can align the numbers, but the later treasury row
+            # has no issued basis of its own. The production resolver fails this state
+            # closed, so the coverage gate must not certify it as usable.
+            self.assertEqual(split_adjusted.market_cap_required_fields_tickers, 0)
+            self.assertEqual(
+                split_adjusted.blocking_fields,
+                ("market_cap_required_fields", "valuation_required_fields"),
+            )
 
     def test_old_cross_section_repair_resumes_at_only_the_unfinished_disclosure_date(
         self,

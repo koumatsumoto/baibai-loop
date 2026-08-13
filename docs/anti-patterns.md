@@ -113,7 +113,9 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
 - [ ] `self_range_percentile` が下位 5% 以下の銘柄も同様に corporate action を必ず確認
 - [ ] portfolio outcomeで保有期間の`adjustment_factor != 1`を検出したとき、adjusted closeや0円補完で継続せず`corporate_action_unresolved`にしたか
 - [ ] calibration forward で stale / missing exit を resolved return に混ぜず、delisting unknown として明示したか
-- [ ] adjustment factor の観測可否と corporate-action event coverage を同一視していないか
+- [ ] adjustment factor の観測可否と corporate-action event coverage を同一視していないか。
+      event reader が価格の存在を要求していないか、`close = NULL` の権利落ち行を入れて価格、株数、
+      forward return、market view の全consumerが同じfactorを使うことを確認したか
 - [ ] `forward PER` と `trailing PER` の乖離が ±100% を超える場合、決算特殊要因 (税引前
       一過性 gains / losses、減損、グループ再編) の可能性を有報で確認
 
@@ -505,6 +507,21 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - 予想 DPS を時間制限なしで遡り、無配化した会社に取り下げ前の予想の利回り 13.46%/年 が付いた
 - EDINET の書類を単体基準で読んだ値を、連結の時価総額と組み合わせた。7203 は親会社単独の
   貸借対照表から「時価総額の 12.41% が純現金」という値が判断面に出ていた
+- 発行済株式総数と自己株式数を別々の最新行から carry し、自己株式の消却後にも消却前の
+  自己株式数を再控除した。9441 では実際の発行済 12,240,712 株から消却済み 7,957,088 株を
+  引き、時価総額の株数を 65.0% 過小にした
+- 正の自己株式の後に `ShOutFY` は更新されたが `TrShFY` が空欄の行で、古い自己株式をcarryした。
+  空欄からは0株・減少・未報告を区別できず、6184と7049で旧値が現在も有効でない場合は、
+  時価総額をそれぞれ最大4.8%、7.9%過小にする
+- EPS の期中平均株式数 `AvgSh` を gross issued の fallback として保存し、正の自己株式数を
+  もう一度控除した。4167 では 7,563,857 株から 352,373 株を控除したが、gross issued は
+  7,916,230 株だった
+- `total_assets` と `EqAR` を別々の最新行から carry して掛け合わせた。9628 では 2026-05-15
+  の総資産と 2026-02-13 の自己資本比率を組み、同一行の組より自己資本を 28.6% 過大にして
+  PBR を 22.2% 過小にした
+- corporate-action eventをclose付きprice barとして読み、売買停止で`close = NULL`の権利落ち行を
+  捨てた。6731の100株→1株の併合が価格・株数・forward returnの全経路から消え、時価総額を100倍、
+  60日price returnを`87.5`（+8,750%、価格比88.5倍）として判断面へ出した
 - 財務履歴の下限を最古の行 (`MIN(disclosed_at)`) から取った。読み取りの可否を決めるのは
   coverage であり、10 年の移動窓が通り過ぎた 1,911 行が下限を coverage の外へ引き下げて、
   最近の履歴しか要らない cohort まで含め 80 cohort 全部が構築不能になった
@@ -517,6 +534,10 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
   誰も気付かない**
 - 「per-share の値を足す」「per-share に株数を掛ける」が書けてしまう
 - source 側の語 (`ShOutFY` は自己株込み、`eps_ttm` は期中累計) を名前どおりに読む
+- 1 つの状態を構成する field を独立に carry し、途中の消却・発行で同じ状態を指さなくなった
+  ことを検査しない
+- source alias の値型だけを合わせ、期末 gross issued と期中平均 ex-treasury の会計概念を
+  同じ field へ入れる
 
 ### 再発防止チェックリスト
 
@@ -531,6 +552,24 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
   - [ ] EDINET の `total_assets` == 短信の `total_assets`
 - [ ] 追加した fixture が上の恒等式を満たすか。**破っている fixture は期待値ごと誤りを保存する**
 - [ ] 予想・実績を混ぜる経路で、**古い観測が新しい観測を上書きしていないか**
+- [ ] 同一会計期間の部分訂正で、訂正行に無いactual fieldを欠損へ戻していないか。営業利益、
+      経常利益、純利益のfallbackは、選択した期間内の具体的なfieldを優先し、forecastの空欄を
+      actualの部分訂正と同じfallback規則にしていないか
+- [ ] 1 つの状態を構成する複数 field を別々の行から carry する場合、途中の消却・発行・分割を
+      跨いでも同じ状態として両立することを検査したか。正の自己株式を観測した後の新しい
+      `ShOutFY`行で`TrShFY`が空欄なら、発行済の増減・不変にかかわらず古い自己株式を引かないか。
+      新しい`TrShFY`を観測するまで古いbasisを復活させていないか。別開示日の`TA × EqAR`を
+      自己資本としていないか。同一行へ揃えた組が最新`BPS`より古いとき、古い資本を復活させて
+      いないか
+- [ ] source alias は値の形ではなく会計概念で束縛したか。`AvgSh` を `ShOutFY` の欠損補完に
+      使っていないか。既存cacheを守るなら、単なるfield同値ではなく`AvgSh + TrShFY`が過去の
+      gross issuedへ戻る隣接恒等式まで確認し、正常な1Q行を除外しないか
+- [ ] 株式数の値域を合成前に検査したか。負の自己株式、非正の発行済、発行済以上の自己株を
+      差し引いて正の値へ見せていないか。carry後の現在値だけでなく、正の自己株を観測した
+      source行自体の発行済との関係も検査したか。自己株0株を同じ理由で過剰除外しないか
+- [ ] carry の互換性判定を外す mutation と、period-average alias を戻す mutationの双方で
+      negative test が失敗するか。issuedの増加・減少・不変と、明示的な自己株式0株、新しい正の
+      自己株式観測を分けて固定したか
 - [ ] 「値を知らない」ことを 0 や False で表していないか。carry のような和では、値を出さないこと
       が下流で「0 である」という主張になる
 - [ ] 計測スクリプトで検証する場合、**pipeline を再実装せず実装の関数をそのまま呼んだか。**
@@ -557,6 +596,8 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
   99.0 に落ち、同点は ticker 順へ抜けていた。銘柄横断の順位キーなのに順位を付けていない
 - 業種中央値は母数 10 未満で市場中央値へ落ちるが、落ちた事実がどこにも残らない。同じ field が
   「業種との差」と「市場との差」の 2 つの量を指し、(asof, sector) の 26.4% で後者だった
+- corporate-action eventをprice barの一種として読み、`close = NULL`の56 eventを構造的に
+  消していた。factorは存在するのに価格が無いという正規の状態がreaderの出力型に無かった
 
 ### 根本原因
 
@@ -578,6 +619,8 @@ write side は read side ほど呼ばれないため P2 の改善候補 (cli/que
 - [ ] fallback した事実を、値と同じ粒度で残しているか。素性の無い fallback は、後から効果を分けられない
 - [ ] source が答えられないことを、答えが真であることと区別しているか。field の欠落で `True` を返す
       判定は、source の形が変わった瞬間に静かに壊れる
+- [ ] eventの存在を、同じ日の価格・出来高など別のoptional値の存在で判定していないか。
+      event-only型とprice型を分け、`close = NULL`のevent fixtureを全readerと鏡像consumerへ通したか
 
 ### 一括検出
 

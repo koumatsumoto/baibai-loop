@@ -15,6 +15,7 @@ from baibai_engine.screening.providers.jpx import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.screening.providers.jquants import (
+    JQuantsAdjustmentFactorEvent,
     JQuantsAllIssuesDailyMargin,
     JQuantsDailyBar,
     JQuantsFinancialSummary,
@@ -37,7 +38,9 @@ class JQuantsAdapter(Protocol):
 
     def ensure_eq_bars_daily_range(self, start: date, end: date) -> int: ...
 
-    def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]: ...
+    def get_adjustment_factor_bars_range(
+        self, start: date, end: date
+    ) -> list[JQuantsAdjustmentFactorEvent]: ...
 
     def get_fin_summary_range(
         self,

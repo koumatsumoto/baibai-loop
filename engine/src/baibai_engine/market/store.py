@@ -12,7 +12,11 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    JQuantsMarketCalendarDay,
+)
 from baibai_engine.market.jquants import JQuantsProviderError
 from baibai_engine.market.sqlite import (
     connect_current,
@@ -124,8 +128,8 @@ def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
 
 def read_adjustment_factor_bars(
     sqlite_path: Path, start: date, end: date
-) -> list[JQuantsDailyBar] | None:
-    """Read only split events over a covered range for long-horizon normalization."""
+) -> list[JQuantsAdjustmentFactorEvent] | None:
+    """Read split events over a covered range, including rows without a close."""
     if not sqlite_path.exists():
         return None
     conn = connect_current(sqlite_path)
@@ -135,7 +139,7 @@ def read_adjustment_factor_bars(
         if not daily_bars_covered_by_data(conn, start, end):
             return None
         rows = conn.execute(
-            "SELECT ticker, traded_at, close, adjustment_factor "
+            "SELECT ticker, traded_at, adjustment_factor "
             "FROM jquants_daily_bars WHERE traded_at BETWEEN ? AND ? "
             "AND adjustment_factor IS NOT NULL AND adjustment_factor NOT IN (0.0, 1.0) "
             "ORDER BY ticker, traded_at",
@@ -143,25 +147,23 @@ def read_adjustment_factor_bars(
         ).fetchall()
     finally:
         conn.close()
-    bars: list[JQuantsDailyBar] = []
-    for ticker, traded_at, close, adjustment_factor in rows:
-        if close is None or traded_at is None:
+    events: list[JQuantsAdjustmentFactorEvent] = []
+    for ticker, traded_at, adjustment_factor in rows:
+        if traded_at is None:
             continue
         try:
-            bars.append(
-                JQuantsDailyBar(
+            events.append(
+                JQuantsAdjustmentFactorEvent(
                     ticker=str(ticker),
                     traded_at=date.fromisoformat(traded_at),
-                    close=float(close),
-                    turnover_value=None,
-                    adjustment_factor=optional_float(adjustment_factor),
+                    adjustment_factor=float(adjustment_factor),
                 )
             )
         except (TypeError, ValueError) as exc:
             raise JQuantsProviderError(
                 f"corrupt adjustment factor row for {ticker} on {traded_at}: {exc}"
             ) from exc
-    return bars
+    return events
 
 
 def read_daily_bars_for_tickers(

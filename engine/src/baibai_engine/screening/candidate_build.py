@@ -110,6 +110,7 @@ def candidate_metrics_map(
         "cash_eq": financial.cash_eq,
         "total_assets": financial.total_assets,
         "market_price_yen": financial.market_price_yen,
+        "capital_basis_failure_reason": financial.capital_basis_failure_reason,
         "cash_to_market_cap": financial.cash_to_market_cap,
         "equity_ratio": financial.equity_ratio,
         "ocf_yield": financial.ocf_yield,

@@ -144,21 +144,22 @@ def _load_benchmark_series(
         conn.close()
     # cache の adjustment_close は incremental 取得で遡及の有無が混在するため使わず、
     # 不変イベントの adjustment_factor の後方累積で末尾基準の価格系列を組む。
-    raw: list[tuple[date, float, float | None]] = []
+    raw: list[tuple[date, float | None, float | None]] = []
     for traded_at, close, adjustment_factor in rows:
-        if close is None or traded_at is None:
+        if traded_at is None:
             continue
         raw.append(
             (
                 date.fromisoformat(traded_at),
-                float(close),
+                float(close) if close is not None else None,
                 float(adjustment_factor) if adjustment_factor is not None else None,
             )
         )
     factor = 1.0
     series: list[tuple[date, float]] = []
     for traded_at, close, adjustment_factor in reversed(raw):
-        series.append((traded_at, close * factor))
+        if close is not None:
+            series.append((traded_at, close * factor))
         if adjustment_factor not in (None, 0.0, 1.0):
             assert adjustment_factor is not None
             factor *= adjustment_factor

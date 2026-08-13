@@ -6,6 +6,7 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.market.sqlite.coverage import (
@@ -184,6 +185,33 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertEqual(table_count[0], 1)
             self.assertEqual(coverage, (1,))
 
+    def test_fin_summaries_do_not_alias_average_shares_to_gross_issued(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {
+                        "Code": "41670",
+                        "DisclosedDate": "2024-08-14",
+                        "AvgSh": "7563857",
+                        "TrShFY": "352373",
+                    }
+                ],
+                requested_start=date(2024, 8, 14),
+                requested_end=date(2024, 8, 14),
+            )
+            conn = sqlite3.connect(db)
+            try:
+                row = conn.execute(
+                    "SELECT shares_outstanding, average_shares, treasury_shares "
+                    "FROM jquants_fin_summaries"
+                ).fetchone()
+            finally:
+                conn.close()
+
+            self.assertEqual(row, (None, 7_563_857.0, 352_373.0))
+
     def test_fin_summaries_forecast_eps_uses_short_keys_with_next_year_fallback(self) -> None:
         # ClientV2 fin-summary payloads use short keys: FEPS (current-FY forecast) is
         # empty on full-year disclosures, where guidance moves to NxFEPS. The stored
@@ -222,6 +250,111 @@ class SQLiteCacheTest(unittest.TestCase):
             self.assertEqual(stored["9715"], 360.26)
             self.assertEqual(stored["7203"], 306.89)
 
+    def test_non_finite_current_forecasts_do_not_cross_into_next_period(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {
+                        "Code": "97150",
+                        "DisclosedDate": "2026-05-13",
+                        "FEPS": float("nan"),
+                        "NxFEPS": "120.0",
+                        "FNP": float("inf"),
+                        "NxFNp": "2000000000",
+                        "FOdP": float("nan"),
+                        "NxFOdP": "1800000000",
+                        "FDivAnn": float("-inf"),
+                        "NxFDivAnn": "12.0",
+                        "Sales": float("inf"),
+                        "CFO": float("-inf"),
+                        "TA": float("nan"),
+                        "ShOutFY": float("inf"),
+                        "TrShFY": float("-inf"),
+                        "EqAR": float("nan"),
+                    }
+                ],
+                requested_start=date(2026, 5, 13),
+                requested_end=date(2026, 5, 13),
+            )
+            summaries = read_fin_summaries(db, date(2026, 5, 13), date(2026, 5, 13))
+
+            self.assertEqual(len(summaries), 1)
+            summary = summaries[0]
+            self.assertIsNone(summary.forecast_eps)
+            self.assertIsNone(summary.forecast_profit)
+            self.assertIsNone(summary.forecast_ordinary_profit)
+            self.assertIsNone(summary.dps_forecast_annual)
+            self.assertIsNone(summary.sales)
+            self.assertIsNone(summary.cfo)
+            self.assertIsNone(summary.total_assets)
+            self.assertIsNone(summary.shares_outstanding)
+            self.assertIsNone(summary.treasury_shares)
+            self.assertIsNone(summary.equity_to_asset_ratio)
+
+    def test_pandas_missing_current_forecasts_do_not_cross_periods(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {
+                        "Code": "97150",
+                        "DisclosedDate": "2026-05-13",
+                        "FEPS": pd.NA,
+                        "NxFEPS": "120.0",
+                        "FNP": pd.NA,
+                        "NxFNp": "2000000000",
+                        "FOdP": pd.NA,
+                        "NxFOdP": "1800000000",
+                        "FDivAnn": pd.NA,
+                        "NxFDivAnn": "12.0",
+                    }
+                ],
+                requested_start=date(2026, 5, 13),
+                requested_end=date(2026, 5, 13),
+            )
+            summaries = read_fin_summaries(db, date(2026, 5, 13), date(2026, 5, 13))
+
+            self.assertEqual(len(summaries), 1)
+            summary = summaries[0]
+            self.assertIsNone(summary.forecast_eps)
+            self.assertIsNone(summary.forecast_profit)
+            self.assertIsNone(summary.forecast_ordinary_profit)
+            self.assertIsNone(summary.dps_forecast_annual)
+
+    def test_fin_summaries_keep_zero_current_forecasts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "market.sqlite"
+            store_jquants_fin_summaries(
+                db,
+                [
+                    {
+                        "Code": "97150",
+                        "DisclosedDate": "2026-05-13",
+                        "FEPS": 0,
+                        "NxFEPS": "120.0",
+                        "FNP": "1000000000",
+                        "NxFNp": "2000000000",
+                        "FOdP": "900000000",
+                        "NxFOdP": "1800000000",
+                        "FDivAnn": 0,
+                        "NxFDivAnn": "12.0",
+                    }
+                ],
+                requested_start=date(2026, 5, 13),
+                requested_end=date(2026, 5, 13),
+            )
+            summaries = read_fin_summaries(db, date(2026, 5, 13), date(2026, 5, 13))
+
+            self.assertEqual(len(summaries), 1)
+            summary = summaries[0]
+            self.assertEqual(summary.forecast_eps, 0.0)
+            self.assertEqual(summary.forecast_profit, 1_000_000_000.0)
+            self.assertEqual(summary.forecast_ordinary_profit, 900_000_000.0)
+            self.assertEqual(summary.dps_forecast_annual, 0.0)
+
     def test_fin_summaries_forecast_profit_pair_round_trips_by_period(self) -> None:
         # 予想純利益/経常は forecast_eps と同一予想期から採って保存・読戻す。当期予想
         # EPS(FEPS)がある四半期開示は当期ペア(FNP/FOdP)、FEPS 空の本決算開示は翌期
@@ -239,6 +372,10 @@ class SQLiteCacheTest(unittest.TestCase):
                         "FOdP": "3406000000",
                         "NxFNp": "900000000",
                         "NxFOdP": "1200000000",
+                        "CurPerType": "1Q",
+                        "CurFYEn": "2027-03-31T00:00:00",
+                        "CurPerSt": "2026-04-01T00:00:00",
+                        "CurPerEn": "2026-06-30T00:00:00",
                     },
                     {
                         "Code": "97150",
@@ -259,6 +396,10 @@ class SQLiteCacheTest(unittest.TestCase):
             by_ticker = {summary.ticker: summary for summary in summaries}
             self.assertEqual(by_ticker["4849"].forecast_profit, 5464000000.0)
             self.assertEqual(by_ticker["4849"].forecast_ordinary_profit, 3406000000.0)
+            self.assertEqual(by_ticker["4849"].fiscal_period, "1Q")
+            self.assertEqual(by_ticker["4849"].fiscal_year_end, date(2027, 3, 31))
+            self.assertEqual(by_ticker["4849"].period_start, date(2026, 4, 1))
+            self.assertEqual(by_ticker["4849"].period_end, date(2026, 6, 30))
             self.assertEqual(by_ticker["9715"].forecast_profit, 2000000000.0)
             self.assertEqual(by_ticker["9715"].forecast_ordinary_profit, 2500000000.0)
 

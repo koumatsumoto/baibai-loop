@@ -10,6 +10,7 @@ from baibai_engine.read_api.market import (
     latest_unadjusted_closes,
     next_earnings_dates,
     previous_business_day,
+    worst_close_drawdown,
 )
 
 
@@ -177,6 +178,39 @@ def test_close_change_since_puts_both_ends_on_the_latest_share_basis(tmp_path: P
     )
 
     assert close_change_since(database, ["2331"], since=date(2026, 7, 28)) == {"2331": 1.0}
+
+
+def test_close_change_since_keeps_factor_on_a_close_null_day(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_bars_with_factors(
+        database,
+        [
+            ("2331", "2026-07-28", 1.0, 1.0),
+            ("2331", "2026-07-29", None, 100.0),
+            ("2331", "2026-07-30", 100.0, 1.0),
+        ],
+    )
+
+    assert close_change_since(database, ["2331"], since=date(2026, 7, 28)) == {"2331": 0.0}
+
+
+def test_worst_close_drawdown_keeps_factor_on_a_close_null_day(tmp_path: Path) -> None:
+    database = tmp_path / "market.sqlite"
+    _seed_bars_with_factors(
+        database,
+        [
+            ("2331", "2026-07-28", 1.0, 1.0),
+            ("2331", "2026-07-29", None, 100.0),
+            ("2331", "2026-07-30", 50.0, 1.0),
+        ],
+    )
+
+    assert worst_close_drawdown(
+        database,
+        ["2331"],
+        start=date(2026, 7, 28),
+        end=date(2026, 7, 30),
+    ) == {"2331": -0.5}
 
 
 def test_close_change_since_skips_a_ticker_with_no_close_by_the_day(tmp_path: Path) -> None:

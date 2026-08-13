@@ -52,6 +52,26 @@ def test_read_adjustment_factor_bars_returns_only_split_events(tmp_path: Path) -
     assert [(bar.traded_at, bar.adjustment_factor) for bar in bars] == [(date(2024, 2, 1), 0.5)]
 
 
+def test_read_adjustment_factor_bars_keeps_event_without_close(tmp_path: Path) -> None:
+    """取引停止日の価格欠損はcorporate-action eventを消さない。"""
+
+    sqlite_path = _seed(tmp_path, [(date(2024, 1, 1), date(2024, 3, 31))])
+    conn = open_connection(sqlite_path)
+    conn.execute(
+        "UPDATE jquants_daily_bars SET close = NULL, adjustment_factor = 100.0 WHERE traded_at = ?",
+        ("2024-02-01",),
+    )
+    conn.commit()
+    conn.close()
+
+    events = read_adjustment_factor_bars(sqlite_path, date(2024, 1, 1), date(2024, 3, 31))
+
+    assert events is not None
+    assert [(event.traded_at, event.adjustment_factor) for event in events] == [
+        (date(2024, 2, 1), 100.0)
+    ]
+
+
 def test_read_daily_bars_none_when_internal_gap_exceeds_holiday(tmp_path: Path) -> None:
     # 20-day hole in the middle is larger than any market holiday run.
     sqlite_path = _seed(

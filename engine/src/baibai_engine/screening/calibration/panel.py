@@ -35,6 +35,7 @@ from ..metrics import (
     build_profitability_level_signals,
     build_shareholder_return_change_signals,
     build_shares_outstanding_index,
+    group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
 )
@@ -339,11 +340,15 @@ def build_panel(
 
     bars_by_ticker = group_bars_by_ticker(bars)
     summaries_by_ticker = group_summaries_by_ticker(summaries)
-    history_bars_by_ticker = group_bars_by_ticker(history_bars)
-    normalized_profit_split_bars_by_ticker = group_bars_by_ticker(normalized_profit_split_bars)
+    normalized_profit_split_bars_by_ticker = group_adjustment_events_by_ticker(
+        normalized_profit_split_bars
+    )
     history_summaries_by_ticker = group_summaries_by_ticker(history_summaries)
     shares_by_ticker = build_shares_outstanding_index(
-        summaries_by_ticker, bars_by_ticker, asof_date
+        summaries_by_ticker,
+        bars_by_ticker,
+        asof_date,
+        adjustment_events_by_ticker=normalized_profit_split_bars_by_ticker,
     )
     universe_result = build_universe(
         asof_date=asof_date,
@@ -351,6 +356,7 @@ def build_panel(
         bars_by_ticker=bars_by_ticker,
         shares_outstanding_by_ticker=shares_by_ticker,
         jpx_flags_by_ticker={},
+        adjustment_events_by_ticker=normalized_profit_split_bars_by_ticker,
     )
     securities_by_ticker = {
         security.code: security
@@ -371,6 +377,7 @@ def build_panel(
         margin_latest=margin_latest,
         margin_prior_26w=margin_prior_26w,
         valuation_history_sessions=policy.valuation_history_sessions,
+        adjustment_events_by_ticker=normalized_profit_split_bars_by_ticker,
     )
 
     evidence_by_ticker: dict[str, tuple[str, ...]] = {}
@@ -413,12 +420,11 @@ def build_panel(
         asof_date, candidates, rules, mode="production_diversity", depth=RECOMMENDED_RANK_DEPTH
     )
 
-    latest_close_by_ticker: dict[str, float] = {}
-    for ticker, ticker_bars in bars_by_ticker.items():
-        for bar in reversed(ticker_bars):
-            if bar.traded_at <= asof_date:
-                latest_close_by_ticker[ticker] = bar.close
-                break
+    latest_close_by_ticker = {
+        ticker: financial.market_price_yen
+        for ticker, financial in metric_result.financials.items()
+        if financial.market_price_yen is not None
+    }
 
     rows: list[PanelRow] = []
     for ticker in sorted(universe_result.snapshots):
@@ -430,7 +436,7 @@ def build_panel(
         )
         return_change = build_shareholder_return_change_signals(
             history_summaries_by_ticker.get(ticker, ()),
-            history_bars_by_ticker.get(ticker, ()),
+            normalized_profit_split_bars_by_ticker.get(ticker, ()),
             asof_date,
         )
         normalized_profit = build_normalized_profit_signals(
