@@ -13,9 +13,19 @@ from baibai_engine.foundation.time import JST
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.duck import lake_session
 from baibai_engine.market.lake.keys import current_l1_pointer_key
+from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef
 from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.market.lake.projection import ProjectionError, build_projection
-from baibai_engine.market.lake.reader import resolve_current_release
+from baibai_engine.market.lake.projection import (
+    ProjectionError,
+    build_projection,
+    read_projection_identity,
+)
+from baibai_engine.market.lake.reader import (
+    resolve_current_release as _resolve_current_release_at,
+)
+from baibai_engine.market.lake.reader import (
+    resolve_release,
+)
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
     canonical_json_bytes,
@@ -38,6 +48,44 @@ _COMMIT = "d" * 40
 _CREATED_AT = datetime(2026, 6, 30, 12, 0, tzinfo=UTC)
 _NOW = datetime(2026, 6, 30, 18, 0, tzinfo=JST)
 _RELEASE = "release-shadow"
+_SNAPSHOT_DIGEST = "a" * 64
+_REPORT_SNAPSHOT = SQLiteSnapshotSourceRef(
+    kind="sqlite_snapshot",
+    source_id=f"market-v22-{_SNAPSHOT_DIGEST[:24]}",
+    role="local_build_input",
+    key=f"lake/build-inputs/sqlite/market/schema=v22/snapshot-{_SNAPSHOT_DIGEST}.sqlite",
+    sha256=_SNAPSHOT_DIGEST,
+    schema_version=22,
+    captured_at=_CREATED_AT,
+)
+
+
+def resolve_current_release(source: object):
+    return _resolve_current_release_at(source, evaluated_at=_CREATED_AT)  # type: ignore[arg-type]
+
+
+def _shadow_source(root: Path) -> dict[str, object]:
+    identity = read_projection_identity(root / "projection.sqlite")
+    assert identity is not None
+    release = resolve_release(
+        LocalMirrorSource(root / "mirror"),
+        identity.source_release_id,
+        manifest_sha256=identity.source_release_manifest_sha256,
+    )
+    refs = {
+        source
+        for manifest in release.dataset_manifests.values()
+        for partition in manifest.partitions
+        for source in partition.sources
+        if isinstance(source, SQLiteSnapshotSourceRef)
+    }
+    assert len(refs) == 1
+    ref = refs.pop()
+    return {
+        "source_snapshot": root / "mirror" / ref.key,
+        "source_snapshot_ref": ref,
+        "release_manifest_sha256": release.manifest_sha256,
+    }
 
 
 @pytest.fixture(scope="module")
@@ -120,12 +168,18 @@ class TestShadowStore:
         self, frozen_lake: Path, tmp_path: Path
     ) -> None:
         report = build_shadow_store(
-            legacy_sqlite=frozen_lake / "market.sqlite",
+            **_shadow_source(frozen_lake),
             projection=frozen_lake / "projection.sqlite",
             destination=tmp_path / "shadow.sqlite",
         )
 
         assert report.release_id == _RELEASE
+        assert report.release_manifest_sha256 == read_projection_identity(
+            frozen_lake / "projection.sqlite"
+        ).source_release_manifest_sha256  # type: ignore[union-attr]
+        assert report.source_snapshot.sha256 == _shadow_source(frozen_lake)[
+            "source_snapshot_ref"
+        ].sha256  # type: ignore[union-attr]
         assert report.release_sourced_tables == (
             "jquants_daily_bars",
             "jquants_short_sale_reports",
@@ -146,7 +200,7 @@ class TestShadowStore:
         self, frozen_lake: Path, tmp_path: Path
     ) -> None:
         report = build_shadow_store(
-            legacy_sqlite=frozen_lake / "market.sqlite",
+            **_shadow_source(frozen_lake),
             projection=frozen_lake / "projection.sqlite",
             destination=tmp_path / "shadow.sqlite",
         )
@@ -165,7 +219,7 @@ class TestShadowStore:
     def test_an_absent_projection_is_refused(self, frozen_lake: Path, tmp_path: Path) -> None:
         with pytest.raises(ProjectionError, match="absent or unreadable"):
             build_shadow_store(
-                legacy_sqlite=frozen_lake / "market.sqlite",
+                **_shadow_source(frozen_lake),
                 projection=tmp_path / "missing.sqlite",
                 destination=tmp_path / "shadow.sqlite",
             )
@@ -175,13 +229,30 @@ class TestShadowStore:
 
         with pytest.raises(ProjectionError):
             build_shadow_store(
-                legacy_sqlite=frozen_lake / "market.sqlite",
+                **_shadow_source(frozen_lake),
                 projection=tmp_path / "missing.sqlite",
                 destination=destination,
             )
 
         assert not destination.exists()
         assert not list(tmp_path.glob("*.part"))
+
+    def test_snapshot_digest_mismatch_fails_before_shadow_store_creation(
+        self, frozen_lake: Path, tmp_path: Path
+    ) -> None:
+        source = _shadow_source(frozen_lake)
+        ref = source["source_snapshot_ref"]
+        assert isinstance(ref, SQLiteSnapshotSourceRef)
+        source["source_snapshot_ref"] = ref.model_copy(update={"sha256": "0" * 64})
+
+        with pytest.raises(LakeShadowError, match="snapshot digest"):
+            build_shadow_store(
+                **source,
+                projection=frozen_lake / "projection.sqlite",
+                destination=tmp_path / "shadow.sqlite",
+            )
+
+        assert not (tmp_path / "shadow.sqlite").exists()
 
 
 class TestParityComparison:
@@ -225,6 +296,8 @@ class TestParityComparison:
         report = ScreeningParityReport(
             asof="2026-06-30",
             release_id=_RELEASE,
+            release_manifest_sha256="b" * 64,
+            source_snapshot=_REPORT_SNAPSHOT,
             release_sourced_tables=("jquants_daily_bars",),
             legacy_sourced_tables=("jquants_fin_summaries",),
             candidates_compared=0,
@@ -262,7 +335,7 @@ class TestShadowRun:
 
         report = run_lake_shadow_parity(
             asof=ASOF,
-            legacy_sqlite=frozen_lake / "market.sqlite",
+            **_shadow_source(frozen_lake),
             projection=frozen_lake / "projection.sqlite",
             workspace=tmp_path / "workspace",
             config=config,
@@ -304,7 +377,7 @@ class TestShadowRun:
 
         report = run_lake_shadow_parity(
             asof=ASOF,
-            legacy_sqlite=frozen_lake / "market.sqlite",
+            **_shadow_source(frozen_lake),
             projection=projection,
             workspace=tmp_path / "workspace",
             config=config,
@@ -345,7 +418,7 @@ class TestShadowRun:
         with pytest.raises(LakeShadowError, match="screening run failed"):
             run_lake_shadow_parity(
                 asof=ASOF,
-                legacy_sqlite=frozen_lake / "market.sqlite",
+                **_shadow_source(frozen_lake),
                 projection=projection,
                 workspace=tmp_path / "workspace",
                 config=config,

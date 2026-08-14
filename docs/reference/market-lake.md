@@ -128,7 +128,9 @@ uv run python -m baibai_batch.storage.lake_publish \
 
 読み取りは実行の最初に current pointer を 1 度だけ解決し、以後は固定した `release_id` と
 immutable object key だけを読む。実行途中に pointer が切り替わっても、その実行の入力 release は
-変わらない。
+変わらない。current operational readは解決時刻に対してprofileのfreshness/skew/coverage policyを
+再評価し、staleならscreening開始前にfail-closeする。named/pinned/previousのhistorical readは現在
+時刻のfreshnessを要求せず、固定されたidentity chainだけを検証する。
 
 ```bash
 uv run baibai-engine lake resolve --mirror <local-mirror>
@@ -244,11 +246,15 @@ selection を突き合わせる。差分があれば非ゼロ終了する。lega
 ```bash
 uv run python -m tools.diagnostics.verify_lake_release_parity \
   --asof <YYYY-MM-DD> \
-  --projection stores/market/projection.sqlite
+  --projection stores/market/projection.sqlite \
+  --mirror <local-mirror>
 ```
 
 両側は同じ as-of、同じ rules、同じ時刻、同じ application DB で走り、provider は cache-only に
-固定する。fetch できる provider が 1 つでもあると、release に欠けた行が裏で補われて「一致」が
+固定する。legacy sideはlive `market.sqlite`を読み直さず、projection identityが固定したreleaseから
+`SQLiteSnapshotSourceRef`を解決し、lake buildと同じsealed generationを使う。reportはsnapshotの
+key/digest/schema/capture時刻とrelease manifest digestを必須出力する。snapshot digest不一致は
+screeningを始める前に拒否する。fetch できる provider が 1 つでもあると、release に欠けた行が裏で補われて「一致」が
 間違った理由で成立するので、release 側に穴があれば実行そのものを失敗させる。
 
 値が違ってよいのは publication ごとに新しく発行される識別子（`run_revision_id`、`selection_id`、

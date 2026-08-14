@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,12 +48,14 @@ from baibai_engine.market.lake.reader import (
     LakeReadError,
     accepted_dataset,
     iter_partition_rows,
-    resolve_current_release,
     resolve_previous_release,
     resolve_release,
     resolve_release_ref,
     selected_partitions,
     verify_object,
+)
+from baibai_engine.market.lake.reader import (
+    resolve_current_release as _resolve_current_release_at,
 )
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
@@ -66,6 +68,10 @@ from baibai_engine.market.sqlite import open_connection
 _COMMIT = "b" * 40
 _OTHER_COMMIT = "c" * 40
 _BUILT_AT = datetime(2026, 8, 12, 3, 0, tzinfo=UTC)
+
+
+def resolve_current_release(source: object):
+    return _resolve_current_release_at(source, evaluated_at=_BUILT_AT)  # type: ignore[arg-type]
 
 
 @pytest.fixture(autouse=True)
@@ -375,6 +381,29 @@ class TestFixedRelease:
         first_manifest.write_bytes(first_manifest.read_bytes() + b"\n")
         with pytest.raises(LakeReadError, match="expected identity"):
             resolve_previous_release(LocalMirrorSource(lake.mirror))
+
+    def test_operational_current_rechecks_freshness_but_named_release_is_historical(
+        self, lake: Lake
+    ) -> None:
+        source = LocalMirrorSource(lake.mirror)
+        with pytest.raises(LakeReadError, match=r"operational policy.*freshness window"):
+            _resolve_current_release_at(
+                source,
+                evaluated_at=_BUILT_AT + timedelta(days=367),
+            )
+
+        pinned = resolve_release(
+            source,
+            lake.release_id,
+            manifest_sha256=_release_digest(lake.mirror, lake.release_id),
+        )
+        assert pinned.release_id == lake.release_id
+
+        weekend = _resolve_current_release_at(
+            source,
+            evaluated_at=_BUILT_AT + timedelta(days=3),
+        )
+        assert weekend.release_id == lake.release_id
 
     def test_release_manifest_digest_mismatch_fails_closed(self, lake: Lake) -> None:
         pointer_path = lake.mirror / current_l1_pointer_key()

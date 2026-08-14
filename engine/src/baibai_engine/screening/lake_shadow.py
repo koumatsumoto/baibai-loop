@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import io
 import os
-import shutil
 import sqlite3
 import uuid
 from collections.abc import Mapping, Sequence
@@ -31,11 +30,14 @@ import yaml
 
 from baibai_engine.foundation.yaml_io import safe_load
 from baibai_engine.market.lake.datasets import PILOT_DATASETS, LakeDataset
+from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef
+from baibai_engine.market.lake.objects import sha256_file
 from baibai_engine.market.lake.projection import (
     ProjectionDataset,
     ProjectionError,
     read_projection_identity,
 )
+from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snapshot
 
 from .cli.providers import ProviderBundle
 from .cli.query import select_command
@@ -65,6 +67,8 @@ class LakeShadowError(RuntimeError):
 class ShadowStoreReport:
     path: Path
     release_id: str
+    release_manifest_sha256: str
+    source_snapshot: SQLiteSnapshotSourceRef
     release_sourced_tables: tuple[str, ...]
     legacy_sourced_tables: tuple[str, ...]
     replaced_rows: Mapping[str, int]
@@ -86,6 +90,8 @@ class ParityDifference:
 class ScreeningParityReport:
     asof: str
     release_id: str
+    release_manifest_sha256: str
+    source_snapshot: SQLiteSnapshotSourceRef
     release_sourced_tables: tuple[str, ...]
     legacy_sourced_tables: tuple[str, ...]
     candidates_compared: int
@@ -117,6 +123,8 @@ class ScreeningParityReport:
             "kind": "lake_shadow_parity",
             "asof": self.asof,
             "release_id": self.release_id,
+            "release_manifest_sha256": self.release_manifest_sha256,
+            "source_snapshot": self.source_snapshot.model_dump(mode="json"),
             "matched": self.matched,
             "compared_nothing": self.compared_nothing,
             "release_sourced_tables": list(self.release_sourced_tables),
@@ -130,7 +138,12 @@ class ScreeningParityReport:
 
 
 def build_shadow_store(
-    *, legacy_sqlite: Path, projection: Path, destination: Path
+    *,
+    source_snapshot: Path,
+    source_snapshot_ref: SQLiteSnapshotSourceRef,
+    release_manifest_sha256: str,
+    projection: Path,
+    destination: Path,
 ) -> ShadowStoreReport:
     """Copy the legacy store and replace the migrated tables from the projection.
 
@@ -142,12 +155,18 @@ def build_shadow_store(
     identity = read_projection_identity(projection)
     if identity is None:
         raise ProjectionError(f"projection is absent or unreadable: {projection}")
+    if identity.source_release_manifest_sha256 != release_manifest_sha256:
+        raise LakeShadowError("projection and release manifest identities differ")
+    if sha256_file(source_snapshot) != source_snapshot_ref.sha256:
+        raise LakeShadowError("SQLite source snapshot digest does not match its manifest identity")
+    if validate_snapshot(source_snapshot) != source_snapshot_ref.schema_version:
+        raise LakeShadowError("SQLite source snapshot schema does not match its manifest identity")
     datasets = _projection_datasets(identity.datasets)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex}.part")
     replaced: dict[str, int] = {}
     try:
-        shutil.copyfile(legacy_sqlite, temporary)
+        create_snapshot(source_snapshot, temporary)
         with closing(sqlite3.connect(temporary, uri=True)) as connection:
             connection.execute(
                 "ATTACH DATABASE ? AS lake", (f"{projection.resolve().as_uri()}?mode=ro",)
@@ -169,6 +188,8 @@ def build_shadow_store(
     return ShadowStoreReport(
         path=destination,
         release_id=identity.source_release_id,
+        release_manifest_sha256=release_manifest_sha256,
+        source_snapshot=source_snapshot_ref,
         release_sourced_tables=tuple(sorted(replaced)),
         legacy_sourced_tables=legacy_tables,
         replaced_rows=replaced,
@@ -246,7 +267,9 @@ class ScreeningSideResult:
 def run_lake_shadow_parity(
     *,
     asof: date,
-    legacy_sqlite: Path,
+    source_snapshot: Path,
+    source_snapshot_ref: SQLiteSnapshotSourceRef,
+    release_manifest_sha256: str,
     projection: Path,
     workspace: Path,
     config: ScreeningConfig,
@@ -262,9 +285,11 @@ def run_lake_shadow_parity(
     lake_dir = workspace / "lake"
     legacy_dir.mkdir(parents=True, exist_ok=True)
     lake_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(legacy_sqlite, legacy_dir / "market.sqlite")
+    create_snapshot(source_snapshot, legacy_dir / "market.sqlite")
     shadow = build_shadow_store(
-        legacy_sqlite=legacy_sqlite,
+        source_snapshot=source_snapshot,
+        source_snapshot_ref=source_snapshot_ref,
+        release_manifest_sha256=release_manifest_sha256,
         projection=projection,
         destination=lake_dir / "market.sqlite",
     )
@@ -299,6 +324,8 @@ def run_lake_shadow_parity(
     return ScreeningParityReport(
         asof=asof.isoformat(),
         release_id=shadow.release_id,
+        release_manifest_sha256=shadow.release_manifest_sha256,
+        source_snapshot=shadow.source_snapshot,
         release_sourced_tables=shadow.release_sourced_tables,
         legacy_sourced_tables=shadow.legacy_sourced_tables,
         candidates_compared=len(_candidates(sides["legacy"].run)),

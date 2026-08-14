@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
 
@@ -40,6 +40,7 @@ from .models import (
     PartitionManifest,
     ReleaseManifest,
     load_lake_model_json,
+    validate_release_policy,
 )
 from .objects import LakeObjectCache, LakeObjectSource, sha256_bytes
 from .release import L1ReleasePointer
@@ -96,17 +97,28 @@ class FixedRelease:
             ) from None
 
 
-def resolve_current_release(source: LakeObjectSource) -> FixedRelease:
-    """Read the mutable pointer once and freeze what it names."""
+def resolve_current_release(
+    source: LakeObjectSource, *, evaluated_at: datetime
+) -> FixedRelease:
+    """Freeze current and require it to satisfy policy at the operational read time."""
 
     pointer = _read_current_pointer(source)
-    return _load_release(
+    release = _load_release(
         source,
         release_id=pointer.release_id,
         expected_manifest_sha256=pointer.manifest_sha256,
         previous_release_id=pointer.previous_release_id,
         previous_manifest_sha256=pointer.previous_manifest_sha256,
     )
+    try:
+        validate_release_policy(
+            release.manifest,
+            release.dataset_manifests,
+            evaluated_at=evaluated_at,
+        )
+    except ValueError as exc:
+        raise LakeReadError(f"L1 current release fails operational policy: {exc}") from None
+    return release
 
 
 def resolve_previous_release(source: LakeObjectSource) -> FixedRelease:
