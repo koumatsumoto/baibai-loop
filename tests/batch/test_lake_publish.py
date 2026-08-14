@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
+import subprocess
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
+from baibai_batch.storage import lake_publish as lake_publish_module
 from baibai_batch.storage.lake_publish import (
     AwsCliR2Store,
     LakeCASConflict,
@@ -15,13 +19,19 @@ from baibai_batch.storage.lake_publish import (
     publish_l1_release,
     publish_raw_archive,
 )
-from baibai_engine.market.lake.raw import RawArchiveMetadata, RawRetentionClass, archive_raw_file
+from baibai_engine.market.lake import models as lake_models
+from baibai_engine.market.lake.models import RawArchiveMetadata, load_lake_model_json
+from baibai_engine.market.lake.raw import (
+    RawRetentionClass,
+    archive_raw_file,
+    raw_source_ref,
+)
 from baibai_engine.market.lake.release import (
     L1ReleasePointer,
     canonical_json_bytes,
     create_l1_release,
 )
-from baibai_engine.market.lake.writer import export_legacy_sqlite
+from baibai_engine.market.lake.writer import capture_legacy_sqlite_snapshot, export_legacy_sqlite
 from baibai_engine.market.sqlite import open_connection
 
 
@@ -30,20 +40,28 @@ class _Value:
     body: bytes
     etag: str
     metadata: dict[str, str]
+    content_type: str
 
 
 class _MemoryStore:
     def __init__(self) -> None:
         self.values: dict[str, _Value] = {}
         self.conflict_pointer = False
+        self.get_keys: list[str] = []
 
     def head(self, key: str) -> RemoteObject | None:
         value = self.values.get(key)
         if value is None:
             return None
-        return RemoteObject(etag=value.etag, size=len(value.body), metadata=value.metadata)
+        return RemoteObject(
+            etag=value.etag,
+            size=len(value.body),
+            metadata=value.metadata,
+            content_type=value.content_type,
+        )
 
     def get_bytes(self, key: str) -> bytes:
+        self.get_keys.append(key)
         return self.values[key].body
 
     def put_file(
@@ -52,11 +70,11 @@ class _MemoryStore:
         path: Path,
         *,
         sha256: str,
+        content_md5: str,
         content_type: str,
         if_match: str | None = None,
         if_none_match: bool = False,
     ) -> RemoteObject:
-        del content_type
         current = self.values.get(key)
         if key.endswith("pointers/l1/current.json") and self.conflict_pointer:
             raise LakeCASConflict("injected")
@@ -66,10 +84,53 @@ class _MemoryStore:
             raise LakeCASConflict("stale")
         body = path.read_bytes()
         etag = hashlib.md5(body, usedforsecurity=False).hexdigest()  # nosec B324
-        self.values[key] = _Value(body=body, etag=etag, metadata={"sha256": sha256})
+        self.values[key] = _Value(
+            body=body,
+            etag=etag,
+            metadata={
+                "sha256": sha256,
+                "content-md5": content_md5,
+                "integrity": "content-md5-v1",
+            },
+            content_type=content_type,
+        )
         result = self.head(key)
         assert result is not None
         return result
+
+
+@pytest.fixture(autouse=True)
+def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        lake_publish_module,
+        "_utc_now",
+        lambda: datetime(2026, 1, 7, tzinfo=UTC),
+    )
+    datasets = tuple(
+        item.model_copy(
+            update={
+                "coverage_start_on_or_before": date.max,
+                "minimum_rows": 1,
+                "minimum_population_count": 1,
+            }
+        )
+        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+    )
+    monkeypatch.setattr(
+        lake_models,
+        "PILOT_RELEASE_POLICY",
+        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+    )
+
+
+def _add_short_sale_coverage(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """INSERT INTO source_coverage(
+             source, coverage_key, coverage_start, coverage_end,
+             fetched_at_utc, record_count, status, error
+           ) VALUES ('jquants_short_sale_reports', 'test:pilot', '2026-01-01',
+                     '2026-01-31', '2026-02-01T00:00:00+00:00', 1, 'ok', NULL)"""
+    )
 
 
 def _release(tmp_path: Path) -> tuple[Path, Path]:
@@ -78,22 +139,38 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
     connection.execute(
         "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', '2026-01-05', 1)"
     )
+    connection.execute(
+        """INSERT INTO jquants_short_sale_reports(
+             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
+             discretionary_investment_contractor_name, investment_fund_name, is_cancellation
+           ) VALUES ('2026-01-06', 0, '2026-01-05', '7203', 'Fund', '', '', 0)"""
+    )
+    _add_short_sale_coverage(connection)
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
-    dataset = export_legacy_sqlite(
-        dataset_name="jquants.daily_bars",
+    snapshot = capture_legacy_sqlite_snapshot(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
-        producer_git_commit="a" * 40,
-        build_id="build-1",
-        created_at=datetime(2026, 1, 6, tzinfo=UTC),
+        snapshot_id="release-snapshot",
     )
+    datasets = [
+        export_legacy_sqlite(
+            dataset_name=name,
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            source_snapshot_ref=snapshot.ref,
+            build_id=f"build-{index}",
+            created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        ).manifest_path
+        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
+    ]
     release_path, _ = create_l1_release(
-        dataset_manifest_paths=[dataset.manifest_path],
+        dataset_manifest_paths=datasets,
         mirror_root=mirror,
         release_id="release-1",
-        created_at=datetime(2026, 1, 6, tzinfo=UTC),
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
     )
     return mirror, release_path
 
@@ -113,10 +190,11 @@ def test_publish_uploads_immutable_graph_before_current_pointer(tmp_path) -> Non
         store=store,
     )
 
-    assert first.uploaded_objects == 3
+    assert first.uploaded_objects == 6
     assert second.uploaded_objects == 0
-    assert second.reused_objects == 3
+    assert second.reused_objects == 6
     assert "lake/pointers/l1/current.json" in store.values
+    assert set(store.get_keys) == {"lake/pointers/l1/current.json"}
 
 
 def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
@@ -132,7 +210,12 @@ def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
     store.values["lake/pointers/l1/current.json"] = _Value(
         body=original,
         etag="old-etag",
-        metadata={"sha256": hashlib.sha256(original).hexdigest()},
+        metadata={
+            "sha256": hashlib.sha256(original).hexdigest(),
+            "content-md5": "transport-proof",
+            "integrity": "content-md5-v1",
+        },
+        content_type="application/json",
     )
     store.conflict_pointer = True
 
@@ -206,8 +289,31 @@ def test_raw_metadata_rejects_a_non_raw_namespace(tmp_path) -> None:
     payload = metadata.model_dump(mode="json")
     payload["object_key"] = "lake/pointers/l1/current.json"
 
-    with pytest.raises(ValueError, match="object_key"):
-        RawArchiveMetadata.model_validate(payload)
+    with pytest.raises(ValueError, match="value_error"):
+        load_lake_model_json(json.dumps(payload), RawArchiveMetadata)
+
+
+def test_publish_rejects_local_graph_symlinks_outside_mirror(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("{}")
+    metadata_link = mirror / "metadata.json"
+    metadata_link.symlink_to(outside)
+
+    with pytest.raises(LakePublishError, match="escapes mirror root"):
+        publish_raw_archive(
+            mirror_root=mirror,
+            metadata_path=metadata_link,
+            store=_MemoryStore(),
+        )
+
+    with pytest.raises(LakePublishError, match="escapes mirror root"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=metadata_link,
+            store=_MemoryStore(),
+        )
 
 
 def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
@@ -216,12 +322,19 @@ def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
     connection.execute(
         "INSERT INTO jquants_daily_bars(ticker, traded_at, close) VALUES ('1301', '2026-01-05', 1)"
     )
+    connection.execute(
+        """INSERT INTO jquants_short_sale_reports(
+             disclosed_at, source_ordinal, calculated_at, ticker, short_seller_name,
+             discretionary_investment_contractor_name, investment_fund_name, is_cancellation
+           ) VALUES ('2026-01-06', 0, '2026-01-05', '7203', 'Fund', '', '', 0)"""
+    )
+    _add_short_sale_coverage(connection)
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
     source = tmp_path / "response.json.gz"
     source.write_bytes(b"provider-original")
-    archive_raw_file(
+    _, metadata_path, _ = archive_raw_file(
         source_path=source,
         mirror_root=mirror,
         provider="jquants",
@@ -231,18 +344,29 @@ def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
         retention_class=RawRetentionClass.PRESERVE,
         retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
     )
-    dataset = export_legacy_sqlite(
-        dataset_name="jquants.daily_bars",
+    snapshot = capture_legacy_sqlite_snapshot(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
-        producer_git_commit="a" * 40,
-        source_ingest_ids=("raw-release",),
-        build_id="raw-build",
+        snapshot_id="raw-release-snapshot",
     )
+    datasets = [
+        export_legacy_sqlite(
+            dataset_name=name,
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            raw_source_refs=(raw_source_ref(metadata_path),) if index == 1 else (),
+            source_snapshot_ref=snapshot.ref,
+            build_id=f"raw-build-{index}",
+            created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        ).manifest_path
+        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
+    ]
     release_path, _ = create_l1_release(
-        dataset_manifest_paths=[dataset.manifest_path],
+        dataset_manifest_paths=datasets,
         mirror_root=mirror,
         release_id="raw-release-1",
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
     )
     store = _MemoryStore()
 
@@ -252,7 +376,7 @@ def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
         store=store,
     )
 
-    assert report.uploaded_objects == 5
+    assert report.uploaded_objects == 8
 
 
 def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -> None:
@@ -267,14 +391,20 @@ def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -
              discretionary_investment_contractor_name, investment_fund_name, is_cancellation
            ) VALUES ('2026-01-06', 0, '2026-01-05', '7203', 'Fund', '', '', 0)"""
     )
+    _add_short_sale_coverage(connection)
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id="shared-release-snapshot",
+    )
     manifests: list[Path] = []
     for index, dataset in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1):
         source = tmp_path / f"response-{index}.json.gz"
         source.write_bytes(f"provider-original-{index}".encode())
-        archive_raw_file(
+        _, metadata_path, _ = archive_raw_file(
             source_path=source,
             mirror_root=mirror,
             provider="jquants",
@@ -290,14 +420,17 @@ def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -
                 sqlite_path=sqlite_path,
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
-                source_ingest_ids=("shared-run",),
+                raw_source_refs=(raw_source_ref(metadata_path),),
+                source_snapshot_ref=snapshot.ref,
                 build_id=f"shared-build-{index}",
+                created_at=datetime(2026, 1, 7, tzinfo=UTC),
             ).manifest_path
         )
     release_path, _ = create_l1_release(
         dataset_manifest_paths=manifests,
         mirror_root=mirror,
         release_id="shared-release",
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
     )
 
     report = publish_l1_release(
@@ -306,4 +439,179 @@ def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -
         store=_MemoryStore(),
     )
 
-    assert report.uploaded_objects == 9
+    assert report.uploaded_objects == 10
+
+
+def test_reuse_rejects_remote_integrity_metadata_change(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(
+        mirror_root=mirror,
+        release_manifest_path=release_path,
+        store=store,
+    )
+    key = next(key for key in store.values if key.endswith(".parquet"))
+    value = store.values[key]
+    value.metadata["sha256"] = "f" * 64
+
+    with pytest.raises(LakePublishError, match="remote object metadata postcondition"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=release_path,
+            store=store,
+        )
+
+
+def test_release_dataset_digest_mismatch_never_creates_pointer(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    manifest_path = next((mirror / "lake/manifests/datasets").glob("*/*.json"))
+    manifest_path.write_bytes(manifest_path.read_bytes() + b" ")
+    store = _MemoryStore()
+
+    with pytest.raises(LakePublishError, match="release and dataset manifest disagree"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=release_path,
+            store=store,
+        )
+
+    assert "lake/pointers/l1/current.json" not in store.values
+
+
+def test_same_release_id_requires_exact_pointer_identity(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(
+        mirror_root=mirror,
+        release_manifest_path=release_path,
+        store=store,
+    )
+    key = "lake/pointers/l1/current.json"
+    wrong = canonical_json_bytes(
+        L1ReleasePointer(
+            release_id="release-1",
+            manifest_key="lake/manifests/releases/l1/release-1.json",
+            manifest_sha256="f" * 64,
+        )
+    )
+    store.values[key] = _Value(
+        body=wrong,
+        etag="wrong-pointer",
+        metadata={
+            "sha256": hashlib.sha256(wrong).hexdigest(),
+            "content-md5": "transport-proof",
+            "integrity": "content-md5-v1",
+        },
+        content_type="application/json",
+    )
+
+    with pytest.raises(LakePublishError, match="different identity"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=release_path,
+            store=store,
+        )
+
+
+def test_success_response_with_missing_remote_object_stops_before_pointer(
+    tmp_path: Path,
+) -> None:
+    mirror, release_path = _release(tmp_path)
+
+    class DroppingStore(_MemoryStore):
+        def put_file(self, key: str, path: Path, **kwargs: object) -> RemoteObject:
+            result = super().put_file(key, path, **kwargs)  # type: ignore[arg-type]
+            self.values.pop(key)
+            return result
+
+    store = DroppingStore()
+    with pytest.raises(LakePublishError, match="metadata postcondition"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=release_path,
+            store=store,
+        )
+    assert "lake/pointers/l1/current.json" not in store.values
+
+
+def test_pointer_precondition_rechecks_the_whole_remote_graph(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+
+    class DropEarlierStore(_MemoryStore):
+        first_key: str | None = None
+        puts = 0
+
+        def put_file(self, key: str, path: Path, **kwargs: object) -> RemoteObject:
+            result = super().put_file(key, path, **kwargs)  # type: ignore[arg-type]
+            if not key.endswith("pointers/l1/current.json"):
+                self.puts += 1
+                if self.first_key is None:
+                    self.first_key = key
+                elif self.puts == 3:
+                    assert self.first_key is not None
+                    self.values.pop(self.first_key)
+            return result
+
+    store = DropEarlierStore()
+    with pytest.raises(LakePublishError, match="metadata postcondition"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=release_path,
+            store=store,
+        )
+    assert "lake/pointers/l1/current.json" not in store.values
+
+
+def test_local_graph_mutation_after_validation_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mirror, release_path = _release(tmp_path)
+    original = lake_publish_module._ensure_immutable
+    mutated = False
+
+    def mutate_then_upload(*args: object, **kwargs: object) -> bool:
+        nonlocal mutated
+        path = kwargs["path"]
+        assert isinstance(path, Path)
+        if not mutated and path.suffix == ".parquet":
+            path.write_bytes(path.read_bytes() + b"mutation")
+            mutated = True
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(lake_publish_module, "_ensure_immutable", mutate_then_upload)
+    with pytest.raises(LakePublishError, match="local upload source differs"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=release_path,
+            store=_MemoryStore(),
+        )
+
+
+def test_r2_adapter_classifies_409_and_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = AwsCliR2Store(
+        bucket="integration-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "not-logged",
+            "R2_SECRET_ACCESS_KEY": "not-logged",
+        },
+    )
+    conflict = subprocess.CompletedProcess(
+        args=("aws",),
+        returncode=1,
+        stdout="",
+        stderr="ConditionalRequestConflict (409)",
+    )
+    monkeypatch.setattr(lake_publish_module.subprocess, "run", lambda *args, **kwargs: conflict)
+    with pytest.raises(LakeCASConflict):
+        store._run("put-object", "--key", "test")
+
+    def timeout(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del args, kwargs
+        raise subprocess.TimeoutExpired(cmd=("aws",), timeout=120)
+
+    monkeypatch.setattr(lake_publish_module.subprocess, "run", timeout)
+    with pytest.raises(LakePublishError, match="timed out"):
+        store._run("put-object", "--key", "test")

@@ -7,19 +7,40 @@ import json
 import shutil
 import sqlite3
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from types import MappingProxyType
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from baibai_engine.market.sqlite.schema import SQLITE_SCHEMA_VERSION
+from baibai_engine.market.sqlite.snapshot import create_snapshot, validate_snapshot
 
-from .datasets import LakeDataset, require_pilot_dataset
-from .keys import canonical_object_key, dataset_manifest_key
-from .models import DatasetManifest, LakeObject, ManifestTotals, PartitionManifest
+from ..sqlite.coverage import daily_bars_covered_by_data, range_covered
+from .datasets import PILOT_DATASETS, LakeDataset, require_pilot_dataset
+from .immutable import ImmutableInstallError, install_immutable_bytes, install_immutable_file
+from .keys import (
+    canonical_object_key,
+    dataset_manifest_key,
+    sqlite_snapshot_object_key,
+    validate_identifier,
+)
+from .models import (
+    CoverageStatus,
+    DatasetManifest,
+    LakeObject,
+    ManifestTotals,
+    PartitionManifest,
+    RawIngestSourceRef,
+    SourceRef,
+    SQLiteSnapshotSourceRef,
+    canonical_lake_model_bytes,
+    load_lake_model_json,
+)
+from .sources import resolve_source_ref, sha256_file
 
 _ROW_GROUP_SIZE = 65_536
 _PARQUET_VERSION = "2.6"
@@ -47,10 +68,69 @@ class LakeBuildPlan:
 
 
 @dataclass(frozen=True)
+class LakePilotBuildReport:
+    snapshot: LegacySQLiteSnapshot
+    datasets: Mapping[str, LakeBuildReport]
+
+
+@dataclass(frozen=True)
+class LegacySQLiteSnapshot:
+    path: Path
+    ref: SQLiteSnapshotSourceRef
+
+
+@dataclass(frozen=True)
 class _BuiltPartition:
     month: tuple[int, int]
     staged_path: Path
     manifest: PartitionManifest
+
+
+def capture_legacy_sqlite_snapshot(
+    *,
+    sqlite_path: Path,
+    mirror_root: Path,
+    snapshot_id: str | None = None,
+) -> LegacySQLiteSnapshot:
+    """Capture committed main/WAL state once and install a content-addressed seed."""
+    actual_id = snapshot_id or f"snapshot-{uuid.uuid4().hex}"
+    validate_identifier(actual_id, label="snapshot_id")
+    workspace = _workspace_path(mirror_root, "snapshot", actual_id)
+    if workspace.exists():
+        raise LakeBuildError(f"snapshot workspace already exists: {actual_id}")
+    workspace.mkdir(parents=True)
+    temporary = workspace / "snapshot.sqlite"
+    try:
+        required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
+        if shutil.disk_usage(workspace).free < required:
+            raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
+        create_snapshot(sqlite_path, temporary)
+        schema_version = validate_snapshot(temporary)
+        if schema_version != SQLITE_SCHEMA_VERSION:
+            raise LakeBuildError(
+                f"legacy SQLite schema is {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
+            )
+        digest = sha256_file(temporary)
+        key = sqlite_snapshot_object_key(
+            snapshot_id=actual_id,
+            schema_version=schema_version,
+            content_sha256=digest,
+        )
+        target = _mirror_path(mirror_root, key)
+        install_immutable_file(target, temporary, expected_sha256=digest)
+        ref = SQLiteSnapshotSourceRef(
+            kind="sqlite_snapshot",
+            source_id=actual_id,
+            key=key,
+            sha256=digest,
+            schema_version=schema_version,
+        )
+        resolve_source_ref(mirror_root, ref)
+        return LegacySQLiteSnapshot(path=target, ref=ref)
+    except (OSError, sqlite3.Error, ImmutableInstallError) as exc:
+        raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
 
 
 def export_legacy_sqlite(
@@ -62,7 +142,8 @@ def export_legacy_sqlite(
     start: date | None = None,
     end: date | None = None,
     base_manifest_path: Path | None = None,
-    source_ingest_ids: Sequence[str] = (),
+    raw_source_refs: Sequence[RawIngestSourceRef] = (),
+    source_snapshot_ref: SQLiteSnapshotSourceRef | None = None,
     build_id: str | None = None,
     created_at: datetime | None = None,
 ) -> LakeBuildReport:
@@ -71,26 +152,32 @@ def export_legacy_sqlite(
         raise LakeBuildError("start and end must be supplied together")
     if start is not None and end is not None and start > end:
         raise LakeBuildError("start must not be after end")
-    if not sqlite_path.is_file():
-        raise LakeBuildError(f"legacy SQLite does not exist: {sqlite_path}")
     dataset = require_pilot_dataset(dataset_name)
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
-    source_sha256 = _sha256(sqlite_path)
-    source_ids = tuple(source_ingest_ids) or (
-        f"legacy-sqlite-v{SQLITE_SCHEMA_VERSION}-sha256-{source_sha256}",
-    )
     transform = _transform_fingerprint(dataset)
     actual_build_id = build_id or (
         f"{now:%Y%m%dT%H%M%SZ}-legacy-{uuid.uuid4().hex[:8]}-{transform[-12:]}"
     )
-    staging_root = mirror_root / "lake" / "staging" / actual_build_id
-    quarantine_root = mirror_root / "lake" / "quarantine" / actual_build_id
+    validate_identifier(actual_build_id, label="build_id")
+    staging_root = _workspace_path(mirror_root, "staging", actual_build_id)
+    quarantine_root = _workspace_path(mirror_root, "quarantine", actual_build_id)
     if staging_root.exists() or quarantine_root.exists():
         raise LakeBuildError(f"build workspace already exists: {actual_build_id}")
+    snapshot = (
+        capture_legacy_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root)
+        if source_snapshot_ref is None
+        else LegacySQLiteSnapshot(
+            path=resolve_source_ref(mirror_root, source_snapshot_ref),
+            ref=source_snapshot_ref,
+        )
+    )
+    for source in raw_source_refs:
+        resolve_source_ref(mirror_root, source)
+    current_sources: tuple[SourceRef, ...] = (snapshot.ref, *raw_source_refs)
     staging_root.mkdir(parents=True)
 
     try:
-        with _open_immutable(sqlite_path) as connection:
+        with _open_immutable(snapshot.path) as connection:
             _validate_sqlite_contract(connection, dataset)
             base = _load_base_manifest(base_manifest_path, dataset, transform=transform)
             partitions = _base_partitions(base)
@@ -119,12 +206,7 @@ def export_legacy_sqlite(
                     month=month,
                     staging_root=staging_root,
                     rows=rows,
-                    source_ingest_ids=tuple(
-                        sorted(
-                            set(source_ids)
-                            | set(previous.source_ingest_ids if previous is not None else ())
-                        )
-                    ),
+                    sources=current_sources,
                 )
                 built.append(item)
                 partitions[month] = item.manifest
@@ -136,15 +218,31 @@ def export_legacy_sqlite(
             if not partitions:
                 raise LakeBuildError("dataset manifest must contain at least one partition")
             data_as_of = _data_as_of(connection, dataset, months=partitions)
+            coverage_status, coverage_start, population_count = _coverage_assessment(
+                connection, dataset
+            )
 
-        ordered = tuple(partitions[key] for key in sorted(partitions))
+        # Every partition was checked against this sealed snapshot below. Refresh
+        # reused lineage too, so a release names one coherent source generation.
+        ordered = tuple(
+            partitions[key].model_copy(
+                update={
+                    "sources": (
+                        snapshot.ref,
+                        *(
+                            source
+                            for source in partitions[key].sources
+                            if source.kind != "sqlite_snapshot"
+                        ),
+                    )
+                }
+            )
+            for key in sorted(partitions)
+        )
         totals = ManifestTotals(
             objects=sum(len(item.objects) for item in ordered),
             bytes=sum(obj.bytes for item in ordered for obj in item.objects),
             rows=sum(obj.rows for item in ordered for obj in item.objects),
-        )
-        manifest_source_ids = tuple(
-            sorted({source_id for item in ordered for source_id in item.source_ingest_ids})
         )
         manifest = DatasetManifest(
             manifest_version=1,
@@ -152,22 +250,32 @@ def export_legacy_sqlite(
             layer="l1_canonical",
             contract_version=dataset.contract_version,
             build_id=actual_build_id,
-            source_ingest_ids=manifest_source_ids,
-            source_release_ids=(),
+            sources=(),
             producer_git_commit=producer_git_commit,
             transform_fingerprint=transform,
             created_at=now,
+            coverage_start=coverage_start,
             data_as_of=data_as_of,
+            population_count=population_count,
+            coverage_status=coverage_status,
             partition_by=dataset.partition_by,
             partitions=ordered,
             totals=totals,
         )
         created_objects = _promote_partitions(mirror_root, built)
-        manifest_path = mirror_root / dataset_manifest_key(
-            dataset=dataset.name,
-            build_id=actual_build_id,
+        validate_legacy_parity(
+            sqlite_path=snapshot.path,
+            mirror_root=mirror_root,
+            manifest=manifest,
         )
-        _write_immutable(manifest_path, _json_bytes(manifest))
+        manifest_path = _mirror_path(
+            mirror_root,
+            dataset_manifest_key(
+                dataset=dataset.name,
+                build_id=actual_build_id,
+            ),
+        )
+        _write_immutable(manifest_path, canonical_lake_model_bytes(manifest))
         shutil.rmtree(staging_root)
         return LakeBuildReport(
             manifest_path=manifest_path,
@@ -185,6 +293,38 @@ def export_legacy_sqlite(
         raise LakeBuildError(str(exc)) from exc
 
 
+def export_pilot_legacy(
+    *,
+    sqlite_path: Path,
+    mirror_root: Path,
+    producer_git_commit: str,
+    base_manifest_paths: Mapping[str, Path] | None = None,
+    created_at: datetime | None = None,
+) -> LakePilotBuildReport:
+    """Export both pilot datasets from one sealed SQLite generation."""
+    bases = dict(base_manifest_paths or {})
+    unknown = set(bases) - set(PILOT_DATASETS)
+    if unknown:
+        raise LakeBuildError(f"unsupported base manifest datasets: {sorted(unknown)}")
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror_root,
+    )
+    reports = {
+        dataset_name: export_legacy_sqlite(
+            dataset_name=dataset_name,
+            sqlite_path=sqlite_path,
+            mirror_root=mirror_root,
+            producer_git_commit=producer_git_commit,
+            base_manifest_path=bases.get(dataset_name),
+            source_snapshot_ref=snapshot.ref,
+            created_at=created_at,
+        )
+        for dataset_name in sorted(PILOT_DATASETS)
+    }
+    return LakePilotBuildReport(snapshot=snapshot, datasets=MappingProxyType(reports))
+
+
 def validate_legacy_parity(
     *,
     sqlite_path: Path,
@@ -192,15 +332,19 @@ def validate_legacy_parity(
     manifest: DatasetManifest,
     months: Iterable[tuple[int, int]] | None = None,
 ) -> None:
-    """Require exact PK, value, row-count, and partition coverage parity."""
+    """Require full exact parity; a requested range never weakens carried graph checks."""
     dataset = require_pilot_dataset(manifest.dataset)
-    selected = set(months) if months is not None else None
+    del months
     with _open_immutable(sqlite_path) as connection:
         _validate_sqlite_contract(connection, dataset)
+        source_months = set(_selected_months(connection, dataset, start=None, end=None))
+        manifest_months = {
+            (int(item.values["year"]), int(item.values["month"])) for item in manifest.partitions
+        }
+        if source_months != manifest_months:
+            raise LakeBuildError("SQLite and manifest month inventories differ")
         for partition in manifest.partitions:
             month = (int(partition.values["year"]), int(partition.values["month"]))
-            if selected is not None and month not in selected:
-                continue
             rows = _month_rows(connection, dataset, month)
             if len(partition.objects) != 1:
                 raise LakeBuildError("pilot partition must contain exactly one object")
@@ -239,7 +383,7 @@ def _build_month(
     month: tuple[int, int],
     staging_root: Path,
     rows: Sequence[tuple[object, ...]],
-    source_ingest_ids: tuple[str, ...],
+    sources: tuple[SourceRef, ...],
 ) -> _BuiltPartition:
     table = pa.Table.from_pylist(
         [dict(zip((column.name for column in dataset.columns), row, strict=True)) for row in rows],
@@ -272,7 +416,6 @@ def _build_month(
     primary_keys = [tuple(str(row[index]) for index in _pk_indexes(dataset)) for row in rows]
     lake_object = LakeObject(
         key=object_key,
-        etag=_md5(staged),
         sha256=content_sha256,
         bytes=staged.stat().st_size,
         rows=len(rows),
@@ -292,7 +435,7 @@ def _build_month(
         manifest=PartitionManifest(
             values={"year": month[0], "month": month[1]},
             objects=(lake_object,),
-            source_ingest_ids=source_ingest_ids,
+            sources=sources,
             source_state_sha256=_source_state_sha256(connection, dataset, month, rows),
         ),
     )
@@ -371,6 +514,45 @@ def _source_state_sha256(
         separators=(",", ":"),
     ).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def _coverage_assessment(
+    connection: sqlite3.Connection, dataset: LakeDataset
+) -> tuple[CoverageStatus, date, int]:
+    """Derive completeness from the authority defined for the legacy source."""
+    bounds = connection.execute(
+        f"SELECT MIN({dataset.date_column}), MAX({dataset.date_column}) "  # nosec B608
+        f"FROM {dataset.sqlite_table}"  # nosec B608
+    ).fetchone()
+    if bounds is None or bounds[0] is None or bounds[1] is None:
+        raise LakeBuildError(f"{dataset.name} has no coverage bounds")
+    start = date.fromisoformat(str(bounds[0]))
+    end = date.fromisoformat(str(bounds[1]))
+    population_count = int(
+        connection.execute(
+            f"SELECT COUNT(DISTINCT ticker) FROM {dataset.sqlite_table}"  # nosec B608
+        ).fetchone()[0]
+    )
+    if population_count <= 0:
+        raise LakeBuildError(f"{dataset.name} has no ticker population")
+    if dataset.name == "jquants.daily_bars":
+        status: CoverageStatus = (
+            "complete" if daily_bars_covered_by_data(connection, start, end) else "partial"
+        )
+        return status, start, population_count
+    if dataset.name == "jquants.short_sale_reports":
+        has_non_ok = connection.execute(
+            "SELECT 1 FROM source_coverage WHERE source = ? "
+            "AND coverage_start <= ? AND coverage_end >= ? AND status != 'ok' LIMIT 1",
+            (dataset.sqlite_table, end.isoformat(), start.isoformat()),
+        ).fetchone()
+        if has_non_ok is not None:
+            return "partial", start, population_count
+        status = (
+            "complete" if range_covered(connection, dataset.sqlite_table, start, end) else "partial"
+        )
+        return status, start, population_count
+    raise LakeBuildError(f"coverage authority is not defined for {dataset.name}")
 
 
 def _validate_parquet(
@@ -470,7 +652,7 @@ def _load_base_manifest(
     if path is None:
         return None
     try:
-        value = DatasetManifest.model_validate_json(path.read_bytes())
+        value = load_lake_model_json(path.read_bytes(), DatasetManifest)
     except Exception as exc:
         raise LakeBuildError(f"invalid base dataset manifest: {path}: {exc}") from exc
     if (
@@ -501,14 +683,16 @@ def _base_partitions(
 def _promote_partitions(mirror_root: Path, built: Sequence[_BuiltPartition]) -> int:
     created = 0
     for item in built:
-        target = mirror_root / item.manifest.objects[0].key
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            if _sha256(target) != item.manifest.objects[0].sha256:
-                raise LakeBuildError(f"content-addressed key collision: {target}")
-            continue
-        item.staged_path.replace(target)
-        created += 1
+        target = _mirror_path(mirror_root, item.manifest.objects[0].key)
+        try:
+            if install_immutable_file(
+                target,
+                item.staged_path,
+                expected_sha256=item.manifest.objects[0].sha256,
+            ):
+                created += 1
+        except ImmutableInstallError as exc:
+            raise LakeBuildError(f"content-addressed key collision: {target}") from exc
     return created
 
 
@@ -548,6 +732,10 @@ def _transform_fingerprint(dataset: LakeDataset) -> str:
         "row_group_size": _ROW_GROUP_SIZE,
         "source_kind": "legacy_sqlite_import",
         "writer": f"pyarrow-{pa.__version__}",
+        "implementation_sha256": {
+            name: sha256_file(Path(__file__).with_name(name))
+            for name in ("datasets.py", "writer.py")
+        },
     }
     payload = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
@@ -561,31 +749,34 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _md5(path: Path) -> str:
-    digest = hashlib.md5(usedforsecurity=False)  # nosec B324 - R2 single-part ETag parity only.
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _json_bytes(model: DatasetManifest) -> bytes:
-    return (
-        json.dumps(
-            model.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        + b"\n"
-    )
-
-
 def _write_immutable(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with path.open("xb") as target:
-            target.write(payload)
-    except FileExistsError:
-        if path.read_bytes() != payload:
-            raise LakeBuildError(f"immutable manifest key already differs: {path}") from None
+        install_immutable_bytes(
+            path,
+            payload,
+            validate=lambda value: load_lake_model_json(value, DatasetManifest),
+        )
+    except ImmutableInstallError as exc:
+        raise LakeBuildError(str(exc)) from exc
+
+
+def _workspace_path(mirror_root: Path, area: str, identifier: str) -> Path:
+    root = mirror_root.resolve()
+    parent = root / "lake" / area
+    if parent.exists() and parent.is_symlink():
+        raise LakeBuildError(f"lake {area} workspace cannot be a symlink")
+    resolved_parent = parent.resolve()
+    if not resolved_parent.is_relative_to(root):
+        raise LakeBuildError(f"lake {area} workspace escapes the mirror")
+    path = (resolved_parent / identifier).resolve()
+    if not path.is_relative_to(resolved_parent):
+        raise LakeBuildError(f"lake {area} workspace escapes the mirror")
+    return path
+
+
+def _mirror_path(mirror_root: Path, key: str) -> Path:
+    root = mirror_root.resolve()
+    path = (root / key).resolve()
+    if not path.is_relative_to(root):
+        raise LakeBuildError("lake object escapes mirror root")
+    return path

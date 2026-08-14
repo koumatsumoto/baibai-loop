@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import io
 import sqlite3
-from datetime import UTC, datetime
+from collections.abc import Iterator
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 from tests.helpers.screening_run_fixture import ASOF, build_screening_market_store
 
 from baibai_engine.foundation.time import JST
+from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.duck import lake_session
 from baibai_engine.market.lake.keys import current_l1_pointer_key
 from baibai_engine.market.lake.objects import LakeObjectCache, LocalMirrorSource
@@ -19,7 +21,7 @@ from baibai_engine.market.lake.release import (
     canonical_json_bytes,
     create_l1_release,
 )
-from baibai_engine.market.lake.writer import export_legacy_sqlite
+from baibai_engine.market.lake.writer import capture_legacy_sqlite_snapshot, export_legacy_sqlite
 from baibai_engine.screening.config import ScreeningConfig
 from baibai_engine.screening.lake_shadow import (
     LakeShadowError,
@@ -39,18 +41,41 @@ _RELEASE = "release-shadow"
 
 
 @pytest.fixture(scope="module")
-def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """One frozen store, its release, and a projection of that release."""
+
+    datasets = tuple(
+        item.model_copy(
+            update={
+                "coverage_start_on_or_before": date.max,
+                "minimum_rows": 1,
+                "minimum_population_count": 1,
+            }
+        )
+        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+    )
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(
+        lake_models,
+        "PILOT_RELEASE_POLICY",
+        lake_models.PILOT_RELEASE_POLICY.model_copy(update={"datasets": datasets}),
+    )
 
     root = tmp_path_factory.mktemp("shadow")
     sqlite_path = build_screening_market_store(root / "market.sqlite")
     mirror = root / "mirror"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id="snapshot-shadow",
+    )
     manifests = [
         export_legacy_sqlite(
             dataset_name=name,
             sqlite_path=sqlite_path,
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
+            source_snapshot_ref=snapshot.ref,
             build_id=f"build-{name.replace('.', '-')}",
             created_at=_CREATED_AT,
         ).manifest_path
@@ -84,7 +109,10 @@ def frozen_lake(tmp_path_factory: pytest.TempPathFactory) -> Path:
             producer_git_commit=_COMMIT,
             built_at=_CREATED_AT,
         )
-    return root
+    try:
+        yield root
+    finally:
+        patcher.undo()
 
 
 class TestShadowStore:

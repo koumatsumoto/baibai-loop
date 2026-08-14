@@ -257,8 +257,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       manifest key / dataset manifestとrelease entryの不一致 / 未受入contract version /
       object digest・byte数・row数・Arrow schemaの不一致 / 未publishのmonth要求 / path
       traversalをそれぞれfail closeにするnegative testを持つか。projectionは完全一致でだけ
-      再利用し、削除・破損・partialから再構築でき、一時fileが公開されないことと、
+      再利用し、削除・same-row value mutation・column/index mutation・破損・partialから再構築でき、
+      同一directoryのdurable atomic replace以外では公開しないことと、
       credentialがSQL文・例外・metadataへ出ないことをtestで固定したか
+- [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する
+      history boundary・row floor・population floorをrelease時に再検証するか。新鮮な1日1row、
+      leading history欠損、大幅なrow/population regressionをcurrent候補にしないnegative testがあるか
 - [ ] task-list validatorを変更する場合、schema違反のstatus・実在しないcalendar date・重複`task_id`をそれぞれnegative fixtureで拒否し、`task_id`一意性以外のcross-field制約や遷移監査を追加していないか
 - [ ] policy literalのdrift gateを追加・変更する場合、正本の値からpatternを導出し、正本doc/codeを
       除外し、桁prefixと単位違い（円 / 株 / 件）のnegative testを持つか
@@ -310,6 +314,13 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       全writerがdownload時のR2 ETagをbackupと最終PutObjectの条件へ渡し、手動publish後に
       stale daily writerが到着する逆順と最後のversion確認後のraceもprecondition failureで
       no-overwriteになるnegative testを持つか
+- [ ] lakeのmanifest / pointer / pin JSONは共通strict parserだけを通し、rootとnestedのduplicate
+      keyを拒否し、parse前のwire size上限を持ち、validation errorへpayload値を展開していないか。
+      logical manifestからR2 ETagを
+      分離し、nested mappingをparse後に変更できないか。lineageはtyped `SourceRef`でsource kind・
+      key・digest・versionを検証し、magic prefixや架空releaseを使っていないか。production releaseは
+      profileごとのrequired dataset・contract・coverage・trusted clock基準のfreshness/skew・manifest
+      budgetを満たすか
 - [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
       no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」
       無音の失敗になる。retraction を入れたら、store 書き換え（`trim_before_first` /

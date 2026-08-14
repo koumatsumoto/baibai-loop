@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import shutil
 import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from baibai_engine.market.lake import duck as duck_module
+from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.datasets import JQUANTS_DAILY_BARS, JQUANTS_SHORT_SALE_REPORTS
 from baibai_engine.market.lake.duck import (
     LakeCredentialError,
@@ -23,7 +29,7 @@ from baibai_engine.market.lake.keys import (
     current_l1_pointer_key,
     release_manifest_key,
 )
-from baibai_engine.market.lake.models import DatasetManifest, LakeObject
+from baibai_engine.market.lake.models import DatasetManifest, L1ReleaseSourceRef, LakeObject
 from baibai_engine.market.lake.objects import (
     LakeObjectCache,
     LakeObjectError,
@@ -43,7 +49,9 @@ from baibai_engine.market.lake.reader import (
     accepted_dataset,
     iter_partition_rows,
     resolve_current_release,
+    resolve_previous_release,
     resolve_release,
+    resolve_release_ref,
     selected_partitions,
     verify_object,
 )
@@ -52,12 +60,33 @@ from baibai_engine.market.lake.release import (
     canonical_json_bytes,
     create_l1_release,
 )
-from baibai_engine.market.lake.writer import export_legacy_sqlite
+from baibai_engine.market.lake.writer import capture_legacy_sqlite_snapshot, export_legacy_sqlite
 from baibai_engine.market.sqlite import open_connection
 
 _COMMIT = "b" * 40
 _OTHER_COMMIT = "c" * 40
 _BUILT_AT = datetime(2026, 8, 12, 3, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    datasets = tuple(
+        item.model_copy(
+            update={
+                "coverage_start_on_or_before": date.max,
+                "minimum_rows": 1,
+                "minimum_population_count": 1,
+            }
+        )
+        for item in lake_models.PILOT_RELEASE_POLICY.datasets
+    )
+    monkeypatch.setattr(
+        lake_models,
+        "PILOT_RELEASE_POLICY",
+        lake_models.PILOT_RELEASE_POLICY.model_copy(
+            update={"datasets": datasets, "max_dataset_age_days": 366}
+        ),
+    )
 
 
 @dataclass
@@ -90,8 +119,16 @@ def _market_store(path: Path) -> Path:
         [
             ("1301", "2026-01-05", 100.0, 1000.0),
             ("7203", "2026-01-05", 200.0, 2000.0),
+            ("1301", "2026-01-20", 105.0, 1100.0),
             ("1301", "2026-02-02", 110.0, 1200.0),
         ],
+    )
+    connection.execute(
+        """INSERT INTO source_coverage(
+             source, coverage_key, coverage_start, coverage_end,
+             fetched_at_utc, record_count, status, error
+           ) VALUES ('jquants_short_sale_reports', 'test:pilot', '2026-01-01',
+                     '2026-02-28', '2026-03-01T00:00:00+00:00', 2, 'ok', NULL)"""
     )
     connection.executemany(
         """INSERT INTO jquants_short_sale_reports(
@@ -110,27 +147,41 @@ def _market_store(path: Path) -> Path:
 
 
 def _publish_pointer(mirror: Path, release_id: str, manifest_path: Path) -> None:
-    import hashlib
-
+    target = mirror / current_l1_pointer_key()
+    previous = (
+        L1ReleasePointer.model_validate_json(target.read_bytes()) if target.is_file() else None
+    )
     pointer = L1ReleasePointer(
         release_id=release_id,
         manifest_key=manifest_path.relative_to(mirror).as_posix(),
         manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        previous_release_id=None if previous is None else previous.release_id,
+        previous_manifest_sha256=None if previous is None else previous.manifest_sha256,
     )
-    target = mirror / current_l1_pointer_key()
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(canonical_json_bytes(pointer))
+
+
+def _release_digest(mirror: Path, release_id: str) -> str:
+    path = mirror / release_manifest_key(release_id=release_id)
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
     sqlite_path = _market_store(root / "market.sqlite")
     mirror = root / "mirror"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id=f"snapshot-{release_id}",
+    )
     manifests = [
         export_legacy_sqlite(
             dataset_name=name,
             sqlite_path=sqlite_path,
             mirror_root=mirror,
             producer_git_commit=_COMMIT,
+            source_snapshot_ref=snapshot.ref,
             build_id=f"build-{name.replace('.', '-')}-{release_id}",
             created_at=_BUILT_AT,
         ).manifest_path
@@ -279,10 +330,51 @@ class TestFixedRelease:
     def test_named_release_resolution_does_not_read_the_pointer(self, lake: Lake) -> None:
         recording = RecordingSource(LocalMirrorSource(lake.mirror))
 
-        release = resolve_release(recording, lake.release_id)
+        release = resolve_release(
+            recording,
+            lake.release_id,
+            manifest_sha256=_release_digest(lake.mirror, lake.release_id),
+        )
 
         assert release.release_id == lake.release_id
         assert current_l1_pointer_key() not in recording.reads
+
+    def test_named_release_requires_the_pinned_manifest_digest(self, lake: Lake) -> None:
+        with pytest.raises(LakeReadError, match="expected identity"):
+            resolve_release(
+                LocalMirrorSource(lake.mirror),
+                lake.release_id,
+                manifest_sha256="0" * 64,
+            )
+
+    def test_typed_release_ref_resolves_the_digest_bound_release(self, lake: Lake) -> None:
+        digest = _release_digest(lake.mirror, lake.release_id)
+        reference = L1ReleaseSourceRef(
+            kind="l1_release",
+            source_id=lake.release_id,
+            key=release_manifest_key(release_id=lake.release_id),
+            sha256=digest,
+            manifest_version=1,
+        )
+
+        release = resolve_release_ref(LocalMirrorSource(lake.mirror), reference)
+
+        assert release.release_id == lake.release_id
+        assert release.manifest_sha256 == digest
+
+    def test_previous_release_uses_the_digest_paired_on_current(self, lake: Lake) -> None:
+        first_digest = _release_digest(lake.mirror, lake.release_id)
+        _build_lake_second_release(lake)
+
+        previous = resolve_previous_release(LocalMirrorSource(lake.mirror))
+
+        assert previous.release_id == lake.release_id
+        assert previous.manifest_sha256 == first_digest
+
+        first_manifest = lake.mirror / release_manifest_key(release_id=lake.release_id)
+        first_manifest.write_bytes(first_manifest.read_bytes() + b"\n")
+        with pytest.raises(LakeReadError, match="expected identity"):
+            resolve_previous_release(LocalMirrorSource(lake.mirror))
 
     def test_release_manifest_digest_mismatch_fails_closed(self, lake: Lake) -> None:
         pointer_path = lake.mirror / current_l1_pointer_key()
@@ -293,13 +385,91 @@ class TestFixedRelease:
         with pytest.raises(LakeReadError, match="digest does not match"):
             resolve_current_release(LocalMirrorSource(lake.mirror))
 
+    def test_pointer_duplicate_field_is_rejected_by_the_reader(self, lake: Lake) -> None:
+        pointer_path = lake.mirror / current_l1_pointer_key()
+        payload = pointer_path.read_bytes().replace(
+            b'"release_id":"release-one"',
+            b'"release_id":"release-one","release_id":"release-other"',
+        )
+        pointer_path.write_bytes(payload)
+
+        with pytest.raises(LakeReadError, match="current pointer is invalid"):
+            resolve_current_release(LocalMirrorSource(lake.mirror))
+
+    def test_pointer_validation_error_does_not_render_input_values(self, lake: Lake) -> None:
+        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer_path.write_bytes(
+            pointer_path.read_bytes().replace(b"{", b'{"secret":"SENTINEL-DO-NOT-LOG",', 1)
+        )
+
+        with pytest.raises(LakeReadError, match="current pointer is invalid") as failure:
+            resolve_current_release(LocalMirrorSource(lake.mirror))
+
+        assert "SENTINEL-DO-NOT-LOG" not in str(failure.value)
+
+    def test_release_duplicate_field_is_rejected_after_digest_verification(
+        self, lake: Lake
+    ) -> None:
+        manifest_path = lake.mirror / release_manifest_key(release_id=lake.release_id)
+        payload = manifest_path.read_bytes().replace(
+            b'"release_id":"release-one"',
+            b'"release_id":"release-one","release_id":"release-other"',
+        )
+        manifest_path.write_bytes(payload)
+        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+        pointer["manifest_sha256"] = hashlib.sha256(payload).hexdigest()
+        pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+
+        with pytest.raises(LakeReadError, match="release manifest is invalid"):
+            resolve_current_release(LocalMirrorSource(lake.mirror))
+
+    def test_dataset_nested_duplicate_field_is_rejected_after_digest_verification(
+        self, lake: Lake
+    ) -> None:
+        release_path = lake.mirror / release_manifest_key(release_id=lake.release_id)
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        manifest = release.dataset_manifest("jquants.daily_bars")
+        manifest_path = (
+            lake.mirror / f"lake/manifests/datasets/jquants.daily_bars/{manifest.build_id}.json"
+        )
+        manifest_payload = manifest_path.read_bytes().replace(b'"rows":', b'"rows":1,"rows":', 1)
+        manifest_path.write_bytes(manifest_payload)
+        release_payload["datasets"]["jquants.daily_bars"]["manifest_sha256"] = hashlib.sha256(
+            manifest_payload
+        ).hexdigest()
+        updated_release = json.dumps(release_payload).encode()
+        release_path.write_bytes(updated_release)
+        pointer_path = lake.mirror / current_l1_pointer_key()
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+        pointer["manifest_sha256"] = hashlib.sha256(updated_release).hexdigest()
+        pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+
+        with pytest.raises(LakeReadError, match="dataset manifest is invalid"):
+            resolve_current_release(LocalMirrorSource(lake.mirror))
+
+    def test_fixed_release_mappings_are_immutable_and_defensively_copied(self, lake: Lake) -> None:
+        release = resolve_current_release(LocalMirrorSource(lake.mirror))
+        original = dict(release.dataset_manifests)
+        copied = replace(release, dataset_manifests=original)
+        original.clear()
+
+        assert copied.dataset_names() == release.dataset_names()
+        with pytest.raises(TypeError):
+            copied.dataset_manifests["mutated"] = release.dataset_manifest(  # type: ignore[index]
+                "jquants.daily_bars"
+            )
+        with pytest.raises(TypeError):
+            copied.dataset_manifest_sha256["mutated"] = "0" * 64  # type: ignore[index]
+
     def test_pointer_naming_another_release_manifest_key_fails_closed(self, lake: Lake) -> None:
         pointer_path = lake.mirror / current_l1_pointer_key()
         payload = json.loads(pointer_path.read_text(encoding="utf-8"))
         payload["manifest_key"] = "lake/manifests/releases/l1/release-other.json"
         pointer_path.write_text(json.dumps(payload), encoding="utf-8")
 
-        with pytest.raises(LakeReadError, match="manifest key does not match"):
+        with pytest.raises(LakeReadError, match="current pointer is invalid"):
             resolve_current_release(LocalMirrorSource(lake.mirror))
 
     def test_release_entry_that_disagrees_with_its_dataset_manifest_fails_closed(
@@ -318,7 +488,11 @@ class TestFixedRelease:
         )
 
         with pytest.raises(LakeReadError, match="disagree"):
-            resolve_release(source, "release-drifted")
+            resolve_release(
+                source,
+                "release-drifted",
+                manifest_sha256=_release_digest(lake.mirror, "release-drifted"),
+            )
 
     def test_a_dataset_manifest_that_does_not_parse_fails_closed(self, lake: Lake) -> None:
         # Digest-consistent but structurally invalid: the object key no longer
@@ -347,7 +521,11 @@ class TestFixedRelease:
         )
 
         with pytest.raises(LakeReadError, match="dataset manifest is invalid"):
-            resolve_release(LocalMirrorSource(lake.mirror), "release-broken")
+            resolve_release(
+                LocalMirrorSource(lake.mirror),
+                "release-broken",
+                manifest_sha256=_release_digest(lake.mirror, "release-broken"),
+            )
 
     def test_a_dataset_outside_the_contract_allowlist_is_not_readable(self, lake: Lake) -> None:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
@@ -452,7 +630,6 @@ class TestObjectIntegrity:
         lake_object = LakeObject(
             key="lake/l1/canonical/jquants.daily_bars/contract=v1/year=2026/month=1/"
             f"part-{sha256_file(foreign)}.parquet",
-            etag="0" * 32,
             sha256=sha256_file(foreign),
             bytes=foreign.stat().st_size,
             rows=1,
@@ -510,7 +687,11 @@ class TestObjectIntegrity:
                 target.write_bytes(path.read_bytes())
         empty_cache_root = tmp_path / "cache"
         cache = LakeObjectCache(root=empty_cache_root, source=LocalMirrorSource(remote))
-        release = resolve_release(LocalMirrorSource(remote), lake.release_id)
+        release = resolve_release(
+            LocalMirrorSource(remote),
+            lake.release_id,
+            manifest_sha256=_release_digest(remote, lake.release_id),
+        )
 
         first = build_projection(
             session,
@@ -548,7 +729,7 @@ class TestProjection:
         report = _build(session, lake, destination=destination)
 
         assert report.reused is False
-        assert report.rows == {"jquants.daily_bars": 3, "jquants.short_sale_reports": 2}
+        assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
         with sqlite3.connect(destination) as connection:
             bars = connection.execute(
                 "SELECT ticker, traded_at, close FROM jquants_daily_bars ORDER BY ticker, traded_at"
@@ -559,6 +740,7 @@ class TestProjection:
             ).fetchall()
         assert bars == [
             ("1301", "2026-01-05", 100.0),
+            ("1301", "2026-01-20", 105.0),
             ("1301", "2026-02-02", 110.0),
             ("7203", "2026-01-05", 200.0),
         ]
@@ -729,7 +911,187 @@ class TestProjection:
         assert second.rows == first.rows
         with sqlite3.connect(destination) as connection:
             restored = connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()
-        assert restored == (3,)
+        assert restored == (4,)
+
+    def test_value_mutation_with_the_same_row_count_rebuilds(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        with sqlite3.connect(destination) as connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET close = 999.0 "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-20'"
+            )
+
+        report = _build(session, lake, destination=destination)
+
+        assert report.reused is False
+        with sqlite3.connect(destination) as connection:
+            restored = connection.execute(
+                "SELECT close FROM jquants_daily_bars "
+                "WHERE ticker = '1301' AND traded_at = '2026-01-20'"
+            ).fetchone()
+        assert restored == (105.0,)
+
+    def test_schema_mutation_rebuilds(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        with sqlite3.connect(destination) as connection:
+            connection.execute("ALTER TABLE jquants_daily_bars ADD COLUMN injected TEXT")
+
+        report = _build(session, lake, destination=destination)
+
+        assert report.reused is False
+        with sqlite3.connect(destination) as connection:
+            names = [
+                str(row[1]) for row in connection.execute("PRAGMA table_info(jquants_daily_bars)")
+            ]
+        assert "injected" not in names
+
+    def test_index_mutation_rebuilds(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        with sqlite3.connect(destination) as connection:
+            connection.execute("DROP INDEX idx_jquants_daily_bars_traded_at")
+
+        report = _build(session, lake, destination=destination)
+
+        assert report.reused is False
+        with sqlite3.connect(destination) as connection:
+            index = connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'index' AND name = 'idx_jquants_daily_bars_traded_at'"
+            ).fetchone()
+        assert index == ("idx_jquants_daily_bars_traded_at",)
+
+    def test_partial_index_with_the_expected_name_and_columns_rebuilds(
+        self, session: LakeSession, lake: Lake, tmp_path: Path
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        with sqlite3.connect(destination) as connection:
+            connection.execute("DROP INDEX idx_jquants_daily_bars_traded_at")
+            connection.execute(
+                "CREATE INDEX idx_jquants_daily_bars_traded_at "
+                "ON jquants_daily_bars(traded_at) WHERE ticker = '1301'"
+            )
+
+        report = _build(session, lake, destination=destination)
+
+        assert report.reused is False
+        with sqlite3.connect(destination) as connection:
+            indexes = connection.execute("PRAGMA index_list(jquants_daily_bars)").fetchall()
+        assert next(row for row in indexes if row[1] == "idx_jquants_daily_bars_traded_at")[4] == 0
+
+    def test_case_insensitive_filesystem_is_rejected_before_destination_change(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        before = destination.read_bytes()
+        monkeypatch.setattr(Path, "samefile", lambda _self, _other: True)
+
+        with pytest.raises(ProjectionError, match="case-sensitive"):
+            _build(session, lake, destination=destination, force=True)
+
+        assert destination.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".probe")]
+
+    def test_insufficient_capacity_fails_before_changing_the_destination(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        before = destination.read_bytes()
+        monkeypatch.setattr(
+            shutil,
+            "disk_usage",
+            lambda _path: SimpleNamespace(free=0),
+        )
+
+        with pytest.raises(ProjectionError, match="free bytes"):
+            _build(session, lake, destination=destination, force=True)
+
+        assert destination.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".building")]
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
+
+    def test_failed_atomic_replace_leaves_the_previous_projection(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        before = destination.read_bytes()
+        real_replace = Path.replace
+
+        def fail_replace(source: Path, target: Path) -> Path:
+            if source.name.endswith(".building"):
+                raise OSError("simulated replace failure")
+            return real_replace(source, target)
+
+        monkeypatch.setattr(Path, "replace", fail_replace)
+
+        with pytest.raises(OSError, match="replace failure"):
+            _build(session, lake, destination=destination, force=True)
+
+        assert destination.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".building")]
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
+
+    def test_post_replace_directory_fsync_failure_restores_the_previous_projection(
+        self,
+        session: LakeSession,
+        lake: Lake,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        destination = tmp_path / "projection.sqlite"
+        _build(session, lake, destination=destination)
+        before = destination.read_bytes()
+        real_fsync = os.fsync
+        real_replace = Path.replace
+        candidate_visible = False
+        injected = False
+
+        def record_candidate_replace(source: Path, target: Path) -> Path:
+            nonlocal candidate_visible
+            result = real_replace(source, target)
+            if source.name.endswith(".building"):
+                candidate_visible = True
+            return result
+
+        def fail_post_replace_fsync(file_descriptor: int) -> None:
+            nonlocal injected
+            if candidate_visible and not injected:
+                injected = True
+                raise OSError("simulated post-replace fsync failure")
+            real_fsync(file_descriptor)
+
+        monkeypatch.setattr(Path, "replace", record_candidate_replace)
+        monkeypatch.setattr(os, "fsync", fail_post_replace_fsync)
+
+        with pytest.raises(ProjectionError, match="previous generation was restored"):
+            _build(session, lake, destination=destination, force=True)
+
+        assert destination.read_bytes() == before
+        assert not [path for path in tmp_path.iterdir() if path.name.endswith(".rollback")]
 
     def test_a_database_that_is_not_a_projection_is_never_replaced(
         self, session: LakeSession, lake: Lake
@@ -782,7 +1144,12 @@ class TestExplicitObjectReads:
             for row in batch
         ]
 
-        assert rows == [("1301", 100.0), ("1301", 110.0), ("7203", 200.0)]
+        assert rows == [
+            ("1301", 100.0),
+            ("1301", 105.0),
+            ("1301", 110.0),
+            ("7203", 200.0),
+        ]
         with pytest.raises(LakeReadError, match="has no column"):
             next(iter_partition_rows(session, dataset=dataset, paths=paths, columns=("secret",)))
 
@@ -806,7 +1173,7 @@ class TestExplicitObjectReads:
 
         batches = list(iter_partition_rows(session, dataset=dataset, paths=paths, batch_size=1))
 
-        assert [len(batch) for batch in batches] == [1, 1, 1]
+        assert [len(batch) for batch in batches] == [1, 1, 1, 1]
 
     def test_a_non_positive_batch_size_is_refused(self, session: LakeSession, lake: Lake) -> None:
         release = resolve_current_release(LocalMirrorSource(lake.mirror))
@@ -823,6 +1190,28 @@ class TestExplicitObjectReads:
 
 
 class TestCredentialBoundary:
+    def test_remote_authorization_loads_but_never_installs_httpfs(self) -> None:
+        class RecordingConnection:
+            def __init__(self) -> None:
+                self.statements: list[str] = []
+
+            def execute(self, statement: str, _parameters: object = None) -> None:
+                self.statements.append(statement)
+
+        connection = RecordingConnection()
+        credentials = R2ReadCredentials(
+            account_id="a" * 32,
+            access_key_id="K" * 32,
+            secret_access_key="super-secret-value",
+            bucket="baibai-stores",
+        )
+        session = LakeSession(connection=connection, credentials=credentials)  # type: ignore[arg-type]
+
+        duck_module._authorize_r2(session, credentials)
+
+        assert connection.statements[0] == "LOAD httpfs"
+        assert not any(statement.startswith("INSTALL") for statement in connection.statements)
+
     def test_credentials_are_not_rendered(self) -> None:
         credentials = R2ReadCredentials(
             account_id="a" * 32,
@@ -896,12 +1285,18 @@ def _build_lake_second_release(lake: Lake) -> str:
     """Publish a second release over the same mirror and switch the pointer to it."""
 
     release_id = "release-two"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=lake.sqlite_path,
+        mirror_root=lake.mirror,
+        snapshot_id=f"snapshot-{release_id}",
+    )
     manifests = [
         export_legacy_sqlite(
             dataset_name=name,
             sqlite_path=lake.sqlite_path,
             mirror_root=lake.mirror,
             producer_git_commit=_COMMIT,
+            source_snapshot_ref=snapshot.ref,
             build_id=f"build-{name.replace('.', '-')}-{release_id}",
             created_at=_BUILT_AT,
         ).manifest_path

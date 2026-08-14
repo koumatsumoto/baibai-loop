@@ -111,9 +111,11 @@ def lake_session(*, credentials: R2ReadCredentials | None = None) -> Iterator[La
     """Open a connection, optionally authorised for one R2 bucket, and close it.
 
     Extension autoload and autoinstall are switched off, so the only way this
-    connection can speak HTTP is the explicit ``INSTALL``/``LOAD`` in
-    ``_authorize_r2``. Without credentials that never runs, and a remote path handed
-    to the connection by mistake fails instead of silently pulling in ``httpfs``.
+    connection can speak HTTP is the explicit ``LOAD`` in ``_authorize_r2``.
+    Deployment installs the pinned extension ahead of time; runtime never downloads
+    executable code. Without credentials ``LOAD`` never runs, and a remote path
+    handed to the connection by mistake fails instead of silently pulling in
+    ``httpfs``.
     """
 
     connection = duckdb.connect(":memory:")
@@ -131,7 +133,6 @@ def lake_session(*, credentials: R2ReadCredentials | None = None) -> Iterator[La
 def _authorize_r2(session: LakeSession, credentials: R2ReadCredentials) -> None:
     connection = session.connection
     try:
-        connection.execute("INSTALL httpfs")
         connection.execute("LOAD httpfs")
         # Not PERSISTENT: the secret lives in this connection's memory only.
         connection.execute(
@@ -145,7 +146,8 @@ def _authorize_r2(session: LakeSession, credentials: R2ReadCredentials) -> None:
         )
     except duckdb.Error as exc:
         raise LakeCredentialError(
-            f"R2 read session could not be authorised: {session.redact(str(exc))}"
+            "R2 read session could not be authorised; deployment must preinstall "
+            f"the DuckDB httpfs extension: {session.redact(str(exc))}"
         ) from None
 
 

@@ -19,9 +19,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import uuid
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -40,7 +42,7 @@ from .reader import (
     selected_partitions,
 )
 
-PROJECTION_CONTRACT_VERSION = 1
+PROJECTION_CONTRACT_VERSION = 2
 
 _META_SCHEMA = """
 CREATE TABLE projection_meta(
@@ -69,7 +71,15 @@ CREATE TABLE projection_object(
   rows INTEGER NOT NULL,
   PRIMARY KEY (dataset, object_key)
 );
+
+CREATE TABLE projection_integrity(
+  dataset TEXT NOT NULL PRIMARY KEY,
+  content_sha256 TEXT NOT NULL
+);
 """
+
+_MIN_FREE_BYTES = 64 * 1024 * 1024
+_PROJECTION_EXPANSION_FACTOR = 5
 
 
 class ProjectionError(RuntimeError):
@@ -231,7 +241,7 @@ def build_projection(
         if (
             existing is not None
             and existing == identity
-            and _stored_rows(destination) == expected_rows
+            and _projection_is_intact(destination, identity, expected_rows)
         ):
             return ProjectionBuildReport(
                 path=destination,
@@ -245,6 +255,8 @@ def build_projection(
     now = (built_at or datetime.now(UTC)).astimezone(UTC)
     before = cache.transfers.as_dict()
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _preflight_filesystem(destination.parent)
+    _require_capacity(destination.parent, identity)
     temporary = destination.with_name(
         f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex}.building"
     )
@@ -264,12 +276,25 @@ def build_projection(
                     dataset=dataset,
                     partitions=partitions[name],
                 )
-            _write_identity(connection, identity=identity, built_at=now)
+                connection.executescript(_index_schema(dataset))
+                connection.execute(f"ANALYZE {dataset.sqlite_table}")  # nosec B608
+            integrity = {
+                name: _table_content_sha256(connection, accepted_dataset(release, name))
+                for name in sorted(partitions)
+            }
+            _write_identity(
+                connection,
+                identity=identity,
+                built_at=now,
+                integrity=integrity,
+            )
             connection.commit()
+            if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                raise ProjectionError("projection SQLite quick_check failed")
         finally:
             connection.close()
         _require_row_totals(rows, identity)
-        temporary.replace(destination)
+        _durable_replace(temporary, destination)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
@@ -344,34 +369,44 @@ def _expected_rows(identity: ProjectionIdentity) -> dict[str, int]:
     return dict(sorted(expected.items()))
 
 
-def _stored_rows(path: Path) -> dict[str, int] | None:
-    """Count what the projection actually holds, or ``None`` when it cannot be counted.
-
-    Metadata alone cannot prove a projection is intact: rows can be removed from a
-    local file without touching the identity tables, and a reuse decided on metadata
-    would then hand a consumer a silently short input.
-    """
-
+def _projection_is_intact(
+    path: Path,
+    identity: ProjectionIdentity,
+    expected_rows: Mapping[str, int],
+) -> bool:
+    """Verify row values, table schema, and secondary indexes before reuse."""
     try:
         with _open_read_only(path) as connection:
-            names = [
-                str(row[0])
+            stored_integrity = {
+                str(row[0]): str(row[1])
                 for row in connection.execute(
-                    "SELECT dataset FROM projection_dataset ORDER BY dataset"
+                    "SELECT dataset, content_sha256 FROM projection_integrity ORDER BY dataset"
                 )
-            ]
-            counts: dict[str, int] = {}
+            }
+            names = tuple(item.dataset for item in identity.datasets)
+            if set(stored_integrity) != set(names):
+                return False
             for name in names:
                 dataset = PILOT_DATASETS.get(name)
                 if dataset is None:
-                    return None
-                row = connection.execute(
-                    f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
-                ).fetchone()
-                counts[name] = int(row[0])
+                    return False
+                count = int(
+                    connection.execute(
+                        f"SELECT COUNT(*) FROM {dataset.sqlite_table}"  # nosec B608
+                    ).fetchone()[0]
+                )
+                if count != expected_rows.get(name, 0):
+                    return False
+                if _actual_table_shape(connection, dataset) != _expected_table_shape(dataset):
+                    return False
+                if _actual_indexes(connection, dataset) != _expected_indexes(dataset):
+                    return False
+                if _table_content_sha256(connection, dataset) != stored_integrity[name]:
+                    return False
+            quick_check = connection.execute("PRAGMA quick_check").fetchone()
+            return bool(quick_check == ("ok",))
     except (sqlite3.Error, TypeError, ValueError):
-        return None
-    return dict(sorted(counts.items()))
+        return False
 
 
 def _require_replaceable(destination: Path) -> None:
@@ -405,6 +440,175 @@ def _open_read_only(path: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
 
 
+def _require_capacity(parent: Path, identity: ProjectionIdentity) -> None:
+    published_bytes = sum(item.bytes for item in identity.objects)
+    required = max(_MIN_FREE_BYTES, published_bytes * _PROJECTION_EXPANSION_FACTOR)
+    if shutil.disk_usage(parent).free < required:
+        raise ProjectionError(
+            f"projection build requires at least {required} free bytes in {parent}"
+        )
+
+
+def _expected_table_shape(dataset: LakeDataset) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (
+            ordinal,
+            column.name,
+            column.sqlite_type,
+            0 if column.nullable else 1,
+            None,
+            column.primary_key_ordinal,
+        )
+        for ordinal, column in enumerate(dataset.columns)
+    )
+
+
+def _actual_table_shape(
+    connection: sqlite3.Connection, dataset: LakeDataset
+) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        tuple(row)
+        for row in connection.execute(f"PRAGMA table_info({dataset.sqlite_table})")  # nosec B608
+    )
+
+
+def _expected_indexes(dataset: LakeDataset) -> tuple[tuple[object, ...], ...]:
+    column_ids = {column.name: index for index, column in enumerate(dataset.columns)}
+    indexes: list[tuple[object, ...]] = []
+    for item in dataset.projection_indexes:
+        details: list[tuple[object, ...]] = [
+            (sequence, column_ids[name], name, 0, "BINARY", 1)
+            for sequence, name in enumerate(item.columns)
+        ]
+        details.append((len(item.columns), -1, None, 0, "BINARY", 0))
+        indexes.append((item.name, 0, "c", 0, tuple(details)))
+    return tuple(sorted(indexes))
+
+
+def _actual_indexes(
+    connection: sqlite3.Connection, dataset: LakeDataset
+) -> tuple[tuple[object, ...], ...]:
+    indexes: list[tuple[object, ...]] = []
+    for row in connection.execute(f"PRAGMA index_list({dataset.sqlite_table})"):  # nosec B608
+        name = str(row[1])
+        if str(row[3]) == "pk":
+            continue
+        details = tuple(
+            tuple(item)
+            for item in connection.execute(f"PRAGMA index_xinfo({name})")  # nosec B608
+        )
+        indexes.append((name, int(row[2]), str(row[3]), int(row[4]), details))
+    return tuple(sorted(indexes))
+
+
+def _preflight_filesystem(parent: Path) -> None:
+    """Fail before the expensive load unless publication primitives are supported."""
+    token = uuid.uuid4().hex
+    upper = parent / f".projection-{token}-Case.probe"
+    lower = parent / f".projection-{token}-case.probe"
+    linked = parent / f".projection-{token}-linked.probe"
+    renamed = parent / f".projection-{token}-renamed.probe"
+    directory = -1
+    try:
+        for path in (upper, lower):
+            with path.open("xb") as probe:
+                probe.write(b"projection-filesystem-probe")
+                probe.flush()
+                os.fsync(probe.fileno())
+        if upper.samefile(lower):
+            raise ProjectionError("projection requires a case-sensitive filesystem")
+        linked.hardlink_to(lower)
+        if not linked.samefile(lower):
+            raise ProjectionError("projection filesystem does not preserve hard-link identity")
+        directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+        os.fsync(directory)
+        upper.replace(renamed)
+        os.fsync(directory)
+    except ProjectionError:
+        raise
+    except OSError as exc:
+        raise ProjectionError(
+            "projection filesystem does not support durable same-directory publication"
+        ) from exc
+    finally:
+        if directory >= 0:
+            os.close(directory)
+        for path in (upper, lower, linked, renamed):
+            with suppress(OSError):
+                path.unlink(missing_ok=True)
+
+
+def _table_content_sha256(connection: sqlite3.Connection, dataset: LakeDataset) -> str:
+    names = tuple(column.name for column in dataset.columns)
+    columns = ", ".join(names)
+    order = ", ".join(dataset.primary_key)
+    cursor = connection.execute(
+        f"SELECT {columns} FROM {dataset.sqlite_table} ORDER BY {order}"  # nosec B608
+    )
+    digest = hashlib.sha256()
+    while rows := cursor.fetchmany(20_000):
+        for row in rows:
+            payload = json.dumps(
+                row,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode()
+            digest.update(len(payload).to_bytes(8, "big"))
+            digest.update(payload)
+    return digest.hexdigest()
+
+
+def _durable_replace(temporary: Path, destination: Path) -> None:
+    with temporary.open("rb") as source:
+        os.fsync(source.fileno())
+    rollback = destination.with_name(
+        f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex}.rollback"
+    )
+    try:
+        directory = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        raise ProjectionError(
+            "projection filesystem does not support directory durability"
+        ) from exc
+    try:
+        # Prove this filesystem supports directory fsync before changing the
+        # visible destination. The second fsync makes the rename durable.
+        os.fsync(directory)
+        had_previous = destination.exists()
+        if had_previous:
+            rollback.hardlink_to(destination)
+            os.fsync(directory)
+        try:
+            temporary.replace(destination)
+        except BaseException:
+            rollback.unlink(missing_ok=True)
+            os.fsync(directory)
+            raise
+        try:
+            os.fsync(directory)
+        except OSError as exc:
+            try:
+                if had_previous:
+                    rollback.replace(destination)
+                else:
+                    destination.unlink(missing_ok=True)
+                os.fsync(directory)
+            except OSError as recovery_error:
+                raise ProjectionError(
+                    "projection publication durability failed and rollback could not be proven"
+                ) from recovery_error
+            raise ProjectionError(
+                "projection publication durability failed; the previous generation was restored"
+            ) from exc
+        with suppress(OSError):
+            rollback.unlink(missing_ok=True)
+            # The new destination is already durable. A retained hidden hard link
+            # does not change the projection path or its contents.
+    finally:
+        os.close(directory)
+
+
 def _table_schema(dataset: LakeDataset) -> str:
     columns = [
         f"  {column.name} {column.sqlite_type}{'' if column.nullable else ' NOT NULL'}"
@@ -412,12 +616,14 @@ def _table_schema(dataset: LakeDataset) -> str:
     ]
     primary_key = ", ".join(dataset.primary_key)
     body = ",\n".join([*columns, f"  PRIMARY KEY ({primary_key})"])
-    statements = [f"CREATE TABLE {dataset.sqlite_table}(\n{body}\n);"]
-    statements.extend(
+    return f"CREATE TABLE {dataset.sqlite_table}(\n{body}\n);"
+
+
+def _index_schema(dataset: LakeDataset) -> str:
+    return "\n".join(
         f"CREATE INDEX {index.name} ON {dataset.sqlite_table}({', '.join(index.columns)});"
         for index in dataset.projection_indexes
     )
-    return "\n".join(statements)
 
 
 def _load_dataset(
@@ -461,7 +667,11 @@ def _require_row_totals(rows: Mapping[str, int], identity: ProjectionIdentity) -
 
 
 def _write_identity(
-    connection: sqlite3.Connection, *, identity: ProjectionIdentity, built_at: datetime
+    connection: sqlite3.Connection,
+    *,
+    identity: ProjectionIdentity,
+    built_at: datetime,
+    integrity: Mapping[str, str],
 ) -> None:
     connection.execute(
         "INSERT INTO projection_meta(single_row, projection_contract_version, "
@@ -484,6 +694,10 @@ def _write_identity(
             (item.dataset, item.build_id, item.contract_version, item.manifest_sha256)
             for item in identity.datasets
         ],
+    )
+    connection.executemany(
+        "INSERT INTO projection_integrity(dataset, content_sha256) VALUES (?, ?)",
+        sorted(integrity.items()),
     )
     connection.executemany(
         "INSERT INTO projection_object(dataset, object_key, sha256, bytes, rows) "
