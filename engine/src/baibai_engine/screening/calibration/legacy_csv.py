@@ -168,7 +168,7 @@ def migrate_legacy_calibration(
                 "status": "already_migrated",
                 "completion": "committed",
                 "input_id": input_id,
-                "producer_git_commit": fixed.manifest.producer_git_commit,
+                "assembled_by_git_commit": fixed.manifest.assembled_by_git_commit,
                 "cohorts": [value.isoformat() for value in cohorts],
                 "files": {
                     name: {"sha256": digest, "bytes": size}

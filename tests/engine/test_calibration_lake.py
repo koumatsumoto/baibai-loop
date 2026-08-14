@@ -37,7 +37,11 @@ from baibai_engine.market.lake.retention import (
 from baibai_engine.screening.calibration import lake as lake_module
 from baibai_engine.screening.calibration import legacy_csv as legacy_csv_module
 from baibai_engine.screening.calibration import store
-from baibai_engine.screening.calibration.forward import ForwardReturnRow
+from baibai_engine.screening.calibration.forward import (
+    DEFAULT_FORWARD_OBSERVATION_POLICY,
+    ForwardObservationPolicy,
+    ForwardReturnRow,
+)
 from baibai_engine.screening.calibration.lake import (
     CALIBRATION_DIAGNOSTICS,
     CALIBRATION_FORWARD,
@@ -88,6 +92,10 @@ def _cohort(asof: str, tickers: tuple[str, ...] = ("1301", "7203")) -> list[dict
         }
         for index, ticker in enumerate(tickers)
     ]
+
+
+def _forward_rows(asof: str) -> list[dict[str, object]]:
+    return [{"ticker": "1301", "horizon": "1y", "status": "unresolved_future_horizon"}]
 
 
 def _manifest(root: Path, dataset_name: str) -> DatasetManifest:
@@ -1162,3 +1170,123 @@ class TestReviewRegressions:
             for root in (first, second)
         ]
         assert keys[0] == keys[1]
+
+
+class TestSemanticIdentity:
+    """What a build has to be identified by before another build may carry it."""
+
+    _ENGINE_ROOT = Path(lake_module.__file__).resolve().parents[2]
+
+    def _fingerprint_with_changed_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        dataset: object,
+        relative_path: str,
+    ) -> str:
+        target = self._ENGINE_ROOT / relative_path
+        assert target.is_file(), relative_path
+        real = lake_module.sha256_file
+        monkeypatch.setattr(
+            lake_module,
+            "sha256_file",
+            lambda path: "0" * 64 if path == target else real(path),
+        )
+        return transform_fingerprint(dataset, cache_schema_version="contract")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "relative_path",
+        [
+            "screening/candidate_build.py",
+            "screening/selection/__init__.py",
+            "screening/sqlite_reader.py",
+            "screening/universe.py",
+            "market/store.py",
+        ],
+    )
+    def test_a_panel_dependency_change_changes_the_panel_fingerprint(
+        self, monkeypatch: pytest.MonkeyPatch, relative_path: str
+    ) -> None:
+        baseline = transform_fingerprint(CALIBRATION_PANEL, cache_schema_version="contract")
+
+        changed = self._fingerprint_with_changed_file(
+            monkeypatch, dataset=CALIBRATION_PANEL, relative_path=relative_path
+        )
+
+        assert changed != baseline
+
+    @pytest.mark.parametrize(
+        "relative_path",
+        ["market/bars.py", "market/benchmark.py", "screening/calibration/horizons.py"],
+    )
+    def test_a_forward_dependency_change_changes_the_forward_fingerprint(
+        self, monkeypatch: pytest.MonkeyPatch, relative_path: str
+    ) -> None:
+        baseline = transform_fingerprint(CALIBRATION_FORWARD, cache_schema_version="contract")
+
+        changed = self._fingerprint_with_changed_file(
+            monkeypatch, dataset=CALIBRATION_FORWARD, relative_path=relative_path
+        )
+
+        assert changed != baseline
+
+    def test_a_module_outside_the_closure_leaves_the_fingerprint_alone(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rebuilding every cohort for an unrelated change is its own failure."""
+
+        baseline = transform_fingerprint(CALIBRATION_PANEL, cache_schema_version="contract")
+
+        changed = self._fingerprint_with_changed_file(
+            monkeypatch, dataset=CALIBRATION_PANEL, relative_path="macro/__init__.py"
+        )
+
+        assert changed == baseline
+
+    def test_the_forward_observation_policy_is_part_of_the_forward_identity(self) -> None:
+        baseline = transform_fingerprint(CALIBRATION_FORWARD, cache_schema_version="contract")
+
+        without_exits = transform_fingerprint(
+            CALIBRATION_FORWARD,
+            cache_schema_version="contract",
+            forward_policy=ForwardObservationPolicy(use_control_event_exits=False),
+        )
+
+        assert without_exits != baseline
+
+    def test_the_forward_observation_policy_does_not_move_the_panel_identity(self) -> None:
+        """A comparison run must not invalidate months whose rows it cannot change."""
+
+        baseline = transform_fingerprint(CALIBRATION_PANEL, cache_schema_version="contract")
+
+        under_other_rules = transform_fingerprint(
+            CALIBRATION_PANEL,
+            cache_schema_version="contract",
+            forward_policy=ForwardObservationPolicy(use_control_event_exits=False),
+        )
+
+        assert under_other_rules == baseline
+
+    def test_a_store_refuses_to_hold_two_forward_observation_policies(self, tmp_path: Path) -> None:
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        publish_forward(tmp_path, _JANUARY, _forward_rows(_JANUARY))
+
+        with pytest.raises(CalibrationCacheError, match="different transform"):
+            publish_forward(
+                tmp_path,
+                _JANUARY,
+                _forward_rows(_JANUARY),
+                forward_policy=ForwardObservationPolicy(use_control_event_exits=False),
+            )
+
+        assert store.store_forward_policy(tmp_path) == DEFAULT_FORWARD_OBSERVATION_POLICY
+
+    def test_a_store_states_the_rules_its_forward_rows_were_observed_under(
+        self, tmp_path: Path
+    ) -> None:
+        policy = ForwardObservationPolicy(use_control_event_exits=False)
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY), forward_policy=policy)
+        publish_forward(tmp_path, _JANUARY, _forward_rows(_JANUARY), forward_policy=policy)
+
+        assert store.store_forward_policy(tmp_path) == policy
+        assert read_forward(tmp_path, date.fromisoformat(_JANUARY))

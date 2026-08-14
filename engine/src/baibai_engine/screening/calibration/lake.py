@@ -60,7 +60,11 @@ from baibai_engine.market.lake.models import (
 from baibai_engine.market.lake.objects import sha256_bytes, sha256_file
 from baibai_engine.market.lake.reader import schema_matches
 
-from .forward import ForwardReturnRow
+from .forward import (
+    DEFAULT_FORWARD_OBSERVATION_POLICY,
+    ForwardObservationPolicy,
+    ForwardReturnRow,
+)
 from .panel import PanelDiagnostics, PanelRow
 
 __all__ = [
@@ -194,16 +198,25 @@ def require_l2_dataset(name: str) -> L2Dataset:
         ) from exc
 
 
-def transform_fingerprint(dataset: L2Dataset, *, cache_schema_version: str) -> str:
-    """Identify the logic and config behind a build inside one contract version.
+def transform_fingerprint(
+    dataset: L2Dataset,
+    *,
+    cache_schema_version: str,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
+) -> str:
+    """Identify the logic, config, and observation rules behind a build.
 
     ``cache_schema_version`` is the calibration contract hash: it already covers the
     row fields, the relaxed thresholds a cohort was measured with, and the valuation
     revision. Folding it in means a cohort produced under different measurement rules
     cannot be mistaken for a rebuild of the same one.
+
+    ``forward_policy`` states the runtime observation rules a forward cohort was
+    measured under. It belongs to the forward dataset alone, so a comparison run that
+    changes how exits are observed does not invalidate published panel months.
     """
 
-    contract = {
+    contract: dict[str, object] = {
         "arrow_schema": str(dataset.arrow_schema),
         "cache_schema_version": cache_schema_version,
         "compression": _COMPRESSION,
@@ -214,22 +227,69 @@ def transform_fingerprint(dataset: L2Dataset, *, cache_schema_version: str) -> s
         "partition_by": dataset.partition_by,
         "row_group_size": _ROW_GROUP_SIZE,
         "writer": f"pyarrow-{pa.__version__}",
-        "implementation_sha256": {
-            path.relative_to(Path(__file__).resolve().parents[2]).as_posix(): sha256_file(path)
-            for path in _semantic_implementation_paths(dataset)
-        },
+        "implementation_sha256": _semantic_implementation_digests(dataset),
     }
+    if dataset.name == FORWARD_DATASET:
+        contract["forward_observation_policy"] = forward_policy.digest
     payload = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
-def _semantic_implementation_paths(dataset: L2Dataset) -> tuple[Path, ...]:
-    calibration = Path(__file__).resolve().parent
-    screening = calibration.parent
-    common = (calibration / "lake.py", calibration / "store.py")
-    if dataset.name in {PANEL_DATASET, DIAGNOSTICS_DATASET}:
-        return (*common, calibration / "panel.py", screening / "metrics.py", screening / "rules.py")
-    return (*common, calibration / "forward.py")
+# The modules a row's value, status, or membership is actually decided by, named
+# relative to the engine package. A build carries a month forward only when this
+# closure is byte-identical, so a change in how a candidate is built, how the market
+# store is read, or how a horizon is resolved cannot leave old rows sitting beside
+# new ones under one fingerprint. The list is explicit rather than derived from the
+# import graph: an import-closure would fold in unrelated helpers and rebuild every
+# cohort for a change that cannot move a row.
+_COMMON_SEMANTIC_DEPENDENCIES = (
+    "screening/calibration/lake.py",
+    "screening/calibration/store.py",
+)
+_PANEL_SEMANTIC_DEPENDENCIES = (
+    "market/store.py",
+    "screening/calibration/forward.py",
+    "screening/calibration/identity.py",
+    "screening/calibration/panel.py",
+    "screening/candidate_build.py",
+    "screening/estimates.py",
+    "screening/metrics.py",
+    "screening/render.py",
+    "screening/rule_config.py",
+    "screening/rules.py",
+    "screening/schema.py",
+    "screening/selection",
+    "screening/sqlite_reader.py",
+    "screening/universe.py",
+)
+_FORWARD_SEMANTIC_DEPENDENCIES = (
+    "market/bars.py",
+    "market/benchmark.py",
+    "screening/calibration/forward.py",
+    "screening/calibration/horizons.py",
+    "screening/metrics.py",
+    "screening/providers/jquants.py",
+)
+
+
+def _semantic_implementation_digests(dataset: L2Dataset) -> dict[str, str]:
+    names = (
+        _PANEL_SEMANTIC_DEPENDENCIES
+        if dataset.name in {PANEL_DATASET, DIAGNOSTICS_DATASET}
+        else _FORWARD_SEMANTIC_DEPENDENCIES
+    )
+    engine_root = Path(__file__).resolve().parents[2]
+    digests: dict[str, str] = {}
+    for name in sorted({*_COMMON_SEMANTIC_DEPENDENCIES, *names}):
+        target = engine_root / name
+        if target.is_dir():
+            for path in sorted(target.rglob("*.py")):
+                digests[path.relative_to(engine_root).as_posix()] = sha256_file(path)
+        elif target.is_file():
+            digests[name] = sha256_file(target)
+        else:
+            raise CalibrationLakeError(f"semantic dependency is missing: {name}")
+    return digests
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +299,7 @@ class L2BuildInputs:
     sources: tuple[SourceRef, ...]
     producer_git_commit: str
     cache_schema_version: str
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,7 +435,9 @@ def publish_l2_build(
         sources=(),
         producer_git_commit=inputs.producer_git_commit,
         transform_fingerprint=transform_fingerprint(
-            dataset, cache_schema_version=inputs.cache_schema_version
+            dataset,
+            cache_schema_version=inputs.cache_schema_version,
+            forward_policy=inputs.forward_policy,
         ),
         created_at=now,
         coverage_start=min(
@@ -527,11 +590,16 @@ def require_build_inputs(
     *,
     dataset: L2Dataset,
     cache_schema_version: str,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
     source_release_id: str | None = None,
 ) -> None:
-    """Fail closed when a build was produced by a different transform or input."""
+    """Fail closed when a build was produced by a different transform, policy, or input."""
 
-    expected = transform_fingerprint(dataset, cache_schema_version=cache_schema_version)
+    expected = transform_fingerprint(
+        dataset,
+        cache_schema_version=cache_schema_version,
+        forward_policy=forward_policy,
+    )
     if manifest.transform_fingerprint != expected:
         raise CalibrationLakeError(
             f"{dataset.name}: build {manifest.build_id} was produced by a different transform; "

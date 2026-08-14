@@ -16,12 +16,36 @@ from ..providers.jquants import JQuantsDailyBar
 from .horizons import HORIZONS, HorizonSpec, require_horizon
 
 __all__ = (
+    "DEFAULT_FORWARD_OBSERVATION_POLICY",
     "HORIZONS",
     "ControlEventExit",
+    "ForwardObservationPolicy",
     "ForwardReturnRow",
     "compute_forward_returns",
     "read_control_event_exits",
 )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ForwardObservationPolicy:
+    """The observation rules that decide a forward row's status, exit, and return.
+
+    A forward cohort measured under different rules is a different measurement, not a
+    rebuild of the same one. The policy is folded into the forward build identity, so
+    a store cannot hold one range observed with control-event exits and another range
+    observed without them: carrying a partition built under other rules is refused
+    rather than silently republished under this build's fingerprint.
+    """
+
+    use_control_event_exits: bool = True
+
+    @property
+    def digest(self) -> str:
+        """A canonical statement of the policy, stable across field additions."""
+        return "|".join(f"{field.name}={getattr(self, field.name)!r}" for field in fields(self))
+
+
+DEFAULT_FORWARD_OBSERVATION_POLICY = ForwardObservationPolicy()
 
 ForwardStatus = str
 AdjustmentCoverage = str

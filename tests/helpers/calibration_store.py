@@ -20,7 +20,12 @@ from baibai_engine.market.lake.models import (
     CalibrationInputSourceRef,
 )
 from baibai_engine.market.lake.objects import sha256_bytes
-from baibai_engine.screening.calibration.forward import RESOLVED_STATUSES, ForwardReturnRow
+from baibai_engine.screening.calibration.forward import (
+    DEFAULT_FORWARD_OBSERVATION_POLICY,
+    RESOLVED_STATUSES,
+    ForwardObservationPolicy,
+    ForwardReturnRow,
+)
 from baibai_engine.screening.calibration.lake import canonical_manifest_bytes
 from baibai_engine.screening.calibration.panel import PanelDiagnostics, PanelRow
 from baibai_engine.screening.calibration.store import write_forward, write_panel
@@ -223,6 +228,8 @@ def publish_panel(
     rules_hash: str = "abc123",
     exclusion_counts: Mapping[str, int] | None = None,
     source_label: str = "default",
+    producer_commit: str = _TEST_PRODUCER_COMMIT,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     diagnostics = PanelDiagnostics(
         asof=asof,
@@ -237,8 +244,9 @@ def publish_panel(
         diagnostics,
         source=synthetic_calibration_source(directory, label=source_label),
         input_cutoff=date.fromisoformat(asof),
-        producer_commit=_TEST_PRODUCER_COMMIT,
+        producer_commit=producer_commit,
         test_only=True,
+        forward_policy=forward_policy,
     )
 
 
@@ -249,6 +257,8 @@ def publish_forward(
     *,
     source_label: str = "default",
     input_cutoff: date | None = None,
+    producer_commit: str = _TEST_PRODUCER_COMMIT,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     write_forward(
         directory,
@@ -256,6 +266,7 @@ def publish_forward(
         [_forward(asof, row) for row in rows],
         source=synthetic_calibration_source(directory, label=source_label),
         input_cutoff=input_cutoff or date.fromisoformat(asof),
-        producer_commit=_TEST_PRODUCER_COMMIT,
+        producer_commit=producer_commit,
         test_only=True,
+        forward_policy=forward_policy,
     )

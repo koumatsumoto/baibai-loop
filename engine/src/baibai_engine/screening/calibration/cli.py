@@ -33,6 +33,7 @@ from .evaluation import OPTIONAL_SENSITIVITY_METRICS, evaluate_cohorts
 from .forward import (
     CONTROL_EVENT_EXIT_STATUS,
     HORIZONS,
+    ForwardObservationPolicy,
     ForwardReturnRow,
     compute_forward_returns,
     latest_market_data_date,
@@ -132,12 +133,18 @@ def _calibration_build_command(
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     policy = PANEL_BUILD_POLICIES[panel_variant]
-    if (
-        not policy.production_authority
-        and calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
-    ):
+    forward_policy = ForwardObservationPolicy(use_control_event_exits=use_control_event_exits)
+    is_default_dir = calibration_dir.resolve() == DEFAULT_CALIBRATION_DIR.resolve()
+    if not policy.production_authority and is_default_dir:
         print(
             "calibration build: diagnostic panel variant requires a separate --calibration-dir",
+            file=sys.stderr,
+        )
+        return 1
+    if not use_control_event_exits and is_default_dir:
+        print(
+            "calibration build: --without-control-event-exits builds a comparison baseline "
+            "and requires a separate --calibration-dir",
             file=sys.stderr,
         )
         return 1
@@ -184,6 +191,7 @@ def _calibration_build_command(
                 input_cutoff=asof,
                 producer_commit=producer_commit,
                 lock_held=True,
+                forward_policy=forward_policy,
             )
         except (CalibrationError, CalibrationCacheError) as exc:
             print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)
@@ -214,6 +222,7 @@ def _calibration_build_command(
                 input_cutoff=observation_cutoff,
                 producer_commit=producer_commit,
                 lock_held=True,
+                forward_policy=forward_policy,
             )
         except CalibrationCacheError as exc:
             print(f"calibration build: {asof.isoformat()} failed: {exc}", file=sys.stderr)

@@ -221,6 +221,16 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
 
 
 class L1ReleaseSourceRef(_SourceRefBase):
+    """A digest-pinned reference to one L1 release, used to read a fixed generation.
+
+    This is deliberately outside ``SourceRef``. A lineage source has to resolve to the
+    complete object graph that reproduces it, and a release manifest is only the root
+    of one: its dataset manifests, Parquet objects, and Raw archives are what would
+    have to be enumerated, verified, and protected from retention. Admitting the kind
+    into the union before the publisher, reader, retention planner, and pin all walk
+    that closure would let a build claim a lineage nothing keeps whole.
+    """
+
     kind: Literal["l1_release"]
     manifest_version: int = Field(ge=1)
 
@@ -260,7 +270,7 @@ class CalibrationInputSourceRef(_SourceRefBase):
 
 
 type SourceRef = Annotated[
-    RawIngestSourceRef | SQLiteSnapshotSourceRef | L1ReleaseSourceRef | CalibrationInputSourceRef,
+    RawIngestSourceRef | SQLiteSnapshotSourceRef | CalibrationInputSourceRef,
     Field(discriminator="kind"),
 ]
 
@@ -460,14 +470,22 @@ class CalibrationCohortInventory(BaseModel):
 
 
 class CalibrationBundleManifest(BaseModel):
-    """One externally visible calibration generation across all three datasets."""
+    """One externally visible calibration generation across all three datasets.
+
+    ``assembled_by_git_commit`` is the transaction identity of the bundle, not the
+    identity of the code that produced its datasets. Each dataset manifest keeps its
+    own ``producer_git_commit``, so a bundle that matures forward outcomes on top of
+    panels built earlier states both facts instead of restating one as the other.
+    Compatibility between the datasets is decided by their transform fingerprints,
+    cohort sources, and cutoffs — not by a shared commit.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     manifest_version: Literal[1] = 1
     bundle_id: str
     created_at: datetime
-    producer_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    assembled_by_git_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
     cache_schema_version: str
     datasets: Mapping[str, CalibrationDatasetRef]
     cohorts: Mapping[str, CalibrationCohortInventory] = Field(min_length=1)

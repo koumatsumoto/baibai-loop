@@ -1103,6 +1103,31 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("separate --calibration-dir", errors.getvalue())
 
+    def test_baseline_forward_rules_cannot_use_the_production_store(self) -> None:
+        """The comparison baseline observes exits differently, so it gets its own store.
+
+        Letting it write here would replace the requested range under other observation
+        rules and leave the rest of the store measured under the default ones.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            errors = io.StringIO()
+
+            with contextlib.redirect_stderr(errors):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=DEFAULT_CALIBRATION_DIR,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=ASOF,
+                    use_control_event_exits=False,
+                )
+
+            self.assertEqual(code, 1)
+            self.assertIn("separate --calibration-dir", errors.getvalue())
+
     def test_pre2019_variant_is_rejected_for_production_decision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

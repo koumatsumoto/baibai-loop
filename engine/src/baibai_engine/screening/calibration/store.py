@@ -61,10 +61,12 @@ from baibai_engine.market.lake.sources import resolve_source_ref
 from ..metrics import VALUATION_CALCULATION_REVISION
 from ..rules import _RELAXED_THRESHOLDS as _RELAXED_TABLE
 from .forward import (
+    DEFAULT_FORWARD_OBSERVATION_POLICY,
     FORWARD_FIELD_NAMES,
     RESOLVED_STATUSES,
     TOTAL_RETURN_BASIS,
     TOTAL_RETURN_STATUSES,
+    ForwardObservationPolicy,
     ForwardReturnRow,
 )
 from .lake import (
@@ -163,15 +165,30 @@ def cache_meta_path(root: Path) -> Path:
     return root / "calibration.meta.yaml"
 
 
-def _write_cache_meta(root: Path) -> None:
+def _write_cache_meta(root: Path, *, forward_policy: ForwardObservationPolicy) -> None:
     root.mkdir(parents=True, exist_ok=True)
     write_text_atomic(
         cache_meta_path(root),
-        yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}, sort_keys=False),
+        yaml.safe_dump(
+            {
+                "cache_schema_version": CACHE_SCHEMA_VERSION,
+                "forward_observation_policy": {
+                    "use_control_event_exits": forward_policy.use_control_event_exits
+                },
+            },
+            sort_keys=False,
+        ),
     )
 
 
-def _require_current_cache(root: Path) -> None:
+def _require_current_cache(root: Path) -> ForwardObservationPolicy:
+    """Prove the store states this contract, and return the rules it was observed under.
+
+    The stated policy only selects which forward identity to expect. The build's own
+    fingerprint is what proves the rows were produced under it, so a rewritten
+    statement can cause a refusal but never an acceptance.
+    """
+
     path = cache_meta_path(root)
     if not path.exists():
         raise CalibrationCacheError(
@@ -188,6 +205,17 @@ def _require_current_cache(root: Path) -> None:
         raise CalibrationCacheError(
             "calibration cache version is incompatible; run calibration-build --force"
         )
+    stated = payload.get("forward_observation_policy") if isinstance(payload, dict) else None
+    if not isinstance(stated, dict) or not isinstance(stated.get("use_control_event_exits"), bool):
+        raise CalibrationCacheError(
+            "calibration forward observation policy is missing; run calibration-build --force"
+        )
+    return ForwardObservationPolicy(use_control_event_exits=stated["use_control_event_exits"])
+
+
+def store_forward_policy(root: Path) -> ForwardObservationPolicy:
+    """The observation rules this store's forward builds must be identified by."""
+    return _require_current_cache(root)
 
 
 def _inputs(
@@ -196,6 +224,7 @@ def _inputs(
     *,
     producer_commit: str | None = None,
     test_only: bool = False,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> L2BuildInputs:
     """Resolve and fix the exact source generation used by one cohort write."""
 
@@ -210,17 +239,28 @@ def _inputs(
         sources=(source,),
         producer_git_commit=producer_commit or verified_git_commit(),
         cache_schema_version=CACHE_SCHEMA_VERSION,
+        forward_policy=forward_policy,
     )
 
 
 def _require_partition_objects(
     root: Path, dataset: L2Dataset, partition: PartitionManifest
 ) -> None:
-    """A carried partition must still have its objects, or the build inherits a hole."""
+    """A carried partition must still have its objects at their published size.
+
+    Presence and size are what every cohort write can afford to check: a build touches
+    one month and carries the rest, so hashing the whole dataset here would cost the
+    dataset's full size once per cohort. The complete digest, schema, and row-count
+    check runs once over the whole closure in ``adopt_bundle_generation``, which is the
+    only path that makes a generation the canonical current one.
+    """
 
     for item in partition.objects:
-        if not (root / item.key).is_file():
+        path = root / item.key
+        if not path.is_file():
             raise CalibrationLakeError(f"{dataset.name}: published object is missing: {item.key}")
+        if path.stat().st_size != item.bytes:
+            raise CalibrationLakeError(f"{dataset.name}: published object differs: {item.key}")
 
 
 def _writer_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
@@ -301,7 +341,12 @@ def _current_manifest(root: Path, dataset: L2Dataset) -> DatasetManifest | None:
     return None if bundle is None else bundle.datasets[dataset.name]
 
 
-def _publish_bundle(root: Path) -> CalibrationBundleRef:
+def _publish_bundle(
+    root: Path,
+    *,
+    assembled_by: str | None = None,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
+) -> CalibrationBundleRef:
     manifests: dict[str, DatasetManifest] = {}
     references: dict[str, CalibrationDatasetRef] = {}
     for name, dataset in L2_DATASETS.items():
@@ -315,6 +360,7 @@ def _publish_bundle(root: Path) -> CalibrationBundleRef:
             manifest,
             dataset=dataset,
             cache_schema_version=CACHE_SCHEMA_VERSION,
+            forward_policy=forward_policy,
         )
         references[name] = CalibrationDatasetRef(
             dataset=name,
@@ -328,9 +374,6 @@ def _publish_bundle(root: Path) -> CalibrationBundleRef:
         raise CalibrationLakeError("panel and diagnostics cohort inventory differ")
     if set(manifests[CALIBRATION_FORWARD.name].cohort_inventory) != cohort_keys:
         raise CalibrationLakeError("panel and forward cohort inventory differ")
-    producer_commits = {manifest.producer_git_commit for manifest in manifests.values()}
-    if len(producer_commits) != 1:
-        raise CalibrationLakeError("calibration bundle datasets have different producers")
     cohorts = {
         asof: CalibrationCohortInventory(
             panel=manifests[CALIBRATION_PANEL.name].cohort_inventory[asof],
@@ -341,10 +384,14 @@ def _publish_bundle(root: Path) -> CalibrationBundleRef:
     }
     now = datetime.now(UTC)
     bundle_id = f"{now:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex}"
+    # Assembling a bundle is a different act from producing a dataset, so it carries a
+    # different identity. Requiring one shared commit instead would either stop a
+    # forward-only maturation run whose panels were built at an earlier commit, or
+    # restate a carried dataset's producer as the commit that merely republished it.
     bundle_manifest = CalibrationBundleManifest(
         bundle_id=bundle_id,
         created_at=now,
-        producer_git_commit=producer_commits.pop(),
+        assembled_by_git_commit=assembled_by or verified_git_commit(),
         cache_schema_version=CACHE_SCHEMA_VERSION,
         datasets=references,
         cohorts=cohorts,
@@ -391,6 +438,10 @@ def adopt_bundle_generation(
     fixed = _fixed_bundle(generated_root)
     if fixed is None:
         raise CalibrationLakeError("generated calibration bundle is missing")
+    # The generation states the rules its forward rows were observed under, and that
+    # statement is what the adopted store must publish. Restating the module default
+    # would let a comparison generation land in the store as if it were the default.
+    generated_policy = _require_current_cache(generated_root)
     for name, manifest in fixed.datasets.items():
         dataset = require_l2_dataset(name)
         for partition in manifest.partitions:
@@ -411,7 +462,7 @@ def adopt_bundle_generation(
         target = root / key
         install_immutable_file(target, source, expected_sha256=sha256_file(source))
 
-    _write_cache_meta(root)
+    _write_cache_meta(root, forward_policy=generated_policy)
     write_bytes_atomic(
         pointer_path,
         canonical_manifest_bytes(CalibrationBundlePointer(current=fixed.ref, previous=actual)),
@@ -430,6 +481,7 @@ def _publish_cohort(
     input_cutoff: date,
     test_only: bool = False,
     producer_commit: str | None = None,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     """Publish a build that carries every cohort already published plus this one.
 
@@ -448,13 +500,19 @@ def _publish_cohort(
         # publish it under this build's fingerprint, which is exactly the mixing the
         # cohort contract exists to prevent. The version stamp is written only after
         # this passes, so a refused build leaves the store describing itself truthfully.
-        require_build_inputs(manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
-    _write_cache_meta(root)
+        require_build_inputs(
+            manifest,
+            dataset=dataset,
+            cache_schema_version=CACHE_SCHEMA_VERSION,
+            forward_policy=forward_policy,
+        )
+    _write_cache_meta(root, forward_policy=forward_policy)
     inputs = _inputs(
         root,
         source,
         producer_commit=producer_commit,
         test_only=test_only,
+        forward_policy=forward_policy,
     )
 
     carried: list[PartitionManifest] = []
@@ -494,6 +552,7 @@ def _publish_cohort(
         sources=tuple(replacement_sources[key] for key in sorted(replacement_sources)),
         producer_git_commit=inputs.producer_git_commit,
         cache_schema_version=inputs.cache_schema_version,
+        forward_policy=inputs.forward_policy,
     )
     replacement = write_l2_partition(
         dataset=dataset,
@@ -504,7 +563,11 @@ def _publish_cohort(
     )
     if replacement is not None:
         carried.append(replacement)
-    fingerprint = transform_fingerprint(dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
+    fingerprint = transform_fingerprint(
+        dataset,
+        cache_schema_version=CACHE_SCHEMA_VERSION,
+        forward_policy=forward_policy,
+    )
     now = datetime.now(UTC)
     report = publish_l2_build(
         dataset=dataset,
@@ -544,6 +607,7 @@ def write_panel(
     producer_commit: str | None = None,
     lock_held: bool = False,
     test_only: bool = False,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     publication = nullcontext() if lock_held else lake_writer_lock(root)
     with _store_errors(), publication:
@@ -556,6 +620,7 @@ def write_panel(
             input_cutoff=input_cutoff,
             test_only=test_only,
             producer_commit=producer_commit,
+            forward_policy=forward_policy,
         )
         _publish_cohort(
             root,
@@ -566,6 +631,7 @@ def write_panel(
             input_cutoff=input_cutoff,
             test_only=test_only,
             producer_commit=producer_commit,
+            forward_policy=forward_policy,
         )
         forward = _writer_manifest(root, CALIBRATION_FORWARD)
         if forward is None or asof.isoformat() not in forward.cohort_inventory:
@@ -579,8 +645,9 @@ def write_panel(
                 input_cutoff=input_cutoff,
                 test_only=test_only,
                 producer_commit=producer_commit,
+                forward_policy=forward_policy,
             )
-        _publish_bundle(root)
+        _publish_bundle(root, assembled_by=producer_commit, forward_policy=forward_policy)
 
 
 def write_forward(
@@ -593,6 +660,7 @@ def write_forward(
     producer_commit: str | None = None,
     lock_held: bool = False,
     test_only: bool = False,
+    forward_policy: ForwardObservationPolicy = DEFAULT_FORWARD_OBSERVATION_POLICY,
 ) -> None:
     publication = nullcontext() if lock_held else lake_writer_lock(root)
     with _store_errors(), publication:
@@ -605,8 +673,9 @@ def write_forward(
             input_cutoff=input_cutoff,
             test_only=test_only,
             producer_commit=producer_commit,
+            forward_policy=forward_policy,
         )
-        _publish_bundle(root)
+        _publish_bundle(root, assembled_by=producer_commit, forward_policy=forward_policy)
 
 
 @contextmanager
@@ -751,7 +820,7 @@ def read_panel_meta(
 def read_forward(
     root: Path, asof: date, *, bundle: FixedCalibrationBundle | None = None
 ) -> list[ForwardReturnRow]:
-    _require_current_cache(root)
+    forward_policy = _require_current_cache(root)
     try:
         fixed = bundle or _fixed_bundle(root)
         if fixed is None:
@@ -765,7 +834,10 @@ def read_forward(
                 "calibration cache is partial; run calibration-build --force"
             )
         require_build_inputs(
-            manifest, dataset=CALIBRATION_FORWARD, cache_schema_version=CACHE_SCHEMA_VERSION
+            manifest,
+            dataset=CALIBRATION_FORWARD,
+            cache_schema_version=CACHE_SCHEMA_VERSION,
+            forward_policy=forward_policy,
         )
         payloads = [
             item
