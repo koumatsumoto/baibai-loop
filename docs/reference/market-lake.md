@@ -88,20 +88,34 @@ uv run baibai-engine lake release create \
 
 publish は immutable object、dataset manifest、release manifest の順に `If-None-Match: *` で
 転送する。各sourceをsealed copyへ固定してR2が検証する`Content-MD5`付きPUTを行い、logical
-SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadataへ固定する。PUT/reuse後、
-さらにpointer直前にreleaseから到達可能な全objectをstreaming GETしてsizeとSHA-256を再計算する。
-remote custom metadataだけをsame-key objectの同一性証拠にしない。SQLite `local_build_input`はdigest・schema・capture時刻をmanifestへ
-記録するがuploadしないため、日次remote bytesはchanged Parquet/Raw/manifestへ比例する。最後に
-`lake/pointers/l1/current.json`をETag `If-Match`で切り替える。
-small pointerだけをGET read-backしてexact digestを検証する。409/412のCAS conflictはretryせず
-fail-closeし、current releaseを再解決する。
+SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadataへ固定する。
+
+**このrunが書いたobjectだけをstreaming GETで読み戻す。** 既にstoreにあるobjectは、immutable PUTが
+`Content-MD5`で束ねたidentity metadataで証明する。1 publicationにつき1 keyは1度だけ証明し、pointer
+直前の再走査は行わない — overwriteを拒否するstoreでは、その間にkeyが差し替わることがないので、
+2度目の全streamは同じ結論のためにhistory全体のbytesを動かすだけになる。remote bytesの差し替えを
+探す全stream監査は`--verify-bytes`の別実行が持ち、publication hot pathとはSLOを分ける。
+report は `uploaded_bytes` / `downloaded_bytes` / `head_requests` / `get_requests` を出すので、
+「差分転送になっている」は主張ではなく観測になる。
+
+SQLite `local_build_input`はdigest・schema・capture時刻をmanifestへ記録するがuploadしないため、
+日次remote bytesはchanged Parquet/Raw/manifestへ比例する。最後に`lake/pointers/l1/current.json`を
+ETag `If-Match`で切り替え、pointer bytesだけをGETで読み戻す。409/412のCAS conflictはretryせず
+fail-closeし、current releaseを再解決する。subprocessのdeadlineはobject sizeから導く（base 120秒 +
+実測を下回る4 MiB/秒での転送時間）ので、大きなobjectがtimeoutで曖昧な結果になることを避ける。
+
+current を previous へ降格する前に、その release graph（release manifest → dataset manifest →
+object → Raw closure）をremoteで解決して検証する。検証できないcurrentはpublishを止める。previous
+への切り戻しは`--rollback-l1`が`If-Match`で行い、対象closureを検証してからpointerを交換する。
+pointer が previous を名乗るなら、それは復元できるという主張であり、必要になった日に初めて確かめる
+ものではない。
 
 production authority化ではmutable pointer prefixを除くimmutable prefixへ
 [R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、lock期間を
 previous/pin/restoreの最長保持期間以上にする。R2の
 [S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
-提供しないため、large existing objectの再利用はstreaming read-backのSHA-256、content-addressed key、
-Bucket Lock、readerのSHA-256検証の組合せで閉じる。Bucket Lock設定確認と
+提供しないため、existing objectの再利用はcontent-addressed key、immutable PUT metadata、Bucket Lock、
+readerのSHA-256検証、そして`--verify-bytes`監査の組合せで閉じる。Bucket Lock設定確認と
 tamper→reader拒否→previous rollback drillはcutover acceptanceの必須項目である。
 
 Raw object と metadata は release publication より前に個別 publish する。
@@ -116,6 +130,19 @@ uv run python -m baibai_batch.storage.lake_publish \
 uv run python -m baibai_batch.storage.lake_publish \
   --mirror <local-mirror> \
   --release-manifest <release-manifest>
+```
+
+remote bytesのtamperを探す監査と、previousへの切り戻しは別実行として持つ。
+
+```bash
+uv run python -m baibai_batch.storage.lake_publish \
+  --mirror <local-mirror> \
+  --release-manifest <release-manifest> \
+  --verify-bytes
+```
+
+```bash
+uv run python -m baibai_batch.storage.lake_publish --rollback-l1
 ```
 
 必要な環境変数は既存 transfer と同じ `R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、
@@ -254,8 +281,22 @@ dataset全体へ過去の全source世代を累積しない。最後に3 manifest
 consumerはdataset pointerを読まないため、途中失敗したpanelと旧diagnostics/forwardが混ざらない。
 書き換わるのは対象cohortの月partitionだけで、他の月はcontent-addressed objectを引き継ぐ。
 
-build identityはcohort別typed `SourceRef`、`producer_git_commit`、semantic implementation fileの
-SHA-256を含む`transform_fingerprint`、
+bundleは組み立てのtransaction identityとして`assembled_by_git_commit`を持つ。3 datasetのproducer
+commitが一致することは要求しない — 既存panelを再計算せずmatured forwardだけを更新する通常運用が、
+無関係なcommitを1つ挟むだけで止まってしまう。datasetがcarryできるかは、そのdatasetの
+`transform_fingerprint`、cohort source、cutoffで判定する。
+
+forwardの観測規則（control-event exitを使うかなど）は`ForwardObservationPolicy`としてforwardの
+`transform_fingerprint`へ入る。1つのstoreは1つのpolicyしか持てず、別policyで作られた月をcarryする
+buildは拒否される。storeが名乗るpolicyは`calibration.meta.yaml`にあり、readerがどのidentityを期待するか
+だけを決める（rowsがそのpolicyで作られた証明はbuild自身のfingerprintが持つので、書き換えは拒否を
+生んでも受理を生まない）。比較用baselineの`--without-control-event-exits`はdefault storeでは拒否し、
+別`--calibration-dir`を要求する。
+
+build identityはcohort別typed `SourceRef`、その dataset を最後に作った`producer_git_commit`、
+row値・status・membershipを決めるsemantic dependency closure（`panel.py`だけでなくcandidate build、
+selection、estimates、rules、universe、SQLite reader、market storeなど。forwardはbars、benchmark、
+horizon）のSHA-256とforward observation policyを含む`transform_fingerprint`、
 `contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは
 `(asof)`、forwardは`(asof,ticker,horizon)`を一意にし、全rowのyear/month所属をwrite/read両側で
 検査する。write APIはsource refのclosureを先に解決し、source省略を受け入れない。`local_operation`
@@ -286,6 +327,11 @@ plan hashへ閉じる。`--apply`はpublisher/pinと共通のlocal writer lock�
 candidateをmarkするだけで、7日後のsecond sweepが同じidentityを再検証してから削除する。rootが
 未解決、object不足、pointer/pin更新、candidate差替えのいずれでも削除を拒否する。
 
+`lake/build-inputs/`のsealed SQLite snapshotも通常GCの対象domainである。1 buildにつきlegacy store
+全体と同じ大きさのsnapshotを1つ作るので、prefixを対象外にするとlocal storageがrun数に比例して
+増える。current / previous / pinのcohort sourceから到達できる限り残り、到達しなくなってから
+30日 + 7日のsecond sweepで回収する。
+
 `calibration-legacy` exact archiveはこのsweepの対象外である。`lake inventory`は
 `preserve / buffer`別のobject数、bytes、oldest retrieval、soft budget（500 GiB / 50 GiB）超過を出す。
 metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
@@ -296,6 +342,13 @@ retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buff
 
 R2へのpublishは3 datasetのobject/source/manifestとbundle manifestを`If-None-Match: *`で転送し、
 最後にbundle pointerだけをETag `If-Match`で切り替える。
+
+**remote calibration lineageはcompactな`calibration_input` packageだけを受け付ける。** sealed full
+SQLite snapshotはbuildを1つの一貫した読みへ固定するためのlocal build inputであり、durableな
+remote sourceにはしない。cohort generationごとに約2 GBのobjectが増えるので、数世代でこのlakeの
+容量目標そのものを使い切る一方、cohortが実際に必要とする行はそのごく一部である。production
+calibrationのremote publishは、必要なtableがcompact input packageまたはL1 releaseへ移るまで
+fail-closeする。
 
 ```bash
 uv run python -m baibai_batch.storage.lake_publish \
