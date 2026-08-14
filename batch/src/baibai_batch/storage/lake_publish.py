@@ -296,6 +296,31 @@ class _RemotePublication:
         )
         return payload
 
+    def read_pointer(self, key: str, remote: RemoteObject) -> bytes:
+        """Read the one mutable object, proving its bytes against its own identity."""
+
+        if remote.size > _MAX_POINTER_BYTES:
+            raise LakePublishError(f"remote pointer exceeds its size limit: {key}")
+        payload = self.get_bytes(key)
+        if (
+            len(payload) != remote.size
+            or remote.metadata.get("sha256") != hashlib.sha256(payload).hexdigest()
+            or remote.metadata.get("integrity") != "content-md5-v1"
+            or not remote.metadata.get("content-md5")
+            or remote.content_type != "application/json"
+        ):
+            raise LakePublishError(f"remote pointer bytes differ from their identity: {key}")
+        return payload
+
+    def require_pointer_bytes(self, *, key: str, expected: bytes) -> None:
+        """Prove the pointer this run switched now holds exactly the bytes it wrote."""
+
+        remote = self.head(key)
+        if remote is None:
+            raise LakePublishError(f"remote pointer is missing after its switch: {key}")
+        if self.read_pointer(key, remote) != expected:
+            raise LakePublishError(f"remote pointer bytes postcondition failed: {key}")
+
     def require_present_identity(
         self, *, key: str, expected_sha256: str, content_type: str
     ) -> None:
@@ -514,12 +539,9 @@ def publish_l1_release(
     previous_release_id = None
     previous_manifest_sha256 = None
     if current is not None:
-        if current.size > _MAX_POINTER_BYTES:
-            raise LakePublishError("L1 current pointer exceeds its size limit")
-        current_payload = publication.get_bytes(pointer_key)
-        if hashlib.sha256(current_payload).hexdigest() != current.metadata.get("sha256"):
-            raise LakePublishError("L1 current pointer bytes differ from their identity")
-        previous = load_lake_model_json(current_payload, L1ReleasePointer)
+        previous = load_lake_model_json(
+            publication.read_pointer(pointer_key, current), L1ReleasePointer
+        )
         if previous.release_id == release.release_id:
             if (
                 previous.manifest_key != expected_release_key
@@ -568,7 +590,7 @@ def publish_l1_release(
             raise
         except Exception as exc:
             raise LakePublishError("L1 current pointer switch failed") from exc
-    _require_pointer_bytes(publication, key=pointer_key, expected=pointer_payload)
+    publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
     return PublishReport(
         release_id=release.release_id,
         transfers=publication.report(),
@@ -584,12 +606,7 @@ def rollback_l1_release(*, store: ObjectStore) -> PublishReport:
     remote = publication.head(pointer_key)
     if remote is None:
         raise LakePublishError("L1 current pointer is absent")
-    if remote.size > _MAX_POINTER_BYTES:
-        raise LakePublishError("L1 current pointer exceeds its size limit")
-    payload = publication.get_bytes(pointer_key)
-    if hashlib.sha256(payload).hexdigest() != remote.metadata.get("sha256"):
-        raise LakePublishError("L1 current pointer bytes differ from their identity")
-    pointer = load_lake_model_json(payload, L1ReleasePointer)
+    pointer = load_lake_model_json(publication.read_pointer(pointer_key, remote), L1ReleasePointer)
     if pointer.previous_release_id is None or pointer.previous_manifest_sha256 is None:
         raise LakePublishError("L1 current pointer has no rollback generation")
     target_key = lake_release_manifest_key(release_id=pointer.previous_release_id)
@@ -623,7 +640,7 @@ def rollback_l1_release(*, store: ObjectStore) -> PublishReport:
             raise
         except Exception as exc:
             raise LakePublishError("L1 current pointer rollback failed") from exc
-    _require_pointer_bytes(publication, key=pointer_key, expected=rollback_payload)
+    publication.require_pointer_bytes(key=pointer_key, expected=rollback_payload)
     return PublishReport(
         release_id=rolled_back.release_id,
         transfers=publication.report(),
@@ -684,12 +701,6 @@ def _require_remote_l1_closure(
                         expected_sha256=source.metadata_sha256,
                         content_type="application/json",
                     )
-
-
-def _require_pointer_bytes(publication: _RemotePublication, *, key: str, expected: bytes) -> None:
-    payload = publication.get_bytes(key)
-    if payload != expected:
-        raise LakePublishError(f"remote pointer bytes postcondition failed: {key}")
 
 
 def publish_calibration_bundle(
@@ -821,12 +832,9 @@ def publish_calibration_bundle(
     current = publication.head(pointer_key)
     previous = None
     if current is not None:
-        if current.size > _MAX_POINTER_BYTES:
-            raise LakePublishError("calibration current pointer exceeds its size limit")
-        current_payload = publication.get_bytes(pointer_key)
-        if hashlib.sha256(current_payload).hexdigest() != current.metadata.get("sha256"):
-            raise LakePublishError("calibration current pointer bytes differ from their identity")
-        old_pointer = load_lake_model_json(current_payload, CalibrationBundlePointer)
+        old_pointer = load_lake_model_json(
+            publication.read_pointer(pointer_key, current), CalibrationBundlePointer
+        )
         if old_pointer.current.bundle_id == bundle.bundle_id:
             if (
                 old_pointer.current != bundle_reference
@@ -871,7 +879,7 @@ def publish_calibration_bundle(
             raise
         except Exception as exc:
             raise LakePublishError("calibration bundle pointer switch failed") from exc
-    _require_pointer_bytes(publication, key=pointer_key, expected=pointer_payload)
+    publication.require_pointer_bytes(key=pointer_key, expected=pointer_payload)
     return CalibrationBundlePublishReport(
         bundle_id=bundle.bundle_id,
         transfers=publication.report(),
@@ -887,12 +895,9 @@ def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePubli
     remote = publication.head(pointer_key)
     if remote is None:
         raise LakePublishError("calibration current pointer is absent")
-    if remote.size > _MAX_POINTER_BYTES:
-        raise LakePublishError("calibration current pointer exceeds its size limit")
-    payload = publication.get_bytes(pointer_key)
-    if hashlib.sha256(payload).hexdigest() != remote.metadata.get("sha256"):
-        raise LakePublishError("calibration current pointer bytes differ from their identity")
-    pointer = load_lake_model_json(payload, CalibrationBundlePointer)
+    pointer = load_lake_model_json(
+        publication.read_pointer(pointer_key, remote), CalibrationBundlePointer
+    )
     if pointer.previous is None:
         raise LakePublishError("calibration current pointer has no rollback generation")
     _require_remote_calibration_closure(publication, pointer.previous)
@@ -916,7 +921,7 @@ def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePubli
             raise
         except Exception as exc:
             raise LakePublishError("calibration bundle rollback failed") from exc
-    _require_pointer_bytes(publication, key=pointer_key, expected=rollback_payload)
+    publication.require_pointer_bytes(key=pointer_key, expected=rollback_payload)
     return CalibrationBundlePublishReport(
         bundle_id=rolled_back.current.bundle_id,
         transfers=publication.report(),

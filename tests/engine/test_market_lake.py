@@ -810,3 +810,32 @@ def test_validate_cli_is_read_only_and_redacts_rejected_values(
 
 def test_lake_domain_is_exposed_by_the_root_cli() -> None:
     assert DOMAINS["lake"].module == "baibai_engine.market.lake.cli"
+
+
+def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) -> None:
+    """A class that grows for a design reason has to be visible against its objective.
+
+    Reporting only the Raw budget would let the published graph pass the objective it
+    was sized against without anything saying so, and would hide a sealed build input
+    the size of the whole legacy store behind a figure fifty times larger.
+    """
+
+    published = tmp_path / (
+        "lake/l1/canonical/jquants.daily_bars/contract=v1/year=2026/month=8/"
+        f"part-{'a' * 64}.parquet"
+    )
+    published.parent.mkdir(parents=True)
+    published.write_bytes(b"parquet")
+    build_input = tmp_path / (
+        f"lake/build-inputs/sqlite/market/schema=v23/snapshot-{'b' * 64}.sqlite"
+    )
+    build_input.parent.mkdir(parents=True)
+    build_input.write_bytes(b"sealed snapshot")
+
+    capacity = {item["class"]: item for item in inventory(tmp_path)["capacity"]}
+
+    assert set(capacity) == {"build_inputs", "published", "raw_buffer", "raw_preserve"}
+    assert capacity["published"]["bytes"] == 7
+    assert capacity["build_inputs"]["bytes"] == 15
+    assert capacity["published"]["soft_budget_bytes"] == 10 * 1024**3
+    assert not any(item["budget_exceeded"] for item in capacity.values())

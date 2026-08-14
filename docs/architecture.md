@@ -125,9 +125,17 @@ rollback条件を満たしたpointer switchで `lake_authority` へ移り、R2 r
 immutable object key だけを読む。manifest digest、object digest、dataset contract の不一致は
 fail-close で、prefix listing・glob・`union_by_name` による吸収・provider fallback はいずれも
 持たない。projection の再利用は release、manifest digest、object digest、projection contract
-fingerprint、producer commit の完全一致だけで決め、不一致・partial・破損は一時 file への再構築と
-atomic replace で扱う。手順は [`reference/market-lake.md`](./reference/market-lake.md#fixed-release-read)
-を正本とする。
+fingerprint の完全一致だけで決め、不一致・partial・破損は一時 file への再構築と
+atomic replace で扱う。projection を作った commit は audit として残すが再利用条件には入れない —
+projection の bytes を動かさない変更で 10M row を作り直させないためで、bytes を動かす実装は
+contract fingerprint 側が持つ。手順は
+[`reference/market-lake.md`](./reference/market-lake.md#fixed-release-read) を正本とする。
+
+このcustom manifest protocolは、単一writer・小規模catalog・Python中心という現在の制約に対して
+table formatより小さい。次のいずれかが現れた時点で、Apache Iceberg / R2 Data Catalog等への
+置換を再評価する: 同時writerが2以上になる、object数が10万を超える、schema branchを複数同時に
+維持する、dataset横断のsnapshot transactionが要る、remote GCを自前で持つ、row-level mutationが要る。
+どれも現状は無く、無い間は自前protocolの方が状態空間が小さい。
 
 ## Stable CLI
 

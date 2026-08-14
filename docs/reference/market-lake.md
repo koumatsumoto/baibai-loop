@@ -303,6 +303,12 @@ horizon）のSHA-256とforward observation policyを含む`transform_fingerprint
 sourceは明示したtest-only gateだけで使う。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の0 rowsだけを`[]`として
 返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
 
+cohortのinput cutoffとsealed snapshotが保証するのは**同じ結果を後日再生できること**であって、
+その値が当時同じ形で入手できたことではない。J-Quantsのadjusted price、master、JPX flagは
+revisionを含み、完全なvintageではない（[`data-sources.md`](./data-sources.md)）。較正結果を
+live deploy可能なhistorical alphaとして読まず、PIT不完全なfieldに依存するmetricはその前提込みで
+保守的に解釈する。
+
 retention の root は 3 種類で、そこから到達できる object は齢によらず残す。
 
 - calibration bundle の current と previous（各3 datasetの完全closure）
@@ -332,8 +338,24 @@ candidateをmarkするだけで、7日後のsecond sweepが同じidentityを再�
 増える。current / previous / pinのcohort sourceから到達できる限り残り、到達しなくなってから
 30日 + 7日のsecond sweepで回収する。
 
-`calibration-legacy` exact archiveはこのsweepの対象外である。`lake inventory`は
-`preserve / buffer`別のobject数、bytes、oldest retrieval、soft budget（500 GiB / 50 GiB）超過を出す。
+`calibration-legacy` exact archiveはこのsweepの対象外である。
+
+容量目標は1つのpolicyをclassへ分けて持つ。`lake inventory`の`capacity`が全classを同じ表で出す
+ので、あるclassがdesign上の理由で増えたことを、そのclassが対して測られている目標に対して読める。
+
+| class | 内容 | soft budget |
+| --- | --- | --- |
+| `published` | canonical / analytical Parquet、manifest、pointer。R2が日常的に持つ graph | 10 GiB |
+| `raw_preserve` | 再取得できない provider 原本 (Premium CSV、長期 backfill) | 500 GiB |
+| `raw_buffer` | 再取得で再現できる routine response | 50 GiB |
+| `build_inputs` | sealed legacy snapshot。local のみで upload しない | 10 GiB |
+
+Issue #917 が置いた「R2 は原則 10 GB 前後」は `published` classの目標である。再取得できない原本を
+同じ数字に押し込むと保存自体を諦めることになるので、`raw_preserve`は別に承認した budget として持つ。
+単一の数字で報告すると、大きい方の budget が小さい方の超過を隠す — 500 GiB の枠の下では、
+published graph が目標を超えても、cohort ごとに 2 GB の snapshot が積まれても、何も警告しない。
+
+`lake inventory`は加えて`preserve / buffer`別のobject数、bytes、oldest retrievalを出す。
 metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
 retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buffer`はcurrent/previous/pin closureから
 未到達かつretrieved-atから90日以上の場合だけ通常GCの候補にする。object/metadata pairを同じplan hashへ

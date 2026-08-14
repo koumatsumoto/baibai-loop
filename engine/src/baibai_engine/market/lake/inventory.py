@@ -11,10 +11,39 @@ from pydantic import JsonValue
 from .keys import validate_lake_object_key
 from .models import RawArchiveMetadata, load_lake_model_json
 
-RAW_SOFT_BUDGET_BYTES = {
-    "preserve": 500 * 1024**3,
-    "buffer": 50 * 1024**3,
+# One capacity policy, split by what each class is for, so a class that grows for a
+# design reason is visible against the objective that class was sized against. A single
+# figure cannot do that: provider originals that cannot be re-fetched need a budget two
+# orders of magnitude above the published graph, and reporting only the larger one lets
+# the published graph grow past its objective without anything saying so.
+SOFT_BUDGET_BYTES = {
+    # The published lake: canonical Parquet, analytical Parquet, manifests, pointers.
+    # This is the class Issue #917 sized at roughly 10 GB.
+    "published": 10 * 1024**3,
+    # Provider originals that cannot be retrieved again. Sized separately and approved
+    # separately; this is not the published-graph objective under another name.
+    "raw_preserve": 500 * 1024**3,
+    # Provider responses a re-fetch can reproduce.
+    "raw_buffer": 50 * 1024**3,
+    # Sealed legacy snapshots. Local only — these are never uploaded — and bounded by
+    # what current, previous, and pins can still be rebuilt from.
+    "build_inputs": 10 * 1024**3,
 }
+RAW_SOFT_BUDGET_BYTES = {
+    "preserve": SOFT_BUDGET_BYTES["raw_preserve"],
+    "buffer": SOFT_BUDGET_BYTES["raw_buffer"],
+}
+
+
+def _capacity_class(key: str) -> str | None:
+    """The budget a stored key counts against, or ``None`` when another class holds it."""
+    if key.startswith("lake/l1/raw/"):
+        return None  # Counted by retention class from its metadata sidecar.
+    if key.startswith("lake/build-inputs/"):
+        return "build_inputs"
+    if key.startswith(("lake/l1/", "lake/l2/", "lake/manifests/", "lake/pointers/")):
+        return "published"
+    return None
 
 
 def _area(key: str) -> str:
@@ -43,6 +72,7 @@ def inventory(root: Path) -> dict[str, JsonValue]:
             "objects": 0,
             "bytes": 0,
             "areas": [],
+            "capacity": [],
             "raw_retention": [],
             "raw_inventory_errors": [],
             "raw_unclassified": {"objects": 0, "bytes": 0},
@@ -60,6 +90,7 @@ def inventory(root: Path) -> dict[str, JsonValue]:
     raw_inventory_errors: list[JsonValue] = []
     raw_payloads: dict[str, int] = {}
     raw_metadata_objects: set[str] = set()
+    capacity: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
@@ -75,6 +106,11 @@ def inventory(root: Path) -> dict[str, JsonValue]:
         area = totals[_area(key)]
         area[0] += 1
         area[1] += size
+        capacity_class = _capacity_class(key)
+        if capacity_class is not None:
+            counter = capacity[capacity_class]
+            counter[0] += 1
+            counter[1] += size
         if key.startswith("lake/l1/raw/") and key.endswith(".metadata.json"):
             try:
                 metadata = load_lake_model_json(path.read_bytes(), RawArchiveMetadata)
@@ -100,6 +136,10 @@ def inventory(root: Path) -> dict[str, JsonValue]:
         {"key": key, "error": "Raw object has no metadata sidecar"} for key in orphan_payloads
     )
 
+    counted = {
+        name: (raw_totals[name.removeprefix("raw_")] if name.startswith("raw_") else capacity[name])
+        for name in SOFT_BUDGET_BYTES
+    }
     areas: list[JsonValue] = [
         {"prefix": prefix, "objects": values[0], "bytes": values[1]}
         for prefix, values in sorted(totals.items())
@@ -124,6 +164,16 @@ def inventory(root: Path) -> dict[str, JsonValue]:
                 "budget_exceeded": raw_totals[name][1] > RAW_SOFT_BUDGET_BYTES[name],
             }
             for name in ("preserve", "buffer")
+        ],
+        "capacity": [
+            {
+                "class": name,
+                "objects": counted[name][0],
+                "bytes": counted[name][1],
+                "soft_budget_bytes": budget,
+                "budget_exceeded": counted[name][1] > budget,
+            }
+            for name, budget in sorted(SOFT_BUDGET_BYTES.items())
         ],
         "raw_inventory_errors": raw_inventory_errors,
         "raw_unclassified": {
