@@ -67,6 +67,10 @@ def _raw_source_payload(*, dataset: str, ingest_id: str) -> dict[str, object]:
     return {
         "kind": "raw_ingest",
         "source_id": ingest_id,
+        "provider": "jquants",
+        "dataset": dataset,
+        "request_start": "2026-08-01",
+        "request_end": "2026-08-12",
         "key": key,
         "sha256": "f" * 64,
         "metadata_version": 1,
@@ -367,6 +371,8 @@ def test_source_ref_rejects_unknown_kind_and_prefix_identity() -> None:
 
     prefixed = _raw_source_payload(dataset="daily_bars", ingest_id="ingest.variant")
     prefixed["source_id"] = "ingest"
+    prefixed["request_start"] = date(2026, 8, 1)
+    prefixed["request_end"] = date(2026, 8, 12)
     with pytest.raises(ValueError, match="key does not match source_id"):
         RawIngestSourceRef.model_validate(prefixed)
 
@@ -557,6 +563,10 @@ def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Pat
     raw = RawIngestSourceRef(
         kind="raw_ingest",
         source_id="ingest-1",
+        provider="jquants",
+        dataset="daily_bars",
+        request_start=date(2026, 8, 1),
+        request_end=date(2026, 8, 12),
         key=raw_key,
         sha256=hashlib.sha256(b"raw").hexdigest(),
         metadata_version=1,
@@ -564,6 +574,23 @@ def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Pat
         metadata_sha256=hashlib.sha256(metadata_bytes).hexdigest(),
     )
     assert resolve_source_ref(tmp_path, raw) == raw_path
+
+    for update in (
+        {"provider": "other"},
+        {"dataset": "short_sale_reports"},
+        {"request_start": date(2026, 7, 1)},
+        {"request_end": date(2026, 8, 31)},
+    ):
+        with pytest.raises(ValueError, match="metadata identity does not match"):
+            resolve_source_ref(tmp_path, raw.model_copy(update=update))
+    with pytest.raises(ValueError, match="request_start must not be after request_end"):
+        RawIngestSourceRef.model_validate(
+            {
+                **raw.model_dump(mode="json"),
+                "request_start": date(2026, 8, 13),
+                "request_end": date(2026, 8, 12),
+            }
+        )
 
     with pytest.raises(ValueError, match="digest does not match"):
         resolve_source_ref(tmp_path, raw.model_copy(update={"sha256": "0" * 64}))
@@ -590,10 +617,12 @@ def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Pat
     sqlite_seed.replace(sqlite_path)
     sqlite_ref = SQLiteSnapshotSourceRef(
         kind="sqlite_snapshot",
-        source_id="snapshot-1",
+        source_id=f"market-v22-{sqlite_digest[:24]}",
+        role="local_build_input",
         key=sqlite_key,
         sha256=sqlite_digest,
         schema_version=22,
+        captured_at=datetime(2026, 8, 12, 12, tzinfo=UTC),
     )
     assert resolve_source_ref(tmp_path, sqlite_ref) == sqlite_path
     with pytest.raises(ValueError, match="schema version does not match"):
@@ -668,7 +697,7 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         snapshot_id="snapshot-1",
         schema_version=22,
         content_sha256=digest,
-    ) == (f"lake/l1/raw/legacy_sqlite/market/schema=v22/snapshot-1/snapshot-{digest}.sqlite")
+    ) == (f"lake/build-inputs/sqlite/market/schema=v22/snapshot-{digest}.sqlite")
 
     with pytest.raises(ValueError, match="path-safe"):
         dataset_manifest_key(dataset="../secret", build_id="build-1")

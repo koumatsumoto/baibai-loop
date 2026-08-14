@@ -93,6 +93,7 @@ def capture_legacy_sqlite_snapshot(
     snapshot_id: str | None = None,
 ) -> LegacySQLiteSnapshot:
     """Capture committed main/WAL state once and install a content-addressed seed."""
+    captured_at = datetime.now(UTC)
     actual_id = snapshot_id or f"snapshot-{uuid.uuid4().hex}"
     validate_identifier(actual_id, label="snapshot_id")
     workspace = _workspace_path(mirror_root, "snapshot", actual_id)
@@ -120,10 +121,12 @@ def capture_legacy_sqlite_snapshot(
         install_immutable_file(target, temporary, expected_sha256=digest)
         ref = SQLiteSnapshotSourceRef(
             kind="sqlite_snapshot",
-            source_id=actual_id,
+            source_id=f"market-v{schema_version}-{digest[:24]}",
+            role="local_build_input",
             key=key,
             sha256=digest,
             schema_version=schema_version,
+            captured_at=captured_at,
         )
         resolve_source_ref(mirror_root, ref)
         return LegacySQLiteSnapshot(path=target, ref=ref)
@@ -173,7 +176,7 @@ def export_legacy_sqlite(
     )
     for source in raw_source_refs:
         resolve_source_ref(mirror_root, source)
-    current_sources: tuple[SourceRef, ...] = (snapshot.ref, *raw_source_refs)
+        _validate_raw_source_dataset(source, dataset)
     staging_root.mkdir(parents=True)
 
     try:
@@ -206,7 +209,13 @@ def export_legacy_sqlite(
                     month=month,
                     staging_root=staging_root,
                     rows=rows,
-                    sources=current_sources,
+                    sources=_partition_sources(
+                        dataset=dataset,
+                        month=month,
+                        snapshot=snapshot.ref,
+                        previous=previous,
+                        current=raw_source_refs,
+                    ),
                 )
                 built.append(item)
                 partitions[month] = item.manifest
@@ -217,6 +226,7 @@ def export_legacy_sqlite(
                     changed.append(label)
             if not partitions:
                 raise LakeBuildError("dataset manifest must contain at least one partition")
+            _require_all_raw_sources_used(raw_source_refs, months)
             data_as_of = _data_as_of(connection, dataset, months=partitions)
             coverage_status, coverage_start, population_count = _coverage_assessment(
                 connection, dataset
@@ -439,6 +449,62 @@ def _build_month(
             source_state_sha256=_source_state_sha256(connection, dataset, month, rows),
         ),
     )
+
+
+def _validate_raw_source_dataset(source: RawIngestSourceRef, dataset: LakeDataset) -> None:
+    provider = dataset.name.partition(".")[0]
+    if source.provider != provider or source.dataset != dataset.name:
+        raise LakeBuildError(f"Raw source does not match target dataset: {source.source_id}")
+
+
+def _raw_source_overlaps_month(source: RawIngestSourceRef, month: tuple[int, int]) -> bool:
+    start = date(month[0], month[1], 1)
+    end = date(month[0] + 1, 1, 1) if month[1] == 12 else date(month[0], month[1] + 1, 1)
+    return source.request_start < end and source.request_end >= start
+
+
+def _partition_sources(
+    *,
+    dataset: LakeDataset,
+    month: tuple[int, int],
+    snapshot: SQLiteSnapshotSourceRef,
+    previous: PartitionManifest | None,
+    current: Sequence[RawIngestSourceRef],
+) -> tuple[SourceRef, ...]:
+    prior_raw = (
+        ()
+        if previous is None
+        else tuple(
+            source for source in previous.sources if isinstance(source, RawIngestSourceRef)
+        )
+    )
+    applicable = tuple(source for source in current if _raw_source_overlaps_month(source, month))
+    for source in (*prior_raw, *applicable):
+        _validate_raw_source_dataset(source, dataset)
+        if not _raw_source_overlaps_month(source, month):
+            raise LakeBuildError(
+                f"Raw source request range does not cover partition month: {source.source_id}"
+            )
+    by_identity = {
+        (source.kind, source.source_id, source.key, source.sha256): source
+        for source in (*prior_raw, *applicable)
+    }
+    return (snapshot, *(by_identity[key] for key in sorted(by_identity)))
+
+
+def _require_all_raw_sources_used(
+    sources: Sequence[RawIngestSourceRef], months: Sequence[tuple[int, int]]
+) -> None:
+    unused = [
+        source.source_id
+        for source in sources
+        if not any(_raw_source_overlaps_month(source, month) for month in months)
+    ]
+    if unused:
+        raise LakeBuildError(
+            "Raw source request range does not cover any rebuilt partition: "
+            + ", ".join(sorted(unused))
+        )
 
 
 def _build_months(

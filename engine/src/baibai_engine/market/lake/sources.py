@@ -69,6 +69,10 @@ def _validate_raw_metadata(mirror_root: Path, source: RawIngestSourceRef) -> Non
     metadata = load_lake_model_json(payload, RawArchiveMetadata)
     if (
         metadata.metadata_version != source.metadata_version
+        or metadata.provider != source.provider
+        or metadata.dataset != source.dataset
+        or metadata.request_start != source.request_start
+        or metadata.request_end != source.request_end
         or metadata.ingest_id != source.source_id
         or metadata.object_key != source.key
         or metadata.content_sha256 != source.sha256

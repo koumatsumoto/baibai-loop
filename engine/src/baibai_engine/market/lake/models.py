@@ -138,9 +138,18 @@ class _SourceRefBase(BaseModel):
 
 class RawIngestSourceRef(_SourceRefBase):
     kind: Literal["raw_ingest"]
+    provider: str
+    dataset: str
+    request_start: date
+    request_end: date
     metadata_version: int = Field(ge=1)
     metadata_key: str
     metadata_sha256: str
+
+    @field_validator("provider", "dataset")
+    @classmethod
+    def validate_source_segment(cls, value: str) -> str:
+        return validate_dataset_name(value)
 
     @field_validator("key")
     @classmethod
@@ -164,6 +173,8 @@ class RawIngestSourceRef(_SourceRefBase):
 
     @model_validator(mode="after")
     def validate_identity(self) -> RawIngestSourceRef:
+        if self.request_start > self.request_end:
+            raise ValueError("raw_ingest request_start must not be after request_end")
         if PurePosixPath(self.key).name not in {
             f"{self.source_id}.csv.gz",
             f"{self.source_id}.json.gz",
@@ -177,22 +188,32 @@ class RawIngestSourceRef(_SourceRefBase):
 
 class SQLiteSnapshotSourceRef(_SourceRefBase):
     kind: Literal["sqlite_snapshot"]
+    role: Literal["local_build_input"]
     schema_version: int = Field(ge=1)
+    captured_at: datetime
+
+    @field_validator("captured_at")
+    @classmethod
+    def validate_captured_at(cls, value: datetime) -> datetime:
+        if value.utcoffset() != timedelta(0):
+            raise ValueError("captured_at must be UTC")
+        return value
 
     @field_validator("key")
     @classmethod
     def validate_key(cls, value: str) -> str:
         key = validate_lake_object_key(value)
-        if not key.startswith("lake/l1/raw/legacy_sqlite/") or not key.endswith(".sqlite"):
-            raise ValueError("sqlite_snapshot must reference a legacy SQLite snapshot object")
+        if not key.startswith("lake/build-inputs/sqlite/market/") or not key.endswith(".sqlite"):
+            raise ValueError("sqlite_snapshot must reference a local SQLite build input")
         return key
 
     @model_validator(mode="after")
     def validate_identity(self) -> SQLiteSnapshotSourceRef:
         path = PurePosixPath(self.key)
+        expected_source_id = f"market-v{self.schema_version}-{self.sha256[:24]}"
         if (
-            path.parent.name != self.source_id
-            or path.parent.parent.name != f"schema=v{self.schema_version}"
+            self.source_id != expected_source_id
+            or path.parent.name != f"schema=v{self.schema_version}"
             or path.name != f"snapshot-{self.sha256}.sqlite"
         ):
             raise ValueError("sqlite_snapshot key does not match source identity")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from .datasets import PILOT_DATASETS
@@ -260,7 +260,7 @@ def _projection_build(args: argparse.Namespace) -> int:
                 )
                 release = resolve_release_ref(cache.source, reference)
             else:
-                release = resolve_current_release(cache.source)
+                release = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
             report = build_projection(
                 session,
                 release=release,

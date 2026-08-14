@@ -50,8 +50,10 @@ J-Quants / EDINET から取得したデータは、個人利用・非公開 repo
 
 Canonical manifestのsourceはtyped `SourceRef`で記録する。provider Raw、legacy SQLite snapshot、
 fixed L1 release、calibration input archiveは別kindであり、各refは実在するkey、SHA-256、
-source側schema/manifest versionへ束縛する。provider Rawはmetadata sidecarもkeyとSHA-256で固定し、ingest ID・object key・content
-digest・metadata versionを同時に照合する。logical manifestへR2 ETagを保存せず、release profileの
+source側schema/manifest versionへ束縛する。provider Rawはprovider・dataset・request rangeとmetadata sidecarのkey・SHA-256を固定し、
+ingest ID・object key・content digest・metadata versionを同時に照合する。legacy SQLite snapshotは
+remote retention対象ではない`local_build_input`であり、canonical buildとshadow parityを同じsealed
+generationへ束縛する。logical manifestへR2 ETagを保存せず、release profileの
 required dataset・coverage・freshness gateを通らないgenerationをproduction currentとして扱わない。
 
 Raw retention は、再取得が高価または不可能な Premium CSV・EDINET XBRL・JPX 原本を

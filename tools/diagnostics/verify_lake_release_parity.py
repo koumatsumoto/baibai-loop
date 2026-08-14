@@ -31,9 +31,12 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from baibai_engine.market.lake.projection import ProjectionError
+from baibai_engine.market.lake.models import SQLiteSnapshotSourceRef
+from baibai_engine.market.lake.objects import LocalMirrorSource
+from baibai_engine.market.lake.projection import ProjectionError, read_projection_identity
+from baibai_engine.market.lake.reader import LakeReadError, resolve_release
+from baibai_engine.market.lake.sources import resolve_source_ref
 from baibai_engine.screening.config import (
-    DEFAULT_SQLITE_CACHE_DIR,
     ConfigError,
     ScreeningConfig,
 )
@@ -49,11 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--projection", required=True, help="local SQLite projection of one fixed L1 release"
     )
-    parser.add_argument(
-        "--sqlite-path",
-        default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
-        help=f"legacy SQLite store (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
-    )
+    parser.add_argument("--mirror", required=True, help="local mirror containing the fixed release")
     parser.add_argument(
         "--workspace",
         help="directory for the two throwaway stores (default: a temporary directory)",
@@ -84,9 +83,33 @@ def main(argv: list[str] | None = None) -> int:
             else Path(stack.enter_context(tempfile.TemporaryDirectory()))
         )
         try:
+            mirror = Path(args.mirror)
+            identity = read_projection_identity(Path(args.projection))
+            if identity is None:
+                raise ProjectionError("projection identity is absent")
+            release = resolve_release(
+                LocalMirrorSource(mirror),
+                identity.source_release_id,
+                manifest_sha256=identity.source_release_manifest_sha256,
+            )
+            snapshots = {
+                source
+                for manifest in release.dataset_manifests.values()
+                for partition in manifest.partitions
+                for source in partition.sources
+                if isinstance(source, SQLiteSnapshotSourceRef)
+            }
+            if len(snapshots) != 1:
+                raise LakeShadowError(
+                    "release does not identify exactly one SQLite source snapshot"
+                )
+            snapshot_ref = snapshots.pop()
+            snapshot_path = resolve_source_ref(mirror, snapshot_ref)
             report = run_lake_shadow_parity(
                 asof=date.fromisoformat(args.asof),
-                legacy_sqlite=Path(args.sqlite_path),
+                source_snapshot=snapshot_path,
+                source_snapshot_ref=snapshot_ref,
+                release_manifest_sha256=release.manifest_sha256,
                 projection=Path(args.projection),
                 workspace=workspace,
                 config=config,
@@ -96,7 +119,14 @@ def main(argv: list[str] | None = None) -> int:
                 select_top=args.top,
                 stdout=sys.stdout,
             )
-        except (LakeShadowError, ProjectionError, OSError, ValueError, sqlite3.Error) as error:
+        except (
+            LakeReadError,
+            LakeShadowError,
+            ProjectionError,
+            OSError,
+            ValueError,
+            sqlite3.Error,
+        ) as error:
             print(f"lake parity failed: {error}", file=sys.stderr)
             return 1
     yaml.safe_dump(report.as_dict(), sys.stdout, sort_keys=False, allow_unicode=True)

@@ -89,8 +89,10 @@ manifest は全 partition object と totals を列挙し、L1 release manifest �
 組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
 で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは
 `raw_ingest`・`sqlite_snapshot`・`l1_release`・`calibration_input`を区別するtyped `SourceRef`で表し、解決先key、
-SHA-256、source側versionを検証する。Raw refはmetadata sidecarのkeyとSHA-256も固定し、sidecarの
-ingest ID・object key・content digest・metadata versionを照合する。文字列prefixや実在しない
+SHA-256、source側versionを検証する。Raw refはprovider・dataset・request rangeとmetadata
+sidecarのkey・SHA-256を固定する。SQLite snapshot refはremote retention objectではない
+`local_build_input`として、同一buildを作ったsealed inputのdigest・schema・capture時刻を固定する。
+文字列prefixや実在しない
 release IDでsource種別を表さない。
 
 manifest、pointer、pinを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
