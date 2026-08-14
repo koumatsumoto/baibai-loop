@@ -85,7 +85,20 @@ materialized read model だけを読む。
 R2 key は `lake/` 以下だけを使い、segment allowlist で path traversal を拒否する。time-series
 partition は `year/month`、file は ZSTD Parquet、object name は content SHA-256 とする。dataset
 manifest は全 partition object と totals を列挙し、L1 release manifest は互換な dataset build の
-組を一つの `release_id` へ固定する。
+組を一つの `release_id` へ固定する。logical object identity は key・SHA-256・bytes・rows・schema
+で決まり、object-store固有のETagはpublish/CASのtransport stateにだけ置く。lineageは
+`raw_ingest`・`sqlite_snapshot`・`l1_release`を区別するtyped `SourceRef`で表し、解決先key、
+SHA-256、source側versionを検証する。Raw refはmetadata sidecarのkeyとSHA-256も固定し、sidecarの
+ingest ID・object key・content digest・metadata versionを照合する。文字列prefixや実在しない
+release IDでsource種別を表さない。
+
+manifest、pointer、pinを含むlake JSONは、duplicate key拒否とredacted validation errorを持つ
+共通parserだけを通し、wire size上限をparse前に検査する。partition valuesとrelease dataset
+inventoryはparse後に変更できない。
+releaseは`pilot`または`production` profileを宣言し、profileごとのrequired dataset、accepted
+contract、coverage、検証時刻基準のfreshness/skew、manifest size/object budgetを満たす場合だけ
+current候補になる。
+pilot profileは移行中の限定datasetを表し、production completenessを代替しない。
 
 version 語彙は `contract_version`（schema・PK・型・partition・意味の互換境界）、`build_id`
 （immutable build）、`source_release_id`（exact L1 input）、`producer_git_commit`（code identity）

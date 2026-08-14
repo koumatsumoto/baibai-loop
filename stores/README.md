@@ -41,6 +41,8 @@ comparison artifactで、`lake_authority`のSQLiteはfixed releaseから再構�
 production rules は [method](../method/README.md)、historical evidence は
 [reports](../reports/README.md)。R2 object keyは`lake/`以下のpath-safe segmentだけで構成し、
 dataset / release manifestがobject inventory、checksum、rows、coverage、producerを固定する。
+manifestのlogical identityはcontent SHA-256で固定し、R2 ETagはpointer CAS等のtransport stateに
+限定する。sourceはtyped `SourceRef`、release completenessは明示profileのpolicyで検証する。
 repository path migration とR2 key semanticsを結合しない。
 
 ## Tests

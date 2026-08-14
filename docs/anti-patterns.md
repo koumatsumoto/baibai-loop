@@ -303,6 +303,13 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       全writerがdownload時のR2 ETagをbackupと最終PutObjectの条件へ渡し、手動publish後に
       stale daily writerが到着する逆順と最後のversion確認後のraceもprecondition failureで
       no-overwriteになるnegative testを持つか
+- [ ] lakeのmanifest / pointer / pin JSONは共通strict parserだけを通し、rootとnestedのduplicate
+      keyを拒否し、parse前のwire size上限を持ち、validation errorへpayload値を展開していないか。
+      logical manifestからR2 ETagを
+      分離し、nested mappingをparse後に変更できないか。lineageはtyped `SourceRef`でsource kind・
+      key・digest・versionを検証し、magic prefixや架空releaseを使っていないか。production releaseは
+      profileごとのrequired dataset・contract・coverage・trusted clock基準のfreshness/skew・manifest
+      budgetを満たすか
 - [ ] observation を読みから外すときは delete ではなく retraction vintage を積んだか。merge の
       no-loss 契約が delete を必ず巻き戻すので、delete は「消えたように見えて次の push で戻る」
       無音の失敗になる。retraction を入れたら、store 書き換え（`trim_before_first` /
