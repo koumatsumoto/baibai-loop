@@ -19,9 +19,11 @@ from baibai_batch.storage.lake_publish import (
     LakeCASConflict,
     LakePublishError,
     _ensure_immutable,
+    _RemotePublication,
     publish_calibration_bundle,
     publish_l1_release,
     rollback_calibration_bundle,
+    rollback_l1_release,
 )
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake.datasets import PILOT_DATASETS
@@ -233,7 +235,7 @@ def test_actual_r2_l1_publish_read_and_projection(
         created_at=datetime.now(UTC),
     )
 
-    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    first = publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
     remote_mirror = tmp_path / "remote-reader"
     _download_l1_closure(store, remote_mirror)
 
@@ -245,11 +247,48 @@ def test_actual_r2_l1_publish_read_and_projection(
             cache=cache,
             destination=tmp_path / "projection.sqlite",
             dataset_names=tuple(sorted(PILOT_DATASETS)),
-            producer_git_commit="a" * 40,
+            builder_git_commit="a" * 40,
         )
     assert projection.identity.source_release_id == fixed.release_id
     with sqlite3.connect(projection.path) as connection:
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
+
+    # The reader path production would use: objects resolved straight out of the bucket
+    # through DuckDB's HTTP layer, with nothing pre-downloaded beside it.
+    direct_mirror = tmp_path / "direct-reader"
+    with open_lake(mirror=direct_mirror, bucket=os.environ["R2_LAKE_ACCEPTANCE_BUCKET"]) as (
+        session,
+        cache,
+    ):
+        direct = resolve_current_release(cache.source, evaluated_at=datetime.now(UTC))
+        direct_projection = build_projection(
+            session,
+            release=direct,
+            cache=cache,
+            destination=tmp_path / "direct-projection.sqlite",
+            dataset_names=tuple(sorted(PILOT_DATASETS)),
+            builder_git_commit="a" * 40,
+        )
+    assert direct_projection.identity == projection.identity
+
+    # A run that changes nothing must not move the closure's bytes again.
+    unchanged = publish_l1_release(
+        mirror_root=mirror, release_manifest_path=release_path, store=store
+    )
+    assert unchanged.transfers.uploaded_bytes == 0
+    assert unchanged.transfers.downloaded_bytes < first.transfers.uploaded_bytes
+
+    successor_path, _successor = create_l1_release(
+        dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],
+        mirror_root=mirror,
+        release_id=f"acceptance-{uuid.uuid4().hex}",
+        created_at=datetime.now(UTC),
+    )
+    publish_l1_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
+    rolled_back = rollback_l1_release(store=store)
+    assert rolled_back.release_id == projection.identity.source_release_id
+    restored = load_lake_model_json(store.get_bytes(current_l1_pointer_key()), L1ReleasePointer)
+    assert restored.release_id == projection.identity.source_release_id
 
 
 def test_actual_r2_large_reuse_reads_bytes_and_rejects_forged_metadata(tmp_path: Path) -> None:
@@ -270,7 +309,7 @@ def test_actual_r2_large_reuse_reads_bytes_and_rejects_forged_metadata(tmp_path:
         )
     started = time.perf_counter()
     _ensure_immutable(
-        store,
+        _RemotePublication(store=store),
         key=key,
         path=payload,
         content_type="application/octet-stream",
@@ -290,9 +329,19 @@ def test_actual_r2_large_reuse_reads_bytes_and_rejects_forged_metadata(tmp_path:
         content_md5=_content_md5(forged),
         content_type="application/octet-stream",
     )
+    # Forged bytes under an unchanged identity are what the streaming audit exists for;
+    # the publication path proves the identity metadata and leaves the stream to it.
+    _ensure_immutable(
+        _RemotePublication(store=store),
+        key=key,
+        path=payload,
+        content_type="application/octet-stream",
+        expected_sha256=digest,
+        expected_size=size,
+    )
     with pytest.raises(LakePublishError, match="bytes postcondition failed"):
         _ensure_immutable(
-            store,
+            _RemotePublication(store=store, verify_bytes=True),
             key=key,
             path=payload,
             content_type="application/octet-stream",

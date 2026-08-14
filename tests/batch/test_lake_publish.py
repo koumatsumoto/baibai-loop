@@ -53,8 +53,10 @@ class _MemoryStore:
         self.values: dict[str, _Value] = {}
         self.conflict_pointer = False
         self.get_keys: list[str] = []
+        self.head_keys: list[str] = []
 
     def head(self, key: str) -> RemoteObject | None:
+        self.head_keys.append(key)
         value = self.values.get(key)
         if value is None:
             return None
@@ -69,7 +71,7 @@ class _MemoryStore:
         self.get_keys.append(key)
         return self.values[key].body
 
-    def download_file(self, key: str, path: Path) -> None:
+    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
         self.get_keys.append(key)
         path.write_bytes(self.values[key].body)
 
@@ -441,42 +443,73 @@ def test_publish_uploads_immutable_graph_before_current_pointer(tmp_path) -> Non
         store=store,
     )
 
-    assert first.uploaded_objects == 5
-    assert second.uploaded_objects == 0
-    assert second.reused_objects == 5
+    assert first.transfers.uploaded_objects == 5
+    assert second.transfers.uploaded_objects == 0
+    assert second.transfers.reused_objects == 5
     assert not any(key.startswith("lake/build-inputs/") for key in store.values)
     assert "lake/pointers/l1/current.json" in store.values
-    # Existing immutable objects are streamed back and hashed; custom metadata is
-    # not accepted as proof that a same-key remote object still has the graph bytes.
-    assert set(store.get_keys) == set(store.values)
+    # A run that changes nothing moves no object bytes. Objects the store already
+    # holds are proved by the identity metadata their immutable write bound to them;
+    # only the one mutable pointer is read back.
+    assert second.transfers.downloaded_bytes == len(
+        store.values["lake/pointers/l1/current.json"].body
+    )
+    assert not any(
+        key.startswith("lake/l1/canonical/")
+        for key in store.get_keys[len(store.get_keys) - second.transfers.get_requests :]
+    )
+
+
+def test_publication_proves_each_remote_key_once(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    store.head_keys.clear()
+
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+
+    graph_heads = [key for key in store.head_keys if not key.startswith("lake/pointers/")]
+    assert sorted(graph_heads) == sorted(set(graph_heads))
+    assert set(graph_heads) == {key for key in store.values if not key.startswith("lake/pointers/")}
+
+
+def test_verify_bytes_streams_the_whole_closure(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+
+    audited = publish_l1_release(
+        mirror_root=mirror,
+        release_manifest_path=release_path,
+        store=store,
+        verify_bytes=True,
+    )
+
+    graph_bytes = sum(
+        len(value.body)
+        for key, value in store.values.items()
+        if not key.startswith("lake/pointers/")
+    )
+    assert audited.transfers.downloaded_bytes > graph_bytes
 
 
 def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
     mirror, release_path = _release(tmp_path)
     store = _MemoryStore()
-    original = canonical_json_bytes(
-        L1ReleasePointer(
-            release_id="release-previous",
-            manifest_key="lake/manifests/releases/l1/release-previous.json",
-            manifest_sha256="b" * 64,
-        )
-    )
-    store.values["lake/pointers/l1/current.json"] = _Value(
-        body=original,
-        etag="old-etag",
-        metadata={
-            "sha256": hashlib.sha256(original).hexdigest(),
-            "content-md5": "transport-proof",
-            "integrity": "content-md5-v1",
-        },
-        content_type="application/json",
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    original = store.values["lake/pointers/l1/current.json"].body
+    successor_path, _ = create_l1_release(
+        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
+        mirror_root=mirror,
+        release_id="release-2",
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
     )
     store.conflict_pointer = True
 
     with pytest.raises(LakeCASConflict):
         publish_l1_release(
             mirror_root=mirror,
-            release_manifest_path=release_path,
+            release_manifest_path=successor_path,
             store=store,
         )
 
@@ -512,9 +545,9 @@ def test_raw_object_and_metadata_publish_idempotently(tmp_path) -> None:
         store=store,
     )
 
-    assert first.uploaded_objects == 2
-    assert second.uploaded_objects == 0
-    assert second.reused_objects == 2
+    assert first.transfers.uploaded_objects == 2
+    assert second.transfers.uploaded_objects == 0
+    assert second.transfers.reused_objects == 2
 
 
 def test_r2_account_id_rejects_endpoint_injection() -> None:
@@ -636,7 +669,7 @@ def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
         store=store,
     )
 
-    assert report.uploaded_objects == 7
+    assert report.transfers.uploaded_objects == 7
 
 
 def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -> None:
@@ -701,7 +734,7 @@ def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -
         store=_MemoryStore(),
     )
 
-    assert report.uploaded_objects == 9
+    assert report.transfers.uploaded_objects == 9
 
 
 def test_reuse_rejects_remote_integrity_metadata_change(tmp_path: Path) -> None:
@@ -796,32 +829,28 @@ def test_success_response_with_missing_remote_object_stops_before_pointer(
     assert "lake/pointers/l1/current.json" not in store.values
 
 
-def test_pointer_precondition_rechecks_the_whole_remote_graph(tmp_path: Path) -> None:
+def test_verify_bytes_detects_replaced_remote_bytes_and_leaves_the_pointer(
+    tmp_path: Path,
+) -> None:
     mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    pointer = store.values["lake/pointers/l1/current.json"].body
+    key = next(key for key in store.values if key.endswith(".parquet"))
+    value = store.values[key]
+    # Same length and same declared identity: only reading the bytes back can tell.
+    value.body = bytes(len(value.body))
 
-    class DropEarlierStore(_MemoryStore):
-        first_key: str | None = None
-        puts = 0
-
-        def put_file(self, key: str, path: Path, **kwargs: object) -> RemoteObject:
-            result = super().put_file(key, path, **kwargs)  # type: ignore[arg-type]
-            if not key.endswith("pointers/l1/current.json"):
-                self.puts += 1
-                if self.first_key is None:
-                    self.first_key = key
-                elif self.puts == 3:
-                    assert self.first_key is not None
-                    self.values.pop(self.first_key)
-            return result
-
-    store = DropEarlierStore()
-    with pytest.raises(LakePublishError, match="metadata postcondition"):
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    with pytest.raises(LakePublishError, match="bytes postcondition"):
         publish_l1_release(
             mirror_root=mirror,
             release_manifest_path=release_path,
             store=store,
+            verify_bytes=True,
         )
-    assert "lake/pointers/l1/current.json" not in store.values
+
+    assert store.values["lake/pointers/l1/current.json"].body == pointer
 
 
 def test_local_graph_mutation_after_validation_is_rejected(
@@ -877,3 +906,187 @@ def test_r2_adapter_classifies_409_and_timeout(
     monkeypatch.setattr(lake_publish_module.subprocess, "run", timeout)
     with pytest.raises(LakePublishError, match="timed out"):
         store._run("put-object", "--key", "test")
+
+
+def test_calibration_publication_refuses_a_local_sqlite_build_input(tmp_path: Path) -> None:
+    """A sealed legacy store is a build input, not durable remote lineage.
+
+    Publishing it would grow the durable source inventory by the whole legacy store on
+    every cohort generation, past this lake's entire capacity objective within a few
+    of them.
+    """
+
+    sqlite_path = tmp_path / "market.sqlite"
+    open_connection(sqlite_path).close()
+    mirror = tmp_path / "mirror"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id="calibration-snapshot",
+    )
+    publish_panel(
+        mirror,
+        "2026-01-30",
+        [{"ticker": "1301", "er_annual": 0.1, "pass_screen": True}],
+    )
+    publish_forward(
+        mirror,
+        "2026-01-30",
+        [{"ticker": "1301", "horizon": "1y", "status": "unresolved_future_horizon"}],
+    )
+    local_pointer = CalibrationBundlePointer.model_validate_json(
+        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
+    )
+    bundle_path = mirror / local_pointer.current.manifest_key
+    _replace_cohort_source(mirror, bundle_path, snapshot.ref)
+    remote = _MemoryStore()
+
+    with pytest.raises(LakePublishError, match="local SQLite build input"):
+        publish_calibration_bundle(
+            mirror_root=mirror,
+            bundle_manifest_path=bundle_path,
+            store=remote,
+        )
+
+    assert snapshot.ref.key not in remote.values
+    assert current_calibration_bundle_pointer_key() not in remote.values
+
+
+def _replace_cohort_source(mirror: Path, bundle_path: Path, source: object) -> None:
+    """Rewrite the published graph so its cohorts name ``source`` as their input."""
+
+    payload = json.loads(bundle_path.read_bytes())
+    wire = source.model_dump(mode="json")  # type: ignore[attr-defined]
+    for dataset in payload["datasets"].values():
+        manifest_path = mirror / dataset["manifest_key"]
+        manifest = json.loads(manifest_path.read_bytes())
+        for cohort in manifest["cohort_inventory"].values():
+            cohort["sources"] = [wire]
+        manifest_bytes = (
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        )
+        manifest_path.write_bytes(manifest_bytes)
+        dataset["manifest_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
+    for cohort in payload["cohorts"].values():
+        for entry in cohort.values():
+            entry["sources"] = [wire]
+    bundle_bytes = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    bundle_path.write_bytes(bundle_bytes)
+    pointer_path = mirror / current_calibration_bundle_pointer_key()
+    pointer = json.loads(pointer_path.read_bytes())
+    pointer["current"]["manifest_sha256"] = hashlib.sha256(bundle_bytes).hexdigest()
+    pointer_path.write_bytes(
+        json.dumps(pointer, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    )
+
+
+def test_calibration_bundle_accepts_datasets_built_at_different_commits(tmp_path: Path) -> None:
+    """Maturing forward outcomes must not require rebuilding the panels they score."""
+
+    mirror = tmp_path / "mirror"
+    publish_panel(
+        mirror,
+        "2026-01-30",
+        [{"ticker": "1301", "er_annual": 0.1, "pass_screen": True}],
+        producer_commit="a" * 40,
+    )
+    publish_forward(
+        mirror,
+        "2026-01-30",
+        [{"ticker": "1301", "horizon": "1y", "status": "resolved", "price_return": 0.1}],
+        producer_commit="b" * 40,
+    )
+    local_pointer = CalibrationBundlePointer.model_validate_json(
+        (mirror / current_calibration_bundle_pointer_key()).read_bytes()
+    )
+    remote = _MemoryStore()
+
+    report = publish_calibration_bundle(
+        mirror_root=mirror,
+        bundle_manifest_path=mirror / local_pointer.current.manifest_key,
+        store=remote,
+    )
+
+    assert report.bundle_id == local_pointer.current.bundle_id
+
+
+def test_l1_previous_promotion_requires_a_verifiable_current(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    pointer = store.values["lake/pointers/l1/current.json"].body
+    # Only the superseded release names this manifest, so the new publication cannot
+    # restore it on the way past.
+    store.values.pop("lake/manifests/releases/l1/release-1.json")
+    successor_path, _ = create_l1_release(
+        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
+        mirror_root=mirror,
+        release_id="release-2",
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
+    )
+
+    with pytest.raises(LakePublishError, match="remote object"):
+        publish_l1_release(
+            mirror_root=mirror,
+            release_manifest_path=successor_path,
+            store=store,
+        )
+
+    assert store.values["lake/pointers/l1/current.json"].body == pointer
+
+
+def test_l1_rollback_exchanges_current_and_previous(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    successor_path, _ = create_l1_release(
+        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
+        mirror_root=mirror,
+        release_id="release-2",
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
+    )
+    publish_l1_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
+
+    rolled_back = lake_publish_module.rollback_l1_release(store=store)
+
+    pointer = load_lake_model_json(
+        store.values["lake/pointers/l1/current.json"].body, L1ReleasePointer
+    )
+    assert rolled_back.release_id == "release-1"
+    assert pointer.release_id == "release-1"
+    assert pointer.previous_release_id == "release-2"
+
+    forward_again = lake_publish_module.rollback_l1_release(store=store)
+
+    assert forward_again.release_id == "release-2"
+
+
+def test_l1_rollback_refuses_an_unresolvable_target(tmp_path: Path) -> None:
+    mirror, release_path = _release(tmp_path)
+    store = _MemoryStore()
+    publish_l1_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+    successor_path, _ = create_l1_release(
+        dataset_manifest_paths=sorted((mirror / "lake/manifests/datasets").glob("*/*.json")),
+        mirror_root=mirror,
+        release_id="release-2",
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
+    )
+    publish_l1_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
+    pointer = store.values["lake/pointers/l1/current.json"].body
+    store.values.pop("lake/manifests/releases/l1/release-1.json")
+
+    with pytest.raises(LakePublishError, match="remote object is missing"):
+        lake_publish_module.rollback_l1_release(store=store)
+
+    assert store.values["lake/pointers/l1/current.json"].body == pointer
+
+
+def test_operation_timeout_covers_the_object_it_transfers() -> None:
+    """A deadline shorter than the transfer turns a slow object into an ambiguous one."""
+
+    two_gigabytes = 2_013_155_328
+    measured_upload_seconds = 181
+
+    assert lake_publish_module._operation_timeout(None) == 120
+    assert lake_publish_module._operation_timeout(0) == 120
+    assert lake_publish_module._operation_timeout(two_gigabytes) > measured_upload_seconds

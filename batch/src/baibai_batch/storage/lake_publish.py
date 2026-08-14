@@ -12,7 +12,7 @@ import subprocess  # nosec B404
 import tempfile
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -44,6 +44,13 @@ from baibai_engine.batch_api import (
 
 _R2_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _MAX_POINTER_BYTES = 64 * 1024
+_MAX_SMALL_OBJECT_BYTES = 16 * 1024 * 1024
+# A subprocess deadline that is shorter than the transfer it guards turns a slow
+# object into an ambiguous outcome. The floor covers control-plane latency; the
+# transfer term is derived from the object's own size at a throughput well below
+# the 2 GB / 181 s upload this store has actually measured.
+_BASE_OPERATION_TIMEOUT_SECONDS = 120
+_MIN_TRANSFER_BYTES_PER_SECOND = 4 * 1024 * 1024
 
 
 class LakePublishError(RuntimeError):
@@ -67,7 +74,7 @@ class ObjectStore(Protocol):
 
     def get_bytes(self, key: str) -> bytes: ...
 
-    def download_file(self, key: str, path: Path) -> None: ...
+    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None: ...
 
     def put_file(
         self,
@@ -83,26 +90,246 @@ class ObjectStore(Protocol):
 
 
 @dataclass(frozen=True)
-class PublishReport:
-    release_id: str
+class TransferReport:
+    """What this publication actually moved, so "differential" is an observation.
+
+    Object counts alone cannot tell a run that uploaded one changed month from a run
+    that re-read the whole history to check it, which is exactly the difference this
+    architecture exists to produce.
+    """
+
     uploaded_objects: int
     reused_objects: int
+    uploaded_bytes: int
+    downloaded_bytes: int
+    head_requests: int
+    get_requests: int
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "downloaded_bytes": self.downloaded_bytes,
+            "get_requests": self.get_requests,
+            "head_requests": self.head_requests,
+            "reused_objects": self.reused_objects,
+            "uploaded_bytes": self.uploaded_bytes,
+            "uploaded_objects": self.uploaded_objects,
+        }
+
+
+@dataclass(frozen=True)
+class PublishReport:
+    release_id: str
+    transfers: TransferReport
     pointer_etag: str
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "release_id": self.release_id,
+            "pointer_etag": self.pointer_etag,
+            **self.transfers.as_dict(),
+        }
 
 
 @dataclass(frozen=True)
 class CalibrationBundlePublishReport:
     bundle_id: str
-    uploaded_objects: int
-    reused_objects: int
+    transfers: TransferReport
     pointer_etag: str
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "bundle_id": self.bundle_id,
+            "pointer_etag": self.pointer_etag,
+            **self.transfers.as_dict(),
+        }
 
 
 @dataclass(frozen=True)
 class RawPublishReport:
     ingest_id: str
-    uploaded_objects: int
-    reused_objects: int
+    transfers: TransferReport
+
+    def as_dict(self) -> dict[str, object]:
+        return {"ingest_id": self.ingest_id, **self.transfers.as_dict()}
+
+
+@dataclass
+class _RemotePublication:
+    """One publication's remote reads: counted, bounded, and never repeated.
+
+    An immutable key is proved once per publication. Verifying it again for the
+    pointer precondition would double the bytes this run moves without adding a
+    guarantee, because nothing in between can replace a key the store refuses to
+    overwrite.
+
+    A newly written object is read back in full: that is the only evidence that the
+    bytes this run sealed are the bytes the store now holds. An object that was
+    already present is proved by its identity metadata, which was bound to its bytes
+    by Content-MD5 on the immutable write, and by the reader, which fails closed on
+    the SHA-256 of everything it uses. ``verify_bytes`` turns the full stream back on
+    for an audit that deliberately pays for it.
+    """
+
+    store: ObjectStore
+    verify_bytes: bool = False
+    verified: dict[str, tuple[str, int, str]] = field(default_factory=dict)
+    uploaded_objects: int = 0
+    reused_objects: int = 0
+    uploaded_bytes: int = 0
+    downloaded_bytes: int = 0
+    head_requests: int = 0
+    get_requests: int = 0
+
+    def report(self) -> TransferReport:
+        return TransferReport(
+            uploaded_objects=self.uploaded_objects,
+            reused_objects=self.reused_objects,
+            uploaded_bytes=self.uploaded_bytes,
+            downloaded_bytes=self.downloaded_bytes,
+            head_requests=self.head_requests,
+            get_requests=self.get_requests,
+        )
+
+    def head(self, key: str) -> RemoteObject | None:
+        self.head_requests += 1
+        return self.store.head(key)
+
+    def get_bytes(self, key: str) -> bytes:
+        payload = self.store.get_bytes(key)
+        self.get_requests += 1
+        self.downloaded_bytes += len(payload)
+        return payload
+
+    def require_identity(
+        self,
+        *,
+        key: str,
+        expected_sha256: str,
+        expected_size: int,
+        content_type: str,
+        read_back: bool = False,
+    ) -> None:
+        """Prove one immutable key holds this identity, at most once per publication."""
+
+        if self._already_verified(
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+            content_type=content_type,
+        ):
+            return
+        self.accept_existing(
+            self.head(key),
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+            content_type=content_type,
+            read_back=read_back,
+        )
+
+    def accept_existing(
+        self,
+        remote: RemoteObject | None,
+        *,
+        key: str,
+        expected_sha256: str,
+        expected_size: int,
+        content_type: str,
+        read_back: bool = False,
+    ) -> None:
+        """Prove an already-fetched HEAD result describes the identity the graph names."""
+
+        expected = (expected_sha256, expected_size, content_type)
+        if self._already_verified(
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+            content_type=content_type,
+        ):
+            return
+        if (
+            remote is None
+            or remote.size != expected_size
+            or remote.metadata.get("sha256") != expected_sha256
+            or remote.metadata.get("integrity") != "content-md5-v1"
+            or not remote.metadata.get("content-md5")
+            or remote.content_type != content_type
+        ):
+            raise LakePublishError(f"remote object metadata postcondition failed: {key}")
+        if read_back or self.verify_bytes:
+            self._require_bytes(
+                key=key, expected_sha256=expected_sha256, expected_size=expected_size
+            )
+        self.verified[key] = expected
+
+    def _already_verified(
+        self, *, key: str, expected_sha256: str, expected_size: int, content_type: str
+    ) -> bool:
+        previous = self.verified.get(key)
+        if previous is None:
+            return False
+        if previous != (expected_sha256, expected_size, content_type):
+            raise LakePublishError(f"remote graph has conflicting identities: {key}")
+        return True
+
+    def require_small_object(self, *, key: str, expected_sha256: str, content_type: str) -> bytes:
+        """Read one manifest-sized object once, proving its identity from its bytes.
+
+        Manifests and pointers are read for their content anyway, so their identity is
+        proved from the bytes that were read rather than from a second stream.
+        """
+
+        remote = self.head(key)
+        if remote is None:
+            raise LakePublishError(f"remote object is missing: {key}")
+        if remote.size > _MAX_SMALL_OBJECT_BYTES:
+            raise LakePublishError(f"remote graph node exceeds its size limit: {key}")
+        payload = self.get_bytes(key)
+        if len(payload) != remote.size or hashlib.sha256(payload).hexdigest() != expected_sha256:
+            raise LakePublishError(f"remote object bytes postcondition failed: {key}")
+        self.accept_existing(
+            remote,
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=len(payload),
+            content_type=content_type,
+        )
+        return payload
+
+    def require_present_identity(
+        self, *, key: str, expected_sha256: str, content_type: str
+    ) -> None:
+        """Prove one object whose size the manifest does not fix still holds its digest."""
+
+        remote = self.head(key)
+        if remote is None:
+            raise LakePublishError(f"remote object is missing: {key}")
+        self.accept_existing(
+            remote,
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=remote.size,
+            content_type=content_type,
+        )
+
+    def _require_bytes(self, *, key: str, expected_sha256: str, expected_size: int) -> None:
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                prefix="baibai-lake-readback-", delete=False
+            ) as target:
+                temporary_path = Path(target.name)
+            self.store.download_file(key, temporary_path, expect_bytes=expected_size)
+            self.get_requests += 1
+            self.downloaded_bytes += temporary_path.stat().st_size
+            if (
+                temporary_path.stat().st_size != expected_size
+                or _sha256(temporary_path) != expected_sha256
+            ):
+                raise LakePublishError(f"remote object bytes postcondition failed: {key}")
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
 
 def publish_raw_archive(
@@ -110,7 +337,9 @@ def publish_raw_archive(
     mirror_root: Path,
     metadata_path: Path,
     store: ObjectStore,
+    verify_bytes: bool = False,
 ) -> RawPublishReport:
+    publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
     root = mirror_root.resolve()
     resolved_metadata_path = metadata_path.resolve()
     if not resolved_metadata_path.is_relative_to(root):
@@ -141,25 +370,16 @@ def publish_raw_archive(
             len(metadata_payload),
         ),
     )
-    uploaded = 0
-    reused = 0
     for key, path, content_type, expected_sha256, expected_size in uploads:
-        if _ensure_immutable(
-            store,
+        _ensure_immutable(
+            publication,
             key=key,
             path=path,
             content_type=content_type,
             expected_sha256=expected_sha256,
             expected_size=expected_size,
-        ):
-            uploaded += 1
-        else:
-            reused += 1
-    return RawPublishReport(
-        ingest_id=metadata.ingest_id,
-        uploaded_objects=uploaded,
-        reused_objects=reused,
-    )
+        )
+    return RawPublishReport(ingest_id=metadata.ingest_id, transfers=publication.report())
 
 
 def publish_l1_release(
@@ -167,8 +387,10 @@ def publish_l1_release(
     mirror_root: Path,
     release_manifest_path: Path,
     store: ObjectStore,
+    verify_bytes: bool = False,
 ) -> PublishReport:
     """Upload immutable graph nodes, then atomically switch the one mutable pointer."""
+    publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
     root = mirror_root.resolve()
     resolved_release_path = release_manifest_path.resolve()
     if not resolved_release_path.is_relative_to(root):
@@ -267,54 +489,36 @@ def publish_l1_release(
                 )
             )
 
-    uploaded = 0
-    reused = 0
-    for key, path, content_type, expected_sha256, expected_size in uploads:
-        if _ensure_immutable(
-            store,
-            key=key,
-            path=path,
-            content_type=content_type,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-        ):
-            uploaded += 1
-        else:
-            reused += 1
-
+    # Every reachable node is proved once. The publication memo makes this both the
+    # per-upload postcondition and the pointer precondition: nothing between the two
+    # can replace a key the store refuses to overwrite, so re-reading the closure
+    # would move the whole history's bytes again to learn what is already known.
     inventory: dict[str, tuple[str, int, str]] = {}
     for key, _, content_type, expected_sha256, expected_size in uploads:
         expected = (expected_sha256, expected_size, content_type)
         previous_expected = inventory.setdefault(key, expected)
         if previous_expected != expected:
             raise LakePublishError(f"remote graph has conflicting identities: {key}")
-    # This is the pointer precondition, not merely a per-upload postcondition.
-    # Content bytes were bound to these identities by Content-MD5 on immutable PUT;
-    # the closure pass proves every reachable node still has that identity now.
-    for key, (expected_sha256, expected_size, content_type) in sorted(inventory.items()):
-        _verify_remote_identity(
-            store,
+    for key, path, content_type, expected_sha256, expected_size in uploads:
+        _ensure_immutable(
+            publication,
             key=key,
+            path=path,
+            content_type=content_type,
             expected_sha256=expected_sha256,
             expected_size=expected_size,
-            content_type=content_type,
         )
 
     pointer_key = lake_current_l1_pointer_key()
-    current = store.head(pointer_key)
+    current = publication.head(pointer_key)
     previous_release_id = None
     previous_manifest_sha256 = None
     if current is not None:
         if current.size > _MAX_POINTER_BYTES:
             raise LakePublishError("L1 current pointer exceeds its size limit")
-        current_payload = store.get_bytes(pointer_key)
-        _verify_remote_small_object(
-            store,
-            key=pointer_key,
-            expected_sha256=hashlib.sha256(current_payload).hexdigest(),
-            expected_size=len(current_payload),
-            content_type="application/json",
-        )
+        current_payload = publication.get_bytes(pointer_key)
+        if hashlib.sha256(current_payload).hexdigest() != current.metadata.get("sha256"):
+            raise LakePublishError("L1 current pointer bytes differ from their identity")
         previous = load_lake_model_json(current_payload, L1ReleasePointer)
         if previous.release_id == release.release_id:
             if (
@@ -324,10 +528,18 @@ def publish_l1_release(
                 raise LakePublishError("current pointer reuses release ID with different identity")
             return PublishReport(
                 release_id=release.release_id,
-                uploaded_objects=uploaded,
-                reused_objects=reused,
+                transfers=publication.report(),
                 pointer_etag=current.etag,
             )
+        # A pointer that names a rollback generation is a promise that the generation
+        # can be restored. Publishing over an unverifiable current would turn that
+        # promise into a claim nobody checked until the day it is needed.
+        _require_remote_l1_closure(
+            publication,
+            release_id=previous.release_id,
+            manifest_key=previous.manifest_key,
+            manifest_sha256=previous.manifest_sha256,
+        )
         previous_release_id = previous.release_id
         previous_manifest_sha256 = previous.manifest_sha256
     release_sha256 = hashlib.sha256(release_payload).hexdigest()
@@ -356,19 +568,128 @@ def publish_l1_release(
             raise
         except Exception as exc:
             raise LakePublishError("L1 current pointer switch failed") from exc
-    _verify_remote_small_object(
-        store,
-        key=pointer_key,
-        expected_sha256=hashlib.sha256(pointer_payload).hexdigest(),
-        expected_size=len(pointer_payload),
-        content_type="application/json",
-    )
+    _require_pointer_bytes(publication, key=pointer_key, expected=pointer_payload)
     return PublishReport(
         release_id=release.release_id,
-        uploaded_objects=uploaded,
-        reused_objects=reused,
+        transfers=publication.report(),
         pointer_etag=result.etag,
     )
+
+
+def rollback_l1_release(*, store: ObjectStore) -> PublishReport:
+    """Atomically exchange L1 current and previous after proving the target's closure."""
+
+    publication = _RemotePublication(store=store)
+    pointer_key = lake_current_l1_pointer_key()
+    remote = publication.head(pointer_key)
+    if remote is None:
+        raise LakePublishError("L1 current pointer is absent")
+    if remote.size > _MAX_POINTER_BYTES:
+        raise LakePublishError("L1 current pointer exceeds its size limit")
+    payload = publication.get_bytes(pointer_key)
+    if hashlib.sha256(payload).hexdigest() != remote.metadata.get("sha256"):
+        raise LakePublishError("L1 current pointer bytes differ from their identity")
+    pointer = load_lake_model_json(payload, L1ReleasePointer)
+    if pointer.previous_release_id is None or pointer.previous_manifest_sha256 is None:
+        raise LakePublishError("L1 current pointer has no rollback generation")
+    target_key = lake_release_manifest_key(release_id=pointer.previous_release_id)
+    _require_remote_l1_closure(
+        publication,
+        release_id=pointer.previous_release_id,
+        manifest_key=target_key,
+        manifest_sha256=pointer.previous_manifest_sha256,
+    )
+    rolled_back = L1ReleasePointer(
+        release_id=pointer.previous_release_id,
+        manifest_key=target_key,
+        manifest_sha256=pointer.previous_manifest_sha256,
+        previous_release_id=pointer.release_id,
+        previous_manifest_sha256=pointer.manifest_sha256,
+    )
+    rollback_payload = canonical_json_bytes(rolled_back)
+    with tempfile.NamedTemporaryFile(prefix="baibai-l1-rollback-", suffix=".json") as temporary:
+        temporary.write(rollback_payload)
+        temporary.flush()
+        try:
+            result = store.put_file(
+                pointer_key,
+                Path(temporary.name),
+                sha256=hashlib.sha256(rollback_payload).hexdigest(),
+                content_md5=_content_md5(Path(temporary.name)),
+                content_type="application/json",
+                if_match=remote.etag,
+            )
+        except LakeCASConflict:
+            raise
+        except Exception as exc:
+            raise LakePublishError("L1 current pointer rollback failed") from exc
+    _require_pointer_bytes(publication, key=pointer_key, expected=rollback_payload)
+    return PublishReport(
+        release_id=rolled_back.release_id,
+        transfers=publication.report(),
+        pointer_etag=result.etag,
+    )
+
+
+def _require_remote_l1_closure(
+    publication: _RemotePublication,
+    *,
+    release_id: str,
+    manifest_key: str,
+    manifest_sha256: str,
+) -> None:
+    """Prove one L1 release still resolves to a complete, digest-valid object graph."""
+
+    if manifest_key != lake_release_manifest_key(release_id=release_id):
+        raise LakePublishError("remote L1 release key does not match its identity")
+    release = _remote_json_model(
+        publication,
+        key=manifest_key,
+        expected_sha256=manifest_sha256,
+        model=LakeReleaseManifest,
+    )
+    if release.release_id != release_id:
+        raise LakePublishError("remote L1 release identity differs")
+    for dataset_name, release_dataset in release.datasets.items():
+        manifest = _remote_json_model(
+            publication,
+            key=lake_dataset_manifest_key(dataset=dataset_name, build_id=release_dataset.build_id),
+            expected_sha256=release_dataset.manifest_sha256,
+            model=LakeDatasetManifest,
+        )
+        if (
+            manifest.dataset != dataset_name
+            or manifest.build_id != release_dataset.build_id
+            or manifest.contract_version != release_dataset.contract_version
+            or manifest.totals != release_dataset.totals
+        ):
+            raise LakePublishError(f"remote L1 dataset identity differs: {dataset_name}")
+        for partition in manifest.partitions:
+            for item in partition.objects:
+                publication.require_identity(
+                    key=item.key,
+                    expected_sha256=item.sha256,
+                    expected_size=item.bytes,
+                    content_type="application/vnd.apache.parquet",
+                )
+            for source in partition.sources:
+                if isinstance(source, LakeRawIngestSourceRef):
+                    publication.require_present_identity(
+                        key=source.key,
+                        expected_sha256=source.sha256,
+                        content_type="application/octet-stream",
+                    )
+                    publication.require_small_object(
+                        key=source.metadata_key,
+                        expected_sha256=source.metadata_sha256,
+                        content_type="application/json",
+                    )
+
+
+def _require_pointer_bytes(publication: _RemotePublication, *, key: str, expected: bytes) -> None:
+    payload = publication.get_bytes(key)
+    if payload != expected:
+        raise LakePublishError(f"remote pointer bytes postcondition failed: {key}")
 
 
 def publish_calibration_bundle(
@@ -376,9 +697,11 @@ def publish_calibration_bundle(
     mirror_root: Path,
     bundle_manifest_path: Path,
     store: ObjectStore,
+    verify_bytes: bool = False,
 ) -> CalibrationBundlePublishReport:
     """Publish a complete three-dataset graph, then switch one bundle pointer by CAS."""
 
+    publication = _RemotePublication(store=store, verify_bytes=verify_bytes)
     root = mirror_root.resolve()
     resolved_bundle_path = bundle_manifest_path.resolve()
     if not resolved_bundle_path.is_relative_to(root):
@@ -421,29 +744,25 @@ def publish_calibration_bundle(
             for source in cohort.sources
         }
         for source in cohort_sources.values():
+            _require_publishable_calibration_source(source)
             source_path = resolve_lake_source_ref(mirror_root, source)
             uploads[source.key] = (
                 source_path,
-                (
-                    "application/vnd.sqlite3"
-                    if isinstance(source, LakeSQLiteSnapshotSourceRef)
-                    else "application/json"
-                ),
+                "application/json",
                 source.sha256,
                 source_path.stat().st_size,
             )
-            if isinstance(source, CalibrationInputSourceRef):
-                input_manifest = load_lake_model_json(
-                    source_path.read_bytes(), CalibrationInputManifest
+            input_manifest = load_lake_model_json(
+                source_path.read_bytes(), CalibrationInputManifest
+            )
+            for item in input_manifest.files.values():
+                archived = _mirror_path(mirror_root, item.key)
+                uploads[item.key] = (
+                    archived,
+                    "application/octet-stream",
+                    item.sha256,
+                    item.bytes,
                 )
-                for item in input_manifest.files.values():
-                    archived = _mirror_path(mirror_root, item.key)
-                    uploads[item.key] = (
-                        archived,
-                        "application/octet-stream",
-                        item.sha256,
-                        item.bytes,
-                    )
         for partition in manifest.partitions:
             for lake_object in partition.objects:
                 object_path = _mirror_path(mirror_root, lake_object.key)
@@ -480,10 +799,6 @@ def publish_calibration_bundle(
         for manifest in dataset_manifests.values()
     ):
         raise LakePublishError("calibration bundle omits a dataset cohort inventory entry")
-    if {manifest.producer_git_commit for manifest in dataset_manifests.values()} != {
-        bundle.producer_git_commit
-    }:
-        raise LakePublishError("calibration bundle producer identity differs")
     bundle_key = f"lake/manifests/calibration-bundles/{bundle.bundle_id}.json"
     uploads[bundle_key] = (
         resolved_bundle_path,
@@ -492,35 +807,25 @@ def publish_calibration_bundle(
         len(bundle_payload),
     )
 
-    uploaded = 0
-    reused = 0
     for key, (path, content_type, digest, size) in sorted(uploads.items()):
-        if _ensure_immutable(
-            store,
+        _ensure_immutable(
+            publication,
             key=key,
             path=path,
             content_type=content_type,
             expected_sha256=digest,
             expected_size=size,
-        ):
-            uploaded += 1
-        else:
-            reused += 1
+        )
 
     pointer_key = lake_current_calibration_bundle_pointer_key()
-    current = store.head(pointer_key)
+    current = publication.head(pointer_key)
     previous = None
     if current is not None:
         if current.size > _MAX_POINTER_BYTES:
             raise LakePublishError("calibration current pointer exceeds its size limit")
-        current_payload = store.get_bytes(pointer_key)
-        _verify_remote_small_object(
-            store,
-            key=pointer_key,
-            expected_sha256=hashlib.sha256(current_payload).hexdigest(),
-            expected_size=len(current_payload),
-            content_type="application/json",
-        )
+        current_payload = publication.get_bytes(pointer_key)
+        if hashlib.sha256(current_payload).hexdigest() != current.metadata.get("sha256"):
+            raise LakePublishError("calibration current pointer bytes differ from their identity")
         old_pointer = load_lake_model_json(current_payload, CalibrationBundlePointer)
         if old_pointer.current.bundle_id == bundle.bundle_id:
             if (
@@ -530,19 +835,18 @@ def publish_calibration_bundle(
                 raise LakePublishError(
                     "bundle ID is already current with different rollback identity"
                 )
-            _require_remote_calibration_closure(store, old_pointer.current)
+            _require_remote_calibration_closure(publication, old_pointer.current)
             if old_pointer.previous is not None:
-                _require_remote_calibration_closure(store, old_pointer.previous)
+                _require_remote_calibration_closure(publication, old_pointer.previous)
             return CalibrationBundlePublishReport(
                 bundle_id=bundle.bundle_id,
-                uploaded_objects=uploaded,
-                reused_objects=reused,
+                transfers=publication.report(),
                 pointer_etag=current.etag,
             )
         previous = old_pointer.current
         if local_pointer.previous != previous:
             raise LakePublishError("remote current is not the local rollback identity")
-        _require_remote_calibration_closure(store, previous)
+        _require_remote_calibration_closure(publication, previous)
     remote_pointer = CalibrationBundlePointer(
         current=bundle_reference,
         previous=previous,
@@ -567,17 +871,10 @@ def publish_calibration_bundle(
             raise
         except Exception as exc:
             raise LakePublishError("calibration bundle pointer switch failed") from exc
-    _verify_remote_small_object(
-        store,
-        key=pointer_key,
-        expected_sha256=hashlib.sha256(pointer_payload).hexdigest(),
-        expected_size=len(pointer_payload),
-        content_type="application/json",
-    )
+    _require_pointer_bytes(publication, key=pointer_key, expected=pointer_payload)
     return CalibrationBundlePublishReport(
         bundle_id=bundle.bundle_id,
-        uploaded_objects=uploaded,
-        reused_objects=reused,
+        transfers=publication.report(),
         pointer_etag=result.etag,
     )
 
@@ -585,24 +882,20 @@ def publish_calibration_bundle(
 def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePublishReport:
     """Atomically exchange calibration current and previous after proving closure."""
 
+    publication = _RemotePublication(store=store)
     pointer_key = lake_current_calibration_bundle_pointer_key()
-    remote = store.head(pointer_key)
+    remote = publication.head(pointer_key)
     if remote is None:
         raise LakePublishError("calibration current pointer is absent")
     if remote.size > _MAX_POINTER_BYTES:
         raise LakePublishError("calibration current pointer exceeds its size limit")
-    payload = store.get_bytes(pointer_key)
-    _verify_remote_small_object(
-        store,
-        key=pointer_key,
-        expected_sha256=hashlib.sha256(payload).hexdigest(),
-        expected_size=len(payload),
-        content_type="application/json",
-    )
+    payload = publication.get_bytes(pointer_key)
+    if hashlib.sha256(payload).hexdigest() != remote.metadata.get("sha256"):
+        raise LakePublishError("calibration current pointer bytes differ from their identity")
     pointer = load_lake_model_json(payload, CalibrationBundlePointer)
     if pointer.previous is None:
         raise LakePublishError("calibration current pointer has no rollback generation")
-    _require_remote_calibration_closure(store, pointer.previous)
+    _require_remote_calibration_closure(publication, pointer.previous)
     rolled_back = CalibrationBundlePointer(current=pointer.previous, previous=pointer.current)
     rollback_payload = canonical_manifest_bytes(rolled_back)
     with tempfile.NamedTemporaryFile(
@@ -623,26 +916,42 @@ def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePubli
             raise
         except Exception as exc:
             raise LakePublishError("calibration bundle rollback failed") from exc
-    _verify_remote_small_object(
-        store,
-        key=pointer_key,
-        expected_sha256=hashlib.sha256(rollback_payload).hexdigest(),
-        expected_size=len(rollback_payload),
-        content_type="application/json",
-    )
+    _require_pointer_bytes(publication, key=pointer_key, expected=rollback_payload)
     return CalibrationBundlePublishReport(
         bundle_id=rolled_back.current.bundle_id,
-        uploaded_objects=0,
-        reused_objects=0,
+        transfers=publication.report(),
         pointer_etag=result.etag,
     )
 
 
+def _require_publishable_calibration_source(source: object) -> None:
+    """Only sources this publisher can keep whole may become durable remote lineage.
+
+    A sealed full SQLite snapshot is a local build input: it fixes one consistent read
+    for the machine that builds a cohort, and it is named ``local_build_input`` for
+    that reason. Uploading it would make the durable source inventory grow by the
+    whole legacy store on every cohort generation — 2 GB each, past this lake's entire
+    capacity objective within a handful of generations — while the rows a cohort
+    actually needs are a small fraction of it. Remote calibration lineage is therefore
+    restricted to a compact, enumerable input package until the required tables are
+    published as L1 releases.
+    """
+
+    if isinstance(source, CalibrationInputSourceRef):
+        return
+    if isinstance(source, LakeSQLiteSnapshotSourceRef):
+        raise LakePublishError(
+            "calibration cohort source is a local SQLite build input; remote publication "
+            "requires a compact calibration input package"
+        )
+    raise LakePublishError("calibration cohort source kind cannot be published remotely")
+
+
 def _require_remote_calibration_closure(
-    store: ObjectStore, reference: CalibrationBundleRef
+    publication: _RemotePublication, reference: CalibrationBundleRef
 ) -> None:
     bundle = _remote_json_model(
-        store,
+        publication,
         key=reference.manifest_key,
         expected_sha256=reference.manifest_sha256,
         model=CalibrationBundleManifest,
@@ -652,7 +961,7 @@ def _require_remote_calibration_closure(
     manifests: dict[str, LakeDatasetManifest] = {}
     for name, dataset_ref in bundle.datasets.items():
         manifest = _remote_json_model(
-            store,
+            publication,
             key=dataset_ref.manifest_key,
             expected_sha256=dataset_ref.manifest_sha256,
             model=LakeDatasetManifest,
@@ -670,70 +979,25 @@ def _require_remote_calibration_closure(
             for source in cohort.sources
         }
         for source in cohort_sources.values():
-            if isinstance(source, CalibrationInputSourceRef):
-                input_manifest = _remote_json_model(
-                    store,
-                    key=source.key,
-                    expected_sha256=source.sha256,
-                    model=CalibrationInputManifest,
-                )
-                if input_manifest.input_id != source.source_id:
-                    raise LakePublishError("remote calibration input identity differs")
-                for archived_item in input_manifest.files.values():
-                    _verify_remote_identity(
-                        store,
-                        key=archived_item.key,
-                        expected_sha256=archived_item.sha256,
-                        expected_size=archived_item.bytes,
-                        content_type="application/octet-stream",
-                    )
-            elif isinstance(source, LakeSQLiteSnapshotSourceRef):
-                remote_source = store.head(source.key)
-                if remote_source is None:
-                    raise LakePublishError(f"remote object is missing: {source.key}")
-                _verify_remote_identity(
-                    store,
-                    key=source.key,
-                    expected_sha256=source.sha256,
-                    expected_size=remote_source.size,
-                    content_type="application/vnd.sqlite3",
-                )
-            elif isinstance(source, LakeRawIngestSourceRef):
-                remote_source = store.head(source.key)
-                if remote_source is None:
-                    raise LakePublishError(f"remote object is missing: {source.key}")
-                _verify_remote_identity(
-                    store,
-                    key=source.key,
-                    expected_sha256=source.sha256,
-                    expected_size=remote_source.size,
+            _require_publishable_calibration_source(source)
+            input_manifest = _remote_json_model(
+                publication,
+                key=source.key,
+                expected_sha256=source.sha256,
+                model=CalibrationInputManifest,
+            )
+            if input_manifest.input_id != source.source_id:
+                raise LakePublishError("remote calibration input identity differs")
+            for archived_item in input_manifest.files.values():
+                publication.require_identity(
+                    key=archived_item.key,
+                    expected_sha256=archived_item.sha256,
+                    expected_size=archived_item.bytes,
                     content_type="application/octet-stream",
-                )
-                metadata = store.head(source.metadata_key)
-                if metadata is None:
-                    raise LakePublishError(f"remote object is missing: {source.metadata_key}")
-                _verify_remote_small_object(
-                    store,
-                    key=source.metadata_key,
-                    expected_sha256=source.metadata_sha256,
-                    expected_size=metadata.size,
-                    content_type="application/json",
-                )
-            else:
-                remote_source = store.head(source.key)
-                if remote_source is None:
-                    raise LakePublishError(f"remote object is missing: {source.key}")
-                _verify_remote_small_object(
-                    store,
-                    key=source.key,
-                    expected_sha256=source.sha256,
-                    expected_size=remote_source.size,
-                    content_type="application/json",
                 )
         for partition in manifest.partitions:
             for lake_object in partition.objects:
-                _verify_remote_identity(
-                    store,
+                publication.require_identity(
                     key=lake_object.key,
                     expected_sha256=lake_object.sha256,
                     expected_size=lake_object.bytes,
@@ -752,27 +1016,22 @@ def _require_remote_calibration_closure(
 
 
 def _remote_json_model[ModelT: BaseModel](
-    store: ObjectStore,
+    publication: _RemotePublication,
     *,
     key: str,
     expected_sha256: str,
     model: type[ModelT],
 ) -> ModelT:
-    remote = store.head(key)
-    if remote is None:
-        raise LakePublishError(f"remote object is missing: {key}")
-    _verify_remote_small_object(
-        store,
+    payload = publication.require_small_object(
         key=key,
         expected_sha256=expected_sha256,
-        expected_size=remote.size,
         content_type="application/json",
     )
-    return load_lake_model_json(store.get_bytes(key), model)
+    return load_lake_model_json(payload, model)
 
 
 def _ensure_immutable(
-    store: ObjectStore,
+    publication: _RemotePublication,
     *,
     key: str,
     path: Path,
@@ -780,21 +1039,31 @@ def _ensure_immutable(
     expected_sha256: str,
     expected_size: int,
 ) -> bool:
-    existing = store.head(key)
-    if existing is not None:
-        _verify_remote_identity(
-            store,
+    if key in publication.verified:
+        publication.require_identity(
             key=key,
             expected_sha256=expected_sha256,
             expected_size=expected_size,
             content_type=content_type,
         )
         return False
+    existing = publication.head(key)
+    if existing is not None:
+        publication.accept_existing(
+            existing,
+            key=key,
+            expected_sha256=expected_sha256,
+            expected_size=expected_size,
+            content_type=content_type,
+        )
+        publication.reused_objects += 1
+        return False
     with _sealed_upload(path) as (sealed, digest, content_md5, size):
         if digest != expected_sha256 or size != expected_size:
             raise LakePublishError(f"local upload source differs from graph identity: {key}")
+        uploaded = True
         try:
-            store.put_file(
+            publication.store.put_file(
                 key,
                 sealed,
                 sha256=digest,
@@ -803,22 +1072,20 @@ def _ensure_immutable(
                 if_none_match=True,
             )
         except LakeCASConflict:
-            _verify_remote_identity(
-                store,
-                key=key,
-                expected_sha256=digest,
-                expected_size=size,
-                content_type=content_type,
-            )
-            return False
-        _verify_remote_identity(
-            store,
+            uploaded = False
+        publication.require_identity(
             key=key,
             expected_sha256=digest,
             expected_size=size,
             content_type=content_type,
+            read_back=uploaded,
         )
-        return True
+        if uploaded:
+            publication.uploaded_objects += 1
+            publication.uploaded_bytes += size
+        else:
+            publication.reused_objects += 1
+        return uploaded
 
 
 class AwsCliR2Store:
@@ -859,8 +1126,8 @@ class AwsCliR2Store:
             assert result is not None
             return Path(target.name).read_bytes()
 
-    def download_file(self, key: str, path: Path) -> None:
-        result = self._run("get-object", "--key", key, str(path))
+    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+        result = self._run("get-object", "--key", key, str(path), payload_bytes=expect_bytes)
         assert result is not None
 
     def put_file(
@@ -899,7 +1166,7 @@ class AwsCliR2Store:
         if if_none_match:
             arguments.extend(("--if-none-match", "*"))
         try:
-            self._run(*arguments)
+            self._run(*arguments, payload_bytes=path.stat().st_size)
         except LakeCASConflict:
             raise
         result = self.head(key)
@@ -912,6 +1179,7 @@ class AwsCliR2Store:
         operation: str,
         *arguments: str,
         allow_missing: bool = False,
+        payload_bytes: int | None = None,
     ) -> subprocess.CompletedProcess[str] | None:
         command = (
             "aws",
@@ -933,7 +1201,7 @@ class AwsCliR2Store:
                 capture_output=True,
                 text=True,
                 env=self.env,
-                timeout=120,
+                timeout=_operation_timeout(payload_bytes),
             )
         except subprocess.TimeoutExpired as exc:
             raise LakePublishError(f"R2 {operation} timed out") from exc
@@ -960,7 +1228,16 @@ def build_parser() -> argparse.ArgumentParser:
     target.add_argument("--raw-metadata", type=Path)
     target.add_argument("--calibration-bundle", type=Path)
     target.add_argument("--rollback-calibration", action="store_true")
+    target.add_argument("--rollback-l1", action="store_true")
     parser.add_argument("--bucket", default="baibai-stores")
+    parser.add_argument(
+        "--verify-bytes",
+        action="store_true",
+        help=(
+            "stream every reachable object back and hash it; this is the tamper audit, "
+            "not the publication path, and it moves the whole closure"
+        ),
+    )
     return parser
 
 
@@ -970,7 +1247,11 @@ def main(argv: list[str] | None = None) -> int:
     store = AwsCliR2Store(bucket=args.bucket)
     if args.rollback_calibration:
         rollback_report = rollback_calibration_bundle(store=store)
-        print(json.dumps(rollback_report.__dict__, sort_keys=True))
+        print(json.dumps(rollback_report.as_dict(), sort_keys=True))
+        return 0
+    if args.rollback_l1:
+        l1_rollback_report = rollback_l1_release(store=store)
+        print(json.dumps(l1_rollback_report.as_dict(), sort_keys=True))
         return 0
     if args.mirror is None:
         parser.error("--mirror is required for publication")
@@ -979,25 +1260,36 @@ def main(argv: list[str] | None = None) -> int:
             mirror_root=args.mirror,
             metadata_path=args.raw_metadata,
             store=store,
+            verify_bytes=args.verify_bytes,
         )
-        print(json.dumps(raw_report.__dict__, sort_keys=True))
+        print(json.dumps(raw_report.as_dict(), sort_keys=True))
         return 0
     if args.calibration_bundle is not None:
         bundle_report = publish_calibration_bundle(
             mirror_root=args.mirror,
             bundle_manifest_path=args.calibration_bundle,
             store=store,
+            verify_bytes=args.verify_bytes,
         )
-        print(json.dumps(bundle_report.__dict__, sort_keys=True))
+        print(json.dumps(bundle_report.as_dict(), sort_keys=True))
         return 0
     assert args.release_manifest is not None
     release_report = publish_l1_release(
         mirror_root=args.mirror,
         release_manifest_path=args.release_manifest,
         store=store,
+        verify_bytes=args.verify_bytes,
     )
-    print(json.dumps(release_report.__dict__, sort_keys=True))
+    print(json.dumps(release_report.as_dict(), sort_keys=True))
     return 0
+
+
+def _operation_timeout(payload_bytes: int | None) -> int:
+    """A deadline the object's own size can satisfy, not a constant it can outgrow."""
+    if payload_bytes is None or payload_bytes <= 0:
+        return _BASE_OPERATION_TIMEOUT_SECONDS
+    transfer = -(-payload_bytes // _MIN_TRANSFER_BYTES_PER_SECOND)
+    return _BASE_OPERATION_TIMEOUT_SECONDS + transfer
 
 
 def _required(env: Mapping[str, str], name: str) -> str:
@@ -1058,59 +1350,6 @@ def _sealed_upload(path: Path) -> Iterator[tuple[Path, str, str, int]]:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
-
-
-def _verify_remote_identity(
-    store: ObjectStore,
-    *,
-    key: str,
-    expected_sha256: str,
-    expected_size: int,
-    content_type: str,
-) -> None:
-    remote = store.head(key)
-    if (
-        remote is None
-        or remote.size != expected_size
-        or remote.metadata.get("sha256") != expected_sha256
-        or remote.metadata.get("integrity") != "content-md5-v1"
-        or not remote.metadata.get("content-md5")
-        or remote.content_type != content_type
-    ):
-        raise LakePublishError(f"remote object metadata postcondition failed: {key}")
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(prefix="baibai-lake-readback-", delete=False) as target:
-            temporary_path = Path(target.name)
-        store.download_file(key, temporary_path)
-        if (
-            temporary_path.stat().st_size != expected_size
-            or _sha256(temporary_path) != expected_sha256
-        ):
-            raise LakePublishError(f"remote object bytes postcondition failed: {key}")
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
-
-
-def _verify_remote_small_object(
-    store: ObjectStore,
-    *,
-    key: str,
-    expected_sha256: str,
-    expected_size: int,
-    content_type: str,
-) -> None:
-    _verify_remote_identity(
-        store,
-        key=key,
-        expected_sha256=expected_sha256,
-        expected_size=expected_size,
-        content_type=content_type,
-    )
-    payload = store.get_bytes(key)
-    if len(payload) != expected_size or hashlib.sha256(payload).hexdigest() != expected_sha256:
-        raise LakePublishError(f"remote object bytes postcondition failed: {key}")
 
 
 def _sha256(path: Path) -> str:
