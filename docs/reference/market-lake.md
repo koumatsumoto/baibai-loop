@@ -108,7 +108,9 @@ current を previous へ降格する前に、その release graph（release mani
 object → Raw closure）をremoteで解決して検証する。検証できないcurrentはpublishを止める。previous
 への切り戻しは`--rollback-l1`が`If-Match`で行い、対象closureを検証してからpointerを交換する。
 pointer が previous を名乗るなら、それは復元できるという主張であり、必要になった日に初めて確かめる
-ものではない。
+ものではない。previous の closure が欠けている間は publish が止まる。error は欠けた key を名指す
+ので、その release を local mirror から `--release-manifest` で publish し直して closure を戻してから
+新しい release を publish する。
 
 production authority化ではmutable pointer prefixを除くimmutable prefixへ
 [R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、lock期間を
@@ -219,12 +221,16 @@ content-addressed に格納する。object key は content hash なので、変�
 既に手元にあり転送量に乗らない。出力の `fetched_bytes` / `reused_bytes` がその内訳になる。
 
 再利用は完全一致でだけ起きる。`release_id`、release manifest digest、全 dataset manifest digest、
-全 object digest、projection contract fingerprint、producer commit のいずれかが違えば再構築する。
+全 object digest、projection contract fingerprint のいずれかが違えば再構築する。fingerprintには
+table / column / index契約に加え、projectionを作る実装（`projection.py` / `datasets.py` /
+`reader.py`）のdigestが入るので、bytesを動かす変更は必ず再構築になる。
 identity一致後もtable schema、PK、secondary index、row count、PK順の全row content digest、SQLite
 `quick_check`を再計算する。同じrow数のvalue mutation、column/indexの追加・削除、identity tableだけを
 残した改変は再利用しない。
-`built_at` は identity に含めない（同じ入力の 2 回の build で必ず違い、含めると再利用契約が
-成立しないため）。build は一意な一時 file へ書いて 1 回の rename で公開するので、途中状態が
+`built_at` と build した commit は identity に含めない。`built_at` は同じ入力の 2 回の build で必ず
+違い、commit は docs や web だけの変更でも動くので、含めると 10M row の再構築が projection の
+bytes と無関係な理由で起きる。commit は `builder_git_commit` として projection の meta に残す。
+CLIとbenchmarkは同じidentityを使うので、benchmarkのwarm reuseは実運用の挙動を表す。build は一意な一時 file へ書いて 1 回の rename で公開するので、途中状態が
 読まれることはなく、失敗しても直前の projection は壊れない。
 
 production scaleではsecondary indexをbulk insert後に作る。開始前にpublished object bytesの5倍

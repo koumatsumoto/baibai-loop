@@ -173,6 +173,7 @@ class _RemotePublication:
     store: ObjectStore
     verify_bytes: bool = False
     verified: dict[str, tuple[str, int, str]] = field(default_factory=dict)
+    manifest_payloads: dict[str, bytes] = field(default_factory=dict)
     uploaded_objects: int = 0
     reused_objects: int = 0
     uploaded_bytes: int = 0
@@ -279,6 +280,11 @@ class _RemotePublication:
         proved from the bytes that were read rather than from a second stream.
         """
 
+        cached = self.manifest_payloads.get(key)
+        if cached is not None:
+            if hashlib.sha256(cached).hexdigest() != expected_sha256:
+                raise LakePublishError(f"remote graph has conflicting identities: {key}")
+            return cached
         remote = self.head(key)
         if remote is None:
             raise LakePublishError(f"remote object is missing: {key}")
@@ -294,6 +300,7 @@ class _RemotePublication:
             expected_size=len(payload),
             content_type=content_type,
         )
+        self.manifest_payloads[key] = payload
         return payload
 
     def read_pointer(self, key: str, remote: RemoteObject) -> bytes:
@@ -326,6 +333,11 @@ class _RemotePublication:
     ) -> None:
         """Prove one object whose size the manifest does not fix still holds its digest."""
 
+        stored = self.verified.get(key)
+        if stored is not None:
+            if (stored[0], stored[2]) != (expected_sha256, content_type):
+                raise LakePublishError(f"remote graph has conflicting identities: {key}")
+            return
         remote = self.head(key)
         if remote is None:
             raise LakePublishError(f"remote object is missing: {key}")
@@ -929,7 +941,9 @@ def rollback_calibration_bundle(*, store: ObjectStore) -> CalibrationBundlePubli
     )
 
 
-def _require_publishable_calibration_source(source: object) -> None:
+def _require_publishable_calibration_source(
+    source: CalibrationInputSourceRef | LakeSQLiteSnapshotSourceRef | LakeRawIngestSourceRef,
+) -> None:
     """Only sources this publisher can keep whole may become durable remote lineage.
 
     A sealed full SQLite snapshot is a local build input: it fixes one consistent read
