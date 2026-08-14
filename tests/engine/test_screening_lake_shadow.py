@@ -174,12 +174,16 @@ class TestShadowStore:
         )
 
         assert report.release_id == _RELEASE
-        assert report.release_manifest_sha256 == read_projection_identity(
-            frozen_lake / "projection.sqlite"
-        ).source_release_manifest_sha256  # type: ignore[union-attr]
-        assert report.source_snapshot.sha256 == _shadow_source(frozen_lake)[
-            "source_snapshot_ref"
-        ].sha256  # type: ignore[union-attr]
+        assert (
+            report.release_manifest_sha256
+            == read_projection_identity(
+                frozen_lake / "projection.sqlite"
+            ).source_release_manifest_sha256
+        )  # type: ignore[union-attr]
+        assert (
+            report.source_snapshot.sha256
+            == _shadow_source(frozen_lake)["source_snapshot_ref"].sha256
+        )  # type: ignore[union-attr]
         assert report.release_sourced_tables == (
             "jquants_daily_bars",
             "jquants_short_sale_reports",

@@ -474,9 +474,7 @@ def _partition_sources(
     prior_raw = (
         ()
         if previous is None
-        else tuple(
-            source for source in previous.sources if isinstance(source, RawIngestSourceRef)
-        )
+        else tuple(source for source in previous.sources if isinstance(source, RawIngestSourceRef))
     )
     applicable = tuple(source for source in current if _raw_source_overlaps_month(source, month))
     for source in (*prior_raw, *applicable):

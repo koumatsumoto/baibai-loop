@@ -97,9 +97,7 @@ class FixedRelease:
             ) from None
 
 
-def resolve_current_release(
-    source: LakeObjectSource, *, evaluated_at: datetime
-) -> FixedRelease:
+def resolve_current_release(source: LakeObjectSource, *, evaluated_at: datetime) -> FixedRelease:
     """Freeze current and require it to satisfy policy at the operational read time."""
 
     pointer = _read_current_pointer(source)
