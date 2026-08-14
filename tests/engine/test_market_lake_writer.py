@@ -13,9 +13,11 @@ from baibai_engine.market.lake import identity as identity_module
 from baibai_engine.market.lake import models as lake_models
 from baibai_engine.market.lake import write_cli as write_cli_module
 from baibai_engine.market.lake import writer as writer_module
+from baibai_engine.market.lake.datasets import require_pilot_dataset
 from baibai_engine.market.lake.immutable import install_immutable_bytes
 from baibai_engine.market.lake.keys import current_l1_pointer_key
 from baibai_engine.market.lake.models import canonical_lake_model_bytes
+from baibai_engine.market.lake.objects import sha256_bytes as _sha256_bytes
 from baibai_engine.market.lake.raw import (
     RawArchiveError,
     RawRetentionClass,
@@ -850,3 +852,88 @@ def test_l1_export_benchmark_records_full_and_incremental_transfer(tmp_path: Pat
     assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
     assert report["incremental_correction"]["new_object_count"] == 1  # type: ignore[index]
     assert report_path.is_file()
+
+
+class TestTransformIdentity:
+    """What an L1 build has to be identified by before a release may carry it."""
+
+    def test_coverage_semantics_are_part_of_the_transform_identity(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Coverage decides which months a build touches and whether it calls itself
+        complete, so a build made under other coverage rules is not the same transform
+        even when every Parquet byte matches."""
+
+        dataset = require_pilot_dataset("jquants.daily_bars")
+        baseline = writer_module._transform_fingerprint(dataset)
+        target = Path(writer_module.__file__).resolve().parents[1] / "sqlite" / "coverage.py"
+        assert target.is_file()
+        real = writer_module.sha256_file
+        monkeypatch.setattr(
+            writer_module,
+            "sha256_file",
+            lambda path: "0" * 64 if path == target else real(path),
+        )
+
+        assert writer_module._transform_fingerprint(dataset) != baseline
+
+
+def test_a_sealed_sqlite_build_input_is_collected_once_nothing_reaches_it(
+    tmp_path: Path,
+) -> None:
+    """One sealed snapshot the size of the whole legacy store is captured per build.
+
+    Leaving the prefix outside the candidate domain would make local storage grow with
+    the number of runs rather than with what current and previous can be rebuilt from.
+    """
+
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    snapshot = capture_legacy_sqlite_snapshot(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        snapshot_id="orphan-build-input",
+    )
+    key = snapshot.path.relative_to(mirror).as_posix()
+
+    first = plan_gc(mirror, now=datetime.now(UTC) + timedelta(days=31))
+
+    assert {item.key for item in first.candidates} == {key}
+    assert apply_gc(mirror, first, plan_hash=first.plan_hash) == ()
+    second = plan_gc(mirror, now=first.evaluated_at + timedelta(days=8))
+    assert apply_gc(mirror, second, plan_hash=second.plan_hash) == (key,)
+    assert not snapshot.path.exists()
+
+
+def test_a_build_input_a_release_still_names_is_never_collected(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    report = export_pilot_legacy(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        created_at=datetime(2026, 2, 4, tzinfo=UTC),
+    )
+    release_path, release = create_l1_release(
+        dataset_manifest_paths=[item.manifest_path for item in report.datasets.values()],
+        mirror_root=mirror,
+        release_id="build-input-release",
+        created_at=datetime(2026, 2, 4, tzinfo=UTC),
+    )
+    pointer_path = mirror / current_l1_pointer_key()
+    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+    pointer_path.write_bytes(
+        canonical_lake_model_bytes(
+            L1ReleasePointer(
+                release_id=release.release_id,
+                manifest_key=release_path.relative_to(mirror).as_posix(),
+                manifest_sha256=_sha256_bytes(release_path.read_bytes()),
+            )
+        )
+    )
+
+    plan = plan_gc(mirror, now=datetime(2027, 2, 4, tzinfo=UTC))
+
+    assert plan.unresolved_roots == ()
+    assert report.snapshot.ref.key in plan.reachable
+    assert report.snapshot.ref.key not in {item.key for item in plan.candidates}

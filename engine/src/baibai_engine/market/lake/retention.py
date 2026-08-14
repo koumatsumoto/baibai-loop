@@ -81,20 +81,28 @@ class LakeRetentionError(RuntimeError):
 
 
 @contextmanager
-def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
-    """Serialize local publication, pin mutation, and retention finalization."""
+def exclusive_lock(lock_path: Path, *, subject: str) -> Iterator[None]:
+    """Hold one writer at a time over whatever ``lock_path`` stands for."""
 
-    mirror_root.mkdir(parents=True, exist_ok=True)
-    path = mirror_root / ".lake-writer.lock"
-    with path.open("a+b") as handle:
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise LakeRetentionError("another lake writer holds the publication lock") from exc
+            raise LakeRetentionError(f"another writer holds the {subject} lock") from exc
         try:
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def lake_writer_lock(mirror_root: Path) -> Iterator[None]:
+    """Serialize local publication, pin mutation, and retention finalization."""
+
+    mirror_root.mkdir(parents=True, exist_ok=True)
+    with exclusive_lock(mirror_root / ".lake-writer.lock", subject="lake publication"):
+        yield
 
 
 class L2DatasetPointer(BaseModel):
@@ -785,6 +793,12 @@ def _candidate_reason(key: str) -> str | None:
         return None
     if key.startswith("lake/l2/"):
         return "unreferenced_l2_object"
+    if key.startswith("lake/build-inputs/"):
+        # A sealed SQLite build input is the size of the whole legacy store, and one is
+        # captured per build. Leaving the prefix outside the candidate domain would let
+        # local storage grow with the number of runs rather than with what the current
+        # and previous generations can still be reproduced from.
+        return "unreferenced_build_input"
     if key.startswith("lake/manifests/datasets/"):
         return "unreferenced_dataset_manifest"
     if key.startswith("lake/manifests/releases/"):

@@ -796,9 +796,16 @@ def _transform_fingerprint(dataset: LakeDataset) -> str:
         "row_group_size": _ROW_GROUP_SIZE,
         "source_kind": "legacy_sqlite_import",
         "writer": f"pyarrow-{pa.__version__}",
+        # Coverage semantics decide which months a build touches, whether a release
+        # calls itself complete, and where its history starts. A change there moves the
+        # release's meaning without moving a single Parquet byte, so a build made under
+        # the old rules must not carry into one made under the new ones.
         "implementation_sha256": {
-            name: sha256_file(Path(__file__).with_name(name))
-            for name in ("datasets.py", "writer.py")
+            "market/lake/datasets.py": sha256_file(Path(__file__).with_name("datasets.py")),
+            "market/lake/writer.py": sha256_file(Path(__file__)),
+            "market/sqlite/coverage.py": sha256_file(
+                Path(__file__).resolve().parents[1] / "sqlite" / "coverage.py"
+            ),
         },
     }
     payload = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()

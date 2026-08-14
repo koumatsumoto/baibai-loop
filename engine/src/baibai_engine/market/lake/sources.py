@@ -9,10 +9,8 @@ from pathlib import Path
 from .models import (
     CalibrationInputManifest,
     CalibrationInputSourceRef,
-    L1ReleaseSourceRef,
     RawArchiveMetadata,
     RawIngestSourceRef,
-    ReleaseManifest,
     SourceRef,
     SQLiteSnapshotSourceRef,
     load_lake_model_json,
@@ -31,13 +29,6 @@ def resolve_source_ref(mirror_root: Path, source: SourceRef) -> Path:
         _validate_raw_metadata(mirror_root, source)
     elif isinstance(source, SQLiteSnapshotSourceRef):
         _validate_sqlite_snapshot(path, expected_schema_version=source.schema_version)
-    elif isinstance(source, L1ReleaseSourceRef):
-        release_manifest = load_lake_model_json(path.read_bytes(), ReleaseManifest)
-        if (
-            release_manifest.release_id != source.source_id
-            or release_manifest.manifest_version != source.manifest_version
-        ):
-            raise ValueError("L1 release source identity does not match")
     elif isinstance(source, CalibrationInputSourceRef):
         input_manifest = load_lake_model_json(path.read_bytes(), CalibrationInputManifest)
         if (

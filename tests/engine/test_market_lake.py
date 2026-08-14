@@ -27,7 +27,7 @@ from baibai_engine.market.lake.keys import (
 from baibai_engine.market.lake.models import (
     MAX_LAKE_JSON_BYTES,
     DatasetManifest,
-    L1ReleaseSourceRef,
+    PartitionManifest,
     RawArchiveMetadata,
     RawIngestSourceRef,
     ReleaseManifest,
@@ -628,40 +628,30 @@ def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Pat
     with pytest.raises(ValueError, match="schema version does not match"):
         resolve_source_ref(tmp_path, sqlite_ref.model_copy(update={"schema_version": 21}))
 
-    release = load_lake_model_json(
-        json.dumps(
-            {
-                "manifest_version": 1,
-                "release_id": "release-1",
-                "profile": "pilot",
-                "created_at": "2026-08-12T13:00:00Z",
-                "data_as_of": "2026-08-12",
-                "datasets": {
-                    "jquants.daily_bars": {
-                        "build_id": "build-1",
-                        "contract_version": 1,
-                        "manifest_sha256": "d" * 64,
-                        "data_as_of": "2026-08-12",
-                        "coverage_status": "complete",
-                        "totals": {"objects": 1, "bytes": 123, "rows": 456},
-                    }
-                },
-            }
-        ),
-        ReleaseManifest,
-    )
-    release_key = release_manifest_key(release_id=release.release_id)
-    release_path = tmp_path / release_key
-    release_path.parent.mkdir(parents=True)
-    release_path.write_bytes(canonical_lake_model_bytes(release))
-    release_ref = L1ReleaseSourceRef(
-        kind="l1_release",
-        source_id=release.release_id,
-        key=release_key,
-        sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
-        manifest_version=1,
-    )
-    assert resolve_source_ref(tmp_path, release_ref) == release_path
+    # An L1 release is a read reference, not a lineage source: reproducing it needs its
+    # dataset manifests, objects, and Raw archives kept whole, and nothing here walks
+    # that closure yet. A partition that claimed it would name a lineage no publisher,
+    # reader, or retention plan keeps.
+    with pytest.raises(ValueError, match="PartitionManifest"):
+        load_lake_model_json(
+            json.dumps(
+                {
+                    "values": {"year": 2026, "month": 8},
+                    "objects": [],
+                    "sources": [
+                        {
+                            "kind": "l1_release",
+                            "source_id": "release-1",
+                            "key": release_manifest_key(release_id="release-1"),
+                            "sha256": "e" * 64,
+                            "manifest_version": 1,
+                        }
+                    ],
+                    "source_state_sha256": "f" * 64,
+                }
+            ),
+            PartitionManifest,
+        )
 
 
 def test_key_builders_are_deterministic_and_traversal_safe() -> None:
