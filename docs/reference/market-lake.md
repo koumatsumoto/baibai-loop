@@ -28,7 +28,10 @@ precision、publication / effective / retrieved time、revision/cancellation sem
 `export-pilot`は開始時にSQLite backup APIでWALを含むsealed snapshotを1回作り、snapshot digest・
 schema version・`quick_check`を確定してから、両datasetのexport、source-state、parityを同じsnapshot
 から導出する。release作成時にも全partitionが両datasetでexactに1 snapshot generationへ閉じることを
-検証する。
+検証する。snapshotはcontent-addressedな`local_build_input`であり、daily releaseのremote closureには
+含めない。`sqlite_authority`期間のrestore checkpointは既存のcloud `market.sqlite`を正本とし、lake
+authority cutover前に別retention classのinitial checkpointを一度検証する。日次buildごとにfull
+SQLiteをR2へ再送しない。
 
 ```bash
 uv run baibai-engine lake export-pilot \
@@ -67,7 +70,9 @@ uv run baibai-engine lake archive-raw \
   --dataset jquants.daily_bars \
   --ingest-id <immutable-id> \
   --suffix json.gz \
-  --retention preserve
+  --retention preserve \
+  --from <request-start> \
+  --to <request-end>
 ```
 
 検証済み dataset manifest を release に固定する。
@@ -85,9 +90,19 @@ publish は immutable object、dataset manifest、release manifest の順に `If
 転送する。各sourceをsealed copyへ固定してR2が検証する`Content-MD5`付きPUTを行い、logical
 SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadataへ固定する。PUT/reuse後、
 さらにpointer直前にreleaseから到達可能な全objectのHEAD closureを再検証する。bulk objectを毎回
-GETしてmemoryへ展開せず、最後に`lake/pointers/l1/current.json`をETag `If-Match`で切り替える。
+GETしてmemoryへ展開しない。SQLite `local_build_input`はdigest・schema・capture時刻をmanifestへ
+記録するがuploadしないため、日次remote bytesはchanged Parquet/Raw/manifestへ比例する。最後に
+`lake/pointers/l1/current.json`をETag `If-Match`で切り替える。
 small pointerだけをGET read-backしてexact digestを検証する。409/412のCAS conflictはretryせず
 fail-closeし、current releaseを再解決する。
+
+production authority化ではmutable pointer prefixを除くimmutable prefixへ
+[R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、lock期間を
+previous/pin/restoreの最長保持期間以上にする。R2の
+[S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
+提供しないため、large existing objectの再利用は初回`Content-MD5`検証、content-addressed key、
+Bucket Lock、readerのSHA-256検証、定期sampling auditの組合せで閉じる。Bucket Lock設定確認と
+tamper→reader拒否→previous rollback drillはcutover acceptanceの必須項目である。
 
 Raw object と metadata は release publication より前に個別 publish する。
 

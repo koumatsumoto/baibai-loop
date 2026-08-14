@@ -163,9 +163,7 @@ def publish_l1_release(
 
     uploads: list[tuple[str, Path, str, str, int]] = []
     manifests: dict[str, LakeDatasetManifest] = {}
-    referenced_sources: dict[
-        tuple[str, str, str], LakeRawIngestSourceRef | LakeSQLiteSnapshotSourceRef
-    ] = {}
+    referenced_sources: dict[tuple[str, str, str], LakeRawIngestSourceRef] = {}
     for dataset_name, release_dataset in sorted(release.datasets.items()):
         manifest_key = lake_dataset_manifest_key(
             dataset=dataset_name,
@@ -190,7 +188,8 @@ def publish_l1_release(
                 ):
                     raise LakePublishError("L1 graph contains an unsupported source reference")
                 resolve_lake_source_ref(mirror_root, source)
-                referenced_sources[(source.kind, source.key, source.sha256)] = source
+                if isinstance(source, LakeRawIngestSourceRef):
+                    referenced_sources[(source.kind, source.key, source.sha256)] = source
             for item in partition.objects:
                 object_path = _mirror_path(mirror_root, item.key)
                 if _sha256(object_path) != item.sha256 or object_path.stat().st_size != item.bytes:
@@ -248,18 +247,6 @@ def publish_l1_release(
                     ),
                 )
             )
-        elif isinstance(source, LakeSQLiteSnapshotSourceRef):
-            uploads.append(
-                (
-                    source.key,
-                    _mirror_path(mirror_root, source.key),
-                    "application/vnd.sqlite3",
-                    source.sha256,
-                    _mirror_path(mirror_root, source.key).stat().st_size,
-                )
-            )
-        else:
-            raise LakePublishError("L1 graph contains an unsupported source reference")
 
     uploaded = 0
     reused = 0

@@ -190,9 +190,10 @@ def test_publish_uploads_immutable_graph_before_current_pointer(tmp_path) -> Non
         store=store,
     )
 
-    assert first.uploaded_objects == 6
+    assert first.uploaded_objects == 5
     assert second.uploaded_objects == 0
-    assert second.reused_objects == 6
+    assert second.reused_objects == 5
+    assert not any(key.startswith("lake/build-inputs/") for key in store.values)
     assert "lake/pointers/l1/current.json" in store.values
     assert set(store.get_keys) == {"lake/pointers/l1/current.json"}
 
@@ -242,6 +243,8 @@ def test_raw_object_and_metadata_publish_idempotently(tmp_path) -> None:
         suffix=".json.gz",
         retention_class=RawRetentionClass.PRESERVE,
         retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
+        request_start=date(2026, 1, 1),
+        request_end=date(2026, 1, 31),
     )
     store = _MemoryStore()
 
@@ -285,6 +288,8 @@ def test_raw_metadata_rejects_a_non_raw_namespace(tmp_path) -> None:
         suffix=".json.gz",
         retention_class=RawRetentionClass.PRESERVE,
         retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
+        request_start=date(2026, 1, 1),
+        request_end=date(2026, 1, 31),
     )
     payload = metadata.model_dump(mode="json")
     payload["object_key"] = "lake/pointers/l1/current.json"
@@ -343,6 +348,8 @@ def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
         suffix=".json.gz",
         retention_class=RawRetentionClass.PRESERVE,
         retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
+        request_start=date(2026, 1, 1),
+        request_end=date(2026, 1, 31),
     )
     snapshot = capture_legacy_sqlite_snapshot(
         sqlite_path=sqlite_path,
@@ -376,7 +383,7 @@ def test_release_publish_closes_referenced_raw_graph(tmp_path) -> None:
         store=store,
     )
 
-    assert report.uploaded_objects == 8
+    assert report.uploaded_objects == 7
 
 
 def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -> None:
@@ -413,6 +420,8 @@ def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -
             suffix=".json.gz",
             retention_class=RawRetentionClass.PRESERVE,
             retrieved_at=datetime(2026, 1, 6, tzinfo=UTC),
+            request_start=date(2026, 1, 1),
+            request_end=date(2026, 1, 31),
         )
         manifests.append(
             export_legacy_sqlite(
@@ -439,7 +448,7 @@ def test_release_allows_the_same_ingest_id_in_two_dataset_namespaces(tmp_path) -
         store=_MemoryStore(),
     )
 
-    assert report.uploaded_objects == 10
+    assert report.uploaded_objects == 9
 
 
 def test_reuse_rejects_remote_integrity_metadata_change(tmp_path: Path) -> None:
