@@ -306,7 +306,10 @@ horizon）のSHA-256とforward observation policyを含む`transform_fingerprint
 `contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは
 `(asof)`、forwardは`(asof,ticker,horizon)`を一意にし、全rowのyear/month所属をwrite/read両側で
 検査する。write APIはsource refのclosureを先に解決し、source省略を受け入れない。`local_operation`
-sourceは明示したtest-only gateだけで使う。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の0 rowsだけを`[]`として
+sourceは明示したtest-only gateだけで使う。cohort書き込みは生成中のgenerationに対して行い、
+canonical currentへ進むのはgeneration adoptionの1経路だけである。adoptionは全partitionの
+digest・size・schema・row countをpointerの前に検証する。cohortごとのcarry検査がpresence/sizeで
+止まるのはこのためで、月を1つ触るたびにdataset全体をhashすると書き込み回数の二乗に比例する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の0 rowsだけを`[]`として
 返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
 
 cohortのinput cutoffとsealed snapshotが保証するのは**同じ結果を後日再生できること**であって、
