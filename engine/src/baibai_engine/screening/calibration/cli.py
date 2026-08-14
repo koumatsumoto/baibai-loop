@@ -6,8 +6,9 @@ import sys
 import uuid
 from dataclasses import asdict
 from datetime import date
+from os import link
 from pathlib import Path
-from shutil import rmtree
+from shutil import copytree, rmtree
 from typing import TextIO, cast
 
 import yaml
@@ -34,6 +35,7 @@ from .forward import (
     HORIZONS,
     ForwardReturnRow,
     compute_forward_returns,
+    latest_market_data_date,
     read_control_event_exits,
 )
 from .grid import month_end_asof_grid
@@ -87,12 +89,12 @@ def calibration_build_command(
         except (OSError, RuntimeError) as exc:
             print(f"calibration build: {exc}", file=sys.stderr)
             return 1
-        expected_current = current_bundle_ref(calibration_dir) if force else None
-        work_dir = (
-            calibration_dir.with_name(f".{calibration_dir.name}.generation.{uuid.uuid4().hex}")
-            if force
-            else calibration_dir
+        expected_current = current_bundle_ref(calibration_dir)
+        work_dir = calibration_dir.with_name(
+            f".{calibration_dir.name}.generation.{uuid.uuid4().hex}"
         )
+        if not force and calibration_dir.exists():
+            copytree(calibration_dir, work_dir, copy_function=link)
         try:
             return _calibration_build_command(
                 sqlite_path=sqlite_path,
@@ -109,7 +111,7 @@ def calibration_build_command(
                 stdout=stdout,
             )
         finally:
-            if force and work_dir.exists():
+            if work_dir.exists():
                 rmtree(work_dir)
 
 
@@ -179,6 +181,7 @@ def _calibration_build_command(
                 result.rows,
                 result.diagnostics,
                 source=snapshot.ref,
+                input_cutoff=asof,
                 producer_commit=producer_commit,
                 lock_held=True,
             )
@@ -188,6 +191,10 @@ def _calibration_build_command(
         tickers_by_asof[asof] = {row.ticker for row in result.rows}
         built += 1
     control_event_exits = read_control_event_exits(fixed_sqlite) if use_control_event_exits else {}
+    observation_cutoff = latest_market_data_date(fixed_sqlite)
+    if observation_cutoff is None:
+        print("calibration build: snapshot contains no market observation cutoff", file=sys.stderr)
+        return 1
     by_asof: dict[str, list[ForwardReturnRow]] = {}
     for asof in asofs:
         for row in compute_forward_returns(
@@ -204,6 +211,7 @@ def _calibration_build_command(
                 asof,
                 by_asof.get(asof.isoformat(), []),
                 source=snapshot.ref,
+                input_cutoff=observation_cutoff,
                 producer_commit=producer_commit,
                 lock_held=True,
             )
@@ -213,12 +221,11 @@ def _calibration_build_command(
     rows = [row for cohort_rows in by_asof.values() for row in cohort_rows]
     resolved = sum(row.resolved for row in rows)
     control_event = sum(row.status == CONTROL_EVENT_EXIT_STATUS for row in rows)
-    if force:
-        adopt_bundle_generation(
-            calibration_dir,
-            work_dir,
-            expected_current=expected_current,
-        )
+    adopt_bundle_generation(
+        calibration_dir,
+        work_dir,
+        expected_current=expected_current,
+    )
     print(
         f"calibration build: done (panels built={built}, forward rows={len(rows)}, "
         f"resolved={resolved}, control event exits={control_event})",

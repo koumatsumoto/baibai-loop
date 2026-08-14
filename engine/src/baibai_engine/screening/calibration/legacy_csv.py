@@ -51,6 +51,7 @@ from .store import (
     read_forward,
     read_panel,
     read_panel_meta,
+    resolve_calibration_bundle,
     write_forward,
     write_panel,
 )
@@ -149,8 +150,40 @@ def migrate_legacy_calibration(
         raise CalibrationCacheError(str(exc)) from exc
 
     with lake_writer_lock(destination):
-        if current_bundle_ref(destination) is not None:
-            raise CalibrationCacheError("legacy migration destination already has a current bundle")
+        current = current_bundle_ref(destination)
+        if current is not None:
+            fixed = resolve_calibration_bundle(destination)
+            source_ids = {
+                source.source_id
+                for manifest in fixed.datasets.values()
+                for cohort in manifest.cohort_inventory.values()
+                for source in cohort.sources
+            }
+            if source_ids != {input_id}:
+                raise CalibrationCacheError(
+                    "legacy migration destination already has a different current bundle"
+                )
+            report: dict[str, object] = {
+                "kind": "calibration-legacy-migration",
+                "status": "already_migrated",
+                "completion": "committed",
+                "input_id": input_id,
+                "producer_git_commit": fixed.manifest.producer_git_commit,
+                "cohorts": [value.isoformat() for value in cohorts],
+                "files": {
+                    name: {"sha256": digest, "bytes": size}
+                    for name, (digest, size) in file_identities.items()
+                },
+            }
+            try:
+                write_bytes_atomic(
+                    report_path,
+                    json.dumps(report, sort_keys=True, separators=(",", ":")).encode() + b"\n",
+                )
+            except OSError as exc:
+                report["completion"] = "committed_with_warnings"
+                report["warnings"] = [f"report write failed: {exc}"]
+            return report
         work = destination.with_name(f".{destination.name}.migration.{uuid.uuid4().hex}")
         archived: dict[str, CalibrationInputFile] = {}
         for source in files:
@@ -206,13 +239,20 @@ def migrate_legacy_calibration(
                     tuple(panel),
                     diagnostics,
                     source=source_ref,
+                    input_cutoff=asof,
                     producer_commit=migration_commit,
                 )
+                observed_dates = [
+                    date.fromisoformat(row.exit_date)
+                    for row in forward
+                    if row.exit_date is not None
+                ]
                 write_forward(
                     work,
                     asof,
                     forward,
                     source=source_ref,
+                    input_cutoff=max(observed_dates, default=asof),
                     producer_commit=migration_commit,
                 )
                 parity[asof.isoformat()] = (
@@ -235,9 +275,10 @@ def migrate_legacy_calibration(
                         expected_sha256=sha256_file(source),
                     )
             status = "archived_incompatible"
-        report: dict[str, object] = {
+        report = {
             "kind": "calibration-legacy-migration",
             "status": status,
+            "completion": "committed",
             "input_id": input_id,
             "cache_schema_version": meta.get("cache_schema_version")
             if isinstance(meta, dict)
@@ -251,11 +292,21 @@ def migrate_legacy_calibration(
             },
             "parity": parity,
         }
-        write_bytes_atomic(
-            report_path,
-            json.dumps(report, sort_keys=True, separators=(",", ":")).encode() + b"\n",
-        )
-        shutil.rmtree(work)
+        warnings: list[str] = []
+        try:
+            write_bytes_atomic(
+                report_path,
+                json.dumps(report, sort_keys=True, separators=(",", ":")).encode() + b"\n",
+            )
+        except OSError as exc:
+            warnings.append(f"report write failed: {exc}")
+        try:
+            shutil.rmtree(work)
+        except OSError as exc:
+            warnings.append(f"work cleanup failed: {exc}")
+        if warnings:
+            report["completion"] = "committed_with_warnings"
+            report["warnings"] = warnings
         return report
 
 

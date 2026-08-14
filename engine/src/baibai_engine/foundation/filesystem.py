@@ -19,6 +19,7 @@ def write_text_atomic(path: Path, content: str) -> None:
 
     try:
         temp_path.replace(path)
+        _fsync_directory(path.parent)
     except BaseException:
         temp_path.unlink(missing_ok=True)
         raise
@@ -44,6 +45,15 @@ def write_bytes_atomic(path: Path, payload: bytes) -> None:
 
     try:
         temp_path.replace(path)
+        _fsync_directory(path.parent)
     except BaseException:
         temp_path.unlink(missing_ok=True)
         raise
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)

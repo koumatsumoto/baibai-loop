@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import threading
 from dataclasses import fields as dc_fields
@@ -9,7 +10,11 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.calibration_store import publish_forward, publish_panel
+from tests.helpers.calibration_store import (
+    publish_forward,
+    publish_panel,
+    synthetic_calibration_source,
+)
 
 from baibai_engine.market.lake.keys import (
     current_calibration_bundle_pointer_key,
@@ -114,7 +119,9 @@ class TestTypedContract:
         with pytest.raises(CalibrationLakeError, match="unsupported L2 calibration dataset"):
             require_l2_dataset("calibration.something_else")
 
-    def test_the_transform_fingerprint_tracks_the_measurement_rules(self) -> None:
+    def test_the_transform_fingerprint_tracks_the_measurement_rules(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         same = transform_fingerprint(CALIBRATION_PANEL, cache_schema_version=CACHE_SCHEMA_VERSION)
         other = transform_fingerprint(CALIBRATION_PANEL, cache_schema_version="0" * 16)
 
@@ -122,9 +129,31 @@ class TestTypedContract:
             CALIBRATION_PANEL, cache_schema_version=CACHE_SCHEMA_VERSION
         )
         assert same != other
+        original = lake_module.sha256_file
+        monkeypatch.setattr(
+            lake_module,
+            "sha256_file",
+            lambda path: "0" * 64 if path.name == "panel.py" else original(path),
+        )
+        assert same != transform_fingerprint(
+            CALIBRATION_PANEL, cache_schema_version=CACHE_SCHEMA_VERSION
+        )
 
 
 class TestImmutableBuilds:
+    def test_local_operation_source_requires_the_explicit_test_gate(self, tmp_path: Path) -> None:
+        source = synthetic_calibration_source(tmp_path)
+
+        with pytest.raises(CalibrationCacheError, match="test-only"):
+            store.write_forward(
+                tmp_path,
+                date.fromisoformat(_JANUARY),
+                [],
+                source=source,
+                input_cutoff=date.fromisoformat(_JANUARY),
+                producer_commit="a" * 40,
+            )
+
     def test_a_cohort_is_published_as_a_build_the_pointer_names(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
 
@@ -134,7 +163,12 @@ class TestImmutableBuilds:
             manifest = load_manifest(tmp_path / pointer.manifest_key)
             assert manifest.layer == "l2_analytical"
             assert manifest.build_id == pointer.build_id
-            assert {source.kind for source in manifest.sources} == {"calibration_input"}
+            assert manifest.sources == ()
+            assert {
+                source.kind
+                for cohort in manifest.cohort_inventory.values()
+                for source in cohort.sources
+            } == {"calibration_input"}
         assert published_cohorts(tmp_path) == [date.fromisoformat(_JANUARY)]
 
     def test_a_second_cohort_reuses_the_first_month_object(self, tmp_path: Path) -> None:
@@ -157,6 +191,28 @@ class TestImmutableBuilds:
             date.fromisoformat(_JANUARY),
             date.fromisoformat(_FEBRUARY),
         ]
+
+    def test_panel_and_forward_keep_their_own_input_generation(self, tmp_path: Path) -> None:
+        publish_panel(
+            tmp_path,
+            _JANUARY,
+            _cohort(_JANUARY),
+            source_label="panel-snapshot",
+        )
+        publish_forward(
+            tmp_path,
+            _JANUARY,
+            [{"ticker": "1301", "horizon": "1y", "status": "unresolved_future_horizon"}],
+            source_label="forward-snapshot",
+            input_cutoff=date(2027, 1, 31),
+        )
+
+        bundle = resolve_calibration_bundle(tmp_path).manifest.cohorts[_JANUARY]
+
+        assert bundle.panel.sources == bundle.diagnostics.sources
+        assert bundle.panel.sources != bundle.forward.sources
+        assert bundle.panel.input_cutoff == date.fromisoformat(_JANUARY)
+        assert bundle.forward.input_cutoff == date(2027, 1, 31)
 
     def test_manifest_reader_rejects_duplicate_fields_without_echoing_values(
         self, tmp_path: Path
@@ -188,7 +244,7 @@ class TestImmutableBuilds:
             raise OSError("injected durable install failure")
 
         monkeypatch.setattr(lake_module, "install_immutable_bytes", fail_install)
-        with pytest.raises(OSError, match="durable install"):
+        with pytest.raises(CalibrationCacheError, match="durable install"):
             publish_panel(tmp_path, _FEBRUARY, _cohort(_FEBRUARY))
 
         assert _bundle_pointer(tmp_path).current == before
@@ -661,6 +717,35 @@ class TestRetention:
         with pytest.raises(LakeRetentionError, match="root is unresolved"):
             apply_gc(tmp_path, plan, plan_hash=plan.plan_hash)
 
+    def test_a_reachable_candidate_loses_its_old_second_sweep_mark(self, tmp_path: Path) -> None:
+        publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))
+        first = _bundle_pointer(tmp_path).current
+        for asof in (_FEBRUARY, "2026-03-31", "2026-04-30"):
+            publish_panel(tmp_path, asof, _cohort(asof))
+        marked_plan = plan_gc(tmp_path, now=datetime.now(UTC) + timedelta(days=400))
+        assert first.manifest_key in {item.key for item in marked_plan.candidates}
+        assert apply_gc(tmp_path, marked_plan, plan_hash=marked_plan.plan_hash) == ()
+        marker = (
+            tmp_path
+            / "lake/retention/marks"
+            / f"{hashlib.sha256(first.manifest_key.encode()).hexdigest()}.json"
+        )
+        assert marker.is_file()
+
+        create_pin(
+            tmp_path,
+            pin_id="first-bundle-live-again",
+            target_kind="calibration_bundle",
+            target_id=first.bundle_id,
+            reason="regression fixture",
+            owner="test",
+        )
+        fresh = plan_gc(tmp_path, now=marked_plan.evaluated_at + timedelta(days=8))
+        apply_gc(tmp_path, fresh, plan_hash=fresh.plan_hash)
+
+        assert (tmp_path / first.manifest_key).is_file()
+        assert not marker.exists()
+
     def test_a_pointer_update_after_planning_refuses_the_sweep(self, tmp_path: Path) -> None:
         for asof in (_JANUARY, _FEBRUARY, "2026-03-31"):
             publish_panel(tmp_path, asof, _cohort(asof))
@@ -825,6 +910,55 @@ class TestLegacyParity:
         assert result["status"] == "archived_incompatible"
         archived_prefix = f"lake/l2/calibration-legacy/{result['input_id']}/"
         assert not any(item.key.startswith(archived_prefix) for item in plan.candidates)
+
+    def test_post_commit_report_failure_is_retryable_as_committed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(legacy_csv_module, "verified_git_commit", lambda: "a" * 40)
+        published = tmp_path / "published"
+        legacy = tmp_path / "legacy"
+        destination = tmp_path / "destination"
+        report_path = tmp_path / "migration.json"
+        publish_panel(published, _JANUARY, _cohort(_JANUARY))
+        publish_forward(published, _JANUARY, [])
+        asof = date.fromisoformat(_JANUARY)
+        self._write_legacy(legacy, _JANUARY, read_panel(published, asof))
+        self._write_legacy_forward(legacy, _JANUARY, read_forward(published, asof))
+        (legacy / f"panel-{_JANUARY}.meta.yaml").write_text(
+            yaml.safe_dump(read_panel_meta(published, asof), sort_keys=False),
+            encoding="utf-8",
+        )
+        (legacy / "calibration.meta.yaml").write_text(
+            yaml.safe_dump({"cache_schema_version": CACHE_SCHEMA_VERSION}),
+            encoding="utf-8",
+        )
+        original_write = legacy_csv_module.write_bytes_atomic
+
+        def fail_report(path: Path, payload: bytes) -> None:
+            if path == report_path:
+                raise OSError("injected report failure")
+            original_write(path, payload)
+
+        monkeypatch.setattr(legacy_csv_module, "write_bytes_atomic", fail_report)
+        committed = migrate_legacy_calibration(
+            legacy,
+            destination,
+            report_path=report_path,
+        )
+
+        assert committed["status"] == "migrated"
+        assert committed["completion"] == "committed_with_warnings"
+        assert read_panel(destination, asof)
+
+        monkeypatch.setattr(legacy_csv_module, "write_bytes_atomic", original_write)
+        retried = migrate_legacy_calibration(
+            legacy,
+            destination,
+            report_path=report_path,
+        )
+        assert retried["status"] == "already_migrated"
+        assert retried["completion"] == "committed"
+        assert report_path.is_file()
 
     def test_pin_rejects_a_bundle_the_reader_schema_rejects(self, tmp_path: Path) -> None:
         publish_panel(tmp_path, _JANUARY, _cohort(_JANUARY))

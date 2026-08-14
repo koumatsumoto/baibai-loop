@@ -46,6 +46,8 @@ def install_immutable_file(path: Path, captured: Path, *, expected_sha256: str) 
     """Link a fully captured file into place without replacing another inode."""
     from .sources import sha256_file
 
+    with captured.open("rb") as source:
+        os.fsync(source.fileno())
     if sha256_file(captured) != expected_sha256:
         raise ImmutableInstallError(f"captured file digest differs before install: {captured}")
     path.parent.mkdir(parents=True, exist_ok=True)

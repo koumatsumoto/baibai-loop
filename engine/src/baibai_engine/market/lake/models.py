@@ -292,7 +292,7 @@ class CalibrationInputManifest(BaseModel):
     manifest_version: Literal[1]
     input_id: str
     input_type: Literal["legacy_csv_archive", "sqlite_snapshot", "local_operation"]
-    files: Mapping[str, CalibrationInputFile]
+    files: Mapping[str, CalibrationInputFile] = Field(min_length=1)
 
     @field_validator("input_id")
     @classmethod
@@ -391,6 +391,18 @@ class CohortInventoryEntry(BaseModel):
 
     status: CohortStatus
     rows: int = Field(ge=0)
+    sources: tuple[SourceRef, ...] = Field(min_length=1)
+    input_cutoff: date
+
+    @field_validator("sources")
+    @classmethod
+    def validate_sources(cls, values: tuple[SourceRef, ...]) -> tuple[SourceRef, ...]:
+        identities = {(item.kind, item.source_id, item.key, item.sha256) for item in values}
+        if len(identities) != len(values):
+            raise ValueError("cohort sources cannot contain duplicates")
+        if any(item.kind == "raw_ingest" for item in values):
+            raise ValueError("analytical cohorts require fixed-generation sources")
+        return values
 
     @model_validator(mode="after")
     def validate_status(self) -> CohortInventoryEntry:
@@ -398,6 +410,11 @@ class CohortInventoryEntry(BaseModel):
             raise ValueError("complete cohort must contain rows")
         if self.status in {"empty", "not_computed"} and self.rows != 0:
             raise ValueError(f"{self.status} cohort cannot contain rows")
+        if any(
+            source.kind == "sqlite_snapshot" and self.input_cutoff > source.captured_at.date()
+            for source in self.sources
+        ):
+            raise ValueError("cohort input cutoff cannot follow SQLite snapshot capture")
         return self
 
 
@@ -434,6 +451,11 @@ class CalibrationCohortInventory(BaseModel):
             raise ValueError("complete diagnostics cohort must contain exactly one row")
         if self.panel.status == "not_computed":
             raise ValueError("a bundle cannot publish an uncomputed panel cohort")
+        if (
+            self.panel.sources != self.diagnostics.sources
+            or self.panel.input_cutoff != self.diagnostics.input_cutoff
+        ):
+            raise ValueError("panel and diagnostics must use the same cohort input")
         return self
 
 
@@ -484,9 +506,14 @@ class CalibrationBundleManifest(BaseModel):
     def freeze_cohorts(
         cls, values: Mapping[str, CalibrationCohortInventory]
     ) -> Mapping[str, CalibrationCohortInventory]:
-        for asof in values:
+        for asof, cohort in values.items():
             if date.fromisoformat(asof).isoformat() != asof:
                 raise ValueError("bundle cohort keys must be canonical ISO dates")
+            cohort_asof = date.fromisoformat(asof)
+            if cohort.panel.input_cutoff != cohort_asof:
+                raise ValueError("panel input cutoff must equal its cohort as-of")
+            if cohort.forward.input_cutoff < cohort_asof:
+                raise ValueError("forward input cutoff cannot precede its cohort as-of")
         return MappingProxyType(dict(values))
 
     @field_serializer("cohorts")
@@ -620,12 +647,14 @@ class DatasetManifest(BaseModel):
             ):
                 raise ValueError("L1 partitions accept Raw ingest or SQLite snapshot sources only")
         else:
-            if not self.sources or any(source.kind == "raw_ingest" for source in self.sources):
-                raise ValueError("l2_analytical requires a fixed input generation source")
+            if self.sources:
+                raise ValueError("L2 lineage belongs to each analytical cohort")
             if not self.cohort_inventory:
                 raise ValueError("l2_analytical requires computed cohort inventory")
+            if any(not item.sources for item in self.cohort_inventory.values()):
+                raise ValueError("each L2 cohort requires a fixed input generation source")
             if any(partition.sources for partition in self.partitions):
-                raise ValueError("L2 lineage belongs to the dataset build, not each partition")
+                raise ValueError("L2 lineage belongs to each cohort, not each partition")
         if (
             self.dataset in _PILOT_YEAR_MONTH_DATASETS
             and self.contract_version == 1

@@ -89,8 +89,8 @@ uv run baibai-engine lake release create \
 publish は immutable object、dataset manifest、release manifest の順に `If-None-Match: *` で
 転送する。各sourceをsealed copyへ固定してR2が検証する`Content-MD5`付きPUTを行い、logical
 SHA-256、transport marker、size、content typeを同じimmutable PUTのmetadataへ固定する。PUT/reuse後、
-さらにpointer直前にreleaseから到達可能な全objectのHEAD closureを再検証する。bulk objectを毎回
-GETしてmemoryへ展開しない。SQLite `local_build_input`はdigest・schema・capture時刻をmanifestへ
+さらにpointer直前にreleaseから到達可能な全objectをstreaming GETしてsizeとSHA-256を再計算する。
+remote custom metadataだけをsame-key objectの同一性証拠にしない。SQLite `local_build_input`はdigest・schema・capture時刻をmanifestへ
 記録するがuploadしないため、日次remote bytesはchanged Parquet/Raw/manifestへ比例する。最後に
 `lake/pointers/l1/current.json`をETag `If-Match`で切り替える。
 small pointerだけをGET read-backしてexact digestを検証する。409/412のCAS conflictはretryせず
@@ -100,8 +100,8 @@ production authority化ではmutable pointer prefixを除くimmutable prefixへ
 [R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、lock期間を
 previous/pin/restoreの最長保持期間以上にする。R2の
 [S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
-提供しないため、large existing objectの再利用は初回`Content-MD5`検証、content-addressed key、
-Bucket Lock、readerのSHA-256検証、定期sampling auditの組合せで閉じる。Bucket Lock設定確認と
+提供しないため、large existing objectの再利用はstreaming read-backのSHA-256、content-addressed key、
+Bucket Lock、readerのSHA-256検証の組合せで閉じる。Bucket Lock設定確認と
 tamper→reader拒否→previous rollback drillはcutover acceptanceの必須項目である。
 
 Raw object と metadata は release publication より前に個別 publish する。
@@ -246,15 +246,20 @@ calibration の cohort（panel・panel diagnostics・forward outcome）は typed
 導くので、行の契約と保存列がずれない。partition は cohort の as-of の `year/month`。
 
 cohort を 1 つ書くと3 datasetのimmutable buildを先に完成させ、dataset manifestの
-`cohort_inventory`へ`complete / empty / partial / not_computed`とrow数を固定する。最後に3 manifestを
+`cohort_inventory`へ`complete / empty / partial / not_computed`、row数、typed source digest、
+入力cutoffをcohort・role別に固定する。panel/diagnosticsのcutoffはcohort as-ofと一致し、forwardは
+実際に観測したmarket data cutoffを持つ。古いpanelを保持したままforwardだけ後日のsnapshotで更新でき、
+dataset全体へ過去の全source世代を累積しない。最後に3 manifestを
 `CalibrationBundleManifest`へ束ね、`lake/pointers/calibration/current.json`を1回だけ切り替える。
 consumerはdataset pointerを読まないため、途中失敗したpanelと旧diagnostics/forwardが混ざらない。
 書き換わるのは対象cohortの月partitionだけで、他の月はcontent-addressed objectを引き継ぐ。
 
-build identityはtyped `SourceRef`、`producer_git_commit`、`transform_fingerprint`、
+build identityはcohort別typed `SourceRef`、`producer_git_commit`、semantic implementation fileの
+SHA-256を含む`transform_fingerprint`、
 `contract_version`、full primary key、partition/object hashである。panelは`(asof,ticker)`、diagnosticsは
 `(asof)`、forwardは`(asof,ticker,horizon)`を一意にし、全rowのyear/month所属をwrite/read両側で
-検査する。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の0 rowsだけを`[]`として
+検査する。write APIはsource refのclosureを先に解決し、source省略を受け入れない。`local_operation`
+sourceは明示したtest-only gateだけで使う。readerはbundle pointerを開始時に1回だけ固定し、explicit `empty`の0 rowsだけを`[]`として
 返す。inventoryに無いcohortと`partial / not_computed`はfail-closeする。
 
 retention の root は 3 種類で、そこから到達できる object は齢によらず残す。
@@ -281,11 +286,13 @@ plan hashへ閉じる。`--apply`はpublisher/pinと共通のlocal writer lock�
 candidateをmarkするだけで、7日後のsecond sweepが同じidentityを再検証してから削除する。rootが
 未解決、object不足、pointer/pin更新、candidate差替えのいずれでも削除を拒否する。
 
-Raw archiveと`calibration-legacy` exact archiveはこのsweepの対象外である。`lake inventory`は
+`calibration-legacy` exact archiveはこのsweepの対象外である。`lake inventory`は
 `preserve / buffer`別のobject数、bytes、oldest retrieval、soft budget（500 GiB / 50 GiB）超過を出す。
 metadata sidecarを持たないRaw payloadは`raw_unclassified`と`raw_inventory_errors`へ分離し、正常な
-retention classの容量へ混ぜない。buffer自動回収はsource closure、minimum age、cloud lockを同時に
-扱う専用plannerまで行わず、本変更では追加しない。
+retention classの容量へ混ぜない。`preserve`はGC候補にせず、`buffer`はcurrent/previous/pin closureから
+未到達かつretrieved-atから90日以上の場合だけ通常GCの候補にする。object/metadata pairを同じplan hashへ
+固定し、他のcandidateと同じ7日second sweepを通してlocal mirrorから削除する。R2側の削除はBucket Lock
+満了後にDelete専用retention finalizerが同じcandidate identityを検証する運用境界とする。
 
 R2へのpublishは3 datasetのobject/source/manifestとbundle manifestを`If-None-Match: *`で転送し、
 最後にbundle pointerだけをETag `If-Match`で切り替える。
@@ -310,7 +317,9 @@ uv run python -m baibai_batch.storage.lake_publish \
 全cohortを列挙し、元bytesをcontent-addressed archiveへ保存してtyped `calibration_input` SourceRefへ
 全digestを固定する。現cache contractと互換な履歴だけをfield単位でL2へ変換し、全cohort parity後に
 bundle pointerを1回切り替える。非互換履歴は`archived_incompatible`としてarchive/reportだけを残し、
-現在手法での再計算と同一視しない。
+現在手法での再計算と同一視しない。pointer切替後のreport/cleanup失敗は
+`completion: committed_with_warnings`として成功済みgenerationを返し、同じinput digestのretryは
+`already_migrated`として冪等に完了する。
 
 R2 credentialはroleを分ける。readerはGet/Headだけ、publisherはGet/Head/Putだけ（Deleteなし）、
 retention finalizerだけがDeleteを持つ。Bucket Locksはimmutable object/manifest/archive prefixへ適用し、
@@ -323,7 +332,9 @@ workflowがdefault branchへ入る前はrepository ownerがsame-repository PRへ
 入った後の再検証はexact 40文字SHAでmanual dispatchする。workflowは`acceptance`を名前に含む
 専用bucket以外を拒否し、bundle graphの
 実PUT、pointer read-back、current→previousへの実CAS rollback、rollback先bundle read-back、stale ETagの
-412/409 fail-closeを検査する。
+412/409 fail-closeに加え、tiny L1 publish→remote closure download→reader→projection、2 GiB objectの
+PUT/read-back時間、同じsize/偽SHA metadataを持つtampered bytesの拒否、wrong credential errorのredactionを
+検査する。
 credentialはvalidation/setupへ渡さず、actual R2 stepだけが専用publisher tokenを持つ。production-size
 export/projectionは上記reference acceptance report、legacy migrationは元bytesをread-onlyで扱う
 archive/parity reportをhead SHAと一緒に保存する。production bucketとcanonical storeをacceptanceに使わない。

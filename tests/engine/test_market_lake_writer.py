@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import subprocess
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tools.diagnostics.benchmark_l1_export import benchmark
 
 from baibai_engine.market.lake import identity as identity_module
 from baibai_engine.market.lake import models as lake_models
@@ -22,7 +23,7 @@ from baibai_engine.market.lake.raw import (
     raw_source_ref,
 )
 from baibai_engine.market.lake.release import L1ReleasePointer, create_l1_release
-from baibai_engine.market.lake.retention import plan_gc
+from baibai_engine.market.lake.retention import apply_gc, plan_gc
 from baibai_engine.market.lake.writer import (
     LakeBuildError,
     capture_legacy_sqlite_snapshot,
@@ -331,9 +332,7 @@ def test_export_rejects_raw_lineage_outside_target_dataset_or_partition(tmp_path
             build_id="wrong-range-build",
         )
 
-    valid = raw_source_ref(wrong_range_metadata).model_copy(
-        update={"provider": "other"}
-    )
+    valid = raw_source_ref(wrong_range_metadata).model_copy(update={"provider": "other"})
     with pytest.raises(ValueError, match="metadata identity does not match"):
         export_legacy_sqlite(
             dataset_name="jquants.daily_bars",
@@ -779,3 +778,75 @@ def test_l1_manifest_digest_is_part_of_the_gc_root(tmp_path: Path) -> None:
 
     assert pointer.manifest_key in plan.unresolved_roots
     assert pointer.manifest_key not in plan.reachable
+
+
+def test_expired_unreferenced_buffer_raw_uses_the_two_sweep_delete_gate(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    raw = tmp_path / "raw.json.gz"
+    raw.write_bytes(b"buffered raw")
+    object_path, metadata_path, _metadata = archive_raw_file(
+        source_path=raw,
+        mirror_root=mirror,
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_id="expired-buffer",
+        suffix=".json.gz",
+        retention_class=RawRetentionClass.BUFFER,
+        retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
+        request_start=date(2025, 12, 1),
+        request_end=date(2025, 12, 31),
+    )
+    first = plan_gc(mirror, now=datetime(2026, 4, 2, tzinfo=UTC))
+
+    assert {item.key for item in first.candidates} == {
+        object_path.relative_to(mirror).as_posix(),
+        metadata_path.relative_to(mirror).as_posix(),
+    }
+    assert apply_gc(mirror, first, plan_hash=first.plan_hash) == ()
+    second = plan_gc(mirror, now=first.evaluated_at + timedelta(days=8))
+    assert set(apply_gc(mirror, second, plan_hash=second.plan_hash)) == {
+        object_path.relative_to(mirror).as_posix(),
+        metadata_path.relative_to(mirror).as_posix(),
+    }
+    assert not object_path.exists()
+    assert not metadata_path.exists()
+
+
+def test_preserve_raw_never_enters_gc_candidates(tmp_path: Path) -> None:
+    mirror = tmp_path / "mirror"
+    raw = tmp_path / "raw.json.gz"
+    raw.write_bytes(b"preserved raw")
+    object_path, metadata_path, _metadata = archive_raw_file(
+        source_path=raw,
+        mirror_root=mirror,
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_id="preserved-raw",
+        suffix=".json.gz",
+        retention_class=RawRetentionClass.PRESERVE,
+        retrieved_at=datetime(2020, 1, 1, tzinfo=UTC),
+        request_start=date(2019, 12, 1),
+        request_end=date(2019, 12, 31),
+    )
+
+    plan = plan_gc(mirror, now=datetime(2027, 1, 1, tzinfo=UTC))
+
+    candidate_keys = {item.key for item in plan.candidates}
+    assert object_path.relative_to(mirror).as_posix() not in candidate_keys
+    assert metadata_path.relative_to(mirror).as_posix() not in candidate_keys
+
+
+def test_l1_export_benchmark_records_full_and_incremental_transfer(tmp_path: Path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    report_path = tmp_path / "report.json"
+
+    report = benchmark(
+        sqlite_path=sqlite_path,
+        report_path=report_path,
+        producer_commit=_COMMIT,
+    )
+
+    assert report["status"] == "passed"
+    assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
+    assert report["incremental_correction"]["new_object_count"] == 1  # type: ignore[index]
+    assert report_path.is_file()

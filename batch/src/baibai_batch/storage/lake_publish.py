@@ -67,6 +67,8 @@ class ObjectStore(Protocol):
 
     def get_bytes(self, key: str) -> bytes: ...
 
+    def download_file(self, key: str, path: Path) -> None: ...
+
     def put_file(
         self,
         key: str,
@@ -413,7 +415,12 @@ def publish_calibration_bundle(
         ):
             raise LakePublishError(f"calibration bundle dataset identity differs: {name}")
         dataset_manifests[name] = manifest
-        for source in manifest.sources:
+        cohort_sources = {
+            (source.kind, source.source_id, source.key, source.sha256): source
+            for cohort in manifest.cohort_inventory.values()
+            for source in cohort.sources
+        }
+        for source in cohort_sources.values():
             source_path = resolve_lake_source_ref(mirror_root, source)
             uploads[source.key] = (
                 source_path,
@@ -477,12 +484,6 @@ def publish_calibration_bundle(
         bundle.producer_git_commit
     }:
         raise LakePublishError("calibration bundle producer identity differs")
-    source_sets = {
-        tuple((item.kind, item.source_id, item.key, item.sha256) for item in manifest.sources)
-        for manifest in dataset_manifests.values()
-    }
-    if len(source_sets) != 1:
-        raise LakePublishError("calibration bundle input generation differs")
     bundle_key = f"lake/manifests/calibration-bundles/{bundle.bundle_id}.json"
     uploads[bundle_key] = (
         resolved_bundle_path,
@@ -663,7 +664,12 @@ def _require_remote_calibration_closure(
         ):
             raise LakePublishError(f"remote calibration dataset identity differs: {name}")
         manifests[name] = manifest
-        for source in manifest.sources:
+        cohort_sources = {
+            (source.kind, source.source_id, source.key, source.sha256): source
+            for cohort in manifest.cohort_inventory.values()
+            for source in cohort.sources
+        }
+        for source in cohort_sources.values():
             if isinstance(source, CalibrationInputSourceRef):
                 input_manifest = _remote_json_model(
                     store,
@@ -852,6 +858,10 @@ class AwsCliR2Store:
             result = self._run("get-object", "--key", key, target.name)
             assert result is not None
             return Path(target.name).read_bytes()
+
+    def download_file(self, key: str, path: Path) -> None:
+        result = self._run("get-object", "--key", key, str(path))
+        assert result is not None
 
     def put_file(
         self,
@@ -1068,6 +1078,19 @@ def _verify_remote_identity(
         or remote.content_type != content_type
     ):
         raise LakePublishError(f"remote object metadata postcondition failed: {key}")
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="baibai-lake-readback-", delete=False) as target:
+            temporary_path = Path(target.name)
+        store.download_file(key, temporary_path)
+        if (
+            temporary_path.stat().st_size != expected_size
+            or _sha256(temporary_path) != expected_sha256
+        ):
+            raise LakePublishError(f"remote object bytes postcondition failed: {key}")
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _verify_remote_small_object(

@@ -41,7 +41,6 @@ from baibai_engine.market.lake.keys import (
     dataset_manifest_key,
 )
 from baibai_engine.market.lake.models import (
-    CalibrationInputManifest,
     CalibrationInputSourceRef,
     CohortInventoryEntry,
     CohortStatus,
@@ -57,6 +56,7 @@ from baibai_engine.market.lake.retention import (
     lake_writer_lock,
     read_l2_pointer,
 )
+from baibai_engine.market.lake.sources import resolve_source_ref
 
 from ..metrics import VALUATION_CALCULATION_REVISION
 from ..rules import _RELAXED_THRESHOLDS as _RELAXED_TABLE
@@ -106,11 +106,6 @@ from .panel import (
 RELAXED = _RELAXED_TABLE
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
-
-# The identity a build records when no L1 release was bound to it: every input came
-# from the legacy store. It is a real, checkable value rather than an empty field, so
-# a reader that requires a release fails on the value instead of on an absence.
-LEGACY_ONLY_RELEASE_ID = "legacy-sqlite-only"
 
 
 def _derive_cache_schema_version() -> str:
@@ -197,36 +192,20 @@ def _require_current_cache(root: Path) -> None:
 
 def _inputs(
     root: Path,
-    source: SourceRef | None = None,
+    source: SourceRef,
     *,
     producer_commit: str | None = None,
+    test_only: bool = False,
 ) -> L2BuildInputs:
-    """What this build declares, and nothing it does not have.
+    """Resolve and fix the exact source generation used by one cohort write."""
 
-    No L1 release is bound while calibration's inputs are still read from the legacy
-    store, so the recorded release is the named value that says so rather than an id
-    that would imply a provenance the build did not have.
-    """
-
-    if source is None:
-        input_id = LEGACY_ONLY_RELEASE_ID
-        manifest = CalibrationInputManifest(
-            manifest_version=1,
-            input_id=input_id,
-            input_type="local_operation",
-            files={},
-        )
-        key = f"lake/manifests/calibration-inputs/{input_id}.json"
-        path = root / key
-        _write_immutable(path, canonical_manifest_bytes(manifest))
-        source = CalibrationInputSourceRef(
-            kind="calibration_input",
-            source_id=input_id,
-            key=key,
-            sha256=sha256_file(path),
-            input_type="local_operation",
-            manifest_version=1,
-        )
+    resolve_source_ref(root, source)
+    if (
+        isinstance(source, CalibrationInputSourceRef)
+        and source.input_type == "local_operation"
+        and not test_only
+    ):
+        raise CalibrationLakeError("local_operation calibration input is test-only")
     return L2BuildInputs(
         sources=(source,),
         producer_git_commit=producer_commit or verified_git_commit(),
@@ -349,12 +328,6 @@ def _publish_bundle(root: Path) -> CalibrationBundleRef:
         raise CalibrationLakeError("panel and diagnostics cohort inventory differ")
     if set(manifests[CALIBRATION_FORWARD.name].cohort_inventory) != cohort_keys:
         raise CalibrationLakeError("panel and forward cohort inventory differ")
-    source_sets = {
-        tuple((item.kind, item.source_id, item.key, item.sha256) for item in manifest.sources)
-        for manifest in manifests.values()
-    }
-    if len(source_sets) != 1:
-        raise CalibrationLakeError("calibration bundle datasets have different input generations")
     producer_commits = {manifest.producer_git_commit for manifest in manifests.values()}
     if len(producer_commits) != 1:
         raise CalibrationLakeError("calibration bundle datasets have different producers")
@@ -453,7 +426,9 @@ def _publish_cohort(
     asof: date,
     rows: Sequence[object],
     status: CohortStatus | None = None,
-    source: SourceRef | None = None,
+    source: SourceRef,
+    input_cutoff: date,
+    test_only: bool = False,
     producer_commit: str | None = None,
 ) -> None:
     """Publish a build that carries every cohort already published plus this one.
@@ -475,17 +450,12 @@ def _publish_cohort(
         # this passes, so a refused build leaves the store describing itself truthfully.
         require_build_inputs(manifest, dataset=dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
     _write_cache_meta(root)
-    inputs = _inputs(root, source, producer_commit=producer_commit)
-    if manifest is not None:
-        by_identity = {
-            (item.kind, item.source_id, item.key, item.sha256): item
-            for item in (*manifest.sources, *inputs.sources)
-        }
-        inputs = L2BuildInputs(
-            sources=tuple(by_identity[key] for key in sorted(by_identity)),
-            producer_git_commit=inputs.producer_git_commit,
-            cache_schema_version=inputs.cache_schema_version,
-        )
+    inputs = _inputs(
+        root,
+        source,
+        producer_commit=producer_commit,
+        test_only=test_only,
+    )
 
     carried: list[PartitionManifest] = []
     inventory = {} if manifest is None else dict(manifest.cohort_inventory)
@@ -504,18 +474,36 @@ def _publish_cohort(
             ):
                 if str(payload["asof"]) != asof.isoformat():
                     same_month.append(_materialize(dataset, payload))
+    cohort_status: CohortStatus = status or ("complete" if rows else "empty")
+    inventory[asof.isoformat()] = CohortInventoryEntry(
+        status=cohort_status,
+        rows=len(rows),
+        sources=inputs.sources,
+        input_cutoff=input_cutoff,
+    )
+    replacement_asofs = {
+        str(cast(PanelRow | PanelDiagnostics | ForwardReturnRow, payload).asof)
+        for payload in [*same_month, *rows]
+    }
+    replacement_sources = {
+        (item.kind, item.source_id, item.key, item.sha256): item
+        for cohort_asof in replacement_asofs
+        for item in inventory[cohort_asof].sources
+    }
+    partition_inputs = L2BuildInputs(
+        sources=tuple(replacement_sources[key] for key in sorted(replacement_sources)),
+        producer_git_commit=inputs.producer_git_commit,
+        cache_schema_version=inputs.cache_schema_version,
+    )
     replacement = write_l2_partition(
         dataset=dataset,
         mirror_root=root,
         month=month,
         rows=[*same_month, *rows],
-        inputs=inputs,
+        inputs=partition_inputs,
     )
     if replacement is not None:
         carried.append(replacement)
-    cohort_status: CohortStatus = status or ("complete" if rows else "empty")
-    inventory[asof.isoformat()] = CohortInventoryEntry(status=cohort_status, rows=len(rows))
-
     fingerprint = transform_fingerprint(dataset, cache_schema_version=CACHE_SCHEMA_VERSION)
     now = datetime.now(UTC)
     report = publish_l2_build(
@@ -551,9 +539,11 @@ def write_panel(
     rows: tuple[PanelRow, ...],
     diagnostics: PanelDiagnostics,
     *,
-    source: SourceRef | None = None,
+    source: SourceRef,
+    input_cutoff: date,
     producer_commit: str | None = None,
     lock_held: bool = False,
+    test_only: bool = False,
 ) -> None:
     publication = nullcontext() if lock_held else lake_writer_lock(root)
     with _store_errors(), publication:
@@ -563,6 +553,8 @@ def write_panel(
             asof=asof,
             rows=rows,
             source=source,
+            input_cutoff=input_cutoff,
+            test_only=test_only,
             producer_commit=producer_commit,
         )
         _publish_cohort(
@@ -571,6 +563,8 @@ def write_panel(
             asof=asof,
             rows=(diagnostics,),
             source=source,
+            input_cutoff=input_cutoff,
+            test_only=test_only,
             producer_commit=producer_commit,
         )
         forward = _writer_manifest(root, CALIBRATION_FORWARD)
@@ -582,6 +576,8 @@ def write_panel(
                 rows=(),
                 status="not_computed",
                 source=source,
+                input_cutoff=input_cutoff,
+                test_only=test_only,
                 producer_commit=producer_commit,
             )
         _publish_bundle(root)
@@ -592,9 +588,11 @@ def write_forward(
     asof: date,
     rows: list[ForwardReturnRow],
     *,
-    source: SourceRef | None = None,
+    source: SourceRef,
+    input_cutoff: date,
     producer_commit: str | None = None,
     lock_held: bool = False,
+    test_only: bool = False,
 ) -> None:
     publication = nullcontext() if lock_held else lake_writer_lock(root)
     with _store_errors(), publication:
@@ -604,6 +602,8 @@ def write_forward(
             asof=asof,
             rows=rows,
             source=source,
+            input_cutoff=input_cutoff,
+            test_only=test_only,
             producer_commit=producer_commit,
         )
         _publish_bundle(root)
@@ -620,7 +620,7 @@ def _store_errors() -> Iterator[None]:
 
     try:
         yield
-    except (CalibrationLakeError, LakeRetentionError) as exc:
+    except (CalibrationLakeError, LakeRetentionError, OSError, ValueError) as exc:
         raise CalibrationCacheError(str(exc)) from exc
 
 

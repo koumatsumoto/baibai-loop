@@ -107,6 +107,9 @@ version 語彙は `contract_version`（schema・PK・型・partition・意味の
 （immutable build）、typed `SourceRef`内のsource側version、`producer_git_commit`（code identity）
 に限定する。同じ contract 内の logic / config / 明示したtransform source codeは
 `transform_fingerprint`で識別する。
+L2 calibrationのlineageはdataset全体のsource集合ではなくcohort inventoryの各roleへ置き、panel /
+diagnosticsのcohort cutoffとforwardのobservation cutoffをsource digestと一緒に固定する。
+fingerprintはschema/configだけでなく、そのdatasetの値を決めるsemantic implementation fileのdigestを含む。
 production reader は期待する contract 一つだけを受け入れ、schema change は in-place migration
 や `union_by_name` fallback ではなく、新しい contract の immutable rebuild と pointer switch で
 扱う。

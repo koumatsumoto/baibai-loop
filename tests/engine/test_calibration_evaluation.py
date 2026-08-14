@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 from zoneinfo import ZoneInfo
 
 import yaml
+from tests.helpers.calibration_store import synthetic_calibration_source
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -41,7 +42,36 @@ from baibai_engine.screening.calibration.panel import (
     PanelDiagnostics,
     PanelRow,
 )
-from baibai_engine.screening.calibration.store import write_forward, write_panel
+from baibai_engine.screening.calibration.store import (
+    write_forward as _write_forward,
+)
+from baibai_engine.screening.calibration.store import (
+    write_panel as _write_panel,
+)
+
+
+def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None:
+    _write_panel(
+        root,
+        asof,
+        *args,
+        source=synthetic_calibration_source(root),
+        input_cutoff=asof,
+        test_only=True,
+        **kwargs,
+    )
+
+
+def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> None:
+    _write_forward(
+        root,
+        asof,
+        *args,
+        source=synthetic_calibration_source(root),
+        input_cutoff=asof,
+        test_only=True,
+        **kwargs,
+    )
 
 
 def _panel_row(

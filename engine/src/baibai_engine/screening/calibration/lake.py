@@ -214,28 +214,31 @@ def transform_fingerprint(dataset: L2Dataset, *, cache_schema_version: str) -> s
         "partition_by": dataset.partition_by,
         "row_group_size": _ROW_GROUP_SIZE,
         "writer": f"pyarrow-{pa.__version__}",
+        "implementation_sha256": {
+            path.relative_to(Path(__file__).resolve().parents[2]).as_posix(): sha256_file(path)
+            for path in _semantic_implementation_paths(dataset)
+        },
     }
     payload = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
+def _semantic_implementation_paths(dataset: L2Dataset) -> tuple[Path, ...]:
+    calibration = Path(__file__).resolve().parent
+    screening = calibration.parent
+    common = (calibration / "lake.py", calibration / "store.py")
+    if dataset.name in {PANEL_DATASET, DIAGNOSTICS_DATASET}:
+        return (*common, calibration / "panel.py", screening / "metrics.py", screening / "rules.py")
+    return (*common, calibration / "forward.py")
+
+
 @dataclass(frozen=True, slots=True)
 class L2BuildInputs:
-    """What a build declares as its inputs, exactly and without overstating them.
-
-    ``source_release_id`` fixes the input generation. While calibration still reads
-    the legacy store it is the named value that says so, rather than an L1 release id
-    the build was never bound to.
-    """
+    """The exact source generation and implementation identity for one cohort write."""
 
     sources: tuple[SourceRef, ...]
     producer_git_commit: str
     cache_schema_version: str
-
-    @property
-    def source_release_id(self) -> str:
-        """Compatibility name for the fixed input generation identity."""
-        return self.sources[0].source_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,7 +371,7 @@ def publish_l2_build(
         layer="l2_analytical",
         contract_version=dataset.contract_version,
         build_id=build_id,
-        sources=inputs.sources,
+        sources=(),
         producer_git_commit=inputs.producer_git_commit,
         transform_fingerprint=transform_fingerprint(
             dataset, cache_schema_version=inputs.cache_schema_version
@@ -534,10 +537,13 @@ def require_build_inputs(
             f"{dataset.name}: build {manifest.build_id} was produced by a different transform; "
             "rebuild it"
         )
-    if not manifest.sources:
+    cohort_sources = tuple(
+        source for cohort in manifest.cohort_inventory.values() for source in cohort.sources
+    )
+    if not cohort_sources:
         raise CalibrationLakeError(f"{dataset.name}: build {manifest.build_id} names no input")
     if source_release_id is not None and source_release_id not in {
-        source.source_id for source in manifest.sources
+        source.source_id for source in cohort_sources
     }:
         raise CalibrationLakeError(
             f"{dataset.name}: build {manifest.build_id} was not built from {source_release_id}"

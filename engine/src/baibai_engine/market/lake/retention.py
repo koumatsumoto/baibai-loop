@@ -58,6 +58,7 @@ from .models import (
     CalibrationInputManifest,
     CalibrationInputSourceRef,
     DatasetManifest,
+    RawArchiveMetadata,
     RawIngestSourceRef,
     ReleaseManifest,
     SourceRef,
@@ -669,6 +670,8 @@ def _reach_dataset(
             else:
                 reachable.add(item.key)
     _reach_sources(mirror_root, manifest.sources, reachable, unresolved)
+    for cohort in manifest.cohort_inventory.values():
+        _reach_sources(mirror_root, cohort.sources, reachable, unresolved)
 
 
 def _reach_sources(
@@ -711,6 +714,36 @@ def _unreachable(
         try:
             validate_lake_object_key(key)
         except ValueError:
+            continue
+        if key.startswith("lake/l1/raw/"):
+            if not key.endswith(".metadata.json"):
+                continue
+            try:
+                metadata = load_lake_model_json(path.read_bytes(), RawArchiveMetadata)
+            except (OSError, ValueError) as exc:
+                raise LakeRetentionError(f"Raw retention metadata is invalid: {key}") from exc
+            if metadata.retention_class == "preserve":
+                continue
+            metadata_key = key
+            object_key = metadata.object_key
+            if metadata_key in reachable or object_key in reachable:
+                continue
+            age_days = max(0, (now.date() - metadata.retrieved_at.date()).days)
+            if age_days < 90:
+                continue
+            for candidate_key in (object_key, metadata_key):
+                candidate_path = mirror_path(mirror_root, candidate_key)
+                if not candidate_path.is_file():
+                    raise LakeRetentionError(f"Raw retention pair is incomplete: {candidate_key}")
+                candidates.append(
+                    GcCandidate(
+                        key=candidate_key,
+                        bytes=candidate_path.stat().st_size,
+                        sha256=sha256_file(candidate_path),
+                        age_days=age_days,
+                        reason="expired_buffer_raw",
+                    )
+                )
             continue
         reason = _candidate_reason(key)
         if reason is None or key in reachable:
@@ -788,6 +821,19 @@ def apply_gc(mirror_root: Path, plan: GcPlan, *, plan_hash: str) -> tuple[str, .
                 "GC refuses to delete while a root is unresolved: "
                 + ", ".join(fresh.unresolved_roots)
             )
+        candidate_keys = {candidate.key for candidate in fresh.candidates}
+        marks_root = mirror_root / "lake" / "retention" / "marks"
+        if marks_root.is_dir():
+            for marker in sorted(marks_root.glob("*.json")):
+                try:
+                    marked = json.loads(marker.read_bytes())
+                    marked_key = marked["key"]
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    raise LakeRetentionError(f"GC mark is invalid: {marker.name}") from exc
+                if not isinstance(marked_key, str):
+                    raise LakeRetentionError(f"GC mark is invalid: {marker.name}")
+                if marked_key not in candidate_keys:
+                    marker.unlink()
         deleted: list[str] = []
         for candidate in fresh.candidates:
             marker = (

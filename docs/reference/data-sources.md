@@ -58,9 +58,10 @@ required dataset・coverage・freshness gateを通らないgenerationをproducti
 
 Raw retention は、再取得が高価または不可能な Premium CSV・EDINET XBRL・JPX 原本を
 `preserve`、routine API response を `buffer` とする。inventoryのsoft budgetはpreserve 500 GiB、
-buffer 50 GiBで、重要ingestを停止するhard capではない。bufferの自動削除は未実装であり、通常GCの
-候補にしない。専用plannerはcanonical verification、current/previous/pin closure、minimum age、
-metadata/object digest、cloud lockをすべて満たしてから導入する。
+buffer 50 GiBで、重要ingestを停止するhard capではない。`preserve`は削除しない。`buffer`は
+current/previous/pin closureから未到達でretrieved-atから90日以上の場合だけ、metadata/object pairを
+通常GCのplanへ載せ、7日後のsecond sweepでidentityを再検証してlocal mirrorから削除する。R2削除は
+Bucket Lock満了後のDelete専用retention finalizerへ分離する。
 
 lifecycle stateは`sqlite_authority`と`lake_authority`の二つだけである。`sqlite_authority`では
 `stores/market/market.sqlite`だけがscreening L1のcanonical/runtime authorityで、lake buildは

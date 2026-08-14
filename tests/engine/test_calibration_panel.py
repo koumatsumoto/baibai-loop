@@ -16,6 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from tests.helpers.calibration_store import synthetic_calibration_source
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
 from baibai_engine.market.lake.retention import read_l2_pointer
@@ -30,8 +31,6 @@ from baibai_engine.screening.calibration.forward import (
 )
 from baibai_engine.screening.calibration.identity import rules_contract_hash
 from baibai_engine.screening.calibration.lake import (
-    CALIBRATION_DIAGNOSTICS,
-    CALIBRATION_FORWARD,
     CALIBRATION_PANEL,
     CalibrationLakeError,
     load_manifest,
@@ -50,8 +49,13 @@ from baibai_engine.screening.calibration.store import (
     panel_row_from_mapping,
     read_forward,
     read_panel,
-    write_forward,
-    write_panel,
+    resolve_calibration_bundle,
+)
+from baibai_engine.screening.calibration.store import (
+    write_forward as _write_forward,
+)
+from baibai_engine.screening.calibration.store import (
+    write_panel as _write_panel,
 )
 from baibai_engine.screening.metrics import (
     BARS_INPUT_WINDOW_DAYS,
@@ -65,6 +69,30 @@ from baibai_engine.screening.sqlite_reader import ReportedShortMetric
 from baibai_engine.screening.store_readiness import unreadable_store_reason
 
 ASOF = date(2026, 6, 30)
+
+
+def write_panel(root: Path, asof: date, *args: object, **kwargs: object) -> None:
+    _write_panel(
+        root,
+        asof,
+        *args,
+        source=synthetic_calibration_source(root),
+        input_cutoff=asof,
+        test_only=True,
+        **kwargs,
+    )
+
+
+def write_forward(root: Path, asof: date, *args: object, **kwargs: object) -> None:
+    _write_forward(
+        root,
+        asof,
+        *args,
+        source=synthetic_calibration_source(root),
+        input_cutoff=asof,
+        test_only=True,
+        **kwargs,
+    )
 
 
 def _build_fixture_sqlite(sqlite_path: Path) -> None:
@@ -1096,6 +1124,50 @@ class CalibrationPanelTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(list(Path(tmp).glob(".calibration.generation.*")), [])
 
+    def test_failed_incremental_build_never_exposes_partial_cohorts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sqlite_path = root / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            store_dir = root / "calibration"
+            with patch(
+                "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                return_value=[ASOF],
+            ):
+                self.assertEqual(
+                    calibration_build_command(
+                        sqlite_path=sqlite_path,
+                        calibration_dir=store_dir,
+                        rules=load_screening_rules(),
+                        start=ASOF,
+                        end=ASOF,
+                    ),
+                    0,
+                )
+            before = resolve_calibration_bundle(store_dir).ref
+
+            with (
+                patch(
+                    "baibai_engine.screening.calibration.cli.month_end_asof_grid",
+                    return_value=[ASOF, date(2026, 7, 31)],
+                ),
+                patch(
+                    "baibai_engine.screening.calibration.cli.write_forward",
+                    side_effect=CalibrationCacheError("injected late failure"),
+                ),
+            ):
+                code = calibration_build_command(
+                    sqlite_path=sqlite_path,
+                    calibration_dir=store_dir,
+                    rules=load_screening_rules(),
+                    start=ASOF,
+                    end=date(2026, 7, 31),
+                )
+
+            self.assertEqual(code, 1)
+            self.assertEqual(resolve_calibration_bundle(store_dir).ref, before)
+            self.assertEqual(list(root.glob(".calibration.generation.*")), [])
+
     def test_build_closes_every_dataset_over_one_sqlite_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1115,17 +1187,13 @@ class CalibrationPanelTest(unittest.TestCase):
                 )
 
             self.assertEqual(code, 0)
-            manifests = []
-            for dataset in (
-                CALIBRATION_PANEL,
-                CALIBRATION_DIAGNOSTICS,
-                CALIBRATION_FORWARD,
-            ):
-                pointer = read_l2_pointer(store_dir, dataset.name)
-                self.assertIsNotNone(pointer)
-                assert pointer is not None
-                manifests.append(load_manifest(store_dir / pointer.manifest_key))
-            source_sets = {manifest.sources for manifest in manifests}
+            fixed = resolve_calibration_bundle(store_dir)
+            manifests = list(fixed.datasets.values())
+            source_sets = {
+                cohort.sources
+                for manifest in manifests
+                for cohort in manifest.cohort_inventory.values()
+            }
             self.assertEqual(len(source_sets), 1)
             sources = next(iter(source_sets))
             self.assertEqual(len(sources), 1)

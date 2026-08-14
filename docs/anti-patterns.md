@@ -266,9 +266,12 @@ AI agent 作業で繰り返し観測される失敗の共通根本原因は以�
       持つか。full primary keyの重複・null・partition外as-ofをwrite/read両側で拒否するか。0-rowを
       row不在から推測せず、cohort inventoryのexplicit emptyと未計算/partialを区別するか。複数datasetを
       1 generationとして使う場合は全manifestをbundleへ閉じ、最後のpointer 1回だけで公開するか。
+      calibration sourceはdataset全体へ世代を累積せずcohort・role別のdigest/cutoffを持ち、panel as-ofと
+      forward observation horizonを区別するか。transform fingerprintは値を決める実装digestを含むか。
       current / previous / digest付きpinから到達できるobjectがGC候補にならず、共通writer lock下の
       再plan、root/object digest再検証、mark後のsecond sweep、candidate identity不一致で削除を拒否する
-      negative testがあるか
+      negative testがあるか。Raw bufferはpreserveと分離し、90日minimum age・source closure・
+      metadata/object pairを同じ二段階delete gateで検証するか
 - [ ] market lakeのcomplete coverageはtable自身の`MIN..MAX`だけで自己充足させず、profileが固定する
       history boundary・row floor・population floorをrelease時に再検証するか。新鮮な1日1row、
       leading history欠損、大幅なrow/population regressionをcurrent候補にしないnegative testがあるか

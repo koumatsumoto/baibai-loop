@@ -69,6 +69,10 @@ class _MemoryStore:
         self.get_keys.append(key)
         return self.values[key].body
 
+    def download_file(self, key: str, path: Path) -> None:
+        self.get_keys.append(key)
+        path.write_bytes(self.values[key].body)
+
     def put_file(
         self,
         key: str,
@@ -442,7 +446,9 @@ def test_publish_uploads_immutable_graph_before_current_pointer(tmp_path) -> Non
     assert second.reused_objects == 5
     assert not any(key.startswith("lake/build-inputs/") for key in store.values)
     assert "lake/pointers/l1/current.json" in store.values
-    assert set(store.get_keys) == {"lake/pointers/l1/current.json"}
+    # Existing immutable objects are streamed back and hashed; custom metadata is
+    # not accepted as proof that a same-key remote object still has the graph bytes.
+    assert set(store.get_keys) == set(store.values)
 
 
 def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:

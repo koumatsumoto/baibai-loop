@@ -13,7 +13,15 @@ from datetime import date
 from pathlib import Path
 from typing import Any, get_args, get_type_hints
 
+from baibai_engine.foundation.filesystem import write_bytes_atomic
+from baibai_engine.market.lake.models import (
+    CalibrationInputFile,
+    CalibrationInputManifest,
+    CalibrationInputSourceRef,
+)
+from baibai_engine.market.lake.objects import sha256_bytes
 from baibai_engine.screening.calibration.forward import RESOLVED_STATUSES, ForwardReturnRow
+from baibai_engine.screening.calibration.lake import canonical_manifest_bytes
 from baibai_engine.screening.calibration.panel import PanelDiagnostics, PanelRow
 from baibai_engine.screening.calibration.store import write_forward, write_panel
 
@@ -94,6 +102,41 @@ _DIAGNOSTICS_REQUIRED: Mapping[str, Any] = {
 }
 
 _TEST_PRODUCER_COMMIT = "a" * 40
+
+
+def synthetic_calibration_source(
+    directory: Path, *, label: str = "default"
+) -> CalibrationInputSourceRef:
+    """Create an explicit, closed input generation for store-level tests."""
+
+    payload = f"synthetic calibration test input: {label}\n".encode()
+    digest = sha256_bytes(payload)
+    input_id = f"synthetic-test-{digest[:24]}"
+    file_key = f"lake/l2/calibration-legacy/{input_id}/input.txt"
+    write_bytes_atomic(directory / file_key, payload)
+    manifest = CalibrationInputManifest(
+        manifest_version=1,
+        input_id=input_id,
+        input_type="local_operation",
+        files={
+            "input.txt": CalibrationInputFile(
+                key=file_key,
+                sha256=digest,
+                bytes=len(payload),
+            )
+        },
+    )
+    manifest_key = f"lake/manifests/calibration-inputs/{input_id}.json"
+    manifest_payload = canonical_manifest_bytes(manifest)
+    write_bytes_atomic(directory / manifest_key, manifest_payload)
+    return CalibrationInputSourceRef(
+        kind="calibration_input",
+        source_id=input_id,
+        key=manifest_key,
+        sha256=sha256_bytes(manifest_payload),
+        input_type="local_operation",
+        manifest_version=1,
+    )
 
 
 def _coerce(value: Any, annotation: Any) -> Any:
@@ -179,6 +222,7 @@ def publish_panel(
     *,
     rules_hash: str = "abc123",
     exclusion_counts: Mapping[str, int] | None = None,
+    source_label: str = "default",
 ) -> None:
     diagnostics = PanelDiagnostics(
         asof=asof,
@@ -191,7 +235,10 @@ def publish_panel(
         date.fromisoformat(asof),
         tuple(_panel(asof, row) for row in rows),
         diagnostics,
+        source=synthetic_calibration_source(directory, label=source_label),
+        input_cutoff=date.fromisoformat(asof),
         producer_commit=_TEST_PRODUCER_COMMIT,
+        test_only=True,
     )
 
 
@@ -199,10 +246,16 @@ def publish_forward(
     directory: Path,
     asof: str,
     rows: Sequence[Mapping[str, Any]],
+    *,
+    source_label: str = "default",
+    input_cutoff: date | None = None,
 ) -> None:
     write_forward(
         directory,
         date.fromisoformat(asof),
         [_forward(asof, row) for row in rows],
+        source=synthetic_calibration_source(directory, label=source_label),
+        input_cutoff=input_cutoff or date.fromisoformat(asof),
         producer_commit=_TEST_PRODUCER_COMMIT,
+        test_only=True,
     )

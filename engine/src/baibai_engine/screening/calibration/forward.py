@@ -171,7 +171,7 @@ def compute_forward_returns(
     # the asof itself makes the tolerance unusable: a name that did not trade on the
     # asof date reads as having no entry at all, even though it traded days earlier.
     min_asof = min(asofs) - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
-    eval_cap = _latest_bar_date(sqlite_path)
+    eval_cap = latest_market_data_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
@@ -605,7 +605,9 @@ def _cumulative_adjustment_factor_after(
     return factor
 
 
-def _latest_bar_date(sqlite_path: Path) -> date | None:
+def latest_market_data_date(sqlite_path: Path) -> date | None:
+    """Return the observation cutoff used by forward-return computation."""
+
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
