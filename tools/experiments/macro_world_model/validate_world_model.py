@@ -5,18 +5,23 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import date
 from itertools import pairwise
 from pathlib import Path
 from typing import TextIO, cast
 
 from tools.experiments.macro_world_model.build_evidence_snapshot import (
+    READING_SEMANTIC_FIELDS,
     canonical_payload_sha256,
 )
 
 from baibai_engine.foundation.yaml_io import safe_load
+from baibai_engine.macro.context.models import MacroContextDocument
 
 BLIND_FILES = (
     "charter.yaml",
@@ -52,12 +57,106 @@ RELATION_KINDS = {
     "judgmental_hypothesis",
 }
 CLAIM_STRENGTHS = {"identified", "supported", "plausible", "speculative"}
+CLAIM_STRENGTH_ORDER = {
+    "speculative": 0,
+    "plausible": 1,
+    "supported": 2,
+    "identified": 3,
+}
 SIGNS = {"positive", "negative", "nonlinear", "ambiguous"}
+REAL_NOMINAL_BASES = {"real", "nominal", "mixed", "not_applicable"}
+STOCK_FLOW_BASES = {"stock", "flow", "ratio", "mixed", "not_applicable"}
+OBSERVATION_EXPECTATION_BASES = {"observation", "expectation", "mixed"}
+PROJECTION_ARTIFACTS = {"one_page", "v4"}
+V4_NON_JUDGMENT_KEYS = {
+    "section_id",
+    "series_id",
+    "series_ids",
+    "source_ids",
+    "core_section_ids",
+    "force_id",
+    "force_ids",
+    "fact_summary",
+    "previous_scorecard_snapshot_id",
+}
 PRIOR_REFERENCE = re.compile(r"macro-context-\d{4}-\d{2}-\d{2}")
+ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+LEGACY_V1_WORKSPACE_SHA256 = frozenset(
+    {
+        "eb778fbf2a8a1cdc9f734faa979a33d4c62ddfc47acf2efc0090a921d343ed2e",
+        "e33acb7e4208139044795376a0f2c3a4997ba30c73adaa6deabb58eeadcc1bb7",
+    }
+)
 
 
 class WorldModelValidationError(ValueError):
     """Raised when a workspace violates the Stage A contract."""
+
+
+@dataclass(frozen=True)
+class GraphIndex:
+    node_ids: frozenset[str]
+    edge_ids: frozenset[str]
+    edge_endpoints: Mapping[str, tuple[str, str]]
+    edge_strengths: Mapping[str, str]
+    edge_evidence_ids: Mapping[str, frozenset[str]]
+
+
+@dataclass(frozen=True)
+class WorldModelIndex:
+    schema_version: int
+    scenario_ranks: Mapping[str, int]
+    judgment_ids: frozenset[str]
+    scenario_ids: frozenset[str]
+    judgment_evidence_ids: Mapping[str, frozenset[str]]
+    scenario_evidence_ids: Mapping[str, frozenset[str]]
+    graph: GraphIndex
+    consumer_node_ids: frozenset[str]
+    consumer_edge_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class SnapshotIndex:
+    schema_version: int
+    as_of: date | None
+    evidence_ids: frozenset[str]
+    selected_ids: frozenset[str]
+    measure_units: Mapping[str, Mapping[str, frozenset[str]]]
+
+
+@dataclass(frozen=True)
+class OnePageField:
+    pointer: str
+    value: str | int
+    bound_source: tuple[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class OnePageLine:
+    section: str
+    rendered_text: str
+    fields: tuple[OnePageField, ...]
+
+
+@dataclass(frozen=True)
+class ClaimQualifier:
+    claim_strength: str
+    uncertainty: frozenset[str]
+    real_nominal: str
+    stock_flow: str
+    observation_expectation: str
+    units: frozenset[str]
+
+
+@dataclass(frozen=True)
+class ProjectionMetrics:
+    schema_version: int | None = None
+    lineage_enforced: bool = False
+    material_claim_count: int = 0
+    mapped_target_count: int = 0
+    mapped_selected_evidence_count: int | None = None
+    true_orphan_node_count: int | None = None
+    true_orphan_edge_count: int | None = None
 
 
 def _mapping(value: object, *, label: str) -> Mapping[str, object]:
@@ -87,6 +186,83 @@ def _required_text(row: Mapping[str, object], key: str, *, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise WorldModelValidationError(f"{label}.{key} is required")
     return value
+
+
+def _schema_version(document: Mapping[str, object], *, label: str) -> int:
+    value = document.get("schema_version")
+    if not isinstance(value, int) or isinstance(value, bool) or value not in {1, 2}:
+        raise WorldModelValidationError(f"{label}.schema_version must be 1 or 2")
+    return value
+
+
+def _iso_date(value: object, *, label: str, optional: bool = False) -> date | None:
+    if value is None and optional:
+        return None
+    if not isinstance(value, str) or ISO_DATE.fullmatch(value) is None:
+        suffix = " or null" if optional else ""
+        raise WorldModelValidationError(f"{label} must be an ISO date{suffix}")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise WorldModelValidationError(f"{label} must be an ISO date") from error
+
+
+def _integer(
+    value: object,
+    *,
+    label: str,
+    minimum: int | None = None,
+    optional: bool = False,
+) -> int | None:
+    if value is None and optional:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool):
+        suffix = " or null" if optional else ""
+        raise WorldModelValidationError(f"{label} must be an integer{suffix}")
+    if minimum is not None and value < minimum:
+        qualifier = "positive" if minimum == 1 else f">= {minimum}"
+        raise WorldModelValidationError(f"{label} must be {qualifier}")
+    return value
+
+
+def _require_exact_keys(
+    row: Mapping[str, object],
+    *,
+    required: set[str],
+    optional: set[str] | None = None,
+    label: str,
+) -> None:
+    optional_keys = optional or set()
+    actual = {str(key) for key in row}
+    missing = required - actual
+    extra = actual - required - optional_keys
+    if missing:
+        raise WorldModelValidationError(f"{label} is missing fields: {sorted(missing)}")
+    if extra:
+        raise WorldModelValidationError(f"{label} has unknown fields: {sorted(extra)}")
+
+
+def _json_pointer_token(value: str) -> str:
+    return value.replace("~", "~0").replace("/", "~1")
+
+
+def _resolve_json_pointer(document: object, pointer: str, *, label: str) -> object:
+    if not pointer.startswith("/"):
+        raise WorldModelValidationError(f"{label} must be an absolute JSON pointer")
+    current = document
+    for encoded in pointer[1:].split("/"):
+        token = encoded.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, Mapping):
+            if token not in current:
+                raise WorldModelValidationError(f"{label} does not resolve: {pointer}")
+            current = current[token]
+        elif isinstance(current, list):
+            if not token.isdigit() or int(token) >= len(current):
+                raise WorldModelValidationError(f"{label} does not resolve: {pointer}")
+            current = current[int(token)]
+        else:
+            raise WorldModelValidationError(f"{label} does not resolve: {pointer}")
+    return current
 
 
 def _unique_ids(
@@ -184,7 +360,61 @@ def _reject_prior_material(files: Mapping[str, Mapping[str, object]]) -> None:
     walk(files)
 
 
-def _snapshot_evidence_ids(snapshot: Mapping[str, object]) -> tuple[set[str], set[str]]:
+def _snapshot_measure_units(row: Mapping[str, object]) -> dict[str, frozenset[str]]:
+    raw_unit = cast(str, row["unit"])
+    statistic_unit = cast(str, row["statistic_unit"])
+    result: dict[str, frozenset[str]] = {}
+
+    def register(measure: str, value: object, *units: str) -> None:
+        if value is not None:
+            result[measure] = frozenset(units)
+
+    register("latest_value", row.get("latest_value"), raw_unit)
+    register("observed_at", row.get("observed_at"), "date")
+    register("statistic_value", row.get("statistic_value"), statistic_unit)
+    register("z_score", row.get("z_score"), "dimensionless")
+    register("percentile", row.get("percentile"), "dimensionless")
+    register("window_years", row.get("window_years"), "years")
+    register("window_observations", row.get("window_observations"), "observations")
+    register("expected_observations", row.get("expected_observations"), "observations")
+    register("next_print_estimate", row.get("next_print_estimate"), "date")
+    register("print_due_in_days", row.get("print_due_in_days"), "days")
+    register("revisions_truncated", row.get("revisions_truncated"), "observations")
+
+    release_change = row.get("release_change")
+    if isinstance(release_change, Mapping):
+        release_unit = release_change.get("unit")
+        if not isinstance(release_unit, str) or not release_unit.strip():
+            release_unit = raw_unit
+        for field in ("from_value", "to_value", "absolute_change"):
+            register(f"release_change.{field}", release_change.get(field), release_unit)
+        register("release_change.percent_change", release_change.get("percent_change"), "percent")
+
+    revisions = row.get("revisions")
+    if isinstance(revisions, list) and revisions:
+        revision_units = {
+            str(vintage["unit"])
+            for revision in revisions
+            if isinstance(revision, Mapping)
+            for vintage in revision.get("vintages", [])
+            if isinstance(vintage, Mapping)
+            and isinstance(vintage.get("unit"), str)
+            and str(vintage["unit"]).strip()
+        }
+        if revision_units:
+            result["revisions.value"] = frozenset(revision_units)
+        result["revisions.observed_at"] = frozenset({"date"})
+        result["revisions.vintage_at"] = frozenset({"date"})
+    return result
+
+
+def _snapshot_evidence_ids(snapshot: Mapping[str, object]) -> SnapshotIndex:
+    schema_version = _schema_version(snapshot, label="evidence-snapshot")
+    snapshot_as_of = (
+        _iso_date(snapshot.get("as_of"), label="evidence-snapshot.as_of")
+        if schema_version == 2
+        else None
+    )
     stored_hash = snapshot.get("canonical_payload_sha256")
     if not isinstance(stored_hash, str) or stored_hash != canonical_payload_sha256(snapshot):
         raise WorldModelValidationError("evidence snapshot canonical hash is invalid")
@@ -192,6 +422,73 @@ def _snapshot_evidence_ids(snapshot: Mapping[str, object]) -> tuple[set[str], se
     identifiers = _unique_ids(scan, key="evidence_id", label="evidence")
     if not identifiers:
         raise WorldModelValidationError("evidence snapshot is empty")
+    measure_units: dict[str, Mapping[str, frozenset[str]]] = {}
+    for evidence_id, row in identifiers.items():
+        if schema_version == 2:
+            assert snapshot_as_of is not None
+            missing = [field for field in READING_SEMANTIC_FIELDS if field not in row]
+            if missing:
+                raise WorldModelValidationError(
+                    f"evidence {evidence_id} is missing reading semantic fields: {missing}"
+                )
+            if not isinstance(row.get("unit"), str) or not str(row["unit"]).strip():
+                raise WorldModelValidationError(f"evidence {evidence_id}.unit is required")
+            _integer(
+                row.get("window_years"),
+                label=f"evidence {evidence_id}.window_years",
+                minimum=1,
+            )
+            _integer(
+                row.get("window_observations"),
+                label=f"evidence {evidence_id}.window_observations",
+                minimum=0,
+            )
+            _integer(
+                row.get("expected_observations"),
+                label=f"evidence {evidence_id}.expected_observations",
+                minimum=1,
+                optional=True,
+            )
+            if row.get("statistic") not in {"level", "yoy"}:
+                raise WorldModelValidationError(
+                    f"evidence {evidence_id}.statistic must be level or yoy"
+                )
+            if (
+                not isinstance(row.get("statistic_unit"), str)
+                or not str(row["statistic_unit"]).strip()
+            ):
+                raise WorldModelValidationError(
+                    f"evidence {evidence_id}.statistic_unit is required"
+                )
+            statistic_value = row.get("statistic_value")
+            if statistic_value is not None and (
+                isinstance(statistic_value, bool)
+                or not isinstance(statistic_value, int | float)
+                or not math.isfinite(statistic_value)
+            ):
+                raise WorldModelValidationError(
+                    f"evidence {evidence_id}.statistic_value must be finite or null"
+                )
+            next_print = _iso_date(
+                row.get("next_print_estimate"),
+                label=f"evidence {evidence_id}.next_print_estimate",
+                optional=True,
+            )
+            print_due = _integer(
+                row.get("print_due_in_days"),
+                label=f"evidence {evidence_id}.print_due_in_days",
+                optional=True,
+            )
+            if (next_print is None) != (print_due is None):
+                raise WorldModelValidationError(
+                    f"evidence {evidence_id} next print date and due days must both be null "
+                    "or both populated"
+                )
+            if next_print is not None and print_due != (next_print - snapshot_as_of).days:
+                raise WorldModelValidationError(
+                    f"evidence {evidence_id}.print_due_in_days does not match snapshot as_of"
+                )
+            measure_units[evidence_id] = _snapshot_measure_units(row)
     manifest = _mapping_list(
         snapshot.get("coverage_manifest"), label="evidence-snapshot.coverage_manifest"
     )
@@ -212,7 +509,13 @@ def _snapshot_evidence_ids(snapshot: Mapping[str, object]) -> tuple[set[str], se
             _required_text(row, "exclusion_reason", label=f"coverage candidate {candidate_id}")
         else:
             selected.add(candidate_id)
-    return set(identifiers), selected
+    return SnapshotIndex(
+        schema_version=schema_version,
+        as_of=snapshot_as_of,
+        evidence_ids=frozenset(identifiers),
+        selected_ids=frozenset(selected),
+        measure_units=measure_units,
+    )
 
 
 def _validate_evidence_packs(
@@ -419,9 +722,7 @@ def _validate_matrix(
                 )
 
 
-def _validate_graph(
-    graph: Mapping[str, object], *, evidence_ids: set[str]
-) -> tuple[set[str], set[str]]:
+def _validate_graph(graph: Mapping[str, object], *, evidence_ids: set[str]) -> GraphIndex:
     nodes = _mapping_list(graph.get("nodes"), label="world-model.graph.nodes")
     edges = _mapping_list(graph.get("edges"), label="world-model.graph.edges")
     if len(nodes) > 20:
@@ -435,6 +736,9 @@ def _validate_graph(
             raise WorldModelValidationError(f"node {node_id} has invalid node_type: {node_type}")
         _required_text(node, "label", label=f"node {node_id}")
     edge_index = _unique_ids(edges, key="edge_id", label="edge")
+    edge_endpoints: dict[str, tuple[str, str]] = {}
+    edge_strengths: dict[str, str] = {}
+    edge_evidence_ids: dict[str, frozenset[str]] = {}
     for edge_id, edge in edge_index.items():
         source = _required_text(edge, "from_node", label=f"edge {edge_id}")
         target = _required_text(edge, "to_node", label=f"edge {edge_id}")
@@ -442,8 +746,11 @@ def _validate_graph(
             raise WorldModelValidationError(f"edge {edge_id} references an unknown node")
         if edge.get("relation_kind") not in RELATION_KINDS:
             raise WorldModelValidationError(f"edge {edge_id} has invalid relation_kind")
-        if edge.get("claim_strength") not in CLAIM_STRENGTHS:
+        claim_strength = edge.get("claim_strength")
+        if claim_strength not in CLAIM_STRENGTHS:
             raise WorldModelValidationError(f"edge {edge_id} has invalid claim_strength")
+        edge_endpoints[edge_id] = (source, target)
+        edge_strengths[edge_id] = claim_strength
         if edge.get("sign") not in SIGNS:
             raise WorldModelValidationError(f"edge {edge_id} has invalid sign")
         lag = _mapping(edge.get("lag"), label=f"edge {edge_id}.lag")
@@ -458,11 +765,13 @@ def _validate_graph(
             or maximum < minimum
         ):
             raise WorldModelValidationError(f"edge {edge_id} has an invalid lag range")
-        _require_evidence_refs(
-            edge,
-            key="evidence_ids",
-            label=f"edge {edge_id}",
-            evidence_ids=evidence_ids,
+        edge_evidence_ids[edge_id] = frozenset(
+            _require_evidence_refs(
+                edge,
+                key="evidence_ids",
+                label=f"edge {edge_id}",
+                evidence_ids=evidence_ids,
+            )
         )
         falsifiers = _mapping_list(edge.get("falsifiers"), label=f"edge {edge_id}.falsifiers")
         if not falsifiers:
@@ -473,7 +782,43 @@ def _validate_graph(
                     f"edge {edge_id} falsifier kind must be series or release_event"
                 )
             _required_text(falsifier, "name", label=f"edge {edge_id} falsifier")
-    return set(node_index), set(edge_index)
+    return GraphIndex(
+        node_ids=frozenset(node_index),
+        edge_ids=frozenset(edge_index),
+        edge_endpoints=edge_endpoints,
+        edge_strengths=edge_strengths,
+        edge_evidence_ids=edge_evidence_ids,
+    )
+
+
+def _reference_ids(
+    row: Mapping[str, object],
+    *,
+    key: str,
+    known: set[str] | frozenset[str],
+    label: str,
+    minimum: int = 1,
+) -> set[str]:
+    references = set(_strings(row.get(key), label=f"{label}.{key}", minimum=minimum))
+    unknown = references - set(known)
+    if unknown:
+        raise WorldModelValidationError(f"{label} references unknown {key}: {sorted(unknown)}")
+    return references
+
+
+def _validate_subgraph_refs(
+    *,
+    node_refs: set[str],
+    edge_refs: set[str],
+    graph: GraphIndex,
+    label: str,
+) -> None:
+    required_nodes = {node_id for edge_id in edge_refs for node_id in graph.edge_endpoints[edge_id]}
+    missing = required_nodes - node_refs
+    if missing:
+        raise WorldModelValidationError(
+            f"{label}.node_ids must include endpoints of referenced edges: {sorted(missing)}"
+        )
 
 
 def _validate_world_model(
@@ -482,13 +827,17 @@ def _validate_world_model(
     evidence_ids: set[str],
     state_ids: set[str],
     hypothesis_ids: set[str],
-) -> dict[str, int]:
+) -> WorldModelIndex:
+    schema_version = _schema_version(document, label="world-model")
     graph = _mapping(document.get("graph"), label="world-model.graph")
-    node_ids, edge_ids = _validate_graph(graph, evidence_ids=evidence_ids)
+    graph_index = _validate_graph(graph, evidence_ids=evidence_ids)
     judgments = _mapping_list(document.get("key_judgments"), label="world-model.key_judgments")
     if not 3 <= len(judgments) <= 5:
         raise WorldModelValidationError("world model requires 3 to 5 key judgments")
-    _unique_ids(judgments, key="judgment_id", label="key judgment")
+    judgment_index = _unique_ids(judgments, key="judgment_id", label="key judgment")
+    consumer_node_ids: set[str] = set()
+    consumer_edge_ids: set[str] = set()
+    judgment_evidence_ids: dict[str, frozenset[str]] = {}
     for judgment in judgments:
         judgment_id = _required_text(judgment, "judgment_id", label="key judgment")
         _required_text(judgment, "summary", label=f"judgment {judgment_id}")
@@ -500,13 +849,22 @@ def _validate_world_model(
         node_refs = set(
             _strings(judgment.get("node_ids"), label=f"judgment {judgment_id}.node_ids")
         )
-        if not node_refs <= node_ids:
+        if not node_refs <= graph_index.node_ids:
             raise WorldModelValidationError(f"judgment {judgment_id} references unknown nodes")
         edge_refs = set(
             _strings(judgment.get("edge_ids"), label=f"judgment {judgment_id}.edge_ids")
         )
-        if not edge_refs <= edge_ids:
+        if not edge_refs <= graph_index.edge_ids:
             raise WorldModelValidationError(f"judgment {judgment_id} references unknown edges")
+        if schema_version == 2:
+            _validate_subgraph_refs(
+                node_refs=node_refs,
+                edge_refs=edge_refs,
+                graph=graph_index,
+                label=f"judgment {judgment_id}",
+            )
+        consumer_node_ids.update(node_refs)
+        consumer_edge_ids.update(edge_refs)
         horizon_refs = set(
             _strings(judgment.get("horizons"), label=f"judgment {judgment_id}.horizons")
         )
@@ -522,11 +880,13 @@ def _validate_world_model(
             raise WorldModelValidationError(
                 f"judgment {judgment_id} references unknown counter hypotheses"
             )
-        _require_evidence_refs(
-            judgment,
-            key="evidence_ids",
-            label=f"judgment {judgment_id}",
-            evidence_ids=evidence_ids,
+        judgment_evidence_ids[judgment_id] = frozenset(
+            _require_evidence_refs(
+                judgment,
+                key="evidence_ids",
+                label=f"judgment {judgment_id}",
+                evidence_ids=evidence_ids,
+            )
         )
 
     baseline = _mapping(document.get("baseline_path"), label="world-model.baseline_path")
@@ -536,10 +896,13 @@ def _validate_world_model(
         _strings(baseline[horizon], label=f"baseline_path.{horizon}")
 
     scenarios = _mapping_list(document.get("scenarios"), label="world-model.scenarios")
-    if not 2 <= len(scenarios) <= 4:
+    if schema_version == 2 and len(scenarios) != 3:
+        raise WorldModelValidationError("world-model v2 requires exactly 3 scenarios")
+    if schema_version == 1 and not 2 <= len(scenarios) <= 4:
         raise WorldModelValidationError("world model requires 2 to 4 scenarios")
-    _unique_ids(scenarios, key="scenario_id", label="scenario")
+    scenario_index = _unique_ids(scenarios, key="scenario_id", label="scenario")
     ranks: set[int] = set()
+    scenario_evidence_ids: dict[str, frozenset[str]] = {}
     for scenario in scenarios:
         scenario_id = _required_text(scenario, "scenario_id", label="scenario")
         _required_text(scenario, "name", label=f"scenario {scenario_id}")
@@ -561,34 +924,875 @@ def _validate_world_model(
             _required_text(paths, path_name, label=f"scenario {scenario_id}.paths")
         for key in ("signposts", "invalidation", "known_omissions"):
             _strings(scenario.get(key), label=f"scenario {scenario_id}.{key}")
+        if schema_version == 2:
+            _reference_ids(
+                scenario,
+                key="state_ids",
+                known=state_ids,
+                label=f"scenario {scenario_id}",
+            )
+            _reference_ids(
+                scenario,
+                key="hypothesis_ids",
+                known=hypothesis_ids,
+                label=f"scenario {scenario_id}",
+            )
+            scenario_node_refs = _reference_ids(
+                scenario,
+                key="node_ids",
+                known=graph_index.node_ids,
+                label=f"scenario {scenario_id}",
+            )
+            scenario_edge_refs = _reference_ids(
+                scenario,
+                key="edge_ids",
+                known=graph_index.edge_ids,
+                label=f"scenario {scenario_id}",
+            )
+            _validate_subgraph_refs(
+                node_refs=scenario_node_refs,
+                edge_refs=scenario_edge_refs,
+                graph=graph_index,
+                label=f"scenario {scenario_id}",
+            )
+            scenario_evidence_ids[scenario_id] = frozenset(
+                _require_evidence_refs(
+                    scenario,
+                    key="evidence_ids",
+                    label=f"scenario {scenario_id}",
+                    evidence_ids=evidence_ids,
+                )
+            )
+            consumer_node_ids.update(scenario_node_refs)
+            consumer_edge_ids.update(scenario_edge_refs)
     if ranks != set(range(1, len(scenarios) + 1)):
         raise WorldModelValidationError("scenario plausibility ranks must be contiguous and unique")
 
     _strings(document.get("unresolved_tensions"), label="world-model.unresolved_tensions")
     _strings(document.get("signposts"), label="world-model.signposts")
-    return {str(row["scenario_id"]): cast(int, row["plausibility_rank"]) for row in scenarios}
+    scenario_ranks = {
+        str(row["scenario_id"]): cast(int, row["plausibility_rank"]) for row in scenarios
+    }
+    return WorldModelIndex(
+        schema_version=schema_version,
+        scenario_ranks=scenario_ranks,
+        judgment_ids=frozenset(judgment_index),
+        scenario_ids=frozenset(scenario_index),
+        judgment_evidence_ids=judgment_evidence_ids,
+        scenario_evidence_ids=scenario_evidence_ids,
+        graph=graph_index,
+        consumer_node_ids=frozenset(consumer_node_ids),
+        consumer_edge_ids=frozenset(consumer_edge_ids),
+    )
 
 
-def _validate_v4_projection(path: Path, *, scenario_ranks: Mapping[str, int]) -> None:
+def _record_text_path(paths: set[str], *, pointer: str, value: object, label: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise WorldModelValidationError(f"{label} must be non-blank text")
+    paths.add(pointer)
+
+
+def _record_scalar_path(paths: set[str], *, pointer: str, value: object, label: str) -> None:
+    if isinstance(value, date):
+        pass
+    elif isinstance(value, str):
+        if not value.strip():
+            raise WorldModelValidationError(f"{label} must be non-blank")
+    elif isinstance(value, int | float) and not isinstance(value, bool):
+        if not math.isfinite(float(value)):
+            raise WorldModelValidationError(f"{label} must be finite")
+    else:
+        raise WorldModelValidationError(f"{label} must be a scalar claim value")
+    paths.add(pointer)
+
+
+def _collect_scalar_paths(
+    value: object,
+    *,
+    pointer: str,
+    paths: set[str],
+    label: str,
+    ignored_keys: set[str] | None = None,
+) -> None:
+    ignored = ignored_keys or set()
+    if value is None:
+        return
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            key_text = str(key)
+            if key_text in ignored:
+                continue
+            _collect_scalar_paths(
+                nested,
+                pointer=f"{pointer}/{_json_pointer_token(key_text)}",
+                paths=paths,
+                label=label,
+                ignored_keys=ignored,
+            )
+        return
+    if isinstance(value, list):
+        for index, nested in enumerate(value):
+            _collect_scalar_paths(
+                nested,
+                pointer=f"{pointer}/{index}",
+                paths=paths,
+                label=label,
+                ignored_keys=ignored,
+            )
+        return
+    _record_scalar_path(paths, pointer=pointer, value=value, label=f"{label}{pointer}")
+
+
+def _canonical_v4_document(document: Mapping[str, object]) -> Mapping[str, object]:
+    try:
+        model = MacroContextDocument.model_validate(document)
+    except ValueError as error:
+        raise WorldModelValidationError(
+            f"v4 document violates MacroContextDocument: {error}"
+        ) from error
+    return cast(Mapping[str, object], model.payload())
+
+
+def _required_v4_paths(document: Mapping[str, object]) -> tuple[set[str], dict[str, str]]:
+    paths: set[str] = set()
+    scenario_cases: dict[str, str] = {}
+    _record_text_path(paths, pointer="/summary", value=document.get("summary"), label="v4.summary")
+
+    synthesis = _mapping(document.get("synthesis"), label="v4.synthesis")
+    _collect_scalar_paths(
+        synthesis,
+        pointer="/synthesis",
+        paths=paths,
+        label="v4",
+        ignored_keys=V4_NON_JUDGMENT_KEYS,
+    )
+
+    core = _mapping_list(document.get("core"), label="v4.core")
+    for section_index, section in enumerate(core):
+        section_id = _required_text(section, "section_id", label="v4 core section")
+        _collect_scalar_paths(
+            section,
+            pointer=f"/core/{section_index}",
+            paths=paths,
+            label="v4",
+            ignored_keys=V4_NON_JUDGMENT_KEYS,
+        )
+        scenarios = _mapping_list(section.get("scenarios", []), label=f"v4.{section_id}.scenarios")
+        for scenario_index, scenario in enumerate(scenarios):
+            case = _required_text(scenario, "case", label="v4 scenario")
+            base = f"/core/{section_index}/scenarios/{scenario_index}"
+            scenario_cases[base] = case
+
+    connection = _mapping(document.get("connection"), label="v4.connection")
+    _collect_scalar_paths(
+        connection,
+        pointer="/connection",
+        paths=paths,
+        label="v4",
+        ignored_keys=V4_NON_JUDGMENT_KEYS,
+    )
+    return paths, scenario_cases
+
+
+def _validate_revision_diff(revision_diff: Mapping[str, object], *, expected_as_of: date) -> None:
+    if revision_diff.get("schema_version") != 1:
+        raise WorldModelValidationError("revision-diff.schema_version must be 1")
+    revision_as_of = _iso_date(revision_diff.get("as_of"), label="revision-diff.as_of")
+    if revision_as_of != expected_as_of:
+        raise WorldModelValidationError("revision-diff.as_of differs from cycle as_of")
+
+
+def build_one_page_render_plan(
+    world_model: Mapping[str, object],
+    revision_diff: Mapping[str, object],
+    *,
+    expected_as_of: date,
+) -> tuple[OnePageLine, ...]:
+    """Build the single structured source used by one-page rendering and lineage."""
+
+    _validate_revision_diff(revision_diff, expected_as_of=expected_as_of)
+    plan: list[OnePageLine] = []
+    judgments = _mapping_list(world_model.get("key_judgments"), label="world-model.key_judgments")
+    for judgment in judgments:
+        judgment_id = _required_text(judgment, "judgment_id", label="key judgment")
+        summary = _required_text(judgment, "summary", label=f"judgment {judgment_id}")
+        horizons = _strings(judgment.get("horizons"), label=f"judgment {judgment_id}.horizons")
+        base = f"/key_judgments/{_json_pointer_token(judgment_id)}"
+        fields = [
+            OnePageField(f"{base}/summary", summary, ("judgment", judgment_id)),
+            *(
+                OnePageField(
+                    f"{base}/horizons/{index}",
+                    horizon,
+                    ("judgment", judgment_id),
+                )
+                for index, horizon in enumerate(horizons)
+            ),
+        ]
+        plan.append(
+            OnePageLine(
+                section="Key judgments",
+                rendered_text=f"- {summary} (horizons: {', '.join(horizons)})",
+                fields=tuple(fields),
+            )
+        )
+
+    baseline = _mapping(world_model.get("baseline_path"), label="world-model.baseline_path")
+    for horizon in HORIZONS:
+        values = _strings(baseline[horizon], label=f"baseline_path.{horizon}")
+        plan.append(
+            OnePageLine(
+                section="Horizon paths",
+                rendered_text=f"- **{horizon}:** {'; '.join(values)}",
+                fields=tuple(
+                    OnePageField(f"/baseline_path/{horizon}/{index}", value)
+                    for index, value in enumerate(values)
+                ),
+            )
+        )
+    scenarios = _mapping_list(world_model.get("scenarios"), label="world-model.scenarios")
+    ranked_scenarios: list[tuple[int, Mapping[str, object]]] = []
+    for scenario in scenarios:
+        rank = scenario.get("plausibility_rank")
+        if not isinstance(rank, int) or isinstance(rank, bool):
+            raise WorldModelValidationError("scenario.plausibility_rank must be an integer")
+        ranked_scenarios.append((rank, scenario))
+    for rank, scenario in sorted(ranked_scenarios, key=lambda item: item[0]):
+        scenario_id = _required_text(scenario, "scenario_id", label="scenario")
+        scenario_values = {
+            field: _required_text(scenario, field, label=f"scenario {scenario_id}")
+            for field in ("name", "initial_shock", "propagation_delta", "policy_reaction")
+        }
+        base = f"/scenarios/{_json_pointer_token(scenario_id)}"
+        plan.append(
+            OnePageLine(
+                section="Horizon paths",
+                rendered_text=(
+                    f"- **Scenario {rank} — {scenario_values['name']}:** "
+                    f"shock: {scenario_values['initial_shock']}; "
+                    f"propagation: {scenario_values['propagation_delta']}; "
+                    f"policy: {scenario_values['policy_reaction']}"
+                ),
+                fields=(
+                    OnePageField(f"{base}/plausibility_rank", rank, ("scenario", scenario_id)),
+                    *(
+                        OnePageField(
+                            f"{base}/{field}",
+                            value,
+                            ("scenario", scenario_id),
+                        )
+                        for field, value in scenario_values.items()
+                    ),
+                ),
+            )
+        )
+
+    for field, section in (
+        ("unresolved_tensions", "Unresolved tensions"),
+        ("signposts", "Signposts"),
+    ):
+        values = _strings(world_model.get(field), label=f"world-model.{field}")
+        plan.extend(
+            OnePageLine(
+                section=section,
+                rendered_text=f"- {value}",
+                fields=(OnePageField(f"/{field}/{index}", value),),
+            )
+            for index, value in enumerate(values)
+        )
+
+    changes = _mapping_list(revision_diff.get("changes"), label="revision-diff.changes")
+    if changes:
+        for index, change in enumerate(changes):
+            area = _required_text(change, "area", label="revision diff")
+            summary = _required_text(change, "summary", label="revision diff")
+            plan.append(
+                OnePageLine(
+                    section="What changed",
+                    rendered_text=f"- {area}: {summary}",
+                    fields=(
+                        OnePageField(f"/revision_diff/changes/{index}/area", area),
+                        OnePageField(f"/revision_diff/changes/{index}/summary", summary),
+                    ),
+                )
+            )
+    else:
+        fallback = "No evidence-backed change is recorded."
+        plan.append(
+            OnePageLine(
+                section="What changed",
+                rendered_text=f"- {fallback}",
+                fields=(OnePageField("/revision_diff/no_evidence_backed_change", fallback),),
+            )
+        )
+    return tuple(plan)
+
+
+def _required_one_page_paths(
+    world_model: Mapping[str, object],
+    revision_diff: Mapping[str, object],
+    *,
+    expected_as_of: date,
+) -> tuple[set[str], dict[str, tuple[str, str]]]:
+    paths: set[str] = set()
+    bound_sources: dict[str, tuple[str, str]] = {}
+    plan = build_one_page_render_plan(
+        world_model,
+        revision_diff,
+        expected_as_of=expected_as_of,
+    )
+    for line in plan:
+        for field in line.fields:
+            _record_scalar_path(
+                paths,
+                pointer=field.pointer,
+                value=field.value,
+                label=f"one_page{field.pointer}",
+            )
+            if field.bound_source is not None:
+                bound_sources[field.pointer] = field.bound_source
+    return paths, bound_sources
+
+
+def _parse_claim_qualifier(value: object, *, label: str) -> ClaimQualifier:
+    qualifier = _mapping(value, label=label)
+    _require_exact_keys(
+        qualifier,
+        required={"claim_strength", "uncertainty", "basis", "units"},
+        label=label,
+    )
+    strength = qualifier.get("claim_strength")
+    if strength not in CLAIM_STRENGTHS:
+        raise WorldModelValidationError(f"{label}.claim_strength is invalid")
+    uncertainty = _strings(qualifier.get("uncertainty"), label=f"{label}.uncertainty")
+    if len(uncertainty) != len(set(uncertainty)):
+        raise WorldModelValidationError(f"{label}.uncertainty must be unique")
+    unknown_uncertainty = set(uncertainty) - set(UNCERTAINTY_DIMENSIONS)
+    if unknown_uncertainty:
+        raise WorldModelValidationError(
+            f"{label}.uncertainty is invalid: {sorted(unknown_uncertainty)}"
+        )
+    basis = _mapping(qualifier.get("basis"), label=f"{label}.basis")
+    _require_exact_keys(
+        basis,
+        required={"real_nominal", "stock_flow", "observation_expectation"},
+        label=f"{label}.basis",
+    )
+    real_nominal = basis.get("real_nominal")
+    stock_flow = basis.get("stock_flow")
+    observation_expectation = basis.get("observation_expectation")
+    if real_nominal not in REAL_NOMINAL_BASES:
+        raise WorldModelValidationError(f"{label}.basis.real_nominal is invalid")
+    if stock_flow not in STOCK_FLOW_BASES:
+        raise WorldModelValidationError(f"{label}.basis.stock_flow is invalid")
+    if observation_expectation not in OBSERVATION_EXPECTATION_BASES:
+        raise WorldModelValidationError(f"{label}.basis.observation_expectation is invalid")
+    units = _strings(qualifier.get("units"), label=f"{label}.units")
+    if len(units) != len(set(units)):
+        raise WorldModelValidationError(f"{label}.units must be unique")
+    return ClaimQualifier(
+        claim_strength=strength,
+        uncertainty=frozenset(uncertainty),
+        real_nominal=real_nominal,
+        stock_flow=stock_flow,
+        observation_expectation=observation_expectation,
+        units=frozenset(units),
+    )
+
+
+def _validate_qualifier_projection(
+    source: ClaimQualifier,
+    output: ClaimQualifier,
+    *,
+    unit_transform: object,
+    label: str,
+) -> None:
+    if CLAIM_STRENGTH_ORDER[output.claim_strength] > CLAIM_STRENGTH_ORDER[source.claim_strength]:
+        raise WorldModelValidationError(f"{label} strengthens claim_strength")
+    missing_uncertainty = source.uncertainty - output.uncertainty
+    if missing_uncertainty:
+        raise WorldModelValidationError(
+            f"{label} drops uncertainty dimensions: {sorted(missing_uncertainty)}"
+        )
+    if (
+        output.real_nominal != source.real_nominal
+        or output.stock_flow != source.stock_flow
+        or output.observation_expectation != source.observation_expectation
+    ):
+        raise WorldModelValidationError(f"{label} changes a quantity basis")
+    if output.units == source.units:
+        if unit_transform is not None:
+            raise WorldModelValidationError(f"{label} has an unnecessary unit_transform")
+        return
+    transform = _mapping(unit_transform, label=f"{label}.unit_transform")
+    _require_exact_keys(
+        transform,
+        required={"formula", "from_units", "to_units"},
+        label=f"{label}.unit_transform",
+    )
+    _required_text(transform, "formula", label=f"{label}.unit_transform")
+    from_units = frozenset(
+        _strings(transform.get("from_units"), label=f"{label}.unit_transform.from_units")
+    )
+    to_units = frozenset(
+        _strings(transform.get("to_units"), label=f"{label}.unit_transform.to_units")
+    )
+    if from_units != source.units or to_units != output.units:
+        raise WorldModelValidationError(f"{label}.unit_transform does not match declared units")
+
+
+def _require_lineage_evidence_overlap(
+    *,
+    claim_id: str,
+    claim_evidence_ids: set[str],
+    references: set[str],
+    evidence_by_reference: Mapping[str, frozenset[str]],
+    reference_kind: str,
+) -> None:
+    for reference in sorted(references):
+        if not claim_evidence_ids & set(evidence_by_reference[reference]):
+            raise WorldModelValidationError(
+                f"material claim {claim_id} evidence does not overlap "
+                f"{reference_kind} {reference} evidence"
+            )
+
+
+def _validate_v4_projection(
+    path: Path,
+    *,
+    world_model: Mapping[str, object],
+    world_index: WorldModelIndex,
+    state_index: Mapping[str, Mapping[str, object]],
+    hypothesis_index: Mapping[str, Mapping[str, object]],
+    evidence_ids: set[str],
+    snapshot: SnapshotIndex,
+    v4_document_path: Path | None,
+    revision_diff_path: Path | None,
+) -> ProjectionMetrics:
     projection = _load_yaml(path)
+    projection_version = _schema_version(projection, label="v4-projection")
+    if projection_version != world_index.schema_version:
+        raise WorldModelValidationError(
+            "v4-projection schema version must match world-model schema version"
+        )
+    if projection_version == 2:
+        _require_exact_keys(
+            projection,
+            required={"schema_version", "as_of", "scenarios", "material_claims"},
+            optional={"projection_note"},
+            label="v4-projection",
+        )
+        if "projection_note" in projection:
+            _required_text(projection, "projection_note", label="v4-projection")
     rows = _mapping_list(projection.get("scenarios"), label="v4-projection.scenarios")
     _unique_ids(rows, key="scenario_id", label="v4 projection scenario")
     probabilities: dict[str, float] = {}
+    probability_steps: dict[str, int] = {}
+    case_to_scenario: dict[str, str] = {}
     for row in rows:
         scenario_id = _required_text(row, "scenario_id", label="v4 projection")
         value = row.get("probability")
-        if not isinstance(value, int | float) or isinstance(value, bool):
+        if (
+            not isinstance(value, int | float)
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or not 0 <= float(value) <= 1
+        ):
             raise WorldModelValidationError(f"v4 probability is invalid for {scenario_id}")
         probabilities[scenario_id] = float(value)
-    if set(probabilities) != set(scenario_ranks):
+        if projection_version == 2:
+            steps = round(float(value) * 20)
+            if steps not in range(1, 19) or not math.isclose(
+                float(value), steps / 20, abs_tol=1e-12
+            ):
+                raise WorldModelValidationError(
+                    f"v4 probability for {scenario_id} must lie on the 0.05 grid "
+                    "between 0.05 and 0.90"
+                )
+            probability_steps[scenario_id] = steps
+            _require_exact_keys(
+                row,
+                required={"scenario_id", "v4_case", "plausibility_rank", "probability"},
+                label=f"v4 projection scenario {scenario_id}",
+            )
+            case = row.get("v4_case")
+            if case not in {"base", "bear", "bull"}:
+                raise WorldModelValidationError(
+                    f"v4 projection scenario {scenario_id}.v4_case is invalid"
+                )
+            if case in case_to_scenario:
+                raise WorldModelValidationError(f"duplicate v4_case in projection: {case}")
+            case_to_scenario[case] = scenario_id
+            if row.get("plausibility_rank") != world_index.scenario_ranks.get(scenario_id):
+                raise WorldModelValidationError(
+                    f"v4 projection scenario {scenario_id} has a stale plausibility_rank"
+                )
+    if set(probabilities) != set(world_index.scenario_ranks):
         raise WorldModelValidationError("v4 projection must cover every world-model scenario")
-    ordered = sorted(scenario_ranks, key=scenario_ranks.__getitem__)
+    if projection_version == 2 and set(case_to_scenario) != {"base", "bear", "bull"}:
+        raise WorldModelValidationError(
+            "v4 projection must map exactly one base, bear, and bull scenario"
+        )
+    if projection_version == 2 and sum(probability_steps.values()) != 20:
+        raise WorldModelValidationError("v4 projection probabilities must sum to 1.00")
+    ordered = sorted(world_index.scenario_ranks, key=world_index.scenario_ranks.__getitem__)
     for more_plausible, less_plausible in pairwise(ordered):
         if probabilities[more_plausible] < probabilities[less_plausible]:
             raise WorldModelValidationError(
                 "world-model plausibility order contradicts v4 probability order: "
                 f"{more_plausible} < {less_plausible}"
             )
+    if projection_version == 1:
+        return ProjectionMetrics(schema_version=1)
+    if v4_document_path is None or revision_diff_path is None:
+        raise WorldModelValidationError(
+            "v4-projection v2 requires --v4-document and --revision-diff"
+        )
+    v4_document = _canonical_v4_document(_load_yaml(v4_document_path))
+    revision_diff = _load_yaml(revision_diff_path)
+    projection_as_of = _iso_date(projection.get("as_of"), label="v4-projection.as_of")
+    assert projection_as_of is not None
+    for label, document in (("world-model", world_model), ("v4 document", v4_document)):
+        document_as_of = _iso_date(document.get("as_of"), label=f"{label}.as_of")
+        if document_as_of != projection_as_of:
+            raise WorldModelValidationError(f"{label} as_of differs from v4-projection")
+
+    required_v4_paths, v4_scenario_cases = _required_v4_paths(v4_document)
+    v4_case_paths: dict[str, str] = {}
+    for prefix, case in v4_scenario_cases.items():
+        if case not in {"base", "bear", "bull"}:
+            raise WorldModelValidationError(f"v4 scenario case is invalid: {case}")
+        if case in v4_case_paths:
+            raise WorldModelValidationError(f"duplicate v4 scenario case: {case}")
+        v4_case_paths[case] = prefix
+    if set(v4_case_paths) != set(case_to_scenario):
+        raise WorldModelValidationError(
+            "v4 scenario cases do not match v4-projection scenario mappings"
+        )
+    for case, prefix in v4_case_paths.items():
+        scenario_id = case_to_scenario[case]
+        v4_probability = _resolve_json_pointer(
+            v4_document,
+            f"{prefix}/probability",
+            label=f"v4 {case} probability",
+        )
+        if (
+            not isinstance(v4_probability, int | float)
+            or isinstance(v4_probability, bool)
+            or not math.isfinite(float(v4_probability))
+            or not math.isclose(
+                float(v4_probability),
+                probabilities[scenario_id],
+                abs_tol=1e-12,
+            )
+        ):
+            raise WorldModelValidationError(
+                f"v4 {case} probability differs from v4-projection scenario {scenario_id}"
+            )
+    required_one_page_paths, one_page_sources = _required_one_page_paths(
+        world_model,
+        revision_diff,
+        expected_as_of=projection_as_of,
+    )
+    claims = _mapping_list(projection.get("material_claims"), label="v4-projection.material_claims")
+    claim_index = _unique_ids(claims, key="claim_id", label="material claim")
+    if not claim_index:
+        raise WorldModelValidationError("v4 projection material_claims are empty")
+    state_evidence_ids = {
+        state_id: frozenset(
+            _strings(state.get("evidence_for"), label=f"state {state_id}.evidence_for")
+            + _strings(state.get("evidence_against"), label=f"state {state_id}.evidence_against")
+        )
+        for state_id, state in state_index.items()
+    }
+    hypothesis_evidence_ids = {
+        hypothesis_id: frozenset(
+            _strings(
+                hypothesis.get("evidence_for"),
+                label=f"hypothesis {hypothesis_id}.evidence_for",
+            )
+            + _strings(
+                hypothesis.get("evidence_against"),
+                label=f"hypothesis {hypothesis_id}.evidence_against",
+            )
+        )
+        for hypothesis_id, hypothesis in hypothesis_index.items()
+    }
+
+    mapped_targets: set[tuple[str, str]] = set()
+    mapped_evidence: set[str] = set()
+    claim_node_ids: set[str] = set()
+    claim_edge_ids: set[str] = set()
+    for claim_id, claim in claim_index.items():
+        _require_exact_keys(
+            claim,
+            required={"claim_id", "summary", "upstream", "source_qualifier", "targets"},
+            label=f"material claim {claim_id}",
+        )
+        _required_text(claim, "summary", label=f"material claim {claim_id}")
+        upstream = _mapping(claim.get("upstream"), label=f"material claim {claim_id}.upstream")
+        _require_exact_keys(
+            upstream,
+            required={
+                "state_ids",
+                "hypothesis_ids",
+                "judgment_ids",
+                "scenario_ids",
+                "node_ids",
+                "edge_ids",
+                "evidence",
+            },
+            label=f"material claim {claim_id}.upstream",
+        )
+        claim_state_ids = _reference_ids(
+            upstream,
+            key="state_ids",
+            known=set(state_index),
+            label=f"material claim {claim_id}",
+            minimum=1,
+        )
+        claim_hypothesis_ids = _reference_ids(
+            upstream,
+            key="hypothesis_ids",
+            known=set(hypothesis_index),
+            label=f"material claim {claim_id}",
+            minimum=1,
+        )
+        claim_judgment_ids = _reference_ids(
+            upstream,
+            key="judgment_ids",
+            known=world_index.judgment_ids,
+            label=f"material claim {claim_id}",
+            minimum=0,
+        )
+        claim_scenario_ids = _reference_ids(
+            upstream,
+            key="scenario_ids",
+            known=world_index.scenario_ids,
+            label=f"material claim {claim_id}",
+            minimum=0,
+        )
+        nodes = _reference_ids(
+            upstream,
+            key="node_ids",
+            known=world_index.graph.node_ids,
+            label=f"material claim {claim_id}",
+            minimum=1,
+        )
+        edges = _reference_ids(
+            upstream,
+            key="edge_ids",
+            known=world_index.graph.edge_ids,
+            label=f"material claim {claim_id}",
+            minimum=1,
+        )
+        _validate_subgraph_refs(
+            node_refs=nodes,
+            edge_refs=edges,
+            graph=world_index.graph,
+            label=f"material claim {claim_id}",
+        )
+        claim_node_ids.update(nodes)
+        claim_edge_ids.update(edges)
+
+        evidence_rows = _mapping_list(
+            upstream.get("evidence"), label=f"material claim {claim_id}.upstream.evidence"
+        )
+        if not evidence_rows:
+            raise WorldModelValidationError(f"material claim {claim_id} requires evidence")
+        evidence_index = _unique_ids(
+            evidence_rows, key="evidence_id", label=f"material claim {claim_id} evidence"
+        )
+        source_units: set[str] = set()
+        for evidence_id, evidence in evidence_index.items():
+            _require_exact_keys(
+                evidence,
+                required={"evidence_id", "measure", "units"},
+                label=f"material claim {claim_id} evidence {evidence_id}",
+            )
+            if evidence_id not in evidence_ids:
+                raise WorldModelValidationError(
+                    f"material claim {claim_id} references unknown evidence: {evidence_id}"
+                )
+            measure = _required_text(
+                evidence,
+                "measure",
+                label=f"material claim {claim_id} evidence {evidence_id}",
+            )
+            units = _strings(
+                evidence.get("units"),
+                label=f"material claim {claim_id} evidence {evidence_id}.units",
+            )
+            if len(units) != len(set(units)):
+                raise WorldModelValidationError(
+                    f"material claim {claim_id} evidence {evidence_id}.units must be unique"
+                )
+            snapshot_measures = snapshot.measure_units.get(evidence_id)
+            if snapshot_measures is not None:
+                allowed = snapshot_measures.get(measure)
+                if allowed is None:
+                    raise WorldModelValidationError(
+                        f"material claim {claim_id} uses unavailable snapshot measure "
+                        f"{measure} for {evidence_id}"
+                    )
+                if frozenset(units) != allowed:
+                    raise WorldModelValidationError(
+                        f"material claim {claim_id} units for {evidence_id}.{measure} "
+                        f"must equal {sorted(allowed)}"
+                    )
+            mapped_evidence.add(evidence_id)
+            source_units.update(units)
+        claim_evidence_ids = set(evidence_index)
+        for references, evidence_by_reference, reference_kind in (
+            (claim_state_ids, state_evidence_ids, "state"),
+            (claim_hypothesis_ids, hypothesis_evidence_ids, "hypothesis"),
+            (claim_judgment_ids, world_index.judgment_evidence_ids, "judgment"),
+            (claim_scenario_ids, world_index.scenario_evidence_ids, "scenario"),
+            (edges, world_index.graph.edge_evidence_ids, "edge"),
+        ):
+            _require_lineage_evidence_overlap(
+                claim_id=claim_id,
+                claim_evidence_ids=claim_evidence_ids,
+                references=references,
+                evidence_by_reference=evidence_by_reference,
+                reference_kind=reference_kind,
+            )
+
+        source_qualifier = _parse_claim_qualifier(
+            claim.get("source_qualifier"), label=f"material claim {claim_id}.source_qualifier"
+        )
+        if source_qualifier.units != frozenset(source_units):
+            raise WorldModelValidationError(
+                f"material claim {claim_id}.source_qualifier.units differ from evidence units"
+            )
+        if claim_state_ids and source_qualifier.uncertainty != frozenset(UNCERTAINTY_DIMENSIONS):
+            raise WorldModelValidationError(
+                f"material claim {claim_id} must carry all state uncertainty dimensions"
+            )
+        if edges:
+            weakest_edge = min(
+                (world_index.graph.edge_strengths[edge_id] for edge_id in edges),
+                key=CLAIM_STRENGTH_ORDER.__getitem__,
+            )
+            if (
+                CLAIM_STRENGTH_ORDER[source_qualifier.claim_strength]
+                > CLAIM_STRENGTH_ORDER[weakest_edge]
+            ):
+                raise WorldModelValidationError(
+                    f"material claim {claim_id} is stronger than its weakest edge"
+                )
+
+        targets = _mapping_list(claim.get("targets"), label=f"material claim {claim_id}.targets")
+        if not targets:
+            raise WorldModelValidationError(f"material claim {claim_id} requires targets")
+        claim_targets: set[tuple[str, str]] = set()
+        for target_index, target in enumerate(targets):
+            target_label = f"material claim {claim_id} target {target_index}"
+            _require_exact_keys(
+                target,
+                required={"artifact", "field_path", "output_qualifier"},
+                optional={"unit_transform"},
+                label=target_label,
+            )
+            artifact = target.get("artifact")
+            if artifact not in PROJECTION_ARTIFACTS:
+                raise WorldModelValidationError(f"{target_label}.artifact is invalid")
+            field_path = _required_text(target, "field_path", label=target_label)
+            target_key = (artifact, field_path)
+            if target_key in claim_targets:
+                raise WorldModelValidationError(f"{target_label} is duplicated")
+            claim_targets.add(target_key)
+            output_qualifier = _parse_claim_qualifier(
+                target.get("output_qualifier"), label=f"{target_label}.output_qualifier"
+            )
+            _validate_qualifier_projection(
+                source_qualifier,
+                output_qualifier,
+                unit_transform=target.get("unit_transform"),
+                label=target_label,
+            )
+            if artifact == "v4":
+                if field_path not in required_v4_paths:
+                    raise WorldModelValidationError(
+                        f"{target_label}.field_path is not judgment-bearing"
+                    )
+                resolved = _resolve_json_pointer(
+                    v4_document, field_path, label=f"{target_label}.field_path"
+                )
+                if not (
+                    isinstance(resolved, date)
+                    or (isinstance(resolved, str) and resolved.strip())
+                    or (
+                        isinstance(resolved, int | float)
+                        and not isinstance(resolved, bool)
+                        and math.isfinite(float(resolved))
+                    )
+                ):
+                    raise WorldModelValidationError(
+                        f"{target_label}.field_path must resolve to a scalar claim value"
+                    )
+                for prefix, case in v4_scenario_cases.items():
+                    if field_path == prefix or field_path.startswith(f"{prefix}/"):
+                        mapped_scenario_id = case_to_scenario.get(case)
+                        if (
+                            mapped_scenario_id is None
+                            or mapped_scenario_id not in claim_scenario_ids
+                        ):
+                            raise WorldModelValidationError(
+                                f"{target_label} must reference the world-model scenario for {case}"
+                            )
+            else:
+                if field_path not in required_one_page_paths:
+                    raise WorldModelValidationError(
+                        f"{target_label}.field_path is not rendered by one-page"
+                    )
+                bound = one_page_sources.get(field_path)
+                if bound is not None:
+                    kind, identifier = bound
+                    references = claim_judgment_ids if kind == "judgment" else claim_scenario_ids
+                    if identifier not in references:
+                        raise WorldModelValidationError(
+                            f"{target_label} must reference {kind} {identifier}"
+                        )
+            mapped_targets.add(target_key)
+
+    missing_v4 = required_v4_paths - {
+        field_path for artifact, field_path in mapped_targets if artifact == "v4"
+    }
+    if missing_v4:
+        raise WorldModelValidationError(
+            f"v4 judgment-bearing fields are unmapped: {sorted(missing_v4)}"
+        )
+    missing_one_page = required_one_page_paths - {
+        field_path for artifact, field_path in mapped_targets if artifact == "one_page"
+    }
+    if missing_one_page:
+        raise WorldModelValidationError(
+            f"one-page judgment-bearing fields are unmapped: {sorted(missing_one_page)}"
+        )
+    unmapped_selected = set(snapshot.selected_ids) - mapped_evidence
+    if unmapped_selected:
+        raise WorldModelValidationError(
+            f"selected evidence is absent from material claims: {sorted(unmapped_selected)}"
+        )
+    live_nodes = set(world_index.consumer_node_ids) | claim_node_ids
+    live_edges = set(world_index.consumer_edge_ids) | claim_edge_ids
+    orphan_nodes = set(world_index.graph.node_ids) - live_nodes
+    orphan_edges = set(world_index.graph.edge_ids) - live_edges
+    if orphan_nodes or orphan_edges:
+        raise WorldModelValidationError(
+            "world-model graph contains true orphans: "
+            f"nodes={sorted(orphan_nodes)}, edges={sorted(orphan_edges)}"
+        )
+    return ProjectionMetrics(
+        schema_version=2,
+        lineage_enforced=True,
+        material_claim_count=len(claim_index),
+        mapped_target_count=len(mapped_targets),
+        mapped_selected_evidence_count=len(set(snapshot.selected_ids) & mapped_evidence),
+        true_orphan_node_count=len(orphan_nodes),
+        true_orphan_edge_count=len(orphan_edges),
+    )
 
 
 def validate_workspace(
@@ -596,6 +1800,8 @@ def validate_workspace(
     *,
     freeze_path: Path | None = None,
     v4_projection: Path | None = None,
+    v4_document: Path | None = None,
+    revision_diff: Path | None = None,
 ) -> dict[str, object]:
     charter = _load_yaml(workspace / "charter.yaml")
     snapshot = _load_json(workspace / "evidence-snapshot.json")
@@ -615,11 +1821,11 @@ def validate_workspace(
     }
     _reject_prior_material(blind_documents)
     _validate_charter(charter)
-    snapshot_ids, selected_snapshot_ids = _snapshot_evidence_ids(snapshot)
+    snapshot_index = _snapshot_evidence_ids(snapshot)
     evidence_ids = _validate_evidence_packs(
         evidence_packs,
-        snapshot_ids=snapshot_ids,
-        selected_snapshot_ids=selected_snapshot_ids,
+        snapshot_ids=set(snapshot_index.evidence_ids),
+        selected_snapshot_ids=set(snapshot_index.selected_ids),
     )
     state_index = _validate_states(states, evidence_ids=evidence_ids)
     hypothesis_index = _validate_hypotheses(hypotheses, evidence_ids=evidence_ids)
@@ -628,21 +1834,57 @@ def validate_workspace(
         evidence_ids=evidence_ids,
         hypothesis_ids=set(hypothesis_index),
     )
-    scenario_ranks = _validate_world_model(
+    world_index = _validate_world_model(
         world_model,
         evidence_ids=evidence_ids,
         state_ids=set(state_index),
         hypothesis_ids=set(hypothesis_index),
     )
+    if snapshot_index.schema_version == 2 or world_index.schema_version == 2:
+        if snapshot_index.schema_version != world_index.schema_version:
+            raise WorldModelValidationError(
+                "evidence-snapshot and world-model schema versions must match"
+            )
+        cycle_as_of = _iso_date(charter.get("as_of"), label="charter.as_of")
+        world_as_of = _iso_date(world_model.get("as_of"), label="world-model.as_of")
+        if snapshot_index.as_of != cycle_as_of or world_as_of != cycle_as_of:
+            raise WorldModelValidationError(
+                "evidence-snapshot and world-model as_of must match charter.as_of"
+            )
+    else:
+        workspace_sha256 = _aggregate_digest(blind_file_digests(workspace))
+        if workspace_sha256 not in LEGACY_V1_WORKSPACE_SHA256:
+            raise WorldModelValidationError(
+                "schema v1 is restricted to the immutable cycle 1 and cycle 2 workspaces"
+            )
     freeze_sha256 = verify_freeze(workspace, freeze_path) if freeze_path is not None else None
+    projection_metrics = ProjectionMetrics()
     if v4_projection is not None:
-        _validate_v4_projection(v4_projection, scenario_ranks=scenario_ranks)
+        projection_metrics = _validate_v4_projection(
+            v4_projection,
+            world_model=world_model,
+            world_index=world_index,
+            state_index=state_index,
+            hypothesis_index=hypothesis_index,
+            evidence_ids=evidence_ids,
+            snapshot=snapshot_index,
+            v4_document_path=v4_document,
+            revision_diff_path=revision_diff,
+        )
     return {
         "status": "ok",
+        "workspace_schema_version": world_index.schema_version,
         "evidence_count": len(evidence_ids),
         "state_count": len(state_index),
         "hypothesis_count": len(hypothesis_index),
-        "scenario_count": len(scenario_ranks),
+        "scenario_count": len(world_index.scenario_ranks),
+        "projection_schema_version": projection_metrics.schema_version,
+        "lineage_enforced": projection_metrics.lineage_enforced,
+        "material_claim_count": projection_metrics.material_claim_count,
+        "mapped_target_count": projection_metrics.mapped_target_count,
+        "mapped_selected_evidence_count": projection_metrics.mapped_selected_evidence_count,
+        "true_orphan_node_count": projection_metrics.true_orphan_node_count,
+        "true_orphan_edge_count": projection_metrics.true_orphan_edge_count,
         "blind_freeze_sha256": freeze_sha256,
     }
 
@@ -669,6 +1911,8 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("workspace", type=Path)
     check.add_argument("--freeze", type=Path)
     check.add_argument("--v4-projection", type=Path)
+    check.add_argument("--v4-document", type=Path)
+    check.add_argument("--revision-diff", type=Path)
     return parser
 
 
@@ -690,7 +1934,24 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
                 args.workspace,
                 freeze_path=args.freeze,
                 v4_projection=args.v4_projection,
+                v4_document=args.v4_document,
+                revision_diff=args.revision_diff,
             )
+            if result["workspace_schema_version"] == 2:
+                missing_options = [
+                    option
+                    for option, value in (
+                        ("--freeze", args.freeze),
+                        ("--v4-projection", args.v4_projection),
+                        ("--v4-document", args.v4_document),
+                        ("--revision-diff", args.revision_diff),
+                    )
+                    if value is None
+                ]
+                if missing_options:
+                    raise WorldModelValidationError(
+                        "schema v2 check requires final inputs: " + ", ".join(missing_options)
+                    )
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=output)
         return 1

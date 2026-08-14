@@ -11,9 +11,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from math import isfinite
 from typing import Any
 
-from baibai_engine.market.bars import JQuantsDailyBar, JQuantsMarketCalendarDay
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    JQuantsMarketCalendarDay,
+)
 from baibai_engine.market.ticker import normalize_ticker
 
 
@@ -76,6 +81,25 @@ def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
                 "va",
             )
         ),
+    )
+
+
+def normalize_adjustment_factor_event(
+    record: Mapping[str, Any],
+) -> JQuantsAdjustmentFactorEvent | None:
+    """Decode a split/reverse-split event without requiring a close price."""
+
+    ticker, common_code = parse_jquants_code_parts(first_value(record, "Code", "code"))
+    if not common_code:
+        return None
+    factor = to_float(coalesce_field(record, "AdjustmentFactor", "adjustment_factor", "AdjFactor"))
+    if factor in (None, 0.0, 1.0):
+        return None
+    assert factor is not None
+    return JQuantsAdjustmentFactorEvent(
+        ticker=ticker,
+        traded_at=parse_date(first_value(record, "Date", "date", "TradedAt", "traded_at")),
+        adjustment_factor=factor,
     )
 
 
@@ -165,12 +189,12 @@ def _stringify_dates(params: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def parse_date(value: Any) -> date:
+    if is_missing_scalar(value):
+        raise JQuantsProviderError("missing date field in payload")
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
         return value
-    if not value:
-        raise JQuantsProviderError("missing date field in payload")
     return date.fromisoformat(str(value)[:10])
 
 
@@ -184,34 +208,72 @@ def _parse_yyyymmdd_param(value: Any) -> date | None:
 
 
 def parse_optional_date(value: Any) -> date | None:
-    if value in (None, ""):
+    if is_missing_scalar(value):
         return None
     return parse_date(value)
 
 
 def to_period(value: Any) -> str | None:
-    if value in (None, ""):
+    if is_missing_scalar(value):
         return None
     return str(value).strip().upper()
 
 
+def is_missing_scalar(value: Any) -> bool:
+    """Recognize scalar missing markers produced by JSON and pandas without importing pandas."""
+
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() in {"", "NaT", "nan", "null", "<NA>"}
+    if str(value).strip() in {"NaT", "nan", "<NA>"}:
+        return True
+    try:
+        return bool(value != value)
+    except (TypeError, ValueError):
+        return False
+
+
 def to_float(value: Any) -> float | None:
-    if value in (None, "", "-", "null"):
+    if is_missing_scalar(value) or value == "-":
         return None
     try:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    # J-Quants returns NaN for non-trading days on calendar-aligned payloads;
-    # treat NaN as missing so downstream metrics do not propagate it.
-    if result != result:
+    # ClientV2 DataFrames preserve pandas' non-finite markers when converted to
+    # records. They are not numeric observations; the period-slot selector separately
+    # decides whether an ambiguous marker may fall through to another forecast period.
+    if not isfinite(result):
         return None
     return result
 
 
+def has_period_slot(record: Mapping[str, Any], key: str) -> bool:
+    """Whether a period-specific field is present rather than explicitly empty.
+
+    A non-finite DataFrame scalar represents an unknown value for that period.  It is
+    still a selected period slot and must not make a different forecast period win.
+    """
+
+    if key not in record or record[key] is None:
+        return False
+    value = record[key]
+    return not (isinstance(value, str) and value.strip() in {"", "-", "null"})
+
+
+def first_period_float(record: Mapping[str, Any], *keys: str) -> float | None:
+    """Return a numeric value without crossing a present-but-unknown forecast period."""
+
+    for key in keys:
+        if has_period_slot(record, key):
+            return to_float(record[key])
+    return None
+
+
 def first_value(record: Mapping[str, Any], *keys: str, default: Any = None) -> Any:
     for key in keys:
-        if key in record and record[key] not in (None, ""):
+        if key in record and not is_missing_scalar(record[key]):
             return record[key]
     if default is not None:
         return default
@@ -226,6 +288,6 @@ def coalesce_field(record: Mapping[str, Any], *keys: str) -> Any:
     to use for numeric payload fields that may legitimately be zero.
     """
     for key in keys:
-        if key in record and record[key] not in (None, ""):
+        if key in record and not is_missing_scalar(record[key]):
             return record[key]
     return None

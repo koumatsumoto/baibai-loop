@@ -20,6 +20,9 @@ from baibai_engine.market.bars import (
     validate_finite,
 )
 from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent as JQuantsAdjustmentFactorEvent,
+)
+from baibai_engine.market.bars import (
     JQuantsDailyBar as JQuantsDailyBar,
 )
 from baibai_engine.market.bars import (
@@ -30,12 +33,17 @@ from baibai_engine.market.jquants import (
 )
 from baibai_engine.market.jquants import (
     coalesce_field,
+    first_period_float,
     first_value,
+    has_period_slot,
     parse_date,
     parse_jquants_code_parts,
     parse_optional_date,
     to_float,
     to_period,
+)
+from baibai_engine.market.jquants import (
+    normalize_adjustment_factor_event as normalize_adjustment_factor_event,
 )
 from baibai_engine.market.jquants import (
     normalize_daily_bar as normalize_daily_bar,
@@ -537,7 +545,9 @@ class JQuantsProvider(JQuantsMarketProvider):
             and start <= report.disclosed_at <= end
         ]
 
-    def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
+    def get_adjustment_factor_bars_range(
+        self, start: date, end: date
+    ) -> list[JQuantsAdjustmentFactorEvent]:
         """Return only split events while still proving the full bar range is covered."""
         if self._sqlite_path is not None:
             from baibai_engine.market.store import read_adjustment_factor_bars
@@ -557,10 +567,9 @@ class JQuantsProvider(JQuantsMarketProvider):
             )
         records = self._load_or_fetch_range("get_eq_bars_daily_range", start, end)
         return [
-            bar
+            event
             for record in records
-            if (bar := normalize_daily_bar(record)) is not None
-            and bar.adjustment_factor not in (None, 0.0, 1.0)
+            if (event := normalize_adjustment_factor_event(record)) is not None
         ]
 
     def get_fin_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
@@ -1034,7 +1043,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
     # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
     # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
     # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
-    if coalesce_field(record, "FEPS") is not None:
+    if has_period_slot(record, "FEPS"):
         forecast_profit = to_float(coalesce_field(record, "FNP"))
         forecast_ordinary_profit = to_float(coalesce_field(record, "FOdP"))
     else:
@@ -1052,7 +1061,7 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         # ClientV2 の fin-summary は短縮キーを返す。FEPS=当期予想 EPS は本決算(FY)
         # 開示で空になり、翌期ガイダンスは NxFEPS に入る。FEPS→NxFEPS の順で各時点の
         # 最良 forward EPS(per_forward の基)を埋める。
-        forecast_eps=to_float(coalesce_field(record, "FEPS", "NxFEPS")),
+        forecast_eps=first_period_float(record, "FEPS", "NxFEPS"),
         eps_ttm=to_float(
             coalesce_field(
                 record,
@@ -1075,7 +1084,6 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
                 "IssuedShareEquityQuote",
                 "issued_share_equity_quote",
                 "ShOutFY",
-                "AvgSh",
             )
         ),
         sales=to_float(coalesce_field(record, "NetSales", "net_sales", "Sales", "sales")),
@@ -1111,21 +1119,41 @@ def normalize_financial_summary(record: Mapping[str, Any]) -> JQuantsFinancialSu
         forecast_profit=forecast_profit,
         forecast_ordinary_profit=forecast_ordinary_profit,
         fiscal_period=to_period(
-            coalesce_field(record, "TypeOfCurrentPeriod", "type_of_current_period")
+            coalesce_field(
+                record,
+                "TypeOfCurrentPeriod",
+                "type_of_current_period",
+                "CurPerType",
+            )
         ),
         fiscal_year_end=parse_optional_date(
-            coalesce_field(record, "CurrentFiscalYearEndDate", "current_fiscal_year_end_date")
+            coalesce_field(
+                record,
+                "CurrentFiscalYearEndDate",
+                "current_fiscal_year_end_date",
+                "CurFYEn",
+            )
         ),
         period_start=parse_optional_date(
-            coalesce_field(record, "CurrentPeriodStartDate", "current_period_start_date")
+            coalesce_field(
+                record,
+                "CurrentPeriodStartDate",
+                "current_period_start_date",
+                "CurPerSt",
+            )
         ),
         period_end=parse_optional_date(
-            coalesce_field(record, "CurrentPeriodEndDate", "current_period_end_date")
+            coalesce_field(
+                record,
+                "CurrentPeriodEndDate",
+                "current_period_end_date",
+                "CurPerEn",
+            )
         ),
         # DivAnn=実績年間 DPS。予想年間は FDivAnn (四半期) → NxFDivAnn (本決算の
         # 進行期ガイダンス) の順で埋める (FEPS→NxFEPS と同型)。
         dps_actual_annual=to_float(coalesce_field(record, "DivAnn")),
-        dps_forecast_annual=to_float(coalesce_field(record, "FDivAnn", "NxFDivAnn")),
+        dps_forecast_annual=first_period_float(record, "FDivAnn", "NxFDivAnn"),
         # TrShFY = 期末自己株式数、EqAR = 開示された自己資本比率。ShOutFY (発行済・自己株
         # 込み) と Eq (純資産) だけでは時価総額も自己資本比率も正しい分母で作れない。
         treasury_shares=to_float(

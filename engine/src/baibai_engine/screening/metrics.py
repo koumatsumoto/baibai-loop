@@ -34,11 +34,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, timedelta
+from enum import Enum
 from itertools import pairwise
-from math import isfinite, sqrt
+from math import exp, isclose, isfinite, log, sqrt
 from statistics import fmean, mean, median
 
-from baibai_engine.market.bars import asof_basis_closes
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
 
 from .margin_metrics import margin_supply_demand
 from .providers.edinet import EdinetMetricRecord
@@ -69,8 +70,9 @@ MIN_SECTOR_MEDIAN_POPULATION = 10
 # 式・資本分母・価格基準の意味を変える変更ではこの値を進め、旧 cache を再利用しない。
 # 現行の方式: trailing 系も純資産倍率も円の総額で組み、価格側の量は自己株控除後の資本で
 # 割る。純資産は普通株主に帰属する側を採り、円経路と 1 株当たり経路が食い違う会社では
-# 後者を使う。
-VALUATION_CALCULATION_REVISION = "yen-multiples-common-equity-v3"
+# 後者を使う。株式基準は行ごとに決め、期末と開示日の間に権利落ちがある行は申告基準を
+# 判定してから換算し、判定できない行は株数と per-share を答えない。
+VALUATION_CALCULATION_REVISION = "capital-equity-action-basis-v19"
 
 # 自己レンジ / sigma gap が前提にする約 3 年の価格履歴窓(暦日)。listing 起点の
 # short_history_flag では検出できない「上場は古いが bar 履歴に長期ギャップがある」
@@ -124,6 +126,24 @@ class ShareholderReturnChangeSignals:
     shareholder_return_change: bool | None
 
 
+@dataclass(frozen=True, slots=True)
+class _CapitalBasisResolution:
+    """時価総額に使える、同じ資本状態に属する発行済・自己株式数。"""
+
+    issued: float | None
+    treasury: float | None
+    shares_ex_treasury: float | None
+    failure_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedSummaryResult:
+    """As-of-basis rows plus the newest point across which share facts cannot carry."""
+
+    summaries: Sequence[JQuantsFinancialSummary]
+    capital_basis_barrier: _AccountingObservationKey | None
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NormalizedProfitSignals:
     """Split-safe multi-FY earnings facts used only by calibration."""
@@ -139,6 +159,157 @@ class ProfitabilityLevelSignals:
     operating_profit_to_assets: float | None
     operating_margin: float | None
     asset_turnover: float | None
+
+
+def _accounting_period_end(summary: JQuantsFinancialSummary) -> date:
+    """Comparable end of the actual accounting period represented by a row.
+
+    A reported end after the disclosure cannot establish chronology beyond the
+    observation date.  Such rows still carry usable actual facts, so order them by
+    disclosure date rather than discarding them or letting the future date outrank a
+    later valid quarter.  Missing period identity remains least-preferred because a
+    delayed correction cannot then be distinguished from current actuals.
+    """
+
+    reported_end = summary.period_end or summary.fiscal_year_end
+    if reported_end is None:
+        return date.min
+    if reported_end > summary.disclosed_at:
+        return summary.disclosed_at
+    if summary.period_start is not None and summary.period_start > reported_end:
+        return summary.disclosed_at
+    return reported_end
+
+
+_AccountingObservationKey = tuple[date, int, date, date, int, date]
+_FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
+
+
+def _accounting_observation_key(
+    summary: JQuantsFinancialSummary,
+) -> _AccountingObservationKey:
+    """Period-first order for actual facts and capital state.
+
+    A delayed correction may be disclosed after the current quarter while describing
+    an older period.  A valid completed-period end therefore precedes accounting labels
+    and source revision order in this key.  A future reported period uses only its
+    period-start lower bound; an inverted period has no chronology authority.  This
+    preserves a lone future-labelled actual observation, prevents a malformed Q1 from
+    replacing a valid Q2, and lets a completed short fiscal year outrank an earlier
+    quarter whose nominal fiscal-year end happens to be later.
+    """
+
+    reported_end = summary.period_end or summary.fiscal_year_end
+    completed = (
+        reported_end
+        if reported_end is not None
+        and reported_end <= summary.disclosed_at
+        and (summary.period_start is None or summary.period_start <= reported_end)
+        else None
+    )
+    chronology = completed or (
+        summary.period_start
+        if reported_end is not None
+        and reported_end > summary.disclosed_at
+        and summary.period_start is not None
+        else date.min
+    )
+    period_order = _FISCAL_PERIOD_ORDER.get(summary.fiscal_period or "", 0)
+    return (
+        chronology,
+        int(completed is not None),
+        summary.fiscal_year_end or date.min,
+        summary.period_start or date.min,
+        period_order,
+        summary.disclosed_at,
+    )
+
+
+_ACTUAL_ANCHOR_FIELDS = (
+    "sales",
+    "cfo",
+    "cash_eq",
+    "total_assets",
+    "equity",
+    "operating_profit",
+    "ordinary_profit",
+    "profit",
+    "eps_ttm",
+    "bps",
+    "shares_outstanding",
+    "treasury_shares",
+    "equity_to_asset_ratio",
+    "dps_actual_annual",
+    "average_shares",
+)
+
+
+def _actual_rows(
+    summaries: Sequence[JQuantsFinancialSummary],
+) -> list[JQuantsFinancialSummary]:
+    return [
+        summary
+        for summary in summaries
+        if any(getattr(summary, field_name) is not None for field_name in _ACTUAL_ANCHOR_FIELDS)
+    ]
+
+
+def _latest_actual_row(
+    summaries: Sequence[JQuantsFinancialSummary],
+    *,
+    field_names: Sequence[str] = (),
+) -> JQuantsFinancialSummary | None:
+    required = tuple(field_names) or _ACTUAL_ANCHOR_FIELDS
+    candidates = [
+        summary
+        for summary in summaries
+        if (
+            all(getattr(summary, field_name) is not None for field_name in required)
+            if field_names
+            else any(getattr(summary, field_name) is not None for field_name in required)
+        )
+    ]
+    return max(candidates, key=_accounting_observation_key, default=None)
+
+
+def _latest_actual_row_with_any(
+    summaries: Sequence[JQuantsFinancialSummary],
+    field_names: Sequence[str],
+) -> JQuantsFinancialSummary | None:
+    candidates = [
+        summary
+        for summary in summaries
+        if any(getattr(summary, field_name) is not None for field_name in field_names)
+    ]
+    return max(candidates, key=_accounting_observation_key, default=None)
+
+
+def _latest_actual_row_by_field_priority(
+    summaries: Sequence[JQuantsFinancialSummary],
+    field_names: Sequence[str],
+) -> JQuantsFinancialSummary | None:
+    """Pick the preferred non-null metric without leaving the latest accounting period.
+
+    Actual corrections may update only a subset of a statement.  The newest row for a
+    period therefore cannot make a more specific metric from an earlier revision of the
+    same period disappear, but a metric from an older period must not replace a less
+    specific metric observed in the current period.
+    """
+
+    latest = _latest_actual_row_with_any(summaries, field_names)
+    if latest is None:
+        return None
+    period_key = _accounting_observation_key(latest)[:-1]
+    for field_name in field_names:
+        candidates = [
+            summary
+            for summary in summaries
+            if _accounting_observation_key(summary)[:-1] == period_key
+            and getattr(summary, field_name) is not None
+        ]
+        if candidates:
+            return max(candidates, key=_accounting_observation_key)
+    return None
 
 
 def build_profitability_level_signals(
@@ -172,7 +343,7 @@ def build_profitability_level_signals(
 
 def build_normalized_profit_signals(
     summaries: Sequence[JQuantsFinancialSummary],
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     asof_date: date,
     *,
     close: float | None,
@@ -219,6 +390,10 @@ def build_metrics(
     margin_latest: Mapping[str, JQuantsWeeklyMargin] | None = None,
     margin_prior_26w: Mapping[str, JQuantsWeeklyMargin] | None = None,
     valuation_history_sessions: int = VALUATION_HISTORY_SESSIONS,
+    adjustment_events_by_ticker: Mapping[
+        str, Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar]
+    ]
+    | None = None,
 ) -> MetricBuildResult:
     """Build per-ticker financial and derived metrics for the screen scope.
 
@@ -243,27 +418,36 @@ def build_metrics(
         latest_bar = _latest_bar_on_or_before(bars_by_ticker.get(ticker, ()), asof_date)
         if latest_bar is None:
             continue
-        latest_prices[ticker] = latest_bar.close
         ticker_bars = bars_by_ticker.get(ticker, ())
+        adjustment_events = (
+            adjustment_events_by_ticker.get(ticker, ())
+            if adjustment_events_by_ticker is not None
+            else ticker_bars
+        )
+        latest_price = asof_basis_closes([latest_bar], adjustment_events, asof_date=asof_date)[0]
+        latest_prices[ticker] = latest_price
         # bar は `_latest_bar_on_or_before` が asof で切る。開示行も同じ場所で切る。
         # 較正リプレイは過去の断面を作り直すので、asof より後の開示が 1 行混ざると
         # 「発表前の決算で割安に見える」行ができ、測ったすべての予測力が偽になる。
         # 呼び出し側が窓で切っている前提を置かない (本 module の他の 3 つの入口も
         # 同じ規律で自分で切っている)。
+        normalization = _normalize_summaries_with_status(
+            [
+                summary
+                for summary in summaries_by_ticker.get(ticker, ())
+                if summary.disclosed_at <= asof_date
+            ],
+            adjustment_events,
+            asof_date,
+        )
         financials[ticker] = _build_financial_snapshot(
-            latest_price=latest_bar.close,
-            summaries=_normalize_summaries_to_asof_basis(
-                [
-                    summary
-                    for summary in summaries_by_ticker.get(ticker, ())
-                    if summary.disclosed_at <= asof_date
-                ],
-                ticker_bars,
-                asof_date,
-            ),
+            latest_price=latest_price,
+            summaries=normalization.summaries,
             edinet=edinet_by_ticker.get(ticker),
             rules=rules,
             ticker_bars=ticker_bars,
+            adjustment_events=adjustment_events,
+            capital_basis_barrier=normalization.capital_basis_barrier,
             asof_date=asof_date,
         )
 
@@ -295,7 +479,18 @@ def build_metrics(
     sector_returns: dict[str, list[float]] = {}
     ticker_returns_4w: dict[str, float] = {}
     for ticker, security in securities_by_ticker.items():
-        four_week = _price_change(bars_by_ticker.get(ticker, ()), 20, asof_date)
+        ticker_bars = bars_by_ticker.get(ticker, ())
+        adjustment_events = (
+            adjustment_events_by_ticker.get(ticker, ())
+            if adjustment_events_by_ticker is not None
+            else ticker_bars
+        )
+        four_week = _price_change(
+            ticker_bars,
+            20,
+            asof_date,
+            adjustment_events=adjustment_events,
+        )
         if four_week is not None:
             ticker_returns_4w[ticker] = four_week
             if _in_population(ticker):
@@ -330,11 +525,17 @@ def build_metrics(
     for ticker, snapshot in financials.items():
         sector = securities_by_ticker[ticker].sector_33
         ticker_bars = bars_by_ticker.get(ticker, ())
+        adjustment_events = (
+            adjustment_events_by_ticker.get(ticker, ())
+            if adjustment_events_by_ticker is not None
+            else ticker_bars
+        )
         valuation_history = _valuation_history(
             latest_prices[ticker],
             ticker_bars,
             snapshot,
             asof_date,
+            adjustment_events=adjustment_events,
             history_sessions=valuation_history_sessions,
         )
         sector_gaps: dict[str, float | None] = {}
@@ -386,12 +587,24 @@ def build_metrics(
             sector_median_basis=sector_bases,
             self_range_percentile=self_percentiles,
             self_range_median=self_medians,
-            price_change_1d=_price_change(ticker_bars, 1, asof_date),
-            price_change_5d=_price_change(ticker_bars, 5, asof_date),
-            price_change_20d=_price_change(ticker_bars, 20, asof_date),
-            price_change_60d=_price_change(ticker_bars, 60, asof_date),
-            realized_volatility_60d=_realized_volatility(ticker_bars, 60, asof_date),
-            gap_from_52w_low=_gap_from_low(ticker_bars, 252, asof_date),
+            price_change_1d=_price_change(
+                ticker_bars, 1, asof_date, adjustment_events=adjustment_events
+            ),
+            price_change_5d=_price_change(
+                ticker_bars, 5, asof_date, adjustment_events=adjustment_events
+            ),
+            price_change_20d=_price_change(
+                ticker_bars, 20, asof_date, adjustment_events=adjustment_events
+            ),
+            price_change_60d=_price_change(
+                ticker_bars, 60, asof_date, adjustment_events=adjustment_events
+            ),
+            realized_volatility_60d=_realized_volatility(
+                ticker_bars, 60, asof_date, adjustment_events=adjustment_events
+            ),
+            gap_from_52w_low=_gap_from_low(
+                ticker_bars, 252, asof_date, adjustment_events=adjustment_events
+            ),
             turnover_spike_5d=_turnover_spike(ticker_bars, asof_date),
             sigma_gap=sigma_gaps,
             sector_relative_strength_4w=sector_rs.get(sector),
@@ -399,7 +612,12 @@ def build_metrics(
             ticker_return_4w=ticker_returns_4w.get(ticker),
             sector_return_4w=mean(sector_returns[sector]) if sector in sector_returns else None,
             short_history_flag=listing_span_days < PRICE_HISTORY_WINDOW_DAYS,
-            split_adjustment_flag=_has_split_adjustment_within_sessions(ticker_bars, asof_date, 60),
+            split_adjustment_flag=_has_split_adjustment_within_sessions(
+                ticker_bars,
+                asof_date,
+                60,
+                adjustment_events=adjustment_events,
+            ),
             **asdict(
                 margin_supply_demand(
                     latest=(margin_latest or {}).get(ticker),
@@ -407,10 +625,16 @@ def build_metrics(
                     avg_daily_volume_shares=_avg_daily_volume(ticker_bars, asof_date),
                     shares_outstanding=snapshot.shares_outstanding,
                     split_within_adv_window=_has_split_adjustment_within_sessions(
-                        ticker_bars, asof_date, AVG_VOLUME_SESSIONS
+                        ticker_bars,
+                        asof_date,
+                        AVG_VOLUME_SESSIONS,
+                        adjustment_events=adjustment_events,
                     ),
                     split_within_delta_window=_has_split_adjustment_within_sessions(
-                        ticker_bars, asof_date, MARGIN_DELTA_SESSIONS
+                        ticker_bars,
+                        asof_date,
+                        MARGIN_DELTA_SESSIONS,
+                        adjustment_events=adjustment_events,
                     ),
                 )
             ),
@@ -439,7 +663,7 @@ def build_metrics(
 
 
 def _cumulative_adjustment_factor_after(
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     after: date,
     asof_date: date,
     *,
@@ -465,9 +689,155 @@ def _cumulative_adjustment_factor_after(
     return factor
 
 
+class _ShareBasis(Enum):
+    """開示行が申告している株式基準。
+
+    期末と開示日の間に権利落ちがある行は、提出者によって期末基準のままのものと分割を
+    遡及適用したものに割れる。どちらかで換算の要否が逆になるので、行ごとに決める。
+    """
+
+    AS_OF_PERIOD_END = "as_of_period_end"
+    AS_OF_DISCLOSURE = "as_of_disclosure"
+    INDETERMINATE = "indeterminate"
+
+
+def _closer_share_basis(ratio: float, interim: float) -> _ShareBasis:
+    """株数比を、分割前基準と分割後基準のどちらに寄せるか。
+
+    2 つの仮説は `1/interim` 倍 (実データで 1.3〜10 倍) 離れており、その間に乗るのは
+    実際の増減資である。増減資は普通この間隔よりずっと小さいので、**対数空間で近い方の
+    極へ寄せ、どちらの極からも幾何中点より遠いときだけ答えない**。固定幅の帯は極の間隔を
+    無視するため、分割と同時に数 % の増資があった行 (7066 は比 2.048 / 期待 2.0) を
+    分けられなくなる。
+    """
+
+    if ratio <= 0 or interim <= 0:
+        return _ShareBasis.INDETERMINATE
+    separation = abs(log(1.0 / interim))
+    if separation == 0.0:
+        return _ShareBasis.INDETERMINATE
+    to_period_end = abs(log(ratio))
+    to_disclosure = abs(log(ratio * interim))
+    nearest = min(to_period_end, to_disclosure)
+    # 幾何中点より遠い比は、どちらの極から見ても説明が付かない。分割が小さいほど極が
+    # 近いので、この条件だけが効く場面がある (1.3 倍の分割では残差 14% で中点に届く)。
+    if nearest > separation / 2.0:
+        return _ShareBasis.INDETERMINATE
+    # 極に寄せたあとに残る株数変化。実データではここが 12.4% までと 29.3% からに分かれ、
+    # 間の 17pt は空である。空白の中央で切り、残差の大きい行は答えない — 分割と同時に
+    # 大きな増減資があった行は、どちらの仮説を採っても株数が数倍ずれうる (6628 は
+    # 1:5 併合と増資が重なり、比 0.51 が対数上は分割前基準に近く見える)。
+    if abs(exp(-nearest) - 1.0) > _SPLIT_RESIDUAL_SHARE_CHANGE_LIMIT:
+        return _ShareBasis.INDETERMINATE
+    return (
+        _ShareBasis.AS_OF_PERIOD_END
+        if to_period_end <= to_disclosure
+        else _ShareBasis.AS_OF_DISCLOSURE
+    )
+
+
+# 極へ寄せたあとに残ってよい株数変化。実測の空白 (12.4% / 29.3%) の中央に置く。
+_SPLIT_RESIDUAL_SHARE_CHANGE_LIMIT = 0.20
+
+
+def _interim_split_basis(
+    summaries: Sequence[JQuantsFinancialSummary],
+    index: int,
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+) -> tuple[float, _ShareBasis]:
+    """期末と開示日の間の権利落ちの累積と、その行が申告している株式基準。
+
+    権利落ちが無ければ換算は 1.0 で、基準を問う必要も無い。あるときは **権利落ち日以前に
+    開示された最新行** の as-reported 株数と比べる。その行は分割より前に公表されているので
+    必ず分割前基準にある。比が 1 ならこの行も分割前基準 (=期末基準) のまま公表されており、
+    `1/factor` なら提出者が分割を遡及適用している。
+
+    参照を「直前の行」にすると、訂正開示のように同じ値を持つ行が並んだ場合に基準の未確定な
+    行と比べることになり、比 1.0 が「前行と同じ」ではなく「基準が同じ」と読めてしまう。
+    """
+
+    summary = summaries[index]
+    period_end = summary.period_end
+    if period_end is None:
+        return 1.0, _ShareBasis.AS_OF_DISCLOSURE
+    interim = 1.0
+    first_ex: date | None = None
+    for bar in ticker_bars:
+        if not (period_end < bar.traded_at < summary.disclosed_at):
+            continue
+        if bar.adjustment_factor in (None, 0.0, 1.0):
+            continue
+        assert bar.adjustment_factor is not None
+        interim *= bar.adjustment_factor
+        if first_ex is None or bar.traded_at < first_ex:
+            first_ex = bar.traded_at
+    if interim in (0.0, 1.0) or first_ex is None:
+        return 1.0, _ShareBasis.AS_OF_DISCLOSURE
+
+    def classify(field_name: str) -> _ShareBasis:
+        current = getattr(summary, field_name)
+        previous_row = next(
+            (
+                row
+                for row in reversed(summaries[:index])
+                if (value := getattr(row, field_name)) is not None
+                and value > 0
+                and row.disclosed_at < first_ex
+            ),
+            None,
+        )
+        if current is None or current <= 0 or previous_row is None:
+            return _ShareBasis.INDETERMINATE
+        previous = getattr(previous_row, field_name)
+        assert previous is not None
+        # 比較元の開示後から現在行の期末までに別の corporate action がある場合、生の株数は
+        # 現在行の期末基準ではない。先に同じ基準へ移さないと、連続した分割・併合をすべて
+        # 今回の interim action の差と誤認する。開示日当日の権利落ちは開示行の正規化と同じ
+        # 契約で数える。
+        previous_to_period_end = _cumulative_adjustment_factor_after(
+            ticker_bars,
+            previous_row.disclosed_at,
+            period_end,
+            include_boundary_day=True,
+        )
+        if previous_to_period_end <= 0:
+            return _ShareBasis.INDETERMINATE
+        previous_on_period_end_basis = previous / previous_to_period_end
+        return _closer_share_basis(current / previous_on_period_end_basis, interim)
+
+    issued_basis = classify("shares_outstanding")
+    if issued_basis is not _ShareBasis.INDETERMINATE:
+        return interim, issued_basis
+    # AvgSh は期中平均でありgross issuedの値としては使えないが、同じ開示のper-share値と
+    # どちらのsplit basisを共有するかを判定する独立anchorにはなる。確定できる場合だけ
+    # classifierを補い、正規化後のcapital値は引き続きShOutFY/TrShFYから作る。
+    return interim, classify("average_shares")
+
+
+def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSummary:
+    """株式基準を決められなかった行から、基準に依存する量を落とす。
+
+    円の総額 (総資産・売上・利益) は基準に依存しないので残す。株数と per-share は
+    どちらの基準か分からないまま価格と組むと時価総額が分割比だけずれるので答えない。
+    時価総額が出ない銘柄は母集団に入らない。
+    """
+
+    return replace(
+        summary,
+        eps_ttm=None,
+        forecast_eps=None,
+        bps=None,
+        dps_actual_annual=None,
+        dps_forecast_annual=None,
+        shares_outstanding=None,
+        average_shares=None,
+        treasury_shares=None,
+    )
+
+
 def _normalize_summaries_to_asof_basis(
     summaries: Sequence[JQuantsFinancialSummary],
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     asof_date: date,
 ) -> Sequence[JQuantsFinancialSummary]:
     """financial summary 行の per-share 値と株数を asof 時点の株式基準へ換算する。
@@ -484,18 +854,41 @@ def _normalize_summaries_to_asof_basis(
     落とす (偽の per_forward を出さない。split_adjustment_recent risk tag が
     research の手動検算へ誘導する)。
     """
+    return _normalize_summaries_with_status(summaries, ticker_bars, asof_date).summaries
+
+
+def _normalize_summaries_with_status(
+    summaries: Sequence[JQuantsFinancialSummary],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    asof_date: date,
+) -> _NormalizedSummaryResult:
+    """Normalize rows while preserving an explicit fail-close capital carry barrier."""
+
     has_adjustment = any(
         bar.adjustment_factor not in (None, 0.0, 1.0)
         for bar in ticker_bars
         if bar.traded_at <= asof_date
     )
     if not has_adjustment:
-        return summaries
+        return _NormalizedSummaryResult(summaries=summaries, capital_basis_barrier=None)
     normalized: list[JQuantsFinancialSummary] = []
-    for summary in summaries:
+    capital_basis_barrier: _AccountingObservationKey | None = None
+    for index, summary in enumerate(summaries):
         factor = _cumulative_adjustment_factor_after(
             ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
         )
+        interim, basis = _interim_split_basis(summaries, index, ticker_bars)
+        if basis is _ShareBasis.INDETERMINATE:
+            normalized.append(_without_share_basis(summary))
+            observation_key = _accounting_observation_key(summary)
+            if (summary.shares_outstanding is not None or summary.treasury_shares is not None) and (
+                capital_basis_barrier is None or observation_key > capital_basis_barrier
+            ):
+                capital_basis_barrier = observation_key
+            continue
+        if basis is _ShareBasis.AS_OF_PERIOD_END:
+            # 期末基準のまま公表された行なので、期末と開示日の間の権利落ちも数える。
+            factor *= interim
         if factor <= 0 or factor == 1.0:
             normalized.append(summary)
             continue
@@ -534,31 +927,192 @@ def _normalize_summaries_to_asof_basis(
                 ),
             )
         )
-    return normalized
+    return _NormalizedSummaryResult(
+        summaries=normalized,
+        capital_basis_barrier=capital_basis_barrier,
+    )
+
+
+def _latest_non_null_row(
+    summaries: Sequence[JQuantsFinancialSummary], field_name: str
+) -> JQuantsFinancialSummary | None:
+    """指定 field を観測した最新行を返す。値だけでなく資本状態の出所行を保持する。"""
+
+    return _latest_actual_row(summaries, field_names=(field_name,))
+
+
+def _latest_complete_row(
+    summaries: Sequence[JQuantsFinancialSummary], field_names: Sequence[str]
+) -> JQuantsFinancialSummary | None:
+    """指定した値を同時に観測した最新行を返す。"""
+
+    return _latest_actual_row(summaries, field_names=field_names)
+
+
+def _issued_matches_average_alias(
+    summary: JQuantsFinancialSummary,
+    treasury: float,
+    summaries: Sequence[JQuantsFinancialSummary],
+) -> bool:
+    """Identify a stored AvgSh fallback only when an earlier gross issue count proves it."""
+
+    issued = summary.shares_outstanding
+    average = summary.average_shares
+    if issued is None or average is None or treasury <= 0:
+        return False
+    if not isclose(issued, average, rel_tol=1e-12, abs_tol=1e-6):
+        return False
+    reconstructed_gross = issued + treasury
+    source_key = _accounting_observation_key(summary)
+    return any(
+        row.shares_outstanding is not None
+        and _accounting_observation_key(row) < source_key
+        and isclose(
+            reconstructed_gross,
+            row.shares_outstanding,
+            rel_tol=1e-12,
+            abs_tol=1e-6,
+        )
+        for row in summaries
+    )
+
+
+def _resolve_capital_basis(
+    summaries: Sequence[JQuantsFinancialSummary],
+    *,
+    capital_basis_barrier: _AccountingObservationKey | None = None,
+) -> _CapitalBasisResolution:
+    """発行済と自己株式を、両方が成立する資本状態でだけ組み合わせる。
+
+    自己株式0株がJ-Quantsで欠損値になる行があるため、正の自己株式を観測した後に発行済株式を
+    持つ新しい行が自己株式を欠く場合、旧自己株式が現在状態でも有効か判別できない。
+    自己株式の消却、処分、新株発行と処分の同時実施を区別できないので、新しい自己株式を
+    観測するまで旧正値をcarryせずfail closedにする。自己株式0株は二重控除を起こさない
+    ため、明示的な0観測は通常どおりcarryできる。
+
+    `AvgSh` は EPS の期中平均株式数であり、発行済株式総数ではない。発行済と期中平均が
+    同値で、さらに自己株式を足すと過去に観測した gross issued へ戻る場合、入力の発行済欄へ
+    期中平均がfallbackしたと識別できるので答えない。単なる同値は1Qの正常行にもあるため
+    failureにはしない。ingestも`ShOutFY`だけを発行済株式総数として保存する。
+    """
+
+    actual_rows = _actual_rows(summaries)
+    capital_rows = (
+        [row for row in actual_rows if _accounting_observation_key(row) > capital_basis_barrier]
+        if capital_basis_barrier is not None
+        else actual_rows
+    )
+    issued_row = _latest_non_null_row(capital_rows, "shares_outstanding")
+    treasury_row = _latest_non_null_row(capital_rows, "treasury_shares")
+    issued = issued_row.shares_outstanding if issued_row is not None else None
+    treasury = treasury_row.treasury_shares if treasury_row is not None else None
+    if issued is None or treasury is None:
+        return _CapitalBasisResolution(
+            issued=issued,
+            treasury=treasury,
+            shares_ex_treasury=None,
+            failure_reason=(
+                "indeterminate_share_basis" if capital_basis_barrier is not None else None
+            ),
+        )
+    if issued <= 0 or treasury < 0 or issued <= treasury:
+        return _CapitalBasisResolution(
+            issued=issued,
+            treasury=treasury,
+            shares_ex_treasury=None,
+            failure_reason="invalid_issued_or_treasury_shares",
+        )
+
+    if issued_row is not None and treasury_row is not None:
+        issued_source_key = _accounting_observation_key(issued_row)
+        treasury_source_key = _accounting_observation_key(treasury_row)
+        if issued_source_key != treasury_source_key and treasury > 0:
+            issued_at_treasury = treasury_row.shares_outstanding
+            if issued_at_treasury is None:
+                return _CapitalBasisResolution(
+                    issued=issued,
+                    treasury=treasury,
+                    shares_ex_treasury=None,
+                    failure_reason="treasury_observation_without_issued_basis",
+                )
+            if issued_at_treasury <= 0 or issued_at_treasury <= treasury:
+                return _CapitalBasisResolution(
+                    issued=issued,
+                    treasury=treasury,
+                    shares_ex_treasury=None,
+                    failure_reason="invalid_treasury_source_capital_basis",
+                )
+            if _accounting_observation_key(issued_row) > _accounting_observation_key(treasury_row):
+                return _CapitalBasisResolution(
+                    issued=issued,
+                    treasury=treasury,
+                    shares_ex_treasury=None,
+                    failure_reason=(
+                        "indeterminate_positive_treasury_after_later_issued_observation"
+                    ),
+                )
+
+        if _issued_matches_average_alias(issued_row, treasury, capital_rows):
+            return _CapitalBasisResolution(
+                issued=issued,
+                treasury=treasury,
+                shares_ex_treasury=None,
+                failure_reason="issued_matches_average_with_positive_treasury",
+            )
+
+    return _CapitalBasisResolution(
+        issued=issued,
+        treasury=treasury,
+        shares_ex_treasury=_shares_excluding_treasury(issued, treasury),
+        failure_reason=None,
+    )
 
 
 def build_shares_outstanding_index(
     summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
     bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
     asof_date: date,
+    *,
+    adjustment_events_by_ticker: Mapping[
+        str, Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar]
+    ]
+    | None = None,
 ) -> dict[str, float | None]:
     """Shares the market can price: issued less treasury, on the as-of split basis.
 
     universe の時価総額はこの index から作られ、流動性 gate (100 億円) の分母になる。
     `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
     2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
-    直近の非 null 行から carry-forward する。
+    直近の非 null 行から carry-forward する。ただし正の自己株式より後に発行済だけを
+    再観測した状態や、期中平均株式数と区別できない発行済は同じ資本状態と確認できないため、
+    時価総額を答えない。
     """
     shares: dict[str, float | None] = {}
     for ticker, summaries in summaries_by_ticker.items():
-        normalized = _normalize_summaries_to_asof_basis(
-            summaries, bars_by_ticker.get(ticker, ()), asof_date
+        available = [row for row in summaries if row.disclosed_at <= asof_date]
+        ticker_bars = bars_by_ticker.get(ticker, ())
+        adjustment_events = (
+            adjustment_events_by_ticker.get(ticker, ())
+            if adjustment_events_by_ticker is not None
+            else ticker_bars
         )
-        latest = _latest_summary(normalized)
-        issued, _ = _carry_forward(normalized, "shares_outstanding", latest)
-        treasury, _ = _carry_forward(normalized, "treasury_shares", latest)
-        shares[ticker] = _shares_excluding_treasury(issued, treasury)
+        normalized = _normalize_summaries_with_status(available, adjustment_events, asof_date)
+        shares[ticker] = _resolve_capital_basis(
+            normalized.summaries,
+            capital_basis_barrier=normalized.capital_basis_barrier,
+        ).shares_ex_treasury
     return shares
+
+
+def group_adjustment_events_by_ticker(
+    events: Sequence[JQuantsAdjustmentFactorEvent],
+) -> dict[str, list[JQuantsAdjustmentFactorEvent]]:
+    grouped: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
+    for event in events:
+        grouped.setdefault(event.ticker, []).append(event)
+    for ticker in grouped:
+        grouped[ticker].sort(key=lambda item: item.traded_at)
+    return grouped
 
 
 def group_bars_by_ticker(bars: Sequence[JQuantsDailyBar]) -> dict[str, list[JQuantsDailyBar]]:
@@ -590,12 +1144,83 @@ class _DividendCarry:
     split_factor: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class _EarningsForecast:
+    """One target-period earnings forecast resolved from ordered source documents."""
+
+    target_period_end: date
+    source: JQuantsFinancialSummary
+    eps: float | None
+    profit: float | None
+    ordinary_profit: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class _DividendForecast:
+    """One target-period annual dividend forecast and its source document."""
+
+    target_period_end: date
+    source: JQuantsFinancialSummary
+    annual_dps: float | None
+
+
+def _forecast_anchor(latest_actual: JQuantsFinancialSummary | None) -> date:
+    return _accounting_period_end(latest_actual) if latest_actual is not None else date.min
+
+
+def _resolve_earnings_forecast(
+    summaries: Sequence[JQuantsFinancialSummary],
+    latest_actual: JQuantsFinancialSummary | None,
+) -> _EarningsForecast | None:
+    """Resolve the selected forecast under the persisted date-only v23 contract.
+
+    The store does not retain document identity or current/next target metadata.  The
+    newest persisted row is therefore the only state that both direct and SQLite paths
+    can reproduce.  Period-aware composition needs a lossless source shape and is not
+    inferred from the collapsed row.
+    """
+
+    del latest_actual
+    source = summaries[-1] if summaries else None
+    if source is None:
+        return None
+    return _EarningsForecast(
+        target_period_end=date.max,
+        source=source,
+        eps=source.forecast_eps,
+        profit=source.forecast_profit,
+        ordinary_profit=source.forecast_ordinary_profit,
+    )
+
+
+def _resolve_dividend_forecast(
+    summaries: Sequence[JQuantsFinancialSummary],
+    latest_actual: JQuantsFinancialSummary | None,
+) -> _DividendForecast | None:
+    """Resolve annual DPS without carrying a forecast behind the latest actual DPS."""
+
+    del latest_actual
+    actual_dates = [row.disclosed_at for row in summaries if row.dps_actual_annual is not None]
+    threshold = max(actual_dates, default=None)
+    for source in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
+        if threshold is not None and source.disclosed_at < threshold:
+            return None
+        value = source.dps_forecast_annual
+        if value is not None and value >= 0:
+            return _DividendForecast(
+                target_period_end=date.max,
+                source=source,
+                annual_dps=value,
+            )
+    return None
+
+
 def _actual_dps_rows(
     summaries: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
     return [
         summary
-        for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True)
+        for summary in sorted(summaries, key=_accounting_observation_key, reverse=True)
         if summary.dps_actual_annual is not None
     ]
 
@@ -650,7 +1275,7 @@ def _dividend_accrual_start(row: JQuantsFinancialSummary) -> date:
 
 
 def _dividend_basis_factor(
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     *,
     accrual_start: date,
     disclosed_at: date,
@@ -693,7 +1318,7 @@ def _shares_for_per_share(row: JQuantsFinancialSummary) -> float | None:
 
 def _asof_basis_dividend(
     row: JQuantsFinancialSummary,
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     *,
     asof_date: date,
 ) -> float | None:
@@ -763,7 +1388,7 @@ def _asof_basis_dividend(
 
 def _resolve_dividend_carry(
     summaries: Sequence[JQuantsFinancialSummary],
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     latest_price: float,
     asof_date: date,
 ) -> _DividendCarry:
@@ -781,9 +1406,9 @@ def _resolve_dividend_carry(
     付き、E[r] の reversion 上限 (5%/年) を単独で超える carry を作る。
     """
     actual_rows = _actual_dps_rows(summaries)
-    forecast = _latest_forecast_not_before(
-        summaries, actual_rows[0].disclosed_at if actual_rows else None
-    )
+    latest_actual = _latest_summary(summaries)
+    forecast_state = _resolve_dividend_forecast(summaries, latest_actual)
+    forecast = forecast_state.annual_dps if forecast_state is not None else None
     basis_factor = 1.0
     actual_annual: float | None = None
     if actual_rows:
@@ -838,7 +1463,7 @@ def _resolve_dividend_carry(
 
 def build_shareholder_return_change_signals(
     summaries: Sequence[JQuantsFinancialSummary],
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     asof_date: date,
 ) -> ShareholderReturnChangeSignals:
     """Build preregistered shareholder-return change facts for calibration.
@@ -879,9 +1504,8 @@ def build_shareholder_return_change_signals(
         latest_actual = dps_values[latest_actual_row.fiscal_year_end]
     else:
         latest_actual = None
-    forecast = _latest_forecast_not_before(
-        normalized, latest_actual_row.disclosed_at if latest_actual_row else None
-    )
+    forecast_state = _resolve_dividend_forecast(normalized, _latest_summary(normalized))
+    forecast = forecast_state.annual_dps if forecast_state is not None else None
     dps_guidance_up = (
         forecast > latest_actual if forecast is not None and latest_actual is not None else None
     )
@@ -897,6 +1521,10 @@ def build_shareholder_return_change_signals(
         if row.fiscal_year_end is not None
         and row.shares_outstanding is not None
         and row.shares_outstanding > 0
+        and not (
+            row.treasury_shares is not None
+            and _issued_matches_average_alias(row, row.treasury_shares, normalized)
+        )
     }
     latest_share_three = _latest_consecutive_values(fy_rows, share_values, count=3)
     share_count_reduction_streak: int | None = None
@@ -945,7 +1573,7 @@ def _latest_fy_revisions(
 
 def _asof_basis_fy_dps(
     fy_rows: Sequence[JQuantsFinancialSummary],
-    ticker_bars: Sequence[JQuantsDailyBar],
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     *,
     asof_date: date,
 ) -> dict[date, float]:
@@ -1007,25 +1635,6 @@ def _latest_row_with_value(
     return row if row.fiscal_year_end is not None and row.fiscal_year_end in values else None
 
 
-def _latest_forecast_not_before(
-    summaries: Sequence[JQuantsFinancialSummary],
-    threshold: date | None,
-) -> float | None:
-    """`threshold` 以降に開示された最新の予想年間 DPS。
-
-    予想は実績より優先するが、優先できるのは実績より新しいときだけである。会社が予想を
-    取り下げた後も過去の予想を引き当て続けると、無配化した会社に当時の配当額の利回りが
-    付く。上書きすべき実績が無いとき (`threshold` が None) は窓内の最新予想を使う。
-    """
-    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
-        if threshold is not None and summary.disclosed_at < threshold:
-            return None
-        value = summary.dps_forecast_annual
-        if value is not None and value >= 0:
-            return value
-    return None
-
-
 def _dividend_initiation(
     *,
     latest_pair: tuple[float, ...] | None,
@@ -1050,16 +1659,18 @@ def _build_financial_snapshot(
     rules: ScreeningRules,
     *,
     ticker_bars: Sequence[JQuantsDailyBar],
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    capital_basis_barrier: _AccountingObservationKey | None,
     asof_date: date,
 ) -> FinancialSnapshot:
     latest = _latest_summary(summaries)
-    prior_year = _prior_year_summary(summaries, rules.ttm)
-    forecast_eps = latest.forecast_eps if latest else None
+    forecast = _resolve_earnings_forecast(summaries, latest)
+    forecast_eps = forecast.eps if forecast is not None else None
     # 会社予想で純利益>経常なら特別益をほぼ確定する 1 行チェック (税負担が通常正)。
     # 純利益/経常は forecast_eps と同一予想期のペアで ingest 済み・分割不変の絶対額なので、
     # 両方揃うときだけ比較する。flag は warning で per_forward / E[r] / rank を変えない。
-    forecast_profit = latest.forecast_profit if latest else None
-    forecast_ordinary_profit = latest.forecast_ordinary_profit if latest else None
+    forecast_profit = forecast.profit if forecast is not None else None
+    forecast_ordinary_profit = forecast.ordinary_profit if forecast is not None else None
     forecast_special_gain_flag = (
         forecast_profit is not None
         and forecast_ordinary_profit is not None
@@ -1079,7 +1690,13 @@ def _build_financial_snapshot(
     # 合成は 1 株当たりでなく円で行う。1 株当たりの各項は自分の期の株数で割られており、
     # 株数が動いた会社では和・差が成立しない (新株発行で株数が倍になった期を跨ぐと、
     # 黒字の会社が赤字に見える)。1 株当たりへの換算は最後に 1 回だけ行う。
-    eps_cumulative = latest.eps_ttm if latest else None
+    eps_row = _latest_actual_row(summaries, field_names=("eps_ttm",))
+    eps_prior = _prior_year_summary(summaries, rules.ttm, field_name="eps_ttm")
+    sales_row = _latest_actual_row(summaries, field_names=("sales",))
+    sales_prior = _prior_year_summary(summaries, rules.ttm, field_name="sales")
+    cfo_row = _latest_actual_row(summaries, field_names=("cfo",))
+    cfo_prior = _prior_year_summary(summaries, rules.ttm, field_name="cfo")
+    eps_cumulative = eps_row.eps_ttm if eps_row else None
     profit_ttm, profit_quality = _ttm_value(summaries, "profit", rules.ttm)
     # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
     # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
@@ -1107,21 +1724,38 @@ def _build_financial_snapshot(
     # 無ければ accrual 期間の分割 factor で調整した実績 DPS を使う。実績 DPS は
     # FY 開示にしか載らないため直近の非 null 行から取り、split-safe 化した値を
     # snapshot の実績 DPS として記録する (株価と同じ分割後基準で表示・比較できる)。
-    dividend = _resolve_dividend_carry(summaries, ticker_bars, latest_price, asof_date)
+    dividend = _resolve_dividend_carry(summaries, adjustment_events, latest_price, asof_date)
     dps_actual_annual = dividend.dps_actual_annual
     dps_forecast_annual = dividend.dps_forecast_annual
     dividend_yield = dividend.dividend_yield
     per_forward = (latest_price / forecast_eps) if forecast_eps and forecast_eps > 0 else None
-    operating_profit, operating_profit_source = _select_operating_profit(latest)
-    operating_profit_prior_year, _ = _select_operating_profit(prior_year)
-    shares_outstanding, _shares_lag = _carry_forward(summaries, "shares_outstanding", latest)
-    treasury_shares, _treasury_lag = _carry_forward(summaries, "treasury_shares", latest)
+    operating_row = _latest_actual_row_by_field_priority(
+        summaries,
+        ("operating_profit", "ordinary_profit", "profit"),
+    )
+    operating_profit, operating_profit_source = _select_operating_profit(operating_row)
+    operating_field = {
+        OperatingProfitSource.OPERATING_PROFIT: "operating_profit",
+        OperatingProfitSource.ORDINARY_PROFIT: "ordinary_profit",
+        OperatingProfitSource.PROFIT: "profit",
+    }.get(operating_profit_source)
+    operating_prior_row = (
+        _prior_year_summary(summaries, rules.ttm, field_name=operating_field)
+        if operating_field is not None
+        else None
+    )
+    operating_profit_prior_year, _ = _select_operating_profit(operating_prior_row)
+    capital_basis = _resolve_capital_basis(
+        summaries,
+        capital_basis_barrier=capital_basis_barrier,
+    )
+    shares_outstanding = capital_basis.issued
     # 時価総額の分母は自己株式を除いた株数である。自己株式は議決権も配当請求権も持たない
     # ので、含めると時価総額が過大になり現金比率・利回りが薄く、倍率が割高に見える。歪みが
     # 最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業で、carry が
     # 上位へ押し上げる群と重なる。自己株式数が観測できない行は時価総額を出さない — 発行済で
     # 代用すると、どれだけ過大かが分からない値が現金比率・利回り・流動性 gate へ入る。
-    shares_ex_treasury = _shares_excluding_treasury(shares_outstanding, treasury_shares)
+    shares_ex_treasury = capital_basis.shares_ex_treasury
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", rules.ttm)
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", rules.ttm)
     # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
@@ -1167,23 +1801,51 @@ def _build_financial_snapshot(
     #
     # 差は会社の資本構成から来るので銘柄ごとに判定できる。両方を持つ直近の行で突き合わせ、
     # 一致する会社だけ円経路の鮮度を使い、食い違う会社は普通株基準の `bps` を使う。
+    # `total_assets` と `equity_to_asset_ratio` は同じ資本状態の組である。一方だけを新しい
+    # 開示から採ると、資産変動率をそのまま自己資本へ混入させるため、両方を観測した最新行
+    # から円経路を組む。個別の carry 値は表示・staleness fact として引き続き保持する。
+    common_equity_row = _latest_complete_row(summaries, ("total_assets", "equity_to_asset_ratio"))
+    bps_row = _latest_non_null_row(summaries, "bps")
+    # 同一状態の円経路へ直しても、その組がより新しい BPS より古ければstaleな資本を
+    # 復活させる。2経路のうち新しい観測を先に選び、同日または円経路が新しい場合だけ
+    # 下の普通株basis一致判定へ進める。
+    use_yen_route = common_equity_row is not None and (
+        bps_row is None
+        or _accounting_observation_key(common_equity_row) >= _accounting_observation_key(bps_row)
+    )
     equity_yen = _common_equity_yen(
         summaries,
-        total_assets=total_assets,
-        equity_to_asset_ratio=equity_to_asset_ratio,
+        total_assets=(
+            common_equity_row.total_assets
+            if common_equity_row is not None and use_yen_route
+            else None
+        ),
+        equity_to_asset_ratio=(
+            common_equity_row.equity_to_asset_ratio
+            if common_equity_row is not None and use_yen_route
+            else None
+        ),
         bps=bps,
         shares_ex_treasury=shares_ex_treasury,
     )
     pbr = _safe_positive_ratio(latest_market_cap, equity_yen)
+    prior_total_assets_row = _prior_year_summary(
+        summaries,
+        rules.ttm,
+        field_name="total_assets",
+    )
     accruals_to_assets = _accruals_to_assets(
         net_income=profit_ttm,
         ocf_ttm=ocf_ttm,
         total_assets=total_assets,
-        prior_total_assets=prior_year.total_assets if prior_year else None,
+        prior_total_assets=(
+            prior_total_assets_row.total_assets if prior_total_assets_row is not None else None
+        ),
     )
+    shares_prior = _prior_year_summary(summaries, rules.ttm, field_name="shares_outstanding")
     net_share_change_yoy = _yoy_ratio(
         shares_outstanding,
-        prior_year.shares_outstanding if prior_year else None,
+        shares_prior.shares_outstanding if shares_prior else None,
     )
     return FinancialSnapshot(
         latest_disclosed_at=latest.disclosed_at if latest else None,
@@ -1202,12 +1864,13 @@ def _build_financial_snapshot(
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
         edinet_ocf_ttm=edinet_ocf_ttm,
-        sales=latest.sales if latest else None,
-        cfo=latest.cfo if latest else None,
+        sales=sales_row.sales if sales_row else None,
+        cfo=cfo_row.cfo if cfo_row else None,
         cash_eq=cash_eq,
         total_assets=total_assets,
         market_price_yen=latest_price,
         shares_ex_treasury=shares_ex_treasury,
+        capital_basis_failure_reason=capital_basis.failure_reason,
         market_cap=latest_market_cap,
         cash_to_market_cap=_safe_ratio(cash_eq, latest_market_cap),
         # 開示された自己資本比率をそのまま使う。`equity` は非支配株主持分を含む純資産なので
@@ -1246,12 +1909,16 @@ def _build_financial_snapshot(
         edinet_failure_reasons=edinet_failure_reasons or None,
         operating_profit=operating_profit,
         operating_profit_source=operating_profit_source,
-        eps_yoy=_yoy_ratio(eps_cumulative, prior_year.eps_ttm if prior_year else None),
+        eps_yoy=_yoy_ratio(eps_cumulative, eps_prior.eps_ttm if eps_prior else None),
         sales_yoy=_yoy_ratio(
-            latest.sales if latest else None, prior_year.sales if prior_year else None
+            sales_row.sales if sales_row else None,
+            sales_prior.sales if sales_prior else None,
         ),
         operating_profit_yoy=_yoy_ratio(operating_profit, operating_profit_prior_year),
-        cfo_yoy=_yoy_ratio(latest.cfo if latest else None, prior_year.cfo if prior_year else None),
+        cfo_yoy=_yoy_ratio(
+            cfo_row.cfo if cfo_row else None,
+            cfo_prior.cfo if cfo_prior else None,
+        ),
         operating_profit_loss_narrowing=_loss_narrowing(
             operating_profit,
             operating_profit_prior_year,
@@ -1292,11 +1959,13 @@ def _carry_forward(
     """
     if latest is None:
         return None, None
-    for summary in sorted(summaries, key=lambda item: item.disclosed_at, reverse=True):
-        value = getattr(summary, field_name)
-        if value is not None:
-            return float(value), (latest.disclosed_at - summary.disclosed_at).days
-    return None, None
+    source = _latest_actual_row(summaries, field_names=(field_name,))
+    if source is None:
+        return None, None
+    value = getattr(source, field_name)
+    assert value is not None
+    lag = max(0, (latest.disclosed_at - source.disclosed_at).days)
+    return float(value), lag
 
 
 def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:
@@ -1306,17 +1975,28 @@ def _latest_summary(summaries: Sequence[JQuantsFinancialSummary]) -> JQuantsFina
 def _prior_year_summary(
     summaries: Sequence[JQuantsFinancialSummary],
     ttm_rules: TTMRules,
+    *,
+    field_name: str | None = None,
 ) -> JQuantsFinancialSummary | None:
     """Return the same fiscal period in the previous fiscal year.
 
     Assumes summaries are ordered oldest-first; revisions of the same fiscal
     period are resolved by taking the most recent occurrence.
     """
-    latest = _latest_summary(summaries)
+    latest = (
+        _latest_actual_row(summaries, field_names=(field_name,))
+        if field_name is not None
+        else _latest_summary(summaries)
+    )
     if latest is None:
         return None
     if latest.period_start is not None and latest.period_end is not None:
-        matched = _matched_prior_period_summary(summaries, latest, ttm_rules)
+        matched = _matched_prior_period_summary(
+            summaries,
+            latest,
+            ttm_rules,
+            field_name=field_name,
+        )
         if matched is not None:
             return matched
     if latest.fiscal_period is None or latest.fiscal_year_end is None:
@@ -1326,11 +2006,12 @@ def _prior_year_summary(
         return None
     candidates = [
         summary
-        for summary in summaries[:-1]
+        for summary in _actual_rows(summaries)
+        if field_name is None or getattr(summary, field_name) is not None
         if summary.fiscal_period == latest.fiscal_period
         and summary.fiscal_year_end == target_fiscal_year_end
     ]
-    return candidates[-1] if candidates else None
+    return max(candidates, key=lambda item: item.disclosed_at, default=None)
 
 
 def _ttm_value(
@@ -1347,7 +2028,12 @@ def _ttm_value(
     if field in _PER_SHARE_FIELDS:
         raise ValueError(f"{field} is per share; compose the yen line and convert once at the end")
     latest = _latest_summary(summaries)
-    if latest is None or latest.period_start is None or latest.period_end is None:
+    if (
+        latest is None
+        or getattr(latest, field) is None
+        or latest.period_start is None
+        or latest.period_end is None
+    ):
         return None, TTMQuality.UNAVAILABLE
     latest_value = getattr(latest, field)
     if latest_value is None:
@@ -1363,7 +2049,12 @@ def _ttm_value(
     if prior_fy_end is None:
         return None, TTMQuality.UNAVAILABLE
     prior_fy = _latest_full_year_summary(summaries, prior_fy_end, field, ttm_rules)
-    prior_same = _matched_prior_period_summary(summaries, latest, ttm_rules)
+    prior_same = _matched_prior_period_summary(
+        summaries,
+        latest,
+        ttm_rules,
+        field_name=field,
+    )
     if prior_fy is None or prior_same is None:
         return None, TTMQuality.UNAVAILABLE
     prior_fy_value = getattr(prior_fy, field)
@@ -1387,13 +2078,15 @@ def _latest_full_year_summary(
         and (days := _period_days(summary)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
     ]
-    return candidates[-1] if candidates else None
+    return max(candidates, key=lambda item: item.disclosed_at, default=None)
 
 
 def _matched_prior_period_summary(
     summaries: Sequence[JQuantsFinancialSummary],
     latest: JQuantsFinancialSummary,
     ttm_rules: TTMRules,
+    *,
+    field_name: str | None = None,
 ) -> JQuantsFinancialSummary | None:
     if latest.period_start is None or latest.period_end is None:
         return None
@@ -1404,7 +2097,9 @@ def _matched_prior_period_summary(
         return None
     max_length_delta = max(1, round(latest_days * ttm_rules.period_length_tolerance_ratio))
     candidates: list[JQuantsFinancialSummary] = []
-    for summary in summaries[:-1]:
+    for summary in _actual_rows(summaries):
+        if field_name is not None and getattr(summary, field_name) is None:
+            continue
         if summary.period_start is None or summary.period_end is None:
             continue
         summary_days = _period_days(summary)
@@ -1415,7 +2110,7 @@ def _matched_prior_period_summary(
         if abs((summary.period_start - prior_start).days) > ttm_rules.period_end_tolerance_days:
             continue
         candidates.append(summary)
-    return candidates[-1] if candidates else None
+    return max(candidates, key=lambda item: item.disclosed_at, default=None)
 
 
 def _period_days(summary: JQuantsFinancialSummary) -> int | None:
@@ -1459,6 +2154,7 @@ def _valuation_history(
     snapshot: FinancialSnapshot,
     asof_date: date,
     *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     history_sessions: int = VALUATION_HISTORY_SESSIONS,
 ) -> dict[str, list[float]]:
     # asof 以前の bar に限定し、look-ahead bias を防ぐ。
@@ -1469,7 +2165,7 @@ def _valuation_history(
     # 価格の不連続 (分割) を valuation history に持ち込まないため調整済み系列を使う。
     # cache の adjustment_close は incremental 取得で基準が混在するため使わず、
     # 不変イベントの adjustment_factor から asof 基準の系列を自前で組む。
-    prices = asof_basis_closes(eligible[-history_sessions:])
+    prices = asof_basis_closes(eligible[-history_sessions:], adjustment_events, asof_date=asof_date)
     ev_ebitda_history: list[float] = []
     if (
         snapshot.shares_ex_treasury is not None
@@ -1547,7 +2243,13 @@ def _historical_ev_ebitda(
     return enterprise_value / ebitda_ttm
 
 
-def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: date) -> float | None:
+def _price_change(
+    bars: Sequence[JQuantsDailyBar],
+    sessions: int,
+    asof_date: date,
+    *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
+) -> float | None:
     ordered = sorted(
         (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
     )
@@ -1555,7 +2257,7 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
         return None
     # 分割を跨ぐ比較で偽の騰落を出さないよう、adjustment_factor から組んだ
     # asof 基準系列で両端を比較する (cache の adjustment_close は基準混在のため不使用)。
-    prices = asof_basis_closes(ordered[-(sessions + 1) :])
+    prices = asof_basis_closes(ordered[-(sessions + 1) :], adjustment_events, asof_date=asof_date)
     base = prices[0]
     if base == 0:
         return None
@@ -1563,7 +2265,11 @@ def _price_change(bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: dat
 
 
 def _realized_volatility(
-    bars: Sequence[JQuantsDailyBar], sessions: int, asof_date: date
+    bars: Sequence[JQuantsDailyBar],
+    sessions: int,
+    asof_date: date,
+    *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
 ) -> float | None:
     """Annualized close-to-close volatility on one as-of-consistent share basis."""
     ordered = sorted(
@@ -1571,7 +2277,7 @@ def _realized_volatility(
     )
     if len(ordered) <= sessions:
         return None
-    prices = asof_basis_closes(ordered[-(sessions + 1) :])
+    prices = asof_basis_closes(ordered[-(sessions + 1) :], adjustment_events, asof_date=asof_date)
     returns = [
         prices[index] / prices[index - 1] - 1.0
         for index in range(1, len(prices))
@@ -1588,13 +2294,15 @@ def _gap_from_low(
     bars: Sequence[JQuantsDailyBar],
     sessions: int,
     asof_date: date,
+    *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
 ) -> float | None:
     ordered = sorted(
         (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
     )
     if not ordered:
         return None
-    prices = asof_basis_closes(ordered[-sessions:])
+    prices = asof_basis_closes(ordered[-sessions:], adjustment_events, asof_date=asof_date)
     current = prices[-1]
     low = min(prices)
     if low <= 0:
@@ -1662,7 +2370,11 @@ def _turnover_spike(
 
 
 def _has_split_adjustment_within_sessions(
-    bars: Sequence[JQuantsDailyBar], asof_date: date, sessions: int
+    bars: Sequence[JQuantsDailyBar],
+    asof_date: date,
+    sessions: int,
+    *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
 ) -> bool:
     """True when J-Quants adjustment_factor marks a split in the latest sessions.
 
@@ -1678,7 +2390,13 @@ def _has_split_adjustment_within_sessions(
         return False
 
     relevant = ordered[-(sessions + 1) :]
-    factors = [bar.adjustment_factor for bar in relevant if bar.adjustment_factor is not None]
+    start = relevant[0].traded_at
+    events = bars if adjustment_events is None else adjustment_events
+    factors = [
+        event.adjustment_factor
+        for event in events
+        if start <= event.traded_at <= asof_date and event.adjustment_factor is not None
+    ]
     return any(factor != 1.0 for factor in factors) or len(set(factors)) > 1
 
 
@@ -1730,6 +2448,24 @@ def _edinet_describes_same_entity(
 # 円経路の自己資本を普通株基準として採るために要求する一致幅。実測では通期行の 97.2% が
 # 1% 以内に収まり、外れる 677 行は優先株・非支配株主持分を含む資本構成である。
 _COMMON_EQUITY_BASIS_TOLERANCE = 0.05
+_EQUITY_RATIO_REPORTING_HALF_UNIT = 0.0005
+_BPS_REPORTING_HALF_UNIT = 0.005
+
+
+def _reported_equity_routes_overlap(
+    *,
+    reported_ratio: float,
+    bps: float,
+    shares: float,
+    total_assets: float,
+) -> bool:
+    """Whether the EqAR and BPS routes overlap inside their published precision."""
+
+    ratio_low = reported_ratio - _EQUITY_RATIO_REPORTING_HALF_UNIT
+    ratio_high = reported_ratio + _EQUITY_RATIO_REPORTING_HALF_UNIT
+    bps_ratio_low = (bps - _BPS_REPORTING_HALF_UNIT) * shares / total_assets
+    bps_ratio_high = (bps + _BPS_REPORTING_HALF_UNIT) * shares / total_assets
+    return max(ratio_low, bps_ratio_low) <= min(ratio_high, bps_ratio_high)
 
 
 def _common_equity_yen(
@@ -1764,7 +2500,7 @@ def _common_equity_yen(
         return bps_equity
     if bps_equity is None:
         return yen_equity
-    for summary in reversed(summaries):
+    for summary in sorted(_actual_rows(summaries), key=_accounting_observation_key, reverse=True):
         if (
             summary.bps is None
             or summary.total_assets is None
@@ -1779,7 +2515,14 @@ def _common_equity_yen(
         row_bps_equity = summary.bps * row_shares
         if row_bps_equity <= 0:
             continue
-        agrees = abs(row_yen / row_bps_equity - 1.0) <= _COMMON_EQUITY_BASIS_TOLERANCE
+        agrees = abs(
+            row_yen / row_bps_equity - 1.0
+        ) <= _COMMON_EQUITY_BASIS_TOLERANCE or _reported_equity_routes_overlap(
+            reported_ratio=summary.equity_to_asset_ratio,
+            bps=summary.bps,
+            shares=row_shares,
+            total_assets=summary.total_assets,
+        )
         return yen_equity if agrees else bps_equity
     # 突き合わせられる行が無い会社では、狭い方の基準を採る。
     return bps_equity
@@ -1795,9 +2538,9 @@ def _shares_excluding_treasury(
     なので答えない。どちらも時価総額が null になり、その銘柄は母集団に入らない。
     """
 
-    if shares_outstanding is None:
+    if shares_outstanding is None or shares_outstanding <= 0:
         return None
-    if treasury_shares is None:
+    if treasury_shares is None or treasury_shares < 0:
         return None
     remaining = shares_outstanding - treasury_shares
     return remaining if remaining > 0 else None

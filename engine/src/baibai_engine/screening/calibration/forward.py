@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from math import isfinite
 from pathlib import Path
 
-from baibai_engine.market.bars import asof_basis_closes
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
 from baibai_engine.market.benchmark import TOPIX_ETF_PROXY
 
 from ..providers.jquants import JQuantsDailyBar
@@ -171,16 +171,30 @@ def compute_forward_returns(
     # the asof itself makes the tolerance unusable: a name that did not trade on the
     # asof date reads as having no entry at all, even though it traded days earlier.
     min_asof = min(asofs) - timedelta(days=STALE_PRICE_MAX_LAG_DAYS)
+    latest_target = max(spec.target_date(asof) for asof in asofs for spec in specs)
     eval_cap = latest_market_data_date(sqlite_path)
     rows: list[ForwardReturnRow] = []
     conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
     try:
         for ticker in unique_tickers:
+            bars = _load_ticker_bars(conn, ticker, start=min_asof)
+            fy_dividends = _load_fy_dividends(conn, ticker, cutoff=eval_cap)
+            # Price entry needs only the stale-price window. The first FY dividend
+            # selected after entry can belong to a fiscal year that began almost a
+            # year earlier, so its factor events need a separate, earlier boundary.
+            dividend_period_starts = [
+                observation.period_start or _shift_months(observation.fiscal_year_end, -12)
+                for observation in fy_dividends
+                if min_asof < observation.fiscal_year_end <= latest_target
+            ]
+            event_start = min([min_asof, *dividend_period_starts])
+            adjustment_events = _load_ticker_adjustment_events(conn, ticker, start=event_start)
             rows.extend(
                 _ticker_forward_rows(
                     ticker,
-                    _load_ticker_bars(conn, ticker, start=min_asof),
-                    fy_dividends=_load_fy_dividends(conn, ticker, cutoff=eval_cap),
+                    bars,
+                    adjustment_events=adjustment_events,
+                    fy_dividends=fy_dividends,
                     asofs=asofs,
                     horizons=specs,
                     eval_cap=eval_cap,
@@ -196,6 +210,7 @@ def _ticker_forward_rows(
     ticker: str,
     bars: Sequence[JQuantsDailyBar],
     *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
     fy_dividends: Sequence[_FYDividendObservation] = (),
     asofs: Sequence[date],
     horizons: Sequence[HorizonSpec],
@@ -203,7 +218,9 @@ def _ticker_forward_rows(
     control_event_exits: Sequence[ControlEventExit] = (),
 ) -> list[ForwardReturnRow]:
     dates = [bar.traded_at for bar in bars]
-    closes = asof_basis_closes(bars) if bars else []
+    events = bars if adjustment_events is None else adjustment_events
+    price_basis_date = eval_cap or (bars[-1].traded_at if bars else None)
+    closes = asof_basis_closes(bars, events, asof_date=price_basis_date) if bars else []
     rows: list[ForwardReturnRow] = []
     adjustment: AdjustmentCoverage
     if not bars or all(bar.adjustment_factor is None for bar in bars):
@@ -259,6 +276,8 @@ def _ticker_forward_rows(
                         base,
                         bars,
                         fy_dividends,
+                        adjustment_events=events,
+                        price_basis_date=price_basis_date,
                         control_exit=_matching_control_event_exit(
                             control_event_exits, entry_date=entry_date, target=target
                         ),
@@ -289,6 +308,8 @@ def _ticker_forward_rows(
                         _resolve_total_return(
                             bars,
                             fy_dividends,
+                            adjustment_events=events,
+                            price_basis_date=price_basis_date,
                             entry_date=entry_date,
                             exit_date=exit_date,
                             entry_close=float(entry_close or 0.0),
@@ -329,6 +350,8 @@ def _control_event_row(
     bars: Sequence[JQuantsDailyBar],
     fy_dividends: Sequence[_FYDividendObservation],
     *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    price_basis_date: date | None,
     control_exit: ControlEventExit | None,
     entry_date: date | None,
     entry_close: float,
@@ -345,8 +368,12 @@ def _control_event_row(
         return None
     if adjustment_coverage != "complete":
         return None
+    if price_basis_date is None:
+        return None
     factor = _cumulative_adjustment_factor_after(
-        bars, after=control_exit.delisted_on, asof_date=bars[-1].traded_at
+        adjustment_events,
+        after=control_exit.delisted_on,
+        asof_date=price_basis_date,
     )
     if factor != 1.0:
         return None
@@ -356,6 +383,8 @@ def _control_event_row(
     dividend_sum, dividend_count, total_return, total_status = _resolve_total_return(
         bars,
         fy_dividends,
+        adjustment_events=adjustment_events,
+        price_basis_date=price_basis_date,
         entry_date=entry_date,
         exit_date=control_exit.delisted_on,
         entry_close=entry_close,
@@ -406,6 +435,25 @@ def _load_ticker_bars(
     ]
 
 
+def _load_ticker_adjustment_events(
+    conn: sqlite3.Connection, ticker: str, *, start: date
+) -> list[JQuantsAdjustmentFactorEvent]:
+    rows = conn.execute(
+        "SELECT traded_at, adjustment_factor FROM jquants_daily_bars "
+        "WHERE ticker = ? AND traded_at >= ? AND adjustment_factor IS NOT NULL "
+        "AND adjustment_factor NOT IN (0.0, 1.0) ORDER BY traded_at",
+        (ticker, start.isoformat()),
+    ).fetchall()
+    return [
+        JQuantsAdjustmentFactorEvent(
+            ticker=ticker,
+            traded_at=date.fromisoformat(str(day)),
+            adjustment_factor=float(factor),
+        )
+        for day, factor in rows
+    ]
+
+
 def _load_fy_dividends(
     conn: sqlite3.Connection, ticker: str, *, cutoff: date | None
 ) -> list[_FYDividendObservation]:
@@ -440,6 +488,8 @@ def _resolve_total_return(
     bars: Sequence[JQuantsDailyBar],
     observations: Sequence[_FYDividendObservation],
     *,
+    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
+    price_basis_date: date | None = None,
     entry_date: date,
     exit_date: date,
     entry_close: float,
@@ -471,10 +521,11 @@ def _resolve_total_return(
             return None, 0, None, "unresolved_invalid_dividend"
         selected.append(latest)
 
-    basis_date = bars[-1].traded_at
+    basis_date = price_basis_date or bars[-1].traded_at
+    events = bars if adjustment_events is None else adjustment_events
     dividend_sum = 0.0
     for observation in selected:
-        resolved = _asof_basis_dividend(observation, bars, basis_date=basis_date)
+        resolved = _asof_basis_dividend(observation, events, basis_date=basis_date)
         if resolved is None:
             return None, 0, None, "unresolved_dividend_split_basis"
         dividend_sum += resolved
@@ -488,7 +539,7 @@ def _resolve_total_return(
 
 def _asof_basis_dividend(
     observation: _FYDividendObservation,
-    bars: Sequence[JQuantsDailyBar],
+    bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     *,
     basis_date: date,
 ) -> float | None:
@@ -591,7 +642,10 @@ def _per_share_denominator(observation: _FYDividendObservation) -> float | None:
 
 
 def _cumulative_adjustment_factor_after(
-    bars: Sequence[JQuantsDailyBar], *, after: date, asof_date: date
+    bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    *,
+    after: date,
+    asof_date: date,
 ) -> float:
     """Match per-share facts to the final share basis used by asof_basis_closes."""
     factor = 1.0

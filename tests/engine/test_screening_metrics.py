@@ -11,6 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent
 from baibai_engine.screening.calibration.forward import (
     _asof_basis_dividend as _forward_asof_basis_dividend,
 )
@@ -22,7 +23,9 @@ from baibai_engine.screening.metrics import (
     _asof_basis_dividend,
     _common_equity_yen,
     _normalize_summaries_to_asof_basis,
+    _resolve_capital_basis,
     _resolve_dividend_carry,
+    _shares_excluding_treasury,
     _ttm_value,
     build_metrics,
     build_normalized_profit_signals,
@@ -32,7 +35,12 @@ from baibai_engine.screening.metrics import (
 from baibai_engine.screening.providers.edinet import EdinetMetricRecord
 from baibai_engine.screening.providers.jquants import JQuantsDailyBar, JQuantsFinancialSummary
 from baibai_engine.screening.rule_config import load_screening_rules
-from baibai_engine.screening.schema import FinancialSnapshot, SecurityMaster, TTMQuality
+from baibai_engine.screening.schema import (
+    FinancialSnapshot,
+    OperatingProfitSource,
+    SecurityMaster,
+    TTMQuality,
+)
 
 
 def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
@@ -53,9 +61,11 @@ def _summary(
     disclosed_at: date,
     *,
     eps_ttm: float | None = 18.0,
+    forecast_eps: float | None = 20.0,
     sales: float = 1_000_000_000.0,
     cfo: float | None = 100_000_000.0,
-    operating_profit: float = 100_000_000.0,
+    operating_profit: float | None = 100_000_000.0,
+    ordinary_profit: float | None = None,
     fiscal_period: str | None = "1Q",
     fiscal_year_end: date | None = date(2026, 3, 31),
     shares_outstanding: float = 400_000_000.0,
@@ -86,7 +96,7 @@ def _summary(
     return JQuantsFinancialSummary(
         ticker=code,
         disclosed_at=disclosed_at,
-        forecast_eps=20.0,
+        forecast_eps=forecast_eps,
         eps_ttm=eps_ttm,
         bps=120.0,
         shares_outstanding=shares_outstanding,
@@ -95,7 +105,7 @@ def _summary(
         total_assets=total_assets,
         equity_to_asset_ratio=equity_to_asset_ratio,
         operating_profit=operating_profit,
-        ordinary_profit=None,
+        ordinary_profit=ordinary_profit,
         profit=profit,
         forecast_profit=forecast_profit,
         forecast_ordinary_profit=forecast_ordinary_profit,
@@ -389,6 +399,39 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertIsNone(result.dps_streak_up)
         self.assertIsNone(result.dps_yoy_latest)
         self.assertIsNone(result.dps_guidance_up)
+        self.assertIsNone(result.share_count_reduction_streak)
+        self.assertIsNone(result.shareholder_return_change)
+
+    def test_shareholder_return_change_rejects_proven_average_shares_alias(self) -> None:
+        asof = date(2026, 6, 30)
+        summaries = [
+            _summary(
+                "130A",
+                date(2024, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2024, 3, 31),
+                shares_outstanding=1_000.0,
+            ),
+            _summary(
+                "130A",
+                date(2025, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2025, 3, 31),
+                shares_outstanding=1_000.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 5, 10),
+                fiscal_period="FY",
+                fiscal_year_end=date(2026, 3, 31),
+                shares_outstanding=900.0,
+                treasury_shares=100.0,
+                average_shares=900.0,
+            ),
+        ]
+
+        result = build_shareholder_return_change_signals(summaries, (), asof)
+
         self.assertIsNone(result.share_count_reduction_streak)
         self.assertIsNone(result.shareholder_return_change)
 
@@ -891,6 +934,493 @@ class ScreeningMetricsTests(unittest.TestCase):
         assert snapshot.market_cap is not None
         self.assertAlmostEqual(snapshot.market_cap, close * (index["130A"] or 0.0), places=3)
 
+    def test_shares_excluding_treasury_rejects_invalid_values(self) -> None:
+        self.assertIsNone(_shares_excluding_treasury(1_000.0, -1.0))
+        self.assertIsNone(_shares_excluding_treasury(0.0, 0.0))
+        self.assertIsNone(_shares_excluding_treasury(1_000.0, 1_000.0))
+        self.assertEqual(_shares_excluding_treasury(1_000.0, 100.0), 900.0)
+
+    def test_treasury_carry_stops_after_issued_shares_decrease(self) -> None:
+        """消却後の発行済から消却前の自己株をもう一度引かない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=300.0,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                shares_outstanding=700.0,
+                treasury_shares=None,
+            ),
+        ]
+
+        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertIsNone(index["130A"])
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(snapshot.shares_outstanding, 700.0)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "indeterminate_positive_treasury_after_later_issued_observation",
+        )
+
+    def test_treasury_carry_stops_after_issued_shares_increase(self) -> None:
+        """増資と同時の自己株処分を観測できないため、古い自己株を再控除しない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=100.0,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                shares_outstanding=1_100.0,
+                treasury_shares=None,
+            ),
+        ]
+
+        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertIsNone(index["130A"])
+        self.assertIsNone(snapshot.shares_ex_treasury)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "indeterminate_positive_treasury_after_later_issued_observation",
+        )
+
+    def test_known_valid_old_treasury_still_fails_closed_without_current_provenance(self) -> None:
+        """一次資料で旧10株が有効でも、lossy入力だけでは無効例と区別できない。"""
+
+        rows = [
+            _summary(
+                "4889",
+                date(2026, 2, 13),
+                shares_outstanding=12_986_700.0,
+                treasury_shares=10.0,
+            ),
+            _summary(
+                "4889",
+                date(2026, 5, 13),
+                shares_outstanding=13_776_900.0,
+                treasury_shares=None,
+                average_shares=12_878_188.0,
+            ),
+        ]
+
+        result = _resolve_capital_basis(rows)
+
+        self.assertIsNone(result.shares_ex_treasury)
+        self.assertEqual(
+            result.failure_reason,
+            "indeterminate_positive_treasury_after_later_issued_observation",
+        )
+
+    def test_treasury_carry_stops_after_same_gross_issued_is_reobserved(self) -> None:
+        """自己株0が欠損になるsourceで、処分前の正値を同じgrossから再控除しない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=100.0,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                shares_outstanding=1_000.0,
+                treasury_shares=None,
+                average_shares=950.0,
+            ),
+        ]
+
+        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertIsNone(index["130A"])
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "indeterminate_positive_treasury_after_later_issued_observation",
+        )
+
+    def test_treasury_carry_does_not_revive_after_decrease_then_increase(self) -> None:
+        """消却前の自己株basisは、後日の増資でgrossが回復しても復活しない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=100.0,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=200),
+                shares_outstanding=900.0,
+                treasury_shares=None,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                shares_outstanding=1_100.0,
+                treasury_shares=None,
+            ),
+        ]
+
+        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertIsNone(index["130A"])
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(snapshot.shares_outstanding, 1_100.0)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "indeterminate_positive_treasury_after_later_issued_observation",
+        )
+
+    def test_new_treasury_observation_resets_incompatible_prior_basis(self) -> None:
+        """消却後の新しい自己株観測があれば、その新資本状態から再開する。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=100.0,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=200),
+                shares_outstanding=900.0,
+                treasury_shares=None,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="FY",
+                shares_outstanding=1_100.0,
+                treasury_shares=50.0,
+            ),
+        ]
+
+        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertEqual(index["130A"], 1_050.0)
+        self.assertEqual(snapshot.shares_ex_treasury, 1_050.0)
+        self.assertIsNone(snapshot.capital_basis_failure_reason)
+
+    def test_explicit_zero_treasury_resets_incompatible_prior_basis(self) -> None:
+        """新しい0株観測は、古い正の自己株stateを安全に置き換える。"""
+
+        rows = [
+            _summary(
+                "130A",
+                date(2025, 12, 11),
+                shares_outstanding=39_063_600.0,
+                treasury_shares=1_988_126.0,
+            ),
+            _summary(
+                "130A",
+                date(2026, 3, 12),
+                shares_outstanding=41_194_972.0,
+                treasury_shares=None,
+            ),
+            _summary(
+                "130A",
+                date(2026, 6, 11),
+                shares_outstanding=41_194_972.0,
+                treasury_shares=0.0,
+            ),
+        ]
+
+        result = _resolve_capital_basis(rows)
+
+        self.assertEqual(result.shares_ex_treasury, 41_194_972.0)
+        self.assertIsNone(result.failure_reason)
+
+    def test_zero_treasury_carry_continues_across_issued_shares_decrease(self) -> None:
+        """自己株0なら発行済が減っても二重控除は起きないので値を維持する。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=0.0,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                shares_outstanding=900.0,
+                treasury_shares=None,
+            ),
+        ]
+
+        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertEqual(index["130A"], 900.0)
+        self.assertEqual(snapshot.shares_ex_treasury, 900.0)
+        self.assertIsNone(snapshot.capital_basis_failure_reason)
+
+    def test_zero_treasury_carry_does_not_require_issued_source_basis(self) -> None:
+        """自己株0ならsource issuedが欠損しても差し引きは安全である。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        treasury_only = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=0.0,
+            ),
+            shares_outstanding=None,
+        )
+        latest_issued = _summary(
+            "130A",
+            asof - timedelta(days=20),
+            shares_outstanding=900.0,
+            treasury_shares=None,
+        )
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [treasury_only, latest_issued]},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertEqual(snapshot.shares_ex_treasury, 900.0)
+        self.assertIsNone(snapshot.capital_basis_failure_reason)
+
+    def test_average_share_alias_shape_has_no_market_cap(self) -> None:
+        """期中平均+自己株が過去grossへ戻る既存行から自己株を二重控除しない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        prior = _summary(
+            "130A",
+            asof - timedelta(days=300),
+            fiscal_period="FY",
+            shares_outstanding=1_000.0,
+            average_shares=900.0,
+            treasury_shares=100.0,
+        )
+        contaminated = _summary(
+            "130A",
+            asof - timedelta(days=20),
+            fiscal_period="1Q",
+            shares_outstanding=900.0,
+            average_shares=900.0,
+            treasury_shares=100.0,
+        )
+
+        summaries = [prior, contaminated]
+        index = build_shares_outstanding_index({"130A": summaries}, {"130A": bars}, asof)
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertIsNone(index["130A"])
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "issued_matches_average_with_positive_treasury",
+        )
+
+    def test_equal_average_without_prior_gross_reconstruction_is_allowed(self) -> None:
+        """ShOutFYとAvgShの同値だけでは正常な1Q行を除外しない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        summaries = [
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=900.0,
+                average_shares=899.0,
+                treasury_shares=100.0,
+            ),
+            _summary(
+                "130A",
+                asof - timedelta(days=20),
+                fiscal_period="1Q",
+                shares_outstanding=900.0,
+                average_shares=900.0,
+                treasury_shares=100.0,
+            ),
+        ]
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": summaries},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertEqual(snapshot.shares_ex_treasury, 800.0)
+        self.assertIsNone(snapshot.capital_basis_failure_reason)
+
+    def test_invalid_capital_values_have_no_market_cap(self) -> None:
+        """負の自己株や発行済以上の自己株を有効な株式数へ変換しない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+
+        for treasury_shares in (-1.0, 1_000.0):
+            with self.subTest(treasury_shares=treasury_shares):
+                summary = _summary(
+                    "130A",
+                    asof - timedelta(days=20),
+                    fiscal_period="FY",
+                    shares_outstanding=1_000.0,
+                    treasury_shares=treasury_shares,
+                )
+                snapshot = build_metrics(
+                    asof_date=asof,
+                    securities_by_ticker={"130A": _security()},
+                    bars_by_ticker={"130A": bars},
+                    summaries_by_ticker={"130A": [summary]},
+                    edinet_by_ticker={},
+                ).financials["130A"]
+
+                self.assertIsNone(snapshot.market_cap)
+                self.assertEqual(
+                    snapshot.capital_basis_failure_reason,
+                    "invalid_issued_or_treasury_shares",
+                )
+
+    def test_treasury_carry_requires_issued_basis_at_its_source(self) -> None:
+        """自己株観測行の発行済が無ければ後日の発行済との両立を推測しない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        treasury_only = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=300),
+                fiscal_period="FY",
+                shares_outstanding=1_000.0,
+                treasury_shares=100.0,
+            ),
+            shares_outstanding=None,
+        )
+        latest_issued = _summary(
+            "130A",
+            asof - timedelta(days=20),
+            shares_outstanding=1_100.0,
+            treasury_shares=None,
+        )
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [treasury_only, latest_issued]},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "treasury_observation_without_issued_basis",
+        )
+
+    def test_treasury_carry_rejects_invalid_capital_at_its_source(self) -> None:
+        """無効行の自己株だけを後日の正常な発行済へcarryしない。"""
+        asof = date(2026, 7, 1)
+        bars = _daily_bars("130A", asof, 40)
+        invalid_source = _summary(
+            "130A",
+            asof - timedelta(days=300),
+            fiscal_period="FY",
+            shares_outstanding=1_000.0,
+            treasury_shares=1_000.0,
+        )
+        latest_issued = _summary(
+            "130A",
+            asof - timedelta(days=20),
+            shares_outstanding=1_100.0,
+            treasury_shares=None,
+        )
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [invalid_source, latest_issued]},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(
+            snapshot.capital_basis_failure_reason,
+            "invalid_treasury_source_capital_basis",
+        )
+
     def test_dividend_fields_split_normalization_and_carry_forward(self) -> None:
         """実績 DPS は分割跨ぎ行で x factor 換算、予想 DPS は None 化。
         実績年間 DPS は FY 行にしか載らないため、直近が四半期行でも
@@ -1014,6 +1544,98 @@ class ScreeningMetricsTests(unittest.TestCase):
         self.assertIn("bps", fields)
         assert financial.bs_carry_forward_lag_days is not None
         self.assertEqual(financial.bs_carry_forward_lag_days, 190)
+
+    def test_common_equity_uses_assets_and_ratio_from_one_disclosure(self) -> None:
+        """PBR の円経路は別々の資本状態の TA と EqAR を掛け合わせない。"""
+        asof = date(2026, 6, 1)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=29 - index),
+                close=100.0,
+                turnover_value=300_000_000.0,
+            )
+            for index in range(30)
+        ]
+        same_state = _summary(
+            "130A",
+            asof - timedelta(days=100),
+            fiscal_period="3Q",
+            total_assets=80_000_000_000.0,
+            equity_to_asset_ratio=0.6,
+        )
+        assets_only = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=10),
+                fiscal_period="4Q",
+                total_assets=160_000_000_000.0,
+                equity_to_asset_ratio=None,
+            ),
+            bps=None,
+        )
+
+        financial = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [same_state, assets_only]},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        # 40bn market cap / (80bn assets * 0.6 EqAR) = 0.8333。別日の
+        # 160bn assets と古い 0.6 を掛けると 0.4167 へ半減する。
+        self.assertAlmostEqual(financial.pbr or 0.0, 40_000_000_000 / 48_000_000_000)
+
+    def test_common_equity_prefers_newer_bps_over_older_complete_yen_route(self) -> None:
+        """同一行の円経路でも、より新しいBPSより古ければ資本状態を巻き戻さない。"""
+        asof = date(2026, 6, 1)
+        bars = [
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=asof - timedelta(days=29 - index),
+                close=1_000.0,
+                turnover_value=300_000_000.0,
+            )
+            for index in range(30)
+        ]
+        older_complete = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=100),
+                fiscal_period="3Q",
+                total_assets=80_000_000_000.0,
+                equity_to_asset_ratio=0.5,
+                shares_outstanding=1_000_000.0,
+                treasury_shares=0.0,
+            ),
+            bps=40_000.0,
+        )
+        newer_bps = replace(
+            _summary(
+                "130A",
+                asof - timedelta(days=10),
+                fiscal_period="4Q",
+                total_assets=160_000_000_000.0,
+                equity_to_asset_ratio=None,
+                shares_outstanding=1_000_000.0,
+                treasury_shares=0.0,
+            ),
+            bps=20_000.0,
+            equity=None,
+        )
+
+        financial = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"130A": _security()},
+            bars_by_ticker={"130A": bars},
+            summaries_by_ticker={"130A": [older_complete, newer_bps]},
+            edinet_by_ticker={},
+        ).financials["130A"]
+
+        # 1bn market cap / (20,000 BPS * 1m shares) = 0.05。古い同一行の
+        # 80bn assets * 0.5 EqAR を復活させると 0.025 へ半減する。
+        self.assertAlmostEqual(financial.pbr or 0.0, 0.05)
 
     def test_split_crossing_composition_normalizes_per_share_basis(self) -> None:
         """分割を跨ぐ YoY・株数変化は、行を asof 基準へ正規化してから行う。
@@ -2500,7 +3122,12 @@ class DividendCarryResolverTests(unittest.TestCase):
                 dividend_interim=40.0,
                 dividend_year_end=60.0,
             ),
-            _summary("3399", date(2024, 5, 15), dps_actual_annual=80.0),
+            _summary(
+                "3399",
+                date(2024, 5, 15),
+                fiscal_year_end=date(2024, 3, 31),
+                dps_actual_annual=80.0,
+            ),
         ]
         bars = [
             # Inside the accrual window, clear of both record dates.
@@ -3018,6 +3645,28 @@ class CarriedCommonEquityTests(unittest.TestCase):
 
         self.assertAlmostEqual(equity or 0.0, 1e8, places=0)
 
+    def test_near_zero_ratio_uses_the_reported_rounding_interval(self) -> None:
+        """EqARの3桁丸めが相対誤差を膨らませても、整合する普通株basisを拒否しない。"""
+
+        summaries = [
+            self._row(
+                bps=5.34,
+                shares=22_145_052.0,
+                total_assets=17_860_000_000.0,
+                ratio=0.007,
+            )
+        ]
+
+        equity = _common_equity_yen(
+            summaries,
+            total_assets=17_860_000_000.0,
+            equity_to_asset_ratio=-0.069,
+            bps=5.34,
+            shares_ex_treasury=22_145_052.0,
+        )
+
+        self.assertAlmostEqual(equity or 0.0, -1_232_340_000.0, places=0)
+
 
 class DividendCrossCheckBoundaryTests(unittest.TestCase):
     """明細合計の検算は、行の正規化と同じ境界で換算しなければならない。
@@ -3060,3 +3709,601 @@ class DividendCrossCheckBoundaryTests(unittest.TestCase):
 
         self.assertIsNotNone(resolved)
         self.assertAlmostEqual(resolved or 0.0, 50.0, places=6)
+
+
+class InterimSplitShareBasisTests(unittest.TestCase):
+    """期末と開示日の間に権利落ちがある行の株式基準を、行ごとに決める。
+
+    提出者によって期末基準のまま出す行と分割を遡及適用した行に割れる。取り違えると
+    株数が分割比だけずれ、時価総額・倍率・株数変化がまとめて壊れる。
+    """
+
+    @staticmethod
+    def _bar(traded_at: date, factor: float | None = None) -> JQuantsDailyBar:
+        return JQuantsDailyBar(
+            ticker="1111",
+            traded_at=traded_at,
+            close=1000.0,
+            turnover_value=3e8,
+            adjustment_factor=factor,
+        )
+
+    def _normalized_shares(self, *, reported: float, reference: float) -> float | None:
+        """権利落ちを挟んで 2 行を並べ、後の行の正規化後株数を返す。"""
+
+        bars = [
+            self._bar(date(2026, 1, 30)),
+            self._bar(date(2026, 4, 20), 0.5),
+            self._bar(date(2026, 5, 15)),
+        ]
+        summaries = [
+            _summary(
+                "1111",
+                date(2026, 2, 10),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=reference,
+                treasury_shares=0.0,
+            ),
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=reported,
+                treasury_shares=0.0,
+            ),
+        ]
+        return _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 5, 29))[
+            1
+        ].shares_outstanding
+
+    def test_a_row_still_on_the_period_end_basis_is_converted(self) -> None:
+        """分割前の株数のまま出た行。価格だけ分割後になるので換算しないと時価総額が半分。"""
+
+        self.assertAlmostEqual(
+            self._normalized_shares(reported=1_000_000.0, reference=1_000_000.0),
+            2_000_000.0,
+            places=0,
+        )
+
+    def test_a_row_that_already_applied_the_split_is_left_alone(self) -> None:
+        """提出者が遡及適用済みの行。もう一度掛けると株数が 2 倍になる。"""
+
+        self.assertAlmostEqual(
+            self._normalized_shares(reported=2_000_000.0, reference=1_000_000.0),
+            2_000_000.0,
+            places=0,
+        )
+
+    def test_a_small_issue_alongside_the_split_does_not_block_the_call(self) -> None:
+        """分割と同時の数 % の増資は極を動かさない。固定幅の帯だとここで答えられなくなる。"""
+
+        self.assertAlmostEqual(
+            self._normalized_shares(reported=2_048_000.0, reference=1_000_000.0),
+            2_048_000.0,
+            places=0,
+        )
+
+    def test_an_earlier_action_is_applied_to_the_reference_before_classification(self) -> None:
+        """連続したactionでは、比較元を現在の期末基準へ揃えてから次の基準を判定する。"""
+
+        summaries = [
+            _summary(
+                "3936",
+                date(2021, 8, 13),
+                period_end=date(2021, 6, 30),
+                shares_outstanding=1_166_592.0,
+                treasury_shares=102.0,
+            ),
+            _summary(
+                "3936",
+                date(2021, 11, 10),
+                period_end=date(2021, 9, 30),
+                shares_outstanding=17_541_915.0,
+                treasury_shares=2_130.0,
+            ),
+        ]
+        events = [
+            JQuantsAdjustmentFactorEvent("3936", date(2021, 9, 15), 0.2),
+            JQuantsAdjustmentFactorEvent("3936", date(2021, 11, 1), 1.0 / 3.0),
+        ]
+
+        normalized = _normalize_summaries_to_asof_basis(
+            summaries,
+            events,
+            date(2021, 11, 10),
+        )
+        resolution = _resolve_capital_basis(normalized)
+
+        self.assertAlmostEqual(normalized[1].shares_outstanding or 0.0, 17_541_915.0, places=0)
+        self.assertAlmostEqual(resolution.shares_ex_treasury or 0.0, 17_539_785.0, places=0)
+
+    def test_average_shares_resolves_only_the_split_basis_of_a_large_capital_change(self) -> None:
+        """AvgShはgrossの代替にせず、ShOut残差が大きい行のbasisだけを確定する。"""
+
+        summaries = [
+            _summary(
+                "3350",
+                date(2024, 5, 15),
+                period_end=date(2024, 3, 31),
+                shares_outstanding=114_692_187.0,
+                treasury_shares=21_945.0,
+                average_shares=114_670_334.0,
+            ),
+            _summary(
+                "3350",
+                date(2024, 8, 14),
+                period_end=date(2024, 6, 30),
+                shares_outstanding=181_692_187.0,
+                treasury_shares=22_885.0,
+                average_shares=138_793_927.0,
+            ),
+        ]
+        events = [JQuantsAdjustmentFactorEvent("3350", date(2024, 7, 30), 10.0)]
+
+        normalized = _normalize_summaries_to_asof_basis(
+            summaries,
+            events,
+            date(2024, 8, 14),
+        )
+        resolution = _resolve_capital_basis(normalized)
+
+        # 期末basisのShOutFYは10:1併合後へ換算するが、AvgSh自身をcapitalには使わない。
+        self.assertAlmostEqual(normalized[1].shares_outstanding or 0.0, 18_169_218.7, places=1)
+        self.assertAlmostEqual(resolution.shares_ex_treasury or 0.0, 18_166_930.2, places=1)
+
+    def test_average_shares_can_confirm_an_already_adjusted_disclosure_basis(self) -> None:
+        """AvgSh anchorが開示basisを示す行は、ShOutFYを二重換算しない。"""
+
+        summaries = [
+            _summary(
+                "6628",
+                date(2020, 2, 14),
+                period_end=date(2019, 12, 31),
+                shares_outstanding=189_869_995.0,
+                treasury_shares=408_187.0,
+                average_shares=150_421_187.0,
+            ),
+            _summary(
+                "6628",
+                date(2020, 7, 31),
+                period_end=date(2020, 3, 31),
+                shares_outstanding=54_866_334.0,
+                treasury_shares=81_639.0,
+                average_shares=33_700_601.0,
+            ),
+        ]
+        events = [JQuantsAdjustmentFactorEvent("6628", date(2020, 7, 20), 5.0)]
+
+        normalized = _normalize_summaries_to_asof_basis(
+            summaries,
+            events,
+            date(2020, 7, 31),
+        )
+
+        self.assertAlmostEqual(normalized[1].shares_outstanding or 0.0, 54_866_334.0, places=0)
+
+    def test_a_large_capital_change_alongside_the_split_is_refused(self) -> None:
+        """どちらの仮説でも残差が大きい行は答えない。時価総額が出ないので母集団に入らない。"""
+
+        self.assertIsNone(self._normalized_shares(reported=1_500_000.0, reference=1_000_000.0))
+
+    def test_a_refused_row_keeps_the_yen_quantities(self) -> None:
+        """円の総額は株式基準に依存しない。落とすのは株数と per-share だけ。"""
+
+        bars = [self._bar(date(2026, 4, 20), 0.5), self._bar(date(2026, 5, 15))]
+        summaries = [
+            _summary(
+                "1111",
+                date(2026, 2, 10),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=1_000_000.0,
+                treasury_shares=0.0,
+            ),
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=1_500_000.0,
+                treasury_shares=0.0,
+                total_assets=5e8,
+                equity_to_asset_ratio=0.5,
+            ),
+        ]
+
+        row = _normalize_summaries_to_asof_basis(summaries, bars, date(2026, 5, 29))[1]
+
+        self.assertIsNone(row.shares_outstanding)
+        self.assertIsNone(row.bps)
+        self.assertEqual(row.total_assets, 5e8)
+        self.assertEqual(row.equity_to_asset_ratio, 0.5)
+
+    def test_refused_capital_row_does_not_revive_older_share_basis(self) -> None:
+        """判定不能な新capital stateより前の株数はmarket capへcarryしない。"""
+
+        asof = date(2026, 5, 29)
+        bars = [self._bar(date(2026, 5, 15))]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        summaries = [
+            _summary(
+                "1111",
+                date(2026, 2, 10),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=1_000_000.0,
+                treasury_shares=100_000.0,
+            ),
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=1_500_000.0,
+                treasury_shares=150_000.0,
+            ),
+        ]
+
+        index = build_shares_outstanding_index(
+            {"1111": summaries},
+            {"1111": bars},
+            asof,
+            adjustment_events_by_ticker={"1111": events},
+        )
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"1111": _security("1111")},
+            bars_by_ticker={"1111": bars},
+            summaries_by_ticker={"1111": summaries},
+            edinet_by_ticker={},
+            adjustment_events_by_ticker={"1111": events},
+        ).financials["1111"]
+
+        self.assertIsNone(index["1111"])
+        self.assertIsNone(snapshot.market_cap)
+        self.assertEqual(snapshot.capital_basis_failure_reason, "indeterminate_share_basis")
+
+    def test_per_share_only_refusal_does_not_block_safe_capital_carry(self) -> None:
+        """株数を観測しない曖昧行は、確定済みcapital stateと競合しない。"""
+
+        asof = date(2026, 5, 29)
+        bars = [self._bar(date(2026, 5, 15))]
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        capital = _summary(
+            "1111",
+            date(2026, 2, 10),
+            period_end=date(2025, 12, 31),
+            shares_outstanding=1_000_000.0,
+            treasury_shares=100_000.0,
+        )
+        per_share_only = replace(
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=1_000_000.0,
+            ),
+            shares_outstanding=None,
+            treasury_shares=None,
+            average_shares=None,
+        )
+
+        index = build_shares_outstanding_index(
+            {"1111": [capital, per_share_only]},
+            {"1111": bars},
+            asof,
+            adjustment_events_by_ticker={"1111": events},
+        )
+
+        self.assertEqual(index["1111"], 1_800_000.0)
+
+    def test_new_complete_capital_row_resets_indeterminate_barrier(self) -> None:
+        """曖昧行後にissuedとtreasuryを再観測すれば、その状態から再開する。"""
+
+        asof = date(2026, 6, 30)
+        events = [JQuantsAdjustmentFactorEvent("1111", date(2026, 4, 20), 0.5)]
+        summaries = [
+            _summary(
+                "1111",
+                date(2026, 2, 10),
+                period_end=date(2025, 12, 31),
+                shares_outstanding=1_000_000.0,
+                treasury_shares=100_000.0,
+            ),
+            _summary(
+                "1111",
+                date(2026, 5, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=1_500_000.0,
+                treasury_shares=150_000.0,
+            ),
+            _summary(
+                "1111",
+                date(2026, 6, 15),
+                period_end=date(2026, 3, 31),
+                shares_outstanding=2_100_000.0,
+                treasury_shares=100_000.0,
+            ),
+        ]
+
+        index = build_shares_outstanding_index(
+            {"1111": summaries},
+            {"1111": [self._bar(asof)]},
+            asof,
+            adjustment_events_by_ticker={"1111": events},
+        )
+
+        self.assertEqual(index["1111"], 2_000_000.0)
+
+
+class CapitalBasisStateMachineTests(unittest.TestCase):
+    def test_increase_then_decrease_invalidates_old_positive_treasury(self) -> None:
+        asof = date(2026, 7, 1)
+        rows = [
+            _summary(
+                "1111",
+                asof - timedelta(days=300),
+                shares_outstanding=1_000.0,
+                treasury_shares=100.0,
+            ),
+            _summary(
+                "1111", asof - timedelta(days=200), shares_outstanding=1_200.0, treasury_shares=None
+            ),
+            _summary(
+                "1111", asof - timedelta(days=20), shares_outstanding=1_100.0, treasury_shares=None
+            ),
+        ]
+
+        result = _resolve_capital_basis(rows)
+
+        self.assertIsNone(result.shares_ex_treasury)
+        self.assertEqual(
+            result.failure_reason,
+            "indeterminate_positive_treasury_after_later_issued_observation",
+        )
+
+    def test_future_summary_cannot_change_asof_share_index(self) -> None:
+        asof = date(2026, 7, 1)
+        current = _summary(
+            "1111", asof - timedelta(days=20), shares_outstanding=1_000.0, treasury_shares=100.0
+        )
+        future = _summary(
+            "1111", asof + timedelta(days=20), shares_outstanding=2_000.0, treasury_shares=100.0
+        )
+
+        index = build_shares_outstanding_index({"1111": [current, future]}, {"1111": []}, asof)
+
+        self.assertEqual(index["1111"], 900.0)
+
+    def test_same_day_average_share_revision_keeps_capital_state(self) -> None:
+        day = date(2026, 7, 1)
+        rows = [
+            _summary(
+                "1111", day, shares_outstanding=1_000.0, treasury_shares=100.0, average_shares=900.0
+            ),
+            _summary(
+                "1111", day, shares_outstanding=1_000.0, treasury_shares=100.0, average_shares=850.0
+            ),
+        ]
+
+        result = _resolve_capital_basis(rows)
+
+        self.assertEqual(result.shares_ex_treasury, 900.0)
+        self.assertIsNone(result.failure_reason)
+
+
+class MissingCloseAdjustmentEventTests(unittest.TestCase):
+    def test_event_without_price_normalizes_capital_and_price_series(self) -> None:
+        """100:1併合日のclose欠損でも、eventを株数・価格の両経路へ適用する。"""
+
+        asof = date(2024, 3, 29)
+        event_day = date(2024, 2, 28)
+        bars = [
+            JQuantsDailyBar(
+                "1111",
+                asof - timedelta(days=89 - index),
+                1.0 if asof - timedelta(days=89 - index) < event_day else 100.0,
+                300_000_000.0,
+            )
+            for index in range(90)
+            if asof - timedelta(days=89 - index) != event_day
+        ]
+        events = [JQuantsAdjustmentFactorEvent("1111", event_day, 100.0)]
+        summary = _summary(
+            "1111",
+            date(2024, 1, 31),
+            shares_outstanding=100_000_000.0,
+            treasury_shares=0.0,
+            period_end=date(2023, 12, 31),
+        )
+
+        result = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"1111": _security("1111")},
+            bars_by_ticker={"1111": bars},
+            summaries_by_ticker={"1111": [summary]},
+            edinet_by_ticker={},
+            adjustment_events_by_ticker={"1111": events},
+        )
+        financial = result.financials["1111"]
+        derived = result.derived["1111"]
+
+        self.assertEqual(financial.shares_ex_treasury, 1_000_000.0)
+        self.assertEqual(financial.market_cap, 100_000_000.0)
+        self.assertAlmostEqual(derived.price_change_60d or 0.0, 0.0, places=12)
+        self.assertAlmostEqual(derived.gap_from_52w_low or 0.0, 0.0, places=12)
+        self.assertTrue(derived.split_adjustment_flag)
+
+
+class FinancialSummaryPeriodResolutionTests(unittest.TestCase):
+    def test_completed_short_fiscal_year_outranks_earlier_quarter(self) -> None:
+        earlier_quarter = _summary(
+            "3823",
+            date(2026, 1, 14),
+            fiscal_period="1Q",
+            fiscal_year_end=date(2026, 8, 31),
+            period_start=date(2025, 9, 1),
+            period_end=date(2025, 11, 30),
+            sales=806_000_000.0,
+            shares_outstanding=131_420_693.0,
+        )
+        completed_short_year = _summary(
+            "3823",
+            date(2026, 7, 24),
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 4, 30),
+            period_start=date(2025, 9, 1),
+            period_end=date(2026, 4, 30),
+            sales=2_332_000_000.0,
+            shares_outstanding=145_416_193.0,
+        )
+        asof = date(2026, 8, 12)
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"3823": _security("3823")},
+            bars_by_ticker={"3823": _daily_bars("3823", asof, 40)},
+            summaries_by_ticker={"3823": [earlier_quarter, completed_short_year]},
+            edinet_by_ticker={},
+        ).financials["3823"]
+
+        self.assertEqual(snapshot.latest_disclosed_at, completed_short_year.disclosed_at)
+        self.assertEqual(snapshot.sales, completed_short_year.sales)
+        self.assertEqual(snapshot.shares_outstanding, completed_short_year.shares_outstanding)
+
+    def test_partial_correction_keeps_specific_profit_from_the_same_period(self) -> None:
+        statement = _summary(
+            "9433",
+            date(2025, 11, 6),
+            fiscal_period="2Q",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2025, 9, 30),
+            operating_profit=100.0,
+            profit=80.0,
+        )
+        partial_correction = _summary(
+            "9433",
+            date(2025, 11, 7),
+            fiscal_period="2Q",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2025, 9, 30),
+            operating_profit=None,
+            profit=70.0,
+        )
+        asof = date(2025, 11, 28)
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"9433": _security("9433")},
+            bars_by_ticker={"9433": _daily_bars("9433", asof, 40)},
+            summaries_by_ticker={"9433": [statement, partial_correction]},
+            edinet_by_ticker={},
+        ).financials["9433"]
+
+        self.assertEqual(snapshot.operating_profit, 100.0)
+        self.assertEqual(snapshot.operating_profit_source, OperatingProfitSource.OPERATING_PROFIT)
+
+    def test_future_period_metadata_cannot_outrank_a_later_valid_quarter(self) -> None:
+        malformed_q1 = _summary(
+            "9565",
+            date(2026, 3, 12),
+            fiscal_period="1Q",
+            fiscal_year_end=date(2026, 6, 30),
+            period_start=date(2025, 11, 1),
+            period_end=date(2026, 6, 30),
+            sales=781_000_000.0,
+            operating_profit=49_000_000.0,
+            shares_outstanding=2_775_933.0,
+        )
+        valid_q2 = _summary(
+            "9565",
+            date(2026, 6, 12),
+            fiscal_period="2Q",
+            fiscal_year_end=date(2026, 10, 31),
+            period_start=date(2025, 11, 1),
+            period_end=date(2026, 4, 30),
+            sales=1_544_000_000.0,
+            operating_profit=63_000_000.0,
+            shares_outstanding=2_775_933.0,
+        )
+        asof = date(2026, 6, 30)
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"9565": _security("9565")},
+            bars_by_ticker={"9565": _daily_bars("9565", asof, 40)},
+            summaries_by_ticker={"9565": [malformed_q1, valid_q2]},
+            edinet_by_ticker={},
+        ).financials["9565"]
+
+        self.assertEqual(snapshot.latest_disclosed_at, valid_q2.disclosed_at)
+        self.assertEqual(snapshot.sales, valid_q2.sales)
+
+    def test_latest_current_period_blank_withdraws_earnings_forecast(self) -> None:
+        prior = _summary(
+            "9433",
+            date(2025, 8, 1),
+            fiscal_period="1Q",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2025, 6, 30),
+            forecast_eps=100.0,
+            forecast_profit=1_000.0,
+            forecast_ordinary_profit=900.0,
+        )
+        withdrawal = _summary(
+            "9433",
+            date(2025, 11, 6),
+            fiscal_period="2Q",
+            fiscal_year_end=date(2026, 3, 31),
+            period_start=date(2025, 4, 1),
+            period_end=date(2025, 9, 30),
+            forecast_eps=None,
+            forecast_profit=None,
+            forecast_ordinary_profit=None,
+        )
+        asof = date(2025, 11, 28)
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"9433": _security("9433")},
+            bars_by_ticker={"9433": _daily_bars("9433", asof, 40)},
+            summaries_by_ticker={"9433": [prior, withdrawal]},
+            edinet_by_ticker={},
+        ).financials["9433"]
+
+        self.assertIsNone(snapshot.per_forward)
+        self.assertFalse(snapshot.forecast_special_gain_flag)
+        self.assertFalse(snapshot.forecast_full_year_loss_flag)
+
+    def test_future_period_actual_remains_newer_than_prior_valid_year(self) -> None:
+        prior = _summary(
+            "3281",
+            date(2025, 10, 14),
+            fiscal_period="FY",
+            fiscal_year_end=date(2025, 8, 31),
+            period_start=date(2025, 3, 1),
+            period_end=date(2025, 8, 31),
+            sales=30_505_000_000.0,
+            shares_outstanding=4_797_731.0,
+        )
+        current = _summary(
+            "3281",
+            date(2026, 4, 13),
+            fiscal_period="FY",
+            fiscal_year_end=date(2026, 8, 31),
+            period_start=date(2026, 3, 1),
+            period_end=date(2026, 8, 31),
+            sales=28_821_000_000.0,
+            shares_outstanding=4_797_731.0,
+        )
+        asof = date(2026, 4, 30)
+
+        snapshot = build_metrics(
+            asof_date=asof,
+            securities_by_ticker={"3281": _security("3281")},
+            bars_by_ticker={"3281": _daily_bars("3281", asof, 40)},
+            summaries_by_ticker={"3281": [prior, current]},
+            edinet_by_ticker={},
+        ).financials["3281"]
+
+        self.assertEqual(snapshot.latest_disclosed_at, current.disclosed_at)
+        self.assertEqual(snapshot.sales, current.sales)

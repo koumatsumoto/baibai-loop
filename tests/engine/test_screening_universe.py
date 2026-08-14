@@ -10,7 +10,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from baibai_engine.screening.providers.jquants import JQuantsDailyBar
+from baibai_engine.screening.providers.jquants import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 from baibai_engine.screening.schema import SecurityMaster
 from baibai_engine.screening.universe import (
     TSE_33_SECTORS,
@@ -20,11 +23,14 @@ from baibai_engine.screening.universe import (
 
 
 def _bars(
-    code: str, close: float = 100.0, turnover: float = 100_000_000.0
+    code: str,
+    close: float = 100.0,
+    turnover: float = 100_000_000.0,
+    *,
+    end: date = date(2026, 4, 24),
 ) -> list[JQuantsDailyBar]:
-    # Span 200 days ending at 2026-04-24; the trailing 20 bars feed the
+    # Span 200 days ending at the requested as-of; the trailing 20 bars feed the
     # turnover / market-cap facts recorded on each snapshot.
-    end = date(2026, 4, 24)
     total = 200
     start = end - timedelta(days=total - 1)
     return [
@@ -39,6 +45,37 @@ def _bars(
 
 
 class ScreeningUniverseTests(unittest.TestCase):
+    def test_latest_stale_price_uses_close_null_action_event_basis(self) -> None:
+        security = SecurityMaster(
+            code="130A",
+            name="Suspended consolidation",
+            market_segment="Prime",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        asof = date(2026, 4, 25)
+        events = [JQuantsAdjustmentFactorEvent("130A", asof, 100.0)]
+
+        fixed = build_universe(
+            asof_date=asof,
+            securities=[security],
+            bars_by_ticker={"130A": _bars("130A", close=1.0)},
+            shares_outstanding_by_ticker={"130A": 1_000_000.0},
+            jpx_flags_by_ticker={},
+            adjustment_events_by_ticker={"130A": events},
+        )
+        mutation = build_universe(
+            asof_date=asof,
+            securities=[security],
+            bars_by_ticker={"130A": _bars("130A", close=1.0)},
+            shares_outstanding_by_ticker={"130A": 1_000_000.0},
+            jpx_flags_by_ticker={},
+            adjustment_events_by_ticker={"130A": ()},
+        )
+
+        self.assertEqual(fixed.snapshots["130A"].market_cap_oku, 1)
+        self.assertEqual(mutation.snapshots["130A"].market_cap_oku, 0)
+
     def test_build_universe_keeps_eligible_security(self) -> None:
         security = SecurityMaster(
             code="130A",
@@ -57,6 +94,42 @@ class ScreeningUniverseTests(unittest.TestCase):
         self.assertIn("130A", result.snapshots)
         self.assertEqual(result.snapshots["130A"].market_cap_oku, 400)
         self.assertEqual(result.snapshots["130A"].avg_turnover_oku, 1.0)
+
+    def test_future_bar_cannot_change_asof_market_cap_or_turnover(self) -> None:
+        security = SecurityMaster(
+            code="130A",
+            name="Sample",
+            market_segment="Prime",
+            sector_33="情報・通信業",
+            is_common_stock=True,
+        )
+        asof = date(2026, 4, 24)
+        clean_bars = _bars("130A")
+        future = JQuantsDailyBar(
+            ticker="130A",
+            traded_at=asof + timedelta(days=1),
+            close=1_000.0,
+            turnover_value=9_000_000_000.0,
+        )
+
+        clean = build_universe(
+            asof_date=asof,
+            securities=[security],
+            bars_by_ticker={"130A": clean_bars},
+            shares_outstanding_by_ticker={"130A": 100_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+        polluted = build_universe(
+            asof_date=asof,
+            securities=[security],
+            bars_by_ticker={"130A": [*clean_bars, future]},
+            shares_outstanding_by_ticker={"130A": 100_000_000.0},
+            jpx_flags_by_ticker={},
+        )
+
+        self.assertEqual(polluted.snapshots["130A"], clean.snapshots["130A"])
+        self.assertEqual(clean.snapshots["130A"].market_cap_oku, 100)
+        self.assertEqual(clean.snapshots["130A"].avg_turnover_oku, 1.0)
 
     def test_build_universe_keeps_200_oku_band_security(self) -> None:
         security = SecurityMaster(
@@ -200,7 +273,7 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
                 result = build_universe(
                     asof_date=date(2019, 11, 29),
                     securities=[security],
-                    bars_by_ticker={"130A": _bars("130A")},
+                    bars_by_ticker={"130A": _bars("130A", end=date(2019, 11, 29))},
                     shares_outstanding_by_ticker={"130A": 400_000_000.0},
                     jpx_flags_by_ticker={},
                 )
@@ -219,7 +292,7 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
         result = build_universe(
             asof_date=date(2019, 11, 29),
             securities=[security],
-            bars_by_ticker={"130A": _bars("130A")},
+            bars_by_ticker={"130A": _bars("130A", end=date(2019, 11, 29))},
             shares_outstanding_by_ticker={"130A": 400_000_000.0},
             jpx_flags_by_ticker={},
         )

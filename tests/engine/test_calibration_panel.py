@@ -588,6 +588,109 @@ class CalibrationPanelTest(unittest.TestCase):
                 (ASOF - timedelta(days=730)).isoformat(),
             )
 
+    def test_panel_return_signal_uses_an_action_event_without_a_close(self) -> None:
+        """売買停止日のactionを、見かけの株数減少として較正へ入れない。"""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sqlite_path = Path(tmp) / "market.sqlite"
+            _build_fixture_sqlite(sqlite_path)
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO jquants_master_snapshots("
+                    "snapshot_date, ticker, name, market, sector_33, is_common_stock"
+                    ") VALUES (?, ?, ?, ?, ?, ?)",
+                    ("2026-06-01", "9003", "併合銘柄", "スタンダード", "サービス業", 1),
+                )
+                conn.executemany(
+                    "INSERT OR REPLACE INTO jquants_fin_summaries("
+                    "ticker, disclosed_at, shares_outstanding, treasury_shares, fiscal_period, "
+                    "fiscal_year_end, period_start, period_end"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (
+                            "9003",
+                            "2024-05-10",
+                            100_000_000.0,
+                            0.0,
+                            "FY",
+                            "2024-03-31",
+                            "2023-04-01",
+                            "2024-03-31",
+                        ),
+                        (
+                            "9003",
+                            "2025-05-10",
+                            100_000_000.0,
+                            0.0,
+                            "FY",
+                            "2025-03-31",
+                            "2024-04-01",
+                            "2025-03-31",
+                        ),
+                        (
+                            "9003",
+                            "2026-05-10",
+                            1_000_000.0,
+                            0.0,
+                            "FY",
+                            "2026-03-31",
+                            "2025-04-01",
+                            "2026-03-31",
+                        ),
+                    ],
+                )
+                add_source_coverage(
+                    conn,
+                    source="jquants_fin_summaries",
+                    coverage_key="return-event-history",
+                    record_count=5,
+                    min_date="2024-05-10",
+                    max_date=ASOF.isoformat(),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            insert_daily_bars_from_closes(
+                sqlite_path,
+                "9003",
+                [100.0] * 800,
+                end_date=ASOF,
+                turnover_value=2e8,
+            )
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO jquants_daily_bars("
+                    "ticker, traded_at, close, adjustment_factor"
+                    ") VALUES (?, ?, ?, ?)",
+                    ("9003", "2025-06-02", None, 100.0),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with_event = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            with_event_row = {item.ticker: item for item in with_event.rows}["9003"]
+
+            conn = open_connection(sqlite_path)
+            try:
+                conn.execute(
+                    "UPDATE jquants_daily_bars SET adjustment_factor = 1 "
+                    "WHERE ticker = ? AND traded_at = ?",
+                    ("9003", "2025-06-02"),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            without_event = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+            without_event_row = {item.ticker: item for item in without_event.rows}["9003"]
+
+            self.assertEqual(with_event_row.share_count_reduction_streak, 0)
+            self.assertFalse(with_event_row.shareholder_return_change)
+            self.assertEqual(without_event_row.share_count_reduction_streak, 1)
+            self.assertTrue(without_event_row.shareholder_return_change)
+
     def test_panel_normalizes_old_fy_eps_for_split_before_recent_bar_window(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"

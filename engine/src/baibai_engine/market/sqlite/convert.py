@@ -5,9 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from math import isfinite
 from typing import Any
 
-from baibai_engine.market.jquants import JQuantsProviderError, parse_jquants_code_parts
+from baibai_engine.market.jquants import (
+    JQuantsProviderError,
+    is_missing_scalar,
+    parse_jquants_code_parts,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,39 +74,37 @@ def is_common_stock_flag(record: Mapping[str, Any]) -> bool:
 
 def first(record: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
-        if key in record and record[key] not in (None, ""):
-            return record[key]
+        if key not in record:
+            continue
+        value = record[key]
+        if value is None or (isinstance(value, str) and value == ""):
+            continue
+        return value
     return None
 
 
 def to_float(value: Any) -> float | None:
-    if value in (None, "", "-", "null"):
+    if is_missing_scalar(value) or value == "-":
         return None
     try:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    if result != result:  # NaN
+    if not isfinite(result):
         return None
     return result
 
 
 def to_str_or_none(value: Any) -> str | None:
-    if value in (None, ""):
+    if is_missing_scalar(value):
         return None
-    if isinstance(value, float) and value != value:
-        return None
-    return str(value)
+    return str(value).strip()
 
 
 def date_iso(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, float) and value != value:
+    if is_missing_scalar(value):
         return None
     text = str(value)
-    if text in {"NaT", "nan"}:
-        return None
     return text[:10]
 
 

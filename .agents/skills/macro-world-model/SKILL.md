@@ -27,6 +27,9 @@ description: Stage A pilot で、prior-blind な world model workspace を先に
 
 同じ `as_of` の cycle directory または生成先が存在するときは上書きせず停止する。preflight、freeze 後の前回 head、scorecard、revision diff、v4、publish、cost、2 回目実行確認は同じ cycle directory に置けるが、blind freeze の対象へ混ぜない。
 
+cycle 3 以降の machine contract は `tools/experiments/macro_world_model/README.md` の version 2
+を使う。cycle 1 / 2 の frozen version 1 artifact は履歴として書き換えない。
+
 ## 手順
 
 ### 0. Prior-blind preflight
@@ -59,6 +62,11 @@ head `as_of` を取得できないときだけ `--previous-asof` を省略し、
 
 scan は全系列の stale / insufficient_history / flags / z_score / percentile、release 間変化、同一 `observed_at` の複数 vintage による revision を含む。snapshot に保存する revision は観測日が `as_of` から 24 か月以内かつ revision vintage が cycle 窓内のものに限り、series ごとに vintage 降順 20 件を上限として超過数を `revisions_truncated` に残す。リポジトリ内 source による派生再計算は `derived_recompute: true` として読む側が割り引けるようにする。この保存窓は `recent_revision` の materiality 判定を変えない。materiality 候補は deterministic rules、standing coverage、analyst addition の和集合である。除外には具体的な理由が必要であり、data health の異常を経済解釈より先に解決する。
 
+snapshot v2 は reading の `window_years` / `window_observations` / `expected_observations`、
+`statistic` / `statistic_unit` / `statistic_value`、`next_print_estimate` /
+`print_due_in_days` を各系列に保持する。raw `unit` と `statistic_unit` を同じものとして扱わず、
+欠落は builder error として解消してから進む。
+
 ### 2. Evidence packs と states
 
 1. selected coverage を block に分け、一次 source を中心に支持証拠と反証証拠を集める。一次 source の最新公表日、観測期間、単位、取得日を確認する。Tier 1 が継続的に取得困難な系列だけ `docs/reference/data-sources.md` の Tier 2 例外を使う。
@@ -69,7 +77,7 @@ scan は全系列の stale / insufficient_history / flags / z_score / percentile
 
 1. `hypotheses.yaml` に競合仮説を 2〜3 件置く。各仮説は mechanism summary、plausibility rank、evidence for / against、unexplained residuals、required assumptions、discriminating signposts、invalidation を持つ。
 2. `evidence-matrix.yaml` で同じ evidence を全仮説に対して `supports / contradicts / mixed / neutral` のいずれかで評価する。
-3. `world-model.yaml` の baseline path を `now / 0_3m / 3_12m / 12_24m` ごとに書く。scenario は mechanism を名前に含め、initial shock、persistence、propagation delta、policy reaction と growth / inflation / rates / credit / fx / balance sheet の path、signposts、invalidation、known omissions を持つ。
+3. `world-model.yaml` の baseline path を `now / 0_3m / 3_12m / 12_24m` ごとに書く。scenario は mechanism を名前に含め、initial shock、persistence、propagation delta、policy reaction と growth / inflation / rates / credit / fx / balance sheet の path、signposts、invalidation、known omissions を持つ。cycle 3 以降は scenario をちょうど 3 件とし、各 scenario に `state_ids` / `hypothesis_ids` / `node_ids` / `edge_ids` / `evidence_ids` も持たせ、参照 edge の両 endpoint を同じ `node_ids` に含める。
 4. key judgments は 3〜5 件に絞り、state、horizon、競合仮説、current-cycle evidence に接続する。
 5. `world-model.yaml` の key judgment、scenario、baseline path など owner が読む summary 系 field は日本語で書く。workspace の中間的な分類・識別子・検査用 field は英語でよい。
 
@@ -96,12 +104,19 @@ freeze 成功後は対象 7 ファイルを編集しない。必要な修正が�
 1. `baibai-engine macro context show --context-id <head> --asof <as_of>` で前回 report を開く。blind workspace には保存しない。
 2. `baibai-engine macro context scorecard --context-id <head> --asof <as_of> --format json` を実行する。run 証明が不足する error のときだけ、条件 series を `macro refresh <series...> --start <前回as_of翌日> --end <as_of>` で取得して再実行する。`pending` だけなら refresh しない。
 3. scorecard の `machine_snapshot` を逐語で v4 inputs に引用し、met / not_met / pending の内訳と、確率・成立実績の対応を書く。
-4. frozen world model と前回 report を比較し、evidence-backed な追加・変更を `revision-diff.yaml` に `area` と `summary` で記録する。前回の dominant force / key judgment のうち消滅または demote したものは `dropped_or_demoted` に対象と理由を必ず記録する。diff は frozen workspace を変更しない。
+4. frozen world model と前回 report を比較し、`revision-diff.yaml` に `schema_version: 1` と cycle と同じ `as_of` を置き、evidence-backed な追加・変更を `area` と `summary` で記録する。前回の dominant force / key judgment のうち消滅または demote したものは `dropped_or_demoted` に対象と理由を必ず記録する。diff は frozen workspace を変更しない。
 
 ### 6. 同一 session の v4 導出と publish
 
 1. core 10 section の facts / judgment は states から、synthesis forces は key judgments から導出する。
-2. risk environment の base / bear / bull は world model scenarios から導出し、ここで v4 probability trio を 0.05 刻みで付ける。world model の plausibility rank と probability 順を一致させ、`v4-projection.yaml` に対応を記録する。world model の adverse scenario は bear の複合条件または bear scorecard の signpost として必ず保存する。inverse mapping を使うときは、v4 trio に含まれない adverse tail を projection note に明示する。
+2. risk environment の base / bear / bull は world model scenarios から導出し、ここで v4 probability trio を 0.05 刻みで付ける。world model の plausibility rank と probability 順を一致させ、`v4-projection.yaml` に対応を記録する。world model の adverse scenario は bear の複合条件または bear scorecard の signpost として必ず保存する。inverse mapping を使うときは、v4 trio に含まれない adverse tail を top-level `projection_note` に明示する。
+   cycle 3 以降の projection は、one-page または v4 の material claim ごとに upstream state /
+   hypothesis / judgment / scenario / node / edge / evidence、source qualifier と量の基準・unit、全 target
+   field path、output qualifier を version 2 の shape で列挙する。state を使う claim は data / state /
+   structural / policy の4 uncertaintyを source と output の両方へ残す。evidence entry は使う
+   `measure` と `units` を明記する。external evidence の量がない prose は unit `not-applicable`、
+   snapshot evidence は README の有限な measure path と、各 path に対応する raw unit・statistic
+   unit・reading metadata の固定 unit を使う。
 3. connection は core から書く。world model から直接、売買 timing、配分、個別 sizing を出さない。
 4. freeze と確率順を再検査する。
 
@@ -109,8 +124,18 @@ freeze 成功後は対象 7 ファイルを編集しない。必要な修正が�
 python -m tools.experiments.macro_world_model.validate_world_model check \
   <cycle> \
   --freeze <cycle>/blind-freeze.json \
-  --v4-projection <cycle>/v4-projection.yaml
+  --v4-projection <cycle>/v4-projection.yaml \
+  --v4-document <cycle>/final-v4.yaml \
+  --revision-diff <cycle>/revision-diff.yaml
 ```
+
+version 2 check は judgment-bearing target の未 mapping、selected evidence の未使用、全 consumer から
+未参照の graph node / edge、edge より強い claim、qualifier / uncertainty の弱化、real / nominal・
+stock / flow・observation / expectation・unit の不一致を拒否する。schema pass は prose の semantic
+pass ではないので、独立 reviewer は evidence → state → hypothesis / edge → one-page → v4 / connection
+を縦に読み、宣言と実際の文言が一致することを別に確認する。
+`final-v4.yaml`、projection、revision diff のいずれかを編集した後は check を再実行し、publish
+直前の内容で pass させる。
 
 5. [`macro-context` skill](../macro-context/SKILL.md) の step 8 以降へ合流し、connection、thesis impact、self-check (a)–(p)、`scaffold_inputs`、publish をすべて満たす。外部記事 15 本以上、8 象限、日本需要、通商・地政学・energy、日本株益回り − JGB 10y、market snapshot、scorecard settle、connection の要件を省略しない。monitoring の `machine_conditions` には `usd_jpy` を最低 1 件置き、原則として `jp.10y` も置く。zero-base の評価がテーマを demote しても、standing exposure の機械監視面は維持する。
 6. draft は `baibai-engine macro context publish <draft> --check` で反復する。確定時に `macro context head` を再取得し、確認した ID を `--expected-head` に渡して実 publish する。

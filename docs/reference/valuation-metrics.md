@@ -91,9 +91,9 @@ shortlist UI では trailing PER と並べて表示するが、warning、除外�
 
 | 概念 | 使う値 | 使わない値 |
 | --- | --- | --- |
-| 時価総額の株式数 | `ShOutFY` − `TrShFY`（発行済 − 期末自己株式） | `ShOutFY` 単独（自己株式を含む） |
+| 時価総額の株式数 | 同じ資本状態の `ShOutFY` − `TrShFY`（発行済 − 期末自己株式） | `ShOutFY` 単独、または `AvgSh` − `TrShFY` |
 | 自己資本比率 | `EqAR`（開示値） | `Eq / TA`（`Eq` は非支配株主持分を含む純資産） |
-| 株価 / 1 株純資産 | `pbr` = 終値 / `BPS`（`BPS` は自己資本 ÷ 自己株控除後株式数） | 時価総額 / 純資産 |
+| PBR | 条件を満たす同一状態の `TA × EqAR`、または `BPS × 自己株控除後株式数`を普通株自己資本として、時価総額で割る | 別開示日の `TA × EqAR`、非支配株主持分を含む純資産 |
 | trailing 収益 | 報告純利益の TTM 合成（円）。倍率は時価総額 ÷ それ | `EPS` × 株式数の再構成 |
 | accruals の純利益 | 報告純利益の TTM 合成（円） | `EPS` × `ShOutFY` |
 
@@ -101,9 +101,15 @@ shortlist UI では trailing PER と並べて表示するが、warning、除外�
 
 自己株式は議決権も配当請求権も持たないので、時価総額に含めると過大になり、現金比率・利回りが薄く、倍率が割高に出る。**歪みが最大になるのは自己株式を積み上げた企業、つまり buyback を実行した企業**で、機械 E[r] の carry が上位へ押し上げる群と重なる。
 
-**「株価 / 1 株純資産」は `pbr` 1 つだけを持つ。** 時価総額 ÷ 自己資本でも同じ概念を作れるが、`BPS` は開示された 1 株あたり値なので `pbr` の方が導出段数が少なく、`EqAR` の小数第 3 位丸めも入らない。`cash-rich-asset-discount` playbook の gate（`pbr_max`）もこれを使う。
+**PBR は output を 1 つだけ持つ。** 普通株basisとの照合に通り、かつ最新`BPS`以上に新しい同一行の`TA × EqAR`があれば、その鮮度を使う。照合できない場合は`BPS × 自己株控除後株式数`へfallbackする。`EqAR`の小数第3位・`BPS`の小数第2位という公表精度は丸め区間として比較し、near-zero比率を相対誤差だけで拒否しない。`cash-rich-asset-discount` playbook の gate（`pbr_max`）もこの単一outputを使う。
 
-**欠損を代用で埋めない。** 自己株式数が観測できない行は**時価総額を出さない** — 発行済で代用すると、どれだけ過大か分からない値が現金比率・利回り・流動性 gate へ入る。発行済を超える自己株式数のような破損値も同じく答えない。自己資本比率が観測できない行は `equity_ratio` を `null` にし、純資産比率で代用しない（代用は少数株主持分の大きい銘柄で比率を数 pt 過大にし、`equity_ratio_min` の gate を通しやすくする向きに効く）。いずれも該当銘柄は流動性母集団から外れる。
+**欠損を代用で埋めない。** 観測済みの資本状態から現在の自己株式数を安全に解決できない場合は**時価総額を出さない** — 発行済だけで代用すると、どれだけ過大か分からない値が現金比率・利回り・流動性 gate へ入る。発行済を超える自己株式数のような破損値も同じく答えない。自己資本比率が観測できない行は `equity_ratio` を `null` にし、純資産比率で代用しない（代用は少数株主持分の大きい銘柄で比率を数 pt 過大にし、`equity_ratio_min` の gate を通しやすくする向きに効く）。いずれも該当銘柄は流動性母集団から外れる。
+
+`TA × EqAR` で普通株自己資本の円経路を組むときは、両方を同時に観測した最新の開示行を使う。個々の最新値は staleness fact と表示には carry できるが、別開示日の `TA` と `EqAR` を掛けると、その間の資産変動を自己資本へ混入させる。両方を持つ行が無い場合、またはその同一行が最新`BPS`より古い場合は円経路を答えず、普通株基準の`BPS`経路を使う。同一状態へ揃えるために、より新しい資本状態を古い値へ巻き戻さない。
+
+発行済株式総数と自己株式数は状態量なので、開示のない行へcarryできる。ただし、正の`TrShFY`を観測した後に、より新しい`ShOutFY`を持つ行が`TrShFY`を欠く場合は組み合わせない。J-Quantsでは自己株式0株が空欄になる行があり、空欄だけでは自己株式の消却・処分、発行済不変の処分、新株発行と処分の同時実施を区別できないためである。gross issuedの増加・減少・不変を安全条件にせず、新しい`TrShFY`を観測するまで答えない。明示的な`TrShFY = 0`は二重控除を起こさないためcarryでき、0株のsource issuedは要求しない。正の`TrShFY`の観測行に同時点の`ShOutFY`が無い場合も答えない。
+
+`AvgSh` は EPS の期中平均株式数であり、gross issued の代替ではない。正の自己株式があり、入力上の `ShOutFY == AvgSh`、かつ`ShOutFY + TrShFY`が過去に観測したgross issuedへ戻る行は、期中平均が発行済欄へfallbackしたと識別できるためfail closedにする。`ShOutFY == AvgSh`だけなら、発行済が動かなかった1Qの正常行にも生じるので停止しない。負の自己株式数、非正の発行済、発行済以上の自己株式も有効な株式数へ変換しない。carry後の現在値だけでなく、正の`TrShFY`を観測したsource行の`ShOutFY > TrShFY`も必要である。正の`TrShFY`より後に`ShOutFY`だけを再観測した場合、欠損入力は自己株式0株と未報告を区別できず、旧値が現在も有効か判定できないためfail closedにする。これは自己株式が実際に変化したという断定ではなく、lossy inputに対するavailability policyである。新しい`TrShFY`の観測（0を含む）があれば、そのstateから再開する。これらの不整合は `capital_basis_failure_reason` に `indeterminate_positive_treasury_after_later_issued_observation`、`treasury_observation_without_issued_basis`、`invalid_treasury_source_capital_basis`、`issued_matches_average_with_positive_treasury`、`indeterminate_share_basis`、または`invalid_issued_or_treasury_shares`を記録し、時価総額とその派生倍率・利回りを `null` にする。
 
 分割を跨ぐ行では自己株式数も発行済と同じ factor で換算する。片方だけ換算すると差である自己株控除後株式数が壊れる。
 
@@ -300,6 +306,11 @@ return ではない)。これ以外のコーポレートアクション (合併�
 ## 13. 前年同期の決定ロジック
 
 J-Quants の財務サマリーは四半期 disclosure の時系列として扱うため、直前 disclosure は YoY ではなく QoQ になる。 `eps_yoy` / `sales_yoy` / `operating_profit_yoy` の比較対象を、最新 summary と同じ `TypeOfCurrentPeriod` かつ `CurrentFiscalYearEndDate` が 1 年前の summary とする。該当する前年同期が無い場合、または period field が欠損している場合は `null` にする。`null` は業績悪化フィルタでは悪化なしとして扱い、季節性による QoQ 減少や不規則 disclosure の index shift を過剰棄却に使わない。
+
+営業利益、経常利益、純利益の fallback は、選択対象になった会計期間の中でより具体的な
+non-null field を選ぶ。部分訂正に営業利益が無いという理由で、同じ期間に観測済みの営業利益を
+純利益へ置き換えない。forecast は source store が同日文書identityと対象期を保持しないため、
+開示日順で保存された状態だけを使い、文書間の合成を推測しない。
 
 ## 14. 算出エラー・欠損の扱い
 

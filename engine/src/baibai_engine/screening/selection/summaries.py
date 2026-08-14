@@ -253,8 +253,8 @@ def _longlist_summary(candidate: Mapping[str, object], *, rank: int) -> dict[str
         # er_annual は annual_ratio (0.1 = 10%/年)。longlist view は pct で読むので x100。
         "expected_return_pct": _ratio_to_pct(optional_float(metrics.get("er_annual"))),
         "fair_value_anchor_yen": _conservative_fair_value_yen(metrics),
-        # run が as-of の raw close として保存した screening 参考値。約定 limit の price
-        # basis ではなく、plan-limit は SQLite から同じ raw/unadjusted close を再取得する。
+        # 最後の raw close を as-of の株式基準へ換算した screening 参考値。約定 limit の
+        # price basis ではなく、plan-limit は SQLite の raw/unadjusted close を再取得する。
         "market_price_yen": _screening_reference_close_yen(metrics),
         "fv_convergence": _fv_convergence_annotation(candidate, metrics),
         # 自己株券買付状況報告書の提出観測。longlist は OP3 が 20 件を点検する view なので、
@@ -312,8 +312,9 @@ def _screening_reference_close_yen(metrics: Mapping[str, object]) -> float | Non
 
 
 def _fair_value_anchors(metrics: Mapping[str, object]) -> dict[str, float]:
-    # FV の per-share basis は同じ artifact の raw close で証明する。価格 basis を証明できない
-    # anchor は、自己株控除後 market cap と gross shares の混在を防ぐため判断面へ出さない。
+    # FV の per-share basis は同じ artifact の as-of-basis 参考価格で証明する。
+    # 価格 basis を証明できない anchor は、自己株控除後 market cap と gross shares の混在を
+    # 防ぐため判断面へ出さない。
     if _screening_reference_close_yen(metrics) is None:
         return {}
     return {

@@ -7,7 +7,11 @@ from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.market.bars import JQuantsDailyBar, asof_basis_closes
+from baibai_engine.market.bars import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+    asof_basis_closes,
+)
 
 from .sqlite import connect_read_only, read_rows
 
@@ -141,12 +145,21 @@ def close_change_since(path: Path, tickers: Sequence[str], *, since: date) -> di
                 adjustment_factor=None if factor is None else float(factor),
             )
         )
+    events_by_ticker = _adjustment_events_by_ticker(
+        path,
+        unique,
+        start=since - timedelta(days=_CHANGE_START_LOOKBACK_DAYS),
+    )
     changes: dict[str, float] = {}
     for ticker, bars in by_ticker.items():
         start = _index_on_or_before(bars, since)
         if start is None or start == len(bars) - 1:
             continue
-        closes = asof_basis_closes(bars)
+        closes = asof_basis_closes(
+            bars,
+            events_by_ticker.get(ticker, ()),
+            asof_date=bars[-1].traded_at,
+        )
         if closes[start] == 0:
             continue
         changes[ticker] = round((closes[-1] / closes[start] - 1) * 100, 1)
@@ -208,12 +221,22 @@ def worst_close_drawdown(
                 adjustment_factor=None if factor is None else float(factor),
             )
         )
+    events_by_ticker = _adjustment_events_by_ticker(
+        path,
+        unique,
+        start=start - timedelta(days=_CHANGE_START_LOOKBACK_DAYS),
+        end=end,
+    )
     worst: dict[str, float] = {}
     for ticker, bars in by_ticker.items():
         entry = _index_on_or_before(bars, start)
         if entry is None or entry == len(bars) - 1:
             continue
-        closes = asof_basis_closes(bars)
+        closes = asof_basis_closes(
+            bars,
+            events_by_ticker.get(ticker, ()),
+            asof_date=end,
+        )
         if closes[entry] == 0:
             continue
         trough = min(closes[entry + 1 :])
@@ -221,6 +244,48 @@ def worst_close_drawdown(
         # distance to its lowest point would call a rise a fall.
         worst[ticker] = min(0.0, trough / closes[entry] - 1)
     return worst
+
+
+def _adjustment_events_by_ticker(
+    path: Path,
+    tickers: Sequence[str],
+    *,
+    start: date,
+    end: date | None = None,
+) -> dict[str, list[JQuantsAdjustmentFactorEvent]]:
+    """Read action events independently of close availability."""
+
+    if not tickers:
+        return {}
+    placeholders = ",".join("?" for _ in tickers)
+    end_clause = " AND traded_at <= ?" if end is not None else ""
+    parameters: list[object] = [*tickers, start.isoformat()]
+    if end is not None:
+        parameters.append(end.isoformat())
+    rows = read_rows(
+        path,
+        f"""
+            SELECT ticker, traded_at, adjustment_factor
+            FROM jquants_daily_bars
+            WHERE ticker IN ({placeholders})
+              AND traded_at >= ?
+              {end_clause}
+              AND adjustment_factor IS NOT NULL
+              AND adjustment_factor NOT IN (0.0, 1.0)
+            ORDER BY ticker, traded_at
+            """,  # nosec B608
+        parameters,
+    )
+    grouped: dict[str, list[JQuantsAdjustmentFactorEvent]] = {}
+    for ticker, traded_at, factor in rows:
+        grouped.setdefault(str(ticker), []).append(
+            JQuantsAdjustmentFactorEvent(
+                ticker=str(ticker),
+                traded_at=date.fromisoformat(str(traded_at)),
+                adjustment_factor=float(factor),
+            )
+        )
+    return grouped
 
 
 def latest_disclosure_dates_after(

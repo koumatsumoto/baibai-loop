@@ -8,7 +8,11 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.jquants import JQuantsProviderError
+from baibai_engine.market.jquants import (
+    JQuantsProviderError,
+    first_period_float,
+    has_period_slot,
+)
 from baibai_engine.market.sqlite.convert import (
     NormalizedRows,
     code_quality,
@@ -801,7 +805,7 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
         # (FEPS) が埋まっていれば当期予想の FNP/FOdP、本決算開示で FEPS が空なら翌期
         # ガイダンスの NxFNp/NxFOdP を採る (forecast_eps の FEPS→NxFEPS と同じ期選択)。
         # 期をまたいだ比較 (当期 EPS 期 と翌期利益の突合) は一時益 flag の誤検出になるので混ぜない。
-        if first(record, "FEPS") is not None:
+        if has_period_slot(record, "FEPS"):
             forecast_profit = to_float(first(record, "FNP"))
             forecast_ordinary_profit = to_float(first(record, "FOdP"))
         else:
@@ -814,7 +818,7 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                 # ClientV2 の fin-summary は短縮キーを返す。FEPS=当期予想 EPS は本決算
                 # (FY)開示で空になり、翌期ガイダンスは NxFEPS に入る。FEPS→NxFEPS の順で
                 # 各時点の最良 forward EPS(per_forward の基)を埋める。
-                to_float(first(record, "FEPS", "NxFEPS")),
+                first_period_float(record, "FEPS", "NxFEPS"),
                 to_float(first(record, "EpsTtm", "eps_ttm", "EPS", "eps")),
                 to_float(first(record, "BPS", "bps")),
                 to_float(
@@ -824,7 +828,6 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                         "shares_outstanding",
                         "IssuedShareEquityQuote",
                         "ShOutFY",
-                        "AvgSh",
                     )
                 ),
                 to_float(first(record, "NetSales", "net_sales", "Sales", "sales")),
@@ -875,7 +878,7 @@ def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> Norm
                 # DivAnn=実績年間 DPS (FY 開示)。予想年間は四半期開示の FDivAnn、
                 # 本決算開示では進行期ガイダンスが NxFDivAnn に入る (FEPS→NxFEPS と同型)。
                 to_float(first(record, "DivAnn")),
-                to_float(first(record, "FDivAnn", "NxFDivAnn")),
+                first_period_float(record, "FDivAnn", "NxFDivAnn"),
                 # TrShFY=期末自己株式数、EqAR=開示された自己資本比率。ShOutFY は自己株式を
                 # 含む発行済株式総数、Eq は非支配株主持分を含む純資産なので、時価総額と
                 # 自己資本比率をそれぞれ正しい分母で作るには両方が要る。

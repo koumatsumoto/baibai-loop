@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from statistics import mean
 
+from baibai_engine.market.bars import JQuantsAdjustmentFactorEvent, asof_basis_closes
+
 from .providers.jquants import JQuantsDailyBar
 from .rule_config import ScreeningRules
 from .schema import SecurityMaster, UniverseSnapshot
@@ -123,6 +125,10 @@ def build_universe(
     bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
     shares_outstanding_by_ticker: Mapping[str, float | None],
     jpx_flags_by_ticker: Mapping[str, Sequence[str]],
+    adjustment_events_by_ticker: Mapping[
+        str, Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar]
+    ]
+    | None = None,
 ) -> UniverseBuildResult:
     # 母集団の定義を業種名の完全一致に預けているので、source の語彙が動いた日は
     # 「その業種の全銘柄が普通株でない」と読める。件数は減るだけで例外は出ないため、
@@ -162,7 +168,10 @@ def build_universe(
         if market_name not in ELIGIBLE_MARKETS:
             flags.append("market_out_of_scope")
 
-        history = sorted(bars_by_ticker.get(security.code, ()), key=lambda item: item.traded_at)
+        history = sorted(
+            (bar for bar in bars_by_ticker.get(security.code, ()) if bar.traded_at <= asof_date),
+            key=lambda item: item.traded_at,
+        )
         if len(history) < MIN_BAR_HISTORY:
             flags.append("insufficient_bar_history")
 
@@ -183,7 +192,13 @@ def build_universe(
             mean(turnovers) / 100_000_000 if len(turnovers) == MIN_BAR_HISTORY else None
         )
         shares = shares_outstanding_by_ticker.get(security.code)
-        market_cap_oku = (latest.close * shares / 100_000_000) if shares else None
+        adjustment_events = (
+            adjustment_events_by_ticker.get(security.code, ())
+            if adjustment_events_by_ticker is not None
+            else history
+        )
+        latest_price = asof_basis_closes([latest], adjustment_events, asof_date=asof_date)[0]
+        market_cap_oku = (latest_price * shares / 100_000_000) if shares else None
 
         snapshots[security.code] = UniverseSnapshot(
             market_cap_oku=round(market_cap_oku) if market_cap_oku is not None else None,
