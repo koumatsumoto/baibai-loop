@@ -227,6 +227,8 @@ def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
         suffix=".json.gz",
         retention_class=RawRetentionClass.BUFFER,
         retrieved_at=datetime(2026, 2, 4, tzinfo=UTC),
+        request_start=date(2026, 1, 1),
+        request_end=date(2026, 2, 28),
     )
     first = export_legacy_sqlite(
         dataset_name="jquants.daily_bars",
@@ -251,6 +253,8 @@ def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
         suffix=".json.gz",
         retention_class=RawRetentionClass.BUFFER,
         retrieved_at=datetime(2026, 2, 5, tzinfo=UTC),
+        request_start=date(2026, 2, 1),
+        request_end=date(2026, 2, 28),
     )
     second = export_legacy_sqlite(
         dataset_name="jquants.daily_bars",
@@ -269,9 +273,72 @@ def test_incremental_export_preserves_partition_lineage(tmp_path) -> None:
     }
     assert lineage == {
         (2026, 1): ("ingest-a",),
-        (2026, 2): ("ingest-b",),
+        (2026, 2): ("ingest-a", "ingest-b"),
     }
     assert second.manifest.sources == ()
+
+
+def test_export_rejects_raw_lineage_outside_target_dataset_or_partition(tmp_path) -> None:
+    sqlite_path = _market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    raw = tmp_path / "raw.json.gz"
+    raw.write_bytes(b"raw")
+    _, wrong_dataset_metadata, _ = archive_raw_file(
+        source_path=raw,
+        mirror_root=mirror,
+        provider="jquants",
+        dataset="jquants.short_sale_reports",
+        ingest_id="wrong-dataset",
+        suffix=".json.gz",
+        retention_class=RawRetentionClass.BUFFER,
+        retrieved_at=datetime(2026, 2, 5, tzinfo=UTC),
+        request_start=date(2026, 1, 1),
+        request_end=date(2026, 2, 28),
+    )
+    with pytest.raises(LakeBuildError, match="does not match target dataset"):
+        export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            raw_source_refs=(raw_source_ref(wrong_dataset_metadata),),
+            build_id="wrong-dataset-build",
+        )
+
+    _, wrong_range_metadata, _ = archive_raw_file(
+        source_path=raw,
+        mirror_root=mirror,
+        provider="jquants",
+        dataset="jquants.daily_bars",
+        ingest_id="wrong-range",
+        suffix=".json.gz",
+        retention_class=RawRetentionClass.BUFFER,
+        retrieved_at=datetime(2025, 12, 5, tzinfo=UTC),
+        request_start=date(2025, 12, 1),
+        request_end=date(2025, 12, 31),
+    )
+    with pytest.raises(LakeBuildError, match="does not cover any rebuilt partition"):
+        export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            raw_source_refs=(raw_source_ref(wrong_range_metadata),),
+            build_id="wrong-range-build",
+        )
+
+    valid = raw_source_ref(wrong_range_metadata).model_copy(
+        update={"provider": "other"}
+    )
+    with pytest.raises(ValueError, match="metadata identity does not match"):
+        export_legacy_sqlite(
+            dataset_name="jquants.daily_bars",
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            producer_git_commit=_COMMIT,
+            raw_source_refs=(valid,),
+            build_id="wrong-provider-build",
+        )
 
 
 def test_incremental_export_rejects_a_different_transform(tmp_path) -> None:
@@ -387,23 +454,35 @@ def test_release_manifest_composes_exact_dataset_builds(tmp_path) -> None:
 def test_release_rejects_mixed_sqlite_snapshot_generations(tmp_path: Path) -> None:
     sqlite_path = _market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    manifests = [
-        export_legacy_sqlite(
-            dataset_name=name,
-            sqlite_path=sqlite_path,
-            mirror_root=mirror,
-            producer_git_commit=_COMMIT,
-            build_id=f"mixed-{index}",
-        ).manifest_path
-        for index, name in enumerate(("jquants.daily_bars", "jquants.short_sale_reports"), start=1)
-    ]
+    created_at = datetime(2026, 8, 14, tzinfo=UTC)
+    daily = export_legacy_sqlite(
+        dataset_name="jquants.daily_bars",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="mixed-1",
+        created_at=created_at,
+    ).manifest_path
+    with sqlite3.connect(sqlite_path) as connection:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars(ticker, traded_at, close) "
+            "VALUES ('9984', '2026-02-03', 333.0)"
+        )
+    short_sale = export_legacy_sqlite(
+        dataset_name="jquants.short_sale_reports",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+        build_id="mixed-2",
+        created_at=created_at,
+    ).manifest_path
 
     with pytest.raises(ValueError, match="share one SQLite snapshot generation"):
         create_l1_release(
-            dataset_manifest_paths=manifests,
+            dataset_manifest_paths=[daily, short_sale],
             mirror_root=mirror,
             release_id="mixed-release",
-            created_at=datetime(2026, 2, 4, tzinfo=UTC),
+            created_at=created_at,
         )
 
 

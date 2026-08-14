@@ -119,9 +119,15 @@ def raw_source_ref(metadata_path: Path) -> RawIngestSourceRef:
     expected_key = raw_metadata_object_key(raw_key=metadata.object_key)
     if metadata_path.name != Path(expected_key).name:
         raise RawArchiveError("Raw metadata path does not match object identity")
+    if metadata.request_start is None or metadata.request_end is None:
+        raise RawArchiveError("canonical Raw lineage requires an explicit request range")
     return RawIngestSourceRef(
         kind="raw_ingest",
         source_id=metadata.ingest_id,
+        provider=metadata.provider,
+        dataset=metadata.dataset,
+        request_start=metadata.request_start,
+        request_end=metadata.request_end,
         key=metadata.object_key,
         sha256=metadata.content_sha256,
         metadata_version=metadata.metadata_version,

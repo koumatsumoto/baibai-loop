@@ -588,7 +588,7 @@ def test_typed_source_refs_resolve_and_validate_digest_and_version(tmp_path: Pat
     sqlite_seed.replace(sqlite_path)
     sqlite_ref = SQLiteSnapshotSourceRef(
         kind="sqlite_snapshot",
-        source_id="snapshot-1",
+        source_id=f"market-v22-{sqlite_digest[:24]}",
         role="local_build_input",
         key=sqlite_key,
         sha256=sqlite_digest,
@@ -668,7 +668,7 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         snapshot_id="snapshot-1",
         schema_version=22,
         content_sha256=digest,
-    ) == (f"lake/l1/raw/legacy_sqlite/market/schema=v22/snapshot-1/snapshot-{digest}.sqlite")
+    ) == (f"lake/build-inputs/sqlite/market/schema=v22/snapshot-{digest}.sqlite")
 
     with pytest.raises(ValueError, match="path-safe"):
         dataset_manifest_key(dataset="../secret", build_id="build-1")

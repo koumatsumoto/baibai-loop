@@ -18,7 +18,11 @@ v1はcutover後もprevious/pinのrollback期間だけ保持する。
 初回 seed は全期間を export する。`export-pilot` は開始時にSQLite backup APIでWALを含むsealed
 snapshotを1回作り、snapshot digest・schema version・`quick_check`を確定してから、両datasetの
 export、source-state、parityを同じsnapshotから導出する。release作成時にも全partitionのsnapshot
-identityが両datasetでexactに1世代へ閉じることを検証し、世代の混在を拒否する。
+identityが両datasetでexactに1世代へ閉じることを検証し、世代の混在を拒否する。snapshotは
+content-addressedな`local_build_input`であり、daily releaseのremote closureには含めない。
+`sqlite_authority`期間のrestore checkpointは既存のcloud `market.sqlite`を正本とし、lake authority
+cutover前に別retention classのinitial checkpointを一度検証する。日次buildごとにfull SQLiteを
+R2へ再送しない。
 
 ```bash
 uv run baibai-engine lake export-pilot \
@@ -61,7 +65,9 @@ uv run baibai-engine lake archive-raw \
   --dataset jquants.daily_bars \
   --ingest-id <immutable-id> \
   --suffix json.gz \
-  --retention preserve
+  --retention preserve \
+  --from <request-start> \
+  --to <request-end>
 ```
 
 検証済み dataset manifest を release に固定する。
@@ -80,9 +86,19 @@ publish は immutable object、dataset manifest、release manifest の順に `If
 checksumに限定し、logical identityには使わない。logical SHA-256、transport checksum marker、size、
 content typeは同じimmutable PUTのmetadataへ固定する。PUT/reuse後にremote identityを検証し、さらに
 pointer直前にreleaseから到達可能な全objectのHEAD closureを再検証する。bulk objectを毎回GETして
-memoryへ展開せず、immutable conditional writeとtransport validationを信頼境界にする。最後に
+memoryへ展開せず、immutable conditional writeとtransport validationを信頼境界にする。SQLite
+`local_build_input`はdigest・schema・capture時刻をmanifestへ記録するがuploadしないため、日次
+remote bytesはchanged Parquet/Raw/manifestへ比例する。最後に
 `lake/pointers/l1/current.json` を ETag `If-Match` で切り替え、small pointerだけをGET read-backして
 exact digestを検証する。409/412のCAS conflictはretryせずfail-closeし、current releaseを再解決する。
+
+production authority化ではmutable pointer prefixを除くimmutable prefixへ
+[R2 Bucket Lock](https://developers.cloudflare.com/r2/buckets/bucket-locks/)を設定し、
+lock期間をprevious/pin/restoreの最長保持期間以上にする。R2の
+[S3互換checksum](https://developers.cloudflare.com/r2/api/s3/api/#checksum-types)はfull-object SHA-256を
+提供しないため、large existing objectの再利用は初回`Content-MD5`検証、content-addressed key、
+Bucket Lock、readerのSHA-256検証、定期sampling auditの組合せで閉じる。Bucket Lockの設定確認と
+tamper→reader拒否→previous rollback drillはcutover acceptanceの必須項目である。
 
 Raw object と metadata は release publication より前に個別 publish する。
 

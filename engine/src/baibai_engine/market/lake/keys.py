@@ -127,12 +127,12 @@ def raw_metadata_object_key(*, raw_key: str) -> str:
 def sqlite_snapshot_object_key(
     *, snapshot_id: str, schema_version: int, content_sha256: str
 ) -> str:
-    """Return the content-bound key for a legacy SQLite seed snapshot."""
+    """Return the deduplicated local key for a sealed SQLite build input."""
     validate_identifier(snapshot_id, label="snapshot_id")
     version = _positive_version(schema_version)
     digest = validate_sha256(content_sha256)
     return validate_lake_object_key(
-        f"lake/l1/raw/legacy_sqlite/market/schema=v{version}/{snapshot_id}/snapshot-{digest}.sqlite"
+        f"lake/build-inputs/sqlite/market/schema=v{version}/snapshot-{digest}.sqlite"
     )
 
 

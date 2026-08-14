@@ -197,16 +197,17 @@ class SQLiteSnapshotSourceRef(_SourceRefBase):
     @classmethod
     def validate_key(cls, value: str) -> str:
         key = validate_lake_object_key(value)
-        if not key.startswith("lake/l1/raw/legacy_sqlite/") or not key.endswith(".sqlite"):
-            raise ValueError("sqlite_snapshot must reference a legacy SQLite snapshot object")
+        if not key.startswith("lake/build-inputs/sqlite/market/") or not key.endswith(".sqlite"):
+            raise ValueError("sqlite_snapshot must reference a local SQLite build input")
         return key
 
     @model_validator(mode="after")
     def validate_identity(self) -> SQLiteSnapshotSourceRef:
         path = PurePosixPath(self.key)
+        expected_source_id = f"market-v{self.schema_version}-{self.sha256[:24]}"
         if (
-            path.parent.name != self.source_id
-            or path.parent.parent.name != f"schema=v{self.schema_version}"
+            self.source_id != expected_source_id
+            or path.parent.name != f"schema=v{self.schema_version}"
             or path.name != f"snapshot-{self.sha256}.sqlite"
         ):
             raise ValueError("sqlite_snapshot key does not match source identity")
